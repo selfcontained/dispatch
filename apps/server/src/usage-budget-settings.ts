@@ -1,28 +1,28 @@
 import type { Pool } from "pg";
 import {
-  HARNESS_BUDGET_PROVIDERS,
-  type HarnessBudgetProviderId,
+  HARNESS_BUDGET_ENGINE_IDS,
+  type HarnessEngineId,
   type UsageBudgets,
 } from "@dispatch/shared";
 
 import { getSetting, setSetting } from "./db/settings.js";
 
 /**
- * Monthly spend budgets per provider key, set in Settings. Only the usage
+ * Monthly spend budgets per engine, set in Settings. Only the usage
  * dialog reads them, to draw a bar against the month's spend. Empty by
  * default: no row, no bar.
  */
 const USAGE_BUDGETS_KEY = "usage_budgets";
 
-const PROVIDER_IDS = new Set<string>(HARNESS_BUDGET_PROVIDERS.map((p) => p.id));
+const ENGINE_IDS = new Set<string>(HARNESS_BUDGET_ENGINE_IDS);
 
-/** A metered provider id: the only kind a dollar budget can name. */
-export function isUsageProviderId(id: unknown): id is HarnessBudgetProviderId {
-  return typeof id === "string" && PROVIDER_IDS.has(id);
+/** A cost-reporting engine id: the only kind a dollar budget can name. */
+export function isUsageEngineId(id: unknown): id is HarnessEngineId {
+  return typeof id === "string" && ENGINE_IDS.has(id);
 }
 
 /**
- * The one definition of an acceptable budgets object: known providers only,
+ * The one definition of an acceptable budgets object: known engines only,
  * each a positive finite number of USD (numeric strings are not numbers).
  * Amounts keep two decimals. The route turns `ok: false` into a 400; the
  * store reads back through the same rule so a bad row on disk is dropped.
@@ -35,8 +35,8 @@ export function parseUsageBudgets(
   }
   const budgets: UsageBudgets = {};
   for (const [id, value] of Object.entries(input as Record<string, unknown>)) {
-    if (!isUsageProviderId(id)) {
-      return { ok: false, error: `Unknown provider: ${id}.` };
+    if (!isUsageEngineId(id)) {
+      return { ok: false, error: `Unknown engine: ${id}.` };
     }
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       return {

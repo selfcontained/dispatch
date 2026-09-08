@@ -3,7 +3,7 @@ import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
-import type { HarnessUsageResponse } from "@dispatch/shared";
+import type { HarnessUsageReport } from "@dispatch/shared";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
@@ -42,10 +42,7 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
-import {
-  AGENT_MODEL_OPTIONS,
-  type AgentModelOption,
-} from "../shared/agent-models.js";
+import { AGENT_MODEL_OPTIONS } from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -62,10 +59,8 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  /** Dispatch Harness models as dsh serves them; the static list is the fallback. */
-  dshModels?: () => Promise<AgentModelOption[]>;
-  /** What the provider keys have been used for this month (agents/harness/usage.ts). */
-  usageReport?: () => Promise<HarnessUsageResponse>;
+  /** What the harness engines have used this month (agents/harness/usage.ts). */
+  usageReport?: () => Promise<HarnessUsageReport>;
 };
 
 export async function registerSystemRoutes(
@@ -95,17 +90,8 @@ export async function registerSystemRoutes(
     };
   });
 
-  app.get("/api/v1/agent-models", async (request) => {
-    if (!deps.dshModels) return { models: AGENT_MODEL_OPTIONS };
-    try {
-      const dsh = await deps.dshModels();
-      return {
-        models: { ...AGENT_MODEL_OPTIONS, ...(dsh.length ? { dsh } : {}) },
-      };
-    } catch (err) {
-      request.log.warn({ err }, "dsh model catalog unavailable; static list");
-      return { models: AGENT_MODEL_OPTIONS };
-    }
+  app.get("/api/v1/agent-models", async () => {
+    return { models: AGENT_MODEL_OPTIONS };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {
@@ -470,7 +456,7 @@ export async function registerSystemRoutes(
     if (!deps.usageReport) {
       return reply.code(503).send({ error: "Usage reporting is not wired." });
     }
-    const response: HarnessUsageResponse = await deps.usageReport();
+    const response: HarnessUsageReport = await deps.usageReport();
     return response;
   });
 

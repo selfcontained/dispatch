@@ -491,11 +491,7 @@ export function harnessProviderLabel(id: string): string {
   return HARNESS_USAGE_PROVIDERS.find((p) => p.id === id)?.label ?? id;
 }
 
-/**
- * Monthly budgets in USD by metered provider id; a provider without a row has none.
- *
- * @deprecated keyed by provider; Task 9 re-keys it by engine
- */
-export type UsageBudgets = Partial<Record<HarnessBudgetProviderId, number>>;
+/** Monthly budgets in USD by engine id; an engine without a row has none. */
+export type UsageBudgets = Partial<Record<HarnessEngineId, number>>;
 
 export type UsageBudgetsResponse = { budgets: UsageBudgets };

@@ -1,30 +1,24 @@
 import type { FastifyInstance } from "fastify";
 import type {
+  HarnessCommandsResponse,
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
   HarnessPathsResponse,
-  HarnessSkillsResponse,
-  HarnessSubagentResponse,
   HarnessTurnsResponse,
 } from "@dispatch/shared";
 
-import {
-  findSessionLog,
-  readSessionHeader,
-} from "../../agents/harness/session-log.js";
 import { listHarnessPaths } from "../../agents/harness/paths.js";
-import { listHarnessSkills } from "../../agents/harness/skills.js";
-import { shapeSubagent } from "../../agents/harness/subagents.js";
 import { loadQueued, loadTurns } from "../../agents/harness/turns.js";
+import { loadAgentUsage, monthStartUtc } from "../../agents/harness/usage.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-/** The Harness view's routes: turns and the queue, session config, subagents, skills, paths. */
+/** The Harness view's routes: turns and the queue, session config, commands, usage, paths. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
-  deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness" | "subagentLogs">
+  deps: Pick<AgentRouteDeps, "pool" | "harness">
 ): Promise<void> {
   const exists = async (id: string): Promise<boolean> => {
     const row = await deps.pool.query(
@@ -34,7 +28,7 @@ export async function registerAgentHarnessRoutes(
     return row.rows.length > 0;
   };
 
-  // Session config: the model and reasoning effort dsh serves, live.
+  // Session config: the model and reasoning effort the engine serves, live.
   app.get("/api/v1/agents/:id/harness/config", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
@@ -152,42 +146,29 @@ export async function registerAgentHarnessRoutes(
     return reply.code(204).send();
   });
 
-  // A subagent the agent spawned: its own dsh session, read from the log.
-  app.get(
-    "/api/v1/agents/:id/harness/subagents/:sessionId",
-    async (request, reply) => {
-      const { id = "", sessionId = "" } = request.params as {
-        id?: string;
-        sessionId?: string;
-      };
-      const row = await deps.pool.query<{ cli_session_id: string | null }>(
-        "SELECT cli_session_id FROM agents WHERE id = $1 AND deleted_at IS NULL",
-        [id]
-      );
-      const agent = row.rows[0];
-      if (!agent) return reply.code(404).send({ error: "Agent not found." });
-      const file = await findSessionLog(deps.dshHome, sessionId);
-      if (!file) {
-        return reply.code(404).send({ error: "Subagent log not found." });
-      }
-      // Only this agent's own children: the child names its parent session
-      // in its header, which is one frame; the rest is inflated only after.
-      const header = await readSessionHeader(file);
-      if (
-        !header?.parentSession ||
-        header.parentSession !== agent.cli_session_id
-      ) {
-        return reply
-          .code(404)
-          .send({ error: "That session is not a subagent of this agent." });
-      }
-      const log = await deps.subagentLogs.read(file);
-      const response: HarnessSubagentResponse = {
-        subagent: shapeSubagent(sessionId.toLowerCase(), log),
-      };
-      return response;
+  // The slash commands the engine advertises, for the composer's "/" menu.
+  app.get("/api/v1/agents/:id/harness/commands", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
     }
-  );
+    const response: HarnessCommandsResponse = {
+      commands: deps.harness.getCommands(id) ?? [],
+    };
+    return response;
+  });
+
+  // This agent's tokens and cost this month, for the usage chip.
+  app.get("/api/v1/agents/:id/harness/usage", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    return {
+      agent: await loadAgentUsage(deps.pool, id),
+      monthStart: monthStartUtc().toISOString(),
+    };
+  });
 
   /** The tree the agent works in (its worktree, else its cwd); null when no such agent. */
   const agentWorkingDir = async (id: string): Promise<string | null> => {
@@ -201,19 +182,6 @@ export async function registerAgentHarnessRoutes(
     const agent = row.rows[0];
     return agent ? (agent.worktree_path ?? agent.cwd) : null;
   };
-
-  // Skills the agent can load, for the composer's slash menu.
-  app.get("/api/v1/agents/:id/harness/skills", async (request, reply) => {
-    const id = (request.params as { id?: string }).id ?? "";
-    const cwd = await agentWorkingDir(id);
-    if (cwd === null) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-    const response: HarnessSkillsResponse = {
-      skills: await listHarnessSkills({ cwd, dshHome: deps.dshHome }),
-    };
-    return response;
-  });
 
   // Paths under the working tree (or "~/…", or absolute), for the
   // composer's "@" picker: what was typed after the "@" is the query.

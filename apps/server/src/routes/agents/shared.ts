@@ -1,6 +1,5 @@
-import type { HarnessConfigOption } from "@dispatch/shared";
+import type { HarnessCommand, HarnessConfigOption } from "@dispatch/shared";
 import type { QueuedPrompt } from "../../agents/harness/prompt-source.js";
-import type { SessionLogReader } from "../../agents/harness/session-log.js";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -23,10 +22,6 @@ export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 export type AgentRouteDeps = {
   pool: Pool;
-  /** The harness home (DSH_HOME); its skills dir feeds the slash menu. */
-  dshHome: string;
-  /** Subagent logs, parsed once per (size, mtime) while a pane polls them. */
-  subagentLogs: SessionLogReader;
   /** Session config (model, effort) for Dispatch Harness agents. */
   harness: {
     getConfigOptions: (agentId: string) => HarnessConfigOption[] | null;
@@ -35,6 +30,8 @@ export type AgentRouteDeps = {
       configId: string,
       value: string
     ) => Promise<HarnessConfigOption[]>;
+    /** The slash commands the engine advertised; null when not running. */
+    getCommands: (agentId: string) => HarnessCommand[] | null;
     /** Prompts waiting behind the running turn (HarnessSupervisor.listQueued). */
     listQueued: (agentId: string) => QueuedPrompt[];
     /** Promote and interrupt; false when nothing queued has that id. */

@@ -854,22 +854,22 @@ describe("usage budgets settings", () => {
       method: "POST",
       url,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { budgets: { openai: 50, google: 12.345 } },
+      payload: { budgets: { claude: 50, opencode: 12.345 } },
     });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ budgets: { openai: 50, google: 12.35 } });
+    expect(saved.json()).toEqual({ budgets: { claude: 50, opencode: 12.35 } });
     const read = await ctx.app.inject({
       method: "GET",
       url,
       headers: { cookie: sessionCookie },
     });
-    expect(read.json()).toEqual({ budgets: { openai: 50, google: 12.35 } });
+    expect(read.json()).toEqual({ budgets: { claude: 50, opencode: 12.35 } });
 
     for (const payload of [
       { budgets: [] },
-      { budgets: { mistral: 5 } },
-      { budgets: { openai: -1 } },
-      { budgets: { openai: "50" } },
+      { budgets: { deepseek: 5 } },
+      { budgets: { claude: -1 } },
+      { budgets: { claude: "50" } },
     ]) {
       const bad = await ctx.app.inject({
         method: "POST",

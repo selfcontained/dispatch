@@ -1,13 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { constants, zstdCompressSync } from "node:zlib";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
-const dshHome = await mkdtemp(path.join(os.tmpdir(), "dsh-home-"));
-const ctx = useInjectApp({ env: { DISPATCH_DSH_HOME: dshHome } });
+const ctx = useInjectApp();
 
 async function authedGet(url: string) {
   const cookie = await ctx.sessionCookie();
@@ -135,63 +130,41 @@ describe("harness queue routes", () => {
   });
 });
 
-describe("GET /api/v1/agents/:id/harness/subagents/:sessionId", () => {
-  const CHILD = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d";
-  const frame = (text: string) =>
-    zstdCompressSync(text, { params: { [constants.ZSTD_c_checksumFlag]: 1 } });
-
-  it("serves a child session of this agent and refuses anyone else's", async () => {
-    await ctx.pool.query(
-      "UPDATE agents SET cli_session_id = $2 WHERE id = $1",
-      [agentId, "parent-session"]
-    );
-    const dir = path.join(dshHome, "sessions", "--w--", CHILD);
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      path.join(dir, "session.jsonl.zstd"),
-      Buffer.concat([
-        frame(
-          `{"type":"session","version":0,"id":"${CHILD}","cwd":"/w","parentSession":"parent-session","origin":"subagent","delegationDepth":1}\n`
-        ),
-        frame(
-          '{"type":"subagent/descriptor","seq":0,"time":1000,"data":{"label":"Look around"}}\n' +
-            '{"type":"user/message","seq":1,"time":1001,"data":{"content":[{"type":"text","text":"look"}]}}\n' +
-            '{"type":"assistant/message","seq":2,"time":1002,"data":{"message":{"role":"assistant","content":[{"type":"text","text":"Nothing here."}]}}}\n' +
-            '{"type":"turn/end","seq":3,"time":1003,"data":{"turn":1,"reason":{"kind":"completed"}}}\n'
-        ),
-      ])
-    );
-    const res = await authedGet(
-      `/api/v1/agents/${agentId}/harness/subagents/${CHILD}`
-    );
+describe("GET /api/v1/agents/:id/harness/commands", () => {
+  it("404s for an unknown agent and returns an empty list for one with no live session", async () => {
+    expect(
+      (await authedGet("/api/v1/agents/agt_nope/harness/commands")).statusCode
+    ).toBe(404);
+    const res = await authedGet(`/api/v1/agents/${agentId}/harness/commands`);
     expect(res.statusCode).toBe(200);
-    const body = res.json() as {
-      subagent: {
-        label: string;
-        status: string;
-        turns: { result: { text: string } }[];
-      };
-    };
-    expect(body.subagent.label).toBe("Look around");
-    expect(body.subagent.status).toBe("finished");
-    expect(body.subagent.turns[0].result.text).toBe("Nothing here.");
+    expect(res.json()).toEqual({ commands: [] });
+  });
+});
 
-    // Another agent (a different parent session) cannot read it.
-    const other = await createAgent("Other");
-    expect(
-      (await authedGet(`/api/v1/agents/${other}/harness/subagents/${CHILD}`))
-        .statusCode
-    ).toBe(404);
-    expect(
-      (
-        await authedGet(
-          `/api/v1/agents/${agentId}/harness/subagents/00000000-0000-4000-8000-000000000000`
-        )
-      ).statusCode
-    ).toBe(404);
-    expect(
-      (await authedGet(`/api/v1/agents/${agentId}/harness/subagents/../etc`))
-        .statusCode
-    ).toBe(404);
+describe("GET /api/v1/agents/:id/harness/usage", () => {
+  it("reports the agent's month, null cost when the engine sent none", async () => {
+    await ctx.pool.query(
+      `UPDATE agents SET type = 'dispatch', model = 'codex/default' WHERE id = $1`,
+      [agentId]
+    );
+    const res = await authedGet(`/api/v1/agents/${agentId}/harness/usage`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      agent: { agentId, tokens: 0, costUsd: null },
+    });
+    expect(typeof res.json().monthStart).toBe("string");
+  });
+});
+
+describe("GET /api/v1/harness/usage", () => {
+  it("lists the four engines", async () => {
+    const res = await authedGet("/api/v1/harness/usage");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().engines.map((e: { id: string }) => e.id)).toEqual([
+      "claude",
+      "codex",
+      "gemini",
+      "opencode",
+    ]);
   });
 });

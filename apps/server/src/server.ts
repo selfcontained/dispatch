@@ -19,8 +19,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import { HarnessSupervisor } from "./agents/harness/supervisor.js";
-import { createSessionLogReader } from "./agents/harness/session-log.js";
-import { createUsageReporter } from "./agents/harness/usage.js";
+import { loadUsageReport } from "./agents/harness/usage.js";
 import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
@@ -764,14 +763,7 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    dshModels: () => harnessSupervisor.modelCatalog(),
-    usageReport: createUsageReporter({
-      env: process.env,
-      dshHome: config.dshHome,
-      dshBin: config.dshBin,
-      budgets: () => getUsageBudgets(pool),
-      logger: app.log,
-    }),
+    usageReport: async () => loadUsageReport(pool, await getUsageBudgets(pool)),
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -868,13 +860,12 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     pool,
-    dshHome: config.dshHome,
-    subagentLogs: createSessionLogReader(),
     harness: {
       getConfigOptions: (agentId) =>
         harnessSupervisor.getConfigOptions(agentId),
       setConfigOption: (agentId, configId, value) =>
         harnessSupervisor.setConfigOption(agentId, configId, value),
+      getCommands: (agentId) => harnessSupervisor.getCommands(agentId),
       listQueued: (agentId) => harnessSupervisor.listQueued(agentId),
       sendQueuedNow: (agentId, id) =>
         harnessSupervisor.sendQueuedNow(agentId, id),
