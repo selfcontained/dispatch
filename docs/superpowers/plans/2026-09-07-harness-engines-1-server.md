@@ -13,7 +13,7 @@
 - Every ACP kind the recorder handles is in the SDK's v1 schema: `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`, `plan`, `plan_update`, `plan_removed`, `usage_update`, `config_option_update`, `available_commands_update`. `current_mode_update`, `session_info_update`, `user_message_chunk`, `compaction_update`, `compaction_summary_chunk` are ignored.
 - The driver resumes with `session/resume` (`conn.resumeSession`), never `session/load`: `session/load` replays the whole history as updates and the recorder would re-record it.
 - The engine is the first segment of the model id. `claude/default` is the default. Model ids without a slash are rejected at create time.
-- Persona delivery: `claude` gets `session/new` and `session/resume` `_meta.systemPrompt: { append }`; `codex`, `gemini`, `opencode` get the persona as the leading block of the first `session/prompt` of a fresh session, never of a resumed one.
+- Persona delivery: `claude` gets `session/new` and `session/resume` `_meta.systemPrompt: { append }`; `codex`, `gemini`, `opencode` get the persona as the leading block of the first `session/prompt` of a fresh session, or of a resumed session that has not run a turn yet; never of a resumed session with a turn behind it.
 - Full access: `claude` `--dangerously-skip-permissions`; `codex` `INITIAL_AGENT_MODE=agent-full-access`; `gemini` `session/set_mode` to `yolo` after the session opens; `opencode` through the driver's `requestPermission` handler, which answers `allow_once` or `allow_always`.
 - Subagent transcripts: only `claude` declares `_meta: { "subagent-transcript": true }` in `clientCapabilities`; nested tool calls carry `_meta.claudeCode.parentToolUseId`.
 - No `DSH_*` environment variable, no `dshBin`, no `dshHome`, no `DISPATCH_DSH_*` remains anywhere under `apps/`, `packages/`, `e2e/`, `scripts/`, `update-migrations/`.
@@ -2689,6 +2689,7 @@ The class head:
  */
 export class HarnessSupervisor {
   private readonly driver: HarnessDriver;
+  private readonly store: StreamStore;
   private readonly streams: StreamRecorder;
   private readonly usage: UsageRecorder;
   private readonly resolveBinary: (
@@ -2714,7 +2715,8 @@ export class HarnessSupervisor {
     this.driver =
       deps.driver ??
       new HarnessDriver({ logger: deps.logger, resolveBinary: this.resolveBinary });
-    this.streams = new StreamRecorder(new StreamStore(deps.pool), {
+    this.store = new StreamStore(deps.pool);
+    this.streams = new StreamRecorder(this.store, {
       // A round the engine ran on its own settles by going quiet; the view
       // learns of it the same way it learns of every other stream write.
       onAutonomousSettled: (agentId) => deps.publishHarness(agentId, true),
@@ -2829,9 +2831,12 @@ Replace `start()`:
     });
     const { sessionId, resumed } = session;
     this.context.set(agentId, { sessionId, engine, model });
-    // An engine that takes the persona in its first prompt gets it once,
-    // on a fresh session; a resumed session already has it in its history.
-    if (spec.personaDelivery === "first_prompt" && !resumed) {
+    // An engine that takes the persona in its first prompt gets it once: on a
+    // fresh session, or on a resumed session that never ran a turn (the
+    // process stopped between opening the session and its first prompt). A
+    // resumed session with a turn behind it has the persona in its history.
+    const neverRan = (await this.store.lastTurnSettlement(agentId)) === null;
+    if (spec.personaDelivery === "first_prompt" && (!resumed || neverRan)) {
       this.pendingPersona.set(agentId, persona);
     } else {
       this.pendingPersona.delete(agentId);
@@ -2846,9 +2851,10 @@ Replace `start()`:
     });
     // The session's options exist from here: the picker can read them.
     this.deps.publishHarness(agentId, true);
-    // A fresh session gets the launch prompt as its first turn; a resumed
-    // one already had it.
-    if (!agent.cliSessionId) {
+    // A fresh session gets the launch prompt as its first turn; so does a
+    // resumed one that never ran a turn. A resumed session with a turn
+    // behind it already had it.
+    if (!agent.cliSessionId || neverRan) {
       const first = await this.deps.launchPromptFor(agentId);
       if (first) {
         this.enqueuePrompt(agentId, first).settled.catch((err: unknown) => {
@@ -2924,7 +2930,9 @@ In `runTurn`, prepend the pending persona before the prompt goes out:
 
 (The rest of `runTurn` is unchanged; `parsePromptSource` still finds the chat header because it matches at any line start.)
 
-In `stop()`, replace the overlay removal with `this.pendingPersona.delete(agentId);`. In `onEvent`, the exit message becomes `` `The engine exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.` `` and the warn becomes `"harness event handling failed"`. In `restoreRunning`, the warns become `"harness restart follow-up turn failed"` and `"harness agent could not be restored at boot"`. In `runTurn`'s catch, `"harness prompt failed"`. Remove the `import path from "node:path"` line if nothing else uses it.
+In `stop()`, replace the overlay removal with `this.pendingPersona.delete(agentId);`. In `onEvent`, the usage recorder must keep the full id so the token-by-model report attributes tokens to an engine: replace `if (ctx) await this.usage.handle(event, ctx);` with `if (ctx) await this.usage.handle(event, { sessionId: ctx.sessionId, model: `${ctx.engine}/${ctx.model}` });`. The exit message becomes `` `The engine exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.` `` and the warn becomes `"harness event handling failed"`. In `restoreRunning`, the warns become `"harness restart follow-up turn failed"` and `"harness agent could not be restored at boot"`. In `runTurn`'s catch, `"harness prompt failed"`. Remove the `import path from "node:path"` line if nothing else uses it.
+
+Tests added by the review round, alongside the block above: the `build()` helper takes a `commands` option threaded into `createFakeAcpAgent`; "serves the commands the engine advertised" asserts the mapped list including `input: { hint }`; the gemini test also asserts `logger.warn` was not called with `/publishes no model option/`; "codex: a resumed session gets no persona prefix" builds with `lastTurnError: null` (a prior turn exists); a new test "codex: a resumed session that never ran a turn still gets the persona prefix" builds with `cliSessionId` set, no prior turn, and a launch prompt, and expects the first prompt to be the persona followed by the launch prompt; a new test asserts the `agent_token_usage` upsert receives `"codex/gpt-5.6-sol"` as its model. The pre-existing launch-prompt test "does not resend it on resume" became "does not resend it on resume once a turn has run" (built with a prior turn), with a sibling "resends it on a resume that never ran a turn". `test/helpers/fake-acp-agent.ts` lets a `FakeTurn` return a usage payload.
 
 - [ ] **Step 4: Run the tests to see them pass**
 
