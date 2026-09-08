@@ -35,6 +35,27 @@ const PRERELEASE_MIGRATION_NAMES = [
 ];
 
 /**
+ * Every place the deleted prerelease migration rewrote when the harness
+ * agent type was renamed: agents, an agent's saved reviewer type, jobs,
+ * templates, the event log, and the enabled-types setting (a JSON array
+ * held as text). A value left behind is one no code recognizes, which reads
+ * as the harness quietly disappearing from that row rather than as an
+ * error. The old value below is a data literal, and this is the one place
+ * in the tree where the old name appears.
+ */
+const PRERELEASE_TYPE_RENAMES = [
+  "UPDATE agents SET type = 'dispatch' WHERE type = 'dsh'",
+  "UPDATE agents SET review_agent_type = 'dispatch' WHERE review_agent_type = 'dsh'",
+  "UPDATE jobs SET agent_type = 'dispatch' WHERE agent_type = 'dsh'",
+  "UPDATE templates SET agent_type = 'dispatch' WHERE agent_type = 'dsh'",
+  "UPDATE agent_events SET agent_type = 'dispatch' WHERE agent_type = 'dsh'",
+  // No settings row means nobody saved a choice, so this is a no-op then.
+  `UPDATE settings
+      SET value = replace(value, '"dsh"', '"dispatch"'), updated_at = NOW()
+    WHERE key = 'enabled_agent_types' AND value LIKE '%"dsh"%'`,
+];
+
+/**
  * Delete the prerelease bookkeeping records and, when there were any, carry
  * over the agent type rename one of those prereleases shipped as a
  * migration of its own. Call inside the migration advisory lock, before the
@@ -56,14 +77,17 @@ async function forgetPrereleaseMigrations(client: pg.Client): Promise<void> {
   );
 
   // Those prereleases stored the harness agent type under an older value and
-  // renamed it in a migration this branch does not ship. 'dsh' below is that
-  // stored value, a data literal, and this is the one place in the tree
-  // where the old name appears.
-  const renamed = await client.query(
-    "UPDATE agents SET type = 'dispatch' WHERE type = 'dsh'"
-  );
-  if (renamed.rowCount) {
-    console.log(`[migrate] renamed ${renamed.rowCount} harness agent row(s)`);
+  // renamed it in a migration this branch does not ship, so the rename is
+  // carried over here. Only reached when a record was deleted just above,
+  // which means the database ran a prerelease and every column below
+  // exists.
+  let renamed = 0;
+  for (const sql of PRERELEASE_TYPE_RENAMES) {
+    const result = await client.query(sql);
+    renamed += result.rowCount ?? 0;
+  }
+  if (renamed) {
+    console.log(`[migrate] carried the type rename to ${renamed} row(s)`);
   }
 }
 
