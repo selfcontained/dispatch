@@ -206,6 +206,51 @@ describe("HarnessSupervisor", () => {
     await sup.stop("agt_1");
   });
 
+  it("coalesces the publishes streamed updates drive, and publishes a settled turn at once", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { sup, deps } = await build({
+      turn: async (_p, emit) => {
+        for (let i = 0; i < 10; i += 1) {
+          await emit({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `chunk ${i}` },
+          });
+        }
+        await gate;
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    vi.useFakeTimers();
+    try {
+      deps.publishHarness.mockClear();
+      const turn = sup.prompt("agt_1", "go");
+      // The turn's start publishes at once. The ten chunks behind it wait on
+      // one trailing timer instead of taking a frame each.
+      await vi.advanceTimersByTimeAsync(50);
+      expect(deps.publishHarness.mock.calls).toEqual([["agt_1", true]]);
+      await vi.advanceTimersByTimeAsync(60);
+      expect(deps.publishHarness.mock.calls).toEqual([
+        ["agt_1", true],
+        ["agt_1"],
+      ]);
+      release();
+      await vi.advanceTimersByTimeAsync(20);
+      await turn;
+      expect(deps.publishHarness.mock.calls.at(-1)).toEqual(["agt_1", true]);
+      // Nothing is left on a timer behind the settled turn.
+      const total = deps.publishHarness.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(300);
+      expect(deps.publishHarness.mock.calls.length).toBe(total);
+    } finally {
+      vi.useRealTimers();
+    }
+    await sup.stop("agt_1");
+  });
+
   it("prompt failure surfaces as idle with the error message", async () => {
     const { sup, events } = await build({
       turn: async () => {

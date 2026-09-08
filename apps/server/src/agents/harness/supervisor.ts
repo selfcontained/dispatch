@@ -22,7 +22,7 @@ import {
   type DriverLogger,
 } from "./driver.js";
 import { parsePromptSource, type QueuedPrompt } from "./prompt-source.js";
-import { StreamRecorder } from "./stream-recorder.js";
+import { FLUSH_INTERVAL_MS, StreamRecorder } from "./stream-recorder.js";
 import { StreamStore } from "./stream-store.js";
 import { UsageRecorder } from "./usage-recorder.js";
 
@@ -245,6 +245,16 @@ export class HarnessSupervisor {
    * ended by the settled turn that follows: {@link onEvent}.
    */
   private readonly loginPrompted = new Set<string>();
+  /**
+   * Per-agent trailing timers that coalesce the publishes streamed updates
+   * drive. One ACP notification arrives per token chunk, and every publish
+   * is an SSE frame to every connected client that invalidates both the chat
+   * feed and the whole turn list. The window matches the recorder's own
+   * flush interval, so a client re-reads no more often than the rows change.
+   * A turn boundary or an exit publishes at once and takes the pending
+   * timer with it: {@link onEvent}.
+   */
+  private readonly publishTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly deps: SupervisorDeps) {
     this.resolveBinary = deps.resolveBinary ?? resolveExecutable;
@@ -788,6 +798,27 @@ export class HarnessSupervisor {
     ]);
   }
 
+  /** Publish now, dropping whatever an earlier update left on the timer. */
+  private publishNow(agentId: string, config: boolean): void {
+    const timer = this.publishTimers.get(agentId);
+    if (timer) {
+      clearTimeout(timer);
+      this.publishTimers.delete(agentId);
+    }
+    this.deps.publishHarness(agentId, config);
+  }
+
+  /** Publish on a trailing timer: every update in one window is one frame. */
+  private publishCoalesced(agentId: string): void {
+    if (this.publishTimers.has(agentId)) return;
+    const timer = setTimeout(() => {
+      this.publishTimers.delete(agentId);
+      this.deps.publishHarness(agentId);
+    }, FLUSH_INTERVAL_MS);
+    timer.unref?.();
+    this.publishTimers.set(agentId, timer);
+  }
+
   /** Resolves once every event queued so far for the agent has been handled. */
   private async drained(agentId: string): Promise<void> {
     await this.queues.get(agentId);
@@ -806,11 +837,13 @@ export class HarnessSupervisor {
           model: `${ctx.engine}/${ctx.model}`,
         });
       }
-      // A turn boundary or the child going away changes the running state.
-      this.deps.publishHarness(
-        event.agentId,
-        event.type === "turn" || event.type === "exit"
-      );
+      // A turn boundary or the child going away changes the running state, so
+      // it publishes at once; a streamed update rides the trailing timer.
+      if (event.type === "turn" || event.type === "exit") {
+        this.publishNow(event.agentId, true);
+      } else {
+        this.publishCoalesced(event.agentId);
+      }
       // Claude Code has no auth_required error; it answers a turn saying to
       // run /login instead. Watch for that line before the turn settles, so
       // the exit that stop() triggers below is not read by the
