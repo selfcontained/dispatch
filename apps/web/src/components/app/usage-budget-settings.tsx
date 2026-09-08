@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  HARNESS_BUDGET_PROVIDERS,
-  type HarnessBudgetProviderId,
+  HARNESS_BUDGET_ENGINE_IDS,
+  HARNESS_ENGINES,
+  type HarnessEngineId,
   type UsageBudgets,
 } from "@dispatch/shared";
 import { X } from "lucide-react";
@@ -18,16 +19,16 @@ import {
 import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { useUsageBudgets } from "@/hooks/use-usage-budgets";
 
-type Row = { id: HarnessBudgetProviderId; amount: string };
+type Row = { id: HarnessEngineId; amount: string };
 
-function labelOf(id: HarnessBudgetProviderId): string {
-  return HARNESS_BUDGET_PROVIDERS.find((p) => p.id === id)?.label ?? id;
+function labelOf(id: HarnessEngineId): string {
+  return HARNESS_ENGINES.find((e) => e.id === id)?.label ?? id;
 }
 
 function rowsFrom(budgets: UsageBudgets): Row[] {
-  return HARNESS_BUDGET_PROVIDERS.filter(
-    (p) => budgets[p.id] !== undefined
-  ).map((p) => ({ id: p.id, amount: String(budgets[p.id]) }));
+  return HARNESS_BUDGET_ENGINE_IDS.filter(
+    (id) => budgets[id] !== undefined
+  ).map((id) => ({ id, amount: String(budgets[id]) }));
 }
 
 /** A positive amount of dollars, or null for anything else (empty included). */
@@ -38,12 +39,12 @@ function parseAmount(raw: string): number | null {
 }
 
 /**
- * Monthly spend budgets per provider key. Empty until a row is added from
- * the dropdown; a row with an amount gives the usage dialog its bar. A row
- * saves when its amount is committed (blur or Enter) and every row holds
- * a valid amount; a row that does not yet stays here and says so, rather
- * than vanishing. Saves are applied in order so a removal cannot be
- * undone by an older save landing late.
+ * Monthly spend budgets per engine that reports cost. Empty until a row is
+ * added from the dropdown; a row with an amount gives the usage dialog its
+ * bar. A row saves when its amount is committed (blur or Enter) and every
+ * row holds a valid amount; a row that does not yet stays here and says
+ * so, rather than vanishing. Saves are applied in order so a removal
+ * cannot be undone by an older save landing late.
  */
 export function UsageBudgetSettings(): JSX.Element {
   const { budgets, loaded, save, saving, error } = useUsageBudgets();
@@ -57,7 +58,7 @@ export function UsageBudgetSettings(): JSX.Element {
     edits.current += 1;
     setDirty(true);
   };
-  const [focusId, setFocusId] = useState<HarnessBudgetProviderId | null>(null);
+  const [focusId, setFocusId] = useState<HarnessEngineId | null>(null);
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (!dirty) setRows(rowsFrom(budgets));
@@ -80,8 +81,8 @@ export function UsageBudgetSettings(): JSX.Element {
       });
   };
 
-  const available = HARNESS_BUDGET_PROVIDERS.filter(
-    (p) => !rows.some((r) => r.id === p.id)
+  const available = HARNESS_BUDGET_ENGINE_IDS.filter(
+    (id) => !rows.some((r) => r.id === id)
   );
 
   return (
@@ -90,9 +91,9 @@ export function UsageBudgetSettings(): JSX.Element {
         Usage budgets
       </div>
       <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        A monthly amount in USD per provider key. The Harness view&apos;s usage
-        dialog (<span className="font-terminal">/usage</span>) draws each
-        provider&apos;s spend this month against it. No budget, no bar.
+        A monthly amount in USD per engine. The Harness view&apos;s usage dialog
+        (<span className="font-terminal">/usage</span>) draws each engine&apos;s
+        spend this month against it. No budget, no bar.
       </p>
       <div className="max-w-lg space-y-2">
         {rows.length === 0 && loaded ? (
@@ -185,10 +186,10 @@ export function UsageBudgetSettings(): JSX.Element {
             value=""
             onValueChange={(id) => {
               markEdited();
-              setFocusId(id as HarnessBudgetProviderId);
+              setFocusId(id as HarnessEngineId);
               setRows((current) => [
                 ...current,
-                { id: id as HarnessBudgetProviderId, amount: "" },
+                { id: id as HarnessEngineId, amount: "" },
               ]);
             }}
           >
@@ -200,11 +201,11 @@ export function UsageBudgetSettings(): JSX.Element {
               <SelectValue placeholder="Add budget…" />
             </SelectTrigger>
             <SelectContent>
-              {available.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
+              {available.map((id) => (
+                <SelectItem key={id} value={id}>
                   <span className="flex items-center gap-1.5">
-                    <ProviderIcon provider={p.id} className="h-3.5 w-3.5" />
-                    {p.label}
+                    <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+                    {labelOf(id)}
                   </span>
                 </SelectItem>
               ))}

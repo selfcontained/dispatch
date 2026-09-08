@@ -42,49 +42,58 @@ afterEach(() => {
 });
 
 describe("UsageBudgetSettings", () => {
-  it("starts empty and offers every provider, Gemini included", () => {
+  it("starts empty and offers every engine that reports cost", () => {
     render(<UsageBudgetSettings />, { wrapper });
     expect(screen.getByTestId("usage-budget-empty")).toBeTruthy();
     expect(screen.queryAllByTestId("usage-budget-row")).toHaveLength(0);
     fireEvent.click(screen.getByTestId("usage-budget-add"));
-    const names = screen
-      .getAllByRole("option")
-      .map((o) => o.textContent?.trim());
-    expect(names).toEqual(["OpenAI", "DeepSeek", "Anthropic", "Gemini"]);
+    // Options are compared by identity, not raw textContent: OpenCode's
+    // mark is a visible "OC" glyph, which would otherwise run into the
+    // label when read as plain text.
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBe(2);
+    expect(options[0]).toBe(
+      screen.getByRole("option", { name: "Claude Code" })
+    );
+    expect(options[1]).toBe(screen.getByRole("option", { name: "OpenCode" }));
   });
 
-  it("lists saved budgets, saves an edited amount on Enter, and removes a row", async () => {
-    state.budgets = { openai: 50, google: 5 };
+  it("lists a saved budget, adds another engine, and saves it on Enter", async () => {
+    state.budgets = { claude: 20 };
     render(<UsageBudgetSettings />, { wrapper });
     const rows = screen.getAllByTestId("usage-budget-row");
     expect(rows.map((r) => r.getAttribute("data-provider"))).toEqual([
-      "openai",
-      "google",
+      "claude",
     ]);
+    expect(rows[0].textContent).toContain("Claude Code");
     const amount = rows[0].querySelector(
       '[data-testid="usage-budget-amount"]'
     ) as HTMLInputElement;
-    expect(amount.value).toBe("50");
-    fireEvent.change(amount, { target: { value: "75" } });
-    fireEvent.keyDown(amount, { key: "Enter" });
-    await waitFor(() =>
-      expect(save).toHaveBeenLastCalledWith({ openai: 75, google: 5 })
-    );
-    fireEvent.click(
-      rows[1].querySelector('[data-testid="usage-budget-remove"]')!
-    );
-    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ openai: 75 }));
-    // Gemini is offered again once its row is gone.
+    expect(amount.value).toBe("20");
     fireEvent.click(screen.getByTestId("usage-budget-add"));
-    expect(
-      screen.getAllByRole("option").map((o) => o.textContent?.trim())
-    ).toEqual(["DeepSeek", "Anthropic", "Gemini"]);
+    const remaining = screen.getAllByRole("option");
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]).toBe(screen.getByRole("option", { name: "OpenCode" }));
+    fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
+    const newRows = screen.getAllByTestId("usage-budget-row");
+    expect(newRows.map((r) => r.getAttribute("data-provider"))).toEqual([
+      "claude",
+      "opencode",
+    ]);
+    const newAmount = newRows[1].querySelector(
+      '[data-testid="usage-budget-amount"]'
+    ) as HTMLInputElement;
+    fireEvent.change(newAmount, { target: { value: "5" } });
+    fireEvent.keyDown(newAmount, { key: "Enter" });
+    await waitFor(() =>
+      expect(save).toHaveBeenLastCalledWith({ claude: 20, opencode: 5 })
+    );
   });
 });
 
 describe("UsageBudgetSettings while a save is in flight", () => {
   it("keeps what was typed after the save was issued", async () => {
-    state.budgets = { openai: 50 };
+    state.budgets = { claude: 50 };
     let finish: (() => void) | null = null;
     save.mockImplementationOnce(
       (budgets: Record<string, number>) =>
@@ -101,15 +110,15 @@ describe("UsageBudgetSettings while a save is in flight", () => {
     ) as HTMLInputElement;
     fireEvent.change(amount, { target: { value: "75" } });
     fireEvent.keyDown(amount, { key: "Enter" });
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ openai: 75 }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ claude: 75 }));
     // A newer edit while that save is still out.
     fireEvent.change(amount, { target: { value: "80" } });
     finish!();
-    await waitFor(() => expect(state.budgets).toEqual({ openai: 75 }));
+    await waitFor(() => expect(state.budgets).toEqual({ claude: 75 }));
     // The settled save must not hand the row back to the server's 75.
     expect(amount.value).toBe("80");
     fireEvent.keyDown(amount, { key: "Enter" });
-    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ openai: 80 }));
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ claude: 80 }));
   });
 });
 
@@ -117,7 +126,7 @@ describe("UsageBudgetSettings validation", () => {
   it("keeps a new row that has no amount yet and does not save until it does", async () => {
     render(<UsageBudgetSettings />, { wrapper });
     fireEvent.click(screen.getByTestId("usage-budget-add"));
-    fireEvent.click(screen.getByRole("option", { name: "Gemini" }));
+    fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
     const row = screen.getByTestId("usage-budget-row");
     const amount = row.querySelector(
       '[data-testid="usage-budget-amount"]'
@@ -136,6 +145,6 @@ describe("UsageBudgetSettings validation", () => {
     );
     fireEvent.change(amount, { target: { value: "12.5" } });
     fireEvent.keyDown(amount, { key: "Enter" });
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ google: 12.5 }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ opencode: 12.5 }));
   });
 });
