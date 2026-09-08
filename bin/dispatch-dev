@@ -181,10 +181,21 @@ pid_in_tree() {
 # manual Start. The wrapper chain goes next so no pnpm or shell lingers,
 # and the depth-first SIGKILL sweep stays the escape hatch for anything
 # that ignores all of it.
+#
+# The fourth argument is how long the server may take over that shutdown.
+# It has to cover what `cleanupAppResources` waits for before the engine
+# children are even reached: active archives (10 s), in-flight chat
+# deliveries (5 s, and a queued message counts), then the supervisor's
+# reconcile (2 s) and stop (5 s) bounds, inside which each child walks a
+# 3 x 1.5 s teardown ladder. A window shorter than that hands a live turn
+# to the SIGKILL sweep mid-shutdown, which is the very thing signaling the
+# server first is meant to avoid, so the API gets 30 s. Vite has no such
+# shutdown and keeps 5.
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
   local port="${3:-}"
+  local grace="${4:-5}"
   local listener
   listener="$(port_listener_pid "$port")"
   if [ -n "$listener" ] && ! pid_alive "$listener"; then
@@ -196,10 +207,17 @@ stop_service() {
 
   if [ -n "$listener" ]; then
     kill -TERM "$listener" 2>/dev/null || true
+    local ticks=$((grace * 2))
     local waited=0
-    while [ $waited -lt 10 ] && pid_alive "$listener"; do
+    local noted=0
+    while [ $waited -lt $ticks ] && pid_alive "$listener"; do
       sleep 0.5
       waited=$((waited + 1))
+      # Past five seconds this looks like a hang; say what it is waiting on.
+      if [ $noted -eq 0 ] && [ $waited -ge 10 ]; then
+        noted=1
+        echo "Waiting for the ${name} to finish its shutdown (up to ${grace}s)..."
+      fi
     done
   fi
 
@@ -470,8 +488,8 @@ cmd_down() {
     return 0
   fi
 
-  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}"
-  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}"
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
@@ -517,8 +535,8 @@ cmd_restart() {
   fi
 
   # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}"
-  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}"
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
