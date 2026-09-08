@@ -6,7 +6,8 @@ export type StreamEventKind =
   | "thought"
   | "tool_call"
   | "status"
-  | "turn";
+  | "turn"
+  | "plan";
 
 /** Payload shapes by row kind. The recorder writes them; the Chat feed reads them. */
 export type AssistantPayload = {
@@ -28,14 +29,20 @@ export type ToolPayload = {
   truncated?: boolean;
   /** Raw tool input from the stream (`rawInput`), bounded; see boundInput. */
   input?: unknown;
+  /** A nested call: the toolCallId of the step it runs under (a subagent's parent). */
+  parentToolCallId?: string;
 };
 export type StatusPayload = { message: string };
+/** The task list as the engine last published it; one row per turn, rewritten in place. */
+export type PlanPayload = {
+  entries: { content: string; status: string; priority: string }[];
+};
 /** One harness turn: written at start, settled in place. */
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
   /**
-   * dsh started this turn itself (a goal round), so no prompt from
+   * The engine started this turn itself (a goal round), so no prompt from
    * Dispatch opened it and no prompt response closes it.
    */
   autonomous?: boolean;
@@ -43,6 +50,12 @@ export type TurnPayload = {
   error?: string;
   /** ISO time of settle. */
   endedAt?: string;
+  /** The engine's last usage_update in this turn: context used and, when reported, cost so far. */
+  usage?: {
+    used: number;
+    size: number;
+    cost?: { amount: number; currency: string };
+  };
 };
 export type StreamPayloadByKind = {
   assistant: AssistantPayload;
@@ -50,6 +63,7 @@ export type StreamPayloadByKind = {
   tool_call: ToolPayload;
   status: StatusPayload;
   turn: TurnPayload;
+  plan: PlanPayload;
 };
 
 export type StreamEventRow = {
@@ -97,8 +111,8 @@ const INSERT_SQL = `
 
 /**
  * Rows in `agent_stream_events`: the durable projection of a stream-driven
- * harness (dsh over ACP) that the Chat feed reads. Append-only except for
- * tool calls, which are rewritten in place under their toolCallId.
+ * harness (an engine over ACP) that the Chat feed reads. Append-only except for
+ * tool calls and plans, which are rewritten in place under their key.
  */
 export class StreamStore {
   constructor(private readonly db: Queryable) {}

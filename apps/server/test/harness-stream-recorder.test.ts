@@ -205,7 +205,7 @@ describe("StreamRecorder", () => {
     const rows = (await store.list(A, 10)).reverse();
     expect(rows.map((r) => r.payload.message)).toEqual([
       "no API key",
-      "dsh exited with code 1: boom",
+      "the harness exited with code 1: boom",
     ]);
   });
 
@@ -271,7 +271,7 @@ describe("StreamRecorder", () => {
     });
   });
 
-  it("infers a tool kind from the tool name when dsh sends none", () => {
+  it("infers a tool kind from the tool name when the engine sends none", () => {
     expect(inferToolKind(undefined, "bash")).toBe("execute");
     expect(inferToolKind(undefined, "read")).toBe("read");
     expect(inferToolKind(undefined, "str_replace_editor")).toBe("edit");
@@ -334,6 +334,139 @@ describe("StreamRecorder", () => {
     });
     expect(rows[1].kind).toBe("status");
   });
+
+  it("writes a plan row for the live turn and replaces it on the next plan", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "plan",
+        entries: [
+          { content: "read", status: "completed", priority: "high" },
+          { content: "edit", status: "in_progress", priority: "medium" },
+        ],
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "plan_update",
+        plan: {
+          type: "items",
+          planId: "p1",
+          entries: [
+            { content: "read", status: "completed", priority: "high" },
+            { content: "edit", status: "completed", priority: "medium" },
+          ],
+        },
+      },
+    });
+    const plans = (await store.list(A, 10)).filter((r) => r.kind === "plan");
+    expect(plans).toHaveLength(1);
+    expect(plans[0].payload).toEqual({
+      entries: [
+        { content: "read", status: "completed", priority: "high" },
+        { content: "edit", status: "completed", priority: "medium" },
+      ],
+    });
+  });
+
+  it("ignores a plan_update that is a file or markdown plan", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "plan_update",
+        plan: { type: "markdown", planId: "p2", content: "# steps" } as never,
+      },
+    });
+    expect((await store.list(A, 10)).filter((r) => r.kind === "plan")).toEqual(
+      []
+    );
+  });
+
+  it("stores usage on the live turn row", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 12_000,
+        size: 200_000,
+        cost: { amount: 0.42, currency: "USD" },
+      },
+    });
+    const turn = (await store.list(A, 10)).find((r) => r.kind === "turn");
+    expect(turn?.payload).toMatchObject({
+      usage: {
+        used: 12_000,
+        size: 200_000,
+        cost: { amount: 0.42, currency: "USD" },
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: { sessionUpdate: "usage_update", used: 13_000, size: 200_000 },
+    });
+    const again = (await store.list(A, 10)).find((r) => r.kind === "turn");
+    expect(again?.payload).toMatchObject({
+      usage: { used: 13_000, size: 200_000 },
+    });
+    expect(
+      (again?.payload as { usage: Record<string, unknown> }).usage
+    ).not.toHaveProperty("cost");
+  });
+
+  it("keeps the parent tool call id a nested call carries", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "task_1",
+        title: "Task",
+        kind: "other",
+        status: "in_progress",
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "child_1",
+        title: "Read",
+        kind: "read",
+        status: "pending",
+        _meta: { claudeCode: { toolName: "Read", parentToolUseId: "task_1" } },
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child_1",
+        status: "completed",
+      },
+    });
+    const child = await store.getByKey(A, "tool_call", "child_1");
+    expect(child?.payload).toMatchObject({
+      parentToolCallId: "task_1",
+      status: "completed",
+    });
+    const parent = await store.getByKey(A, "tool_call", "task_1");
+    expect(parent?.payload).not.toHaveProperty("parentToolCallId");
+  });
 });
 
 describe("StreamRecorder interrupted turns", () => {
@@ -358,7 +491,7 @@ describe("StreamRecorder interrupted turns", () => {
     expect(rows[0].kind).toBe("turn");
     expect(rows[0].payload).toMatchObject({
       state: "settled",
-      error: "dsh exited before the turn settled",
+      error: "the harness exited before the turn settled",
     });
     expect(typeof rows[0].payload.endedAt).toBe("string");
     expect(rows[1].payload).toMatchObject({
@@ -412,57 +545,6 @@ describe("StreamRecorder interrupted turns", () => {
   });
 });
 
-describe("StreamRecorder command log", () => {
-  it("logs a shell command once, when it settles", async () => {
-    const entries: unknown[] = [];
-    const rec = new StreamRecorder(store, {
-      commandLog: async (_id, entry) => {
-        entries.push(entry);
-      },
-    });
-    await rec.handle({
-      type: "update",
-      agentId: A,
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "c1",
-        title: "bash",
-        kind: "other",
-        status: "in_progress",
-        rawInput: { command: "ls apps" },
-      },
-    });
-    await rec.handle({
-      type: "update",
-      agentId: A,
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "c1",
-        status: "completed",
-        content: [
-          { type: "content", content: { type: "text", text: "web\n" } },
-        ],
-      },
-    });
-    // A second update after settling does not log again.
-    await rec.handle({
-      type: "update",
-      agentId: A,
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "c1",
-        status: "completed",
-      },
-    });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      command: "ls apps",
-      output: "web\n",
-      status: "completed",
-    });
-  });
-});
-
 describe("StreamRecorder autonomous turns", () => {
   const call = (id: string): DriverEvent => ({
     type: "update",
@@ -484,10 +566,10 @@ describe("StreamRecorder autonomous turns", () => {
       )
     ).rows.map((r) => r.payload);
 
-  it("opens a goal-round turn when dsh acts without a prompt and settles it once quiet", async () => {
+  it("opens a goal-round turn when the engine acts without a prompt and settles it once quiet", async () => {
     const settled: string[] = [];
     const rec = new StreamRecorder(store, {
-      autonomousIdleMs: 40,
+      autonomousIdleMs: 300,
       onAutonomousSettled: (id) => settled.push(id),
     });
     await rec.handle(call("c1"));
@@ -498,11 +580,11 @@ describe("StreamRecorder autonomous turns", () => {
       "GOAL ROUND"
     );
     // Activity keeps it open; quiet ends it.
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 100));
     await rec.handle(call("c2"));
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 100));
     expect((await turnRows())[0].state).toBe("started");
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 500));
     turns = await turnRows();
     expect(turns[0]).toMatchObject({
       state: "settled",

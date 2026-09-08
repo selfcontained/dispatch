@@ -1,9 +1,9 @@
 import path from "node:path";
 
-import type { CommandLogEntry } from "./command-log.js";
 import type { DriverEvent, DriverUpdate } from "./driver.js";
 import { parsePromptSource } from "./prompt-source.js";
 import type {
+  PlanPayload,
   StreamEventRow,
   StreamStore,
   ToolPayload,
@@ -34,14 +34,14 @@ export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 export const FLUSH_INTERVAL_MS = 100;
 
 /**
- * dsh's ACP server sends tool calls without a `kind`; the title is the tool
- * name, which is enough to pick the icon and color the Chat row gets.
+ * The engine's ACP server sends tool calls without a `kind`; the title is
+ * the tool name, which is enough to pick the icon and color the Chat row gets.
  */
 export function inferToolKind(
   kind: string | null | undefined,
   title: string
 ): string {
-  // dsh sends "other" explicitly, which says nothing; treat it as missing.
+  // The engine sends "other" explicitly, which says nothing; treat it as missing.
   if (kind && kind !== "other") return kind;
   const name = title.toLowerCase();
   if (/^mcp__/.test(name)) return "other";
@@ -95,12 +95,13 @@ export function boundInput(input: unknown): unknown {
   };
 }
 
-/** The shell command from a tool's raw input, when it is one. */
-function commandOf(input: unknown): string | null {
-  if (typeof input !== "object" || input === null) return null;
-  const record = input as Record<string, unknown>;
-  const command = record.command ?? record.cmd;
-  return typeof command === "string" && command.trim() ? command : null;
+/** The parent tool call a nested call names (Claude stamps `_meta.claudeCode.parentToolUseId`). */
+function parentToolCallIdOf(meta: unknown): string | null {
+  if (typeof meta !== "object" || meta === null) return null;
+  const claude = (meta as { claudeCode?: unknown }).claudeCode;
+  if (typeof claude !== "object" || claude === null) return null;
+  const parent = (claude as { parentToolUseId?: unknown }).parentToolUseId;
+  return typeof parent === "string" && parent ? parent : null;
 }
 
 function projectToolContent(content: readonly unknown[] | null | undefined): {
@@ -158,8 +159,8 @@ export class StreamRecorder {
   /** The turn row awaiting its settle, per agent. */
   private readonly openTurn = new Map<string, StreamEventRow>();
   /**
-   * A turn dsh opened on its own (a goal round) has no prompt response to
-   * end it; it settles once the stream has been quiet for a while, or when
+   * A turn the engine opened on its own (a goal round) has no prompt response
+   * to end it; it settles once the stream has been quiet for a while, or when
    * something else starts.
    */
   private readonly autonomousIdle = new Map<string, NodeJS.Timeout>();
@@ -167,9 +168,7 @@ export class StreamRecorder {
   constructor(
     private readonly store: StreamStore,
     private readonly deps: {
-      /** Receives every shell command as it settles (see command-log.ts). */
-      commandLog?: (agentId: string, entry: CommandLogEntry) => Promise<void>;
-      /** Quiet time after which a turn dsh opened by itself is settled. */
+      /** Quiet time after which a turn the engine opened by itself is settled. */
       autonomousIdleMs?: number;
       /** A self-opened turn settled: the feed should re-read. */
       onAutonomousSettled?: (agentId: string) => void;
@@ -228,7 +227,7 @@ export class StreamRecorder {
             state: "settled",
             ...(event.expected
               ? { stopReason: "cancelled" }
-              : { error: "dsh exited before the turn settled" }),
+              : { error: "the harness exited before the turn settled" }),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
@@ -238,7 +237,7 @@ export class StreamRecorder {
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
         const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
         await this.store.append(event.agentId, "status", {
-          message: `dsh exited with ${how}${detail}`,
+          message: `the harness exited with ${how}${detail}`,
         });
         return;
       }
@@ -297,7 +296,7 @@ export class StreamRecorder {
     });
   }
 
-  /** Prompt text for a turn dsh opened by itself. */
+  /** Prompt text for a turn the engine opened by itself. */
   static readonly GOAL_ROUND_PROMPT = [
     "--- DISPATCH: GOAL ROUND ---",
     "The agent continued on its own: a round of its standing goal.",
@@ -342,7 +341,7 @@ export class StreamRecorder {
     this.autonomousIdle.set(agentId, timer);
   }
 
-  /** Close a turn dsh opened by itself; a no-op for a prompted turn. */
+  /** Close a turn the engine opened by itself; a no-op for a prompted turn. */
   async settleAutonomous(agentId: string): Promise<void> {
     const open = this.openTurn.get(agentId);
     if (!open || !(open.payload as TurnPayload).autonomous) return;
@@ -377,6 +376,7 @@ export class StreamRecorder {
           update.content
         );
         const input = boundInput(update.rawInput);
+        const parentToolCallId = parentToolCallIdOf(update._meta);
         const payload: ToolPayload = {
           toolKind: inferToolKind(update.kind, update.title),
           title: update.title,
@@ -386,6 +386,7 @@ export class StreamRecorder {
           terminalOutput,
           ...(truncated ? { truncated: true } : {}),
           ...(input !== undefined ? { input } : {}),
+          ...(parentToolCallId ? { parentToolCallId } : {}),
         };
         await this.store.upsertByKey(
           agentId,
@@ -433,31 +434,78 @@ export class StreamRecorder {
             : prev.input !== undefined
               ? { input: prev.input }
               : {}),
+          ...(prev.parentToolCallId
+            ? { parentToolCallId: prev.parentToolCallId }
+            : {}),
         };
         await this.store.updatePayload(existing.id, next);
-        // A shell command that just settled goes to the agent's command log.
-        const settledNow =
-          (next.status === "completed" || next.status === "failed") &&
-          prev.status !== "completed" &&
-          prev.status !== "failed";
-        const command = commandOf(next.input);
-        if (settledNow && next.toolKind === "execute" && command) {
-          const started = existing.createdAt ?? new Date();
-          await this.deps
-            .commandLog?.(agentId, {
-              command,
-              output: next.terminalOutput,
-              status: next.status === "failed" ? "failed" : "completed",
-              durationMs: Date.now() - new Date(started).getTime(),
-              at: new Date(),
-            })
-            .catch(() => {});
-        }
         return;
       }
+      case "plan":
+        return this.writePlan(agentId, update.entries);
+      case "plan_update":
+        // Only an item list is a task list; a file or markdown plan is prose.
+        if (update.plan.type !== "items") return;
+        return this.writePlan(agentId, update.plan.entries);
+      case "plan_removed":
+        return this.writePlan(agentId, []);
+      case "usage_update":
+        return this.writeUsage(agentId, update);
       default:
         return;
     }
+  }
+
+  /** One plan row per turn, keyed by the turn row, rewritten as the list changes. */
+  private async writePlan(
+    agentId: string,
+    entries: readonly {
+      content: string;
+      status: string;
+      priority: string;
+    }[]
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    const key = open ? `plan:${open.id}` : "plan:pre";
+    const payload: PlanPayload = {
+      entries: entries.map((e) => ({
+        content: e.content,
+        status: e.status,
+        priority: e.priority,
+      })),
+    };
+    await this.store.upsertByKey(agentId, "plan", key, payload);
+  }
+
+  /** The live turn carries the engine's newest usage; nothing else stores it. */
+  private async writeUsage(
+    agentId: string,
+    update: {
+      used: number;
+      size: number;
+      cost?: { amount: number; currency: string } | null;
+    }
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    if (!open) return;
+    const prev = open.payload as TurnPayload;
+    const next: TurnPayload = {
+      ...prev,
+      usage: {
+        used: update.used,
+        size: update.size,
+        ...(update.cost
+          ? {
+              cost: {
+                amount: update.cost.amount,
+                currency: update.cost.currency,
+              },
+            }
+          : {}),
+      },
+    };
+    open.payload = next as Record<string, unknown>;
+    await this.store.updatePayload(open.id, next);
   }
 
   private payloadFor(kind: TextKind, current: OpenText, streaming: boolean) {
