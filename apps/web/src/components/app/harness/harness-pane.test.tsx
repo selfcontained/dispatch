@@ -399,6 +399,50 @@ describe("HarnessPane", () => {
     );
   });
 
+  it("falls back to the default engine's mark and login command when no model is stored", () => {
+    // An agent created on the default path stores no model on older rows, and
+    // the chip and the hint both read the engine off the model. The chip
+    // carries the engine mark rather than the engine's name, so the mark is
+    // what names the engine here.
+    const loggedOut = {
+      ...agent,
+      status: "error",
+      model: null,
+      latestEvent: {
+        type: "blocked",
+        message: "Claude Code is not logged in on the server.",
+        updatedAt: "2026-09-07T12:00:00.000Z",
+      },
+    } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={loggedOut} active isMobile={false} />,
+      { wrapper }
+    );
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("anthropic");
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "claude /login"
+    );
+  });
+
+  it("wears the engine's mark on the chip for the model it was launched with", () => {
+    const codex = {
+      ...agent,
+      status: "stopped",
+      model: "codex/default",
+    } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={codex} active isMobile={false} />,
+      { wrapper }
+    );
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("openai");
+  });
+
   it("names the login command when the engine reports it is not logged in", () => {
     const loggedOut = {
       ...agent,

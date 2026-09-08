@@ -164,15 +164,23 @@ export const HARNESS_ENGINES: readonly HarnessEngine[] = [
 
 export const DEFAULT_HARNESS_MODEL = "claude/default";
 
-/** The engine named by a model id's first segment; null when there is none or it is unknown. */
+/**
+ * The engine named by a model id's first segment.
+ *
+ * An agent with no model stored runs the default engine, so a null,
+ * undefined or empty id answers with the engine `DEFAULT_HARNESS_MODEL`
+ * names: the readers that derive an engine from the model (the usage report,
+ * the pane's engine chip and login hint) then see the engine the child will
+ * actually be. Null is only for an id that names no engine: one with no
+ * `engine/` segment (no slash, or a leading slash) or an unknown engine.
+ */
 export function harnessEngineOf(
   modelId: string | null | undefined
 ): HarnessEngine | null {
-  if (!modelId) return null;
-  const slash = modelId.indexOf("/");
+  const id = modelId || DEFAULT_HARNESS_MODEL;
+  const slash = id.indexOf("/");
   if (slash <= 0) return null;
-  const id = modelId.slice(0, slash);
-  return HARNESS_ENGINES.find((e) => e.id === id) ?? null;
+  return HARNESS_ENGINES.find((e) => e.id === id.slice(0, slash)) ?? null;
 }
 
 /** Engines a USD budget applies to: the ones whose usage carries a cost. */

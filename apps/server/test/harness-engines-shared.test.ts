@@ -51,6 +51,11 @@ describe("HARNESS_ENGINES", () => {
     expect(harnessEngineOf(DEFAULT_HARNESS_MODEL)?.id).toBe("claude");
     expect(harnessEngineOf("gpt-5.6-sol")).toBeNull();
     expect(harnessEngineOf("nope/x")).toBeNull();
-    expect(harnessEngineOf(null)).toBeNull();
+    // No model stored means the default engine, not "no engine": the usage
+    // report and the pane's login hint both key off this.
+    expect(harnessEngineOf(null)?.id).toBe("claude");
+    expect(harnessEngineOf(undefined)?.id).toBe("claude");
+    expect(harnessEngineOf("")?.id).toBe("claude");
+    expect(harnessEngineOf("/claude")).toBeNull();
   });
 });

@@ -27,6 +27,7 @@ import {
   type AgentRouteDeps,
 } from "./shared.js";
 import { validateAgentModel } from "../../shared/agent-models.js";
+import { DEFAULT_HARNESS_MODEL } from "@dispatch/shared";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -269,6 +270,12 @@ export async function registerAgentCrudRoutes(
       );
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
+    }
+    // "Default (CLI setting)" leaves the model unset, which for a harness
+    // agent would leave nothing to derive an engine from. Store the default
+    // harness model instead, the engine the child runs either way.
+    if (agentType === "dispatch" && model === undefined) {
+      model = DEFAULT_HARNESS_MODEL;
     }
     const fullAccessArg =
       agentType === "claude"

@@ -85,6 +85,8 @@ export async function loadUsageReport(
     agents: [],
   }));
   for (const row of result.rows) {
+    // A row with no model counts under the default engine, which is the
+    // engine its child runs; null here is only an unknown engine id.
     const engine = harnessEngineOf(row.model);
     if (!engine) continue;
     const bucket = engines.find((e) => e.id === engine.id);

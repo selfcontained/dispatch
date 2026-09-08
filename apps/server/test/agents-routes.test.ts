@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_HARNESS_MODEL } from "@dispatch/shared";
+
 import { useInjectApp } from "./helpers/inject-app.js";
 
 const ctx = useInjectApp();
@@ -117,6 +119,23 @@ describe("POST /api/v1/agents (create)", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not supported for claude");
+  });
+
+  it("stores the default harness model for a dispatch agent created without one", async () => {
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(["dispatch"])]
+    );
+    // The model is the only place the engine is written down, and the usage
+    // report and the pane's login hint both read it from there.
+    const agent = await createAgent({ type: "dispatch" });
+    expect(agent.model).toBe(DEFAULT_HARNESS_MODEL);
+    const chosen = await createAgent({
+      type: "dispatch",
+      model: "codex/gpt-5.6-sol",
+    });
+    expect(chosen.model).toBe("codex/gpt-5.6-sol");
   });
 
   it("rejects missing cwd", async () => {

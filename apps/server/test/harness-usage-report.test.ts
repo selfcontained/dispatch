@@ -24,7 +24,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agents");
 });
 
-async function agent(id: string, name: string, model: string) {
+async function agent(id: string, name: string, model: string | null) {
   await pool.query(
     `INSERT INTO agents (id, name, cwd, status, type, model) VALUES ($1, $2, '/tmp', 'running', 'dispatch', $3)`,
     [id, name, model]
@@ -110,6 +110,39 @@ describe("loadUsageReport", () => {
       agents: [{ agentId: "agt_c", tokens: 0, costUsd: null }],
     });
     expect(by.opencode).toMatchObject({ tokens: 0, costUsd: null, agents: [] });
+  });
+
+  it("counts an agent with no model stored under the default engine", async () => {
+    // The default create path stores the default harness model now, but rows
+    // written before that still carry no model, and the child runs the
+    // default engine either way.
+    await agent("agt_d", "D", null);
+    await tokens("agt_d", "s1", 40, 2, NOW);
+    const report = await loadUsageReport(pool, {}, NOW);
+    const by = Object.fromEntries(report.engines.map((e) => [e.id, e]));
+    expect(by.claude).toMatchObject({
+      tokens: 42,
+      agents: [{ agentId: "agt_d", name: "D", tokens: 42 }],
+    });
+  });
+
+  it("reports no cost for a cost the engine gave in another currency", async () => {
+    await agent("agt_e", "E", "opencode/default");
+    await turn(
+      "agt_e",
+      1,
+      { used: 1, size: 2, cost: { amount: 4.5, currency: "EUR" } },
+      NOW
+    );
+    const report = await loadUsageReport(pool, { opencode: 10 }, NOW);
+    const opencode = report.engines.find((e) => e.id === "opencode");
+    expect(opencode?.costUsd).toBeNull();
+    expect(opencode?.agents).toEqual([
+      { agentId: "agt_e", name: "E", tokens: 0, costUsd: null },
+    ]);
+    expect(await loadAgentUsage(pool, "agt_e", NOW)).toMatchObject({
+      costUsd: null,
+    });
   });
 
   it("ignores non-harness agents and agents with an unknown engine", async () => {
