@@ -149,6 +149,7 @@ kill_tree() {
 # reliable way to reach the server.
 port_listener_pid() {
   local port="${1:-}"
+  local expect_owner="${2:-0}"
   [ -z "$port" ] && return 0
   local pid=""
   if command -v ss &>/dev/null; then
@@ -158,11 +159,14 @@ port_listener_pid() {
   if [ -z "$pid" ] && command -v lsof &>/dev/null; then
     pid="$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
   fi
-  # Empty is a legitimate answer (nothing is listening), but it is also what
-  # a missing tool or a permission-denied lookup returns, and callers cannot
-  # tell those apart from the PID alone. Re-run both lookups raw so an empty
-  # result explains itself in the log instead of reading as "port is free."
-  if [ -z "$pid" ]; then
+  # Empty is a legitimate answer most of the time: nothing is listening yet
+  # (an early poll before the process has bound), or the recorded wrapper is
+  # already dead and there is genuinely nothing to find. Only explain an
+  # empty result when the caller actually expected an owner (pass
+  # expect_owner=1); otherwise this fires on every ordinary early poll and
+  # clean teardown, drowning out the case it exists to explain: a missing
+  # tool or a permission-denied lookup that looks the same as "port is free."
+  if [ -z "$pid" ] && [ "$expect_owner" = "1" ]; then
     echo "port_listener_pid: no owner found for port ${port}; raw lookups follow" >&2
     if command -v ss &>/dev/null; then
       echo "  ss:   $(ss -ltnpH "sport = :${port}" 2>&1 || true)" >&2
@@ -200,6 +204,20 @@ pid_in_tree() {
   return 1
 }
 
+# The cwd of a running process, or empty. /proc exists on Linux; macOS has
+# no /proc, so fall back to lsof's cwd file descriptor there.
+listener_cwd() {
+  local target="${1:-}"
+  [ -z "$target" ] && return 0
+  if [ -d "/proc/${target}" ]; then
+    readlink "/proc/${target}/cwd" 2>/dev/null || true
+    return 0
+  fi
+  if command -v lsof &>/dev/null; then
+    lsof -a -p "$target" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true
+  fi
+}
+
 # Stop a dev service: the process that owns the port first, then its
 # wrappers, then force.
 #
@@ -226,12 +244,17 @@ stop_service() {
   local name="${2:-service}"
   local port="${3:-}"
   local grace="${4:-5}"
+  local wrapper_alive=0
+  pid_alive "$pid" && wrapper_alive=1
   local listener
-  listener="$(port_listener_pid "$port")"
+  # An owner is expected here whenever the wrapper we recorded is still
+  # alive. If it's dead and nothing answers, that's the ordinary
+  # already-stopped case below, not something to explain.
+  listener="$(port_listener_pid "$port" "$wrapper_alive")"
   if [ -n "$listener" ] && ! pid_alive "$listener"; then
     listener=""
   fi
-  if ! pid_alive "$pid" && [ -z "$listener" ]; then
+  if [ "$wrapper_alive" != "1" ] && [ -z "$listener" ]; then
     return 0
   fi
 
@@ -241,7 +264,7 @@ stop_service() {
   # stack and ports are auto-selected from the same range.
   if [ -n "$listener" ]; then
     local listener_belongs=0
-    if pid_alive "$pid"; then
+    if [ "$wrapper_alive" = "1" ]; then
       # The wrapper is alive, so the tree walk is meaningful: the listener
       # must be the wrapper itself or one of its descendants.
       if pid_in_tree "$listener" "$pid"; then
@@ -250,11 +273,16 @@ stop_service() {
     else
       # The wrapper is already gone, so there is no tree left to walk. Fall
       # back to comparing the listener's cwd against this stack's directory.
-      local listener_cwd stack_cwd
-      listener_cwd="$(readlink "/proc/${listener}/cwd" 2>/dev/null || true)"
+      # A prefix match, not equality: pnpm runs the workspace script from
+      # the package directory (apps/server), not the repo root DEV_CWD
+      # records, so the listener's cwd is a subdirectory of it, not equal.
+      local listener_cwd_path stack_cwd
+      listener_cwd_path="$(listener_cwd "$listener")"
       stack_cwd="$(readlink -f "${DEV_CWD:-}" 2>/dev/null || true)"
-      if [ -n "$listener_cwd" ] && [ -n "$stack_cwd" ] && [ "$listener_cwd" = "$stack_cwd" ]; then
-        listener_belongs=1
+      if [ -n "$listener_cwd_path" ] && [ -n "$stack_cwd" ]; then
+        case "$listener_cwd_path/" in
+          "$stack_cwd"/*) listener_belongs=1 ;;
+        esac
       fi
     fi
     if [ "$listener_belongs" != "1" ]; then
@@ -418,10 +446,17 @@ cmd_up() {
   DEV_API_PID="$(cat "$(log_dir)/api.pid")"
   echo "API server starting on port ${DEV_API_PORT} (PID ${DEV_API_PID})"
 
-  # Liveness check — wait up to 10s for the port, then verify /health
+  # Liveness check: wait up to 60s for the port, then verify /health. This
+  # host is IO-starved enough that a cold start (52 migrations, plus
+  # whatever else main.ts does before it binds) can run well past a 10s
+  # window without anything being wrong, so the window is sized for a slow
+  # disk, not a typical local boot, and a progress line past 10s says what
+  # it's waiting on instead of looking hung.
   local attempts=0
+  local attempts_max=120
   local port_open=0
-  while [ $attempts -lt 20 ]; do
+  local port_noted=0
+  while [ $attempts -lt $attempts_max ]; do
     if ! pid_alive "$DEV_API_PID"; then
       echo "Error: API server exited immediately. Last log lines:" >&2
       tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
@@ -432,6 +467,10 @@ cmd_up() {
       break
     fi
     attempts=$((attempts + 1))
+    if [ $port_noted -eq 0 ] && [ $attempts -ge 20 ]; then
+      port_noted=1
+      echo "Still waiting for the API server to open port ${DEV_API_PORT} (up to 60s)..."
+    fi
     sleep 0.5
   done
 
@@ -439,7 +478,7 @@ cmd_up() {
   # Don't fall through to seeding, Vite, and save_state as if this were a
   # working stack. Fail now, while the log lines below still explain why.
   if [ "$port_open" != "1" ]; then
-    echo "Error: API server did not open port ${DEV_API_PORT} within 10s. Last log lines:" >&2
+    echo "Error: API server did not open port ${DEV_API_PORT} within 60s. Last log lines:" >&2
     tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
     exit 1
   fi
@@ -458,7 +497,7 @@ cmd_up() {
   # it, which is the direction this check should err in.
   if [ "$port_open" = "1" ]; then
     local api_listener
-    api_listener="$(port_listener_pid "$DEV_API_PORT")"
+    api_listener="$(port_listener_pid "$DEV_API_PORT" 1)"
     if [ -n "$api_listener" ] && ! pid_in_tree "$api_listener" "$DEV_API_PID"; then
       echo "Error: port ${DEV_API_PORT} is held by PID ${api_listener}, which is not part of the API server just started (PID ${DEV_API_PID})." >&2
       echo "An earlier dev server still owns the port, so this stack would serve stale code. Stop it and retry: kill ${api_listener}" >&2
@@ -563,8 +602,12 @@ cmd_down() {
     return 0
   fi
 
-  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30
-  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5
+  # Collect a refusal instead of letting set -e abort here: a foreign
+  # listener on one port must not skip stopping the other service, removing
+  # the DB container, or clearing the state file, or the container leaks.
+  local refused=0
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30 || refused=1
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5 || refused=1
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
@@ -579,6 +622,11 @@ cmd_down() {
   # Clean up state and logs
   rm -f "$(state_file)"
   rm -rf "$(log_dir)"
+
+  if [ "$refused" = "1" ]; then
+    echo "Dev environment for '${SUFFIX}' torn down, but a refused listener above was left running (see the message before this)." >&2
+    return 1
+  fi
 
   echo "Dev environment torn down (suffix: ${SUFFIX})."
 }
@@ -609,9 +657,17 @@ cmd_restart() {
     return
   fi
 
-  # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30
-  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5
+  # Stop the app processes only; DB stays up. Collect a refusal from
+  # either instead of letting set -e abort mid-way: attempt both stops,
+  # then bail before touching the state file or relaunching, since
+  # relaunching on top of a port we couldn't verify is unsafe.
+  local refused=0
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30 || refused=1
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5 || refused=1
+  if [ "$refused" = "1" ]; then
+    echo "Restart aborted: a refused listener above was left running; the state file is unchanged." >&2
+    return 1
+  fi
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
