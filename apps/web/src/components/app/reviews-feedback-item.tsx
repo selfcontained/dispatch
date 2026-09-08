@@ -1,13 +1,9 @@
 import { useCallback, useState } from "react";
 import { CheckCircle2, ChevronRight, Circle, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { toast } from "sonner";
 
-import {
-  useAddReviewThreadMessage,
-  useSetReviewFeedbackResolution,
-  type ReviewFeedbackItem,
-} from "@/hooks/use-agent-reviews";
+import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
+import { useFeedbackItemActions } from "@/components/app/use-feedback-item-actions";
 import {
   Tooltip,
   TooltipContent,
@@ -68,10 +64,18 @@ export function FeedbackItemRow({
 }): JSX.Element {
   const state = feedbackState(item);
   const [expanded, setExpanded] = useState(false);
-  const [reply, setReply] = useState("");
-  const [replying, setReplying] = useState(false);
-  const addMessage = useAddReviewThreadMessage(agentId);
-  const setResolution = useSetReviewFeedbackResolution(agentId);
+  const {
+    reply,
+    setReply,
+    replying,
+    startReply,
+    cancelReply,
+    submitReply,
+    isSendingReply,
+    updateResolution,
+    isUpdatingResolution,
+    pendingResolution,
+  } = useFeedbackItemActions(agentId, item.id);
 
   const fileInDiff =
     !diffFilePaths || !item.filePath || diffFilePaths.has(item.filePath);
@@ -104,32 +108,6 @@ export function FeedbackItemRow({
     );
   const stateLabel =
     state === "fixed" ? "Fixed" : state === "dismissed" ? "Dismissed" : "Open";
-
-  const submitReply = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const body = reply.trim();
-    if (!body) return;
-    try {
-      await addMessage.mutateAsync({ itemId: item.id, body });
-      setReply("");
-      setReplying(false);
-    } catch {
-      toast.error("Couldn't send the reply. Try again.");
-    }
-  };
-
-  const cancelReply = () => {
-    setReply("");
-    setReplying(false);
-  };
-
-  const updateResolution = async (resolution: "fixed" | "dismissed" | null) => {
-    try {
-      await setResolution.mutateAsync({ itemId: item.id, resolution });
-    } catch {
-      toast.error("Couldn't update the feedback state. Try again.");
-    }
-  };
 
   return (
     <div className="ml-1 pb-2 last:pb-0">
@@ -240,10 +218,10 @@ export function FeedbackItemRow({
               <FeedbackReplyForm
                 replying={replying}
                 reply={reply}
-                isPending={addMessage.isPending}
+                isPending={isSendingReply}
                 variant="sidebar"
                 onReplyChange={setReply}
-                onStartReply={() => setReplying(true)}
+                onStartReply={startReply}
                 onCancelReply={cancelReply}
                 onSubmit={submitReply}
               />
@@ -252,8 +230,8 @@ export function FeedbackItemRow({
               state={state}
               resolution={item.resolution}
               resolutionNote={item.resolutionNote}
-              isPending={setResolution.isPending}
-              pendingResolution={setResolution.variables?.resolution}
+              isPending={isUpdatingResolution}
+              pendingResolution={pendingResolution}
               variant="sidebar"
               onUpdateResolution={(resolution) =>
                 void updateResolution(resolution)
