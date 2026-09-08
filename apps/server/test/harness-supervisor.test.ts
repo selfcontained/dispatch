@@ -1144,6 +1144,35 @@ describe("HarnessSupervisor login failure", () => {
     stopSpy.mockRestore();
   });
 
+  it("leaves a Claude turn alone when the phrase does not open the reply", async () => {
+    // The anchor on its own, with no tool call to rule the answer out.
+    const { sup, deps } = await build({
+      turn: async (_prompt, emit) => {
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "The runbook says to please run /login as the service user.",
+          },
+        });
+        return "end_turn";
+      },
+    });
+    const markExited = vi.fn(async () => {});
+    (deps as { markExited?: typeof markExited }).markExited = markExited;
+    const stopSpy = vi.spyOn(HarnessDriver.prototype, "stop");
+    await sup.start("agt_1");
+    await sup.prompt("agt_1", "what does the runbook say");
+    // Restore before asserting: the spy is on the prototype, so a failure
+    // here would otherwise leak it into the next test.
+    const stops = stopSpy.mock.calls.length;
+    stopSpy.mockRestore();
+    expect(markExited).not.toHaveBeenCalled();
+    expect(stops).toBe(0);
+    expect(sup.isRunning("agt_1")).toBe(true);
+    await sup.stop("agt_1");
+  });
+
   it("leaves a Claude turn alone when the phrase is prose in a working turn", async () => {
     const { sup, deps } = await build({
       turn: async (_prompt, emit) => {
@@ -1169,10 +1198,13 @@ describe("HarnessSupervisor login failure", () => {
     const stopSpy = vi.spyOn(HarnessDriver.prototype, "stop");
     await sup.start("agt_1");
     await sup.prompt("agt_1", "what does the runbook say");
-    expect(markExited).not.toHaveBeenCalled();
-    expect(stopSpy).not.toHaveBeenCalled();
-    expect(sup.isRunning("agt_1")).toBe(true);
+    // Restore before asserting: the spy is on the prototype, so a failure
+    // here would otherwise leak it into the next test.
+    const stops = stopSpy.mock.calls.length;
     stopSpy.mockRestore();
+    expect(markExited).not.toHaveBeenCalled();
+    expect(stops).toBe(0);
+    expect(sup.isRunning("agt_1")).toBe(true);
     await sup.stop("agt_1");
   });
 });
