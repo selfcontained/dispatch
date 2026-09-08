@@ -13,7 +13,7 @@ let cwd: string;
 let home: string;
 
 beforeAll(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "dsh-paths-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "harness-paths-"));
   cwd = path.join(root, "repo");
   home = path.join(root, "home");
   await mkdir(path.join(cwd, "apps", "web"), { recursive: true });

@@ -32,7 +32,7 @@ export type HarnessStep = {
     diff?: { path: string; oldText: string | null; newText: string } | null;
     terminalOutput?: string | null;
     truncated?: boolean;
-    /** The tool call's raw input (dsh sends the model's arguments). */
+    /** The tool call's raw input (the harness sends the model's arguments). */
     input?: unknown;
     /** note and think steps: the full text. */
     text?: string;
@@ -220,7 +220,7 @@ export type HarnessUsageReport = {
 };
 
 /**
- * A dsh subagent: a session of its own, spawned by a `subagent` tool call
+ * A harness subagent: a session of its own, spawned by a `subagent` tool call
  * in the parent's turn. Shaped from the child's log, so it reads as turns.
  *
  * @deprecated Removed with the web feeds in plan 2.
@@ -277,7 +277,7 @@ export type HarnessConfigChoice = {
   description?: string | null;
 };
 
-/** dsh groups model choices by provider route. */
+/** The harness groups model choices by provider route. */
 export type HarnessConfigGroup = {
   groupId?: string;
   group?: string;
@@ -287,7 +287,7 @@ export type HarnessConfigGroup = {
 
 /**
  * A session config option as the Agent Client Protocol advertises it:
- * dsh serves "model" (grouped by provider) and "reasoning_effort".
+ * the harness serves "model" (grouped by provider) and "reasoning_effort".
  */
 export type HarnessConfigOption = {
   id: string;
@@ -320,7 +320,7 @@ export type HarnessTokenCounts = {
 
 /**
  * How a provider route authenticates: an API key in the server environment,
- * or a sign-in stored in dsh's credential store (a ChatGPT plan). A key is
+ * or a sign-in stored in the harness's credential store (a ChatGPT plan). A key is
  * metered, so a dollar budget applies; a grant is a plan, so its usage is a
  * share of rate-limit windows and no budget applies.
  *
@@ -336,7 +336,7 @@ export type HarnessProviderAuth =
  * @deprecated Removed with the web feeds in plan 2.
  */
 export type HarnessUsageProvider = {
-  /** dsh's provider route id: openai, deepseek, openai-codex, … */
+  /** The harness's provider route id: openai, deepseek, openai-codex, … */
   id: string;
   label: string;
   auth: HarnessProviderAuth;
@@ -407,7 +407,7 @@ export type HarnessUsageResponse = {
 /**
  * The provider routes the harness can run on: the one list the model
  * picker's auth filter, the usage dialog, and the budget settings derive
- * from. Ids are dsh's route ids. The ChatGPT route comes first because it
+ * from. Ids are the harness's route ids. The ChatGPT route comes first because it
  * is the default route once its sign-in is stored.
  *
  * @deprecated Removed with the web feeds in plan 2.

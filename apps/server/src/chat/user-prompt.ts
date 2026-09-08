@@ -38,7 +38,7 @@ export function routesUserPromptThroughChat(
   routing: UserPromptRouting
 ): boolean {
   if (!routing.submit) return false;
-  // A dsh agent has no pane to type into: Chat is its only input, flag or not.
+  // A harness agent has no pane to type into: Chat is its only input, flag or not.
   if (routing.agentType === "dispatch") return true;
   if (!routing.chatSurfaceEnabled) return false;
   return routing.agentType !== "terminal";

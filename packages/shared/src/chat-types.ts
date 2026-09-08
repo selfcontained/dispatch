@@ -194,7 +194,7 @@ export type ChatReviewEntry = {
   at: string;
 };
 
-/** One assistant message from a stream-driven harness (dsh over ACP). */
+/** One assistant message from a stream-driven harness (over ACP). */
 export type ChatAssistantEntry = {
   type: "assistant";
   id: string;

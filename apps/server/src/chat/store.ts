@@ -39,7 +39,7 @@ export type InsertChatMessageInput = {
   origin?: ChatMessageOrigin | null;
   /** Launch-context posts only: the agent that created this one. */
   launchedByAgentId?: string | null;
-  /** Launch posts: the text a dsh first turn delivers, when it differs. */
+  /** Launch posts: the text a harness agent's first turn delivers, when it differs. */
   deliveryText?: string | null;
 };
 
@@ -77,7 +77,7 @@ type Row = {
   updated_at: Date;
 };
 
-/** A launch post plus the text its first turn delivers (dsh agents). */
+/** A launch post plus the text its first turn delivers (harness agents). */
 export type LaunchPost = ChatMessage & { deliveryText: string | null };
 
 export function toChatMessage(row: Row): ChatMessage {

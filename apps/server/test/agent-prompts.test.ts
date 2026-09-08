@@ -130,32 +130,35 @@ describe("injectAgentPrompt (wrapper)", () => {
   });
 });
 
-describe("enqueueAgentPrompt for dsh agents", () => {
-  it("routes the prompt to the manager's dsh turn instead of the pane", async () => {
+describe("enqueueAgentPrompt for harness agents", () => {
+  it("routes the prompt to the manager's harness turn instead of the pane", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
     agentManager.getPromptTarget.mockResolvedValue({
       kind: "harness" as const,
       busy: false,
     });
-    const { held, delivery } = await enqueueAgentPrompt("agt_d", "hello dsh");
+    const { held, delivery } = await enqueueAgentPrompt(
+      "agt_d",
+      "hello harness"
+    );
     expect(held).toBe(false);
     await delivery;
     expect(agentManager.promptHarness).toHaveBeenCalledWith(
       "agt_d",
-      "hello dsh"
+      "hello harness"
     );
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
-  it("surfaces the manager's refusal when dsh is not running", async () => {
+  it("surfaces the manager's refusal when the harness is not running", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
     agentManager.getPromptTarget.mockRejectedValue(
       new Error(
-        "dsh is not running for this agent — prompt cannot be delivered."
+        "The harness is not running for this agent; the prompt cannot be delivered."
       )
     );
     await expect(enqueueAgentPrompt("agt_d", "x")).rejects.toThrow(
-      /dsh is not running/
+      /harness is not running/
     );
   });
 
@@ -199,7 +202,7 @@ describe("enqueueAgentPrompt for dsh agents", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "agt_d" }),
-      "dsh turn failed"
+      "harness turn failed"
     );
   });
 });

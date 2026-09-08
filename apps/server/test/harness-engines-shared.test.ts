@@ -50,7 +50,7 @@ describe("HARNESS_ENGINES", () => {
     );
     expect(harnessEngineOf(DEFAULT_HARNESS_MODEL)?.id).toBe("claude");
     expect(harnessEngineOf("gpt-5.6-sol")).toBeNull();
-    expect(harnessEngineOf("deepseek/x")).toBeNull();
+    expect(harnessEngineOf("nope/x")).toBeNull();
     expect(harnessEngineOf(null)).toBeNull();
   });
 });

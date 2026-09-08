@@ -65,7 +65,6 @@ describe("HarnessDriver", () => {
         }),
       })
     );
-    expect(spawn.mock.calls[0][2].env).not.toHaveProperty("DSH_HOME");
     expect(fake.seen.initialize[0].clientCapabilities?._meta).toEqual({
       "subagent-transcript": true,
     });
@@ -263,7 +262,7 @@ describe("HarnessDriver", () => {
         launch({
           engine: {
             ...engineSpecFor("claude", "default", bins),
-            bin: "definitely-not-a-real-binary-dsh",
+            bin: "definitely-not-a-real-binary-xyz",
           },
         })
       )
@@ -278,7 +277,7 @@ describe("HarnessDriver", () => {
         launch({
           engine: {
             ...engineSpecFor("claude", "default", bins),
-            bin: "definitely-not-a-real-binary-dsh",
+            bin: "definitely-not-a-real-binary-xyz",
           },
         })
       )

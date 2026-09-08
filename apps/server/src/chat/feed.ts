@@ -506,7 +506,7 @@ async function listReviewEntries(
 }
 
 /**
- * Stream rows from a protocol-driven harness (dsh over ACP): assistant text
+ * Stream rows from a protocol-driven harness (over ACP): assistant text
  * and tool calls. Thoughts and status rows stay out of the feed.
  */
 async function listStreamEntries(

@@ -145,8 +145,9 @@ export type ChatLaunchContextInput = {
   launchedByAgentId?: string | null;
   /**
    * What the first turn must carry when it is more than the display text:
-   * an MCP launch header, a rendered template. Only dsh reads its first
-   * turn from the post; CLI agents get this typed into the pane instead.
+   * an MCP launch header, a rendered template. Only the harness reads its
+   * first turn from the post; CLI agents get this typed into the pane
+   * instead.
    */
   deliveryText?: string;
 };
@@ -518,7 +519,7 @@ export class ChatService {
   }
 
   /**
-   * The first turn for a harness that takes no launch argument (dsh): the
+   * The first turn for a harness that takes no launch argument: the
    * launch-context post, wrapped in the same envelope a typed message gets.
    */
   async launchPromptFor(agentId: string): Promise<string | null> {

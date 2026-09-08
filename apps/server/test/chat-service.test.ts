@@ -622,7 +622,7 @@ describe("ChatService user workflows", () => {
       /** Resolve to release deliveries; absent = deliver immediately. */
       gate?: Promise<void>;
       fail?: boolean;
-      agentType?: "claude" | "dsh";
+      agentType?: "claude" | "dispatch";
     } = {}
   ) {
     const events: unknown[] = [];
@@ -773,7 +773,7 @@ describe("ChatService user workflows", () => {
     );
   });
 
-  it("tells a stream-driven (dsh) agent its replies land in Chat by themselves", async () => {
+  it("tells a stream-driven (harness) agent its replies land in Chat by themselves", async () => {
     const { svc, injected } = build({ agentType: "dispatch" });
     const res = await svc.sendUserMessage(A, "hello harness");
     await settled(svc, res.message.id);

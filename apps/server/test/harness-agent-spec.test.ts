@@ -29,7 +29,7 @@ describe("splitModelId", () => {
 
   it("rejects ids without an engine or with an unknown one", () => {
     expect(() => splitModelId("gpt-5.6-sol")).toThrow(/engine\/model/);
-    expect(() => splitModelId("deepseek/v4")).toThrow(/unknown engine/);
+    expect(() => splitModelId("nope/v4")).toThrow(/unknown engine/);
     expect(() => splitModelId("claude/")).toThrow(/engine\/model/);
   });
 });

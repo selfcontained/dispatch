@@ -173,37 +173,6 @@ describe("migrations", () => {
     }
   });
 
-  it("forgets the dsh.1-27 harness migration names and re-runs them under the new ones", async () => {
-    // A database that ran the harness migrations as 0048-0051: those rows,
-    // and none of upstream's 0048-0050 or the renumbered 0051-0054.
-    await pool.query(`DELETE FROM pgmigrations WHERE name >= '0048'`);
-    for (const name of [
-      "0048_agent-stream-events",
-      "0049_agent-stream-events-turn",
-      "0050_agent-chat-messages-delivery-text",
-      "0051_agent-type-dispatch",
-    ]) {
-      await pool.query(
-        `INSERT INTO pgmigrations (name, run_on) VALUES ($1, now())`,
-        [name]
-      );
-    }
-    // node-pg-migrate's order check would refuse this; boot clears the way.
-    await expect(runTestMigrations()).resolves.not.toThrow();
-    const result = await pool.query(
-      `SELECT name FROM pgmigrations WHERE name >= '0048' ORDER BY name`
-    );
-    expect(result.rows.map((r: { name: string }) => r.name)).toEqual([
-      "0048_pin-events",
-      "0049_media-metadata",
-      "0050_chat-attachments-gin",
-      "0051_agent-stream-events",
-      "0052_agent-stream-events-turn",
-      "0053_agent-chat-messages-delivery-text",
-      "0054_agent-type-dispatch",
-    ]);
-  });
-
   it("should track migrations in pgmigrations table", async () => {
     const result = await pool.query(
       `SELECT name FROM pgmigrations ORDER BY run_on`

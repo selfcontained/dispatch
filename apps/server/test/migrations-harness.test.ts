@@ -54,7 +54,7 @@ describe("harness migrations", () => {
     expect(index.rowCount).toBe(1);
   });
 
-  it("carries no migration named after the old dsh files", async () => {
+  it("carries no migration named after the old harness files", async () => {
     const rows = await pool.query<{ name: string }>(
       `SELECT name FROM pgmigrations WHERE name IN
         ('0052_agent-stream-events-turn', '0053_agent-chat-messages-delivery-text', '0054_agent-type-dispatch')`

@@ -7,21 +7,17 @@ import {
 
 /** The Harness composer's slash menu sends "/<skill> …" as plain text. */
 const HARNESS_SLASH_RULE =
-  'A user message that begins with "/<name>" names a skill: load that skill with the skill tool and follow it, treating the rest of the message as its input. If no skill has that name, say so briefly.';
+  'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.';
 
-/** How a dsh agent's output reaches the user; replaces the pane-era chat rule. */
+/** How a harness agent's output reaches the user; replaces the pane-era chat rule. */
 export const HARNESS_CHAT_RULE =
   "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through dispatch_chat_post. Use dispatch_chat_post only for a question that needs a choice (kind: question with options).";
 
 /**
- * The system-prompt persona for a dsh agent. CLI agents get the same pieces
- * as separate `--append-system-prompt` flags; dsh takes one persona string
- * through the overlay (see overlay.ts), so this joins them: the Dispatch
- * launch guidance first, then the persona brief a review launch stored in
- * `agentArgs`, or the active personality for a standard agent.
- *
- * `{{model}}` and `{{cwd}}` are dsh prompt variables; the guidance text does
- * not use them, so nothing here needs escaping.
+ * The system-prompt persona for a harness agent. CLI agents get the same
+ * pieces as separate `--append-system-prompt` flags; the harness takes one
+ * persona string (in `_meta.systemPrompt.append` for Claude, as the first
+ * prompt's leading block for the other engines), so this joins them.
  */
 export function buildHarnessPersona(input: {
   agent: Pick<
@@ -30,7 +26,7 @@ export function buildHarnessPersona(input: {
   >;
   personalityPrompt: string | null;
   trimmedGuidance: boolean;
-  /** Accepted for parity with the CLI inputs; dsh always assumes Chat. */
+  /** Accepted for parity with the CLI inputs; the harness always assumes Chat. */
   chatSurface?: boolean;
   suggestSessionRename: boolean;
   /** A job run: the guidance names the job tools (job_complete, …). */
@@ -38,8 +34,8 @@ export function buildHarnessPersona(input: {
 }): string {
   const { agent } = input;
   // The pane-driven chat rule sends replies through dispatch_chat_post; a
-  // dsh agent's text already streams into Chat, so that rule would make it
-  // answer twice. It gets its own rule below instead.
+  // harness agent's text already streams into Chat, so that rule would make
+  // it answer twice. It gets its own rule below instead.
   const guidance = buildLaunchGuidance(agent.id, {
     agentType: agent.type,
     ...(input.jobRunId ? { jobRunId: input.jobRunId } : {}),

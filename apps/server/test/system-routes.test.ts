@@ -867,7 +867,7 @@ describe("usage budgets settings", () => {
 
     for (const payload of [
       { budgets: [] },
-      { budgets: { deepseek: 5 } },
+      { budgets: { nope: 5 } },
       { budgets: { claude: -1 } },
       { budgets: { claude: "50" } },
     ]) {

@@ -66,8 +66,8 @@ export function escapeEnvelopeMarkers(text: string): string {
 export type ChatEnvelopeOptions = {
   /**
    * The agent's replies reach the Chat tab on their own (a stream-driven
-   * harness such as dsh), so the trailer must not send it to
-   * dispatch_chat_post for a plain reply, or it posts twice.
+   * harness), so the trailer must not send it to dispatch_chat_post for a
+   * plain reply, or it posts twice.
    */
   nativeReplies?: boolean;
 };

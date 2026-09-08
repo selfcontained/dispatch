@@ -43,7 +43,7 @@ export function createPromptInjector(
       // means the turn started, which is what pane injection promises too.
       const { started, settled } = agentManager.promptHarness(agentId, prompt);
       settled.catch((error) => {
-        appLog.warn({ err: error, agentId }, "dsh turn failed");
+        appLog.warn({ err: error, agentId }, "harness turn failed");
       });
       return { held: target.busy, delivery: started };
     }

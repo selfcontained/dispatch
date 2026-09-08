@@ -25,7 +25,7 @@ export type ArchiveDeps = {
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
   harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
-  /** Stop a protocol-driven harness (dsh) that lives outside the tmux pane. */
+  /** Stop a protocol-driven harness that lives outside the tmux pane. */
   stopHarness?: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,

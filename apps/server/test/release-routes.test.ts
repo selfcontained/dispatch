@@ -57,7 +57,7 @@ const rootPackageVersion = (
     )
   ) as { version: string }
 ).version;
-// A custom patch release (e.g. 0.38.7-dsh.2) is not plain semver, and the
+// A custom patch release (e.g. 0.38.7-custom.2) is not plain semver, and the
 // route's fallback yields no current tag for it.
 const packagedCurrentTag = /^\d+\.\d+\.\d+$/.test(rootPackageVersion)
   ? `v${rootPackageVersion}`

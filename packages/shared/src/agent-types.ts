@@ -29,7 +29,7 @@ export const CLI_AGENT_TYPES = [
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
-// What an install offers before anyone saves a choice. dsh stays opt-in: it
+// What an install offers before anyone saves a choice. The harness stays opt-in: it
 // needs the harness binary and a provider key on the server, and a curious
 // click without either should not be the first thing a new install sees.
 export const DEFAULT_ENABLED_AGENT_TYPES = AGENT_TYPES.filter(
