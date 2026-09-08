@@ -610,17 +610,22 @@ cmd_up() {
     echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
   fi
 
-  # Same honesty check as the API's: on a restart the port is reused, and a
-  # listener from outside this tree is the previous Vite still serving.
+  # What this rules out: a listener from outside this tree, which on a
+  # restart is the previous Vite still owning the reused port while the new
+  # one silently moved to the next port number.
   #
-  # It waits for the port first. Run straight after the `sleep 1` above it
-  # found nothing listening yet on this host, the emptiness passed the check,
-  # and it covered nothing at all. 15 s, not the API's 60: Vite has no
-  # migrations or database to wait on, and a slow start here only means the
-  # check is skipped rather than the stack failing.
+  # It does not confirm that our own Vite came up, and no longer implies it.
+  # Run straight after the fixed one-second wait above, this found nothing
+  # listening on this host and the emptiness passed as if it had checked
+  # something; an empty result now says so instead.
+  #
+  # The wait is short on purpose. The owner this check is looking for was
+  # bound before Vite was even launched, so it answers on the first probe;
+  # everything past that only waits on our own Vite, which a longer wait
+  # would charge to every `up` for nothing.
   local vite_listener=""
   local vite_waited=0
-  while [ $vite_waited -lt 30 ]; do
+  while [ $vite_waited -lt 6 ]; do
     vite_listener="$(port_listener_pid "$DEV_VITE_PORT")"
     [ -n "$vite_listener" ] && break
     pid_alive "$DEV_VITE_PID" || break
@@ -628,7 +633,7 @@ cmd_up() {
     sleep 0.5
   done
   if [ -z "$vite_listener" ]; then
-    echo "Note: port ${DEV_VITE_PORT} was not open after 15s, so its owner was not checked. See $(log_dir)/vite.log" >&2
+    echo "Note: nothing was listening on port ${DEV_VITE_PORT} yet, so no foreign owner was found; Vite is still starting. See $(log_dir)/vite.log" >&2
   fi
   if [ -n "$vite_listener" ] && ! pid_in_tree "$vite_listener" "$DEV_VITE_PID"; then
     echo "Error: port ${DEV_VITE_PORT} is held by PID ${vite_listener}, which is not part of the Vite server just started (PID ${DEV_VITE_PID})." >&2
