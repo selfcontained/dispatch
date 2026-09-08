@@ -8,6 +8,7 @@ import { HarnessDriver } from "../src/agents/harness/driver.js";
 import {
   buildChildEnv,
   HarnessSupervisor,
+  loginFailureMessage,
   RESTART_PROMPT,
 } from "../src/agents/harness/supervisor.js";
 import { createFakeAcpAgent, type FakeTurn } from "./helpers/fake-acp-agent.js";
@@ -954,5 +955,85 @@ describe("HarnessSupervisor restart resilience", () => {
     expect(settle?.[1]?.[0]).toBe("agt_1");
     expect(String(settle?.[1]?.[1])).toContain("interrupted by restart");
     expect(fake.seen.closes).toBe(1);
+  });
+});
+
+describe("loginFailureMessage", () => {
+  it("names the engine for an auth_required code", () => {
+    const err = Object.assign(new Error("Authentication required"), {
+      code: -32000,
+    });
+    expect(loginFailureMessage("codex", err)).toBe(
+      "Codex is not logged in on the server."
+    );
+  });
+
+  it("is null for an unrelated error", () => {
+    expect(loginFailureMessage("codex", new Error("ENOENT"))).toBeNull();
+  });
+
+  it("recognizes Claude's please-run-/login reply", () => {
+    expect(loginFailureMessage("claude", new Error("Please run /login"))).toBe(
+      "Claude Code is not logged in on the server."
+    );
+  });
+});
+
+describe("HarnessSupervisor login failure", () => {
+  /** A driver stub whose start() always rejects; only start() and onEvent()
+   * are exercised by the paths under test here. */
+  function stubDriver(err: unknown): HarnessDriver {
+    return {
+      start: vi.fn().mockRejectedValue(err),
+      onEvent: vi.fn(),
+    } as unknown as HarnessDriver;
+  }
+
+  it("start() rejects with the engine's login message on an auth_required failure", async () => {
+    const { deps } = await build({ model: "codex/default" });
+    const err = Object.assign(new Error("Authentication required"), {
+      code: -32000,
+    });
+    const sup = new HarnessSupervisor({ ...deps, driver: stubDriver(err) });
+    await expect(sup.start("agt_1")).rejects.toThrow(
+      "Codex is not logged in on the server."
+    );
+  });
+
+  it("boot restore marks a login failure with the engine's message", async () => {
+    const { deps } = await build({ model: "gemini/default" });
+    deps.listRunningAgentIds.mockResolvedValue(["agt_g"]);
+    const err = new Error("Authentication required: run gemini");
+    const sup = new HarnessSupervisor({ ...deps, driver: stubDriver(err) });
+    const result = await sup.restoreRunning();
+    expect(result.failed).toEqual(["agt_g"]);
+    expect(deps.markStartFailed).toHaveBeenCalledWith(
+      "agt_g",
+      "Gemini CLI is not logged in on the server."
+    );
+  });
+
+  it("stops a Claude session that answers /login and reports through markExited", async () => {
+    const { sup, deps } = await build({
+      turn: async (_prompt, emit) => {
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Please run /login to authenticate." },
+        });
+        return "end_turn";
+      },
+    });
+    const markExited = vi.fn(async () => {});
+    (deps as { markExited?: typeof markExited }).markExited = markExited;
+    const stopSpy = vi.spyOn(HarnessDriver.prototype, "stop");
+    await sup.start("agt_1");
+    await sup.prompt("agt_1", "hi");
+    await vi.waitFor(() => expect(markExited).toHaveBeenCalled());
+    expect(stopSpy).toHaveBeenCalledWith("agt_1");
+    expect(markExited).toHaveBeenCalledWith(
+      "agt_1",
+      "Claude Code is not logged in on the server."
+    );
+    stopSpy.mockRestore();
   });
 });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import {
   DEFAULT_HARNESS_MODEL,
+  HARNESS_ENGINES,
   type AgentLatestEventType,
   type AgentRecord,
   type HarnessCommand,
@@ -149,6 +150,30 @@ function isModelOption(
   return modelOptionOf(options)?.id === configId;
 }
 
+/**
+ * True when `err` is the ACP SDK's `RequestError.authRequired` (JSON-RPC
+ * code -32000) or otherwise says the engine needs a login, so a session
+ * start or a boot restore can end with a message the starting screen shows
+ * next to the engine's login command instead of a generic failure.
+ */
+export function loginFailureMessage(
+  engine: HarnessEngineId,
+  err: unknown
+): string | null {
+  if (typeof err !== "object" || err === null) return null;
+  const code = (err as { code?: unknown }).code;
+  const message = (err as { message?: unknown }).message;
+  const isLoginFailure =
+    code === -32000 ||
+    (typeof message === "string" &&
+      /authentication required|not logged in|please run \/login/i.test(
+        message
+      ));
+  if (!isLoginFailure) return null;
+  const label = HARNESS_ENGINES.find((e) => e.id === engine)?.label ?? engine;
+  return `${label} is not logged in on the server.`;
+}
+
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
 const RECONCILE_TIMEOUT_MS = 2_000;
@@ -214,6 +239,12 @@ export class HarnessSupervisor {
    */
   private readonly pending = new Map<string, Pending[]>();
   private readonly running = new Map<string, Pending>();
+  /**
+   * Claude Code has no `auth_required` error; it answers a turn with a plain
+   * "Please run /login" reply instead. Agent ids whose current turn said so,
+   * ended by the settled turn that follows: {@link onEvent}.
+   */
+  private readonly loginPrompted = new Set<string>();
 
   constructor(private readonly deps: SupervisorDeps) {
     this.resolveBinary = deps.resolveBinary ?? resolveExecutable;
@@ -371,21 +402,30 @@ export class HarnessSupervisor {
     const env = buildChildEnv({ agentId, mediaDir, config: this.deps.config });
     const spec = engineSpecFor(engine, model, await this.binsFor(engine, env));
     this.streams.setCwd(agentId, agent.cwd);
-    const session = await this.driver.start({
-      agentId,
-      cwd: agent.cwd,
-      engine: spec,
-      systemPromptAppend:
-        spec.personaDelivery === "system_prompt" ? persona : null,
-      mcp: {
-        url: dispatchMcpUrl(this.deps.config, agentId, jobRunId ?? undefined),
-        token: jobRunId
-          ? createJobMcpToken(this.deps.config.authToken, jobRunId, agentId)
-          : createAgentMcpToken(this.deps.config.authToken, agentId),
-      },
-      sessionId: agent.cliSessionId ?? null,
-      env,
-    });
+    let session: { sessionId: string; resumed: boolean };
+    try {
+      session = await this.driver.start({
+        agentId,
+        cwd: agent.cwd,
+        engine: spec,
+        systemPromptAppend:
+          spec.personaDelivery === "system_prompt" ? persona : null,
+        mcp: {
+          url: dispatchMcpUrl(this.deps.config, agentId, jobRunId ?? undefined),
+          token: jobRunId
+            ? createJobMcpToken(this.deps.config.authToken, jobRunId, agentId)
+            : createAgentMcpToken(this.deps.config.authToken, agentId),
+        },
+        sessionId: agent.cliSessionId ?? null,
+        env,
+      });
+    } catch (err) {
+      // An auth_required failure at launch names the engine, so the caller's
+      // status message tells the operator what to run instead of just that
+      // the start failed.
+      const login = loginFailureMessage(engine, err);
+      throw login ? new Error(login) : err;
+    }
     const { sessionId, resumed } = session;
     this.context.set(agentId, { sessionId, engine, model });
     // An engine that takes the persona in its first prompt gets it once: on a
@@ -502,7 +542,12 @@ export class HarnessSupervisor {
         }
       } catch (err) {
         failed.push(id);
-        const message = (err as Error).message;
+        // start() already maps an auth_required failure to the login
+        // message before it reaches here; re-derive the engine and map
+        // again so the stored message names it even if that ever changes.
+        const engine = await this.engineFor(id);
+        const login = engine ? loginFailureMessage(engine, err) : null;
+        const message = login ?? (err as Error).message;
         this.deps.logger.warn(
           { err, agentId: id },
           "harness agent could not be restored at boot"
@@ -513,6 +558,17 @@ export class HarnessSupervisor {
       }
     }
     return { restored, failed };
+  }
+
+  /** The engine a stored agent's model id names; null when it cannot be read. */
+  private async engineFor(agentId: string): Promise<HarnessEngineId | null> {
+    try {
+      const agent = await this.deps.getAgent(agentId);
+      if (!agent) return null;
+      return splitModelId(agent.model ?? DEFAULT_HARNESS_MODEL).engine;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -755,6 +811,40 @@ export class HarnessSupervisor {
         event.agentId,
         event.type === "turn" || event.type === "exit"
       );
+      // Claude Code has no auth_required error; it answers a turn saying to
+      // run /login instead. Watch for that line before the turn settles, so
+      // the exit that stop() triggers below is not read by the
+      // unexpected-exit branch that follows.
+      if (
+        event.type === "update" &&
+        ctx?.engine === "claude" &&
+        event.update.sessionUpdate === "agent_message_chunk" &&
+        event.update.content.type === "text" &&
+        /please run \/login/i.test(event.update.content.text)
+      ) {
+        this.loginPrompted.add(event.agentId);
+      }
+      if (
+        event.type === "turn" &&
+        event.state === "settled" &&
+        this.loginPrompted.has(event.agentId)
+      ) {
+        this.loginPrompted.delete(event.agentId);
+        // stop() marks its live entry as stopping before it closes the
+        // session, so the exit event that follows carries expected: true
+        // and never reaches the unexpected-exit branch below, so this
+        // message is the one that stands.
+        await this.driver.stop(event.agentId);
+        const message = "Claude Code is not logged in on the server.";
+        if (this.deps.markExited) {
+          await this.deps.markExited(event.agentId, message);
+        } else {
+          await this.deps.setLatestEvent(event.agentId, {
+            type: "blocked",
+            message,
+          });
+        }
+      }
       if (event.type === "exit" && !event.expected) {
         this.context.delete(event.agentId);
         // Any unexpected exit, code 0 included: a "running" agent over a
