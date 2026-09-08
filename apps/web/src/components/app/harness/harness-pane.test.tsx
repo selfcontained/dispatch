@@ -398,6 +398,26 @@ describe("HarnessPane", () => {
       "Send the first prompt."
     );
   });
+
+  it("names the login command when the engine reports it is not logged in", () => {
+    const loggedOut = {
+      ...agent,
+      status: "error",
+      model: "codex/default",
+      latestEvent: {
+        type: "blocked",
+        message: "Codex is not logged in on the server.",
+        updatedAt: "2026-09-07T12:00:00.000Z",
+      },
+    } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={loggedOut} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "codex login --device-auth"
+    );
+  });
 });
 
 describe("HarnessPane while the agent is starting", () => {

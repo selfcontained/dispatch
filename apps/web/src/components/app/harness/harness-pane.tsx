@@ -402,16 +402,31 @@ export function HarnessPane({
                 ) : null}
               </div>
             ) : (
-              <p
-                className="pt-6 text-center text-xs text-muted-foreground"
-                data-testid="harness-empty"
-              >
-                {loading
-                  ? "Loading…"
-                  : error
-                    ? `Could not load turns: ${error.message}`
-                    : "Send the first prompt."}
-              </p>
+              <>
+                <p
+                  className="pt-6 text-center text-xs text-muted-foreground"
+                  data-testid="harness-empty"
+                >
+                  {loading
+                    ? "Loading…"
+                    : error
+                      ? `Could not load turns: ${error.message}`
+                      : "Send the first prompt."}
+                </p>
+                {agent?.status === "error" &&
+                engine &&
+                /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
+                  <p
+                    className="mt-2 text-center text-[11px] text-muted-foreground"
+                    data-testid="harness-login-hint"
+                  >
+                    Run as the service user, then press Start:{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-foreground">
+                      {engine.loginCommand}
+                    </code>
+                  </p>
+                ) : null}
+              </>
             )
           }
         />

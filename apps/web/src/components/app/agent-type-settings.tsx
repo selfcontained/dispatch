@@ -19,7 +19,7 @@ const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
   cursor: "Cursor Agent CLI by Anysphere.",
   opencode: "OpenCode CLI — open-source terminal agent.",
   dispatch:
-    "Dispatch Harness — Dispatch's own model-agnostic agent runtime (OpenAI, DeepSeek, …) with a native activity view.",
+    "Dispatch Harness: Dispatch's harness view, running Claude Code, Codex, Gemini CLI, or OpenCode over the Agent Client Protocol.",
   terminal: "Raw shell session with no AI agent.",
 };
 
