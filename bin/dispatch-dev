@@ -8,6 +8,13 @@ set -euo pipefail
 # logs/url can find the running stack later.
 #
 # No tmux or agent-session dependency — just background processes + PID files.
+#
+# The Dispatch MCP repo_dev_* tools (repo_dev_up, repo_dev_restart, etc.) run
+# the copy of this script that lives in the calling agent's own working
+# directory (its install), passing the repo under test with --cwd. A change
+# made here is not exercised by those tools until it is installed there, so
+# validate script changes directly: run ./bin/dispatch-dev from this worktree
+# with --suffix so it does not collide with any stack already running.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -151,10 +158,33 @@ port_listener_pid() {
   if [ -z "$pid" ] && command -v lsof &>/dev/null; then
     pid="$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
   fi
+  # Empty is a legitimate answer (nothing is listening), but it is also what
+  # a missing tool or a permission-denied lookup returns, and callers cannot
+  # tell those apart from the PID alone. Re-run both lookups raw so an empty
+  # result explains itself in the log instead of reading as "port is free."
+  if [ -z "$pid" ]; then
+    echo "port_listener_pid: no owner found for port ${port}; raw lookups follow" >&2
+    if command -v ss &>/dev/null; then
+      echo "  ss:   $(ss -ltnpH "sport = :${port}" 2>&1 || true)" >&2
+    else
+      echo "  ss:   not installed" >&2
+    fi
+    if command -v lsof &>/dev/null; then
+      echo "  lsof: $(lsof -iTCP:"$port" -sTCP:LISTEN 2>&1 || true)" >&2
+    else
+      echo "  lsof: not installed" >&2
+    fi
+  fi
   echo "$pid"
 }
 
 # True when `needle` is `root` or one of its descendants.
+#
+# root == "1" (init/the subreaper) can never match here: the loop condition
+# stops the walk as soon as p reaches "1", before the `[ "$p" = "$root" ]`
+# comparison runs for that value. That's fine because no caller passes 1:
+# it would mean "anything reparented to init counts," which is not a check
+# any caller wants, so this is a dead branch by design, not a bug to fix.
 pid_in_tree() {
   local needle="${1:-}"
   local root="${2:-}"
@@ -203,6 +233,34 @@ stop_service() {
   fi
   if ! pid_alive "$pid" && [ -z "$listener" ]; then
     return 0
+  fi
+
+  # Confirm the port's owner is actually this stack before touching it. A
+  # stale state file whose port has since been recycled would otherwise get
+  # another agent's dev server signaled here, since every agent runs its own
+  # stack and ports are auto-selected from the same range.
+  if [ -n "$listener" ]; then
+    local listener_belongs=0
+    if pid_alive "$pid"; then
+      # The wrapper is alive, so the tree walk is meaningful: the listener
+      # must be the wrapper itself or one of its descendants.
+      if pid_in_tree "$listener" "$pid"; then
+        listener_belongs=1
+      fi
+    else
+      # The wrapper is already gone, so there is no tree left to walk. Fall
+      # back to comparing the listener's cwd against this stack's directory.
+      local listener_cwd stack_cwd
+      listener_cwd="$(readlink "/proc/${listener}/cwd" 2>/dev/null || true)"
+      stack_cwd="$(readlink -f "${DEV_CWD:-}" 2>/dev/null || true)"
+      if [ -n "$listener_cwd" ] && [ -n "$stack_cwd" ] && [ "$listener_cwd" = "$stack_cwd" ]; then
+        listener_belongs=1
+      fi
+    fi
+    if [ "$listener_belongs" != "1" ]; then
+      echo "port ${port} is held by PID ${listener}, which is not part of this stack; refusing to stop it" >&2
+      return 1
+    fi
   fi
 
   if [ -n "$listener" ]; then
@@ -377,10 +435,27 @@ cmd_up() {
     sleep 0.5
   done
 
+  # The wrapper stayed alive for the whole wait but the port never opened.
+  # Don't fall through to seeding, Vite, and save_state as if this were a
+  # working stack. Fail now, while the log lines below still explain why.
+  if [ "$port_open" != "1" ]; then
+    echo "Error: API server did not open port ${DEV_API_PORT} within 10s. Last log lines:" >&2
+    tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+    exit 1
+  fi
+
   # An open port is not proof the server we just started owns it. A restart
   # reuses the port, so a listener from outside this tree means the old
   # server never died: the health check below would pass against stale code
   # and the restart would report success. Fail loudly instead.
+  #
+  # A listener reparented to a subreaper also fails this check: if the
+  # middle wrapper in the pnpm chain dies right after launch, the kernel
+  # re-parents the surviving bun process, and pid_in_tree can no longer walk
+  # from it back up to DEV_API_PID. That misnames the culprit, blaming a
+  # nonexistent "earlier dev server" when the process is actually the one
+  # just started, but it still fails loudly and a retry (`up` again) fixes
+  # it, which is the direction this check should err in.
   if [ "$port_open" = "1" ]; then
     local api_listener
     api_listener="$(port_listener_pid "$DEV_API_PORT")"
