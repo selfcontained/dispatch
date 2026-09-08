@@ -152,8 +152,8 @@ export function AgentTypeIcon({
 }
 
 /**
- * The Dispatch Harness wears Dispatch's own brand mark, in the icon color
- * the user picked for the sidebar.
+ * The Dispatch Harness wears the harness icon: the brand mark inside a
+ * ring, in the icon color the user picked for the sidebar.
  */
 function DispatchHarnessMark({
   className,
@@ -170,7 +170,7 @@ function DispatchHarnessMark({
       aria-label={`${label} agent`}
     >
       <img
-        src={`/icons/${iconColor}/brand-icon.svg`}
+        src={`/icons/${iconColor}/harness-icon.svg`}
         alt=""
         className="h-3.5 w-3.5 object-contain"
         aria-hidden="true"

@@ -5,7 +5,9 @@
  *
  * Reads apps/web/public/brand-icon.svg, recolors it for each palette entry,
  * then renders favicon.png, apple-touch-icon.png, pwa-192.png, and pwa-512.png
- * into apps/web/public/icons/{color}/.
+ * into apps/web/public/icons/{color}/. Also builds harness-icon.svg (the
+ * brand mark in a ring, for the Dispatch Harness agent type) and recolors it
+ * per palette entry alongside the other variants.
  */
 
 import fs from "node:fs";
@@ -17,6 +19,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const PUBLIC_DIR = path.join(REPO_ROOT, "apps/web/public");
 const BRAND_ICON_PATH = path.join(PUBLIC_DIR, "brand-icon.svg");
 const BRAND_FULL_LOGO_PATH = path.join(PUBLIC_DIR, "brand-full-logo.svg");
+const HARNESS_ICON_PATH = path.join(PUBLIC_DIR, "harness-icon.svg");
 const ICONS_DIR = path.join(PUBLIC_DIR, "icons");
 
 // Original fill colors in brand-icon.svg (percentage-based RGB)
@@ -34,9 +37,28 @@ const SIZES = [
 
 const BACKGROUND_COLOR = "#141414";
 
+/**
+ * The harness icon: the brand mark at 62% inside a ring in the dark brand
+ * color. The ring is what reads at 20px next to the brand mark in the
+ * sidebar. Built from brand-icon.svg so a brand change carries over.
+ */
+function buildHarnessIcon(brandSvg: string): string {
+  const inner = extractSvgContent(brandSvg);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+<circle cx="150" cy="150" r="138" fill="none" stroke="${ORIGINAL_DARK}" stroke-width="14"/>
+<g transform="translate(57, 61) scale(0.62)">
+${inner}
+</g>
+</svg>
+`;
+}
+
 async function main() {
   const brandSvg = fs.readFileSync(BRAND_ICON_PATH, "utf-8");
   const brandFullLogoSvg = fs.readFileSync(BRAND_FULL_LOGO_PATH, "utf-8");
+  const harnessSvg = buildHarnessIcon(brandSvg);
+  fs.writeFileSync(HARNESS_ICON_PATH, harnessSvg);
 
   for (const color of COLORS) {
     const colorDir = path.join(ICONS_DIR, color.id);
@@ -57,6 +79,14 @@ async function main() {
     fs.writeFileSync(
       path.join(colorDir, "brand-full-logo.svg"),
       recoloredFullLogo
+    );
+
+    // Recolor the harness icon SVG
+    fs.writeFileSync(
+      path.join(colorDir, "harness-icon.svg"),
+      harnessSvg
+        .replaceAll(ORIGINAL_PRIMARY, color.primary)
+        .replaceAll(ORIGINAL_DARK, color.dark)
     );
 
     // Create a composite SVG at 512x512 with dark background + centered icon
