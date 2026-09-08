@@ -7,13 +7,13 @@ import { cn } from "@/lib/utils";
 
 import type { Step, StepStatus } from "./contracts";
 import { formatStepDuration } from "./format";
-import { arrive, rowDelay, rowVariants } from "./motion";
+import { arrive, DURATION, rowDelay, rowVariants } from "./motion";
 import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
 
-/** Matches the grid-rows transition's duration-300. */
-const FOLD_MS = 300;
+/** Matches the fold's transition duration. */
+const FOLD_MS = DURATION.base * 1000;
 
 const STATUS_ARIA: Record<StepStatus, string> = {
   running: "running",
@@ -148,26 +148,21 @@ export function StepRow({
           {inner}
         </div>
       )}
-      {/* grid-rows 0fr->1fr height animation */}
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] motion-reduce:transition-none",
-          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-        onTransitionEnd={(event) => {
-          if (event.target === event.currentTarget && !expanded) {
-            setMounted(false);
-          }
+      {/* The body's height animates 0 to auto on the fold's motion token. */}
+      <motion.div
+        animate={{ height: expanded ? "auto" : 0 }}
+        transition={arrive()}
+        style={{ overflow: "hidden" }}
+        onAnimationComplete={() => {
+          if (!expanded) setMounted(false);
         }}
       >
-        <div className="overflow-hidden">
-          {expanded ? (
-            <StepDetail step={step} depth={depth} />
-          ) : mounted ? (
-            <StepDetail step={shown.current} depth={depth} />
-          ) : null}
-        </div>
-      </div>
+        {expanded ? (
+          <StepDetail step={step} depth={depth} />
+        ) : mounted ? (
+          <StepDetail step={shown.current} depth={depth} />
+        ) : null}
+      </motion.div>
     </motion.div>
   );
 }
@@ -193,15 +188,15 @@ export function StatusGlyph({
       );
     case "ok":
       return (
-        <span
-          className={cn(
-            base,
-            "animate-harness-pop font-bold text-status-done motion-reduce:animate-none"
-          )}
+        <motion.span
+          className={cn(base, "font-bold text-status-done")}
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={arrive(DURATION.fast)}
           aria-hidden="true"
         >
           ✓
-        </span>
+        </motion.span>
       );
     case "retry":
       return (

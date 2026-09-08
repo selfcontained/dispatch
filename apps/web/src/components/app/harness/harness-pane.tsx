@@ -6,7 +6,7 @@ import type {
 } from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { MotionConfig } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { CircleDollarSign, Cpu, Square, Upload } from "lucide-react";
 
 import {
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 
 import type { Attachment, Turn } from "./contracts";
 import { HarnessContext } from "./harness-context";
+import { arrive, DURATION, exitShrink, fadeVariants } from "./motion";
 import { ModelPicker } from "./model-picker";
 import { ProviderIcon } from "./provider-icon";
 import { latestPlanItems } from "./registry";
@@ -342,6 +343,13 @@ export function HarnessPane({
   const launchModel = agent?.model?.includes("/")
     ? agent.model.slice(agent.model.indexOf("/") + 1)
     : null;
+  const chipLabel = fixedReason
+    ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
+    : config.running
+      ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+      : starting || agent?.status === "running"
+        ? "starting…"
+        : "model · not running";
   const answeringId = answer.isPending
     ? (answer.variables?.messageId ?? null)
     : null;
@@ -390,59 +398,92 @@ export function HarnessPane({
             answeringId={answeringId}
             answersDisabled={disabledReason !== null}
             emptyState={
-              starting ? (
-                <div
-                  className="flex flex-col items-center gap-3 pt-10 text-center"
-                  data-testid="harness-starting"
-                >
-                  <ActivityBars size={28} />
-                  <p className="text-xs text-foreground">
-                    Starting the harness…
-                  </p>
-                  {agent?.latestEvent?.message ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      {agent.latestEvent.message}
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <p
-                    className="pt-6 text-center text-xs text-muted-foreground"
-                    data-testid="harness-empty"
+              <AnimatePresence mode="wait">
+                {starting ? (
+                  <motion.div
+                    key="starting"
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="shown"
+                    exit="hidden"
+                    transition={arrive(DURATION.slow)}
+                    className="flex flex-col items-center gap-3 pt-10 text-center"
+                    data-testid="harness-starting"
                   >
-                    {loading
-                      ? "Loading…"
-                      : error
-                        ? `Could not load turns: ${error.message}`
-                        : "Send the first prompt."}
-                  </p>
-                  {agent?.status === "error" &&
-                  engine &&
-                  /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
-                    <p
-                      className="mt-2 text-center text-[11px] text-muted-foreground"
-                      data-testid="harness-login-hint"
-                    >
-                      Run as the service user, then press Start:{" "}
-                      <code className="rounded bg-muted px-1 py-0.5 text-foreground">
-                        {engine.loginCommand}
-                      </code>
+                    <ActivityBars size={28} />
+                    <p className="text-xs text-foreground">
+                      Starting the harness…
                     </p>
-                  ) : null}
-                </>
-              )
+                    {agent?.latestEvent?.message ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        {agent.latestEvent.message}
+                      </p>
+                    ) : null}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="ready"
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="shown"
+                    exit="hidden"
+                    transition={arrive(DURATION.slow)}
+                  >
+                    <p
+                      className="pt-6 text-center text-xs text-muted-foreground"
+                      data-testid="harness-empty"
+                    >
+                      {loading
+                        ? "Loading…"
+                        : error
+                          ? `Could not load turns: ${error.message}`
+                          : "Send the first prompt."}
+                    </p>
+                    {agent?.status === "error" &&
+                    engine &&
+                    /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
+                      <p
+                        className="mt-2 text-center text-[11px] text-muted-foreground"
+                        data-testid="harness-login-hint"
+                      >
+                        Run as the service user, then press Start:{" "}
+                        <code className="rounded bg-muted px-1 py-0.5 text-foreground">
+                          {engine.loginCommand}
+                        </code>
+                      </p>
+                    ) : null}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             }
           />
         </HarnessContext.Provider>
-        <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
-          {tasksOpen ? (
-            <TasksStrip
-              items={currentTasks}
-              open={tasksExpanded}
-              onOpenChange={setTasksExpanded}
-            />
-          ) : null}
+        <motion.div
+          key={starting ? "starting" : "ready"}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={arrive(DURATION.slow)}
+          className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2"
+        >
+          <AnimatePresence initial={false}>
+            {tasksOpen ? (
+              <motion.div
+                key="tasks"
+                data-testid="harness-tasks-presence"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={exitShrink}
+                transition={arrive()}
+                style={{ overflow: "hidden" }}
+              >
+                <TasksStrip
+                  items={currentTasks}
+                  open={tasksExpanded}
+                  onOpenChange={setTasksExpanded}
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
           <div className="mb-1 flex items-center gap-2">
             <button
               type="button"
@@ -465,15 +506,20 @@ export function HarnessPane({
               ) : (
                 <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
               )}
-              <span className="truncate">
-                {fixedReason
-                  ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
-                  : config.running
-                    ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
-                    : starting || agent?.status === "running"
-                      ? "starting…"
-                      : "model · not running"}
-              </span>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={chipLabel}
+                  data-testid="harness-model-chip-label"
+                  className="truncate"
+                  variants={fadeVariants}
+                  initial="hidden"
+                  animate="shown"
+                  exit="hidden"
+                  transition={arrive(DURATION.fast)}
+                >
+                  {chipLabel}
+                </motion.span>
+              </AnimatePresence>
             </button>
             <button
               type="button"
@@ -553,7 +599,7 @@ export function HarnessPane({
                 : null
             }
           />
-        </div>
+        </motion.div>
       </div>
     </MotionConfig>
   );

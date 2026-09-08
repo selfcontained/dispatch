@@ -644,6 +644,31 @@ describe("HarnessPane tasks and subagents", () => {
     );
     expect(screen.queryByTestId("harness-tasks")).toBeNull();
   });
+
+  it("mounts the tasks strip inside a presence wrapper and animates the chip label by key", () => {
+    state.turns = [
+      { id: "u", role: "user", content: "go", timestamp: 1 },
+      {
+        id: "a",
+        role: "assistant",
+        content: "",
+        timestamp: 2,
+        trace: { startedAt: 1, endedAt: 2, steps: [] },
+        extra: {
+          plan: [{ content: "b", status: "in_progress", priority: "low" }],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.getByTestId("harness-tasks-presence")).toBeTruthy();
+    expect(screen.getByTestId("harness-tasks").textContent).toContain(
+      "0 of 1 done"
+    );
+    expect(screen.getByTestId("harness-model-chip-label")).toBeTruthy();
+  });
 });
 
 describe("HarnessPane inline shortcuts", () => {

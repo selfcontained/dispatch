@@ -1,6 +1,9 @@
+import { AnimatePresence, motion } from "framer-motion";
+
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
+import { arrive, DURATION, fadeVariants } from "./motion";
 import type { TodoItem } from "./registry";
 
 const STATUS_WORD: Record<string, string> = {
@@ -27,8 +30,10 @@ export function TodoList({
         const done = item.status === "completed";
         const active = item.status === "in_progress";
         return (
-          <li
+          <motion.li
             key={`${i}:${item.content}`}
+            layout
+            transition={arrive()}
             className="flex items-start gap-2"
             data-testid="harness-todo-item"
             data-status={item.status}
@@ -44,7 +49,18 @@ export function TodoList({
                     : "text-muted-foreground/60"
               )}
             >
-              {done ? "✓" : active ? <ActivityBars size={9} /> : "○"}
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={item.status}
+                  variants={fadeVariants}
+                  initial="hidden"
+                  animate="shown"
+                  exit="hidden"
+                  transition={arrive(DURATION.fast)}
+                >
+                  {done ? "✓" : active ? <ActivityBars size={9} /> : "○"}
+                </motion.span>
+              </AnimatePresence>
             </span>
             {/* The glyph and color say it for sighted readers; this says it aloud. */}
             <span className="sr-only">
@@ -62,7 +78,7 @@ export function TodoList({
             >
               {item.content}
             </span>
-          </li>
+          </motion.li>
         );
       })}
     </ul>
