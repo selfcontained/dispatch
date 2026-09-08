@@ -3537,6 +3537,37 @@ In `apps/server/src/shared/agent-models.ts` replace the `dispatch:` entry and it
   ],
 ```
 
+- [ ] **Step 2b: The tmux launcher's Console for a harness agent**
+
+`apps/server/src/agents/tmux/command-builder.ts` still names `dshBin` and tails the dsh command log in a split. Three edits:
+
+Delete line 13, `import { commandLogPath } from "../harness/command-log.js";` (Task 1 renamed the path; Task 11 deletes the module).
+
+The `CLI_BY_AGENT_TYPE` map (lines 22 to 33): the `Pick<AppConfig, ...>` union loses `"dshBin"` and gains `"claudeHarnessBin"`, and the `dispatch` row becomes:
+
+```ts
+  // Never read: the `dispatch` branch below returns before the lookup. The
+  // supervisor spawns the engine; the pane is the human's shell.
+  dispatch: "claudeHarnessBin",
+```
+
+The Console block (lines 556 to 579) becomes a plain login shell for both types:
+
+```ts
+// Terminal agents have no CLI to launch: drop the user into an
+// interactive login shell in the chosen cwd/worktree. `-l` alone starts a
+// non-interactive login shell that exits immediately under `bash -c`,
+// which tears down the tmux session before the browser can attach.
+// Harness agents get the same shell: the ACP supervisor (agents/harness)
+// owns the engine process, and the pane is the human's console into the
+// worktree.
+if (type === "terminal" || type === "dispatch") {
+  return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
+}
+```
+
+Remove the now-unused `path` import from that file if `path.dirname` was its only use (`grep -n 'path\.' apps/server/src/agents/tmux/command-builder.ts`).
+
 - [ ] **Step 3: Manager wording**
 
 In `apps/server/src/agents/manager.ts`: the 409 message becomes `"The harness is not running for this agent; the prompt cannot be delivered."`, the 500 becomes `"The harness supervisor is not attached."`, and `markHarnessStartFailed`'s message becomes `` `The harness did not come back after restart: ${message}`.slice(0, 200) ``. Reword the four comments that say "dsh agent" to "harness agent" and "dsh first turn" to "harness first turn".
@@ -3636,6 +3667,8 @@ Expected last line: `"test": "bun run prepare:runtime-assets && bash ../../scrip
 In `apps/server/src/agents/harness/persona.ts` rename the constants and function (Task 1 did the identifiers; fix the prose): the header comment "The system-prompt persona for a harness agent. CLI agents get the same pieces as separate `--append-system-prompt` flags; the harness takes one persona string (in `_meta.systemPrompt.append` for Claude, as the first prompt's leading block for the other engines), so this joins them." Delete the `{{model}}` / `{{cwd}}` sentence. `HARNESS_SLASH_RULE` reads: `'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.'` `HARNESS_CHAT_RULE` keeps its text.
 
 In `apps/server/src/agents/harness/paths.ts` rename `listDshPaths` to `listHarnessPaths` (Task 9 imported that name) and reword any "dsh" in comments.
+
+Comments elsewhere that still say dsh, each a one-line reword to "a harness agent" / "the harness": `apps/server/src/chat/envelope.ts:69`, `apps/server/src/chat/store.ts:42` and `:80`, `apps/server/src/chat/service.ts:148` and `:521`, `apps/server/src/chat/user-prompt.ts:41`, `apps/server/src/agents/activity-monitor.ts` and `token-harvester.ts` (their dsh early-return comments), and `apps/server/src/server/agent-prompts.ts:46` (`"harness turn failed"`).
 
 - [ ] **Step 3: Prove nothing dsh remains**
 
