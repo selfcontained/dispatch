@@ -21,6 +21,8 @@ export interface Step {
   durMs?: number;
   reason?: string;
   detail?: unknown;
+  /** Steps run under this one: a subagent's work, nested one level in the rail. */
+  children?: Step[];
 }
 
 /** The activity behind one assistant turn. */

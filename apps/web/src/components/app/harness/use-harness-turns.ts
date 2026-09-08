@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type {
   ChatAttachment,
+  HarnessPlanEntry,
   HarnessQueuedPrompt,
   HarnessQuestion,
   HarnessStep,
@@ -29,6 +30,7 @@ function toStep(step: HarnessStep): Step {
     ...(step.endedAt ? { endedAt: Date.parse(step.endedAt) } : {}),
     ...(step.durMs !== undefined ? { durMs: step.durMs } : {}),
     detail: step.detail,
+    ...(step.children?.length ? { children: step.children.map(toStep) } : {}),
   };
 }
 
@@ -90,12 +92,14 @@ export function toPromptKitTurns(
   liveTrace: Trace | null;
   liveText: string;
   liveQuestions: HarnessQuestion[];
+  livePlan: HarnessPlanEntry[] | null;
   streaming: boolean;
 } {
   const out: Turn[] = [];
   let liveTrace: Trace | null = null;
   let liveText = "";
   let liveQuestions: HarnessQuestion[] = [];
+  let livePlan: HarnessPlanEntry[] | null = null;
   let streaming = false;
   turns.forEach((turn, index) => {
     const isLast = index === turns.length - 1;
@@ -121,6 +125,7 @@ export function toPromptKitTurns(
       liveTrace = toTrace(turn);
       liveText = turn.result?.text ?? "";
       liveQuestions = turn.questions ?? [];
+      livePlan = turn.plan ?? null;
       streaming = true;
       return;
     }
@@ -136,11 +141,20 @@ export function toPromptKitTurns(
         : {}),
       extra: {
         ...(turn.questions?.length ? { questions: turn.questions } : {}),
+        ...(turn.plan ? { plan: turn.plan } : {}),
+        ...(turn.usage ? { usage: turn.usage } : {}),
         label: turn.label ?? turnLabelFromSteps(trace.steps),
       },
     });
   });
-  return { turns: out, liveTrace, liveText, liveQuestions, streaming };
+  return {
+    turns: out,
+    liveTrace,
+    liveText,
+    liveQuestions,
+    livePlan,
+    streaming,
+  };
 }
 
 /** Chat prompts in order, without immediate repeats. */
@@ -159,6 +173,7 @@ export function useHarnessTurns(agentId: string | null): {
   liveTrace: Trace | null;
   liveText: string;
   liveQuestions: HarnessQuestion[];
+  livePlan: HarnessPlanEntry[] | null;
   streaming: boolean;
   /** Prompts waiting behind the live turn, first to run first. */
   queued: HarnessQueuedPrompt[];

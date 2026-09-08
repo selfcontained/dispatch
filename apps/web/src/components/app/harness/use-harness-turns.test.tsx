@@ -123,3 +123,76 @@ describe("toPromptKitTurns", () => {
     expect(out.turns[1].content).toBe("");
   });
 });
+
+describe("toPromptKitTurns: plan, usage, children", () => {
+  const nested: HarnessTurn = {
+    id: "turn:3",
+    prompt: { source: "chat", text: "delegate", attachments: [] },
+    trace: {
+      startedAt: "2026-09-07T10:00:00.000Z",
+      endedAt: "2026-09-07T10:00:09.000Z",
+      finalResult: "ok",
+      steps: [
+        {
+          id: "stream:1",
+          kind: "other",
+          label: "Task",
+          status: "ok",
+          startedAt: "2026-09-07T10:00:01.000Z",
+          endedAt: "2026-09-07T10:00:08.000Z",
+          durMs: 7000,
+          detail: {},
+          children: [
+            {
+              id: "stream:2",
+              kind: "read",
+              label: "Read",
+              status: "ok",
+              startedAt: "2026-09-07T10:00:02.000Z",
+              endedAt: "2026-09-07T10:00:03.000Z",
+              durMs: 1000,
+              detail: {
+                locations: [{ path: "a.ts" }],
+                parentToolCallId: "task_1",
+              },
+            },
+          ],
+        },
+      ],
+    },
+    result: { text: "Done.", streaming: false },
+    plan: [{ content: "a", status: "completed", priority: "high" }],
+    usage: { used: 4200, size: 200000, costUsd: 0.5 },
+  };
+
+  it("keeps children on steps and plan and usage on the assistant turn", () => {
+    const { turns, livePlan } = toPromptKitTurns([nested], "agt_1");
+    const assistant = turns[1];
+    expect(assistant.trace?.steps[0].children?.map((s) => s.label)).toEqual([
+      "Read",
+    ]);
+    expect(assistant.extra?.plan).toEqual([
+      { content: "a", status: "completed", priority: "high" },
+    ]);
+    expect(assistant.extra?.usage).toEqual({
+      used: 4200,
+      size: 200000,
+      costUsd: 0.5,
+    });
+    expect(livePlan).toBeNull();
+  });
+
+  it("exposes the live turn's plan while it is open", () => {
+    const open: HarnessTurn = {
+      ...nested,
+      id: "turn:4",
+      trace: { ...nested.trace, endedAt: undefined, finalResult: undefined },
+      result: null,
+    };
+    const { livePlan, streaming } = toPromptKitTurns([open], "agt_1");
+    expect(streaming).toBe(true);
+    expect(livePlan).toEqual([
+      { content: "a", status: "completed", priority: "high" },
+    ]);
+  });
+});
