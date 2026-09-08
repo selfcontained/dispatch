@@ -95,12 +95,25 @@ export type {
   HarnessConfigOption,
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
+  HarnessEngineId,
+  HarnessEngine,
+  HarnessCommand,
+  HarnessCommandsResponse,
+  HarnessPlanEntry,
+  HarnessUsageAgent,
+  HarnessUsageEngine,
+  HarnessUsageReport,
 } from "./harness-types.js";
 export {
   HARNESS_BUDGET_PROVIDERS,
   HARNESS_USAGE_PROVIDERS,
   harnessProviderLabel,
   isHarnessBudgetProvider,
+  HARNESS_ENGINE_IDS,
+  HARNESS_ENGINES,
+  DEFAULT_HARNESS_MODEL,
+  harnessEngineOf,
+  HARNESS_BUDGET_ENGINE_IDS,
 } from "./harness-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {

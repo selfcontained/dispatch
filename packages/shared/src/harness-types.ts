@@ -38,7 +38,11 @@ export type HarnessStep = {
     text?: string;
     /** A `subagent` step: the child session it started. */
     subagentSessionId?: string;
+    /** A nested call: the toolCallId of the step it runs under. */
+    parentToolCallId?: string;
   };
+  /** Steps a subagent ran under this one (Claude Task calls). */
+  children?: HarnessStep[];
 };
 
 /**
@@ -76,6 +80,10 @@ export type HarnessTurn = {
    * Absent when the agent sent none.
    */
   label?: string;
+  /** The task list as the engine last published it during this turn. */
+  plan?: HarnessPlanEntry[];
+  /** Context used and, where the engine reports it, cost so far in this session. */
+  usage?: { used: number; size: number; costUsd: number | null };
 };
 
 /**
@@ -88,8 +96,134 @@ export type HarnessQueuedPrompt = HarnessPrompt & {
 };
 
 /**
+ * The engines the harness can run. One row per ACP agent; the create
+ * dialog, the usage dialog, the budget settings, and the starting screen's
+ * login message all read from here. Order is create-dialog order.
+ */
+export const HARNESS_ENGINE_IDS = [
+  "claude",
+  "codex",
+  "gemini",
+  "opencode",
+] as const;
+export type HarnessEngineId = (typeof HARNESS_ENGINE_IDS)[number];
+
+export type HarnessEngine = {
+  id: HarnessEngineId;
+  label: string;
+  /** Sends ACP `plan` / `plan_update`, so the tasks strip has something to show. */
+  publishesPlan: boolean;
+  /** Publishes a `model` config option, so `/model` can switch mid-session. */
+  publishesModelOption: boolean;
+  /** Sends `usage_update` at all. */
+  reportsUsage: boolean;
+  /** Its `usage_update` carries a USD `cost`. */
+  reportsCost: boolean;
+  /** What to run as the service user when the engine reports `auth_required`. */
+  loginCommand: string;
+};
+
+export const HARNESS_ENGINES: readonly HarnessEngine[] = [
+  {
+    id: "claude",
+    label: "Claude Code",
+    publishesPlan: true,
+    publishesModelOption: true,
+    reportsUsage: true,
+    reportsCost: true,
+    loginCommand: "claude /login",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    publishesPlan: true,
+    publishesModelOption: true,
+    reportsUsage: true,
+    reportsCost: false,
+    loginCommand: "codex login --device-auth",
+  },
+  {
+    id: "gemini",
+    label: "Gemini CLI",
+    publishesPlan: false,
+    publishesModelOption: false,
+    reportsUsage: false,
+    reportsCost: false,
+    loginCommand: "NO_BROWSER=true gemini",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    publishesPlan: false,
+    publishesModelOption: true,
+    reportsUsage: true,
+    reportsCost: true,
+    loginCommand: "opencode auth login",
+  },
+];
+
+export const DEFAULT_HARNESS_MODEL = "claude/default";
+
+/** The engine named by a model id's first segment; null when there is none or it is unknown. */
+export function harnessEngineOf(
+  modelId: string | null | undefined
+): HarnessEngine | null {
+  if (!modelId) return null;
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) return null;
+  const id = modelId.slice(0, slash);
+  return HARNESS_ENGINES.find((e) => e.id === id) ?? null;
+}
+
+/** Engines a USD budget applies to: the ones whose usage carries a cost. */
+export const HARNESS_BUDGET_ENGINE_IDS: readonly HarnessEngineId[] =
+  HARNESS_ENGINES.filter((e) => e.reportsCost).map((e) => e.id);
+
+/** A slash command the engine advertises (`available_commands_update`). */
+export type HarnessCommand = {
+  name: string;
+  description: string;
+  input?: { hint: string } | null;
+};
+
+export type HarnessCommandsResponse = { commands: HarnessCommand[] };
+
+/** One entry of the agent's task list, as ACP `plan` carries it. */
+export type HarnessPlanEntry = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
+};
+
+export type HarnessUsageAgent = {
+  agentId: string;
+  name: string;
+  /** Tokens this month from agent_token_usage (input + output + cache). */
+  tokens: number;
+  /** USD the engine reported for its sessions this month; null when it reports none. */
+  costUsd: number | null;
+};
+
+export type HarnessUsageEngine = HarnessEngine & {
+  tokens: number;
+  costUsd: number | null;
+  /** From Settings, Agents, Usage budgets; only cost-reporting engines take one. */
+  budgetUsd: number | null;
+  agents: HarnessUsageAgent[];
+};
+
+/** What the engines used this month; replaces HarnessUsageResponse once plan 2 lands. */
+export type HarnessUsageReport = {
+  generatedAt: string;
+  monthStart: string;
+  engines: HarnessUsageEngine[];
+};
+
+/**
  * A dsh subagent: a session of its own, spawned by a `subagent` tool call
  * in the parent's turn. Shaped from the child's log, so it reads as turns.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
  */
 export type HarnessSubagent = {
   /** The child session id, as the parent's step output names it. */
@@ -104,6 +238,7 @@ export type HarnessSubagent = {
   turns: HarnessTurn[];
 };
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessSubagentResponse = { subagent: HarnessSubagent };
 
 export type HarnessTurnsResponse = {
@@ -112,7 +247,11 @@ export type HarnessTurnsResponse = {
   queued: HarnessQueuedPrompt[];
 };
 
-/** A skill the harness can load; the composer's slash menu lists them. */
+/**
+ * A skill the harness can load; the composer's slash menu lists them.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export type HarnessSkill = {
   name: string;
   description: string;
@@ -120,6 +259,7 @@ export type HarnessSkill = {
   source: "project" | "home";
 };
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessSkillsResponse = { skills: HarnessSkill[] };
 
 /** One completion of the composer's "@" path picker, spelled as the user typed the prefix. */
@@ -166,7 +306,11 @@ export type HarnessConfigResponse = {
 
 export type HarnessConfigUpdateRequest = { configId: string; value: string };
 
-/** Token counts as the harness logs them per model call. */
+/**
+ * Token counts as the harness logs them per model call.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export type HarnessTokenCounts = {
   input: number;
   output: number;
@@ -179,12 +323,18 @@ export type HarnessTokenCounts = {
  * or a sign-in stored in dsh's credential store (a ChatGPT plan). A key is
  * metered, so a dollar budget applies; a grant is a plan, so its usage is a
  * share of rate-limit windows and no budget applies.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
  */
 export type HarnessProviderAuth =
   | { kind: "key"; env: string }
   | { kind: "grant"; record: string; label: string };
 
-/** One provider route the harness can use, with what is known of its usage. */
+/**
+ * One provider route the harness can use, with what is known of its usage.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export type HarnessUsageProvider = {
   /** dsh's provider route id: openai, deepseek, openai-codex, … */
   id: string;
@@ -223,6 +373,7 @@ export type HarnessUsageProvider = {
   error?: string;
 };
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessSubscriptionWindow = {
   /** "primary" is the short window (5h on ChatGPT), "secondary" the weekly one. */
   id: "primary" | "secondary";
@@ -233,6 +384,7 @@ export type HarnessSubscriptionWindow = {
   resetsAt: string | null;
 };
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessSubscriptionUsage = {
   /** The plan name the provider reports (plus, pro, team…); null when unknown. */
   plan: string | null;
@@ -243,6 +395,7 @@ export type HarnessSubscriptionUsage = {
   limitReached: boolean;
 };
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessUsageResponse = {
   generatedAt: string;
   monthStart: string;
@@ -256,6 +409,8 @@ export type HarnessUsageResponse = {
  * picker's auth filter, the usage dialog, and the budget settings derive
  * from. Ids are dsh's route ids. The ChatGPT route comes first because it
  * is the default route once its sign-in is stored.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
  */
 export const HARNESS_USAGE_PROVIDERS = [
   {
@@ -293,34 +448,54 @@ export const HARNESS_USAGE_PROVIDERS = [
   auth: HarnessProviderAuth;
 }[];
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessProviderSpec = (typeof HARNESS_USAGE_PROVIDERS)[number];
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessUsageProviderId = HarnessProviderSpec["id"];
 
-/** A metered provider: the ones a dollar budget applies to. */
+/**
+ * A metered provider: the ones a dollar budget applies to.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export type HarnessBudgetProviderSpec = Extract<
   HarnessProviderSpec,
   { auth: { kind: "key" } }
 >;
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export type HarnessBudgetProviderId = HarnessBudgetProviderSpec["id"];
 
-/** Whether a provider is metered by a key, and so takes a dollar budget. */
+/**
+ * Whether a provider is metered by a key, and so takes a dollar budget.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export function isHarnessBudgetProvider(
   p: HarnessProviderSpec
 ): p is HarnessBudgetProviderSpec {
   return p.auth.kind === "key";
 }
 
+/** @deprecated Removed with the web feeds in plan 2. */
 export const HARNESS_BUDGET_PROVIDERS: readonly HarnessBudgetProviderSpec[] =
   HARNESS_USAGE_PROVIDERS.filter(isHarnessBudgetProvider);
 
-/** The display label for a provider route id; the id itself when unknown. */
+/**
+ * The display label for a provider route id; the id itself when unknown.
+ *
+ * @deprecated Removed with the web feeds in plan 2.
+ */
 export function harnessProviderLabel(id: string): string {
   return HARNESS_USAGE_PROVIDERS.find((p) => p.id === id)?.label ?? id;
 }
 
-/** Monthly budgets in USD by metered provider id; a provider without a row has none. */
+/**
+ * Monthly budgets in USD by metered provider id; a provider without a row has none.
+ *
+ * @deprecated keyed by provider; Task 9 re-keys it by engine
+ */
 export type UsageBudgets = Partial<Record<HarnessBudgetProviderId, number>>;
 
 export type UsageBudgetsResponse = { budgets: UsageBudgets };
