@@ -129,6 +129,29 @@ describe("ModelPicker", () => {
     expect(screen.queryByTestId("harness-model-select")).toBeNull();
   });
 
+  it("names the engine when the fixed model is the engine's own default", () => {
+    // `default` on its own says nothing; the chip names the engine in this
+    // case and so should the dialog.
+    render(
+      <ModelPicker
+        open
+        onOpenChange={() => {}}
+        model={undefined}
+        effort={undefined}
+        running
+        saving={false}
+        error={null}
+        fixedReason="Gemini CLI sets its model at launch."
+        launchModel="default"
+        engineLabel="Gemini CLI"
+        onApply={async () => {}}
+      />
+    );
+    expect(screen.getByTestId("harness-model-fixed").textContent).toBe(
+      "Gemini CLI default · set at launch"
+    );
+  });
+
   it("says Not running instead of asking for a choice", () => {
     render(
       <ModelPicker

@@ -5,8 +5,10 @@ summary: >
   the `dispatch` (Dispatch Harness) agent type: assistant messages, thoughts,
   tool calls, status rows, and plans folded from an Agent Client Protocol
   session, plus `agent_chat_messages.delivery_text` for a first turn that must
-  carry more than its display text. Both changes are additive and guarded, and
-  the migrations run automatically on server boot. The `dispatch` agent type
+  carry more than its display text, and replaces the stream table's `kind`
+  CHECK so it accepts `plan` on an install whose table was created by an
+  earlier prerelease of this branch. Three files, every statement guarded,
+  run automatically on server boot. The `dispatch` agent type
   runs four engines over the Agent Client Protocol: Claude Code, Codex, Gemini
   CLI, and OpenCode, each a host install using its own login. A running
   Dispatch Harness agent does not survive a service restart; the new process
@@ -16,11 +18,12 @@ alreadySatisfied:
   description: >
     The install is already on the target tag, the local health endpoint
     returns status=ok, and release.json reports the target tag. Server boot
-    runs both migrations idempotently and both changes are additive, so any
-    healthy install at the target tag has already taken them. A database that
-    ran an earlier prerelease of this branch is handled at boot as well: the
+    runs all three migrations idempotently: the table and the column are
+    additive, and the third only replaces a CHECK constraint, so any healthy
+    install at the target tag has already taken them. A database that ran an
+    earlier prerelease of this branch is handled at boot as well: the
     migration runner first deletes the bookkeeping records those prereleases
-    wrote for files this release no longer ships, then re-applies the two
+    wrote for files this release no longer ships, then re-applies the three
     guarded migrations and carries over the harness agent type rename.
     Running Dispatch Harness agents, if any existed, were resumed or marked
     errored at boot.
@@ -45,7 +48,8 @@ instructions:
     is re-prompted to continue.
 
       SELECT id, name FROM agents
-       WHERE type = 'dispatch' AND status = 'running';
+       WHERE type = 'dispatch' AND status = 'running'
+         AND latest_event_type = 'working';
   - Confirm the service has been restarted to the target release tag.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
   - Confirm release.json under the install directory reports the target tag.
@@ -73,15 +77,23 @@ rollback:
     the harness, not only v0.38.13: the updater's version compare ignores the
     prerelease suffix, so once a later official release exists the Updates UI
     will offer it to a harness install.
-  - >
-    Step 1. Stop or archive every Dispatch Harness agent from the UI, then
-    confirm no `dispatch-<id>` session is left behind with `tmux ls`. A
-    release without the harness does not know the type: it cannot build a
-    Restart command for such an agent, and a pane left running is a plain
-    login shell that survives the swap, so the older process sees a live
-    session, keeps the agent running, and types every Chat message, agent
-    message, review injection and job prompt into that shell as a command in
-    the agent's working tree.
+  - |
+    Step 1. Stop or archive every Dispatch Harness agent from the UI. Every
+    one of them, not only those mid-turn:
+
+      SELECT id, name FROM agents WHERE type = 'dispatch';
+
+    Then, for each id returned, confirm `tmux ls | grep "_<id>"` prints
+    nothing. A session is named `<prefix>_<agentId>[_<slug>]` and every agent
+    type shares the prefix, so the agent id is the only part of the name that
+    identifies one.
+
+    Why it matters: a release without the harness does not know the type, so
+    it cannot build a Restart command for such an agent, and a pane left
+    running is a plain login shell that survives the swap. The older process
+    sees a live session, keeps the agent running, and types every Chat
+    message, agent message, review injection and job prompt into that shell
+    as a command in the agent's working tree.
   - >
     Step 2. Retarget or disable every job and template that launches this
     type, which the older release cannot launch at all:

@@ -196,8 +196,11 @@ live session and keeps the agent running, and every Chat message, agent
 message, review injection and job prompt is then typed into that shell as a
 command in the agent's working tree. So before the binary swap:
 
-1. Stop or archive every Dispatch Harness agent from the UI, then confirm no
-   `dispatch-<id>` session is left with `tmux ls`.
+1. Stop or archive every Dispatch Harness agent from the UI
+   (`SELECT id, name FROM agents WHERE type = 'dispatch'`). Then, for each
+   id, confirm `tmux ls | grep "_<id>"` prints nothing. A session is named
+   `<prefix>_<agentId>[_<slug>]` and every agent type shares the prefix, so
+   the agent id is the only part that identifies one.
 2. Retarget or disable every job and template that launches the type, which
    the older release cannot launch at all:
    `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'`, and the same

@@ -624,6 +624,7 @@ export function HarnessPane({
             error={configError}
             fixedReason={fixedReason}
             launchModel={launchModel}
+            engineLabel={engine?.label}
             onApply={applyConfig}
           />
           {sendError ? (

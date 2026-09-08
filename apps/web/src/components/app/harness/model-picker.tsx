@@ -52,6 +52,8 @@ export type ModelPickerProps = {
    * never says which model is in force.
    */
   launchModel?: string | null;
+  /** The engine's label, for the case where the fixed model is its own default. */
+  engineLabel?: string | null;
   /** Apply the changed options, in order; resolves when the session took them. */
   onApply: (changes: { configId: string; value: string }[]) => Promise<void>;
 };
@@ -72,6 +74,7 @@ export function ModelPicker({
   error,
   fixedReason,
   launchModel,
+  engineLabel,
   onApply,
 }: ModelPickerProps): JSX.Element {
   // Held encoded (see EMPTY_VALUE); decoded at the edges.
@@ -100,6 +103,14 @@ export function ModelPicker({
   const selectedEffort = configChoices(effort).find(
     (c) => c.value === decodeValue(effortValue)
   );
+
+  // What the launch fixed, for the engines that fix it. A bare "default"
+  // names nothing on its own, so the engine's label carries it, the way the
+  // composer's chip does with the same value.
+  const fixedModelText =
+    !launchModel || launchModel === "default"
+      ? `${engineLabel ?? "The engine"} default`
+      : launchModel;
 
   const apply = async () => {
     const changes: { configId: string; value: string }[] = [];
@@ -138,7 +149,7 @@ export function ModelPicker({
                 className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[12px] text-foreground"
                 data-testid="harness-model-fixed"
               >
-                {launchModel ?? "The engine default"} · set at launch
+                {fixedModelText} · set at launch
               </p>
             ) : (
               <Select
