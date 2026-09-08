@@ -94,11 +94,11 @@ export type SupervisorDeps = {
  * agent gets, so git over SSH, gh, proxies, and locale behave the same in
  * both.
  *
- * The provider keys are here because each engine authenticates through the
- * host CLI's own login, and a key left in the service environment would
- * quietly authenticate the engine as someone else and bill that account
- * instead. `GEMINI_API_KEY` is deliberately not on the list: it is one of
- * Gemini CLI's supported logins, and the runbook says so.
+ * The three engine API keys are on the list because each engine
+ * authenticates through the host CLI's own login, and a key left in the
+ * service environment would quietly authenticate the engine as someone else
+ * and bill that account instead. `GEMINI_API_KEY` is deliberately not on the
+ * list: it is one of Gemini CLI's supported logins, and the runbook says so.
  */
 const ENV_DENY_EXACT = new Set([
   "OPENAI_API_KEY",
