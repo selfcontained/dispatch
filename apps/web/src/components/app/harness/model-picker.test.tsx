@@ -82,4 +82,27 @@ describe("ModelPicker", () => {
     expect(decodeValue(encodeValue(""))).toBe("");
     expect(encodeValue("high")).toBe("high");
   });
+
+  it("explains and disables the selects when the engine fixes its model at launch", () => {
+    render(
+      <ModelPicker
+        open
+        onOpenChange={() => {}}
+        model={undefined}
+        effort={undefined}
+        running
+        saving={false}
+        error={null}
+        fixedReason="Gemini CLI sets its model at launch."
+        onApply={async () => {}}
+      />
+    );
+    expect(
+      screen.getByText("Gemini CLI sets its model at launch.")
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
 });

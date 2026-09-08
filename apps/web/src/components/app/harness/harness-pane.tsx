@@ -4,6 +4,7 @@ import type {
   ChatUserAttachmentInput,
   HarnessQuestion,
 } from "@dispatch/shared";
+import { harnessEngineOf } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleDollarSign, Cpu, Square, Upload } from "lucide-react";
 
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment, Turn } from "./contracts";
 import { HarnessContext } from "./harness-context";
 import { ModelPicker } from "./model-picker";
-import { ProviderIcon, providerOfConfigValue } from "./provider-icon";
+import { ProviderIcon } from "./provider-icon";
 import { latestPlanItems } from "./registry";
 import { TasksStrip } from "./tasks-strip";
 import { TurnShortcuts } from "./turn-shortcuts";
@@ -332,6 +333,14 @@ export function HarnessPane({
           : null;
   const modelName = currentChoiceName(config.model);
   const effortName = currentChoiceName(config.effort);
+  const engine = harnessEngineOf(agent?.model);
+  const fixedReason =
+    engine && !engine.publishesModelOption
+      ? `${engine.label} sets its model at launch.`
+      : null;
+  const launchModel = agent?.model?.includes("/")
+    ? agent.model.slice(agent.model.indexOf("/") + 1)
+    : null;
   const answeringId = answer.isPending
     ? (answer.variables?.messageId ?? null)
     : null;
@@ -419,25 +428,30 @@ export function HarnessPane({
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
-            title="Model and reasoning effort (or type /model)"
+            title={fixedReason ?? "Model and reasoning effort (or type /model)"}
             data-testid="harness-model-chip"
-            className={cn(CHIP_CLASS, "max-w-full")}
+            data-fixed={fixedReason ? "true" : undefined}
+            className={cn(
+              CHIP_CLASS,
+              "max-w-full",
+              fixedReason && "opacity-70"
+            )}
           >
             {starting || (!config.running && agent?.status === "running") ? (
               <ActivityBars size={10} className="shrink-0" />
+            ) : engine ? (
+              <ProviderIcon provider={engine.id} />
             ) : (
-              (config.running && (
-                <ProviderIcon
-                  provider={providerOfConfigValue(config.model?.currentValue)}
-                />
-              )) || <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
             )}
             <span className="truncate">
-              {config.running
-                ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
-                : starting || agent?.status === "running"
-                  ? "starting…"
-                  : "model · not running"}
+              {fixedReason
+                ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
+                : config.running
+                  ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+                  : starting || agent?.status === "running"
+                    ? "starting…"
+                    : "model · not running"}
             </span>
           </button>
           <button
@@ -478,6 +492,7 @@ export function HarnessPane({
           running={config.running}
           saving={setConfig.isPending}
           error={configError}
+          fixedReason={fixedReason}
           onApply={applyConfig}
         />
         {sendError ? (

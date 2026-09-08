@@ -44,6 +44,8 @@ export type ModelPickerProps = {
   running: boolean;
   saving: boolean;
   error: string | null;
+  /** Set when the engine fixes its model at launch; explains and disables. */
+  fixedReason?: string | null;
   /** Apply the changed options, in order; resolves when the session took them. */
   onApply: (changes: { configId: string; value: string }[]) => Promise<void>;
 };
@@ -51,8 +53,8 @@ export type ModelPickerProps = {
 /**
  * The model and reasoning-effort picker for a Dispatch Harness session,
  * opened from the composer's chip or the /model command. Both selects are
- * fed by the session's own config options, so what is listed is what dsh
- * will accept, filtered to the providers the service has keys for.
+ * fed by the session's own config options, so what is listed is what the
+ * engine will accept.
  */
 export function ModelPicker({
   open,
@@ -62,6 +64,7 @@ export function ModelPicker({
   running,
   saving,
   error,
+  fixedReason,
   onApply,
 }: ModelPickerProps): JSX.Element {
   // Held encoded (see EMPTY_VALUE); decoded at the edges.
@@ -82,7 +85,8 @@ export function ModelPicker({
     !!model && decodeValue(modelValue) !== model.currentValue;
   const effortChanged =
     !!effort && decodeValue(effortValue) !== effort.currentValue;
-  const canApply = running && !saving && (modelChanged || effortChanged);
+  const canApply =
+    running && !fixedReason && !saving && (modelChanged || effortChanged);
   const selectedModel = configChoices(model).find(
     (c) => c.value === decodeValue(modelValue)
   );
@@ -107,9 +111,11 @@ export function ModelPicker({
         <DialogHeader>
           <DialogTitle>Model and effort</DialogTitle>
           <DialogDescription>
-            {running
-              ? "Applies to the next turn of this session."
-              : "The agent has no live session; start it to change these."}
+            {fixedReason
+              ? fixedReason
+              : running
+                ? "Applies to the next turn of this session."
+                : "The agent has no live session; start it to change these."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -123,7 +129,7 @@ export function ModelPicker({
             <Select
               value={modelValue}
               onValueChange={setModelValue}
-              disabled={!running || !model}
+              disabled={!running || !!fixedReason || saving}
             >
               <SelectTrigger
                 id="harness-model"
@@ -177,7 +183,7 @@ export function ModelPicker({
               <Select
                 value={effortValue}
                 onValueChange={setEffortValue}
-                disabled={!running}
+                disabled={!running || !!fixedReason || saving}
               >
                 <SelectTrigger
                   id="harness-effort"
