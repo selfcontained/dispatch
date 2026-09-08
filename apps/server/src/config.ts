@@ -24,10 +24,12 @@ export type AppConfig = {
   claudeBin: string;
   opencodeBin: string;
   cursorBin: string;
-  /** Path to the `dsh` launcher (DeepSeek Harness). */
-  dshBin: string;
-  /** DSH_HOME for agents Dispatch launches; never the user's own ~/.dsh. */
-  dshHome: string;
+  /** The Claude engine's ACP adapter (`claude-agent-acp`). */
+  claudeHarnessBin: string;
+  /** The Codex engine's ACP adapter (`codex-acp`). */
+  codexHarnessBin: string;
+  /** The Gemini CLI, which speaks ACP itself. */
+  geminiBin: string;
   agentRuntime: "tmux" | "inert";
   sessionPrefix: string;
   tls: TlsConfig | null;
@@ -98,11 +100,11 @@ export function loadConfig(): AppConfig {
       "opencode",
     cursorBin:
       process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
-    dshBin: process.env.DISPATCH_DSH_BIN ?? process.env.DSH_BIN ?? "dsh",
-    dshHome: resolveConfiguredPath(
-      process.env.DISPATCH_DSH_HOME ??
-        path.join(os.homedir(), ".dispatch", "dsh")
-    ),
+    claudeHarnessBin:
+      process.env.DISPATCH_CLAUDE_HARNESS_BIN ?? "claude-agent-acp",
+    codexHarnessBin: process.env.DISPATCH_CODEX_HARNESS_BIN ?? "codex-acp",
+    geminiBin:
+      process.env.DISPATCH_GEMINI_BIN ?? process.env.GEMINI_BIN ?? "gemini",
     agentRuntime: resolveAgentRuntime(),
     sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),

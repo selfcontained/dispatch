@@ -10,7 +10,6 @@ import type { AppConfig } from "../../config.js";
 import { PLUGIN_AGENT_TYPES } from "../../shared/agent-types.js";
 import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
-import { commandLogPath } from "../harness/command-log.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
 import { agentIdFromSessionName } from "./session-name.js";
@@ -22,14 +21,16 @@ export const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
   keyof Pick<
     AppConfig,
-    "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin" | "dshBin"
+    "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin" | "claudeHarnessBin"
   >
 > = {
   codex: "codexBin",
   claude: "claudeBin",
   opencode: "opencodeBin",
   cursor: "cursorBin",
-  dispatch: "dshBin",
+  // Never read: the `dispatch` branch below returns before the lookup. The
+  // supervisor spawns the engine; the pane is the human's shell.
+  dispatch: "claudeHarnessBin",
 };
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
@@ -63,7 +64,7 @@ export function normalizeAgentArgsForType(
 /**
  * Split a `--append-system-prompt <value>` pair out of an arg list. This is
  * how a persona launch carries its brief; the CLI branches that take the
- * prompt through their own flag call this, and so does the dsh persona
+ * prompt through their own flag call this, and so does the harness persona
  * builder, which folds the brief into the harness's system prompt.
  */
 export function extractAppendedSystemPrompt(args: string[]): {
@@ -553,29 +554,15 @@ export function buildAgentCommand(
 
   const envPrefix = envPrefixParts.join(" ");
 
-  // Terminal agents have no CLI to launch — drop the user into an
+  // Terminal agents have no CLI to launch: drop the user into an
   // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
   // non-interactive login shell that exits immediately under `bash -c`,
   // which tears down the tmux session before the browser can attach.
-  // dsh agents also get a plain shell in the pane: the ACP driver
-  // (agents/dsh) owns the harness process, and the pane is the human's
-  // console into the worktree.
-  if (type === "terminal") {
+  // Harness agents get the same shell: the ACP supervisor (agents/harness)
+  // owns the engine process, and the pane is the human's console into the
+  // worktree.
+  if (type === "terminal" || type === "dispatch") {
     return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
-  }
-  if (type === "dispatch") {
-    // The harness runs its commands in its own process; the pane shows
-    // their log (agents/harness/command-log.ts) in a split above an
-    // interactive shell, so the Console reads as the agent's terminal.
-    const log = shellEscape(commandLogPath(config.dshHome, agentId));
-    const logDir = shellEscape(
-      path.dirname(commandLogPath(config.dshHome, agentId))
-    );
-    return [
-      `${envPrefix} mkdir -p ${logDir} && touch ${log} &&`,
-      `tmux split-window -d -v -l 60% -b -t "$TMUX_PANE" -c "$PWD" "tail -n 300 -F ${log}";`,
-      `exec "\${SHELL:-/bin/bash}" -il`,
-    ].join(" ");
   }
 
   const cliBin = config[CLI_BY_AGENT_TYPE[type]];

@@ -21,8 +21,9 @@ const baseConfig: AppConfig = {
   claudeBin: "/opt/claude",
   opencodeBin: "/opt/opencode",
   cursorBin: "/opt/cursor",
-  dshBin: "/opt/dsh",
-  dshHome: "/tmp/dispatch-test-dsh-home",
+  claudeHarnessBin: "/opt/claude-agent-acp",
+  codexHarnessBin: "/opt/codex-acp",
+  geminiBin: "/opt/gemini",
   agentRuntime: "inert",
   sessionPrefix: "dispatch",
   tls: null,
@@ -1268,8 +1269,8 @@ describe("buildLaunchGuidance — chat surface rule", () => {
   });
 });
 
-describe("dsh agents", () => {
-  it("launch into a login shell like terminal agents; the ACP driver owns the CLI", () => {
+describe("dispatch harness agents", () => {
+  it("launch into a login shell like terminal agents; the ACP supervisor owns the engine", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "dispatch",
@@ -1282,21 +1283,9 @@ describe("dsh agents", () => {
     expect(cmd).toContain('"${SHELL:-/bin/bash}" -il');
     expect(cmd).not.toContain("--mcp-config");
     expect(cmd).not.toContain("--append-system-prompt");
-  });
-
-  it("tails the agent's command log in a split above the shell", () => {
-    const cmd = buildAgentCommand(
-      baseConfig,
-      "dispatch",
-      "standard",
-      [],
-      "/tmp/media",
-      SESSION,
-      false,
-      { agentId: "agt_1" } as never
-    );
-    expect(cmd).toContain("tmux split-window -d -v -l 60% -b");
-    expect(cmd).toContain("tail -n 300 -F");
-    expect(cmd).toContain("/tmp/dispatch-test-dsh-home/logs/");
+    expect(cmd).not.toContain("split-window");
+    expect(cmd).not.toContain("tail -n 300");
+    // The dispatch pane is a plain login shell, the same line terminal agents get.
+    expect(cmd.trim().endsWith('"${SHELL:-/bin/bash}" -il')).toBe(true);
   });
 });

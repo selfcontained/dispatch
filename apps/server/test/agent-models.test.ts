@@ -178,11 +178,11 @@ describe("resolveAgentModelForUpdate", () => {
 });
 
 describe("dispatch catalog", () => {
-  it("lists provider-qualified ids for dispatch", () => {
+  it("lists engine-qualified ids for dispatch", () => {
     const ids = (AGENT_MODEL_OPTIONS.dispatch ?? []).map((o) => o.id);
-    expect(ids).toContain("deepseek-official/deepseek-v4-flash");
-    expect(ids).toContain("openai/gpt-5.6-sol");
-    expect(ids).not.toContain("openai/gpt-5.2");
+    expect(ids).toContain("claude/claude-opus-5");
+    expect(ids).toContain("codex/gpt-5.6-sol");
+    expect(ids).not.toContain("openai/gpt-5.6-sol");
     for (const id of ids) expect(id).toMatch(/^[a-z0-9-]+\/[a-z0-9.-]+$/);
   });
 });

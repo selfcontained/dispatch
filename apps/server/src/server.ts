@@ -466,8 +466,8 @@ const chatService = new ChatService({
     // failed delivery rather than a stale session name.
     inject: async (agentId, _sessionName, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
-    // A dsh prompt waits in the supervisor's turn queue, not the injection
-    // gate; report that so Chat and MCP messages agree on "held".
+    // A harness prompt waits in the supervisor's turn queue, not the
+    // injection gate; report that so Chat and MCP messages agree on "held".
     held: (agentId): boolean =>
       harnessSupervisor.isRunning(agentId)
         ? harnessSupervisor.isBusy(agentId)
@@ -1041,14 +1041,15 @@ export async function start() {
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
 
-  // dsh children died with the previous process while their agents stayed
-  // "running"; bring them back on their stored session ids. This has to run
-  // after listen: the harness attaches Dispatch's MCP endpoint at resume.
+  // Harness children died with the previous process while their agents
+  // stayed "running"; bring them back on their stored session ids. This has
+  // to run after listen: the harness attaches Dispatch's MCP endpoint at
+  // resume.
   if (reconcileOnStart) {
-    const dshRestore = await harnessSupervisor.restoreRunning();
+    const harnessRestore = await harnessSupervisor.restoreRunning();
     // Chat messages that were queued behind a running turn when the last
     // process stopped: the boot sweep left them pending for these agents.
-    for (const id of dshRestore.restored) {
+    for (const id of harnessRestore.restored) {
       try {
         const count = await chatService.redeliverPending(id);
         if (count > 0) {
@@ -1061,9 +1062,9 @@ export async function start() {
         app.log.warn({ err, agentId: id }, "Redelivering queued chat failed");
       }
     }
-    await chatService.abandonPending(dshRestore.failed).catch(() => []);
-    if (dshRestore.restored.length + dshRestore.failed.length > 0) {
-      app.log.info(dshRestore, "Restored dsh agents after restart");
+    await chatService.abandonPending(harnessRestore.failed).catch(() => []);
+    if (harnessRestore.restored.length + harnessRestore.failed.length > 0) {
+      app.log.info(harnessRestore, "Restored harness agents after restart");
     }
   }
 
@@ -1108,11 +1109,11 @@ async function cleanupAppResources(): Promise<void> {
     );
   }
 
-  // Stop dsh children through their teardown ladder before the pool goes
-  // away (the exit rows need it); otherwise they outlive the server with
-  // full-access permissions and a stale MCP token.
+  // Stop harness children through their teardown ladder before the pool
+  // goes away (the exit rows need it); otherwise they outlive the server
+  // with full-access permissions and a stale MCP token.
   await harnessSupervisor.stopAll().catch((err: unknown) => {
-    app.log.warn({ err }, "Stopping dsh agents on shutdown failed");
+    app.log.warn({ err }, "Stopping harness agents on shutdown failed");
   });
 
   await pool.end().catch(() => null);

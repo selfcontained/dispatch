@@ -340,8 +340,8 @@ export class AgentManager {
   }
 
   /**
-   * Inject the dsh supervisor. Wired post-construction like the other
-   * collaborators; without it a dsh agent fails setup loudly rather than
+   * Inject the harness supervisor. Wired post-construction like the other
+   * collaborators; without it a harness agent fails setup loudly rather than
    * sitting in a shell with no harness behind it.
    */
   attachHarnessSupervisor(supervisor: HarnessSupervisor): void {
@@ -349,15 +349,15 @@ export class AgentManager {
   }
 
   /**
-   * Where a prompt for this agent goes: the ACP child for a dsh agent, the
-   * tmux pane for a CLI agent, or nowhere in inert mode. One agent read.
+   * Where a prompt for this agent goes: the ACP child for a harness agent,
+   * the tmux pane for a CLI agent, or nowhere in inert mode. One agent read.
    */
   async getPromptTarget(id: string): Promise<AgentPromptTarget> {
     const agent = await this.getRequiredAgent(id);
     if (agent.type === "dispatch") {
       if (!this.harnessSupervisor?.isRunning(id)) {
         throw new AgentError(
-          "dsh is not running for this agent — prompt cannot be delivered.",
+          "The harness is not running for this agent; the prompt cannot be delivered.",
           409
         );
       }
@@ -370,20 +370,21 @@ export class AgentManager {
   }
 
   /**
-   * Queue one dsh turn. `started` resolves when it begins (after any turn
-   * already running), `settled` when it ends. See HarnessSupervisor.enqueuePrompt.
+   * Queue one harness turn. `started` resolves when it begins (after any
+   * turn already running), `settled` when it ends. See
+   * HarnessSupervisor.enqueuePrompt.
    */
   promptHarness(
     id: string,
     text: string
   ): { started: Promise<void>; settled: Promise<void> } {
     if (!this.harnessSupervisor) {
-      throw new AgentError("dsh supervisor is not attached.", 500);
+      throw new AgentError("The harness supervisor is not attached.", 500);
     }
     return this.harnessSupervisor.enqueuePrompt(id, text);
   }
 
-  /** dsh agents the last process left running; the supervisor restores them at boot. */
+  /** Harness agents the last process left running; the supervisor restores them at boot. */
   async listRunningHarnessAgentIds(): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       `SELECT id FROM agents
@@ -393,8 +394,8 @@ export class AgentManager {
     return result.rows.map((row) => row.id);
   }
 
-  /** A dsh agent that could not be brought back at boot. */
-  /** The dsh child died on its own: the agent cannot stay "running" over it. */
+  /** A harness agent that could not be brought back at boot. */
+  /** The harness child died on its own: the agent cannot stay "running" over it. */
   async markHarnessExited(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
@@ -408,12 +409,15 @@ export class AgentManager {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
       type: "blocked",
-      message: `dsh did not come back after restart: ${message}`.slice(0, 200),
+      message: `The harness did not come back after restart: ${message}`.slice(
+        0,
+        200
+      ),
       metadata: { source: "system", phase: "start" },
     });
   }
 
-  /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
+  /** The system-prompt persona a harness agent launches with (see agents/harness/persona.ts). */
   async buildHarnessPersonaFor(
     agent: AgentRecord,
     jobRunId?: string
@@ -460,7 +464,7 @@ export class AgentManager {
     };
   }
 
-  /** Record the harness session id a dsh agent runs under (for resume). */
+  /** Record the harness session id a harness agent runs under (for resume). */
   async setCliSessionId(id: string, cliSessionId: string): Promise<void> {
     await this.pool.query(
       `UPDATE agents SET cli_session_id = $2, updated_at = NOW() WHERE id = $1`,
@@ -658,11 +662,11 @@ export class AgentManager {
           );
     // Terminal sessions have no CLI to chat with, so they get no post at all.
     const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
-    // A dsh agent reads its launch prompt from the Chat post (it takes no
-    // launch argument), so the post is durable for it whatever the flag says.
-    // A job run keeps Chat quiet for CLI agents (the pane carries the job
-    // scaffolding), but a dsh job still needs the post: it is the only way
-    // the job prompt becomes the agent's first turn.
+    // A harness agent reads its launch prompt from the Chat post (it takes
+    // no launch argument), so the post is durable for it whatever the flag
+    // says. A job run keeps Chat quiet for CLI agents (the pane carries the
+    // job scaffolding), but a harness job still needs the post: it is the
+    // only way the job prompt becomes the agent's first turn.
     const wantsEnvelope =
       recorder !== null &&
       (launchGuidanceFlags.chatSurface || p.type === "dispatch") &&
@@ -754,14 +758,14 @@ export class AgentManager {
     return {
       id: launchPostId,
       agentId: p.id,
-      // A dsh agent takes no launch argument: its first turn is the Chat
-      // post, so a launch that only carries `initialPrompt` (a persona
+      // A harness agent takes no launch argument: its first turn is the
+      // Chat post, so a launch that only carries `initialPrompt` (a persona
       // kickoff, an MCP launch) still gets one. CLI agents type it in.
       text:
         input.launchContext?.prompt ??
         (p.type === "dispatch" ? input.initialPrompt : undefined),
       // The MCP launch header and a rendered template ride initialPrompt;
-      // a dsh first turn must carry them even though Chat shows the raw
+      // a harness first turn must carry them even though Chat shows the raw
       // prompt the launcher wrote.
       ...(p.type === "dispatch" &&
       input.initialPrompt &&
@@ -1270,7 +1274,7 @@ export class AgentManager {
       // The pane is only a shell; the harness is the ACP child the
       // supervisor starts now that the worktree exists.
       if (!this.harnessSupervisor) {
-        throw new AgentError("dsh supervisor is not attached.", 500);
+        throw new AgentError("The harness supervisor is not attached.", 500);
       }
       try {
         await this.harnessSupervisor.start(id);
@@ -1279,10 +1283,10 @@ export class AgentManager {
         await this.setAgentStatus(id, "error", message);
         await this.setSystemLatestEvent(id, {
           type: "blocked",
-          message: `dsh failed to start: ${message}`.slice(0, 200),
+          message: `The harness failed to start: ${message}`.slice(0, 200),
           metadata: { source: "system", phase: "start" },
         });
-        throw new AgentError(`dsh failed to start: ${message}`, 500);
+        throw new AgentError(`The harness failed to start: ${message}`, 500);
       }
     } else {
       await this.setSystemLatestEvent(
@@ -1360,11 +1364,12 @@ export class AgentManager {
     const hasSession = await this.runtime.hasSession(tmuxSession);
 
     if (hasSession) {
-      // A dsh agent's pane is only a shell and outlives the harness child;
-      // an attached shell is not a running harness. Start (or restart) it.
+      // A harness agent's pane is only a shell and outlives the harness
+      // child; an attached shell is not a running harness. Start (or
+      // restart) it.
       if (agent.type === "dispatch" && !this.harnessSupervisor?.isRunning(id)) {
         if (!this.harnessSupervisor) {
-          throw new AgentError("dsh supervisor is not attached.", 500);
+          throw new AgentError("The harness supervisor is not attached.", 500);
         }
         try {
           await this.setAgentStatus(id, "running", null, tmuxSession);
@@ -1374,10 +1379,10 @@ export class AgentManager {
           await this.setAgentStatus(id, "error", message);
           await this.setSystemLatestEvent(id, {
             type: "blocked",
-            message: `dsh failed to start: ${message}`.slice(0, 200),
+            message: `The harness failed to start: ${message}`.slice(0, 200),
             metadata: { source: "system", phase: "start" },
           });
-          throw new AgentError(`dsh failed to start: ${message}`, 500);
+          throw new AgentError(`The harness failed to start: ${message}`, 500);
         }
         return (await this.getAgent(id)) as AgentRecord;
       }
@@ -1466,7 +1471,7 @@ export class AgentManager {
       await this.populateGitContext(id);
       if (agent.type === "dispatch") {
         if (!this.harnessSupervisor) {
-          throw new Error("dsh supervisor is not attached.");
+          throw new Error("The harness supervisor is not attached.");
         }
         // Resumes the stored session id; the supervisor sets the idle event.
         await this.harnessSupervisor.start(id);

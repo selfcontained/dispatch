@@ -47,25 +47,66 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "haiku", label: "Haiku" },
     { id: "fable", label: "Fable" },
   ],
-  // dsh ids are `provider/model`: the provider is a dsh LLM route name and the
-  // model is that route's id. Verified against `dsh --profile acp` session
-  // configOptions on 2026-09-04 (see docs/agent-model-catalog.md).
-  // Fallback only: the live list comes from dsh (HarnessSupervisor.modelCatalog)
-  // and is filtered to providers with keys and, for OpenAI, the 5.6 line.
+  // Dispatch Harness ids are `engine/model`. The engine picks the ACP agent;
+  // the model half is what that engine calls it, or `default` for the
+  // engine's own default. The picker inside a running session reads the
+  // engine's live options; this list is for the create dialog.
   dispatch: [
     {
-      id: "deepseek-official/deepseek-v4-flash",
-      label: "DeepSeek-V4-Flash",
-      group: "DeepSeek",
+      id: "claude/default",
+      label: "Claude Code default",
+      group: "Claude Code",
+    },
+    { id: "claude/claude-fable-5-1", label: "Fable 5.1", group: "Claude Code" },
+    { id: "claude/claude-opus-5", label: "Opus 5", group: "Claude Code" },
+    { id: "claude/claude-sonnet-5", label: "Sonnet 5", group: "Claude Code" },
+    {
+      id: "claude/claude-haiku-4-5-20251001",
+      label: "Haiku 4.5",
+      group: "Claude Code",
+    },
+    { id: "codex/default", label: "Codex default", group: "Codex" },
+    { id: "codex/gpt-6-astra", label: "GPT-6 Astra", group: "Codex" },
+    { id: "codex/gpt-5.6-sol", label: "GPT-5.6 Sol", group: "Codex" },
+    { id: "codex/gpt-5.6-terra", label: "GPT-5.6 Terra", group: "Codex" },
+    { id: "codex/gpt-5.6-luna", label: "GPT-5.6 Luna", group: "Codex" },
+    { id: "codex/gpt-5.5", label: "GPT-5.5", group: "Codex" },
+    {
+      id: "codex/gpt-5.3-codex-spark",
+      label: "GPT-5.3 Codex Spark (preview)",
+      group: "Codex",
     },
     {
-      id: "deepseek-official/deepseek-v4-pro",
-      label: "DeepSeek-V4-Pro",
-      group: "DeepSeek",
+      id: "gemini/default",
+      label: "Gemini CLI default (gemini-2.5-pro)",
+      group: "Gemini CLI",
     },
-    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", group: "OpenAI" },
-    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", group: "OpenAI" },
-    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", group: "OpenAI" },
+    {
+      id: "gemini/gemini-3-pro-preview",
+      label: "Gemini 3 Pro (preview)",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-3-flash-preview",
+      label: "Gemini 3 Flash (preview)",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-3.5-flash",
+      label: "Gemini 3.5 Flash",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-2.5-pro",
+      label: "Gemini 2.5 Pro",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-2.5-flash",
+      label: "Gemini 2.5 Flash",
+      group: "Gemini CLI",
+    },
+    { id: "opencode/default", label: "OpenCode default", group: "OpenCode" },
   ],
 };
 
@@ -129,8 +170,8 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
-/** dsh model ids are `provider/model`; dsh serves the catalog, so only the shape is checked here. */
-export const DSH_MODEL_ID =
+/** Harness model ids are `engine/model`; the engine serves the catalog, so only the shape is checked here. */
+export const HARNESS_MODEL_ID =
   /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
 export function validateAgentModel(
@@ -140,9 +181,9 @@ export function validateAgentModel(
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
   if (agentType === "dispatch") {
-    if (DSH_MODEL_ID.test(normalizedModel)) return normalizedModel;
+    if (HARNESS_MODEL_ID.test(normalizedModel)) return normalizedModel;
     throw new Error(
-      `Model "${normalizedModel}" is not a dsh model id; use provider/model, e.g. openai/gpt-5.6-sol.`
+      `Model "${normalizedModel}" is not a harness model id; use engine/model, e.g. codex/gpt-5.6-sol.`
     );
   }
   if (
