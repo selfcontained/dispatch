@@ -1,6 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+# pnpm 10+ moved `shamefully-hoist` (.npmrc) and `pnpm.onlyBuiltDependencies`
+# (package.json) here. Both settings are still declared in their old spots
+# above for pnpm 9, which CI pins (see .github/workflows/ci.yml) and which
+# still reads them there. Keep all three in sync if the dependency list changes.
+shamefullyHoist: true
 allowBuilds:
   esbuild: true
   sharp: true
