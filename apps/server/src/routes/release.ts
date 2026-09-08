@@ -716,7 +716,11 @@ async function handleAssistedLaunch(
   }
 
   const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-  const assistedType = enabledAgentTypes.find(isCliAgentType);
+  // A Dispatch Harness agent is never the driver: the update restarts the
+  // service that owns its engine child, which cuts the agent's own turn.
+  const assistedType = enabledAgentTypes.find(
+    (type) => isCliAgentType(type) && type !== "dispatch"
+  );
   if (!assistedType) {
     return reply.code(422).send({
       error:

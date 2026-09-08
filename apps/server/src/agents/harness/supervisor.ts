@@ -93,8 +93,17 @@ export type SupervisorDeps = {
  * Everything else passes through, the same as the tmux login shell a CLI
  * agent gets, so git over SSH, gh, proxies, and locale behave the same in
  * both.
+ *
+ * The provider keys are here because each engine authenticates through the
+ * host CLI's own login, and a key left in the service environment would
+ * quietly authenticate the engine as someone else and bill that account
+ * instead. `GEMINI_API_KEY` is deliberately not on the list: it is one of
+ * Gemini CLI's supported logins, and the runbook says so.
  */
 const ENV_DENY_EXACT = new Set([
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+  "ANTHROPIC_API_KEY",
   "DATABASE_URL",
   "TEST_DATABASE_URL",
   "PGPASSWORD",

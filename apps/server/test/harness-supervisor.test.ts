@@ -619,6 +619,9 @@ describe("buildChildEnv", () => {
     SSH_AUTH_SOCK: "/tmp/agent.sock",
     HTTPS_PROXY: "http://proxy:3128",
     OPENAI_API_KEY: "sk-test",
+    CODEX_API_KEY: "sk-codex",
+    ANTHROPIC_API_KEY: "sk-anthropic",
+    GEMINI_API_KEY: "gem-key",
     DATABASE_URL: "postgres://secret",
     PGPASSWORD: "hunter2",
     DISPATCH_SESSION_PREFIX: "dispatch",
@@ -634,7 +637,14 @@ describe("buildChildEnv", () => {
     });
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/agent.sock");
     expect(env.HTTPS_PROXY).toBe("http://proxy:3128");
-    expect(env.OPENAI_API_KEY).toBe("sk-test");
+    expect(env.HOME).toBe("/home/u");
+    // Each engine authenticates through its own host login, so a provider
+    // key left in the service environment must not reach the child.
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.CODEX_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    // Except this one: it is one of Gemini CLI's own logins.
+    expect(env.GEMINI_API_KEY).toBe("gem-key");
     expect(env.DATABASE_URL).toBeUndefined();
     expect(env.PGPASSWORD).toBeUndefined();
     expect(env.DISPATCH_SESSION_PREFIX).toBeUndefined();

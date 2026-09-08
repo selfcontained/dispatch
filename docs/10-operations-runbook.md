@@ -99,6 +99,14 @@ login; Dispatch holds no provider key.
 | Gemini CLI  | `gemini/`       | `DISPATCH_GEMINI_BIN`         | `npm install -g --prefix ~/.local @google/gemini-cli@0.57.0`                    | `NO_BROWSER=true gemini`    |
 | OpenCode    | `opencode/`     | `DISPATCH_OPENCODE_BIN`       | `npm install -g --prefix ~/.local opencode-ai@1.18.29`                          | `opencode auth login`       |
 
+Upgrading a host that ran an earlier prerelease of this release: delete
+`DISPATCH_DSH_BIN` and `DISPATCH_DSH_HOME` from `~/.dispatch/server/.env`,
+which nothing reads any more, and delete any engine API key stored beside
+them. The service now withholds `OPENAI_API_KEY`, `CODEX_API_KEY` and
+`ANTHROPIC_API_KEY` from the engine it launches, so a key left in the file
+cannot bill an account behind the host login's back. `GEMINI_API_KEY` is the
+exception and still passes through: it is one of Gemini CLI's own logins.
+
 What each engine publishes over ACP differs, and the view says so where it
 matters: Gemini CLI publishes no plan, no usage, and no model option (its
 model is a launch flag, so `/model` is disabled); Codex reports tokens but

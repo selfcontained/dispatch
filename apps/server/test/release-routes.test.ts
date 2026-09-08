@@ -497,6 +497,53 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("never picks a Dispatch Harness agent to drive the update", async () => {
+    // The update restarts the service that owns the harness child, so a
+    // dispatch agent enabled ahead of the CLI types must be skipped.
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(["dispatch", "claude"])]
+    );
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: ["service_restarted"],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    try {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/assisted/launch",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json().agent.type).toBe("claude");
+    } finally {
+      // The launch persists assisted state and the enabled types; leaving
+      // either behind would 409 every launch test after this one.
+      await ctx.app.inject({
+        method: "DELETE",
+        url: "/api/v1/release/assisted/state",
+        headers: { cookie: sessionCookie },
+      });
+      await ctx.pool.query(
+        `DELETE FROM settings WHERE key = 'enabled_agent_types'`
+      );
+    }
+  });
+
   it("rejects /release/assisted/launch when the target release metadata is malformed", async () => {
     mockReleaseCommands({
       releaseViews: {
