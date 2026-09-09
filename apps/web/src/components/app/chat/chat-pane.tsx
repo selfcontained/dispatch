@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
+import { MotionConfig } from "framer-motion";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
@@ -21,6 +22,7 @@ import {
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
+import { useHarnessChrome } from "@/components/app/chat/harness-chrome";
 import { TurnContextProvider } from "@/components/app/chat/turn/turn-context";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
@@ -215,6 +217,11 @@ function composerDisabledReason(
   if (feed.error) return "Chat couldn't load — retry above before sending.";
   if (feed.isLoading) return "Loading the chat…";
   if (agent.status === "creating") return "The agent is still starting up.";
+  // A harness agent has no CLI in its pane to look at, so the reason is also
+  // what its status line says; "Start" is the control that fixes it.
+  if (agent.status === "error" && agent.type === "dispatch") {
+    return "The harness is not running. Press Start to relaunch it.";
+  }
   if (agent.status !== "running") {
     return "The agent is not running. Start it to send messages.";
   }
@@ -538,162 +545,178 @@ export function ChatPane({
     ? (answer.variables?.messageId ?? null)
     : null;
 
-  return (
-    <div
-      className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
-      data-testid="chat-pane"
-    >
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scrollRef}
-          data-testid="chat-scroll"
-          onScroll={onScroll}
-          // Images in the feed size themselves after they load; keep the
-          // bottom pinned when that happens while following.
-          onLoadCapture={() => {
-            if (following) scrollToBottom();
-          }}
-          className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
-        >
-          {feed.hasOlder ? (
-            <div className="mb-1 flex justify-center px-4">
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                className="h-7 text-xs"
-                onClick={loadOlder}
-                disabled={feed.isFetchingOlder}
-              >
-                {feed.isFetchingOlder ? "Loading…" : "Load older"}
-              </Button>
-            </div>
-          ) : null}
-          {feed.error ? (
-            <div
-              role="alert"
-              className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              data-testid="chat-feed-error"
-            >
-              <span className="min-w-0 truncate">
-                Couldn&apos;t load the chat: {feed.error.message}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                className="h-6 shrink-0 px-2 text-xs"
-                onClick={feed.refetch}
-                data-testid="chat-feed-retry"
-              >
-                Retry
-              </Button>
-            </div>
-          ) : null}
-          {!feed.isLoading && !hasConversation && !feed.error ? (
-            <div
-              className={cn(
-                "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
-                visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
-              )}
-              data-testid="chat-empty"
-            >
-              <MessageSquare className="h-8 w-8" />
-              {hasHiddenChildMessages ? (
-                <>
-                  <div className="text-foreground">
-                    Child-agent messages are hidden.
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="default"
-                    className="h-7 text-xs"
-                    onClick={() => onShowChildAgentsChange(true)}
-                  >
-                    Show child agents
-                  </Button>
-                </>
-              ) : agent ? (
-                <>
-                  <div className="text-foreground">
-                    No messages yet. Send the first one below and the agent
-                    replies here.
-                  </div>
-                  <div className="max-w-md text-xs">
-                    Agents launched before Chat was enabled won&apos;t have the
-                    Chat guidance until they are relaunched; until then their
-                    replies only show in the Console.
-                  </div>
-                </>
-              ) : (
-                <div>Select an agent to start chatting.</div>
-              )}
-            </div>
-          ) : null}
-          {visibleEntries.length > 0 ? (
-            <PinShortcutProvider value={pinShortcuts}>
-              <TurnContextProvider value={turnContext}>
-                <ChatFeed
-                  entries={visibleEntries}
-                  ctx={ctx}
-                  heldMessageId={heldMessageId}
-                  answeringMessageId={answeringMessageId}
-                  answersDisabled={disabledReason !== null}
-                  onAnswer={onAnswer}
-                />
-              </TurnContextProvider>
-            </PinShortcutProvider>
-          ) : null}
-        </div>
-        {pendingBelow && !following ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              className="pointer-events-auto h-7 gap-1 rounded-full text-xs shadow"
-              onClick={() => {
-                setFollowing(true);
-                setPendingBelow(false);
-                scrollToBottom("smooth");
-              }}
-            >
-              <ArrowDown className="h-3 w-3" />
-              New messages
-            </Button>
-          </div>
-        ) : null}
-      </div>
+  // The harness chrome belongs to a Dispatch Harness agent and to no other
+  // type. Nulling the id is what keeps every /harness/* query disabled and
+  // the chrome unmounted for the rest.
+  const harnessAgentId = agent?.type === "dispatch" ? agentId : null;
+  const harness = useHarnessChrome({
+    agentId: harnessAgentId,
+    agent,
+    entries,
+    isMobile,
+    disabledReason,
+    onError: setSendError,
+  });
 
+  return (
+    <MotionConfig reducedMotion="user">
       <div
-        className={cn(
-          "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
-          isMobile ? "pb-2" : "pb-3"
-        )}
+        className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
+        data-testid="chat-pane"
       >
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <ChatPresenceStrip agentId={agentId} agent={agent} />
-          {sendError ? (
-            <span
-              role="alert"
-              className="truncate text-[11px] text-destructive"
-            >
-              {sendError}
-            </span>
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            data-testid="chat-scroll"
+            onScroll={onScroll}
+            // Images in the feed size themselves after they load; keep the
+            // bottom pinned when that happens while following.
+            onLoadCapture={() => {
+              if (following) scrollToBottom();
+            }}
+            className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
+          >
+            {feed.hasOlder ? (
+              <div className="mb-1 flex justify-center px-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className="h-7 text-xs"
+                  onClick={loadOlder}
+                  disabled={feed.isFetchingOlder}
+                >
+                  {feed.isFetchingOlder ? "Loading…" : "Load older"}
+                </Button>
+              </div>
+            ) : null}
+            {feed.error ? (
+              <div
+                role="alert"
+                className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                data-testid="chat-feed-error"
+              >
+                <span className="min-w-0 truncate">
+                  Couldn&apos;t load the chat: {feed.error.message}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className="h-6 shrink-0 px-2 text-xs"
+                  onClick={feed.refetch}
+                  data-testid="chat-feed-retry"
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+            {!feed.isLoading && !hasConversation && !feed.error ? (
+              <div
+                className={cn(
+                  "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                  visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
+                )}
+                data-testid="chat-empty"
+              >
+                <MessageSquare className="h-8 w-8" />
+                {hasHiddenChildMessages ? (
+                  <>
+                    <div className="text-foreground">
+                      Child-agent messages are hidden.
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      className="h-7 text-xs"
+                      onClick={() => onShowChildAgentsChange(true)}
+                    >
+                      Show child agents
+                    </Button>
+                  </>
+                ) : agent ? (
+                  <>
+                    <div className="text-foreground">
+                      No messages yet. Send the first one below and the agent
+                      replies here.
+                    </div>
+                    <div className="max-w-md text-xs">
+                      Agents launched before Chat was enabled won&apos;t have
+                      the Chat guidance until they are relaunched; until then
+                      their replies only show in the Console.
+                    </div>
+                  </>
+                ) : (
+                  <div>Select an agent to start chatting.</div>
+                )}
+              </div>
+            ) : null}
+            {visibleEntries.length > 0 ? (
+              <PinShortcutProvider value={pinShortcuts}>
+                <TurnContextProvider value={turnContext}>
+                  <ChatFeed
+                    entries={visibleEntries}
+                    ctx={ctx}
+                    heldMessageId={heldMessageId}
+                    answeringMessageId={answeringMessageId}
+                    answersDisabled={disabledReason !== null}
+                    onAnswer={onAnswer}
+                  />
+                </TurnContextProvider>
+              </PinShortcutProvider>
+            ) : null}
+          </div>
+          {pendingBelow && !following ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="pointer-events-auto h-7 gap-1 rounded-full text-xs shadow"
+                onClick={() => {
+                  setFollowing(true);
+                  setPendingBelow(false);
+                  scrollToBottom("smooth");
+                }}
+              >
+                <ArrowDown className="h-3 w-3" />
+                New messages
+              </Button>
+            </div>
           ) : null}
         </div>
-        <ChatComposer
-          agentId={agentId}
-          onSend={onSend}
-          uploadFile={uploadFile}
-          disabledReason={disabledReason}
-          sending={send.isPending || answer.isPending}
-          autoFocus={active && !isMobile}
-          replyContext={replyContext}
-        />
+
+        <div
+          className={cn(
+            "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
+            isMobile ? "pb-2" : "pb-3"
+          )}
+        >
+          {harness.chrome}
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <ChatPresenceStrip agentId={agentId} agent={agent} />
+            {sendError ? (
+              <span
+                role="alert"
+                className="truncate text-[11px] text-destructive"
+              >
+                {sendError}
+              </span>
+            ) : null}
+          </div>
+          <ChatComposer
+            agentId={agentId}
+            onSend={onSend}
+            uploadFile={uploadFile}
+            disabledReason={disabledReason}
+            sending={send.isPending || answer.isPending}
+            autoFocus={active && !isMobile}
+            replyContext={replyContext}
+          />
+        </div>
+        {shortcutDialog}
       </div>
-      {shortcutDialog}
-    </div>
+    </MotionConfig>
   );
 }

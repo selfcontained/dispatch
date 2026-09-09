@@ -38,7 +38,10 @@ export function QueuedPrompt({
         >
           ›
         </span>
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-[12.5px] leading-[1.55] text-foreground/60">
+        {/* The row sits in fixed chrome above the composer now rather than
+            in a scrolling stream, so an unclamped long message would push
+            the composer off a short pane. */}
+        <p className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap text-[12.5px] leading-[1.55] text-foreground/60">
           {prompt.text}
         </p>
       </div>

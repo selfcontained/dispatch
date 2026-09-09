@@ -84,6 +84,61 @@ vi.mock("@/hooks/use-chat", () => ({
   }),
   useMarkChatRead: () => H.markRead,
 }));
+const HARNESS = vi.hoisted(() => ({
+  queued: [] as import("@dispatch/shared").HarnessQueuedPrompt[],
+  sendNow: vi.fn(async (_id: string) => {}),
+  remove: vi.fn(async (_id: string) => {}),
+  interrupt: vi.fn(async () => {}),
+}));
+
+vi.mock("@/components/app/harness/use-harness-queue", () => ({
+  harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
+  useHarnessQueued: () => ({
+    queued: HARNESS.queued,
+    loading: false,
+    error: null,
+  }),
+  useHarnessQueue: () => ({
+    sendNow: HARNESS.sendNow,
+    remove: HARNESS.remove,
+    busyId: null,
+  }),
+  useHarnessInterrupt: () => ({
+    interrupt: HARNESS.interrupt,
+    interrupting: false,
+  }),
+}));
+vi.mock(
+  "@/components/app/harness/use-harness-config",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/components/app/harness/use-harness-config")
+    >()),
+    // `running: true` because the shared fixture is a running agent, and
+    // the chip shows the activity bars in place of the engine's mark while
+    // the agent runs without a session.
+    useHarnessConfig: () => ({
+      running: true,
+      options: [],
+      model: undefined,
+      effort: undefined,
+      loading: false,
+    }),
+    useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  })
+);
+// The dialog reads a full query result; `api` is mocked file-wide, so the
+// real hook would hand it `{ agents: [] }` and `data.engines.map` would throw.
+vi.mock("@/components/app/harness/use-harness-usage", () => ({
+  HARNESS_USAGE_QUERY_KEY: ["harness-usage"],
+  useHarnessUsage: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
 // Counts renders of a post's markdown body: the feed's rows are memoised,
 // so a pane re-render that changes nothing they show must not reach it.
 const markdownRenders = vi.hoisted(() => ({ count: 0 }));
@@ -120,6 +175,12 @@ const agent: Agent = {
     updatedAt: "2026-09-02T10:00:00.000Z",
     metadata: null,
   },
+};
+
+const dispatchAgent: Agent = {
+  ...agent,
+  type: "dispatch",
+  model: "codex/default",
 };
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
@@ -221,6 +282,10 @@ beforeEach(() => {
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
+  HARNESS.queued = [];
+  HARNESS.sendNow.mockReset();
+  HARNESS.remove.mockReset();
+  HARNESS.interrupt.mockReset();
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -988,5 +1053,324 @@ describe("harnessPromptHistory", () => {
         }),
       ])
     ).toEqual(["mine"]);
+  });
+});
+
+describe("ChatPane harness chrome", () => {
+  it("mounts no chrome and no harness controls for an agent that is not a dispatch agent", () => {
+    renderPane();
+    expect(screen.queryByTestId("chat-harness-chrome")).toBeNull();
+    expect(screen.queryByTestId("harness-model-chip")).toBeNull();
+    expect(screen.queryByTestId("harness-usage-chip")).toBeNull();
+    expect(screen.queryByTestId("harness-stop")).toBeNull();
+    expect(screen.queryByTestId("harness-status-line")).toBeNull();
+  });
+
+  it("wears the engine's mark on the model chip for the model it was launched with", () => {
+    renderPane({ agent: dispatchAgent });
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("openai");
+    expect(screen.getByTestId("harness-model-chip-label")).not.toBeNull();
+  });
+
+  it("falls back to the default engine's mark and login command when no model is stored", () => {
+    // An agent created on the default path stores no model on older rows,
+    // and the chip and the hint both read the engine off the model.
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        model: null,
+        status: "error",
+        latestEvent: {
+          type: "blocked",
+          message: "Claude Code is not logged in on the server.",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("anthropic");
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "claude /login"
+    );
+  });
+
+  it("shows the reason and the login command whether or not the feed has turns", () => {
+    // The old surface put this in an empty state, so an engine whose login
+    // lapsed mid-life showed nothing at all once the agent had history.
+    H.entries = [turnEntry()];
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        status: "error",
+        latestEvent: {
+          type: "blocked",
+          message: "Codex is not logged in on the server.",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    expect(screen.getByTestId("harness-status-line").textContent).toContain(
+      "Codex is not logged in on the server."
+    );
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "codex login --device-auth"
+    );
+  });
+
+  it("says the harness is not running when the agent errored without a message", () => {
+    renderPane({
+      agent: { ...dispatchAgent, status: "error", latestEvent: undefined },
+    });
+    expect(screen.getByTestId("harness-status-line").textContent).toContain(
+      "The harness is not running. Press Start to relaunch it."
+    );
+  });
+
+  it("names what the harness is doing while it starts and opens nothing from the faded chips", () => {
+    // The chrome animates to opacity 0 but stays mounted, so without the
+    // pointer-events and tabindex guards a click on blank space opened the
+    // portaled Model dialog.
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        status: "creating",
+        latestEvent: {
+          type: "working",
+          message: "Installing dependencies…",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    const line = screen.getByTestId("harness-status-line");
+    expect(line.textContent).toContain("Installing dependencies…");
+    expect(line.querySelector('[role="status"]')).not.toBeNull();
+    const chip = screen.getByTestId("harness-model-chip");
+    expect(chip.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(chip);
+    expect(screen.queryByTestId("harness-model-picker")).toBeNull();
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.queryByTestId("harness-usage-dialog")).toBeNull();
+    expect(
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it("keeps the composer mounted across the starting handoff", () => {
+    const { rerender } = renderPane({
+      agent: { ...dispatchAgent, status: "creating" },
+    });
+    const input = screen.getByTestId("chat-composer-input");
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={dispatchAgent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.getByTestId("chat-composer-input")).toBe(input);
+  });
+
+  it("pins the current task list above the composer and folds it", () => {
+    H.entries = [
+      turnEntry({
+        plan: [
+          { content: "Read the README", status: "completed", priority: "high" },
+          {
+            content: "Echo the prompt",
+            status: "in_progress",
+            priority: "medium",
+          },
+          { content: "Wrap up", status: "pending", priority: "low" },
+        ],
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const strip = screen.getByTestId("harness-tasks");
+    expect(screen.getByTestId("harness-tasks-presence")).not.toBeNull();
+    expect(strip.textContent).toContain("1 of 3 done");
+    const items = strip.querySelectorAll('[data-testid="harness-todo-item"]');
+    expect(items).toHaveLength(2);
+    expect(items[0]?.getAttribute("data-status")).toBe("in_progress");
+    expect(screen.getByTestId("harness-tasks-more").textContent).toBe(
+      "+1 more"
+    );
+    fireEvent.click(screen.getByTestId("harness-tasks-more"));
+    expect(
+      strip.querySelectorAll('[data-testid="harness-todo-item"]')
+    ).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
+    expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
+    expect(strip.textContent).toContain("Echo the prompt");
+  });
+
+  it("drops the strip once every task is done", () => {
+    H.entries = [
+      turnEntry({
+        plan: [
+          { content: "Read the README", status: "completed", priority: "high" },
+          { content: "Wrap up", status: "completed", priority: "low" },
+        ],
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.queryByTestId("harness-tasks")).toBeNull();
+  });
+
+  it("lists queued prompts above the composer with Send now and Remove", () => {
+    HARNESS.queued = [
+      {
+        id: "m2",
+        source: "chat",
+        text: "second thoughts",
+        chatMessageId: "m2",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:01.000Z",
+      },
+      {
+        id: "q_3",
+        source: "agent",
+        text: "and mine",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:02.000Z",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const rows = screen.getAllByTestId("harness-queued");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("second thoughts");
+    expect(rows[0]?.textContent).toContain("Queued");
+    expect(rows[1]?.textContent).toContain("from Reviewer");
+    const chrome = screen.getByTestId("chat-harness-chrome");
+    expect(chrome.contains(rows[0]!)).toBe(true);
+    expect(screen.getByTestId("chat-scroll").contains(rows[0]!)).toBe(false);
+
+    fireEvent.click(
+      rows[0]!.querySelector('[data-testid="harness-queued-send-now"]')!
+    );
+    expect(HARNESS.sendNow).toHaveBeenCalledWith("m2");
+    fireEvent.click(
+      rows[1]!.querySelector('[data-testid="harness-queued-remove"]')!
+    );
+    expect(HARNESS.remove).toHaveBeenCalledWith("q_3");
+  });
+
+  it("offers Stop while a turn runs and interrupts on click", () => {
+    H.entries = [
+      turnEntry({
+        settled: false,
+        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+        result: { text: "working", streaming: true },
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const stop = screen.getByTestId("harness-stop");
+    // React stringifies aria-* booleans, so the visible state reads "false".
+    expect(stop.getAttribute("aria-hidden")).toBe("false");
+    expect(stop.className).not.toContain("invisible");
+    fireEvent.click(stop);
+    expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Stop laid out but hidden when nothing runs", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    const stop = screen.getByTestId("harness-stop");
+    expect(stop.getAttribute("aria-hidden")).toBe("true");
+    expect(stop.className).toContain("invisible");
+  });
+
+  it("opens the usage dialog from the chip", () => {
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.getByTestId("harness-usage-dialog")).not.toBeNull();
+  });
+
+  it("keeps every chip a 44px target on a coarse pointer", () => {
+    renderPane({ agent: dispatchAgent });
+    for (const id of [
+      "harness-model-chip",
+      "harness-usage-chip",
+      "harness-stop",
+    ]) {
+      expect(screen.getByTestId(id).className).toContain(
+        "pointer-coarse:min-h-11"
+      );
+    }
+    // Without min-w-0 the button's min-content is the whole nowrap label, so
+    // the span's `truncate` never engages and the row overflows instead.
+    expect(screen.getByTestId("harness-model-chip").className).toContain(
+      "min-w-0"
+    );
+  });
+
+  it("renders a turn's shortcut pins, because the pane provides the turn context", () => {
+    H.entries = [
+      turnEntry({
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          endedAt: "2026-09-02T10:00:09.000Z",
+          finalResult: "ok",
+          steps: [
+            {
+              id: "s1",
+              kind: "other",
+              label: "mcp__dispatch__dispatch_pins",
+              status: "ok",
+              startedAt: "2026-09-02T10:00:01.000Z",
+              endedAt: "2026-09-02T10:00:02.000Z",
+              durMs: 1000,
+              detail: {
+                input: {
+                  pins: [
+                    {
+                      label: "Run the E2E",
+                      type: "shortcut",
+                      value: "run e2e",
+                    },
+                    { label: "Gone", type: "shortcut", value: "x" },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ];
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        pins: [
+          {
+            id: "p1",
+            label: "Run the E2E",
+            value: "run e2e",
+            type: "shortcut",
+            group: "Next steps",
+          },
+        ],
+      },
+    });
+    const row = screen.getByTestId("harness-shortcuts");
+    expect(
+      [...row.querySelectorAll('[data-testid="pin-item"]')].map((i) =>
+        i.getAttribute("data-pin-label")
+      )
+    ).toEqual(["Run the E2E"]);
   });
 });

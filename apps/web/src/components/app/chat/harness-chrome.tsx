@@ -1,6 +1,35 @@
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { ChatFeedEntry, ChatTurnEntry } from "@dispatch/shared";
+import { harnessEngineOf } from "@dispatch/shared";
+import { AnimatePresence, motion } from "framer-motion";
+import { CircleDollarSign, Cpu, Square } from "lucide-react";
 
+import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
+import {
+  arrive,
+  DURATION,
+  exitShrink,
+  fadeVariants,
+  rowVariants,
+} from "@/components/app/chat/turn/motion";
 import type { TodoItem } from "@/components/app/chat/turn/registry";
+import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
+import { ModelPicker } from "@/components/app/harness/model-picker";
+import { ProviderIcon } from "@/components/app/harness/provider-icon";
+import { UsageDialog } from "@/components/app/harness/usage-dialog";
+import {
+  currentChoiceName,
+  useHarnessConfig,
+  useSetHarnessConfig,
+} from "@/components/app/harness/use-harness-config";
+import {
+  useHarnessInterrupt,
+  useHarnessQueue,
+  useHarnessQueued,
+} from "@/components/app/harness/use-harness-queue";
+import type { Agent } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
+import { cn } from "@/lib/utils";
 
 /**
  * What Enter and the arrows do right now, in the composer's helper line.
@@ -71,4 +100,325 @@ export function harnessPromptHistory(
     if (text && out[out.length - 1] !== text) out.push(text);
   }
   return out;
+}
+
+const CHIP_CLASS =
+  "inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:px-3";
+
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+export type HarnessChromeInput = {
+  /**
+   * The agent id for a Dispatch Harness agent, null for every other type.
+   * Nulling it here is what makes the whole hook inert: every harness query
+   * below is keyed off it and disabled while it is null, and `chrome` is
+   * null too, so no other agent type pays for this or renders any of it.
+   */
+  agentId: string | null;
+  agent: Agent | null;
+  /** The feed's entries, oldest first, across every page loaded. */
+  entries: readonly ChatFeedEntry[];
+  isMobile: boolean;
+  /** The composer's reason, shown on the status line when the harness is down. */
+  disabledReason: string | null;
+  /** Reports an action failure to the pane's one error slot. */
+  onError: (message: string | null) => void;
+};
+
+export type HarnessChrome = {
+  /** The chrome above the composer; null for every agent type but dispatch. */
+  chrome: ReactNode;
+};
+
+/**
+ * Everything live comes from the chat feed the pane already holds: the
+ * running turn and the plan are reads over its `turn` entries, so there is
+ * no second query and no second cache. What is not feed-shaped stays on its
+ * own query: the session's model config, and the queue, which is in-memory
+ * state on the server rather than a row.
+ */
+export function useHarnessChrome({
+  agentId,
+  agent,
+  entries,
+  isMobile,
+  disabledReason,
+  onError,
+}: HarnessChromeInput): HarnessChrome {
+  const { queued } = useHarnessQueued(agentId);
+  const {
+    sendNow: sendQueuedNow,
+    remove: removeQueued,
+    busyId: queueBusyId,
+  } = useHarnessQueue(agentId);
+  const { interrupt, interrupting } = useHarnessInterrupt(agentId);
+  const config = useHarnessConfig(agentId);
+  const setConfig = useSetHarnessConfig(agentId);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  // The tasks strip's fold, kept here so a new list does not reopen it.
+  const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
+
+  const newest = useMemo(() => newestTurnEntry(entries), [entries]);
+  const streaming = newest !== null && !newest.settled;
+  const tasks = useMemo(() => latestTurnPlan(entries), [entries]);
+  const tasksOpen = tasks.some((t) => t.status !== "completed");
+
+  const applyConfig = useCallback(
+    async (changes: { configId: string; value: string }[]) => {
+      setConfigError(null);
+      try {
+        for (const change of changes) await setConfig.mutateAsync(change);
+        setPickerOpen(false);
+      } catch (err) {
+        setConfigError(errorText(err, "Could not apply."));
+      }
+    },
+    [setConfig]
+  );
+
+  const onSendNow = useCallback(
+    (id: string) => {
+      onError(null);
+      sendQueuedNow(id).catch((err: unknown) => {
+        onError(errorText(err, "Could not send."));
+      });
+    },
+    [onError, sendQueuedNow]
+  );
+  const onRemoveQueued = useCallback(
+    (id: string) => {
+      onError(null);
+      removeQueued(id).catch((err: unknown) => {
+        onError(errorText(err, "Could not remove."));
+      });
+    },
+    [onError, removeQueued]
+  );
+  const onStop = useCallback(() => {
+    onError(null);
+    interrupt().catch((err: unknown) => {
+      onError(errorText(err, "Could not stop."));
+    });
+  }, [interrupt, onError]);
+
+  // The pane is up before the harness is: setup (worktree, dependencies)
+  // runs first, and a prompt sent then has nowhere to go.
+  const starting = agent?.status === "creating";
+  const errored = agent?.status === "error";
+  const statusMessage = agent?.latestEvent?.message?.trim() || null;
+  const engine = harnessEngineOf(agent?.model);
+  const modelName = currentChoiceName(config.model);
+  const effortName = currentChoiceName(config.effort);
+  const fixedReason =
+    engine && !engine.publishesModelOption
+      ? `${engine.label} sets its model at launch.`
+      : null;
+  const launchModel = agent?.model?.includes("/")
+    ? agent.model.slice(agent.model.indexOf("/") + 1)
+    : null;
+  const chipLabel = fixedReason
+    ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
+    : config.running
+      ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+      : starting || agent?.status === "running"
+        ? "starting…"
+        : "model · not running";
+  /**
+   * Shown whatever the feed holds, which is the point: the old surface said
+   * this in an empty state, so a start failure, an engine exit and a login
+   * that lapsed after the agent had already run were all invisible to an
+   * agent with history.
+   */
+  const statusLine = starting
+    ? (statusMessage ?? "Starting the harness…")
+    : errored
+      ? (statusMessage ?? disabledReason)
+      : null;
+  const loginCommand =
+    errored && engine && /not logged in/i.test(statusMessage ?? "")
+      ? engine.loginCommand
+      : null;
+
+  const chrome =
+    agentId === null ? null : (
+      <>
+        {statusLine ? (
+          <div className="mb-1.5 text-[11px]" data-testid="harness-status-line">
+            <div className="flex items-start gap-2">
+              {starting ? (
+                <ActivityBars size={10} className="mt-px shrink-0" />
+              ) : null}
+              <span
+                className={cn(
+                  "min-w-0 break-words",
+                  errored ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {statusLine}
+              </span>
+            </div>
+            {loginCommand ? (
+              <p
+                className="mt-1 break-words text-muted-foreground"
+                data-testid="harness-login-hint"
+              >
+                Run as the service user, then press Start:{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-foreground">
+                  {loginCommand}
+                </code>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {/* Driven by `starting` rather than keyed on it, so the chips keep
+          their nodes (and their dialogs) across the handoff. While faded out
+          the block also stops taking clicks and focus: opacity alone leaves
+          an invisible chip both clickable and tabbable. */}
+        <motion.div
+          animate={starting ? { opacity: 0, y: 6 } : { opacity: 1, y: 0 }}
+          transition={arrive(DURATION.slow)}
+          className={cn("min-w-0", starting && "pointer-events-none")}
+          data-testid="chat-harness-chrome"
+          data-starting={starting ? "true" : undefined}
+        >
+          <AnimatePresence initial={false}>
+            {queued.map((prompt) => (
+              <motion.div
+                key={prompt.id}
+                layout
+                variants={rowVariants}
+                initial="hidden"
+                animate="shown"
+                exit={exitShrink}
+                transition={arrive()}
+                className="mb-1.5"
+                style={{ overflow: "hidden" }}
+              >
+                <QueuedPrompt
+                  prompt={prompt}
+                  busy={queueBusyId === prompt.id}
+                  onSendNow={onSendNow}
+                  onRemove={onRemoveQueued}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <AnimatePresence initial={false}>
+            {tasksOpen ? (
+              <motion.div
+                key="tasks"
+                data-testid="harness-tasks-presence"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={exitShrink}
+                transition={arrive()}
+                style={{ overflow: "hidden" }}
+              >
+                <TasksStrip
+                  items={tasks}
+                  open={tasksExpanded}
+                  onOpenChange={setTasksExpanded}
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+          <div className="mb-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              title={
+                fixedReason ?? "Model and reasoning effort (or type /model)"
+              }
+              data-testid="harness-model-chip"
+              data-fixed={fixedReason ? "true" : undefined}
+              disabled={starting}
+              tabIndex={starting ? -1 : 0}
+              className={cn(
+                CHIP_CLASS,
+                // min-w-0 or the button's min-content is the whole nowrap
+                // label, and the span's `truncate` never engages: the usage
+                // chip and Stop get pushed off a narrow pane instead.
+                "min-w-0 max-w-full",
+                fixedReason && "opacity-70"
+              )}
+            >
+              {starting || (!config.running && agent?.status === "running") ? (
+                <ActivityBars size={10} className="shrink-0" />
+              ) : engine ? (
+                <ProviderIcon provider={engine.id} />
+              ) : (
+                <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+              )}
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={chipLabel}
+                  data-testid="harness-model-chip-label"
+                  className="truncate"
+                  variants={fadeVariants}
+                  initial="hidden"
+                  animate="shown"
+                  exit="hidden"
+                  transition={arrive(DURATION.fast)}
+                >
+                  {chipLabel}
+                </motion.span>
+              </AnimatePresence>
+            </button>
+            <button
+              type="button"
+              onClick={() => setUsageOpen(true)}
+              title="Engine usage this month (or type /usage)"
+              data-testid="harness-usage-chip"
+              disabled={starting}
+              tabIndex={starting ? -1 : 0}
+              className={CHIP_CLASS}
+            >
+              <CircleDollarSign
+                className="h-3 w-3 shrink-0"
+                aria-hidden="true"
+              />
+              usage
+            </button>
+            {/* The Stop slot is always laid out, so the row does not reflow
+              when a turn starts; the button only shows while one runs. */}
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={interrupting || !streaming}
+              aria-hidden={!streaming}
+              tabIndex={streaming ? 0 : -1}
+              title="Stop the running turn (Ctrl+C in the field); queued messages run next"
+              data-testid="harness-stop"
+              className={cn(
+                "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
+                !streaming && "invisible"
+              )}
+            >
+              <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              {interrupting ? "Stopping…" : "Stop"}
+            </button>
+          </div>
+          <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
+          <ModelPicker
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            model={config.model}
+            effort={config.effort}
+            running={config.running}
+            saving={setConfig.isPending}
+            error={configError}
+            fixedReason={fixedReason}
+            launchModel={launchModel}
+            engineLabel={engine?.label}
+            onApply={applyConfig}
+          />
+        </motion.div>
+      </>
+    );
+
+  return { chrome };
 }
