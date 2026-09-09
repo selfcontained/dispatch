@@ -800,3 +800,114 @@ export async function loadApp(page: Page): Promise<void> {
     .getByTestId("terminal-pane")
     .waitFor({ state: "visible", timeout: 10_000 });
 }
+
+/**
+ * Seed one settled harness turn straight into `agent_stream_events`, plus
+ * the `agent_chat_messages` row it names as its prompt.
+ *
+ * The default E2E runtime is inert: no tmux pane, no ACP engine, so nothing
+ * ever writes a stream row and this has to write what the recorder would.
+ * Rows ascend by `seq` from whatever the agent already has, so calling it
+ * twice is safe.
+ *
+ * `startedSecondsAgo` anchors the turn in the past, which is how a caller
+ * gets rows it writes afterward (a status event, a pin write, a review) to
+ * land under the turn in the feed rather than racing it.
+ */
+export async function seedStreamTurnViaDB(turn: {
+  agentId: string;
+  /** The typed prompt; seeded as the chat row the turn claims. */
+  prompt: string;
+  /** The assistant's reply, which becomes the turn's result. */
+  result: string;
+  /** The tool step's title, shown on the activity rail. */
+  stepTitle?: string;
+  /** The task list the engine published during the turn, if any. */
+  plan?: { content: string; status: string; priority: string }[];
+  startedSecondsAgo?: number;
+}): Promise<{ promptMessageId: string }> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed harness turns.");
+  }
+  const promptMessageId = randomUUID();
+  const ago = turn.startedSecondsAgo ?? 10;
+  const endedAt = new Date(Date.now() - (ago - 1) * 1000).toISOString();
+  const rows: { kind: string; key: string | null; payload: unknown }[] = [
+    {
+      kind: "turn",
+      key: null,
+      payload: {
+        state: "settled",
+        prompt: { source: "chat", chatMessageId: promptMessageId },
+        stopReason: "end_turn",
+        endedAt,
+      },
+    },
+    {
+      kind: "tool_call",
+      key: `call_${promptMessageId}`,
+      payload: {
+        toolKind: "read",
+        title: turn.stepTitle ?? "Read README.md",
+        status: "completed",
+        locations: [],
+        diff: null,
+        terminalOutput: null,
+      },
+    },
+    ...(turn.plan
+      ? [{ kind: "plan", key: null, payload: { entries: turn.plan } }]
+      : []),
+    {
+      kind: "assistant",
+      key: null,
+      payload: { text: turn.result, streaming: false },
+    },
+  ];
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO agent_chat_messages
+           (id, agent_id, author_kind, kind, text, attachments, delivered)
+         VALUES ($1, $2, 'user', 'reply', $3, '[]'::jsonb, true)`,
+        [promptMessageId, turn.agentId, turn.prompt]
+      );
+      for (const [index, row] of rows.entries()) {
+        await client.query(
+          `INSERT INTO agent_stream_events
+             (agent_id, seq, kind, key, payload, created_at, updated_at)
+           SELECT $1,
+                  COALESCE(MAX(seq), 0) + 1 + $2,
+                  $3, $4, $5::jsonb,
+                  NOW() - ($6 * INTERVAL '1 second')
+                    + ($2 * INTERVAL '100 milliseconds'),
+                  NOW() - ($6 * INTERVAL '1 second')
+                    + ($2 * INTERVAL '100 milliseconds')
+             FROM agent_stream_events WHERE agent_id = $1`,
+          [
+            turn.agentId,
+            index,
+            row.kind,
+            row.key,
+            JSON.stringify(row.payload),
+            ago,
+          ]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+  return { promptMessageId };
+}
