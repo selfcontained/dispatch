@@ -7,7 +7,7 @@ import type { FastifyInstance } from "fastify";
 import {
   AGENT_TYPES,
   type AgentType,
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
 } from "../../agent-type-settings.js";
 import { getWorktreeLocation } from "../../worktree-location-settings.js";
 import {
@@ -254,8 +254,10 @@ export async function registerAgentCrudRoutes(
       body.type && AGENT_TYPES.includes(body.type as AgentType)
         ? (body.type as AgentType)
         : "codex";
-    const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-    if (!enabledAgentTypes.includes(agentType)) {
+    // The offered list, not the enabled one: `dispatch` is never a member of
+    // the persisted enabled types and arrives from the harness flag instead.
+    const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
+    if (!offeredAgentTypes.includes(agentType)) {
       return reply
         .code(400)
         .send({ error: `${agentType} agents are disabled in settings.` });

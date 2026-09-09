@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import {
   CLI_AGENT_TYPES,
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
 } from "../../agent-type-settings.js";
 import {
   AGENT_LATEST_EVENT_TYPES,
@@ -42,8 +42,11 @@ export async function registerAgentLifecycleRoutes(
     }
 
     if (reviewAgentType) {
-      const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-      if (!enabledAgentTypes.includes(reviewAgentType)) {
+      // The reviewer picker offers what the create dialog offers, so this
+      // gate reads the same offered list: the enabled types plus `dispatch`
+      // when the Dispatch Harness flag is on.
+      const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
+      if (!offeredAgentTypes.includes(reviewAgentType)) {
         return reply.code(400).send({
           error: `${reviewAgentType} agents are disabled in settings.`,
         });

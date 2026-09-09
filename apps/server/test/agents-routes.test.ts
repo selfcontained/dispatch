@@ -36,13 +36,23 @@ async function createAgent(
   return res.json().agent;
 }
 
+/** Turn the Dispatch Harness flag on for one test. */
+async function enableDispatchHarness(): Promise<void> {
+  await ctx.pool.query(
+    `INSERT INTO settings (key, value)
+      VALUES ('dispatch_harness_enabled', 'true')
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+  );
+}
+
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM job_runs");
   await ctx.pool.query("DELETE FROM jobs");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM templates");
   await ctx.pool.query(
-    "DELETE FROM settings WHERE key = 'enabled_agent_types'"
+    `DELETE FROM settings
+      WHERE key IN ('enabled_agent_types', 'dispatch_harness_enabled')`
   );
 });
 
@@ -122,11 +132,7 @@ describe("POST /api/v1/agents (create)", () => {
   });
 
   it("stores the default harness model for a dispatch agent created without one", async () => {
-    await ctx.pool.query(
-      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [JSON.stringify(["dispatch"])]
-    );
+    await enableDispatchHarness();
     // The model is the only place the engine is written down, and the usage
     // report and the pane's login hint both read it from there.
     const agent = await createAgent({ type: "dispatch" });
@@ -139,11 +145,7 @@ describe("POST /api/v1/agents (create)", () => {
   });
 
   it("stores full access for a dispatch agent however it was asked for", async () => {
-    await ctx.pool.query(
-      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [JSON.stringify(["dispatch", "claude"])]
-    );
+    await enableDispatchHarness();
     // Every engine launches in its most permissive mode, so a stored false
     // made the sidebar card read "Sandboxed" for the most permissive agent
     // on the board.
@@ -233,6 +235,24 @@ describe("POST /api/v1/agents (create)", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("disabled");
+  });
+
+  // The harness is not a member of enabled_agent_types at all, so the create
+  // gate has to read the flag or a dispatch agent could never be created.
+  it("rejects a dispatch agent while the harness flag is off", async () => {
+    const res = await authedInject("POST", "/api/v1/agents", {
+      cwd: "/tmp",
+      useWorktree: false,
+      type: "dispatch",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("dispatch agents are disabled in settings.");
+  });
+
+  it("accepts a dispatch agent once the harness flag is on", async () => {
+    await enableDispatchHarness();
+    const agent = await createAgent({ type: "dispatch" });
+    expect(agent.type).toBe("dispatch");
   });
 
   it("does not apply fullAccess for terminal agents", async () => {
@@ -634,6 +654,31 @@ describe("PATCH /api/v1/agents/:id/review-agent-type", () => {
     );
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("disabled");
+  });
+
+  it("rejects the harness as a reviewer while its flag is off", async () => {
+    const agent = await createAgent({ type: "claude" });
+    const res = await authedInject(
+      "PATCH",
+      `/api/v1/agents/${agent.id}/review-agent-type`,
+      { reviewAgentType: "dispatch" }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("dispatch agents are disabled in settings.");
+  });
+
+  // The reviewer picker offers whatever the create dialog offers, so a saved
+  // dispatch reviewer has to be accepted or the picker offers a choice the
+  // server refuses.
+  it("accepts the harness as a reviewer once its flag is on", async () => {
+    await enableDispatchHarness();
+    const agent = await createAgent({ type: "claude" });
+    const res = await authedInject(
+      "PATCH",
+      `/api/v1/agents/${agent.id}/review-agent-type`,
+      { reviewAgentType: "dispatch" }
+    );
+    expect(res.statusCode).toBe(200);
   });
 
   it("returns 404 for non-existent agent", async () => {
