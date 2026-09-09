@@ -5,6 +5,7 @@ import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { ChatSurfaceSettings } from "@/components/app/chat-surface-settings";
+import { DispatchHarnessSettings } from "@/components/app/dispatch-harness-settings";
 import { UsageBudgetSettings } from "@/components/app/usage-budget-settings";
 import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
 import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
@@ -223,6 +224,9 @@ export function SettingsContent({
             </div>
             <div className="border-t border-border">
               <ChatSurfaceSettings />
+            </div>
+            <div className="border-t border-border">
+              <DispatchHarnessSettings />
             </div>
             <div className="border-t border-border">
               <UsageBudgetSettings />

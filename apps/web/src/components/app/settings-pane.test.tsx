@@ -50,6 +50,10 @@ vi.mock(
   stubModule("ChatSurfaceSettings")
 );
 vi.mock(
+  "@/components/app/dispatch-harness-settings",
+  stubModule("DispatchHarnessSettings")
+);
+vi.mock(
   "@/components/app/cross-repo-messaging-settings",
   stubModule("CrossRepoMessagingSettings")
 );
@@ -290,6 +294,7 @@ describe("SettingsContent", () => {
         "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
         "ChatSurfaceSettings",
+        "DispatchHarnessSettings",
         "UsageBudgetSettings",
         "WorktreeLocationSettings",
       ],
