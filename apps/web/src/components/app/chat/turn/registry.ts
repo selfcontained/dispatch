@@ -8,9 +8,7 @@
 // step-detail.tsx.
 import { diffLines } from "./diff-block";
 
-import type { HarnessPlanEntry } from "@dispatch/shared";
-
-import type { Step, Turn } from "./contracts";
+import type { Step } from "./contracts";
 
 /** What the server puts on a step's `detail` (see harness-types.ts). */
 export type StepDetailData = {
@@ -67,27 +65,6 @@ export type TodoItem = {
   /** pending | in_progress | completed */
   status: string;
 };
-
-/**
- * The task list as the engine last published it: the live turn's plan while
- * one runs, else the newest assistant turn's; empty when neither has one.
- */
-export function latestPlanItems(
-  turns: Turn[],
-  livePlan: HarnessPlanEntry[] | null,
-  streaming: boolean
-): TodoItem[] {
-  const toItems = (plan: HarnessPlanEntry[]) =>
-    plan.map((e) => ({ content: e.content, status: e.status }));
-  if (streaming && livePlan) return toItems(livePlan);
-  for (let i = turns.length - 1; i >= 0; i -= 1) {
-    const plan = turns[i].extra?.plan;
-    if (turns[i].role === "assistant" && Array.isArray(plan)) {
-      return toItems(plan as HarnessPlanEntry[]);
-    }
-  }
-  return [];
-}
 
 /** Whether steps ran under this one (a subagent's work). */
 export function hasChildren(step: Step): boolean {

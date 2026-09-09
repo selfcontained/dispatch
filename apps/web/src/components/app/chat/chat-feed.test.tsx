@@ -1048,6 +1048,69 @@ describe("ChatFeed", () => {
     expect((option as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("renders a question asked during a turn once, as its own card beside the turn", () => {
+    // The harness view drew its own card inside the turn, so a question was
+    // answered in one place and read in another. It is a chat row in time
+    // order now, and the turn only references it.
+    const turn: ChatTurnEntry = {
+      type: "turn",
+      id: "turn:12",
+      agentId: AGENT_ID,
+      at: "2026-09-04T10:00:00.000Z",
+      updatedAt: "2026-09-04T10:00:09.000Z",
+      prompt: { source: "chat", text: "pick one", attachments: [] },
+      trace: {
+        startedAt: "2026-09-04T10:00:00.000Z",
+        endedAt: "2026-09-04T10:00:09.000Z",
+        finalResult: "ok",
+        steps: [],
+      },
+      result: { text: "Waiting on you.", streaming: false },
+      settled: true,
+      interrupted: false,
+      questions: [{ messageId: "q1", answered: false }],
+    };
+    const { onAnswer } = renderFeed([
+      turn,
+      chat(
+        message({
+          id: "q1",
+          kind: "question",
+          text: "Fix the preview alone, or bundle it?",
+          question: {
+            options: [
+              { label: "Preview only" },
+              { label: "**Bundle**", value: "bundle" },
+            ],
+            allowFreeform: true,
+          },
+          createdAt: "2026-09-04T10:00:05.000Z",
+          updatedAt: "2026-09-04T10:00:05.000Z",
+        })
+      ),
+    ]);
+
+    const cards = screen.getAllByTestId("chat-question-options");
+    expect(cards).toHaveLength(1);
+    expect(screen.queryByTestId("harness-question")).toBeNull();
+    const turnRow = screen.getByTestId("chat-turn");
+    expect(
+      turnRow.compareDocumentPosition(cards[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(turnRow.contains(cards[0]!)).toBe(false);
+
+    const options = screen.getAllByTestId("chat-question-option");
+    expect(options).toHaveLength(2);
+    expect(options[1]!.textContent).toBe("Bundle");
+    expect(options[1]!.querySelector("strong")).not.toBeNull();
+    fireEvent.click(options[1]!);
+    expect(onAnswer).toHaveBeenCalledWith("q1", {
+      label: "**Bundle**",
+      value: "bundle",
+    });
+  });
+
   it("renders a file attachment as an image by its MIME type when the name has no extension", () => {
     renderFeed([
       chat(

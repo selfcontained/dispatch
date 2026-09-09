@@ -67,7 +67,7 @@ function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
 function renderTurn(entry: ChatTurnEntry) {
   // The agent post's author mark reads its engine colour through
   // `useIconColor`, which is a React Query read, so the provider is not
-  // optional here. `harness-pane.test.tsx` wraps the same way.
+  // optional here.
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>

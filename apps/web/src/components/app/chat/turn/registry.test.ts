@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { Step, Turn } from "./contracts";
+import type { Step } from "./contracts";
 import {
   argsSummary,
   hasDetail,
-  latestPlanItems,
   stepLabel,
   stepSummary,
   toolName,
@@ -215,45 +214,6 @@ describe("turnLabelFromSteps", () => {
 });
 
 const at = Date.parse("2026-09-07T10:00:00Z");
-const assistantTurn = (plan?: unknown): Turn => ({
-  id: "t:assistant",
-  role: "assistant",
-  content: "",
-  timestamp: at,
-  trace: { startedAt: at, endedAt: at + 1000, steps: [] },
-  extra: plan ? { plan } : {},
-});
-
-describe("latestPlanItems", () => {
-  const plan = [
-    { content: "a", status: "completed", priority: "high" },
-    { content: "b", status: "in_progress", priority: "low" },
-  ] as const;
-  it("prefers the live plan while streaming", () => {
-    expect(latestPlanItems([assistantTurn(plan)], [plan[1]], true)).toEqual([
-      { content: "b", status: "in_progress" },
-    ]);
-  });
-  it("falls back to the newest assistant turn's plan", () => {
-    expect(
-      latestPlanItems(
-        [
-          assistantTurn([plan[0]]),
-          { id: "u", role: "user", content: "x", timestamp: at },
-          assistantTurn(plan),
-        ],
-        null,
-        false
-      )
-    ).toEqual([
-      { content: "a", status: "completed" },
-      { content: "b", status: "in_progress" },
-    ]);
-  });
-  it("is empty when no turn carries a plan", () => {
-    expect(latestPlanItems([assistantTurn()], null, false)).toEqual([]);
-  });
-});
 
 describe("stepLabel", () => {
   it("no longer special-cases a todo tool", () => {
