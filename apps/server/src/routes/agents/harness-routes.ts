@@ -4,6 +4,7 @@ import type {
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
   HarnessPathsResponse,
+  HarnessQueueResponse,
   HarnessTurnsResponse,
 } from "@dispatch/shared";
 
@@ -90,6 +91,19 @@ export async function registerAgentHarnessRoutes(
     }
     const response: HarnessTurnsResponse = {
       turns: await loadTurns(deps.pool, id, limit),
+      queued: await loadQueued(deps.pool, deps.harness.listQueued(id)),
+    };
+    return response;
+  });
+
+  // What waits behind the running turn. In-memory supervisor state, not a
+  // feed row: the composer reads it from here rather than from the turns.
+  app.get("/api/v1/agents/:id/harness/queue", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    const response: HarnessQueueResponse = {
       queued: await loadQueued(deps.pool, deps.harness.listQueued(id)),
     };
     return response;

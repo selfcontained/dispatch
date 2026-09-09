@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import Fastify from "fastify";
 
+import { registerAgentHarnessRoutes } from "../src/routes/agents/harness-routes.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 const ctx = useInjectApp();
@@ -166,5 +168,83 @@ describe("GET /api/v1/harness/usage", () => {
       "gemini",
       "opencode",
     ]);
+  });
+});
+
+describe("GET /api/v1/agents/:id/harness/queue", () => {
+  it("returns an empty queue for a running agent and 404s for an unknown one", async () => {
+    const empty = await authedGet(`/api/v1/agents/${agentId}/harness/queue`);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ queued: [] });
+    const missing = await authedGet("/api/v1/agents/agt_nope/harness/queue");
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error).toBe("Agent not found.");
+  });
+
+  it("shapes a queued chat prompt with its chat text joined", async () => {
+    const app = Fastify();
+    const chat = await ctx.pool.query<{ id: string }>(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES (gen_random_uuid(), $1, 'user', 'reply', 'queued please',
+               '[]'::jsonb, NULL)
+       RETURNING id`,
+      [agentId]
+    );
+    const chatId = chat.rows[0].id;
+    await registerAgentHarnessRoutes(app, {
+      pool: ctx.pool,
+      harness: {
+        getConfigOptions: () => null,
+        setConfigOption: async () => [],
+        getCommands: () => null,
+        listQueued: () => [
+          {
+            id: chatId,
+            source: { source: "chat", chatMessageId: chatId },
+            createdAt: "2026-09-08T10:00:00.000Z",
+          },
+          {
+            id: "q_2",
+            source: {
+              source: "agent",
+              senderId: "agt_other",
+              senderName: "Reviewer",
+              text: "take a look",
+            },
+            createdAt: "2026-09-08T10:00:01.000Z",
+          },
+        ],
+        sendQueuedNow: async () => false,
+        removeQueued: () => false,
+        interrupt: async () => false,
+      },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/agents/${agentId}/harness/queue`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      queued: [
+        {
+          id: chatId,
+          source: "chat",
+          text: "queued please",
+          chatMessageId: chatId,
+          attachments: [],
+          createdAt: "2026-09-08T10:00:00.000Z",
+        },
+        {
+          id: "q_2",
+          source: "agent",
+          text: "take a look",
+          senderName: "Reviewer",
+          attachments: [],
+          createdAt: "2026-09-08T10:00:01.000Z",
+        },
+      ],
+    });
+    await app.close();
   });
 });

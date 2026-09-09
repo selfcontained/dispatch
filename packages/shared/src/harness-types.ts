@@ -80,6 +80,9 @@ export type HarnessQueuedPrompt = HarnessPrompt & {
   createdAt: string;
 };
 
+/** `GET /api/v1/agents/:id/harness/queue`: what waits behind the live turn. */
+export type HarnessQueueResponse = { queued: HarnessQueuedPrompt[] };
+
 /**
  * The engines the harness can run. One row per ACP agent; the create
  * dialog, the usage dialog, the budget settings, and the starting screen's
