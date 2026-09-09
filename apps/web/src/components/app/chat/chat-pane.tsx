@@ -21,6 +21,7 @@ import {
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
+import { TurnContextProvider } from "@/components/app/chat/turn/turn-context";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -384,8 +385,7 @@ export function ChatPane({
       setPendingBelow(false);
       return;
     }
-    const appended =
-      lastId !== lastEntryIdRef.current || arrived.length > 0;
+    const appended = lastId !== lastEntryIdRef.current || arrived.length > 0;
     // A streaming assistant row keeps its id while its text grows; that is
     // still new content below the fold for a reader who is following.
     const grew = !appended && lastKey !== lastEntryKeyRef.current;
@@ -525,6 +525,10 @@ export function ChatPane({
     openLightbox,
     onOpenReview,
   });
+  // The live agent record a turn entry's shortcut pins need. Separate from
+  // `ctx` on purpose: `ctx` is what every memoized feed row is keyed on and
+  // must not change every time the agent record does.
+  const turnContext = useMemo(() => ({ agent }), [agent]);
 
   const disabledReason = composerDisabledReason(agent, terminalMode, {
     isLoading: feed.isLoading,
@@ -629,14 +633,16 @@ export function ChatPane({
           ) : null}
           {visibleEntries.length > 0 ? (
             <PinShortcutProvider value={pinShortcuts}>
-              <ChatFeed
-                entries={visibleEntries}
-                ctx={ctx}
-                heldMessageId={heldMessageId}
-                answeringMessageId={answeringMessageId}
-                answersDisabled={disabledReason !== null}
-                onAnswer={onAnswer}
-              />
+              <TurnContextProvider value={turnContext}>
+                <ChatFeed
+                  entries={visibleEntries}
+                  ctx={ctx}
+                  heldMessageId={heldMessageId}
+                  answeringMessageId={answeringMessageId}
+                  answersDisabled={disabledReason !== null}
+                  onAnswer={onAnswer}
+                />
+              </TurnContextProvider>
             </PinShortcutProvider>
           ) : null}
         </div>
