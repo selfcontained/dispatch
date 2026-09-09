@@ -24,6 +24,7 @@ import {
   ActivityEntryView,
   AssistantEntryView,
 } from "@/components/app/chat/stream-entries";
+import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
 
 /**
  * A feed entry ready to render: status lines may stand in for a run of
@@ -77,6 +78,12 @@ export function entryGrowthKey(entry: ChatFeedEntry): string {
       return `${base}:${entry.text.length}:${entry.streaming ? 1 : 0}`;
     case "activity":
       return `${base}:${entry.status}:${entry.terminalOutput?.length ?? 0}:${entry.diff ? 1 : 0}`;
+    case "turn":
+      // Everything that makes a turn taller: the newest row folded in, the
+      // rail's length, the answer as it streams, and the settle that folds
+      // the rail. `entryVersion` stays the anchor time, so growth does not
+      // re-fade the entry.
+      return `${base}:${entry.updatedAt}:${entry.trace.steps.length}:${entry.result?.text.length ?? 0}:${entry.settled ? 1 : 0}`;
     default:
       return base;
   }
@@ -293,6 +300,21 @@ export function layoutFeed(
       lastAgentRow = null;
       continue;
     }
+    // A turn carries a user post and an agent post inside one entry, so
+    // nothing outside it can group with either half: it always starts a
+    // fresh group, draws no hairline of its own, and ends the run behind
+    // it so the post after it opens with a header.
+    if (item.entry.type === "turn") {
+      rows.push({
+        kind: "entry",
+        entry: item.entry,
+        grouped: false,
+        rule: false,
+      });
+      lastPost = null;
+      lastAgentRow = null;
+      continue;
+    }
     const key = authorKey(item.entry, ctx);
     const at = new Date(item.entry.at).getTime();
     const safeAt = Number.isFinite(at) ? at : 0;
@@ -329,16 +351,31 @@ export function latestUserMessageId(entries: ChatFeedEntry[]): string | null {
 /**
  * The newest unanswered question that accepts a typed reply. While one is
  * open the composer answers it instead of sending a plain message.
+ *
+ * A turn names the questions asked during it and whether each is answered.
+ * A question's card is a `chat` entry of its own, in time order, and always
+ * lands after the turn's anchor, so the walk below finds the card either
+ * way; what the turn adds is a fresher answer state. The turn entry is
+ * republished whole on every flush, while a cached chat row is only as new
+ * as its last event, so an answer the turn knows about closes the question
+ * even when the row has not caught up.
  */
 export function latestOpenFreeformQuestion(
   entries: ChatFeedEntry[]
 ): ChatMessage | null {
+  const answeredByTurn = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "turn") continue;
+    for (const ref of entry.questions ?? []) {
+      if (ref.answered) answeredByTurn.add(ref.messageId);
+    }
+  }
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
     if (entry.type !== "chat") continue;
     const m = entry.message;
     if (m.authorKind !== "agent" || m.kind !== "question") continue;
-    if (m.answer !== null) continue;
+    if (m.answer !== null || answeredByTurn.has(m.id)) continue;
     return m.question?.allowFreeform ? m : null;
   }
   return null;
@@ -497,6 +534,15 @@ export function ChatFeed({
                   ctx={ctx}
                 />
               );
+            case "turn":
+              return (
+                <TurnEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
             case "assistant":
               return (
                 <AssistantEntryView
@@ -524,12 +570,6 @@ export function ChatFeed({
                   ctx={ctx}
                 />
               );
-            // Task 9 of this plan renders the turn; until then the server
-            // serves turn entries that nothing here can draw. The arm is
-            // explicit so the annotated return type makes any later union
-            // member a TS2366 instead of a row that silently disappears.
-            case "turn":
-              return null;
           }
         })();
         return (
