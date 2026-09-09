@@ -488,10 +488,8 @@ export async function registerSystemRoutes(
     return { enabled: body.enabled };
   });
 
-  // The Dispatch Harness agent type's one switch. Kept beside the
-  // chat-surface flag because it is the same shape: server-owned boolean,
-  // GET on mount, POST on an explicit toggle. `dispatch` is never a member
-  // of `enabled_agent_types`, so this is the only way to turn it on.
+  // `dispatch` is never a member of `enabled_agent_types`; this is the
+  // only switch that turns the harness on.
   app.get("/api/v1/app/settings/dispatch-harness", async () => {
     return { enabled: await isDispatchHarnessEnabled(deps.pool) };
   });
