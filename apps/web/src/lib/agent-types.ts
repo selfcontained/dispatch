@@ -14,6 +14,7 @@ import {
 export {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   isAgentType,
   isCliAgentType,
   sanitizeEnabledAgentTypes,
@@ -45,4 +46,22 @@ export function defaultReviewAgentType(
   return (
     agent.reviewAgentType ?? (isCliAgentType(agent.type) ? agent.type : "codex")
   );
+}
+
+/**
+ * What may be created right now: the enabled types the server persists, plus
+ * `dispatch` when the Dispatch Harness flag is on. `dispatch` is never a
+ * member of the persisted list (the server drops it on read and on write), so
+ * the flag is the one place the harness enters, and every create dialog, job,
+ * template and reviewer picker reads the result.
+ *
+ * Returns `enabledAgentTypes` itself when the flag is off, so a `useMemo` over
+ * this keeps its identity.
+ */
+export function offeredAgentTypes(
+  enabledAgentTypes: AgentType[],
+  dispatchHarnessEnabled: boolean
+): AgentType[] {
+  if (!dispatchHarnessEnabled) return enabledAgentTypes;
+  return [...enabledAgentTypes, "dispatch"];
 }

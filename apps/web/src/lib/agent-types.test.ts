@@ -6,6 +6,7 @@ import {
   defaultReviewAgentType,
   isAgentType,
   isCliAgentType,
+  offeredAgentTypes,
   sanitizeEnabledAgentTypes,
   sortAgentTypes,
   type AgentType,
@@ -145,5 +146,32 @@ describe("defaultReviewAgentType", () => {
     ).toBe("claude");
     expect(defaultReviewAgentType({ type: "terminal" })).toBe("codex");
     expect(defaultReviewAgentType({})).toBe("codex");
+  });
+});
+
+describe("offeredAgentTypes", () => {
+  const enabled: AgentType[] = ["claude", "codex"];
+
+  it("is the enabled types with the harness flag off", () => {
+    expect(offeredAgentTypes(enabled, false)).toEqual(["claude", "codex"]);
+  });
+
+  it("adds the harness last with the flag on", () => {
+    expect(offeredAgentTypes(enabled, true)).toEqual([
+      "claude",
+      "codex",
+      "dispatch",
+    ]);
+  });
+
+  // Handed straight to a useMemo, so a no-op has to keep its identity or
+  // every picker below it re-renders on each parent render.
+  it("returns the same array with the flag off", () => {
+    expect(offeredAgentTypes(enabled, false)).toBe(enabled);
+  });
+
+  it("leaves the input alone", () => {
+    offeredAgentTypes(enabled, true);
+    expect(enabled).toEqual(["claude", "codex"]);
   });
 });
