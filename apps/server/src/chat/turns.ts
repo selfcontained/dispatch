@@ -10,6 +10,14 @@ import type {
   HarnessTurn,
 } from "@dispatch/shared";
 
+import {
+  AT_KEY_SQL,
+  cursorClause,
+  type FeedCursor,
+  intKey,
+  type Keyed,
+} from "./feed-cursor.js";
+
 import { INTERRUPTED_BY_RESTART } from "../agents/harness/stream-recorder.js";
 import type { PromptSource } from "../agents/harness/prompt-source.js";
 import type {
@@ -434,7 +442,154 @@ export function toTurnEntry(
   };
 }
 
-/** The newest `limit` turns for an agent, with their chat prompts joined. */
+type StreamRowResult = {
+  id: number | string;
+  seq: number;
+  kind: StreamEventRow["kind"];
+  key: string | null;
+  payload: Record<string, unknown>;
+  created_at: Date;
+  updated_at: Date;
+  at_key: string;
+};
+
+/**
+ * One page of turn entries, newest first, past `cursor`.
+ *
+ * The anchors are the `turn` rows, plus the agent's oldest stream row when
+ * that row is not itself a turn row: the rows recorded before turn rows
+ * existed assemble into one closed synthetic turn, and it needs an anchor
+ * of its own to sort and page by. The page's rows are everything from the
+ * oldest selected anchor up to, but not including, the first turn row above
+ * the page, so paging older never re-reads a newer turn and a turn belongs
+ * wholly to the page its anchor falls on.
+ */
+export async function listTurnEntries(
+  db: Queryable,
+  agentId: string,
+  cursor: FeedCursor | null,
+  limit: number
+): Promise<Keyed<ChatTurnEntry>[]> {
+  const params: unknown[] = [agentId];
+  const clause = cursorClause("turn", "int", cursor, params);
+  params.push(limit);
+  const anchors = await db.query<{ id: number | string; seq: number }>(
+    `SELECT id, seq
+       FROM agent_stream_events
+      WHERE agent_id = $1
+        AND (
+          kind = 'turn'
+          OR seq = (
+            SELECT min(seq) FROM agent_stream_events WHERE agent_id = $1
+          )
+        ) ${clause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  if (anchors.rows.length === 0) return [];
+  const seqs = anchors.rows.map((r) => r.seq);
+  const fromSeq = Math.min(...seqs);
+  const maxSeq = Math.max(...seqs);
+  const above = await db.query<{ seq: number; created_at: Date }>(
+    `SELECT seq, created_at
+       FROM agent_stream_events
+      WHERE agent_id = $1 AND kind = 'turn' AND seq > $2
+      ORDER BY seq ASC
+      LIMIT 1`,
+    [agentId, maxSeq]
+  );
+  const untilSeq = above.rows[0]?.seq ?? null;
+  const untilAt = above.rows[0]?.created_at ?? null;
+  const rows = await db.query<StreamRowResult>(
+    `SELECT id, seq, kind, key, payload, created_at, updated_at,
+            ${AT_KEY_SQL} AS at_key
+       FROM agent_stream_events
+      WHERE agent_id = $1 AND seq >= $2
+        AND ($3::int IS NULL OR seq < $3)
+      ORDER BY seq ASC`,
+    [agentId, fromSeq, untilSeq]
+  );
+  const source: TurnSourceRow[] = [];
+  // The cursor needs the anchor row's microsecond time, which only Postgres
+  // can render exactly; the ISO form the entry exposes is milliseconds.
+  const atKeyById = new Map<number, string>();
+  for (const r of rows.rows) {
+    const id = Number(r.id);
+    atKeyById.set(id, r.at_key);
+    source.push({
+      id,
+      seq: r.seq,
+      kind: r.kind,
+      key: r.key,
+      payload: r.payload,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    });
+  }
+  const chat = await loadChatMessages(db, chatPromptIds(source));
+  // Questions the agent asked while this page's turns ran. Bounded above as
+  // well as below: a question from a newer turn would otherwise attach to
+  // this page's last turn, which is the one that had started when it landed.
+  const since = source.length ? source[0].createdAt : new Date(0);
+  const asked = await db.query(
+    `SELECT * FROM agent_chat_messages
+      WHERE agent_id = $1 AND author_kind = 'agent' AND kind = 'question'
+        AND created_at >= $2
+        AND ($3::timestamptz IS NULL OR created_at < $3)
+      ORDER BY created_at ASC`,
+    [agentId, since, untilAt]
+  );
+  const questions = asked.rows.map((row) => toChatMessage(row as never));
+  const groups = groupTurnRows(source);
+  const turns = assembleTurns(source, chat, questions);
+  const keyed: Keyed<ChatTurnEntry>[] = [];
+  turns.forEach((turn, index) => {
+    const group = groups[index];
+    if (!group) return;
+    const anchor = group.turn ?? group.rows[0];
+    const atKey = atKeyById.get(anchor.id);
+    if (atKey === undefined) return;
+    keyed.push({
+      entry: toTurnEntry(turn, group, agentId),
+      atKey,
+      rawId: String(anchor.id),
+      idKey: intKey(anchor.id),
+    });
+  });
+  // Assembly runs oldest first; the feed merges newest first.
+  return keyed.reverse();
+}
+
+/** The chat message ids the page's turn rows name as their prompt. */
+function chatPromptIds(rows: TurnSourceRow[]): string[] {
+  return rows
+    .filter((r) => r.kind === "turn")
+    .map((r) => (r.payload as TurnPayload).prompt)
+    .filter(
+      (p): p is Extract<PromptSource, { source: "chat" }> => p.source === "chat"
+    )
+    .map((p) => p.chatMessageId);
+}
+
+/**
+ * The agent's newest turn as one feed entry, for the row-level event the
+ * recorder's flush publishes. Null when the agent has no stream rows.
+ */
+export async function loadLatestTurnEntry(
+  db: Queryable,
+  agentId: string
+): Promise<ChatTurnEntry | null> {
+  const [newest] = await listTurnEntries(db, agentId, null, 1);
+  return newest?.entry ?? null;
+}
+
+/**
+ * The newest `limit` turns for an agent, with their chat prompts joined.
+ *
+ * Only `GET /api/v1/agents/:id/harness/turns` still reads this; the feed
+ * reads {@link listTurnEntries}. Plan 4 of the one-feed work deletes both.
+ */
 export async function loadTurns(
   db: Queryable,
   agentId: string,
@@ -475,14 +630,7 @@ export async function loadTurns(
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }));
-  const chatIds = source
-    .filter((r) => r.kind === "turn")
-    .map((r) => (r.payload as TurnPayload).prompt)
-    .filter(
-      (p): p is Extract<PromptSource, { source: "chat" }> => p.source === "chat"
-    )
-    .map((p) => p.chatMessageId);
-  const chat = await loadChatMessages(db, chatIds);
+  const chat = await loadChatMessages(db, chatPromptIds(source));
   // Agent questions posted since the window opened (Chat shows them; a
   // harness agent's pane does not).
   const since = source.length ? source[0].createdAt : new Date(0);

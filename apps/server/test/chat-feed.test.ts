@@ -9,6 +9,7 @@ import {
   loadChatMessageEntry,
   toStatusEntry,
 } from "../src/chat/feed.js";
+import { listTurnEntries, loadLatestTurnEntry } from "../src/chat/turns.js";
 import { ChatStore } from "../src/chat/store.js";
 import { writeLatestEvent } from "../src/agents/events.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -673,5 +674,276 @@ describe("feed entries as events carry them", () => {
         recorded.createdAt
       )
     ).toEqual(status);
+  });
+});
+
+describe("listTurnEntries", () => {
+  /**
+   * `listTurnEntries` windows on `seq` and orders anchors on `created_at`,
+   * which the recorder keeps in step (seq is MAX(seq)+1 per agent, created_at
+   * is the insert's now()). These fixtures keep them in step too.
+   */
+  async function stream(
+    rows: Array<{
+      seq: number;
+      kind: string;
+      payload: Record<string, unknown>;
+      at: number;
+      updated?: number;
+      key?: string;
+    }>
+  ) {
+    for (const r of rows) {
+      await pool.query(
+        `INSERT INTO agent_stream_events
+           (agent_id, seq, kind, key, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
+        [
+          A,
+          r.seq,
+          r.kind,
+          r.key ?? null,
+          JSON.stringify(r.payload),
+          at(r.at),
+          at(r.updated ?? r.at),
+        ]
+      );
+    }
+  }
+
+  const settledTurn = (text: string, ended: number) => ({
+    state: "settled",
+    prompt: { source: "system", text },
+    stopReason: "end_turn",
+    endedAt: at(ended).toISOString(),
+  });
+
+  it("returns one entry per turn, newest first, anchored on the turn row", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("first", 3), at: 1 },
+      {
+        seq: 2,
+        kind: "tool_call",
+        key: "c1",
+        payload: {
+          toolKind: "read",
+          title: "Read a",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        at: 2,
+        updated: 2,
+      },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "Done one.", streaming: false },
+        at: 3,
+      },
+      { seq: 4, kind: "turn", payload: settledTurn("second", 6), at: 4 },
+      {
+        seq: 5,
+        kind: "assistant",
+        payload: { text: "Done two.", streaming: false },
+        at: 5,
+        updated: 6,
+      },
+    ]);
+    const page = await listTurnEntries(pool, A, null, 10);
+    expect(page.map((k) => k.entry.prompt.text)).toEqual(["second", "first"]);
+    const [second, first] = page;
+    expect(first.entry.at).toBe(at(1).toISOString());
+    expect(first.entry.result).toEqual({ text: "Done one.", streaming: false });
+    expect(first.entry.trace.steps.map((s) => s.label)).toEqual(["Read a"]);
+    expect(first.entry.settled).toBe(true);
+    expect(second.entry.updatedAt).toBe(at(6).toISOString());
+    // The cursor key is the anchor row's own id and microsecond time.
+    expect(first.rawId).toMatch(/^\d+$/);
+    expect(first.atKey).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/);
+  });
+
+  it("keeps rows before the first turn row as one closed synthetic turn", async () => {
+    await stream([
+      {
+        seq: 1,
+        kind: "assistant",
+        payload: { text: "older history", streaming: false },
+        at: 1,
+        updated: 2,
+      },
+      { seq: 2, kind: "turn", payload: settledTurn("after", 5), at: 4 },
+    ]);
+    const page = await listTurnEntries(pool, A, null, 10);
+    expect(page).toHaveLength(2);
+    const pre = page[1];
+    expect(pre.entry.id).toMatch(/^turn:pre:\d+$/);
+    expect(pre.entry.prompt.text).toBe("Earlier activity");
+    expect(pre.entry.settled).toBe(true);
+    expect(pre.entry.at).toBe(at(1).toISOString());
+  });
+
+  it("pages by anchor and never re-reads a newer turn's rows", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("one", 2), at: 1 },
+      {
+        seq: 2,
+        kind: "assistant",
+        payload: { text: "a", streaming: false },
+        at: 2,
+      },
+      { seq: 3, kind: "turn", payload: settledTurn("two", 4), at: 3 },
+      {
+        seq: 4,
+        kind: "assistant",
+        payload: { text: "b", streaming: false },
+        at: 4,
+      },
+      { seq: 5, kind: "turn", payload: settledTurn("three", 6), at: 5 },
+      {
+        seq: 6,
+        kind: "assistant",
+        payload: { text: "c", streaming: false },
+        at: 6,
+      },
+    ]);
+    const newest = await listTurnEntries(pool, A, null, 2);
+    expect(newest.map((k) => k.entry.prompt.text)).toEqual(["three", "two"]);
+    expect(newest.map((k) => k.entry.result?.text)).toEqual(["c", "b"]);
+    const oldest = newest[newest.length - 1];
+    const older = await listTurnEntries(
+      pool,
+      A,
+      { at: oldest.atKey, type: "turn", id: oldest.rawId },
+      2
+    );
+    expect(older.map((k) => k.entry.prompt.text)).toEqual(["one"]);
+    expect(older[0].entry.result?.text).toBe("a");
+  });
+
+  it("carries an open turn with its live rail and growing text", async () => {
+    await stream([
+      {
+        seq: 1,
+        kind: "turn",
+        payload: { state: "started", prompt: { source: "system", text: "go" } },
+        at: 1,
+      },
+      {
+        seq: 2,
+        kind: "tool_call",
+        key: "c1",
+        payload: {
+          toolKind: "execute",
+          title: "bash",
+          status: "in_progress",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        at: 2,
+        updated: 4,
+      },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "half", streaming: true },
+        at: 3,
+        updated: 5,
+      },
+    ]);
+    const [live] = await listTurnEntries(pool, A, null, 10);
+    expect(live.entry.settled).toBe(false);
+    expect(live.entry.updatedAt).toBe(at(5).toISOString());
+    expect(live.entry.result).toEqual({ text: "half", streaming: true });
+    expect(live.entry.trace.steps[0]).toMatchObject({
+      label: "bash",
+      status: "running",
+    });
+    expect(live.entry.trace.endedAt).toBeUndefined();
+  });
+
+  it("joins the chat prompt and references a question asked during the turn", async () => {
+    const prompt = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "look please",
+      delivered: true,
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [prompt.id, at(1)]
+    );
+    const question = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "question",
+      text: "Which one?",
+      question: { options: [{ label: "A" }], allowFreeform: true },
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [question.id, at(3)]
+    );
+    await stream([
+      {
+        seq: 1,
+        kind: "turn",
+        payload: {
+          state: "settled",
+          prompt: { source: "chat", chatMessageId: prompt.id },
+          endedAt: at(4).toISOString(),
+        },
+        at: 2,
+        updated: 4,
+      },
+    ]);
+    const [entry] = await listTurnEntries(pool, A, null, 10);
+    expect(entry.entry.prompt).toMatchObject({
+      source: "chat",
+      text: "look please",
+      chatMessageId: prompt.id,
+    });
+    expect(entry.entry.questions).toEqual([
+      { messageId: question.id, answered: false },
+    ]);
+  });
+
+  it("hands back nothing for an agent with no stream rows", async () => {
+    expect(await listTurnEntries(pool, A, null, 10)).toEqual([]);
+    expect(await loadLatestTurnEntry(pool, A)).toBeNull();
+  });
+
+  it("loadLatestTurnEntry composes only the newest turn", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("old", 2), at: 1 },
+      {
+        seq: 2,
+        kind: "assistant",
+        payload: { text: "old answer", streaming: false },
+        at: 2,
+      },
+      {
+        seq: 3,
+        kind: "turn",
+        payload: {
+          state: "started",
+          prompt: { source: "system", text: "new" },
+        },
+        at: 3,
+      },
+      {
+        seq: 4,
+        kind: "assistant",
+        payload: { text: "new answer", streaming: true },
+        at: 4,
+        updated: 5,
+      },
+    ]);
+    const entry = await loadLatestTurnEntry(pool, A);
+    expect(entry?.prompt.text).toBe("new");
+    expect(entry?.result?.text).toBe("new answer");
+    expect(entry?.settled).toBe(false);
   });
 });
