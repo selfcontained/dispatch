@@ -1,7 +1,5 @@
 import type {
-  ChatActivityEntry,
   ChatAgentMessageEntry,
-  ChatAssistantEntry,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
@@ -11,10 +9,6 @@ import type {
   ChatStatusEntry,
 } from "@dispatch/shared";
 
-import type {
-  AssistantPayload,
-  ToolPayload,
-} from "../agents/harness/stream-store.js";
 import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
 
 import {
@@ -30,6 +24,7 @@ import {
   intKey,
   type Keyed,
 } from "./feed-cursor.js";
+import { listTurnEntries } from "./turns.js";
 import { type ChatStore, type Queryable, toChatMessage } from "./store.js";
 
 // The feed's ordering primitives live in `feed-cursor.ts` so the turn
@@ -102,7 +97,20 @@ async function listChatEntries(
     `WITH page AS MATERIALIZED (
        SELECT ${MESSAGE_COLUMNS_SQL}, attachments, ${AT_KEY_SQL} AS at_key
          FROM agent_chat_messages m
-        WHERE m.agent_id = $1 ${clause}
+        WHERE m.agent_id = $1
+          -- A chat row that opened a turn is rendered by that turn entry,
+          -- prompt text and attachments included, so listing it again would
+          -- show the prompt twice. Every other chat row stays an entry of
+          -- its own: an agent post, a question, an answer. Checked against
+          -- every turn row on the agent rather than this page's, so paging
+          -- cannot make a prompt reappear.
+          AND NOT EXISTS (
+            SELECT 1
+              FROM agent_stream_events s
+             WHERE s.agent_id = $1
+               AND s.kind = 'turn'
+               AND s.payload->'prompt'->>'chatMessageId' = m.id::text
+          ) ${clause}
         ORDER BY m.created_at DESC, m.id DESC
         LIMIT $${params.length}
      ), expanded AS (
@@ -389,75 +397,6 @@ async function listReviewEntries(
 }
 
 /**
- * Stream rows from a protocol-driven harness (over ACP): assistant text
- * and tool calls. Thoughts and status rows stay out of the feed.
- */
-async function listStreamEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatAssistantEntry | ChatActivityEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("assistant", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<
-    | {
-        id: number;
-        kind: "assistant";
-        payload: Partial<AssistantPayload>;
-        created_at: Date;
-        at_key: string;
-      }
-    | {
-        id: number;
-        kind: "tool_call";
-        payload: Partial<ToolPayload>;
-        created_at: Date;
-        at_key: string;
-      }
-  >(
-    `SELECT id, kind, payload, created_at, ${AT_KEY_SQL} AS at_key
-       FROM agent_stream_events
-      WHERE agent_id = $1 AND kind IN ('assistant', 'tool_call') ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => {
-    const at = row.created_at.toISOString();
-    const entry: ChatAssistantEntry | ChatActivityEntry =
-      row.kind === "assistant"
-        ? {
-            type: "assistant",
-            id: `stream:${row.id}`,
-            text: row.payload.text ?? "",
-            streaming: row.payload.streaming === true,
-            ...(row.payload.truncated ? { truncated: true } : {}),
-            at,
-          }
-        : {
-            type: "activity",
-            id: `stream:${row.id}`,
-            toolKind: row.payload.toolKind ?? "other",
-            title: row.payload.title ?? "",
-            status: row.payload.status ?? "pending",
-            locations: row.payload.locations ?? [],
-            diff: row.payload.diff ?? null,
-            terminalOutput: row.payload.terminalOutput ?? null,
-            ...(row.payload.truncated ? { truncated: true } : {}),
-            at,
-          };
-    return {
-      entry,
-      atKey: row.at_key,
-      rawId: String(row.id),
-      idKey: intKey(Number(row.id)),
-    };
-  });
-}
-
-/**
  * Pin activity, one entry per write: every row of a batch write shares the
  * transaction's `now()`, so grouping by (created_at, action) turns "replace
  * group Build with five pins" into one post rather than five. The group's
@@ -511,11 +450,11 @@ async function listPinEntries(
 
 /**
  * Compose one agent's Chat feed at read time from chat messages, status
- * events, cross-agent messages, shared media, reviews, and pin activity.
- * Each source contributes its newest `limit + 1` rows past the cursor; the
- * merge keeps the newest `limit` overall, so any row that belongs on the page
- * is present (a row in the top `limit` overall is in the top `limit` of its
- * source), and anything left over proves an older page exists.
+ * events, cross-agent messages, shared media, reviews, harness turns, and
+ * pin activity. Each source contributes its newest `limit + 1` rows past the
+ * cursor; the merge keeps the newest `limit` overall, so any row that belongs
+ * on the page is present (a row in the top `limit` overall is in the top
+ * `limit` of its source), and anything left over proves an older page exists.
  */
 export async function composeChatFeed(
   store: ChatStore,
@@ -531,7 +470,7 @@ export async function composeChatFeed(
     agentMessages,
     media,
     reviews,
-    stream,
+    turns,
     pins,
     unreadCount,
   ] = await Promise.all([
@@ -540,7 +479,7 @@ export async function composeChatFeed(
     listAgentMessageEntries(db, agentId, cursor, limit + 1),
     listMediaEntries(db, agentId, cursor, limit + 1),
     listReviewEntries(db, agentId, cursor, limit + 1),
-    listStreamEntries(db, agentId, cursor, limit + 1),
+    listTurnEntries(db, agentId, cursor, limit + 1),
     listPinEntries(db, agentId, cursor, limit + 1),
     store.countUnread(agentId),
   ]);
@@ -551,7 +490,7 @@ export async function composeChatFeed(
     ...agentMessages,
     ...media,
     ...reviews,
-    ...stream,
+    ...turns,
     ...pins,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;

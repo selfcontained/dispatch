@@ -44,6 +44,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_messages");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM reviews");
+  await pool.query("DELETE FROM pin_events");
   await pool.query("DELETE FROM agent_stream_events");
 });
 
@@ -587,45 +588,234 @@ describe("composeChatFeed", () => {
   });
 });
 
-describe("stream sources", () => {
-  it("surfaces assistant and tool_call rows as assistant and activity entries", async () => {
-    await pool.query(
-      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload) VALUES
-        ($1, 1, 'assistant', NULL, '{"text":"Reading files","streaming":false}'),
-        ($1, 2, 'tool_call', 'call_1', '{"toolKind":"read","title":"Read README.md","status":"completed","locations":[{"path":"/w/README.md"}],"diff":null,"terminalOutput":null}'),
-        ($1, 3, 'thought', NULL, '{"text":"hmm"}'),
-        ($1, 4, 'status', NULL, '{"message":"turn failed"}')`,
-      [A]
-    );
-    const feed = await composeChatFeed(store, A);
-    expect(feed.entries.map((e) => e.type)).toEqual(["assistant", "activity"]);
-    const activity = feed.entries[1];
-    if (activity.type !== "activity") throw new Error("expected activity");
-    expect(activity.title).toBe("Read README.md");
-    expect(activity.status).toBe("completed");
-    expect(activity.locations).toEqual([{ path: "/w/README.md" }]);
-    expect(activity.id).toMatch(/^stream:\d+$/);
+describe("turn entries in the feed", () => {
+  const settledTurn = (text: string, ended: number) => ({
+    state: "settled",
+    prompt: { source: "system", text },
+    stopReason: "end_turn",
+    endedAt: at(ended).toISOString(),
   });
 
-  it("pages across stream entries with the cursor", async () => {
-    for (let i = 1; i <= 4; i++) {
-      await pool.query(
-        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at)
-         VALUES ($1, $2, 'assistant', $3::jsonb, $4)`,
-        [A, i, JSON.stringify({ text: `m${i}`, streaming: false }), at(i)]
-      );
-    }
-    const page1 = await composeChatFeed(store, A, { limit: 2 });
+  async function turnRow(
+    seq: number,
+    payload: Record<string, unknown>,
+    when: number,
+    updated = when
+  ) {
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, $2, 'turn', $3::jsonb, $4, $5)`,
+      [A, seq, JSON.stringify(payload), at(when), at(updated)]
+    );
+  }
+
+  async function assistantRow(
+    seq: number,
+    text: string,
+    when: number,
+    updated = when
+  ) {
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, $2, 'assistant', $3::jsonb, $4, $5)`,
+      [
+        A,
+        seq,
+        JSON.stringify({ text, streaming: false }),
+        at(when),
+        at(updated),
+      ]
+    );
+  }
+
+  it("orders a turn at its anchor among chat, review, pin, status and media rows", async () => {
+    await pool.query(
+      `INSERT INTO agent_events (agent_id, event_type, message, created_at)
+       VALUES ($1, 'working', 'reading', $2)`,
+      [A, at(1)]
+    );
+    const m = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      text: "hi",
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [m.id, at(6)]
+    );
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description, created_at)
+       VALUES ($1, 'shot.png', 'screenshot', 10, 'a shot', $2)`,
+      [A, at(7)]
+    );
+    await pool.query(
+      `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
+       VALUES ($1, 'human', 'looks fine', $2)`,
+      [A, at(8)]
+    );
+    await pool.query(
+      `INSERT INTO pin_events (agent_id, action, pin_id, label, created_at)
+       VALUES ($1, 'created', 'pin_1', 'Dev URL', $2)`,
+      [A, at(9)]
+    );
+    await turnRow(1, settledTurn("do it", 4), 2, 4);
+    await assistantRow(2, "Done.", 3, 4);
+
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual([
+      "status",
+      "turn",
+      "chat",
+      "media",
+      "review",
+      "pin",
+    ]);
+    const turn = feed.entries[1];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.at).toBe(at(2).toISOString());
+    expect(turn.id).toMatch(/^turn:\d+$/);
+    expect(turn.agentId).toBe(A);
+    expect(turn.prompt.text).toBe("do it");
+    expect(turn.result).toEqual({ text: "Done.", streaming: false });
+    expect(turn.settled).toBe(true);
+    expect(turn.interrupted).toBe(false);
+  });
+
+  it("pages by anchor between two turns and repeats neither", async () => {
+    await turnRow(1, settledTurn("one", 2), 1, 2);
+    await assistantRow(2, "a", 2);
+    await turnRow(3, settledTurn("two", 4), 3, 4);
+    await assistantRow(4, "b", 4);
+
+    const page1 = await composeChatFeed(store, A, { limit: 1 });
     expect(page1.hasMore).toBe(true);
+    expect(page1.entries.map((e) => e.type)).toEqual(["turn"]);
     const page2 = await composeChatFeed(store, A, {
-      limit: 2,
+      limit: 1,
       cursor: decodeFeedCursor(page1.nextCursor!),
     });
     expect(page2.hasMore).toBe(false);
-    const texts = [...page2.entries, ...page1.entries].map((e) =>
-      e.type === "assistant" ? e.text : ""
+    const prompts = [...page2.entries, ...page1.entries].map((e) =>
+      e.type === "turn" ? e.prompt.text : ""
     );
-    expect(texts).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(prompts).toEqual(["one", "two"]);
+    const results = [...page2.entries, ...page1.entries].map((e) =>
+      e.type === "turn" ? e.result?.text : ""
+    );
+    expect(results).toEqual(["a", "b"]);
+  });
+
+  it("returns a turn whole even when its rows straddle the page limit", async () => {
+    await turnRow(1, settledTurn("old", 2), 1, 2);
+    await assistantRow(2, "old answer", 2);
+    await turnRow(3, settledTurn("big", 9), 3, 9);
+    for (let i = 0; i < 5; i += 1) {
+      await assistantRow(4 + i, `chunk ${i}`, 4 + i);
+    }
+    // Two entries either way: the limit counts entries, not stream rows.
+    const feed = await composeChatFeed(store, A, { limit: 2 });
+    expect(feed.hasMore).toBe(false);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "turn"]);
+    const big = feed.entries[1];
+    if (big.type !== "turn") throw new Error("expected a turn entry");
+    expect(big.trace.steps.map((s) => s.label)).toEqual([
+      "chunk 0",
+      "chunk 1",
+      "chunk 2",
+      "chunk 3",
+    ]);
+    expect(big.result?.text).toBe("chunk 4");
+  });
+
+  it("carries an interrupted turn with its flag and final result", async () => {
+    await turnRow(
+      1,
+      {
+        state: "settled",
+        prompt: { source: "system", text: "stopped" },
+        stopReason: "cancelled",
+        endedAt: at(3).toISOString(),
+      },
+      1,
+      3
+    );
+    await assistantRow(2, "half", 2);
+    const feed = await composeChatFeed(store, A);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.interrupted).toBe(true);
+    expect(turn.trace.finalResult).toBe("interrupted");
+    expect(turn.settled).toBe(true);
+  });
+
+  it("lists a question asked during a turn once, as a chat entry the turn references", async () => {
+    const question = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "question",
+      text: "Which one?",
+      question: { options: [{ label: "A" }], allowFreeform: true },
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [question.id, at(3)]
+    );
+    await turnRow(1, settledTurn("asking", 5), 1, 5);
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "chat"]);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.questions).toEqual([
+      { messageId: question.id, answered: false },
+    ]);
+    expect(feed.entries[1]).toMatchObject({ id: question.id });
+  });
+
+  it("does not list the chat row a turn used as its prompt", async () => {
+    const prompt = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "look please",
+      delivered: true,
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [prompt.id, at(1)]
+    );
+    const reply = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      text: "an extra post",
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [reply.id, at(6)]
+    );
+    await turnRow(
+      1,
+      {
+        state: "settled",
+        prompt: { source: "chat", chatMessageId: prompt.id },
+        endedAt: at(4).toISOString(),
+      },
+      2,
+      4
+    );
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "chat"]);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.prompt).toMatchObject({
+      source: "chat",
+      text: "look please",
+      chatMessageId: prompt.id,
+    });
+    expect(feed.entries[1]).toMatchObject({ id: reply.id });
+    // The prompt row is not on this feed at all, so no page can bring it back.
+    expect(await loadChatMessageEntry(pool, A, prompt.id)).toBeNull();
+    expect(await loadChatMessageEntry(pool, A, reply.id)).not.toBeNull();
   });
 });
 
