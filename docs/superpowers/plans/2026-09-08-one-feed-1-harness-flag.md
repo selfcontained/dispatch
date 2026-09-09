@@ -12,6 +12,8 @@
 
 - American spelling. No em-dashes anywhere: prose, comments, UI copy, commit messages.
 - Engine names come from `HARNESS_ENGINES[i].label`. Nothing mentions the harness's earlier child process by name, DeepSeek, or "provider key".
+- Where a code step below carries a comment that restates the code, drop that comment: the tasks were written before this rule. Keep a comment that states a reason the code cannot show.
+- Comments earn their place. Write one only where the reason is not visible in the code; never restate what the line does, and do not add a doc comment to a self-evident function. Keep the ones already in code you move.
 - Prefer shadcn/ui primitives over hand-rolled UI. State stays colocated; React Query for server state; Jotai only for the persisted flag hint atoms that already follow that pattern.
 - Motion inside a turn uses tokens from the harness `motion.ts`; the entry's arrival uses Brad's `animate-chat-enter`; reduced motion drops both (`useReducedMotion`, `motion-reduce:animate-none`). Nothing in this plan adds motion.
 - Commit messages: `type(scope): imperative subject`, lowercase after the colon, body wrapped at 72 that leads with the failure mode or effect, ending with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Scopes in use: `server`, `web`, `shared`, `e2e`, `docs`.
