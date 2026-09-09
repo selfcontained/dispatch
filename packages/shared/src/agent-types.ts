@@ -29,9 +29,10 @@ export const CLI_AGENT_TYPES = [
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
-// What an install offers before anyone saves a choice. The harness stays opt-in: it
-// needs an engine installed and logged in on the server, and a curious
-// click without either should not be the first thing a new install sees.
+// What an install offers before anyone saves a choice. `dispatch` is absent
+// because the Dispatch Harness is not set here at all: it has its own
+// server setting (`dispatch_harness_enabled`), and `sanitizeEnabledAgentTypes`
+// drops it from this list on read and on write.
 export const DEFAULT_ENABLED_AGENT_TYPES = AGENT_TYPES.filter(
   (type) => type !== "dispatch"
 ) as readonly Exclude<AgentType, "dispatch">[];

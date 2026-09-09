@@ -386,6 +386,16 @@ export async function registerSystemRoutes(
         .send({ error: "enabledAgentTypes must be an array." });
     }
 
+    // `dispatch` is a member of AGENT_TYPES, so without this the body would
+    // pass validation and then be sanitized away, answering 200 with a list
+    // that silently lacks what was asked for.
+    if (body.enabledAgentTypes.includes("dispatch")) {
+      return reply.code(400).send({
+        error:
+          "dispatch is not set here. Turn the Dispatch Harness on or off at POST /api/v1/app/settings/dispatch-harness.",
+      });
+    }
+
     const uniqueTypes = body.enabledAgentTypes
       .filter(
         (value): value is (typeof AGENT_TYPES)[number] =>

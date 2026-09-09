@@ -114,8 +114,14 @@ describe("sanitizeEnabledAgentTypes", () => {
     expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual(defaults);
   });
 
-  it("keeps the harness when it was chosen explicitly", () => {
-    expect(sanitizeEnabledAgentTypes(["dispatch"])).toEqual(["dispatch"]);
+  // The Dispatch Harness has its own server setting, so it is never a member
+  // of this list. A list that names only the harness has no valid member left
+  // and falls back to the defaults.
+  it("drops the harness from a list that names it", () => {
+    expect(sanitizeEnabledAgentTypes(["dispatch", "claude"])).toEqual([
+      "claude",
+    ]);
+    expect(sanitizeEnabledAgentTypes(["dispatch"])).toEqual(defaults);
   });
 
   it("filters out non-string entries", () => {

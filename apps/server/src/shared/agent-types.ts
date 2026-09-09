@@ -45,6 +45,16 @@ export function isPluginAgentType(value: unknown): value is PluginAgentType {
   );
 }
 
+/**
+ * The persisted enabled-types list, cleaned up on read and on write.
+ *
+ * `dispatch` is never a member. The Dispatch Harness has its own setting
+ * (`dispatch_harness_enabled`, see `dispatch-harness-settings.ts`) and
+ * `getOfferedAgentTypes` is what adds it back for the gates, so this list
+ * cannot be a second place the harness is turned on. A prerelease database
+ * can still hold it inside the stored JSON, which is why this drops it
+ * rather than trusting the writers.
+ */
 export function sanitizeEnabledAgentTypes(value: unknown): AgentType[] {
   if (!Array.isArray(value)) {
     return [...DEFAULT_ENABLED_AGENT_TYPES];
@@ -52,6 +62,7 @@ export function sanitizeEnabledAgentTypes(value: unknown): AgentType[] {
 
   const unique = value
     .filter(isAgentType)
+    .filter((type) => type !== "dispatch")
     .filter((type, index, types) => types.indexOf(type) === index);
   return unique.length > 0 ? unique : [...DEFAULT_ENABLED_AGENT_TYPES];
 }

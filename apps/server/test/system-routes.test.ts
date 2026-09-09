@@ -636,6 +636,22 @@ describe("POST /api/v1/app/settings/agent-types", () => {
     expect(res.json().enabledAgentTypes).toEqual(["claude", "codex"]);
   });
 
+  // A body naming the harness used to be accepted and then silently
+  // sanitized away, so a stale caller looked like it had worked. Say no,
+  // and say where the switch actually is.
+  it("rejects a body that names the harness, pointing at its own endpoint", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/agent-types",
+      headers: { cookie: sessionCookie },
+      payload: { enabledAgentTypes: ["claude", "dispatch"] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe(
+      "dispatch is not set here. Turn the Dispatch Harness on or off at POST /api/v1/app/settings/dispatch-harness."
+    );
+  });
+
   it("rejects duplicate-inflated array with unknown entries", async () => {
     const res = await ctx.app.inject({
       method: "POST",
