@@ -1105,6 +1105,51 @@ describe("listTurnEntries", () => {
     expect(await loadLatestTurnEntry(pool, A)).toBeNull();
   });
 
+  it("never invents a pre-turn entry on a page below the first turn", async () => {
+    // Task 2's review raised this as Task 3's design question: a window that
+    // began mid-turn would group the tail of a turn whose anchor sits on the
+    // next page into a synthetic "Earlier activity" turn, and those steps
+    // would render twice. listTurnEntries cannot do that, because every
+    // window starts at an anchor and an anchor is either a turn row or the
+    // agent's oldest row. This walks every page to prove it.
+    await stream([
+      {
+        seq: 1,
+        kind: "assistant",
+        payload: { text: "history", streaming: false },
+        at: 1,
+      },
+      { seq: 2, kind: "turn", payload: settledTurn("one", 3), at: 2 },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "a", streaming: false },
+        at: 3,
+      },
+      { seq: 4, kind: "turn", payload: settledTurn("two", 5), at: 4 },
+      {
+        seq: 5,
+        kind: "assistant",
+        payload: { text: "b", streaming: false },
+        at: 5,
+      },
+    ]);
+    const seen: string[] = [];
+    let cursor: { at: string; type: "turn"; id: string } | null = null;
+    for (let page = 0; page < 5; page++) {
+      const entries = await listTurnEntries(pool, A, cursor, 1);
+      if (entries.length === 0) break;
+      for (const k of entries) seen.push(k.entry.id);
+      const oldest = entries[entries.length - 1];
+      cursor = { at: oldest.atKey, type: "turn", id: oldest.rawId };
+    }
+    // Three anchors, three entries, each exactly once: the two turns and the
+    // one genuine pre-turn group.
+    expect(seen).toHaveLength(3);
+    expect(new Set(seen).size).toBe(3);
+    expect(seen.filter((id) => id.startsWith("turn:pre:"))).toHaveLength(1);
+  });
+
   it("loadLatestTurnEntry composes only the newest turn", async () => {
     await stream([
       { seq: 1, kind: "turn", payload: settledTurn("old", 2), at: 1 },

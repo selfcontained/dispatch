@@ -799,8 +799,17 @@ describe("groupTurnRows", () => {
         2
       ),
     ];
-    expect(groupTurnRows(rows)).toHaveLength(
-      assembleTurns(rows, new Map()).length
+    // Comparing the two lengths cannot fail: assembleTurns maps over
+    // groupTurnRows, so the counts agree for every input. What toTurnEntry
+    // actually relies on is the pairing, since it takes `id` from the turn
+    // and `at`/`updatedAt`/`settled` from the group at the same index.
+    const groups = groupTurnRows(rows);
+    const turns = assembleTurns(rows, new Map());
+    expect(turns).toHaveLength(groups.length);
+    expect(turns.map((t) => t.id)).toEqual(
+      groups.map((g) =>
+        g.turn ? `turn:${g.turn.id}` : `turn:pre:${g.rows[0].id}`
+      )
     );
   });
 });

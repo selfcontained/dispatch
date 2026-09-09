@@ -373,9 +373,7 @@ export function assembleTurns(
     return {
       // A pre-turn group is named by its first row, not by its position, so
       // a feed cursor over it compares against a real row id.
-      id: group.turn
-        ? `turn:${group.turn.id}`
-        : `turn:pre:${group.rows[0]?.id ?? 0}`,
+      id: group.turn ? `turn:${group.turn.id}` : `turn:pre:${group.rows[0].id}`,
       prompt: turnPayload
         ? promptFor(turnPayload.prompt, chat)
         : { source: "system", text: "Earlier activity", attachments: [] },

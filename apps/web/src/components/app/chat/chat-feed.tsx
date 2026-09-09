@@ -454,7 +454,7 @@ export function ChatFeed({
           );
           return option?.label ?? null;
         })();
-        const view = (() => {
+        const view = ((): JSX.Element | null => {
           switch (entry.type) {
             case "chat":
               return (
@@ -524,6 +524,12 @@ export function ChatFeed({
                   ctx={ctx}
                 />
               );
+            // Task 9 of this plan renders the turn; until then the server
+            // serves turn entries that nothing here can draw. The arm is
+            // explicit so the annotated return type makes any later union
+            // member a TS2366 instead of a row that silently disappears.
+            case "turn":
+              return null;
           }
         })();
         return (
