@@ -486,8 +486,13 @@ const harnessSupervisor = new HarnessSupervisor({
   setLatestEvent: async (agentId, input) => {
     await agentManager.upsertLatestEvent(agentId, input);
   },
-  publishHarness: (agentId, config) =>
-    chatService.publishHarnessChanged(agentId, config),
+  // Every flush announces itself twice for now: the coarse harness.changed
+  // the Harness view still listens for, and the affected turn as one feed
+  // row. Plan 4 of the one-feed work drops the coarse half.
+  publishHarness: (agentId, config) => {
+    chatService.publishHarnessChanged(agentId, config);
+    void chatService.publishTurnEntry(agentId);
+  },
   personaPromptFor: (agent, jobRunId) =>
     agentManager.buildHarnessPersonaFor(agent, jobRunId ?? undefined),
   activeJobRunIdFor: async (agentId) =>

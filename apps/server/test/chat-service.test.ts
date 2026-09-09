@@ -1099,3 +1099,50 @@ describe("ChatService.launchPromptFor", () => {
     expect(await service.launchPromptFor(A)).toContain("Just this");
   });
 });
+
+describe("publishTurnEntry", () => {
+  const at = (s: number) => new Date(Date.UTC(2026, 8, 8, 10, 0, s));
+
+  it("publishes the newest turn as one feed entry", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 1, 'turn', $2::jsonb, $3, $4),
+              ($1, 2, 'assistant', $5::jsonb, $4, $6)`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "system", text: "go" },
+        }),
+        at(1),
+        at(2),
+        JSON.stringify({ text: "working on it", streaming: true }),
+        at(5),
+      ]
+    );
+    published.length = 0;
+    await service.publishTurnEntry(A);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({
+      type: "chat.entry",
+      agentId: A,
+      entry: {
+        type: "turn",
+        agentId: A,
+        at: at(1).toISOString(),
+        updatedAt: at(5).toISOString(),
+        settled: false,
+        result: { text: "working on it", streaming: true },
+      },
+    });
+  });
+
+  it("publishes nothing for an agent with no stream rows", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    published.length = 0;
+    await service.publishTurnEntry(A);
+    expect(published).toEqual([]);
+  });
+});

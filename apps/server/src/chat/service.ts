@@ -26,6 +26,7 @@ import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
 import { loadChatMessageEntry } from "./feed.js";
+import { loadLatestTurnEntry } from "./turns.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -716,6 +717,30 @@ export class ChatService {
       agentId,
       ...(config ? { config: true } : {}),
     });
+  }
+
+  /**
+   * The agent's newest harness turn as the feed row it now is, so a mounted
+   * feed replaces that one row instead of refetching every page it holds.
+   * The newest turn is always the affected one: the recorder only ever
+   * writes into the turn it opened last. A flush that changed nothing about
+   * any turn (a queue edit) still publishes, and the client's upsert is a
+   * no-op when the row is unchanged.
+   *
+   * Never rejects: a stream write must not fail because its announcement did.
+   */
+  async publishTurnEntry(agentId: string): Promise<void> {
+    try {
+      const entry = await loadLatestTurnEntry(this.store.db, agentId);
+      if (entry) {
+        this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+      }
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId },
+        "chat: could not compose the harness turn for its feed event"
+      );
+    }
   }
 
   /** A mark-read landed: the count, and which rows it stamped. */
