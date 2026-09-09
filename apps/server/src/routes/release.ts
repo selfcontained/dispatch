@@ -8,7 +8,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
 import { getReleaseUpdateAgentId } from "../auth.js";
@@ -715,10 +715,11 @@ async function handleAssistedLaunch(
     });
   }
 
-  const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+  const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
   // A Dispatch Harness agent is never the driver: the update restarts the
-  // service that owns its engine child, which cuts the agent's own turn.
-  const assistedType = enabledAgentTypes.find(
+  // service that owns its engine child, which cuts the agent's own turn. The
+  // exclusion stays even though the type now arrives from its own flag.
+  const assistedType = offeredAgentTypes.find(
     (type) => isCliAgentType(type) && type !== "dispatch"
   );
   if (!assistedType) {

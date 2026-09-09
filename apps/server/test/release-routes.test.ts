@@ -499,11 +499,17 @@ describe("release metadata route handling", () => {
 
   it("never picks a Dispatch Harness agent to drive the update", async () => {
     // The update restarts the service that owns the harness child, so a
-    // dispatch agent enabled ahead of the CLI types must be skipped.
+    // dispatch agent has to be skipped even though the offered list carries
+    // it whenever the harness flag is on.
     await ctx.pool.query(
       `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [JSON.stringify(["dispatch", "claude"])]
+      [JSON.stringify(["claude"])]
+    );
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value)
+        VALUES ('dispatch_harness_enabled', 'true')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
     );
     mockReleaseCommands({
       releaseViews: {
@@ -539,7 +545,8 @@ describe("release metadata route handling", () => {
         headers: { cookie: sessionCookie },
       });
       await ctx.pool.query(
-        `DELETE FROM settings WHERE key = 'enabled_agent_types'`
+        `DELETE FROM settings
+          WHERE key IN ('enabled_agent_types', 'dispatch_harness_enabled')`
       );
     }
   });
