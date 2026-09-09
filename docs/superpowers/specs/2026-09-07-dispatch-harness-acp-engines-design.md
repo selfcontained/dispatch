@@ -1,7 +1,7 @@
 # Dispatch Harness: four engines over the Agent Client Protocol
 
 **Status:** approved design, spec not yet reviewed by author. **Date:** 2026-09-07.
-**Branch:** `dsh-harness-deploy`, toward PR #1067 on `selfcontained/dispatch`.
+**Branch:** PR #1067 on `selfcontained/dispatch` (`agt_683b115bc1e9/dispatch-harness-research`).
 **Decides:** Nii Yeboah (scope). **Merges:** Brad Harris.
 
 ```mermaid
