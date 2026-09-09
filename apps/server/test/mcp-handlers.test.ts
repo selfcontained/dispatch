@@ -54,6 +54,12 @@ vi.mock("../src/agent-type-settings.js", () => ({
     "codex",
     "cursor",
     "opencode",
+  ]),
+  getOfferedAgentTypes: vi.fn(async () => [
+    "claude",
+    "codex",
+    "cursor",
+    "opencode",
     "dispatch",
   ]),
   isCliAgentType: vi.fn((t: string) =>
@@ -139,7 +145,7 @@ import {
   loadPersonaBySlug,
 } from "../src/personas/loader.js";
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
-import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
+import { getOfferedAgentTypes } from "../src/agent-type-settings.js";
 import {
   isMediaFile,
   isTextFile,
@@ -973,7 +979,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when agent type is disabled", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([]);
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([]);
       await expect(
         handlers.launchPersona("agt_test1", {
           persona: "security",
@@ -983,7 +989,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("includes full-access arg for claude agents with fullAccess", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1017,7 +1023,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("includes full-access arg for codex agents with fullAccess", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1053,7 +1059,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("does not include full-access arg for opencode agents", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1217,8 +1223,8 @@ describe("createMcpHandlers", () => {
 
     beforeEach(() => {
       // vi.clearAllMocks() clears calls, not implementations, so an earlier
-      // test's narrower enabled-types list is still in place here.
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      // test's narrower offered-types list is still in place here.
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "cursor",
@@ -1455,7 +1461,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when agent type is disabled in settings", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValueOnce(["codex"] as any);
+      vi.mocked(getOfferedAgentTypes).mockResolvedValueOnce(["codex"] as any);
       await expect(
         handlers.launchAgent("agt_test1", {
           name: "child",

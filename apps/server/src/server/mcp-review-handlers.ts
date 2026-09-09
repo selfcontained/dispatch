@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
   CLI_AGENT_TYPES,
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
 import { getBuiltInPersona } from "../personas/built-in.js";
@@ -501,8 +501,11 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         );
       }
 
-      const enabledAgentTypes = await getEnabledAgentTypes(pool);
-      if (!enabledAgentTypes.includes(personaAgentType)) {
+      // A persona runs as its parent's kind by default, so a harness parent
+      // launches a harness persona. That needs the offered list, which adds
+      // `dispatch` while the Dispatch Harness flag is on.
+      const offeredAgentTypes = await getOfferedAgentTypes(pool);
+      if (!offeredAgentTypes.includes(personaAgentType)) {
         throw new Error(`${personaAgentType} agents are disabled in settings.`);
       }
 

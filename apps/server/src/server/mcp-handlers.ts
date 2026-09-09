@@ -12,7 +12,7 @@ import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
 } from "../agent-type-settings.js";
 import {
   inheritedHarnessModel,
@@ -574,9 +574,12 @@ async function handleLaunchAgent(
     );
   }
 
-  const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+  // The offered list: the persisted enabled types plus `dispatch` when the
+  // Dispatch Harness flag is on. A parent may launch a harness child exactly
+  // when the create dialog would offer the type.
+  const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
   if (
-    !enabledAgentTypes.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
+    !offeredAgentTypes.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
   ) {
     throw new Error(`${agentType} agents are disabled in settings.`);
   }
