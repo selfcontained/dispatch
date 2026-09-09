@@ -142,7 +142,6 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
     case "review":
     case "assistant":
     case "activity":
-    case "turn":
     case "pin":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
