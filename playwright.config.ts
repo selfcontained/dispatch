@@ -29,7 +29,7 @@ const serialTests = [
   "e2e/media-sidebar.spec.ts",
   // Flips the server-wide chat surface flag, which changes every agent route.
   "e2e/chat-surface.spec.ts",
-  // Also flips the chat surface flag, and enables the dispatch agent type.
+  // Also flips the chat surface flag and the Dispatch Harness flag.
   "e2e/harness-agent.spec.ts",
 ];
 

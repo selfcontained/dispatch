@@ -167,6 +167,27 @@ export async function setEnabledAgentTypesViaAPI(
   }
 }
 
+/**
+ * Turn the Dispatch Harness agent type on or off. This is the only way to
+ * make `dispatch` creatable: it is never a member of the enabled agent
+ * types, and `setEnabledAgentTypesViaAPI` answers 400 for a body naming it.
+ */
+export async function setDispatchHarnessViaAPI(
+  request: APIRequestContext,
+  enabled: boolean
+): Promise<void> {
+  const res = await request.post(`${API}/app/settings/dispatch-harness`, {
+    headers: authHeaders(),
+    data: { enabled },
+  });
+
+  if (!res.ok()) {
+    throw new Error(
+      `Failed to update the Dispatch Harness setting: ${res.status()}`
+    );
+  }
+}
+
 export async function uploadMediaViaAPI(
   request: APIRequestContext,
   agentId: string,

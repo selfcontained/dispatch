@@ -10,6 +10,7 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
+  setDispatchHarnessViaAPI,
   setEnabledAgentTypesViaAPI,
 } from "./helpers";
 
@@ -99,11 +100,8 @@ test.describe("harness agent", () => {
       page,
       request,
     }) => {
-      await setEnabledAgentTypesViaAPI(request, [
-        "claude",
-        "codex",
-        "dispatch",
-      ]);
+      await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+      await setDispatchHarnessViaAPI(request, true);
       await setChatSurface(request, true);
       const repo = makeRepo();
       const agent = await createAgentViaAPI(request, {
@@ -190,7 +188,8 @@ test.describe("harness agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
@@ -259,7 +258,8 @@ test.describe("harness agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
@@ -335,7 +335,8 @@ test.describe("harness agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
