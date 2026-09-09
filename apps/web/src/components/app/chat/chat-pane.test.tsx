@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
+import type {
+  ChatFeedEntry,
+  ChatMessage,
+  ChatTurnEntry,
+} from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -24,6 +28,12 @@ import {
   REMEMBER_THROTTLE_MS,
   rememberChatScrollPosition,
 } from "./chat-pane";
+import {
+  composerHint,
+  harnessPromptHistory,
+  latestTurnPlan,
+  newestTurnEntry,
+} from "./harness-chrome";
 
 // The pane's data layer is exercised elsewhere; here it is replaced so the
 // pane's own decisions can be driven directly: what the composer does with a
@@ -133,6 +143,32 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
 
 function chat(m: ChatMessage): ChatFeedEntry {
   return { type: "chat", id: m.id, at: m.createdAt, message: m };
+}
+
+function turnEntry(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
+  return {
+    type: "turn",
+    id: "turn:1",
+    agentId: "agt_1",
+    at: "2026-09-02T10:00:00.000Z",
+    updatedAt: "2026-09-02T10:00:09.000Z",
+    prompt: {
+      source: "chat",
+      text: "read the readme",
+      chatMessageId: "m-prompt",
+      attachments: [],
+    },
+    trace: {
+      startedAt: "2026-09-02T10:00:00.000Z",
+      endedAt: "2026-09-02T10:00:09.000Z",
+      finalResult: "ok",
+      steps: [],
+    },
+    result: { text: "It documents the CLI.", streaming: false },
+    settled: true,
+    interrupted: false,
+    ...overrides,
+  };
 }
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -805,5 +841,152 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("composerHint", () => {
+  it("says what Enter and the arrows do for each state", () => {
+    expect(composerHint(false, 0)).toBeUndefined();
+    expect(composerHint(true, 0)).toBe(
+      "Agent is working · Enter queues your message · Ctrl+C stops"
+    );
+    expect(composerHint(true, 2)).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
+    );
+    expect(composerHint(false, 1)).toBe(
+      "Message queued · ↑ edits the queued one"
+    );
+  });
+
+  it("drops the key hints on a touch keyboard", () => {
+    // Neither ArrowUp nor Ctrl+C exists there, and the four-part string
+    // wraps to three lines under a 320px field. The Stop button and the
+    // queued row's own actions cover both on touch.
+    expect(composerHint(true, 2, true)).toBe(
+      "Agent is working · Enter queues your message"
+    );
+    expect(composerHint(false, 1, true)).toBe("Message queued");
+    expect(composerHint(false, 0, true)).toBeUndefined();
+  });
+});
+
+describe("newestTurnEntry", () => {
+  it("takes the last turn in the feed whatever follows it", () => {
+    const found = newestTurnEntry([
+      chat(message({ id: "m0", text: "before" })),
+      turnEntry({ id: "turn:1", settled: true }),
+      turnEntry({ id: "turn:2", settled: false }),
+      chat(message({ id: "m1", text: "after" })),
+    ]);
+    expect(found?.id).toBe("turn:2");
+    expect(found?.settled).toBe(false);
+  });
+
+  it("is null when the feed carries no turn", () => {
+    expect(newestTurnEntry([chat(message({ id: "m0" }))])).toBeNull();
+    expect(newestTurnEntry([])).toBeNull();
+  });
+});
+
+describe("latestTurnPlan", () => {
+  it("takes the newest turn that published a plan, running or settled", () => {
+    expect(
+      latestTurnPlan([
+        turnEntry({
+          id: "turn:1",
+          plan: [{ content: "old", status: "completed", priority: "low" }],
+        }),
+        turnEntry({
+          id: "turn:2",
+          settled: false,
+          plan: [
+            {
+              content: "Read the README",
+              status: "completed",
+              priority: "high",
+            },
+            {
+              content: "Echo the prompt",
+              status: "in_progress",
+              priority: "medium",
+            },
+          ],
+        }),
+      ])
+    ).toEqual([
+      { content: "Read the README", status: "completed" },
+      { content: "Echo the prompt", status: "in_progress" },
+    ]);
+  });
+
+  it("looks past a later turn that published none", () => {
+    expect(
+      latestTurnPlan([
+        turnEntry({
+          id: "turn:1",
+          plan: [{ content: "keep me", status: "pending", priority: "low" }],
+        }),
+        turnEntry({ id: "turn:2" }),
+      ])
+    ).toEqual([{ content: "keep me", status: "pending" }]);
+  });
+
+  it("is empty when no turn published one", () => {
+    expect(latestTurnPlan([turnEntry(), chat(message({ id: "m0" }))])).toEqual(
+      []
+    );
+  });
+});
+
+describe("harnessPromptHistory", () => {
+  it("keeps the typed prompts in order without immediate repeats", () => {
+    expect(
+      harnessPromptHistory([
+        turnEntry({
+          id: "turn:1",
+          prompt: { source: "chat", text: "first", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:2",
+          prompt: { source: "chat", text: " first ", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:3",
+          prompt: { source: "chat", text: "second", attachments: [] },
+        }),
+      ])
+    ).toEqual(["first", "second"]);
+  });
+
+  it("leaves out launch, agent and system prompts and empty text", () => {
+    expect(
+      harnessPromptHistory([
+        turnEntry({
+          id: "turn:1",
+          prompt: { source: "launch", text: "kickoff", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:2",
+          prompt: {
+            source: "agent",
+            text: "from a peer",
+            senderName: "Reviewer",
+            attachments: [],
+          },
+        }),
+        turnEntry({
+          id: "turn:3",
+          prompt: { source: "system", text: "injected", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:4",
+          prompt: { source: "chat", text: "   ", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:5",
+          prompt: { source: "chat", text: "mine", attachments: [] },
+        }),
+      ])
+    ).toEqual(["mine"]);
   });
 });
