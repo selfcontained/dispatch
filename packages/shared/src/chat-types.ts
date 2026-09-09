@@ -194,43 +194,6 @@ export type ChatReviewEntry = {
   at: string;
 };
 
-/** One assistant message from a stream-driven harness (over ACP). */
-export type ChatAssistantEntry = {
-  type: "assistant";
-  id: string;
-  text: string;
-  /** True while chunks are still arriving for this message. */
-  streaming: boolean;
-  /** The text hit the server's per-message size bound and was cut. */
-  truncated?: boolean;
-  at: string;
-};
-
-export type ChatActivityStatus =
-  | "pending"
-  | "in_progress"
-  | "completed"
-  | "failed";
-
-/**
- * One tool call from a stream-driven harness, rewritten in place as it
- * settles. `toolKind` follows the Agent Client Protocol vocabulary (read,
- * edit, delete, move, search, execute, think, fetch, other).
- */
-export type ChatActivityEntry = {
-  type: "activity";
-  id: string;
-  toolKind: string;
-  title: string;
-  status: ChatActivityStatus;
-  locations: { path: string; line?: number }[];
-  diff: { path: string; oldText: string | null; newText: string } | null;
-  terminalOutput: string | null;
-  /** Output or diff hit the server's per-row size bound and was cut. */
-  truncated?: boolean;
-  at: string;
-};
-
 export type ChatTurnStepStatus = "running" | "ok" | "error";
 
 /**
@@ -350,8 +313,6 @@ export type ChatFeedEntry =
   | ChatAgentMessageEntry
   | ChatMediaEntry
   | ChatReviewEntry
-  | ChatAssistantEntry
-  | ChatActivityEntry
   | ChatTurnEntry
   | ChatPinEntry;
 

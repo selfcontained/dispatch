@@ -20,10 +20,6 @@ import {
   ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
-import {
-  ActivityEntryView,
-  AssistantEntryView,
-} from "@/components/app/chat/stream-entries";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
 
 /**
@@ -74,10 +70,6 @@ export function entryVersion(entry: ChatFeedEntry): string {
 export function entryGrowthKey(entry: ChatFeedEntry): string {
   const base = `${entry.id}:${entryVersion(entry)}`;
   switch (entry.type) {
-    case "assistant":
-      return `${base}:${entry.text.length}:${entry.streaming ? 1 : 0}`;
-    case "activity":
-      return `${base}:${entry.status}:${entry.terminalOutput?.length ?? 0}:${entry.diff ? 1 : 0}`;
     case "turn":
       // Everything that makes a turn taller: the newest row folded in, the
       // rail's length, the answer as it streams, and the settle that folds
@@ -250,9 +242,6 @@ function authorKey(
       return "agent";
     case "review":
       return reviewAuthor(entry, ctx).key;
-    case "assistant":
-    case "activity":
-      return "agent";
     case "turn":
       // Never reached: `layoutFeed` gives a turn its own group before it
       // asks for an author key.
@@ -279,9 +268,6 @@ export function layoutFeed(
   const rows: ChatFeedRow[] = [];
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
-  // The newest agent row of any kind (post or tool activity): activity rows
-  // group under it, so a run of tool calls carries one header, not one each.
-  let lastAgentRow: { at: number } | null = null;
   for (const item of collapseFeed(entries)) {
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
@@ -292,12 +278,10 @@ export function layoutFeed(
       });
       lastDay = day;
       lastPost = null;
-      lastAgentRow = null;
     }
     if (item.kind === "status") {
       rows.push(item);
       lastPost = null;
-      lastAgentRow = null;
       continue;
     }
     // A turn carries a user post and an agent post inside one entry, so
@@ -312,7 +296,6 @@ export function layoutFeed(
         rule: false,
       });
       lastPost = null;
-      lastAgentRow = null;
       continue;
     }
     const key = authorKey(item.entry, ctx);
@@ -320,18 +303,10 @@ export function layoutFeed(
     const safeAt = Number.isFinite(at) ? at : 0;
     const within = (since: number) =>
       Number.isFinite(at) && at - since <= GROUP_WINDOW_MS;
-    // Tool activity rides under the agent's current row without becoming a
-    // post: the assistant text that follows a tool run still opens with the
-    // agent's avatar and name instead of trailing headerless.
     const grouped =
-      item.entry.type === "activity"
-        ? lastAgentRow !== null && within(lastAgentRow.at)
-        : lastPost !== null && lastPost.key === key && within(lastPost.at);
+      lastPost !== null && lastPost.key === key && within(lastPost.at);
     const rule = !grouped && rows[rows.length - 1]?.kind === "entry";
     rows.push({ kind: "entry", entry: item.entry, grouped, rule });
-    if (key === "agent") lastAgentRow = { at: safeAt };
-    else lastAgentRow = null;
-    if (item.entry.type === "activity") continue;
     lastPost = { key, at: safeAt };
   }
   return rows;
@@ -537,24 +512,6 @@ export function ChatFeed({
             case "turn":
               return (
                 <TurnEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "assistant":
-              return (
-                <AssistantEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "activity":
-              return (
-                <ActivityEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
