@@ -46,8 +46,6 @@ export function isPluginAgentType(value: unknown): value is PluginAgentType {
 }
 
 /**
- * The persisted enabled-types list, cleaned up on read and on write.
- *
  * `dispatch` is never a member. The Dispatch Harness has its own setting
  * (`dispatch_harness_enabled`, see `dispatch-harness-settings.ts`) and
  * `getOfferedAgentTypes` is what adds it back for the gates, so this list
