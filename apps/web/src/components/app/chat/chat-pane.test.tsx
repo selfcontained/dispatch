@@ -18,6 +18,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import { chatDraftAtomFamily } from "@/lib/store";
 
 import {
   ChatPane,
@@ -138,6 +139,13 @@ vi.mock("@/components/app/harness/use-harness-usage", () => ({
     error: null,
     refetch: vi.fn(),
   }),
+}));
+vi.mock("@/components/app/harness/use-harness-commands", () => ({
+  harnessCommandsQueryKey: (agentId: string | null) => [
+    "harness-commands",
+    agentId,
+  ],
+  useHarnessCommands: () => [],
 }));
 // Counts renders of a post's markdown body: the feed's rows are memoised,
 // so a pane re-render that changes nothing they show must not reach it.
@@ -283,9 +291,16 @@ beforeEach(() => {
   H.answer.mockReset();
   H.markRead.mockReset();
   HARNESS.queued = [];
-  HARNESS.sendNow.mockReset();
-  HARNESS.remove.mockReset();
-  HARNESS.interrupt.mockReset();
+  // Cleared, not reset: on Vitest 2 mockReset() drops the async body too,
+  // so interrupt() would return undefined and onStop's .catch would throw.
+  HARNESS.sendNow.mockClear();
+  HARNESS.remove.mockClear();
+  HARNESS.interrupt.mockClear();
+  // The draft atom is keyed by agent and outlives a render, so an unsent
+  // draft left by an earlier case would make ArrowUp a history walk
+  // instead of a recall.
+  window.localStorage.clear();
+  chatDraftAtomFamily.remove("agt_1");
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -1372,5 +1387,159 @@ describe("ChatPane harness chrome", () => {
         i.getAttribute("data-pin-label")
       )
     ).toEqual(["Run the E2E"]);
+  });
+});
+
+describe("ChatPane harness composer", () => {
+  const runningTurn = () =>
+    turnEntry({
+      settled: false,
+      trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+      result: { text: "working", streaming: true },
+    });
+
+  const queuedChat = {
+    id: "m2",
+    source: "chat" as const,
+    text: "queued one",
+    chatMessageId: "m2",
+    attachments: [],
+    createdAt: "2026-09-04T10:00:01.000Z",
+  };
+
+  it("says what Enter does while a turn runs and something waits behind it", () => {
+    H.entries = [runningTurn()];
+    HARNESS.queued = [queuedChat];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
+    );
+  });
+
+  it("keeps the plain composer line when nothing runs and nothing waits", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
+    expect(screen.queryByTestId("harness-queued")).toBeNull();
+  });
+
+  it("gives no hint and no history to an agent that is not a dispatch agent", () => {
+    H.entries = [runningTurn()];
+    HARNESS.queued = [queuedChat];
+    renderPane();
+    expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
+  });
+
+  it("pulls the queued message back on ArrowUp", async () => {
+    HARNESS.queued = [queuedChat];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued one"));
+    expect(HARNESS.remove).toHaveBeenCalledWith("m2");
+  });
+
+  it("refuses to recall a queued message that carries attachments", async () => {
+    HARNESS.queued = [
+      {
+        ...queuedChat,
+        id: "m3",
+        text: "with a file",
+        attachments: [
+          { type: "file", mediaId: 1, fileName: "a.png", sizeBytes: 1 },
+        ],
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("attachments")
+    );
+    expect(HARNESS.remove).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+  });
+
+  it("walks back through the prompts the user typed before", async () => {
+    H.entries = [
+      turnEntry({
+        id: "turn:1",
+        prompt: { source: "chat", text: "earlier prompt", attachments: [] },
+      }),
+      turnEntry({ id: "turn:2" }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("read the readme"));
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("earlier prompt"));
+  });
+
+  it("stops the turn on Ctrl+C in the field while one runs", () => {
+    H.entries = [runningTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+      key: "c",
+      ctrlKey: true,
+    });
+    expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Ctrl+C alone when no turn runs", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+      key: "c",
+      ctrlKey: true,
+    });
+    expect(HARNESS.interrupt).not.toHaveBeenCalled();
+  });
+
+  it("opens the usage dialog from the /usage slash command", async () => {
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "/usage" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("harness-usage-dialog")).not.toBeNull();
+    });
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("opens the model picker from the /model slash command", async () => {
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "/model" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("harness-model-picker")).not.toBeNull();
+    });
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("shows the drop overlay only for a dispatch agent, while files are dragged over the pane", () => {
+    const plain = renderPane();
+    const plainPane = screen.getByTestId("chat-pane");
+    fireEvent.dragOver(plainPane, {
+      dataTransfer: { types: ["Files"], files: [] },
+    });
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
+    plain.unmount();
+
+    renderPane({ agent: dispatchAgent });
+    const pane = screen.getByTestId("chat-pane");
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
+    fireEvent.dragOver(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.getByTestId("chat-drop-overlay")).not.toBeNull();
+    expect(pane.getAttribute("data-dragging")).toBe("true");
+    fireEvent.drop(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
   });
 });

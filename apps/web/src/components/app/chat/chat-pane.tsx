@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
-import { ArrowDown, MessageSquare } from "lucide-react";
+import { ArrowDown, MessageSquare, Upload } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -283,6 +283,9 @@ export function ChatPane({
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
+  // A file dropped anywhere on the pane attaches to the composer.
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const savedPositionRef = useRef(readChatScrollPosition(agentId));
   const [following, setFollowing] = useState(
     () => savedPositionRef.current?.following ?? true
@@ -561,9 +564,28 @@ export function ChatPane({
   return (
     <MotionConfig reducedMotion="user">
       <div
+        ref={dropRef}
         className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
         data-testid="chat-pane"
+        data-dragging={draggingFiles ? "true" : undefined}
       >
+        {draggingFiles ? (
+          <div
+            data-testid="chat-drop-overlay"
+            className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
+          >
+            <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
+              <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
+              <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
+                <Upload className="h-8 w-8" />
+                <p className="text-sm font-medium">Drop files to attach</p>
+                <p className="text-xs text-muted-foreground">
+                  They go with your next message.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
@@ -713,6 +735,13 @@ export function ChatPane({
             sending={send.isPending || answer.isPending}
             autoFocus={active && !isMobile}
             replyContext={replyContext}
+            // Pane-wide drops are parity with the pane this replaced; other
+            // agent types keep taking them on the composer alone.
+            dropTargetRef={harnessAgentId === null ? undefined : dropRef}
+            onDropZoneDragging={
+              harnessAgentId === null ? undefined : setDraggingFiles
+            }
+            {...harness.composer}
           />
         </div>
         {shortcutDialog}

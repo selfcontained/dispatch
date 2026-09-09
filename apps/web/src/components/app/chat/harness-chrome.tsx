@@ -1,9 +1,14 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import type { ChatFeedEntry, ChatTurnEntry } from "@dispatch/shared";
+import type {
+  ChatFeedEntry,
+  ChatTurnEntry,
+  HarnessPath,
+} from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { AnimatePresence, motion } from "framer-motion";
 import { CircleDollarSign, Cpu, Square } from "lucide-react";
 
+import type { SlashItem } from "@/components/app/chat/chat-composer";
 import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
 import {
   arrive,
@@ -14,6 +19,8 @@ import {
 } from "@/components/app/chat/turn/motion";
 import type { TodoItem } from "@/components/app/chat/turn/registry";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
+import { useHarnessCommands } from "@/components/app/harness/use-harness-commands";
+import { useHarnessPathPicker } from "@/components/app/harness/use-harness-paths";
 import { ModelPicker } from "@/components/app/harness/model-picker";
 import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { UsageDialog } from "@/components/app/harness/usage-dialog";
@@ -127,9 +134,29 @@ export type HarnessChromeInput = {
   onError: (message: string | null) => void;
 };
 
+/**
+ * Every field is absent for an agent that is not a Dispatch Harness agent,
+ * so spreading this onto the composer is a no-op for the rest.
+ */
+export type HarnessComposerProps = {
+  slashItems?: SlashItem[];
+  onSlashCommand?: (name: string) => boolean;
+  hint?: string;
+  history?: string[];
+  recallQueued?: () => Promise<string | null>;
+  atItems?: HarnessPath[];
+  onAtQuery?: (query: string | null) => void;
+  onInterrupt?: () => void;
+};
+
+/** Frozen so a non-dispatch pane hands the composer the same object every render. */
+const EMPTY_COMPOSER_PROPS: HarnessComposerProps = Object.freeze({});
+
 export type HarnessChrome = {
   /** The chrome above the composer; null for every agent type but dispatch. */
   chrome: ReactNode;
+  /** Spread into `ChatComposer`; empty for every agent type but dispatch. */
+  composer: HarnessComposerProps;
 };
 
 /**
@@ -156,6 +183,8 @@ export function useHarnessChrome({
   const { interrupt, interrupting } = useHarnessInterrupt(agentId);
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
+  const commands = useHarnessCommands(agentId);
+  const pathPicker = useHarnessPathPicker(agentId);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -166,6 +195,7 @@ export function useHarnessChrome({
   const streaming = newest !== null && !newest.settled;
   const tasks = useMemo(() => latestTurnPlan(entries), [entries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
+  const history = useMemo(() => harnessPromptHistory(entries), [entries]);
 
   const applyConfig = useCallback(
     async (changes: { configId: string; value: string }[]) => {
@@ -179,6 +209,34 @@ export function useHarnessChrome({
     },
     [setConfig]
   );
+
+  const slashItems = useMemo<SlashItem[]>(
+    () => [
+      {
+        name: "model",
+        description: "Choose the model and reasoning effort",
+        command: true,
+      },
+      {
+        name: "usage",
+        description: "Tokens and cost this month",
+        command: true,
+      },
+      ...commands,
+    ],
+    [commands]
+  );
+  const onSlashCommand = useCallback((name: string) => {
+    if (name === "model") {
+      setPickerOpen(true);
+      return true;
+    }
+    if (name === "usage") {
+      setUsageOpen(true);
+      return true;
+    }
+    return false;
+  }, []);
 
   const onSendNow = useCallback(
     (id: string) => {
@@ -204,6 +262,28 @@ export function useHarnessChrome({
       onError(errorText(err, "Could not stop."));
     });
   }, [interrupt, onError]);
+
+  // ArrowUp on an empty field takes the newest queued message back to
+  // edit. One with attachments stays queued: the chips cannot come back
+  // into the draft, so it keeps Send now and Remove instead.
+  const recallQueued = useCallback(async () => {
+    const last = queued[queued.length - 1];
+    if (!last) return null;
+    onError(null);
+    if (last.attachments.length > 0) {
+      onError(
+        "The queued message has attachments; use Send now or Remove on it."
+      );
+      return null;
+    }
+    try {
+      await removeQueued(last.id);
+    } catch (err) {
+      onError(errorText(err, "That message already started."));
+      throw err;
+    }
+    return last.text;
+  }, [onError, queued, removeQueued]);
 
   // The pane is up before the harness is: setup (worktree, dependencies)
   // runs first, and a prompt sent then has nowhere to go.
@@ -242,6 +322,36 @@ export function useHarnessChrome({
     errored && engine && /not logged in/i.test(statusMessage ?? "")
       ? engine.loginCommand
       : null;
+
+  const composer = useMemo<HarnessComposerProps>(
+    () =>
+      agentId === null
+        ? EMPTY_COMPOSER_PROPS
+        : {
+            slashItems,
+            onSlashCommand,
+            hint: composerHint(streaming, queued.length, isMobile),
+            history,
+            recallQueued,
+            atItems: pathPicker.items,
+            onAtQuery: pathPicker.onQuery,
+            // Absent when nothing runs, so Ctrl+C keeps its meaning.
+            ...(streaming ? { onInterrupt: onStop } : {}),
+          },
+    [
+      agentId,
+      history,
+      isMobile,
+      onSlashCommand,
+      onStop,
+      pathPicker.items,
+      pathPicker.onQuery,
+      queued.length,
+      recallQueued,
+      slashItems,
+      streaming,
+    ]
+  );
 
   const chrome =
     agentId === null ? null : (
@@ -420,5 +530,5 @@ export function useHarnessChrome({
       </>
     );
 
-  return { chrome };
+  return { chrome, composer };
 }
