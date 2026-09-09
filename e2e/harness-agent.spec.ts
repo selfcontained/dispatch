@@ -96,7 +96,7 @@ test.describe("harness agent", () => {
   ] as const;
 
   for (const engine of ENGINES) {
-    test(`${engine.model}: opens on the Harness view, runs a turn, shows what the engine publishes`, async ({
+    test(`${engine.model}: opens on the Agent pane's Chat, runs a turn, shows what the engine publishes`, async ({
       page,
       request,
     }) => {
@@ -118,43 +118,44 @@ test.describe("harness agent", () => {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await clickAgentRow(page, agent.id);
       await page.getByTestId("center-tab-agent").click();
-      const harness = page.getByTestId("harness-pane");
-      await expect(harness).toBeVisible();
+      const pane = page.getByTestId("chat-pane");
+      await expect(pane).toBeVisible();
 
       // The kickoff ran as the first turn; the persona prefix (for engines
-      // that take it that way) is not shown, the launch post is.
-      await expect(harness.getByTestId("harness-prompt").first()).toContainText(
+      // that take it that way) is not shown, the launch post is. The prompt
+      // is a user post inside the turn entry now, not a prompt line.
+      const firstTurn = pane.getByTestId("chat-turn").first();
+      await expect(firstTurn.getByTestId("chat-message").first()).toContainText(
         "kickoff: begin",
         { timeout: 30_000 }
       );
-      await expect(harness.getByTestId("harness-result").first()).toContainText(
-        "You said:",
-        { timeout: 30_000 }
-      );
+      await expect(
+        firstTurn.getByTestId("harness-result").first()
+      ).toContainText("You said:", { timeout: 30_000 });
 
       // The tasks strip shows for engines that publish a plan, and only them.
       if (engine.plan) {
-        await expect(harness.getByTestId("harness-tasks")).toContainText(
+        await expect(pane.getByTestId("harness-tasks")).toContainText(
           "1 of 3 done",
           { timeout: 30_000 }
         );
       } else {
-        await expect(harness.getByTestId("harness-tasks")).toHaveCount(0);
+        await expect(pane.getByTestId("harness-tasks")).toHaveCount(0);
       }
 
       // A Claude subagent's steps nest under the Task step.
       if (engine.nested) {
-        await harness.getByTestId("harness-activity-summary").first().click();
-        const task = harness
+        await pane.getByTestId("harness-activity-summary").first().click();
+        const task = pane
           .getByTestId("harness-step")
           .filter({ hasText: "task" })
           .first();
         await task.click();
-        await expect(harness.getByTestId("harness-nested-steps")).toBeVisible();
+        await expect(pane.getByTestId("harness-nested-steps")).toBeVisible();
       }
 
       // The model chip is disabled with a reason for an engine that fixes its model.
-      const chip = harness.getByTestId("harness-model-chip");
+      const chip = pane.getByTestId("harness-model-chip");
       if (engine.chipFixed) {
         await expect(chip).toHaveAttribute("data-fixed", "true");
         await expect(chip).toHaveAttribute("title", /sets its model at launch/);
@@ -163,7 +164,7 @@ test.describe("harness agent", () => {
       }
 
       // The usage dialog names the engine and says what it reports.
-      await harness.getByTestId("harness-usage-chip").click();
+      await pane.getByTestId("harness-usage-chip").click();
       const row = page.getByTestId(
         `harness-usage-engine-${engine.model.split("/")[0]}`
       );
@@ -175,10 +176,10 @@ test.describe("harness agent", () => {
       await page.keyboard.press("Escape");
 
       // Slash menu lists the engine's commands.
-      const input = harness.getByTestId("chat-composer-input");
+      const input = pane.getByTestId("chat-composer-input");
       await input.fill("/rev");
       await expect(
-        harness.getByTestId("chat-composer-slash-item").first()
+        pane.getByTestId("chat-composer-slash-item").first()
       ).toContainText("review");
       await input.fill("");
     });
@@ -204,14 +205,14 @@ test.describe("harness agent", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
-    const harness = page.getByTestId("harness-pane");
-    await expect(harness).toBeVisible();
-    const input = harness.getByTestId("chat-composer-input");
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+    const input = pane.getByTestId("chat-composer-input");
     await expect(input).toBeEnabled({ timeout: 30_000 });
 
     // "@" lists the worktree root: directories first, then files.
     await input.fill("look at @");
-    const items = harness.getByTestId("chat-composer-at-item");
+    const items = pane.getByTestId("chat-composer-at-item");
     await expect(items).toHaveCount(2, { timeout: 30_000 });
     await expect(items.nth(0)).toContainText("src/");
     await expect(items.nth(1)).toContainText("README.md");
@@ -235,9 +236,7 @@ test.describe("harness agent", () => {
     await input.press("Enter");
     await expect(input).toHaveValue("look at @src/");
     // The picked path is painted as a token over the field.
-    await expect(harness.getByTestId("chat-composer-token")).toHaveText(
-      "@src/"
-    );
+    await expect(pane.getByTestId("chat-composer-token")).toHaveText("@src/");
     await expect(items.first()).toContainText("src/index.ts", {
       timeout: 30_000,
     });
@@ -274,23 +273,25 @@ test.describe("harness agent", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
-    const harness = page.getByTestId("harness-pane");
-    await expect(harness).toBeVisible();
-    const input = harness.getByTestId("chat-composer-input");
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+    const input = pane.getByTestId("chat-composer-input");
     await expect(input).toBeEnabled({ timeout: 30_000 });
 
-    // A long turn: the fake holds it until cancelled.
+    // A long turn: the fake holds it until cancelled. An unsettled turn
+    // entry is what "a turn is running" looks like in the feed.
     await input.fill("sleep:60000 first");
     await input.press("Enter");
-    await expect(harness.getByTestId("harness-live-activity")).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(harness.getByTestId("chat-composer-hint")).toContainText(
+    const runningTurn = pane.locator(
+      '[data-testid="chat-turn"]:not([data-settled])'
+    );
+    await expect(runningTurn).toBeVisible({ timeout: 30_000 });
+    await expect(pane.getByTestId("chat-composer-hint")).toContainText(
       "Enter queues your message"
     );
 
-    // Two more land in the queue, in order, under the live turn.
-    const queued = harness.getByTestId("harness-queued");
+    // Two more land in the queue, in order, above the composer.
+    const queued = pane.getByTestId("harness-queued");
     await input.fill("second");
     await input.press("Enter");
     // Enter is ignored while a send is in flight (the draft is kept), so
@@ -299,12 +300,20 @@ test.describe("harness agent", () => {
     await input.fill("third");
     await input.press("Enter");
     await expect(queued).toHaveCount(2, { timeout: 30_000 });
-    await expect(harness.getByTestId("chat-composer-hint")).toContainText(
+    await expect(pane.getByTestId("chat-composer-hint")).toContainText(
       "↑ edits the queued one"
     );
     await expect(queued.nth(0)).toContainText("second");
     await expect(queued.nth(0)).toContainText("Queued");
     await expect(queued.nth(1)).toContainText("third");
+    // The queue is chrome above the composer, not a row in the feed: it
+    // holds the controls for what is waiting and must not scroll away.
+    await expect(
+      pane.getByTestId("chat-harness-chrome").getByTestId("harness-queued")
+    ).toHaveCount(2);
+    await expect(
+      pane.getByTestId("chat-scroll").getByTestId("harness-queued")
+    ).toHaveCount(0);
 
     // Remove drops one without it ever running.
     await queued.nth(0).getByTestId("harness-queued-remove").click();
@@ -314,19 +323,20 @@ test.describe("harness agent", () => {
     // Send now interrupts the sleeping turn and runs "third" next.
     await queued.first().getByTestId("harness-queued-send-now").click();
     await expect(queued).toHaveCount(0, { timeout: 30_000 });
-    await expect(harness.getByTestId("harness-prompt").last()).toContainText(
+    const turns = pane.getByTestId("chat-turn");
+    await expect(turns.last().getByTestId("chat-message")).toContainText(
       "third",
       { timeout: 30_000 }
     );
-    const result = harness.getByTestId("harness-result").last();
+    const result = turns.last().getByTestId("harness-result");
     await expect(result).toContainText("You said:", { timeout: 30_000 });
     await expect(result).toContainText("third");
     // The turn Send now cut short says so, above the turn that replaced it
     // (it never got a step, so the line is all that marks it).
-    await expect(harness.getByTestId("harness-interrupted")).toHaveCount(1);
-    // "second" never ran: no prompt line carries it.
-    await expect(harness.getByTestId("harness-prompt")).toHaveCount(2);
-    await expect(harness.getByTestId("harness-prompt").first()).toContainText(
+    await expect(pane.getByTestId("harness-interrupted")).toHaveCount(1);
+    // "second" never ran: it opened no turn of its own.
+    await expect(turns).toHaveCount(2);
+    await expect(turns.first().getByTestId("chat-message")).toContainText(
       "first"
     );
   });
@@ -351,14 +361,14 @@ test.describe("harness agent", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
-    const harness = page.getByTestId("harness-pane");
-    const input = harness.getByTestId("chat-composer-input");
+    const pane = page.getByTestId("chat-pane");
+    const input = pane.getByTestId("chat-composer-input");
     await expect(input).toBeEnabled({ timeout: 30_000 });
 
     // The fake holds a shell step open for a while before its output lands.
     await input.fill("run:8000 hold the step");
     await input.press("Enter");
-    const live = harness.getByTestId("harness-live-activity");
+    const live = pane.locator('[data-testid="chat-turn"]:not([data-settled])');
     await expect(live).toBeVisible({ timeout: 30_000 });
     const step = live.getByTestId("harness-step").filter({ hasText: "bash" });
     // While it runs the row is open on the command it was asked to run.
@@ -376,10 +386,10 @@ test.describe("harness agent", () => {
     });
 
     // Settled, the step folds to one line and the turn goes on.
-    const result = harness.getByTestId("harness-result").last();
+    const result = pane.getByTestId("harness-result").last();
     await expect(result).toContainText("You said:", { timeout: 30_000 });
-    await harness.getByTestId("harness-activity-summary").last().click();
-    const settled = harness
+    await pane.getByTestId("harness-activity-summary").last().click();
+    const settled = pane
       .getByTestId("harness-step")
       .filter({ hasText: "bash" })
       .first();
