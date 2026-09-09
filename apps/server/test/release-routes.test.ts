@@ -497,10 +497,10 @@ describe("release metadata route handling", () => {
     });
   });
 
-  it("never picks a Dispatch Harness agent to drive the update", async () => {
-    // The update restarts the service that owns the harness child, so a
-    // dispatch agent has to be skipped even though the offered list carries
-    // it whenever the harness flag is on.
+  it("picks a CLI agent type while the Dispatch Harness is on", async () => {
+    // Confirms the picker still finds a normal CLI type when the harness
+    // flag is on; the exclusion itself is exercised by the next test, since
+    // `dispatch` is appended last here and "claude" is found before it.
     await ctx.pool.query(
       `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
@@ -539,6 +539,66 @@ describe("release metadata route handling", () => {
     } finally {
       // The launch persists assisted state and the enabled types; leaving
       // either behind would 409 every launch test after this one.
+      await ctx.app.inject({
+        method: "DELETE",
+        url: "/api/v1/release/assisted/state",
+        headers: { cookie: sessionCookie },
+      });
+      await ctx.pool.query(
+        `DELETE FROM settings
+          WHERE key IN ('enabled_agent_types', 'dispatch_harness_enabled')`
+      );
+    }
+  });
+
+  it("never picks a Dispatch Harness agent to drive the update", async () => {
+    // `dispatch` is always appended last by getOfferedAgentTypes, and the
+    // sanitizer's empty-list fallback restores every CLI type, so the only
+    // enabled-list shape where the exclusion actually decides the outcome is
+    // a non-CLI type on its own. "terminal" is a real AgentType outside
+    // CLI_AGENT_TYPES, so it survives the sanitizer without triggering that
+    // fallback and leaves `dispatch` as the sole (excluded) CLI candidate.
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(["terminal"])]
+    );
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value)
+        VALUES ('dispatch_harness_enabled', 'true')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: ["service_restarted"],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    try {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/assisted/launch",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error).toBe(
+        "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first."
+      );
+    } finally {
+      // A 422 never persists assisted state, but the enabled-types row
+      // still needs cleanup to keep later launch tests from seeing
+      // "terminal" as the only enabled type.
       await ctx.app.inject({
         method: "DELETE",
         url: "/api/v1/release/assisted/state",
