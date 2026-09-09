@@ -24,6 +24,10 @@ import {
   setChatSurfaceEnabled,
 } from "../chat-surface-settings.js";
 import {
+  isDispatchHarnessEnabled,
+  setDispatchHarnessEnabled,
+} from "../dispatch-harness-settings.js";
+import {
   getUsageBudgets,
   parseUsageBudgets,
   setUsageBudgets,
@@ -481,6 +485,23 @@ export async function registerSystemRoutes(
       return reply.code(400).send({ error: "enabled must be a boolean." });
     }
     await setChatSurfaceEnabled(deps.pool, body.enabled);
+    return { enabled: body.enabled };
+  });
+
+  // The Dispatch Harness agent type's one switch. Kept beside the
+  // chat-surface flag because it is the same shape: server-owned boolean,
+  // GET on mount, POST on an explicit toggle. `dispatch` is never a member
+  // of `enabled_agent_types`, so this is the only way to turn it on.
+  app.get("/api/v1/app/settings/dispatch-harness", async () => {
+    return { enabled: await isDispatchHarnessEnabled(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/dispatch-harness", async (request, reply) => {
+    const body = request.body as { enabled?: unknown } | null;
+    if (typeof body?.enabled !== "boolean") {
+      return reply.code(400).send({ error: "enabled must be a boolean." });
+    }
+    await setDispatchHarnessEnabled(deps.pool, body.enabled);
     return { enabled: body.enabled };
   });
 

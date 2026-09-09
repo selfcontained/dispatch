@@ -657,6 +657,81 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 });
 
+describe("/api/v1/app/settings/dispatch-harness", () => {
+  // Order-independent: other tests in this file persist settings rows, and
+  // this one owns its key.
+  beforeEach(async () => {
+    await ctx.pool.query(
+      "DELETE FROM settings WHERE key = 'dispatch_harness_enabled'"
+    );
+  });
+
+  it("reads false before anyone has set it", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: false });
+  });
+
+  it("round trips a POST through the GET", async () => {
+    const post = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    expect(post.statusCode).toBe(200);
+    expect(post.json()).toEqual({ enabled: true });
+
+    const get = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+    });
+    expect(get.json()).toEqual({ enabled: true });
+  });
+
+  it("turns the flag back off", async () => {
+    await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    const off = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: false },
+    });
+    expect(off.json()).toEqual({ enabled: false });
+  });
+
+  it("rejects a non-boolean enabled", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: "true" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("enabled must be a boolean.");
+  });
+
+  it("rejects a body with no enabled at all", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe("GET /api/v1/app/settings/ides", () => {
   it("returns enabled IDEs", async () => {
     const res = await ctx.app.inject({
