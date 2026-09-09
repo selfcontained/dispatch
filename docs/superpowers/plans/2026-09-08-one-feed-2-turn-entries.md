@@ -2724,7 +2724,7 @@ One feed entry that renders a whole turn: the prompt as one of Brad's posts, the
 
 **Interfaces:**
 
-- Consumes: `useTurnContext` (in the view) and `TurnContextProvider` (in `ChatPane`) from Task 7's `chat/turn/turn-context.tsx`; `showsActivity` and `ActivityBlock` from `chat/turn/activity-block.tsx`; `ResultTurn`'s `showTime` prop; `ChatMessageView`, `AgentMessageView`, `Post`, `agentAuthor`, `POST_BODY_MEASURE`, `SIDE_POST_INDENT`, `FeedContext` from `chat/chat-entries.tsx`; `PromptLine`, `parseDispatchNotice` from `chat/turn/prompt-line.tsx`; `TurnShortcuts` from `chat/turn/turn-shortcuts.tsx`.
+- Consumes: `useTurnContext` (in the view) and `TurnContextProvider` (in `ChatPane`) from Task 7's `chat/turn/turn-context.tsx`; `showsActivity` and `ActivityBlock` from `chat/turn/activity-block.tsx`; `ResultTurn`'s `showTime` prop; `ChatMessageView`, `AgentMessageView`, `Post`, `agentAuthor`, `POST_BODY_MEASURE`, `SIDE_POST_INDENT`, `FeedContext` from `chat/chat-entries.tsx`; `PromptLine`, `parseDispatchNotice` from `chat/turn/prompt-line.tsx`; `turnLabelFromSteps` from `chat/turn/registry.ts`; `TurnShortcuts` from `chat/turn/turn-shortcuts.tsx`.
 - Produces, from `apps/web/src/components/app/chat/turn/turn-entry-view.tsx`:
   - `type TurnEntryViewProps = { entry: ChatTurnEntry; grouped: boolean; rule?: boolean; ctx: FeedContext }`
   - `const TurnEntryView: React.MemoExoticComponent<(props: TurnEntryViewProps) => JSX.Element>`
@@ -2941,6 +2941,22 @@ describe("TurnEntryView", () => {
       "no API key"
     );
   });
+
+  it("folds an unlabeled turn to a verb read off its steps, not to a bare done", () => {
+    // The fixture's one step is a read of README.md and the turn carries no
+    // label, which is every turn whose agent sent no dispatch_event.
+    renderTurn(turn());
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.textContent).toContain("read README.md");
+    expect(summary.getAttribute("aria-label")).toContain("read README.md");
+  });
+
+  it("lets the agent's own label win over the step-derived one", () => {
+    renderTurn(turn({ label: "Answered the README question" }));
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.textContent).toContain("Answered the README question");
+    expect(summary.textContent).not.toContain("read README.md");
+  });
 });
 ```
 
@@ -2950,6 +2966,8 @@ Run: `cd apps/web && NODE_OPTIONS=--no-experimental-webstorage npx vitest run sr
 Expected: FAIL at collection with `Failed to resolve import "@/components/app/chat/turn/turn-entry-view"`.
 
 - [ ] **Step 3: Write `chat/turn/turn-entry-view.tsx`**
+
+**Where the fold-label fallback goes.** `CollapsedSummary` in `chat/turn/activity-block.tsx:280-284` computes its verb as `failed ? "failed" : interrupted ? "interrupted" : (label ?? "done")`, so a turn whose agent sent no `dispatch_event` needs a verb from somewhere or it folds to a bare "done". `use-harness-turns.ts:147` supplies it today with `turnLabelFromSteps`, and that function moved to `chat/turn/registry.ts` in Task 7, so it is a sibling import here. The fallback goes on the `label=` prop, in its own memo, **not** inside `resultTurnModel`: `ResultTurn` never reads `extra.label` (only `TurnStream` does, and this view renders `ActivityBlock` itself), so putting it in the mapper would be derived presentation state that the view then reads back out. Keeping it at the prop leaves `resultTurnModel` a pure `(entry, trace) => Turn` mapping of what the entry already carries.
 
 Write the whole file:
 
@@ -2976,6 +2994,7 @@ import { cn } from "@/lib/utils";
 import { ActivityBlock, showsActivity } from "./activity-block";
 import type { Step, Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
+import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
 import { useTurnContext } from "./turn-context";
 import { TurnShortcuts } from "./turn-shortcuts";
@@ -3113,6 +3132,14 @@ function TurnEntryViewImpl({
   const { agent } = useTurnContext();
   const trace = useMemo(() => turnTrace(entry), [entry]);
   const result = useMemo(() => resultTurnModel(entry, trace), [entry, trace]);
+  // The folded rail reads "<verb>, 12 steps, 1m 4s", and the verb is the
+  // agent's own last dispatch_event message when it sent one. An agent that
+  // sent none would fold to a bare "done", so the steps supply the verb
+  // instead: "edited turns.ts", "ran pnpm test", "read 3 files".
+  const foldLabel = useMemo(
+    () => entry.label ?? turnLabelFromSteps(trace.steps),
+    [entry.label, trace.steps]
+  );
   const notice = useMemo(
     () => parseDispatchNotice(entry.prompt.text, entry.prompt.source),
     [entry.prompt.source, entry.prompt.text]
@@ -3162,7 +3189,7 @@ function TurnEntryViewImpl({
         <div className={cn(POST_BODY_MEASURE, "min-w-0 font-terminal")}>
           {showsActivity(trace) ? (
             <div className="mb-2">
-              <ActivityBlock trace={trace} label={entry.label} />
+              <ActivityBlock trace={trace} label={foldLabel} />
             </div>
           ) : null}
           <ResultTurn turn={result} showTime={false} />
@@ -3183,7 +3210,7 @@ export const TurnEntryView = memo(TurnEntryViewImpl);
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd apps/web && NODE_OPTIONS=--no-experimental-webstorage npx vitest run src/components/app/chat/turn/turn-entry-view.test.tsx`
-Expected: PASS, 7 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Provide the turn context from `ChatPane`**
 

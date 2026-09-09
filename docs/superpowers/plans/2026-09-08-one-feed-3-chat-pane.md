@@ -496,8 +496,11 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@/components/app/harness/use-harness-config")
     >()),
+    // `running: true` because the shared fixture is a running agent, and
+    // the chip shows the activity bars in place of the engine's mark while
+    // the agent runs without a session.
     useHarnessConfig: () => ({
-      running: false,
+      running: true,
       options: [],
       model: undefined,
       effort: undefined,
@@ -2349,22 +2352,40 @@ Testid map for this task:
 | `harness-pane`                                                                                                                                                                              | `chat-pane`                                                                       |
 | `harness-prompt` (a typed prompt)                                                                                                                                                           | `chat-message` inside `chat-turn`; `harness-prompt` is only a Dispatch notice now |
 | one turn                                                                                                                                                                                    | one `chat-turn`, with `data-turn-id` and `data-settled`                           |
-| `harness-live-activity`                                                                                                                                                                     | `[data-testid="chat-turn"][data-settled="false"]`                                 |
+| `harness-live-activity`                                                                                                                                                                     | `[data-testid="chat-turn"]:not([data-settled])`                                   |
 | `harness-result`, `harness-interrupted`, `harness-tasks`, `harness-activity-summary`, `harness-step`, `harness-nested-steps`, `harness-model-chip`, `harness-usage-chip`, `harness-queued*` | unchanged                                                                         |
 
 The second row is fixed contract, not a guess: plan 2 is committed at `582fe672`, and its `TurnEntryView` renders `PromptLine` only when `parseDispatchNotice` matches, `AgentMessageView` for a prompt another agent sent, and `ChatMessageView` otherwise. A prompt the user typed is therefore a `chat-message` inside `chat-turn`, and `harness-prompt` survives only for a Dispatch notice.
 
+The running-turn locator is `:not([data-settled])` and not `[data-settled="false"]`, for the same reason: plan 2 writes `data-settled={entry.settled ? "true" : undefined}`, so a running turn carries no attribute at all and `[data-settled="false"]` would match nothing and hang the wait.
+
+One transcription note: the `test(...)` title lines below are quoted at their real indentation, but the statement blocks inside the test bodies are quoted flat, without the six spaces they sit under in the engine-matrix test (it is nested in a `for` loop) or the four in the other three. Keep the file's existing indentation when applying each edit.
+
 **Files:**
 
-- Modify: `e2e/harness-agent.spec.ts:119-186`, `:204-256`, `:273-332`, `:349-392`
+- Modify: `e2e/harness-agent.spec.ts:98` (the engine-matrix test's title), `:119-186`, `:204-256`, `:273-332`, `:349-392`
 
 **Interfaces:**
 
 - Consumes: the `chat-turn`, `chat-turn-result` and `chat-message` testids from plan 2, Tasks 8 and 9; `chat-harness-chrome` from Task 2; `setDispatchHarnessViaAPI` from plan 1.
 
-- [ ] **Step 1: Retarget the engine matrix test**
+- [ ] **Step 1: Retarget the engine matrix test, starting with its title**
 
-In the `for (const engine of ENGINES)` test, replace:
+One of the four titles still names a view that no longer exists. At `:98`, replace:
+
+```ts
+    test(`${engine.model}: opens on the Harness view, runs a turn, shows what the engine publishes`, async ({
+```
+
+with:
+
+```ts
+    test(`${engine.model}: opens on the Agent pane's Chat, runs a turn, shows what the engine publishes`, async ({
+```
+
+The other three are already accurate and stay exactly as they are: "offers paths under the working tree from an @ in the composer", "shows messages queued behind a running turn, with Send now and Remove", and "shows a running step's command live, then folds it when it settles". The `test.describe("harness agent")` name also stays: the agent is still a Dispatch Harness agent, it is only its pane that changed.
+
+Then, in the same test, replace:
 
 ```ts
 const harness = page.getByTestId("harness-pane");
@@ -2461,7 +2482,7 @@ await expect(input).toBeEnabled({ timeout: 30_000 });
 await input.fill("sleep:60000 first");
 await input.press("Enter");
 const runningTurn = pane.locator(
-  '[data-testid="chat-turn"][data-settled="false"]'
+  '[data-testid="chat-turn"]:not([data-settled])'
 );
 await expect(runningTurn).toBeVisible({ timeout: 30_000 });
 await expect(pane.getByTestId("chat-composer-hint")).toContainText(
@@ -2572,7 +2593,7 @@ await expect(input).toBeEnabled({ timeout: 30_000 });
 // The fake holds a shell step open for a while before its output lands.
 await input.fill("run:8000 hold the step");
 await input.press("Enter");
-const live = pane.locator('[data-testid="chat-turn"][data-settled="false"]');
+const live = pane.locator('[data-testid="chat-turn"]:not([data-settled])');
 await expect(live).toBeVisible({ timeout: 30_000 });
 ```
 
@@ -2580,9 +2601,9 @@ and replace the three remaining `harness.getByTestId(...)` lookups (`harness-res
 
 - [ ] **Step 5: Prove no selector was missed**
 
-Run: `git grep -n "harness-pane\|harness-live-activity\|harness-prompt\|const harness =" -- e2e`
+Run: `git grep -n "harness-pane\|harness-live-activity\|harness-prompt\|const harness =\|Harness view" -- e2e`
 
-Expected: no output.
+Expected: no output. The last pattern is the title: a hit means Step 1's rename was skipped.
 
 - [ ] **Step 6: Run the live spec**
 
@@ -3023,8 +3044,11 @@ Expected, and nothing else:
 - `apps/web/src/components/app/harness/use-harness-turns.test.tsx`
 - `apps/web/src/hooks/use-sse.ts` (the import and the one invalidation)
 - `apps/server/src/routes/agents/harness-routes.ts` (the `GET .../harness/turns` route and its `loadTurns` import)
-- `apps/server/src/chat/turns.ts` and `apps/server/test/harness-turns.test.ts` (`loadTurns`, `HarnessTurn`)
+- `apps/server/test/harness-routes.test.ts` (`describe("GET /api/v1/agents/:id/harness/turns")` at `:33`, two cases, which plan 4 deletes with the route)
+- `apps/server/src/chat/turns.ts` (`loadTurns`, and `assembleTurns`'s `HarnessTurn[]` return)
 - `packages/shared/src/harness-types.ts` and `packages/shared/src/index.ts` (`HarnessTurn`, `HarnessTurnsResponse`)
+
+A hit in `apps/server/test/harness-turns.test.ts` is expected only if plan 2 left a `HarnessTurn` annotation in it; that file asserts `assembleTurns` and never calls `loadTurns`, so no hit is also correct.
 
 Nothing under `apps/web/src/components/app/chat/` may appear. If it does, that import is a defect in this plan and must go before the stage is called done.
 
@@ -3054,6 +3078,6 @@ EOF
 
 **Every task ends green.** Each task's own run is expected to pass in full as written. The one case that spans two deliverables, the drop overlay, is written in Task 3 with the two composer props that make it pass; Task 2 renders the overlay and owns its state, and says why its test is not there.
 
-**Type consistency.** `useHarnessChrome` returns `{ chrome }` in Task 2 and `{ chrome, composer }` in Task 3; every consumer of `composer` lands in Task 3. `HarnessComposerProps` carries no `dropTargetRef` or `onDropZoneDragging`: `ChatPane` passes those two directly, because the ref and the dragging state belong to the element that paints the overlay. `latestTurnPlan` returns `TodoItem[]`, which is what `TasksStrip` takes. `newestTurnEntry` returns `ChatTurnEntry | null`, and `settled === false` is the one definition of "a turn is running" used by the chip row, the composer hint, `onInterrupt` and the E2E's `data-settled` locator. `composerHint`'s three parameters and its exact strings are identical in Task 1's tests, Task 3's hook and the E2E's `chat-composer-hint` assertions.
+**Type consistency.** `useHarnessChrome` returns `{ chrome }` in Task 2 and `{ chrome, composer }` in Task 3; every consumer of `composer` lands in Task 3. `HarnessComposerProps` carries no `dropTargetRef` or `onDropZoneDragging`: `ChatPane` passes those two directly, because the ref and the dragging state belong to the element that paints the overlay. `latestTurnPlan` returns `TodoItem[]`, which is what `TasksStrip` takes. `newestTurnEntry` returns `ChatTurnEntry | null`, and `settled === false` is the one definition of "a turn is running" used by the chip row, the composer hint and `onInterrupt`; its DOM form is the absence of `data-settled`, which plan 2 writes only for a settled turn, so the E2E locators are `:not([data-settled])`. `composerHint`'s three parameters and its exact strings are identical in Task 1's tests, Task 3's hook and the E2E's `chat-composer-hint` assertions.
 
 **Out of scope, deliberately left alone.** `use-harness-turns.ts`, its test, `harnessTurnsQueryKey`, the `use-sse.ts` invalidation at `:159`, `GET /api/v1/agents/:id/harness/turns`, the `harness.changed` feed invalidation, the client-side drop of a prompt chat row when its turn arrives, and the rename of `apps/server/test/harness-turns.test.ts`. All plan 4's. Task 8 Step 7 is the check that this plan left exactly that boundary.
