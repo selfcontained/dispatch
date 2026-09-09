@@ -33,7 +33,7 @@
 | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/server/src/routes/agents/harness-routes.ts`                                                    | Config, queue, interrupt, commands, usage, paths. **No turns route**, no `DEFAULT_LIMIT`/`MAX_LIMIT`, no `loadTurns` import, no `HarnessTurnsResponse` import.                                                                                                                                                                                       |
 | `apps/server/src/chat/turns.ts`                                                                      | Moved here by plan 2. `groupTurnRows`, `assembleTurns` (returning the new local `AssembledTurn[]`), `toTurnEntry`, `listTurnEntries`, `loadLatestTurnEntry`, `loadQueued`, `locationsFromInput`. **No `loadTurns`.** Steps and plan entries are typed `ChatTurnStep` / `ChatTurnPlanEntry`.                                                          |
-| `apps/server/test/chat-turns.test.ts`                                                                | **Renamed** from `apps/server/test/harness-turns.test.ts`. Unchanged content: 20 cases over `assembleTurns` and `loadQueued`.                                                                                                                                                                                                                        |
+| `apps/server/test/chat-turns.test.ts`                                                                | **Renamed** from `apps/server/test/harness-turns.test.ts`, with no content edit. It holds 23 cases in seven describes by then: 16 of its own over `assembleTurns` and `loadQueued`, plus the `groupTurnRows` and `toTurnEntry` describes plan 2 appended.                                                                                            |
 | `apps/server/test/harness-routes.test.ts`                                                            | The turns `describe` deleted; one case asserts the route is gone while the queue route on the same prefix still answers.                                                                                                                                                                                                                             |
 | `packages/shared/src/harness-types.ts`                                                               | The harness wire types that are not feed entries. **`HarnessTurn`, `HarnessTurnsResponse`, `HarnessStep`, `HarnessStepStatus`, `HarnessPlanEntry` deleted.** `HarnessQuestion` stays: `assembleTurns` still produces it.                                                                                                                             |
 | `packages/shared/src/index.ts`                                                                       | Those five names dropped from the `./harness-types.js` type export list.                                                                                                                                                                                                                                                                             |
@@ -70,9 +70,9 @@ Everything in `use-sse.ts` that invalidated `["harness-turns", id]` goes with it
 - Consumes: `harnessQueueQueryKey(agentId)` returning `["harness-queue", agentId]` and `invalidateHarnessQueue(queryClient, agentId)`, both from plan 2, Task 10.
 - Produces: `apps/web/src/hooks/use-sse.ts` exports `applyChatEntry`, `applyDiffStateChanged`, `applyAgentUpsert`, `applyReviewCreated` and `useSSE`, unchanged. `invalidateChatFeed`, `invalidateHarnessConfig` and `invalidateHarnessQueue` remain private. `invalidateHarnessTurns`, `invalidateHarness` and `invalidateChatFeedAndHarness` no longer exist.
 
-- [ ] **Step 1: Rewrite the seven assertions in the SSE suite**
+- [ ] **Step 1: Rewrite the eight assertions in the SSE suite**
 
-`apps/web/src/hooks/use-sse.test.ts` asserts through `expectInvalidatedSet`, which checks `expect(keys).toHaveLength(expected.length)`, so each list is the exact set and not a subset. Seven of them name `["harness-turns", …]`.
+`apps/web/src/hooks/use-sse.test.ts` asserts through `expectInvalidatedSet`, which checks `expect(keys).toHaveLength(expected.length)`, so each list is the exact set and not a subset. Eight of those cases name `["harness-turns", …]`, on ten lines between them.
 
 In `apps/web/src/hooks/use-sse.test.ts`:
 
@@ -262,7 +262,7 @@ with:
 
 Run: `cd apps/web && NODE_OPTIONS=--no-experimental-webstorage npx vitest run src/hooks/use-sse.test.ts`
 
-Expected: FAIL, seven failures, each an `expectInvalidatedSet` length mismatch: the code still invalidates the turns key (and, at the coarse sites, the config key) that the assertions no longer list.
+Expected: FAIL, eight failures, each an `expectInvalidatedSet` length mismatch: the code still invalidates the turns key (and, at the coarse sites, the config key) that the assertions no longer list.
 
 - [ ] **Step 3: Take the turns key out of `use-sse.ts`**
 
@@ -441,7 +441,7 @@ vi.mock("@/components/app/harness/use-harness-turns", () => ({
 
 Run: `cd apps/web && NODE_OPTIONS=--no-experimental-webstorage npx vitest run src/hooks src/components/app/harness src/components/app/agent-pane.test.tsx`
 
-Expected: PASS, no failed collections. `use-sse.test.ts` passes all its cases with the seven rewritten sets.
+Expected: PASS, no failed collections. `use-sse.test.ts` passes all its cases with the eight rewritten sets.
 
 Run: `pnpm run check:web`
 
@@ -1126,7 +1126,7 @@ EOF
 
 With `loadTurns` gone, `HarnessTurn` has exactly two users left: `assembleTurns`'s return type and `toTurnEntry`'s parameter, both inside `apps/server/src/chat/turns.ts`. Nothing crosses the wire in that shape any more.
 
-**The decision, and why.** `assembleTurns` keeps an intermediate type, and that type becomes a local `AssembledTurn` in `chat/turns.ts` rather than a shared one. It does not produce `ChatTurnEntry` directly, because it cannot: `ChatTurnEntry` needs `agentId`, `at`, `updatedAt`, `settled` and `interrupted`, all of which `toTurnEntry` derives from the group's rows and the caller's agent id, and one of which (`interrupted`) depends on the restart-marker rule. Folding that into a 140-line loop that shapes view data would put two responsibilities in one function and rewrite the 20-case suite that guards it. Keeping the shape and moving it costs one type declaration and eight identifier swaps, and the existing suite stays a valid gate. Its questions also stay `HarnessQuestion[]`: `toTurnEntry` reads `answer !== null` off them to build each `ChatTurnQuestionRef`, so the full question is what the assembler has to produce.
+**The decision, and why.** `assembleTurns` keeps an intermediate type, and that type becomes a local `AssembledTurn` in `chat/turns.ts` rather than a shared one. It does not produce `ChatTurnEntry` directly, because it cannot: `ChatTurnEntry` needs `agentId`, `at`, `updatedAt`, `settled` and `interrupted`, all of which `toTurnEntry` derives from the group's rows and the caller's agent id, and one of which (`interrupted`) depends on the restart-marker rule. Folding that into a 140-line loop that shapes view data would put two responsibilities in one function and rewrite the 23-case suite that guards it. Keeping the shape and moving it costs one type declaration and eight identifier swaps, and the existing suite stays a valid gate. Its questions also stay `HarnessQuestion[]`: `toTurnEntry` reads `answer !== null` off them to build each `ChatTurnQuestionRef`, so the full question is what the assembler has to produce.
 
 `HarnessQuestion` therefore stays in `@dispatch/shared` even though no wire message carries it after this task. It is still a live function's parameter and return type (`toQuestion`), so it is not dead code; moving it into the server would be a tidiness change with no behavior, and the brief's delete list does not name it. Its doc comment is corrected instead.
 
@@ -1176,7 +1176,7 @@ export function toTurnEntry(
 
 - Produces, from `@dispatch/shared`: `HarnessTurn`, `HarnessTurnsResponse`, `HarnessStep`, `HarnessStepStatus` and `HarnessPlanEntry` no longer exist. Every other harness type is unchanged.
 
-**This task changes no behavior, so there is no failing test to write first.** Its gates are `pnpm run check` and the renamed 20-case assembly suite, which must pass unchanged.
+**This task changes no behavior, so there is no failing test to write first.** Its gates are `pnpm run check` and the renamed 23-case assembly suite, which must pass unchanged. Step 4 on its own still type-checks, because `chat/turns.ts` simply stops importing five names that `packages/shared` goes on exporting unused, which `tsc` does not mind with no `noUnusedLocals`; only Step 5 on its own is red.
 
 - [ ] **Step 1: Prove nothing outside `chat/turns.ts` still names the five types**
 
@@ -1208,7 +1208,7 @@ Its contents need no edit: plan 2, Task 2 already pointed its import at `../src/
 
 Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/chat-turns.test.ts`
 
-Expected: PASS, 20 tests across `assembleTurns`, `assembleTurns with agent questions`, `assembleTurns labels`, `loadQueued` and `assembleTurns thinking`.
+Expected: PASS, 23 tests across seven describes: `assembleTurns`, `assembleTurns with agent questions`, `assembleTurns labels`, `loadQueued` and `assembleTurns thinking` (16 cases, the file's own), plus `groupTurnRows` (2) and `toTurnEntry` (5), which plan 2, Task 2, Step 1 appended.
 
 - [ ] **Step 4: Give the assembler its own type**
 
@@ -1472,7 +1472,7 @@ Expected: exit 0. A `TS2305` ("Module '@dispatch/shared' has no exported member"
 
 Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/chat-turns.test.ts test/chat-feed.test.ts test/harness-routes.test.ts`
 
-Expected: PASS, all three files, 20 tests in `chat-turns.test.ts`.
+Expected: PASS, all three files, 23 tests in `chat-turns.test.ts`.
 
 - [ ] **Step 7: Commit**
 
@@ -1570,7 +1570,7 @@ Run:
 git grep -n "harness-turns" -- apps e2e
 ```
 
-Expected: **no output.** A hit in `apps/web/src/hooks/use-sse.test.ts` means Task 1 Step 1 missed one of its seven assertions.
+Expected: **no output.** A hit in `apps/web/src/hooks/use-sse.test.ts` means Task 1 Step 1 missed one of its eight assertions.
 
 - [ ] **Step 5: Commit**
 
@@ -1593,7 +1593,7 @@ EOF
 
 ### Task 7: The release note, the runbook, and the last "Harness view"
 
-`release-notes/current.md` describes the Dispatch Harness as an unreleased feature under a `### Dispatch Harness` heading. Two clauses in its first bullet describe surfaces this work replaced: the feature no longer renders in a "Harness view", and it is no longer opted into through Settings, Agent types. The runbook has two more of the same kind, one sentence of Settings copy names the view, and one hook's doc comment says the pane picks the view from the agent type, which plan 3 ended. Nothing here changes the version or cuts a release.
+`release-notes/current.md` describes the Dispatch Harness as an unreleased feature under a `### Dispatch Harness` heading. Two clauses in its first bullet describe surfaces this work replaced: the feature no longer renders in a "Harness view", and it is no longer opted into through Settings, Agent types. A third clause two bullets below names the view again. The runbook has two more of the same kind, one sentence of Settings copy names the view, and one hook's doc comment says the pane picks the view from the agent type, which plan 3 ended. Nothing here changes the version or cuts a release.
 
 **Files:**
 
@@ -1617,6 +1617,18 @@ with these two:
 ```markdown
 - **Dispatch Harness**: a `dispatch` agent type that runs a coding agent as a child process over the Agent Client Protocol and renders the session as turns in the Chat feed: prompt, a collapsible activity rail per turn (tool calls with output, diffs, locations, live timers, nested subagent steps), the result, a visible queue with Send now and Remove, Stop and Ctrl+C, a tasks strip, a slash menu of the engine's commands, and a `/usage` dialog. Opt-in via Settings, **Dispatch Harness (beta)**.
 - **One feed for every agent type.** A dispatch agent's turns are entries in the same Chat feed every other agent type reads, so reviews, pins, the presence strip, the unread badge, day dividers, copy and the child-agent filter all work for it. There is no second view and no second endpoint, and a streamed chunk updates one row instead of refetching the page.
+```
+
+Two bullets below, the same file names the view again. Replace:
+
+```markdown
+- Where an engine publishes nothing over ACP the view says so: Gemini CLI has no tasks strip, reports no usage, and sets its model at launch; Codex reports tokens without cost; OpenCode publishes no plan.
+```
+
+with:
+
+```markdown
+- Where an engine publishes nothing over ACP the feed says so: Gemini CLI has no tasks strip, reports no usage, and sets its model at launch; Codex reports tokens without cost; OpenCode publishes no plan.
 ```
 
 - [ ] **Step 2: Correct the runbook's two clauses**
@@ -1872,7 +1884,7 @@ EOF
 
 **Placeholders.** None. Every step that changes code carries the code, and every command carries its expected output. Two steps are conditional by design and say so: Task 1 Step 5 deletes a mock only if plan 3 left it, and Task 5 Step 1 stops rather than deleting if the grep finds an importer plan 3 should have cleared.
 
-**Every task ends green.** Tasks 2 and 3 are red-first with their failing output named. Task 1 is red-first through the seven rewritten assertion sets. Task 4 is red-first through the route's `200`. Task 5 changes no behavior and says so; its gates are `pnpm run check` and the 20-case suite. Tasks 6, 7 and 8 are verification and documentation.
+**Every task ends green.** Tasks 2 and 3 are red-first with their failing output named. Task 1 is red-first through the eight rewritten assertion sets. Task 4 is red-first through the route's `200`. Task 5 changes no behavior and says so; its gates are `pnpm run check` and the 23-case suite. Tasks 6, 7 and 8 are verification and documentation.
 
 **Ordering is load-bearing.** Task 2 before Task 3, so no window exists where a streamed chunk neither refetches the feed nor prunes the prompt row. Task 1 before Task 5, because `use-harness-turns.ts` imports four of the five types Task 5 deletes. Task 4 before Task 5, because `loadTurns` returns `HarnessTurn`.
 
