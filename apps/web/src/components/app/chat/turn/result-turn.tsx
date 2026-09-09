@@ -12,9 +12,15 @@ import { arrive, fadeVariants } from "./motion";
 function ResultTurnImpl({
   turn,
   isStreaming = false,
+  showTime = true,
 }: {
   turn: Turn;
   isStreaming?: boolean;
+  /**
+   * The settle time under the result. Off inside a chat feed entry, whose
+   * post header already carries the time.
+   */
+  showTime?: boolean;
 }): JSX.Element | null {
   // While this turn is streaming (the live placeholder), the ActivityBlock
   // above is the sole progress indicator, so nothing renders here.
@@ -51,9 +57,11 @@ function ResultTurnImpl({
           Interrupted mid-turn: the agent was stopped before it finished.
         </p>
       ) : null}
-      <div className="pl-[21px] text-[10.5px] text-muted-foreground">
-        {new Date(turn.timestamp).toLocaleTimeString()}
-      </div>
+      {showTime ? (
+        <div className="pl-[21px] text-[10.5px] text-muted-foreground">
+          {new Date(turn.timestamp).toLocaleTimeString()}
+        </div>
+      ) : null}
     </motion.div>
   );
 }

@@ -2,7 +2,7 @@
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useState, type ReactNode } from "react";
 
-import { DiffBlock } from "@/components/app/chat/stream-entries";
+import { DiffBlock } from "./diff-block";
 import { Markdown } from "@/components/ui/markdown";
 
 import {
@@ -13,7 +13,7 @@ import {
   parseReadOutput,
   PathList,
   PlainBlock,
-} from "./code-block";
+} from "@/components/app/harness/code-block";
 import type { Step } from "./contracts";
 import {
   hasChildren,

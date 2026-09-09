@@ -16,7 +16,7 @@ import type { HarnessQueuedPrompt, HarnessQuestion } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";
 
-import type { Trace, Turn } from "./contracts";
+import type { Trace, Turn } from "@/components/app/chat/turn/contracts";
 import { HarnessPane } from "./harness-pane";
 
 const state: {

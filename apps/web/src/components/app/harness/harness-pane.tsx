@@ -20,14 +20,19 @@ import { useAnswerChatQuestion, useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
-import type { Attachment, Turn } from "./contracts";
-import { HarnessContext } from "./harness-context";
-import { arrive, DURATION, exitShrink, fadeVariants } from "./motion";
+import type { Attachment, Turn } from "@/components/app/chat/turn/contracts";
+import {
+  arrive,
+  DURATION,
+  exitShrink,
+  fadeVariants,
+} from "@/components/app/chat/turn/motion";
+import { latestPlanItems } from "@/components/app/chat/turn/registry";
+import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
+import { TurnContextProvider } from "@/components/app/chat/turn/turn-context";
+import { TurnShortcuts } from "@/components/app/chat/turn/turn-shortcuts";
 import { ModelPicker } from "./model-picker";
 import { ProviderIcon } from "./provider-icon";
-import { latestPlanItems } from "./registry";
-import { TasksStrip } from "./tasks-strip";
-import { TurnShortcuts } from "./turn-shortcuts";
 import { TurnStream } from "./turn-stream";
 import { UsageDialog } from "./usage-dialog";
 import {
@@ -179,10 +184,7 @@ export function HarnessPane({
   const liveExtras = liveTrace ? (
     <TurnShortcuts agent={agent} agentId={agentId} steps={liveTrace.steps} />
   ) : null;
-  const context = useMemo(
-    () => ({ agentId, live: streaming }),
-    [agentId, streaming]
-  );
+  const context = useMemo(() => ({ agent }), [agent]);
 
   const slashItems = useMemo<SlashItem[]>(
     () => [
@@ -406,7 +408,7 @@ export function HarnessPane({
             </div>
           </div>
         ) : null}
-        <HarnessContext.Provider value={context}>
+        <TurnContextProvider value={context}>
           <TurnStream
             turns={turns}
             liveTrace={liveTrace}
@@ -473,7 +475,7 @@ export function HarnessPane({
               </AnimatePresence>
             }
           />
-        </HarnessContext.Provider>
+        </TurnContextProvider>
         {statusLine ? (
           <div
             className="shrink-0 border-t border-border/40 px-3 pt-2 text-[11px]"

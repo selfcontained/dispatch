@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { diffLines } from "@/components/app/chat/stream-entries";
+import { diffLines } from "@/components/app/chat/turn/diff-block";
 
 describe("diffLines", () => {
   it("aligns an insertion without marking every following line", () => {

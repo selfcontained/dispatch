@@ -7,15 +7,25 @@ import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
-import { formatStepDuration } from "./format";
+import { formatStepDuration } from "@/components/app/harness/format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
 import { hasChildren } from "./registry";
 import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
-import { useStreamTicker } from "./use-stream-ticker";
+import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
 
 /** Fill behind the rail; steps mask the guide line with the same color. */
 const BLOCK_FILL = "bg-muted";
+
+/**
+ * Whether a trace is worth a rail at all: a finished turn that ran no steps
+ * has nothing to show, so the block stays unmounted rather than rendering
+ * an empty fold.
+ */
+export function showsActivity(trace: Trace | null | undefined): trace is Trace {
+  if (!trace) return false;
+  return !(trace.endedAt != null && trace.steps.length === 0);
+}
 
 function ActivityBlockImpl({
   trace,

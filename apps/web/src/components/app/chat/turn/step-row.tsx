@@ -6,11 +6,11 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 import type { Step, StepStatus } from "./contracts";
-import { formatStepDuration } from "./format";
+import { formatStepDuration } from "@/components/app/harness/format";
 import { arrive, DURATION, rowDelay, rowVariants } from "./motion";
 import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
-import { useStreamTicker } from "./use-stream-ticker";
+import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
 
 /** Matches the fold's transition duration. */
 const FOLD_MS = DURATION.base * 1000;

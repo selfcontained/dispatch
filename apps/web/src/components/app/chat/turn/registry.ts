@@ -6,7 +6,7 @@
 // step kinds the server emits map to a label, a one-line summary and a
 // "has anything to expand" check here, and to a detail body in
 // step-detail.tsx.
-import { diffLines } from "@/components/app/chat/stream-entries";
+import { diffLines } from "./diff-block";
 
 import type { HarnessPlanEntry } from "@dispatch/shared";
 

@@ -12,8 +12,13 @@ import type {
 
 import { api } from "@/lib/api";
 
-import type { Attachment, Step, Trace, Turn } from "./contracts";
-import { turnLabelFromSteps } from "./registry";
+import type {
+  Attachment,
+  Step,
+  Trace,
+  Turn,
+} from "@/components/app/chat/turn/contracts";
+import { turnLabelFromSteps } from "@/components/app/chat/turn/registry";
 
 export const HARNESS_TURNS_LIMIT = 50;
 

@@ -5,7 +5,7 @@ import { Bell } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { ExpandableBlock } from "./code-block";
+import { ExpandableBlock } from "@/components/app/harness/code-block";
 import type { Attachment, Turn } from "./contracts";
 
 const KEY_VALUE = /^([A-Za-z][A-Za-z ]{0,30}):\s*(.*)$/;

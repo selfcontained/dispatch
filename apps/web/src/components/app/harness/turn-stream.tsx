@@ -8,22 +8,29 @@ import type {
   HarnessQuestion,
 } from "@dispatch/shared";
 
-import { ActivityBlock } from "./activity-block";
-import type { Attachment, Trace, Turn } from "./contracts";
-import { arrive, exitShrink, rowVariants } from "./motion";
-import { PromptLine } from "./prompt-line";
+import {
+  ActivityBlock,
+  showsActivity,
+} from "@/components/app/chat/turn/activity-block";
+import type {
+  Attachment,
+  Trace,
+  Turn,
+} from "@/components/app/chat/turn/contracts";
+import {
+  arrive,
+  exitShrink,
+  rowVariants,
+} from "@/components/app/chat/turn/motion";
+import { PromptLine } from "@/components/app/chat/turn/prompt-line";
+import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
+import { ResultText, ResultTurn } from "@/components/app/chat/turn/result-turn";
+
 import { QuestionCard } from "./question-card";
-import { QueuedPrompt } from "./queued-prompt";
-import { ResultText, ResultTurn } from "./result-turn";
 
 function questionsOf(turn: Turn): HarnessQuestion[] {
   const list = turn.extra?.questions;
   return Array.isArray(list) ? (list as HarnessQuestion[]) : [];
-}
-
-function showsActivity(trace: Trace | null | undefined): trace is Trace {
-  if (!trace) return false;
-  return !(trace.endedAt != null && trace.steps.length === 0);
 }
 
 /**
