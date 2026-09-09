@@ -8,7 +8,7 @@ import type {
 } from "@dispatch/shared";
 
 import { listHarnessPaths } from "../../agents/harness/paths.js";
-import { loadQueued, loadTurns } from "../../agents/harness/turns.js";
+import { loadQueued, loadTurns } from "../../chat/turns.js";
 import { loadAgentUsage, monthStartUtc } from "../../agents/harness/usage.js";
 import type { AgentRouteDeps } from "./shared.js";
 

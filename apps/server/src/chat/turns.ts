@@ -1,5 +1,7 @@
 import type {
   ChatMessage,
+  ChatTurnEntry,
+  ChatTurnQuestionRef,
   HarnessPlanEntry,
   HarnessPrompt,
   HarnessQueuedPrompt,
@@ -8,12 +10,8 @@ import type {
   HarnessTurn,
 } from "@dispatch/shared";
 
-import {
-  isChatMessageId,
-  type Queryable,
-  toChatMessage,
-} from "../../chat/store.js";
-import type { PromptSource } from "./prompt-source.js";
+import { INTERRUPTED_BY_RESTART } from "../agents/harness/stream-recorder.js";
+import type { PromptSource } from "../agents/harness/prompt-source.js";
 import type {
   AssistantPayload,
   PlanPayload,
@@ -21,7 +19,8 @@ import type {
   ThoughtPayload,
   ToolPayload,
   TurnPayload,
-} from "./stream-store.js";
+} from "../agents/harness/stream-store.js";
+import { isChatMessageId, type Queryable, toChatMessage } from "./store.js";
 
 export type TurnSourceRow = Pick<
   StreamEventRow,
@@ -177,7 +176,33 @@ function noteStep(
   };
 }
 
-type Group = { turn: TurnSourceRow | null; rows: TurnSourceRow[] };
+/** One turn's rows: its `turn` row (null for a pre-turn group) and the rest. */
+export type TurnGroup = { turn: TurnSourceRow | null; rows: TurnSourceRow[] };
+
+/**
+ * Cut ascending stream rows into turns at each `turn` row. Rows before the
+ * first one form a single leading group with no turn row of its own: that
+ * is history from before turn rows existed, and it assembles into one
+ * closed synthetic turn. Callers rely on the result indexing one to one
+ * with {@link assembleTurns} over the same rows.
+ */
+export function groupTurnRows(rows: TurnSourceRow[]): TurnGroup[] {
+  const groups: TurnGroup[] = [];
+  let current: TurnGroup | null = null;
+  for (const row of rows) {
+    if (row.kind === "turn") {
+      current = { turn: row, rows: [] };
+      groups.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { turn: null, rows: [] };
+      groups.push(current);
+    }
+    current.rows.push(row);
+  }
+  return groups;
+}
 
 /** An agent question as the view carries it. */
 function toQuestion(message: ChatMessage): HarnessQuestion {
@@ -230,20 +255,7 @@ export function assembleTurns(
   chat: Map<string, ChatMessage>,
   questions: ChatMessage[] = []
 ): HarnessTurn[] {
-  const groups: Group[] = [];
-  let current: Group | null = null;
-  for (const row of rows) {
-    if (row.kind === "turn") {
-      current = { turn: row, rows: [] };
-      groups.push(current);
-      continue;
-    }
-    if (!current) {
-      current = { turn: null, rows: [] };
-      groups.push(current);
-    }
-    current.rows.push(row);
-  }
+  const groups = groupTurnRows(rows);
   // Each question belongs to the latest turn that had started when it was
   // posted; one posted before any turn goes with the first.
   const starts = groups.map((g) => (g.turn ?? g.rows[0]).createdAt.getTime());
@@ -351,7 +363,11 @@ export function assembleTurns(
         }
       : undefined;
     return {
-      id: group.turn ? `turn:${group.turn.id}` : `turn:pre:${index}`,
+      // A pre-turn group is named by its first row, not by its position, so
+      // a feed cursor over it compares against a real row id.
+      id: group.turn
+        ? `turn:${group.turn.id}`
+        : `turn:pre:${group.rows[0]?.id ?? 0}`,
       prompt: turnPayload
         ? promptFor(turnPayload.prompt, chat)
         : { source: "system", text: "Earlier activity", attachments: [] },
@@ -364,6 +380,58 @@ export function assembleTurns(
       ...(usage ? { usage } : {}),
     };
   });
+}
+
+/**
+ * One assembled turn as the feed row it is. The anchor's `created_at` fixes
+ * the entry's place for the turn's life; `updatedAt` moves with the newest
+ * row folded into it, which is what makes a streaming turn follow the
+ * scroll. Questions become references: their cards are `chat` entries of
+ * their own, in time order, so the turn only says which ones it asked.
+ */
+export function toTurnEntry(
+  turn: HarnessTurn,
+  group: TurnGroup,
+  agentId: string
+): ChatTurnEntry {
+  const anchor = group.turn ?? group.rows[0];
+  const payload = group.turn ? (group.turn.payload as TurnPayload) : null;
+  // A group with no turn row is closed by definition: it is history from
+  // before turn rows existed. Otherwise the row itself says so.
+  const settled = payload === null || payload.state === "settled";
+  let updatedAt = anchor.updatedAt;
+  for (const row of group.rows) {
+    if (row.updatedAt > updatedAt) updatedAt = row.updatedAt;
+  }
+  // A turn the service went down under settles carrying the restart marker
+  // as its error. That is a cut, not a failure the engine reported, so the
+  // entry says `interrupted` and drops the marker rather than showing it as
+  // an error line under the result.
+  const byRestart = payload?.error === INTERRUPTED_BY_RESTART;
+  const trace: ChatTurnEntry["trace"] = byRestart
+    ? { ...turn.trace, finalResult: "interrupted" }
+    : turn.trace;
+  const error = byRestart ? undefined : turn.error;
+  const questions: ChatTurnQuestionRef[] | undefined = turn.questions?.map(
+    (q) => ({ messageId: q.id, answered: q.answer !== null })
+  );
+  return {
+    type: "turn",
+    id: turn.id,
+    agentId,
+    at: anchor.createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
+    prompt: turn.prompt,
+    trace,
+    result: turn.result,
+    settled,
+    interrupted: trace.finalResult === "interrupted",
+    ...(error ? { error } : {}),
+    ...(turn.label ? { label: turn.label } : {}),
+    ...(turn.plan ? { plan: turn.plan } : {}),
+    ...(turn.usage ? { usage: turn.usage } : {}),
+    ...(questions ? { questions } : {}),
+  };
 }
 
 /** The newest `limit` turns for an agent, with their chat prompts joined. */

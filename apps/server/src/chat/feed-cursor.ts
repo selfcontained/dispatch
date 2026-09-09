@@ -20,10 +20,11 @@ export type FeedCursor = {
 };
 
 export const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
-  // assistant and activity share one source (agent_stream_events), so they
-  // share one rank: the cursor tie-break on id is valid across both.
+  // assistant, activity and turn share one source (agent_stream_events), so
+  // they share one rank: the cursor tie-break on id is valid across them.
   assistant: 6,
   activity: 6,
+  turn: 6,
   review: 5,
   chat: 4,
   status: 3,
@@ -52,6 +53,7 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
     case "review":
     case "assistant":
     case "activity":
+    case "turn":
     case "pin":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }

@@ -246,6 +246,10 @@ function authorKey(
     case "assistant":
     case "activity":
       return "agent";
+    case "turn":
+      // Never reached: `layoutFeed` gives a turn its own group before it
+      // asks for an author key.
+      return "turn";
   }
 }
 

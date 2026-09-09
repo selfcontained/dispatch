@@ -1,4 +1,10 @@
-import type { ChatAttachment, ChatQuestionOption } from "./chat-types.js";
+import type {
+  ChatAttachment,
+  ChatQuestionOption,
+  ChatTurnPlanEntry,
+  ChatTurnStep,
+  ChatTurnStepStatus,
+} from "./chat-types.js";
 
 /**
  * The Harness view's wire types: a stream-driven agent's activity cut into
@@ -15,35 +21,14 @@ export type HarnessPrompt = {
   attachments: ChatAttachment[];
 };
 
-export type HarnessStepStatus = "running" | "ok" | "error";
-
-export type HarnessStep = {
-  id: string;
-  /** execute | edit | read | search | fetch | think | note | other */
-  kind: string;
-  label: string;
-  status: HarnessStepStatus;
-  startedAt: string;
-  endedAt?: string;
-  durMs?: number;
-  detail: {
-    toolKind?: string;
-    locations?: { path: string; line?: number }[];
-    diff?: { path: string; oldText: string | null; newText: string } | null;
-    terminalOutput?: string | null;
-    truncated?: boolean;
-    /** The tool call's raw input (the harness sends the model's arguments). */
-    input?: unknown;
-    /** note and think steps: the full text. */
-    text?: string;
-    /** A `subagent` step: the child session it started. */
-    subagentSessionId?: string;
-    /** A nested call: the toolCallId of the step it runs under. */
-    parentToolCallId?: string;
-  };
-  /** Steps a subagent ran under this one (Claude Task calls). */
-  children?: HarnessStep[];
-};
+/**
+ * The step and plan shapes now live in `chat-types.ts`, because a `turn`
+ * feed entry carries them and `chat-types.ts` must not depend on this
+ * file. These aliases keep the Harness view's names working; plan 4 of
+ * the one-feed work removes them with `HarnessTurn`.
+ */
+export type HarnessStepStatus = ChatTurnStepStatus;
+export type HarnessStep = ChatTurnStep;
 
 /**
  * A question the agent posted through dispatch_chat_post during the turn:
@@ -196,12 +181,8 @@ export type HarnessCommand = {
 
 export type HarnessCommandsResponse = { commands: HarnessCommand[] };
 
-/** One entry of the agent's task list, as ACP `plan` carries it. */
-export type HarnessPlanEntry = {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  priority: "high" | "medium" | "low";
-};
+/** One entry of the agent's task list; see `ChatTurnPlanEntry`. */
+export type HarnessPlanEntry = ChatTurnPlanEntry;
 
 export type HarnessUsageAgent = {
   agentId: string;

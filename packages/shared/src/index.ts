@@ -61,6 +61,12 @@ export type {
   ChatSendRequest,
   ChatSendResponse,
   ChatStatusEntry,
+  ChatTurnEntry,
+  ChatTurnPlanEntry,
+  ChatTurnPrompt,
+  ChatTurnQuestionRef,
+  ChatTurnStep,
+  ChatTurnStepStatus,
   ChatUnreadSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";

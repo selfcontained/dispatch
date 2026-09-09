@@ -3,9 +3,11 @@ import type { ChatMessage } from "@dispatch/shared";
 
 import {
   assembleTurns,
+  groupTurnRows,
   loadQueued,
+  toTurnEntry,
   type TurnSourceRow,
-} from "../src/agents/harness/turns.js";
+} from "../src/chat/turns.js";
 
 let seq = 0;
 const at = (s: number) => new Date(Date.UTC(2026, 8, 4, 10, 0, s));
@@ -760,5 +762,167 @@ describe("assembleTurns thinking", () => {
     );
     const think = settled[0].trace.steps[0];
     expect(think).toMatchObject({ kind: "think", status: "ok", durMs: 4000 });
+  });
+});
+
+describe("groupTurnRows", () => {
+  it("cuts at each turn row and keeps rows before the first one in their own group", () => {
+    seq = 0;
+    const early = row("assistant", { text: "before", streaming: false }, 0);
+    const first = row(
+      "turn",
+      { state: "settled", prompt: { source: "system", text: "one" } },
+      1,
+      3
+    );
+    const inFirst = row("assistant", { text: "a", streaming: false }, 2);
+    const second = row(
+      "turn",
+      { state: "started", prompt: { source: "system", text: "two" } },
+      4
+    );
+    const groups = groupTurnRows([early, first, inFirst, second]);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toEqual({ turn: null, rows: [early] });
+    expect(groups[1]).toEqual({ turn: first, rows: [inFirst] });
+    expect(groups[2]).toEqual({ turn: second, rows: [] });
+  });
+
+  it("indexes one to one with assembleTurns over the same rows", () => {
+    seq = 0;
+    const rows = [
+      row("thought", { text: "hmm" }, 0),
+      row(
+        "turn",
+        { state: "settled", prompt: { source: "system", text: "p" } },
+        1,
+        2
+      ),
+    ];
+    expect(groupTurnRows(rows)).toHaveLength(
+      assembleTurns(rows, new Map()).length
+    );
+  });
+});
+
+describe("toTurnEntry", () => {
+  it("anchors the entry on the turn row and moves updatedAt with the newest row", () => {
+    seq = 0;
+    const turnRow = row(
+      "turn",
+      {
+        state: "started",
+        prompt: { source: "system", text: "p" },
+      },
+      1
+    );
+    const chunk = row("assistant", { text: "so far", streaming: true }, 2, 7);
+    const [group] = groupTurnRows([turnRow, chunk]);
+    const [turn] = assembleTurns([turnRow, chunk], new Map());
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry).toMatchObject({
+      type: "turn",
+      id: `turn:${turnRow.id}`,
+      agentId: "agt_x",
+      at: at(1).toISOString(),
+      updatedAt: at(7).toISOString(),
+      settled: false,
+      interrupted: false,
+      result: { text: "so far", streaming: true },
+    });
+    expect(entry.error).toBeUndefined();
+  });
+
+  it("gives a pre-turn group the first row's id and reads it as settled", () => {
+    seq = 0;
+    const early = row("assistant", { text: "history", streaming: false }, 0, 1);
+    const [group] = groupTurnRows([early]);
+    const [turn] = assembleTurns([early], new Map());
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry.id).toBe(`turn:pre:${early.id}`);
+    expect(entry.settled).toBe(true);
+    expect(entry.at).toBe(at(0).toISOString());
+  });
+
+  it("reads a cancelled turn as interrupted", () => {
+    seq = 0;
+    const turnRow = row(
+      "turn",
+      {
+        state: "settled",
+        prompt: { source: "system", text: "p" },
+        stopReason: "cancelled",
+        endedAt: at(2).toISOString(),
+      },
+      0,
+      2
+    );
+    const [group] = groupTurnRows([turnRow]);
+    const [turn] = assembleTurns([turnRow], new Map());
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry.interrupted).toBe(true);
+    expect(entry.settled).toBe(true);
+    expect(entry.trace.finalResult).toBe("interrupted");
+  });
+
+  it("reads a turn the service went down under as interrupted, not failed", () => {
+    seq = 0;
+    const turnRow = row(
+      "turn",
+      {
+        state: "settled",
+        prompt: { source: "system", text: "p" },
+        error: "interrupted by restart",
+        endedAt: at(4).toISOString(),
+      },
+      0,
+      4
+    );
+    const [group] = groupTurnRows([turnRow]);
+    const [turn] = assembleTurns([turnRow], new Map());
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry.interrupted).toBe(true);
+    expect(entry.trace.finalResult).toBe("interrupted");
+    // The restart marker is not an engine failure, so it does not also
+    // render as an error line under the result.
+    expect(entry.error).toBeUndefined();
+  });
+
+  it("carries an engine error through and turns questions into references", () => {
+    seq = 0;
+    const turnRow = row(
+      "turn",
+      {
+        state: "settled",
+        prompt: { source: "system", text: "p" },
+        error: "no API key",
+        endedAt: at(5).toISOString(),
+      },
+      0,
+      5
+    );
+    const question = {
+      id: "11111111-1111-4111-8111-111111111111",
+      agentId: "agt_x",
+      authorKind: "agent" as const,
+      kind: "question" as const,
+      text: "Which one?",
+      replyTo: null,
+      question: { options: [{ label: "A" }], allowFreeform: true },
+      answer: null,
+      attachments: [],
+      delivered: null,
+      readAt: null,
+      createdAt: at(1).toISOString(),
+      updatedAt: at(1).toISOString(),
+    };
+    const [group] = groupTurnRows([turnRow]);
+    const [turn] = assembleTurns([turnRow], new Map(), [question as never]);
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry.error).toBe("no API key");
+    expect(entry.interrupted).toBe(false);
+    expect(entry.questions).toEqual([
+      { messageId: "11111111-1111-4111-8111-111111111111", answered: false },
+    ]);
   });
 });
