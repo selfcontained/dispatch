@@ -69,17 +69,24 @@ vi.mock("@/components/app/harness/use-harness-commands", () => ({
   ],
   useHarnessCommands: () => [],
 }));
-vi.mock("@/components/app/harness/use-harness-turns", () => ({
-  harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
-  useHarnessTurns: () => ({
-    turns: [],
-    liveTrace: null,
-    liveText: "",
-    liveQuestions: [],
-    streaming: false,
-    queued: [],
-    loading: false,
+vi.mock("@/components/app/harness/use-harness-queue", () => ({
+  harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
+  useHarnessQueued: () => ({ queued: [], loading: false, error: null }),
+  useHarnessQueue: () => ({
+    sendNow: vi.fn(),
+    remove: vi.fn(),
+    busyId: null,
+  }),
+  useHarnessInterrupt: () => ({ interrupt: vi.fn(), interrupting: false }),
+}));
+vi.mock("@/components/app/harness/use-harness-usage", () => ({
+  HARNESS_USAGE_QUERY_KEY: ["harness-usage"],
+  useHarnessUsage: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
     error: null,
+    refetch: vi.fn(),
   }),
 }));
 vi.mock("@/hooks/use-injection-hold-state", () => ({
@@ -108,6 +115,10 @@ function agentNamed(id: string): Agent {
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt: "2026-09-02T10:00:00.000Z",
   };
+}
+
+function dispatchAgentNamed(id: string): Agent {
+  return { ...agentNamed(id), type: "dispatch", model: "codex/default" };
 }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -276,13 +287,6 @@ describe("AgentViewToggle", () => {
     ).toBe("Chat filters, child-agent messages hidden");
   });
 
-  it("hides the Chat filter for a harness agent, whose feed it cannot filter", () => {
-    render(
-      <AgentViewToggle view="chat" onViewChange={vi.fn()} harnessEnabled />
-    );
-    expect(screen.queryByTestId("chat-filters-trigger")).toBeNull();
-  });
-
   it("keeps the filter icon unchanged inside a compact visible surface", () => {
     render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
     const trigger = screen.getByTestId("chat-filters-trigger");
@@ -434,47 +438,28 @@ describe("AgentPane", () => {
   });
 });
 
-describe("AgentViewToggle with the Harness segment", () => {
-  it("replaces Chat with Harness and reports a pick of Console", () => {
-    const onViewChange = vi.fn();
-    render(
-      <AgentViewToggle view="chat" onViewChange={onViewChange} harnessEnabled />
-    );
-    const harness = screen.getByTestId("agent-view-harness");
-    expect(harness.getAttribute("data-state")).toBe("on");
-    expect(screen.queryByTestId("agent-view-chat")).toBeNull();
-    const consoleSeg = screen.getByTestId("agent-view-console");
-    expect(consoleSeg.getAttribute("data-state")).toBe("off");
-    fireEvent.click(consoleSeg);
-    expect(onViewChange).toHaveBeenCalledWith("console");
-  });
-
-  it("has no Harness segment for other agents", () => {
-    render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
-    expect(screen.queryByTestId("agent-view-harness")).toBeNull();
-  });
-});
-
-describe("AgentPane with the Harness view", () => {
-  it("shows the Harness pane in the feed layer over a hidden Console, with no Chat mounted", () => {
-    renderPane({ harnessEnabled: true, view: "chat" });
-    // The feed layer hosts the Harness; the Chat pane itself is not mounted.
+describe("AgentPane for a dispatch agent", () => {
+  it("hosts the chat pane like every other type, with no harness pane left", () => {
+    renderPane({ agent: dispatchAgentNamed("agt_a"), view: "chat" });
     expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(false);
-    expect(screen.getByTestId("harness-pane")).toBeTruthy();
-    expect(screen.queryByTestId("chat-pane")).toBeNull();
-    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
-  });
-
-  it("hides the Harness under the Console when the view is Console", () => {
-    renderPane({ harnessEnabled: true, view: "console" });
-    expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(true);
-    expect(screen.getByTestId("harness-pane")).toBeTruthy();
-    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(false);
-  });
-
-  it("does not mount the Harness pane for agents without it", () => {
-    renderPane({ view: "chat" });
-    expect(screen.queryByTestId("harness-pane")).toBeNull();
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
+    expect(screen.queryByTestId("harness-pane")).toBeNull();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
+    expect(screen.getByTestId("chat-harness-chrome")).toBeTruthy();
+  });
+
+  it("keeps the Console segment and the chat filter, and shows unread under Console", () => {
+    renderPane({
+      agent: dispatchAgentNamed("agt_a"),
+      view: "console",
+      chatUnreadCount: 3,
+    });
+    expect(screen.getByTestId("agent-view-console")).toBeTruthy();
+    expect(screen.getByTestId("agent-view-chat")).toBeTruthy();
+    expect(screen.queryByTestId("agent-view-harness")).toBeNull();
+    expect(screen.getByTestId("chat-filters-trigger")).toBeTruthy();
+    expect(screen.getByTestId("agent-view-chat-unread").textContent).toBe("3");
+    expect(screen.getByTestId("chat-pane")).toBeTruthy();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(false);
   });
 });

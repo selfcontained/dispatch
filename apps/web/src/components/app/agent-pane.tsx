@@ -3,7 +3,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
-import { HarnessPane } from "@/components/app/harness/harness-pane";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,8 +60,6 @@ function paneTransition(shown: boolean, instant: boolean) {
 export type AgentViewToggleProps = {
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
-  /** Adds the Harness segment (Dispatch Harness agents only). */
-  harnessEnabled?: boolean;
   /** Unread chat replies; shown on the Chat segment while Console is up. */
   chatUnreadCount?: number;
   showChildAgents?: boolean;
@@ -77,13 +74,11 @@ export type AgentViewToggleProps = {
 export function AgentViewToggle({
   view,
   onViewChange,
-  harnessEnabled = false,
   chatUnreadCount = 0,
   showChildAgents = true,
   onShowChildAgentsChange,
 }: AgentViewToggleProps): JSX.Element {
-  const showUnread =
-    !harnessEnabled && view === "console" && chatUnreadCount > 0;
+  const showUnread = view === "console" && chatUnreadCount > 0;
   const filtersLabel = showChildAgents
     ? "Chat filters"
     : "Chat filters, child-agent messages hidden";
@@ -116,37 +111,24 @@ export function AgentViewToggle({
             view === "console" && "translate-x-[calc(100%+0.25rem)]"
           )}
         />
-        {harnessEnabled ? (
-          <ToggleGroupItem
-            value="chat"
-            aria-label="Chat"
-            data-testid="agent-view-harness"
-            className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
-          >
-            {/* The Harness view is this agent's chat; it reads as Chat. */}
-            <MessageSquare className="h-2.5 w-2.5 shrink-0" />
-            Chat
-          </ToggleGroupItem>
-        ) : (
-          <ToggleGroupItem
-            value="chat"
-            aria-label="Chat"
-            data-testid="agent-view-chat"
-            className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
-          >
-            <MessageSquare className="h-2.5 w-2.5 shrink-0" />
-            Chat
-            {showUnread ? (
-              <span
-                data-testid="agent-view-chat-unread"
-                aria-label={`${chatUnreadCount} unread chat messages`}
-                className="ml-0.5 min-w-4 shrink-0 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
-              >
-                {formatBadgeCount(chatUnreadCount)}
-              </span>
-            ) : null}
-          </ToggleGroupItem>
-        )}
+        <ToggleGroupItem
+          value="chat"
+          aria-label="Chat"
+          data-testid="agent-view-chat"
+          className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
+        >
+          <MessageSquare className="h-2.5 w-2.5 shrink-0" />
+          Chat
+          {showUnread ? (
+            <span
+              data-testid="agent-view-chat-unread"
+              aria-label={`${chatUnreadCount} unread chat messages`}
+              className="ml-0.5 min-w-4 shrink-0 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+            >
+              {formatBadgeCount(chatUnreadCount)}
+            </span>
+          ) : null}
+        </ToggleGroupItem>
         <ToggleGroupItem
           value="console"
           aria-label="Console"
@@ -157,67 +139,64 @@ export function AgentViewToggle({
           Console
         </ToggleGroupItem>
       </ToggleGroup>
-      {/* The filter acts on the Chat feed, which a harness agent does not show. */}
-      {harnessEnabled ? null : (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              aria-label={filtersLabel}
-              title={filtersLabel}
-              data-testid="chat-filters-trigger"
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={filtersLabel}
+            title={filtersLabel}
+            data-testid="chat-filters-trigger"
+            className={cn(
+              "group h-7 w-7 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
+              !showChildAgents && "text-primary"
+            )}
+          >
+            <span
+              data-testid="chat-filters-surface"
               className={cn(
-                "group h-7 w-7 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
-                !showChildAgents && "text-primary"
+                "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                !showChildAgents && "bg-primary/10"
               )}
             >
-              <span
-                data-testid="chat-filters-surface"
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
-                  !showChildAgents && "bg-primary/10"
-                )}
-              >
-                <ListFilter
-                  data-testid="chat-filters-icon"
-                  className="h-3.5 w-3.5"
-                />
-              </span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className="w-64 p-3"
-            data-testid="chat-filters-popover"
-          >
-            <div className="mb-2 text-xs font-semibold text-foreground">
-              Chat filters
-            </div>
-            <label
-              htmlFor="show-child-agents"
-              className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-foreground">
-                  Show child agents
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  Include messages between this agent and its children.
-                </span>
-              </span>
-              <Switch
-                id="show-child-agents"
-                checked={showChildAgents}
-                onCheckedChange={onShowChildAgentsChange}
-                aria-label="Show child agents"
-                data-testid="show-child-agents-switch"
+              <ListFilter
+                data-testid="chat-filters-icon"
+                className="h-3.5 w-3.5"
               />
-            </label>
-          </PopoverContent>
-        </Popover>
-      )}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-64 p-3"
+          data-testid="chat-filters-popover"
+        >
+          <div className="mb-2 text-xs font-semibold text-foreground">
+            Chat filters
+          </div>
+          <label
+            htmlFor="show-child-agents"
+            className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Show child agents
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Include messages between this agent and its children.
+              </span>
+            </span>
+            <Switch
+              id="show-child-agents"
+              checked={showChildAgents}
+              onCheckedChange={onShowChildAgentsChange}
+              aria-label="Show child agents"
+              data-testid="show-child-agents-switch"
+            />
+          </label>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -233,8 +212,6 @@ export type AgentPaneProps = {
    * header, no Chat, no toggle — exactly the Terminal tab of before.
    */
   chatEnabled: boolean;
-  /** Mount the Harness view and its toggle segment (Dispatch Harness only). */
-  harnessEnabled?: boolean;
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
   chatUnreadCount?: number;
@@ -283,7 +260,6 @@ export function AgentPane({
   terminalMode,
   active,
   chatEnabled,
-  harnessEnabled = false,
   view,
   onViewChange,
   chatUnreadCount = 0,
@@ -297,8 +273,6 @@ export function AgentPane({
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
-  // The feed layer is up, else the Console. For a harness agent the feed
-  // layer holds the Harness view, which is that agent's Chat.
   const feedShown = chatEnabled && view === "chat";
   const reduceMotion = useReducedMotion();
   // The chat-surface flag resolves after the first paint, so the pane can go
@@ -327,7 +301,6 @@ export function AgentPane({
           <AgentViewToggle
             view={view}
             onViewChange={onViewChange}
-            harnessEnabled={harnessEnabled}
             chatUnreadCount={chatUnreadCount}
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}
@@ -358,30 +331,19 @@ export function AgentPane({
              * scroll position are agent-local, and a direct /agents/a →
              * /agents/b transition must not carry them across.
              */}
-            {harnessEnabled ? (
-              <HarnessPane
-                key={agentId ?? "none"}
-                agentId={agentId}
-                agent={agent}
-                active={active && feedShown}
-                isMobile={isMobile}
-                openLightbox={openLightbox}
-              />
-            ) : (
-              <ChatPane
-                key={agentId ?? "none"}
-                agentId={agentId}
-                agent={agent}
-                terminalMode={terminalMode}
-                active={active && feedShown}
-                showChildAgents={showChildAgents}
-                childAgentIds={childAgentIds}
-                onShowChildAgentsChange={onShowChildAgentsChange}
-                openLightbox={openLightbox}
-                onOpenReview={onOpenReview}
-                isMobile={isMobile}
-              />
-            )}
+            <ChatPane
+              key={agentId ?? "none"}
+              agentId={agentId}
+              agent={agent}
+              terminalMode={terminalMode}
+              active={active && feedShown}
+              showChildAgents={showChildAgents}
+              childAgentIds={childAgentIds}
+              onShowChildAgentsChange={onShowChildAgentsChange}
+              openLightbox={openLightbox}
+              onOpenReview={onOpenReview}
+              isMobile={isMobile}
+            />
           </motion.div>
         ) : null}
         <motion.div
