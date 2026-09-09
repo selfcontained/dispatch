@@ -20,6 +20,7 @@ import {
   upsertFeedEntry,
 } from "@/hooks/use-chat";
 import { harnessConfigQueryKey } from "@/components/app/harness/use-harness-config";
+import { harnessQueueQueryKey } from "@/components/app/harness/use-harness-queue";
 import { harnessTurnsQueryKey } from "@/components/app/harness/use-harness-turns";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
@@ -157,6 +158,17 @@ function invalidateHarnessTurns(
 ): void {
   void queryClient.invalidateQueries({
     queryKey: harnessTurnsQueryKey(agentId),
+    exact: true,
+  });
+}
+
+/** The supervisor's queue: a prompt queued, promoted, dropped, or started. */
+function invalidateHarnessQueue(
+  queryClient: QueryClient,
+  agentId: string
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: harnessQueueQueryKey(agentId),
     exact: true,
   });
 }
@@ -356,6 +368,7 @@ export function useSSE(authState: AuthState): void {
           // says it changed (a start, a settle, a switch).
           invalidateChatFeed(queryClient, payload.agentId);
           invalidateHarnessTurns(queryClient, payload.agentId);
+          invalidateHarnessQueue(queryClient, payload.agentId);
           if (payload.config) {
             invalidateHarnessConfig(queryClient, payload.agentId);
           }

@@ -1062,18 +1062,20 @@ describe("useSSE message handling", () => {
     ]);
   });
 
-  it("refetches the feed and the harness turns on harness.changed, and the config only when told", () => {
+  it("refetches the feed, the harness turns and the queue on harness.changed, and the config only when told", () => {
     const { emit, invalidateQueries } = renderMessages();
     emit({ type: "harness.changed", agentId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
       ["harness-turns", "agt_1"],
+      ["harness-queue", "agt_1"],
     ]);
     invalidateQueries.mockClear();
     emit({ type: "harness.changed", agentId: "agt_1", config: true });
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
       ["harness-turns", "agt_1"],
+      ["harness-queue", "agt_1"],
       ["harness-config", "agt_1"],
     ]);
   });
