@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { errorMessage } from "../lib/error-message.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import type {
@@ -335,7 +336,7 @@ export function registerWhiteboardTools(
           // caller that guessed at the element shape gets told where it lives.
           return toToolError(
             new Error(
-              `${error instanceof Error ? error.message : String(error)} — call whiteboard_howto for the element format.`
+              `${errorMessage(error)} — call whiteboard_howto for the element format.`
             )
           );
         }
