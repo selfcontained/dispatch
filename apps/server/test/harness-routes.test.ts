@@ -32,59 +32,15 @@ beforeEach(async () => {
   agentId = await createAgent("Harnessed");
 });
 
-describe("GET /api/v1/agents/:id/harness/turns", () => {
-  it("404s for an unknown agent and 400s for a bad limit", async () => {
-    expect(
-      (await authedGet("/api/v1/agents/agt_nope/harness/turns")).statusCode
-    ).toBe(404);
-    expect(
-      (await authedGet(`/api/v1/agents/${agentId}/harness/turns?limit=abc`))
-        .statusCode
-    ).toBe(400);
-  });
-
-  it("returns assembled turns with the chat prompt joined", async () => {
-    const chat = await ctx.pool.query<{ id: string }>(
-      `INSERT INTO agent_chat_messages (id, agent_id, author_kind, kind, text, attachments, delivered)
-       VALUES (gen_random_uuid(), $1, 'user', 'reply', 'look please', '[]'::jsonb, true)
-       RETURNING id`,
-      [agentId]
-    );
-    const chatId = chat.rows[0].id;
-    await ctx.pool.query(
-      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES
-        ($1, 1, 'turn', $2::jsonb),
-        ($1, 2, 'tool_call', '{"toolKind":"execute","title":"bash","status":"completed","locations":[],"diff":null,"terminalOutput":"ok\\n"}'),
-        ($1, 3, 'assistant', '{"text":"hi","streaming":false}')`,
-      [
-        agentId,
-        JSON.stringify({
-          state: "settled",
-          prompt: { source: "chat", chatMessageId: chatId },
-          stopReason: "end_turn",
-          endedAt: new Date().toISOString(),
-        }),
-      ]
-    );
-    const res = await authedGet(`/api/v1/agents/${agentId}/harness/turns`);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as {
-      turns: {
-        prompt: { source: string; text: string };
-        trace: { finalResult?: string; steps: { kind: string }[] };
-        result: { text: string; streaming: boolean } | null;
-      }[];
-    };
-    expect(body.turns).toHaveLength(1);
-    expect(body.turns[0].prompt).toMatchObject({
-      source: "chat",
-      text: "look please",
-    });
-    expect(body.turns[0].trace.finalResult).toBe("ok");
-    expect(body.turns[0].trace.steps.map((s) => s.kind)).toEqual(["execute"]);
-    expect(body.turns[0].result).toEqual({ text: "hi", streaming: false });
-    // No harness runs in this app: the queue is empty, and present.
-    expect((res.json() as { queued: unknown[] }).queued).toEqual([]);
+describe("the retired turns route", () => {
+  // The turns endpoint was the second reader of agent_stream_events; the
+  // chat feed's `turn` entries replaced it. The queue route is the control:
+  // it proves the 404 is this route's absence and not a broken prefix.
+  it("404s where the queue route on the same prefix still answers", async () => {
+    const turns = await authedGet(`/api/v1/agents/${agentId}/harness/turns`);
+    expect(turns.statusCode).toBe(404);
+    const queue = await authedGet(`/api/v1/agents/${agentId}/harness/queue`);
+    expect(queue.statusCode).toBe(200);
   });
 });
 

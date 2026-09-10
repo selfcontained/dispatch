@@ -582,67 +582,6 @@ export async function loadLatestTurnEntry(
   return newest?.entry ?? null;
 }
 
-/**
- * The newest `limit` turns for an agent, with their chat prompts joined.
- *
- * Only `GET /api/v1/agents/:id/harness/turns` still reads this; the feed
- * reads {@link listTurnEntries}. Plan 4 of the one-feed work deletes both.
- */
-export async function loadTurns(
-  db: Queryable,
-  agentId: string,
-  limit: number
-): Promise<HarnessTurn[]> {
-  // The newest `limit` turn rows bound the window; everything from the
-  // oldest of them onward is one contiguous slice of the stream.
-  const boundary = await db.query<{ seq: number }>(
-    `SELECT seq FROM agent_stream_events
-      WHERE agent_id = $1 AND kind = 'turn'
-      ORDER BY seq DESC LIMIT $2`,
-    [agentId, limit]
-  );
-  const fromSeq = boundary.rows.length
-    ? boundary.rows[boundary.rows.length - 1].seq
-    : 0;
-  const rows = await db.query<{
-    id: number | string;
-    seq: number;
-    kind: StreamEventRow["kind"];
-    key: string | null;
-    payload: Record<string, unknown>;
-    created_at: Date;
-    updated_at: Date;
-  }>(
-    `SELECT id, seq, kind, key, payload, created_at, updated_at
-       FROM agent_stream_events
-      WHERE agent_id = $1 AND seq >= $2
-      ORDER BY seq ASC`,
-    [agentId, fromSeq]
-  );
-  const source: TurnSourceRow[] = rows.rows.map((r) => ({
-    id: Number(r.id),
-    seq: r.seq,
-    kind: r.kind,
-    key: r.key,
-    payload: r.payload,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  }));
-  const chat = await loadChatMessages(db, chatPromptIds(source));
-  // Agent questions posted since the window opened (Chat shows them; a
-  // harness agent's pane does not).
-  const since = source.length ? source[0].createdAt : new Date(0);
-  const asked = await db.query(
-    `SELECT * FROM agent_chat_messages
-      WHERE agent_id = $1 AND author_kind = 'agent' AND kind = 'question'
-        AND created_at >= $2
-      ORDER BY created_at ASC`,
-    [agentId, since]
-  );
-  const questions = asked.rows.map((row) => toChatMessage(row as never));
-  return assembleTurns(source, chat, questions);
-}
-
 /** The chat messages behind chat-sourced prompts, by id. */
 async function loadChatMessages(
   db: Queryable,

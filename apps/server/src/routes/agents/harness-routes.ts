@@ -5,18 +5,14 @@ import type {
   HarnessConfigUpdateRequest,
   HarnessPathsResponse,
   HarnessQueueResponse,
-  HarnessTurnsResponse,
 } from "@dispatch/shared";
 
 import { listHarnessPaths } from "../../agents/harness/paths.js";
-import { loadQueued, loadTurns } from "../../chat/turns.js";
+import { loadQueued } from "../../chat/turns.js";
 import { loadAgentUsage, monthStartUtc } from "../../agents/harness/usage.js";
 import type { AgentRouteDeps } from "./shared.js";
 
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
-
-/** The Harness view's routes: turns and the queue, session config, commands, usage, paths. */
+/** A Dispatch Harness agent's routes: the queue, session config, commands, usage, paths. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
   deps: Pick<AgentRouteDeps, "pool" | "harness">
@@ -75,27 +71,6 @@ export async function registerAgentHarnessRoutes(
         .send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
-  app.get("/api/v1/agents/:id/harness/turns", async (request, reply) => {
-    const id = (request.params as { id?: string }).id ?? "";
-    const raw = (request.query as { limit?: string }).limit;
-    let limit = DEFAULT_LIMIT;
-    if (raw !== undefined) {
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed)) {
-        return reply.code(400).send({ error: "limit must be a number." });
-      }
-      limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(parsed)));
-    }
-    if (!(await exists(id))) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-    const response: HarnessTurnsResponse = {
-      turns: await loadTurns(deps.pool, id, limit),
-      queued: await loadQueued(deps.pool, deps.harness.listQueued(id)),
-    };
-    return response;
-  });
-
   // What waits behind the running turn. In-memory supervisor state, not a
   // feed row: the composer reads it from here rather than from the turns.
   app.get("/api/v1/agents/:id/harness/queue", async (request, reply) => {
