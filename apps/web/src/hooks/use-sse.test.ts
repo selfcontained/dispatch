@@ -537,7 +537,7 @@ describe("useSSE message handling", () => {
       CACHED_RELEASE_INFO_QUERY_KEY,
       ["chat-unread"],
       ["chat"],
-      ["harness-turns"],
+      ["harness-queue"],
       ["harness-config"],
     ]);
     expect(removeQueries).toHaveBeenCalledWith({
@@ -753,8 +753,6 @@ describe("useSSE message handling", () => {
       ["agent-feedback-items", "author"],
       // The Chat feed carries a card per review.
       ["chat", "author"],
-      ["harness-turns", "author"],
-      ["harness-config", "author"],
     ]);
   });
 
@@ -779,8 +777,6 @@ describe("useSSE message handling", () => {
       ["agent-feedback-items", "author"],
       // The Chat feed carries a card per review.
       ["chat", "author"],
-      ["harness-turns", "author"],
-      ["harness-config", "author"],
     ]);
   });
 
@@ -858,12 +854,9 @@ describe("useSSE message handling", () => {
     }>(["chat", "agt_1"]);
     expect(cache?.pages[0]?.entries).toEqual([older, post]);
     expect(cache?.pages[0]?.unreadCount).toBe(1);
-    // An agent's post moves the sidebar badge and is a turn change for the
-    // Harness; the feed itself is not refetched.
-    expectInvalidatedSet(invalidateQueries, [
-      ["chat-unread"],
-      ["harness-turns", "agt_1"],
-    ]);
+    // An agent's post moves the sidebar badge; the feed itself is patched,
+    // not refetched.
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
 
     // A status row: no badge to move, still no refetch.
     invalidateQueries.mockClear();
@@ -1057,30 +1050,26 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
       ["chat-unread"],
-      ["harness-turns", "agt_1"],
-      ["harness-config", "agt_1"],
     ]);
   });
 
-  it("refetches the feed, the harness turns and the queue on harness.changed, and the config only when told", () => {
+  it("refetches the feed and the queue on harness.changed, and the config only when told", () => {
     const { emit, invalidateQueries } = renderMessages();
     emit({ type: "harness.changed", agentId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
-      ["harness-turns", "agt_1"],
       ["harness-queue", "agt_1"],
     ]);
     invalidateQueries.mockClear();
     emit({ type: "harness.changed", agentId: "agt_1", config: true });
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
-      ["harness-turns", "agt_1"],
       ["harness-queue", "agt_1"],
       ["harness-config", "agt_1"],
     ]);
   });
 
-  it("refetches the harness turns for a chat row a feed never fetched, not for a status row", () => {
+  it("moves the unread badge for a chat row a feed never fetched, not for a status row", () => {
     const { emit, invalidateQueries } = renderMessages();
     emit({
       type: "chat.entry",
@@ -1106,11 +1095,9 @@ describe("useSSE message handling", () => {
         },
       } as unknown as ChatFeedEntry,
     });
-    // An agent question: the Harness threads it, and the unread badge moves.
-    expectInvalidatedSet(invalidateQueries, [
-      ["harness-turns", "agt_1"],
-      ["chat-unread"],
-    ]);
+    // No cache to patch, so the row is left to the first fetch; the badge
+    // still moves.
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
     invalidateQueries.mockClear();
     emit({
       type: "chat.entry",
@@ -1152,10 +1139,6 @@ describe("useSSE message handling", () => {
       ["messages", "recipient"],
       ["chat", "sender"],
       ["chat", "recipient"],
-      ["harness-turns", "sender"],
-      ["harness-turns", "recipient"],
-      ["harness-config", "sender"],
-      ["harness-config", "recipient"],
     ]);
 
     invalidateQueries.mockClear();

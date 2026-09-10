@@ -21,7 +21,6 @@ import {
 } from "@/hooks/use-chat";
 import { harnessConfigQueryKey } from "@/components/app/harness/use-harness-config";
 import { harnessQueueQueryKey } from "@/components/app/harness/use-harness-queue";
-import { harnessTurnsQueryKey } from "@/components/app/harness/use-harness-turns";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
@@ -146,22 +145,6 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
   });
 }
 
-/**
- * The Harness view assembles its turns from the stream rows and from the
- * chat rows (prompts, agent questions and their answers), so it refetches
- * on every stream write (`harness.changed`), on a chat row event, and on
- * the coarse chat changes reviews, messages, and media announce with.
- */
-function invalidateHarnessTurns(
-  queryClient: QueryClient,
-  agentId: string
-): void {
-  void queryClient.invalidateQueries({
-    queryKey: harnessTurnsQueryKey(agentId),
-    exact: true,
-  });
-}
-
 /** The supervisor's queue: a prompt queued, promoted, dropped, or started. */
 function invalidateHarnessQueue(
   queryClient: QueryClient,
@@ -182,19 +165,6 @@ function invalidateHarnessConfig(
     queryKey: harnessConfigQueryKey(agentId),
     exact: true,
   });
-}
-
-function invalidateHarness(queryClient: QueryClient, agentId: string): void {
-  invalidateHarnessTurns(queryClient, agentId);
-  invalidateHarnessConfig(queryClient, agentId);
-}
-
-function invalidateChatFeedAndHarness(
-  queryClient: QueryClient,
-  agentId: string
-): void {
-  invalidateChatFeed(queryClient, agentId);
-  invalidateHarness(queryClient, agentId);
 }
 
 /**
@@ -297,7 +267,10 @@ export function useSSE(authState: AuthState): void {
           // missing whatever landed while the stream was down. Prefix match:
           // one key per agent.
           void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
-          void queryClient.invalidateQueries({ queryKey: ["harness-turns"] });
+          // The queue is in-memory server state with no event replay, so a
+          // reconnect after a gap has to read it again. Prefix match: one
+          // key per agent.
+          void queryClient.invalidateQueries({ queryKey: ["harness-queue"] });
           void queryClient.invalidateQueries({ queryKey: ["harness-config"] });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
@@ -345,11 +318,6 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.entry") {
           applyChatEntry(queryClient, payload.agentId, payload.entry);
-          // The Harness threads prompts, questions, and answers from the
-          // chat rows: a chat row is a turn change for it.
-          if (payload.entry.type === "chat") {
-            invalidateHarnessTurns(queryClient, payload.agentId);
-          }
           // Only an agent's post can move the sidebar's unread badges.
           if (
             payload.entry.type === "chat" &&
@@ -363,11 +331,10 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "harness.changed") {
-          // A stream write: the feed reads the stream rows, the Harness its
-          // turns. The session config is read again only when the write
-          // says it changed (a start, a settle, a switch).
+          // A stream write: the feed reads the stream rows, the queue is
+          // server-side. The session config is read again only when the
+          // write says it changed (a start, a settle, a switch).
           invalidateChatFeed(queryClient, payload.agentId);
-          invalidateHarnessTurns(queryClient, payload.agentId);
           invalidateHarnessQueue(queryClient, payload.agentId);
           if (payload.config) {
             invalidateHarnessConfig(queryClient, payload.agentId);
@@ -391,7 +358,7 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "chat.changed") {
-          invalidateChatFeedAndHarness(queryClient, payload.agentId);
+          invalidateChatFeed(queryClient, payload.agentId);
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
@@ -439,7 +406,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: MEDIA_ITEM_QUERY_PREFIX,
           });
-          invalidateChatFeedAndHarness(queryClient, payload.agentId);
+          invalidateChatFeed(queryClient, payload.agentId);
           return;
         }
 
@@ -505,9 +472,9 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["agent-feedback-items", payload.agentId],
           });
           // The Chat feed renders reviews as cards, with their live status
-          // and counts — so a new review, and every later change to one,
-          // has to reach the feed too.
-          invalidateChatFeedAndHarness(queryClient, payload.agentId);
+          // and counts, so a new review and every later change to one has
+          // to reach the feed too.
+          invalidateChatFeed(queryClient, payload.agentId);
           return;
         }
 
@@ -538,8 +505,8 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["messages", payload.recipientAgentId],
             exact: true,
           });
-          invalidateChatFeedAndHarness(queryClient, payload.senderAgentId);
-          invalidateChatFeedAndHarness(queryClient, payload.recipientAgentId);
+          invalidateChatFeed(queryClient, payload.senderAgentId);
+          invalidateChatFeed(queryClient, payload.recipientAgentId);
           return;
         }
 
