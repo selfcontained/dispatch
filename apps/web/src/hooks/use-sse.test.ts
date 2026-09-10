@@ -960,6 +960,72 @@ describe("useSSE message handling", () => {
     expect(queryClient.getQueryData(["chat", "agt_never"])).toBeUndefined();
   });
 
+  it("drops a turn's prompt row from the cache when the turn arrives", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    queryClient.setQueryData(["chat", "agt_1"], {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [
+            {
+              type: "chat",
+              id: "11111111-1111-4111-8111-111111111111",
+              at: "2026-09-02T10:00:01.000Z",
+              message: {
+                id: "11111111-1111-4111-8111-111111111111",
+                agentId: "agt_1",
+                authorKind: "user",
+                kind: "reply",
+                text: "read the readme",
+                replyTo: null,
+                question: null,
+                answer: null,
+                attachments: [],
+                delivered: true,
+                readAt: null,
+                createdAt: "2026-09-02T10:00:01.000Z",
+                updatedAt: "2026-09-02T10:00:01.000Z",
+              },
+            },
+          ],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    });
+
+    emit({
+      type: "chat.entry",
+      agentId: "agt_1",
+      entry: {
+        type: "turn",
+        id: "turn:12",
+        agentId: "agt_1",
+        at: "2026-09-02T10:00:02.000Z",
+        updatedAt: "2026-09-02T10:00:02.000Z",
+        prompt: {
+          source: "chat",
+          text: "read the readme",
+          chatMessageId: "11111111-1111-4111-8111-111111111111",
+          attachments: [],
+        },
+        trace: { startedAt: "2026-09-02T10:00:02.000Z", steps: [] },
+        result: null,
+        settled: false,
+        interrupted: false,
+      } as unknown as ChatFeedEntry,
+    });
+
+    // The turn renders the prompt, so the row it claimed is gone and the
+    // feed is patched rather than refetched.
+    const cache = queryClient.getQueryData<{
+      pages: { entries: { id: string }[] }[];
+    }>(["chat", "agt_1"]);
+    expect(cache?.pages[0]?.entries.map((e) => e.id)).toEqual(["turn:12"]);
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
   it("applies a chat.read to the count and the rows it covered, nothing else", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
     const status = {

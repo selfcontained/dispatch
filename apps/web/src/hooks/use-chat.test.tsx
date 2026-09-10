@@ -4,6 +4,7 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMessage,
+  ChatTurnEntry,
 } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -419,6 +420,26 @@ describe("upsertFeedEntry", () => {
     message: id,
     at: when,
   });
+  const turnEntry = (
+    chatMessageId: string | undefined,
+    when: string
+  ): ChatTurnEntry => ({
+    type: "turn",
+    id: "turn:12",
+    agentId: "agt_1",
+    at: when,
+    updatedAt: when,
+    prompt: {
+      source: "chat",
+      text: "read the readme",
+      ...(chatMessageId ? { chatMessageId } : {}),
+      attachments: [],
+    },
+    trace: { startedAt: when, steps: [] },
+    result: null,
+    settled: false,
+    interrupted: false,
+  });
 
   it("appends a newer entry to the newest page and bumps unread for agent posts", () => {
     const a = chat(message({ id: "a", createdAt: at(1) }));
@@ -544,6 +565,70 @@ describe("upsertFeedEntry", () => {
       upsertFeedEntry({ pageParams: [], pages: [] }, status("event:1", at(1)))
         .placed
     ).toBe(false);
+  });
+
+  it("drops the chat row a turn claims as its prompt", () => {
+    const prompt = chat(
+      message({ id: "p1", authorKind: "user", createdAt: at(1) })
+    );
+    const other = status("event:2", at(2));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([prompt, other])],
+    };
+    const result = upsertFeedEntry(cache, turnEntry("p1", at(3)));
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "event:2",
+      "turn:12",
+    ]);
+  });
+
+  it("drops a prompt row from an older page as its turn grows", () => {
+    const prompt = chat(
+      message({ id: "p1", authorKind: "user", createdAt: at(1) })
+    );
+    const live = turnEntry("p1", at(3));
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([live], { hasMore: true, nextCursor: "c1" }),
+        page([prompt]),
+      ],
+    };
+    const result = upsertFeedEntry(cache, {
+      ...live,
+      updatedAt: at(9),
+      result: { text: "It documents the CLI.", streaming: false },
+    });
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[1]!.entries).toEqual([]);
+    const grown = result.cache.pages[0]!.entries[0]!;
+    expect(grown.type === "turn" ? grown.result?.text : null).toBe(
+      "It documents the CLI."
+    );
+  });
+
+  it("leaves every other chat row alone, and a turn with no chat prompt", () => {
+    const keep = chat(
+      message({ id: "p2", authorKind: "user", createdAt: at(1) })
+    );
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([keep])],
+    };
+    const injected = upsertFeedEntry(cache, {
+      ...turnEntry(undefined, at(3)),
+      prompt: {
+        source: "system",
+        text: "Rename yourself to match the work you are doing.",
+        attachments: [],
+      },
+    });
+    expect(injected.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "p2",
+      "turn:12",
+    ]);
   });
 });
 

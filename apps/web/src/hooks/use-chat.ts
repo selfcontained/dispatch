@@ -371,6 +371,29 @@ export type FeedUpsert = {
 };
 
 /**
+ * The chat row a turn names as its prompt is rendered by the turn, and the
+ * server stops listing it as a `chat` entry once the turn row exists. A
+ * client that saw the row first, from its own send, holds both, so the
+ * turn's arrival is where the duplicate goes. The unread count is left
+ * alone: a prompt row is the user's own and was never counted.
+ */
+function withoutTurnPrompt(cache: FeedCache, entry: ChatFeedEntry): FeedCache {
+  if (entry.type !== "turn") return cache;
+  const promptId = entry.prompt.chatMessageId;
+  if (promptId === undefined) return cache;
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    const entries = page.entries.filter(
+      (existing) => !(existing.type === "chat" && existing.id === promptId)
+    );
+    if (entries.length === page.entries.length) return page;
+    changed = true;
+    return { ...page, entries };
+  });
+  return changed ? { ...cache, pages } : cache;
+}
+
+/**
  * Put one feed row (from a `chat.entry` event) into the cached pages: in
  * place when its id is already here, otherwise into the newest page at its
  * position by time. The unread count follows agent messages that arrive
@@ -381,6 +404,10 @@ export function upsertFeedEntry(
   cache: FeedCache,
   entry: ChatFeedEntry
 ): FeedUpsert {
+  return placeEntry(withoutTurnPrompt(cache, entry), entry);
+}
+
+function placeEntry(cache: FeedCache, entry: ChatFeedEntry): FeedUpsert {
   const newest = cache.pages[0];
   if (!newest) return { cache, placed: false };
   const key = `${entry.type}:${entry.id}`;
