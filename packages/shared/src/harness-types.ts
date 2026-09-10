@@ -1,15 +1,10 @@
-import type {
-  ChatAttachment,
-  ChatQuestionOption,
-  ChatTurnPlanEntry,
-  ChatTurnStep,
-  ChatTurnStepStatus,
-} from "./chat-types.js";
+import type { ChatAttachment, ChatQuestionOption } from "./chat-types.js";
 
 /**
- * The Harness view's wire types: a stream-driven agent's activity cut into
- * turns. Assembled server-side from `agent_stream_events`; the web maps
- * them onto the PromptKit turn model it renders.
+ * A Dispatch Harness agent's wire types that are not feed entries: the
+ * prompt and queue shapes, the engine table, session config, the engine's
+ * slash commands, usage and the "@" path picker. A turn itself is a
+ * `ChatTurnEntry` in `chat-types.ts`.
  */
 
 export type HarnessPrompt = {
@@ -22,18 +17,10 @@ export type HarnessPrompt = {
 };
 
 /**
- * The step and plan shapes now live in `chat-types.ts`, because a `turn`
- * feed entry carries them and `chat-types.ts` must not depend on this
- * file. These aliases keep the Harness view's names working; plan 4 of
- * the one-feed work removes them with `HarnessTurn`.
- */
-export type HarnessStepStatus = ChatTurnStepStatus;
-export type HarnessStep = ChatTurnStep;
-
-/**
- * A question the agent posted through dispatch_chat_post during the turn:
- * it lives in the Chat feed, which a harness agent's pane does not show,
- * so the Harness view carries it on the turn with its answer state.
+ * A question the agent posted through dispatch_chat_post during a turn, as
+ * the server's assembler carries it. The card renders as a `chat` entry in
+ * time order; the turn entry keeps only a `ChatTurnQuestionRef`, whose
+ * answered flag comes off this shape.
  */
 export type HarnessQuestion = {
   /** The chat message id; answers post against it. */
@@ -43,32 +30,6 @@ export type HarnessQuestion = {
   allowFreeform: boolean;
   answer: { value: string; label?: string } | null;
   createdAt: string;
-};
-
-export type HarnessTurn = {
-  id: string;
-  prompt: HarnessPrompt;
-  trace: {
-    startedAt: string;
-    endedAt?: string;
-    /** `interrupted`: the turn was cancelled (Stop, Ctrl+C, Send now). */
-    finalResult?: "ok" | "error" | "interrupted";
-    steps: HarnessStep[];
-  };
-  result: { text: string; streaming: boolean; truncated?: boolean } | null;
-  error?: string;
-  /** Questions the agent asked during this turn, oldest first. */
-  questions?: HarnessQuestion[];
-  /**
-   * What the turn did, in the agent's own words: the message of the last
-   * dispatch_event it sent during the turn ("Answered README question").
-   * Absent when the agent sent none.
-   */
-  label?: string;
-  /** The task list as the engine last published it during this turn. */
-  plan?: HarnessPlanEntry[];
-  /** Context used and, where the engine reports it, cost so far in this session. */
-  usage?: { used: number; size: number; costUsd: number | null };
 };
 
 /**
@@ -184,9 +145,6 @@ export type HarnessCommand = {
 
 export type HarnessCommandsResponse = { commands: HarnessCommand[] };
 
-/** One entry of the agent's task list; see `ChatTurnPlanEntry`. */
-export type HarnessPlanEntry = ChatTurnPlanEntry;
-
 export type HarnessUsageAgent = {
   agentId: string;
   name: string;
@@ -209,12 +167,6 @@ export type HarnessUsageReport = {
   generatedAt: string;
   monthStart: string;
   engines: HarnessUsageEngine[];
-};
-
-export type HarnessTurnsResponse = {
-  turns: HarnessTurn[];
-  /** What waits behind the live turn, first to run first. */
-  queued: HarnessQueuedPrompt[];
 };
 
 /** One completion of the composer's "@" path picker, spelled as the user typed the prefix. */

@@ -1,13 +1,12 @@
 import type {
   ChatMessage,
   ChatTurnEntry,
+  ChatTurnPlanEntry,
   ChatTurnQuestionRef,
-  HarnessPlanEntry,
+  ChatTurnStep,
   HarnessPrompt,
   HarnessQueuedPrompt,
   HarnessQuestion,
-  HarnessStep,
-  HarnessTurn,
 } from "@dispatch/shared";
 
 import {
@@ -34,6 +33,38 @@ export type TurnSourceRow = Pick<
   StreamEventRow,
   "id" | "seq" | "kind" | "key" | "payload" | "createdAt" | "updatedAt"
 >;
+
+/**
+ * A turn as the assembler shapes it, on the way to the feed entry
+ * `toTurnEntry` frames from it. Not a wire type: `toTurnEntry` is its only
+ * reader, and it carries each question whole because the entry needs the
+ * answer state off it.
+ */
+export type AssembledTurn = {
+  id: string;
+  prompt: HarnessPrompt;
+  trace: {
+    startedAt: string;
+    endedAt?: string;
+    /** `interrupted`: the turn was cancelled (Stop, Ctrl+C, Send now). */
+    finalResult?: "ok" | "error" | "interrupted";
+    steps: ChatTurnStep[];
+  };
+  result: { text: string; streaming: boolean; truncated?: boolean } | null;
+  error?: string;
+  /** Questions the agent asked during this turn, oldest first. */
+  questions?: HarnessQuestion[];
+  /**
+   * What the turn did, in the agent's own words: the message of the last
+   * dispatch_event it sent during the turn ("Answered README question").
+   * Absent when the agent sent none.
+   */
+  label?: string;
+  /** The task list as the engine last published it during this turn. */
+  plan?: ChatTurnPlanEntry[];
+  /** Context used and, where the engine reports it, cost so far in this session. */
+  usage?: { used: number; size: number; costUsd: number | null };
+};
 
 /** The agent's own status reports already show as status lines; in a trace they are noise. */
 const DROPPED_TOOL_TITLES = new Set(["mcp__dispatch__dispatch_event"]);
@@ -123,7 +154,7 @@ function statusEventOf(
   };
 }
 
-function toolStep(row: TurnSourceRow): HarnessStep | null {
+function toolStep(row: TurnSourceRow): ChatTurnStep | null {
   const p = row.payload as Partial<ToolPayload>;
   const title = p.title ?? "";
   if (DROPPED_TOOL_TITLES.has(title)) return null;
@@ -163,7 +194,7 @@ function noteStep(
   row: TurnSourceRow,
   kind: "note" | "think",
   running = false
-): HarnessStep {
+): ChatTurnStep {
   const p = row.payload as Partial<AssistantPayload & ThoughtPayload>;
   const text = p.text ?? "";
   return {
@@ -235,11 +266,11 @@ function toQuestion(message: ChatMessage): HarnessQuestion {
  * at the top level rather than losing it.
  */
 function nestSteps(
-  flat: { step: HarnessStep; key: string | null; parent: string | null }[]
-): HarnessStep[] {
-  const byKey = new Map<string, HarnessStep>();
+  flat: { step: ChatTurnStep; key: string | null; parent: string | null }[]
+): ChatTurnStep[] {
+  const byKey = new Map<string, ChatTurnStep>();
   for (const { step, key } of flat) if (key) byKey.set(key, step);
-  const top: HarnessStep[] = [];
+  const top: ChatTurnStep[] = [];
   for (const { step, parent } of flat) {
     const owner = parent ? byKey.get(parent) : undefined;
     if (owner && owner !== step) (owner.children ??= []).push(step);
@@ -248,12 +279,12 @@ function nestSteps(
   return top;
 }
 
-function planEntriesOf(row: TurnSourceRow): HarnessPlanEntry[] {
+function planEntriesOf(row: TurnSourceRow): ChatTurnPlanEntry[] {
   const p = row.payload as Partial<PlanPayload>;
   return (p.entries ?? []).map((e) => ({
     content: e.content,
-    status: e.status as HarnessPlanEntry["status"],
-    priority: e.priority as HarnessPlanEntry["priority"],
+    status: e.status as ChatTurnPlanEntry["status"],
+    priority: e.priority as ChatTurnPlanEntry["priority"],
   }));
 }
 
@@ -262,7 +293,7 @@ export function assembleTurns(
   rows: TurnSourceRow[],
   chat: Map<string, ChatMessage>,
   questions: ChatMessage[] = []
-): HarnessTurn[] {
+): AssembledTurn[] {
   const groups = groupTurnRows(rows);
   // Each question belongs to the latest turn that had started when it was
   // posted; one posted before any turn goes with the first.
@@ -286,7 +317,7 @@ export function assembleTurns(
     const startedAt = anchor.createdAt.toISOString();
     const turnQuestions = byGroup.get(index);
     const settled = turnPayload?.state === "settled";
-    let result: HarnessTurn["result"] = null;
+    let result: AssembledTurn["result"] = null;
     const assistants = group.rows.filter((r) => r.kind === "assistant");
     const last = assistants[assistants.length - 1];
     // In a turn still running, a thought that is the newest row is the one
@@ -297,11 +328,11 @@ export function assembleTurns(
     // dropped as steps but the last one names what happened. A terminal
     // event (done, idle, …) wins over the last "working".
     const flat: {
-      step: HarnessStep;
+      step: ChatTurnStep;
       key: string | null;
       parent: string | null;
     }[] = [];
-    let plan: HarnessPlanEntry[] | undefined;
+    let plan: ChatTurnPlanEntry[] | undefined;
     let label: string | undefined;
     let labelTerminal = false;
     for (const row of group.rows) {
@@ -347,7 +378,7 @@ export function assembleTurns(
     const steps = nestSteps(flat);
     const error = turnPayload?.error;
     const lastRow = group.rows[group.rows.length - 1];
-    const trace: HarnessTurn["trace"] = { startedAt, steps };
+    const trace: AssembledTurn["trace"] = { startedAt, steps };
     if (settled) {
       if (turnPayload?.endedAt) trace.endedAt = turnPayload.endedAt;
       trace.finalResult = error
@@ -396,7 +427,7 @@ export function assembleTurns(
  * their own, in time order, so the turn only says which ones it asked.
  */
 export function toTurnEntry(
-  turn: HarnessTurn,
+  turn: AssembledTurn,
   group: TurnGroup,
   agentId: string
 ): ChatTurnEntry {
