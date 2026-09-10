@@ -630,6 +630,34 @@ describe("upsertFeedEntry", () => {
       "turn:12",
     ]);
   });
+
+  it("ignores a turn compose that finished out of order", () => {
+    const live = turnEntry("p1", at(3));
+    const grown = {
+      ...live,
+      updatedAt: at(9),
+      result: { text: "the whole answer", streaming: false },
+      settled: true,
+    };
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([grown])],
+    };
+    // The older compose of the same turn, arriving last.
+    const stale = {
+      ...live,
+      updatedAt: at(6),
+      result: { text: "the whole", streaming: true },
+    };
+    const result = upsertFeedEntry(cache, stale);
+    expect(result.placed).toBe(true);
+    expect(result.cache).toBe(cache);
+    const kept = result.cache.pages[0]!.entries[0]!;
+    expect(kept.type === "turn" ? kept.settled : null).toBe(true);
+    expect(kept.type === "turn" ? kept.result?.text : null).toBe(
+      "the whole answer"
+    );
+  });
 });
 
 describe("applyChatRead", () => {

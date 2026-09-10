@@ -552,6 +552,7 @@ export function ChatPane({
   // type. Nulling the id is what keeps every /harness/* query disabled and
   // the chrome unmounted for the rest.
   const harnessAgentId = agent?.type === "dispatch" ? agentId : null;
+  const isHarnessAgent = harnessAgentId !== null;
   const harness = useHarnessChrome({
     agentId: harnessAgentId,
     agent,
@@ -737,10 +738,8 @@ export function ChatPane({
             replyContext={replyContext}
             // Pane-wide drops are parity with the pane this replaced; other
             // agent types keep taking them on the composer alone.
-            dropTargetRef={harnessAgentId === null ? undefined : dropRef}
-            onDropZoneDragging={
-              harnessAgentId === null ? undefined : setDraggingFiles
-            }
+            dropTargetRef={isHarnessAgent ? dropRef : undefined}
+            onDropZoneDragging={isHarnessAgent ? setDraggingFiles : undefined}
             {...harness.composer}
           />
         </div>

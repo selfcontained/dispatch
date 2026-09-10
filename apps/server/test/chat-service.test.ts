@@ -1145,4 +1145,34 @@ describe("publishTurnEntry", () => {
     await service.publishTurnEntry(A);
     expect(published).toEqual([]);
   });
+
+  it("runs one compose at a time and collapses the rest into one re-run", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 1, 'turn', $2::jsonb, $3, $4)`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "system", text: "go" },
+        }),
+        at(1),
+        at(2),
+      ]
+    );
+    published.length = 0;
+    // The recorder flushes about ten times a second; each of these is one
+    // flush arriving while the compose before it is still reading.
+    await Promise.all([
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+    ]);
+    // The first call composes; the other three collapse into one re-run,
+    // because only the newest state is worth sending.
+    expect(published).toHaveLength(2);
+  });
 });

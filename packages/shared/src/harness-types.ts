@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatQuestionOption } from "./chat-types.js";
+import type { ChatAttachment } from "./chat-types.js";
 
 /**
  * A Dispatch Harness agent's wire types that are not feed entries: the

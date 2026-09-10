@@ -418,6 +418,17 @@ function placeEntry(cache: FeedCache, entry: ChatFeedEntry): FeedUpsert {
     );
     if (index === -1) continue;
     const previous = page.entries[index]!;
+    // A turn is republished on every recorder flush, and two composes of the
+    // same turn can finish out of order. Without this the older one would
+    // land last and leave the turn short, and often still streaming, with
+    // nothing to correct it: its own event no longer refetches the feed.
+    if (
+      entry.type === "turn" &&
+      previous.type === "turn" &&
+      entry.updatedAt < previous.updatedAt
+    ) {
+      return { cache, placed: true };
+    }
     const shared = replaceEqualDeep(previous, entry);
     if (shared === previous) return { cache, placed: true };
     const entries = page.entries.slice();

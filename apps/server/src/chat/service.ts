@@ -280,10 +280,14 @@ function nativeRepliesFor(agent: ChatAgent): boolean {
   return agent.type === "dispatch";
 }
 
+/** One agent's in-flight turn compose, and whether another is owed after it. */
+type TurnPublish = { done: Promise<void>; again: boolean };
+
 export class ChatService {
   readonly store: ChatStore;
   /** Detached pane deliveries that have not recorded their outcome yet. */
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
+  private readonly turnPublishes = new Map<string, TurnPublish>();
   private readonly log: NonNullable<ChatServiceDeps["log"]>;
 
   constructor(private readonly deps: ChatServiceDeps) {
@@ -729,8 +733,38 @@ export class ChatService {
    * no-op when the row is unchanged.
    *
    * Never rejects: a stream write must not fail because its announcement did.
+   *
+   * One compose per agent at a time, with a single trailing re-run. The
+   * recorder flushes about ten times a second and each compose reads the
+   * whole open turn, so two of them overlap on a slow disk and the older
+   * read can publish last: a shorter, possibly still-streaming entry lands
+   * over a newer one. Nothing would correct it, because the turn's own
+   * `harness.changed` no longer refetches the feed and the flush that
+   * settled it was the last. Requests arriving mid-compose collapse into
+   * one re-run, since only the newest state is worth sending.
    */
   async publishTurnEntry(agentId: string): Promise<void> {
+    const running = this.turnPublishes.get(agentId);
+    if (running) {
+      running.again = true;
+      return running.done;
+    }
+    const state: TurnPublish = { done: Promise.resolve(), again: false };
+    this.turnPublishes.set(agentId, state);
+    state.done = (async () => {
+      try {
+        do {
+          state.again = false;
+          await this.composeTurnEntry(agentId);
+        } while (state.again);
+      } finally {
+        this.turnPublishes.delete(agentId);
+      }
+    })();
+    return state.done;
+  }
+
+  private async composeTurnEntry(agentId: string): Promise<void> {
     try {
       const entry = await loadLatestTurnEntry(this.store.db, agentId);
       if (entry) {
