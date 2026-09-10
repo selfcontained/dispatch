@@ -263,11 +263,15 @@ export function useHarnessChrome({
     });
   }, [interrupt, onError]);
 
-  // ArrowUp on an empty field takes the newest queued message back to
-  // edit. One with attachments stays queued: the chips cannot come back
-  // into the draft, so it keeps Send now and Remove instead.
+  // ArrowUp on an empty field takes the newest message the user queued back
+  // to edit. Only their own: the queue also holds prompts another agent or
+  // Dispatch itself sent, and recalling one of those would delete an
+  // undelivered message and put its words in the user's draft. Same rule as
+  // `harnessPromptHistory`, which the other half of ArrowUp walks. One with
+  // attachments stays queued: the chips cannot come back into the draft, so
+  // it keeps Send now and Remove instead.
   const recallQueued = useCallback(async () => {
-    const last = queued[queued.length - 1];
+    const last = queued.findLast((prompt) => prompt.source === "chat");
     if (!last) return null;
     onError(null);
     if (last.attachments.length > 0) {

@@ -807,8 +807,8 @@ export async function loadApp(page: Page): Promise<void> {
  *
  * The default E2E runtime is inert: no tmux pane, no ACP engine, so nothing
  * ever writes a stream row and this has to write what the recorder would.
- * Rows ascend by `seq` from whatever the agent already has, so calling it
- * twice is safe.
+ * Rows ascend by `seq` from whatever the agent already has, one at a time
+ * the way the recorder writes them, so calling it twice is safe.
  *
  * `startedSecondsAgo` anchors the turn in the past, which is how a caller
  * gets rows it writes afterward (a status event, a pin write, a review) to
@@ -882,7 +882,7 @@ export async function seedStreamTurnViaDB(turn: {
           `INSERT INTO agent_stream_events
              (agent_id, seq, kind, key, payload, created_at, updated_at)
            SELECT $1,
-                  COALESCE(MAX(seq), 0) + 1 + $2,
+                  COALESCE(MAX(seq), 0) + 1,
                   $3, $4, $5::jsonb,
                   NOW() - ($6 * INTERVAL '1 second')
                     + ($2 * INTERVAL '100 milliseconds'),

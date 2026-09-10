@@ -1398,6 +1398,14 @@ describe("ChatPane harness composer", () => {
       result: { text: "working", streaming: true },
     });
 
+  const statusEntry = (id: string, at: string): ChatFeedEntry => ({
+    type: "status",
+    id,
+    eventType: "working",
+    message: "Reading the readme",
+    at,
+  });
+
   const queuedChat = {
     id: "m2",
     source: "chat" as const,
@@ -1464,6 +1472,28 @@ describe("ChatPane harness composer", () => {
     expect(input.value).toBe("");
   });
 
+  it("recalls the user's own queued message, not one another agent sent", async () => {
+    HARNESS.queued = [
+      queuedChat,
+      {
+        ...queuedChat,
+        id: "m9",
+        source: "agent" as const,
+        senderName: "child",
+        text: "a child agent's undelivered message",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued one"));
+    // The child's message stays queued and undelivered.
+    expect(HARNESS.remove).toHaveBeenCalledWith("m2");
+    expect(HARNESS.remove).not.toHaveBeenCalledWith("m9");
+  });
+
   it("walks back through the prompts the user typed before", async () => {
     H.entries = [
       turnEntry({
@@ -1522,6 +1552,37 @@ describe("ChatPane harness composer", () => {
       expect(screen.getByTestId("harness-model-picker")).not.toBeNull();
     });
     expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps following a live turn when a status row lands under it", () => {
+    // A turn is anchored where it started, so the status event the agent
+    // emits mid-turn becomes the tail entry while the turn keeps growing.
+    const running = runningTurn();
+    H.entries = [running, statusEntry("event:9", "2026-09-02T10:00:05.000Z")];
+    const { rerender } = renderPane({ agent: dispatchAgent });
+    (Element.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear();
+    H.entries = [
+      {
+        ...running,
+        updatedAt: "2026-09-02T10:00:20.000Z",
+        result: { text: "working a good deal more", streaming: true },
+      },
+      statusEntry("event:9", "2026-09-02T10:00:05.000Z"),
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={dispatchAgent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(Element.prototype.scrollTo).toHaveBeenCalled();
   });
 
   it("shows the drop overlay only for a dispatch agent, while files are dragged over the pane", () => {

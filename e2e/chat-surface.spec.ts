@@ -64,6 +64,9 @@ async function callMcpTool(
 test.describe("Chat surface", () => {
   test.afterEach(async ({ request }) => {
     await setChatSurface(request, false);
+    // Server-wide and not per-test: two cases here turn it on, and
+    // settings.spec.ts asserts the toggle starts off.
+    await setDispatchHarnessViaAPI(request, false);
     await cleanupE2EAgents(request);
   });
 

@@ -26,6 +26,22 @@ const LINEAGE_B_MIGRATION_NAMES = [
 ];
 
 /**
+ * Forget `name` and every harness migration shipped after it. The runner
+ * compares the stored names against the shipped ones position by position
+ * and throws on a gap, so a case that simulates one missing record has to
+ * drop the later ones too. Every harness file is guarded, so re-running the
+ * tail is a no-op on a database that already has its objects.
+ */
+async function forgetFrom(name: string): Promise<void> {
+  const from = HARNESS_MIGRATION_NAMES.indexOf(name);
+  if (from === -1)
+    throw new Error(`${name} is not a shipped harness migration`);
+  await pool.query(`DELETE FROM pgmigrations WHERE name = ANY($1::text[])`, [
+    HARNESS_MIGRATION_NAMES.slice(from),
+  ]);
+}
+
+/**
  * Put the stream table back into the shape that lineage left it in: the
  * narrower CHECK, and no plan rows. A database on that lineage has none
  * because every plan write was rejected, which is the defect; the earlier
@@ -41,11 +57,16 @@ async function narrowKindCheckToExcludePlan(): Promise<void> {
      CHECK (kind IN ('assistant', 'thought', 'tool_call', 'status', 'turn'))`);
 }
 
-// The harness migrations this branch ships, in shipped order.
+// The harness migrations this branch ships, in shipped order. Every one
+// added after 0051 belongs here: the first case below deletes the whole set
+// and re-runs it, and the runner throws on a gap in the middle, so a file
+// left off this list breaks that case rather than going unnoticed.
 const HARNESS_MIGRATION_NAMES = [
   "0051_agent-stream-events",
   "0052_agent-chat-messages-delivery-text",
   "0053_agent-stream-events-kind",
+  "0054_agent-stream-events-turn-prompt",
+  "0055_dispatch-harness-carry-over",
 ];
 
 let pool: Pool;
@@ -186,9 +207,7 @@ describe("harness migrations", () => {
     // CHECK its own file created. The repair therefore has to be a migration
     // of its own rather than a rule about which records to delete.
     await narrowKindCheckToExcludePlan();
-    await pool.query(
-      `DELETE FROM pgmigrations WHERE name = '0053_agent-stream-events-kind'`
-    );
+    await forgetFrom("0053_agent-stream-events-kind");
 
     await expect(runTestMigrations()).resolves.not.toThrow();
 
@@ -204,10 +223,7 @@ describe("harness migrations", () => {
     // The untouched lineage-B shape. `0051_agent-stream-events` is a live
     // record because that lineage used the name this branch ships, while the
     // delivery-text and kind files this branch ships were never run there.
-    await pool.query(
-      `DELETE FROM pgmigrations
-        WHERE name IN ('0052_agent-chat-messages-delivery-text', '0053_agent-stream-events-kind')`
-    );
+    await forgetFrom("0052_agent-chat-messages-delivery-text");
 
     await pool.query(
       `INSERT INTO pgmigrations (name, run_on)

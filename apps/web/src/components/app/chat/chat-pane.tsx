@@ -22,7 +22,10 @@ import {
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
-import { useHarnessChrome } from "@/components/app/chat/harness-chrome";
+import {
+  newestTurnEntry,
+  useHarnessChrome,
+} from "@/components/app/chat/harness-chrome";
 import { TurnContextProvider } from "@/components/app/chat/turn/turn-context";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
@@ -378,7 +381,17 @@ export function ChatPane({
     }
     const last = visibleEntries[visibleEntries.length - 1];
     const lastId = last?.id ?? null;
-    const lastKey = last ? entryGrowthKey(last) : null;
+    // A turn is anchored where it started and never moves, so a status
+    // event, a pin or a review card written mid-turn lands below it and
+    // becomes the tail. Reading growth off the tail alone would then stop
+    // following the turn itself, which is the thing still getting taller,
+    // and CLAUDE.md has agents emit a status event at every phase change.
+    const liveTurn = newestTurnEntry(visibleEntries);
+    const growth = [
+      last ? entryGrowthKey(last) : null,
+      liveTurn && !liveTurn.settled ? entryGrowthKey(liveTurn) : null,
+    ].filter((key): key is string => key !== null);
+    const lastKey = growth.length > 0 ? growth.join("|") : null;
     // A live row is not always the last one: a status event can arrive
     // late and land by time below the newest row. Any unseen row sitting
     // under a seen one is an arrival; only "Load older" adds rows above.

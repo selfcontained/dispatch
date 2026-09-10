@@ -61,6 +61,9 @@ test.describe("harness agent", () => {
   test.setTimeout(120_000);
 
   test.afterEach(async ({ request }) => {
+    // Server-wide and not per-test: every case here turns it on, and
+    // settings.spec.ts asserts the toggle starts off.
+    await setDispatchHarnessViaAPI(request, false);
     await cleanupE2EAgents(request);
   });
 

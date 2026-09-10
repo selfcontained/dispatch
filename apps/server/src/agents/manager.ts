@@ -25,6 +25,7 @@ import {
 import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
+import { getOfferedAgentTypes } from "../agent-type-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
@@ -612,6 +613,19 @@ export class AgentManager {
   }
 
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
+    // Gated here rather than only at the routes: template launches and job
+    // runs take an agent type straight from their request body and reach
+    // this method without consulting the offered list, so `dispatch` was
+    // creatable through them with the Dispatch Harness flag off. This is the
+    // one place every creation path goes through.
+    // Before prepareCreateInputs, which makes the agent's media directory:
+    // a rejected create must not leave one behind. The default matches the
+    // one it applies.
+    const type: AgentType = input.type ?? "codex";
+    const offered = await getOfferedAgentTypes(this.pool);
+    if (!offered.includes(type)) {
+      throw new Error(`${type} agents are disabled in settings.`);
+    }
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
 
