@@ -191,10 +191,9 @@ export async function registerChatRoutes(
     }
     const before = await store.countUnread(id);
     const marked = await store.markRead(id, upTo ?? undefined);
-    // Turns carry no per-row read state, so a full read also moves the
-    // agent's watermark, which is what they are counted against. A bounded
-    // read (`upTo`) is about chat rows and leaves the watermark alone.
-    if (upTo == null) await store.markFeedRead(id);
+    // Turns carry no per-row read state, so every read also moves the
+    // agent's watermark, which is what they are counted against.
+    await store.markFeedRead(id);
     const unreadCount = await store.countUnread(id);
     // The count can fall without a single chat row changing, on an agent
     // whose output is turns, so the announcement follows the count rather

@@ -318,11 +318,15 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.entry") {
           applyChatEntry(queryClient, payload.agentId, payload.entry);
-          // Only an agent's post can move the sidebar's unread badges.
-          if (
-            payload.entry.type === "chat" &&
-            payload.entry.message.authorKind === "agent"
-          ) {
+          // What the agent said that the reader may not have seen: a post of
+          // its own, or a turn that just settled, which is the only thing a
+          // harness agent produces. Without the second the badge waited for
+          // a refocus to appear.
+          const movesUnread =
+            (payload.entry.type === "chat" &&
+              payload.entry.message.authorKind === "agent") ||
+            (payload.entry.type === "turn" && payload.entry.settled);
+          if (movesUnread) {
             void queryClient.invalidateQueries({
               queryKey: CHAT_UNREAD_QUERY_KEY,
             });

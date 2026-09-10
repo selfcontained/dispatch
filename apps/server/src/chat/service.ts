@@ -98,6 +98,13 @@ export type ChatServiceDeps = {
    * resolution `GET /media/:file` serves from.
    */
   mediaRoot: string;
+  /**
+   * Whether any browser is listening. Composing a turn entry reads the whole
+   * open turn, and the recorder asks for one about ten times a second, so an
+   * unattended agent would pay for an announcement nobody receives. Absent
+   * means assume someone is listening.
+   */
+  hasUiClient?: () => boolean;
   /** Required for the user-side workflows (send, answer). */
   delivery?: ChatDeliveryAdapter;
   log?: {
@@ -744,6 +751,9 @@ export class ChatService {
    * one re-run, since only the newest state is worth sending.
    */
   async publishTurnEntry(agentId: string): Promise<void> {
+    // A reconnecting client refetches the whole feed from the rows, so
+    // nothing is lost by not composing while nobody is watching.
+    if (this.deps.hasUiClient && !this.deps.hasUiClient()) return;
     const running = this.turnPublishes.get(agentId);
     if (running) {
       running.again = true;

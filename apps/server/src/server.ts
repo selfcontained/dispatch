@@ -457,6 +457,7 @@ const surfaceService = new SurfaceService(pool, {
 const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
+  hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   mediaRoot: config.mediaRoot,
   delivery: {

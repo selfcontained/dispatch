@@ -81,12 +81,6 @@ export function promptChatMessage(entry: ChatTurnEntry): ChatMessage {
   };
 }
 
-/**
- * A prompt another agent sent, as one of Brad's side posts. The turn carries
- * the sender's name and not its id, because a turn prompt is not an
- * `agent_messages` row: there is no peer to look up, so the post reads as a
- * generic agent.
- */
 /** The turn's answer as the result renderer's model. */
 export function resultTurnModel(entry: ChatTurnEntry, trace: Trace): Turn {
   return {
@@ -151,6 +145,14 @@ function TurnEntryViewImpl({
     () => parseDispatchNotice(entry.prompt.text, entry.prompt.source),
     [entry.prompt.source, entry.prompt.text]
   );
+  /**
+   * A message from another agent is already a feed row of its own, written
+   * when it was sent rather than when its turn ran, and that row carries the
+   * sender's relation badge and id. Rendering it here too showed the same
+   * words twice, in two cards that did not even match, and minutes apart
+   * whenever the prompt had queued.
+   */
+  const showsPrompt = entry.prompt.source !== "agent";
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const promptMessage = useMemo(() => promptChatMessage(entry), [entry]);
   return (
@@ -166,10 +168,7 @@ function TurnEntryViewImpl({
         >
           <PromptLine turn={promptTurn} />
         </div>
-      ) : entry.prompt.source ===
-        "agent" ? // too showed the same words twice, in two cards that did not even // row carries the sender's relation badge and id. Rendering it here // written when it was sent rather than when its turn ran, and that // A message from another agent is already a feed row of its own,
-      // match, and minutes apart whenever the prompt had queued.
-      null : (
+      ) : showsPrompt ? (
         <ChatMessageView
           message={promptMessage}
           held={false}
@@ -181,7 +180,7 @@ function TurnEntryViewImpl({
           answeredOptionLabel={null}
           onAnswer={NO_ANSWER}
         />
-      )}
+      ) : null}
       <Post
         author={agentAuthor(ctx, "Agent")}
         at={entry.updatedAt}

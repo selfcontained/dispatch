@@ -372,6 +372,42 @@ describe("POST /api/v1/agents/:id/chat/read", () => {
     expect(all.json()).toEqual({ unreadCount: 0 });
   });
 
+  it("clears a settled turn from the count on the bounded read the pane sends", async () => {
+    // The pane sends upTo = the newest agent message it holds, which is
+    // non-null the moment the agent has ever posted. Gating the watermark on
+    // an unbounded read meant it never moved and the badge never cleared.
+    const question = await store.insert({
+      agentId,
+      authorKind: "agent",
+      text: "ship it?",
+    });
+    await ctx.pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 900, 'turn', $2::jsonb, NOW(), NOW())`,
+      [
+        agentId,
+        JSON.stringify({
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+        }),
+      ]
+    );
+    // One unread chat row plus one settled turn.
+    const before = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/chat?limit=10`
+    );
+    expect((before.json() as { unreadCount: number }).unreadCount).toBe(2);
+
+    const read = await authedInject(
+      "POST",
+      `/api/v1/agents/${agentId}/chat/read`,
+      { upTo: question.id }
+    );
+    expect(read.json()).toEqual({ unreadCount: 0 });
+  });
+
   it("400s a present-but-invalid upTo and treats null as omitted", async () => {
     await store.insert({ agentId, authorKind: "agent", text: "1" });
     for (const upTo of ["nope", 5, {}]) {

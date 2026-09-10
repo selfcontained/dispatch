@@ -63,9 +63,12 @@ export type ChatPaneProps = {
 /**
  * Remove both directions of the selected agent's child conversations.
  *
- * A turn counts too: a child's message to a dispatch agent drives a turn,
- * and hiding the outbound half while leaving that turn visible would show
- * one side of a conversation the reader asked not to see.
+ * Messages only, including for a dispatch agent. A turn a child's message
+ * drove is the parent's own work: its rail and its answer, and none of the
+ * child's words, which travel as the `agent_message` row this already
+ * hides. Filtering the turn as well would hide the agent's output, which no
+ * other type's filter does, and an agent driven entirely by its children
+ * would show an empty pane.
  */
 export function filterChildAgentMessages(
   entries: readonly ChatFeedEntry[],
@@ -73,20 +76,13 @@ export function filterChildAgentMessages(
   showChildAgents: boolean
 ): ChatFeedEntry[] {
   if (showChildAgents) return [...entries];
-  return entries.filter((entry) => {
-    if (entry.type === "agent_message") {
-      return (
-        !entry.involvesChildAgent &&
+  return entries.filter(
+    (entry) =>
+      entry.type !== "agent_message" ||
+      (!entry.involvesChildAgent &&
         !childAgentIds.has(entry.senderAgentId) &&
-        !childAgentIds.has(entry.recipientAgentId)
-      );
-    }
-    if (entry.type === "turn") {
-      const sender = entry.prompt.senderAgentId;
-      return sender === undefined || !childAgentIds.has(sender);
-    }
-    return true;
-  });
+        !childAgentIds.has(entry.recipientAgentId))
+  );
 }
 
 /** How close to the bottom (px) still counts as "following" the feed. */

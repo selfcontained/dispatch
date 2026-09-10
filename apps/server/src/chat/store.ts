@@ -340,9 +340,15 @@ export class ChatStore {
   }
 
   /**
-   * Move the agent's read watermark to now. Separate from the chat rows'
-   * own `read_at` because a turn is not a chat row: this is what
+   * Move the agent's read watermark. Separate from the chat rows' own
+   * `read_at` because a turn is not a chat row: this is what
    * {@link countUnread} measures settled turns against.
+   *
+   * Always to now, including on a bounded read. `upTo` bounds which chat
+   * rows get stamped, and the only caller sends the newest agent message it
+   * holds; on a harness agent that message can be far older than the turns
+   * below it, so honouring the bound here would leave every turn after it
+   * unread forever. A read means the feed as displayed has been seen.
    */
   async markFeedRead(agentId: string): Promise<void> {
     await this.db.query(
