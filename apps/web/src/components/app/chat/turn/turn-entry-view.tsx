@@ -218,7 +218,7 @@ function TurnEntryViewImpl({
               <ActivityBlock trace={trace} label={foldLabel} />
             </div>
           ) : null}
-          <ResultTurn turn={result} showTime={false} />
+          <ResultTurn turn={result} />
           <TurnShortcuts
             agent={agent}
             agentId={ctx.agentId}

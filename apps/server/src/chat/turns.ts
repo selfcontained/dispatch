@@ -1,12 +1,12 @@
 import type {
   ChatMessage,
+  ChatQuestionOption,
   ChatTurnEntry,
   ChatTurnPlanEntry,
   ChatTurnQuestionRef,
   ChatTurnStep,
   HarnessPrompt,
   HarnessQueuedPrompt,
-  HarnessQuestion,
 } from "@dispatch/shared";
 
 import {
@@ -35,6 +35,21 @@ export type TurnSourceRow = Pick<
 >;
 
 /**
+ * A question the agent asked mid-turn, as the assembler carries it. Server
+ * side only: the wire sends the card as a `chat` entry and gives the turn a
+ * `ChatTurnQuestionRef`, whose answered flag is derived from this.
+ */
+type AssembledQuestion = {
+  /** The chat message id; answers post against it. */
+  id: string;
+  text: string;
+  options: ChatQuestionOption[];
+  allowFreeform: boolean;
+  answer: { value: string; label?: string } | null;
+  createdAt: string;
+};
+
+/**
  * A turn as the assembler shapes it, on the way to the feed entry
  * `toTurnEntry` frames from it. Not a wire type: `toTurnEntry` is its only
  * reader, and it carries each question whole because the entry needs the
@@ -53,7 +68,7 @@ export type AssembledTurn = {
   result: { text: string; streaming: boolean; truncated?: boolean } | null;
   error?: string;
   /** Questions the agent asked during this turn, oldest first. */
-  questions?: HarnessQuestion[];
+  questions?: AssembledQuestion[];
   /**
    * What the turn did, in the agent's own words: the message of the last
    * dispatch_event it sent during the turn ("Answered README question").
@@ -244,7 +259,7 @@ export function groupTurnRows(rows: TurnSourceRow[]): TurnGroup[] {
 }
 
 /** An agent question as the view carries it. */
-function toQuestion(message: ChatMessage): HarnessQuestion {
+function toQuestion(message: ChatMessage): AssembledQuestion {
   return {
     id: message.id,
     text: message.text,
@@ -298,7 +313,7 @@ export function assembleTurns(
   // Each question belongs to the latest turn that had started when it was
   // posted; one posted before any turn goes with the first.
   const starts = groups.map((g) => (g.turn ?? g.rows[0]).createdAt.getTime());
-  const byGroup = new Map<number, HarnessQuestion[]>();
+  const byGroup = new Map<number, AssembledQuestion[]>();
   for (const message of [...questions].sort(
     (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)
   )) {
@@ -589,6 +604,15 @@ export async function listTurnEntries(
   // Assembly runs oldest first; the feed merges newest first.
   return keyed.reverse();
 }
+
+/**
+ * The turn payload's prompt-id path, for the one reader that cannot go
+ * through `TurnPayload`: the feed's anti-join, which has to ask this in SQL.
+ * It lives beside `chatPromptIds` because they are the same fact in two
+ * languages and only one of them is compiler-checked; a rename of
+ * `TurnPayload.prompt` or `chatMessageId` has to change both.
+ */
+export const TURN_PROMPT_CHAT_ID_PATH = "payload->'prompt'->>'chatMessageId'";
 
 /** The chat message ids the page's turn rows name as their prompt. */
 function chatPromptIds(rows: TurnSourceRow[]): string[] {

@@ -71,7 +71,7 @@ vi.mock("@/components/app/harness/use-harness-commands", () => ({
 }));
 vi.mock("@/components/app/harness/use-harness-queue", () => ({
   harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
-  useHarnessQueued: () => ({ queued: [], loading: false, error: null }),
+  useQueuedPrompts: () => ({ queued: [], loading: false, error: null }),
   useHarnessQueue: () => ({
     sendNow: vi.fn(),
     remove: vi.fn(),

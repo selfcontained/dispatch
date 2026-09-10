@@ -24,7 +24,7 @@ import {
   intKey,
   type Keyed,
 } from "./feed-cursor.js";
-import { listTurnEntries } from "./turns.js";
+import { listTurnEntries, TURN_PROMPT_CHAT_ID_PATH } from "./turns.js";
 import { type ChatStore, type Queryable, toChatMessage } from "./store.js";
 
 // The feed's ordering primitives live in `feed-cursor.ts` so the turn
@@ -109,7 +109,7 @@ async function listChatEntries(
               FROM agent_stream_events s
              WHERE s.agent_id = $1
                AND s.kind = 'turn'
-               AND s.payload->'prompt'->>'chatMessageId' = m.id::text
+               AND s.${TURN_PROMPT_CHAT_ID_PATH} = m.id::text
           ) ${clause}
         ORDER BY m.created_at DESC, m.id DESC
         LIMIT $${params.length}

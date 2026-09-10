@@ -94,7 +94,7 @@ const HARNESS = vi.hoisted(() => ({
 
 vi.mock("@/components/app/harness/use-harness-queue", () => ({
   harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
-  useHarnessQueued: () => ({
+  useQueuedPrompts: () => ({
     queued: HARNESS.queued,
     loading: false,
     error: null,

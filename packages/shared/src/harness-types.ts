@@ -17,22 +17,6 @@ export type HarnessPrompt = {
 };
 
 /**
- * A question the agent posted through dispatch_chat_post during a turn, as
- * the server's assembler carries it. The card renders as a `chat` entry in
- * time order; the turn entry keeps only a `ChatTurnQuestionRef`, whose
- * answered flag comes off this shape.
- */
-export type HarnessQuestion = {
-  /** The chat message id; answers post against it. */
-  id: string;
-  text: string;
-  options: ChatQuestionOption[];
-  allowFreeform: boolean;
-  answer: { value: string; label?: string } | null;
-  createdAt: string;
-};
-
-/**
  * A prompt waiting behind the running turn. `id` addresses it on the queue
  * routes (the chat message id for a chat prompt).
  */

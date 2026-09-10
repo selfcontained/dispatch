@@ -8,7 +8,7 @@ import {
   harnessQueueQueryKey,
   useHarnessInterrupt,
   useHarnessQueue,
-  useHarnessQueued,
+  useQueuedPrompts,
 } from "./use-harness-queue";
 
 const api = vi.fn();
@@ -32,7 +32,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("useHarnessQueued", () => {
+describe("useQueuedPrompts", () => {
   it("reads the queue route and hands back what waits", async () => {
     freshClient();
     api.mockResolvedValue({
@@ -46,7 +46,7 @@ describe("useHarnessQueued", () => {
         },
       ],
     });
-    const { result } = renderHook(() => useHarnessQueued("agt_1"), { wrapper });
+    const { result } = renderHook(() => useQueuedPrompts("agt_1"), { wrapper });
     await waitFor(() => expect(result.current.queued).toHaveLength(1));
     expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_1/harness/queue");
     expect(result.current.queued[0].text).toBe("next please");
@@ -54,7 +54,7 @@ describe("useHarnessQueued", () => {
 
   it("asks nothing without an agent", () => {
     freshClient();
-    const { result } = renderHook(() => useHarnessQueued(null), { wrapper });
+    const { result } = renderHook(() => useQueuedPrompts(null), { wrapper });
     expect(result.current.queued).toEqual([]);
     expect(api).not.toHaveBeenCalled();
   });

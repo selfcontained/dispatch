@@ -15,7 +15,7 @@ export function harnessQueueQueryKey(agentId: string | null) {
  * in-memory supervisor state, not a feed row: it has its own route and its
  * own cache, and every write to it invalidates this key.
  */
-export function useHarnessQueued(agentId: string | null): {
+export function useQueuedPrompts(agentId: string | null): {
   queued: HarnessQueuedPrompt[];
   loading: boolean;
   error: Error | null;

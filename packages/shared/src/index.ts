@@ -73,7 +73,6 @@ export type {
   HarnessQueueResponse,
   UsageBudgets,
   UsageBudgetsResponse,
-  HarnessQuestion,
   HarnessPath,
   HarnessPathsResponse,
   HarnessConfigChoice,

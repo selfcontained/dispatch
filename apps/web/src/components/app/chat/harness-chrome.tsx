@@ -32,7 +32,7 @@ import {
 import {
   useHarnessInterrupt,
   useHarnessQueue,
-  useHarnessQueued,
+  useQueuedPrompts,
 } from "@/components/app/harness/use-harness-queue";
 import type { Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -174,7 +174,7 @@ export function useHarnessChrome({
   disabledReason,
   onError,
 }: HarnessChromeInput): HarnessChrome {
-  const { queued } = useHarnessQueued(agentId);
+  const { queued } = useQueuedPrompts(agentId);
   const {
     sendNow: sendQueuedNow,
     remove: removeQueued,
