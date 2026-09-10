@@ -304,7 +304,7 @@ test.describe("harness agent", () => {
     await input.press("Enter");
     await expect(queued).toHaveCount(2, { timeout: 30_000 });
     await expect(pane.getByTestId("chat-composer-hint")).toContainText(
-      "↑ edits the queued one"
+      "↑ edits the newest queued message"
     );
     await expect(queued.nth(0)).toContainText("second");
     await expect(queued.nth(0)).toContainText("Queued");

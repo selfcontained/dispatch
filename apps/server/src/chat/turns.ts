@@ -107,6 +107,7 @@ function promptFor(
       source: "agent",
       text: source.text,
       senderName: source.senderName,
+      senderAgentId: source.senderId,
       attachments: [],
     };
   }

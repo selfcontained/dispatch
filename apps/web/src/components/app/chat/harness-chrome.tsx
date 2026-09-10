@@ -58,7 +58,7 @@ export function composerHint(
       : "Message queued",
   ];
   if (isMobile) return parts[0];
-  if (queuedCount > 0) parts.push("↑ edits the queued one");
+  if (queuedCount > 0) parts.push("↑ edits the newest queued message");
   if (streaming) parts.push("Ctrl+C stops");
   return parts.join(" · ");
 }
@@ -128,8 +128,6 @@ export type HarnessChromeInput = {
   /** The feed's entries, oldest first, across every page loaded. */
   entries: readonly ChatFeedEntry[];
   isMobile: boolean;
-  /** The composer's reason, shown on the status line when the harness is down. */
-  disabledReason: string | null;
   /** Reports an action failure to the pane's one error slot. */
   onError: (message: string | null) => void;
 };
@@ -171,7 +169,6 @@ export function useHarnessChrome({
   agent,
   entries,
   isMobile,
-  disabledReason,
   onError,
 }: HarnessChromeInput): HarnessChrome {
   const { queued } = useQueuedPrompts(agentId);
@@ -320,7 +317,11 @@ export function useHarnessChrome({
   const statusLine = starting
     ? (statusMessage ?? "Starting the harness…")
     : errored
-      ? (statusMessage ?? disabledReason)
+      ? // Not `?? disabledReason`: that is the sentence the composer already
+        // prints under the field, and both were showing at once with only
+        // the presence row between them. What this line adds in the error
+        // case is the login hint below, which keys off statusMessage anyway.
+        statusMessage
       : null;
   const loginCommand =
     errored && engine && /not logged in/i.test(statusMessage ?? "")

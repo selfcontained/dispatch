@@ -931,10 +931,10 @@ describe("composerHint", () => {
       "Agent is working · Enter queues your message · Ctrl+C stops"
     );
     expect(composerHint(true, 2)).toBe(
-      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
+      "Agent is working · Enter queues your message · ↑ edits the newest queued message · Ctrl+C stops"
     );
     expect(composerHint(false, 1)).toBe(
-      "Message queued · ↑ edits the queued one"
+      "Message queued · ↑ edits the newest queued message"
     );
   });
 
@@ -1139,13 +1139,17 @@ describe("ChatPane harness chrome", () => {
     );
   });
 
-  it("says the harness is not running when the agent errored without a message", () => {
+  it("says the harness is not running once, under the field, not twice", () => {
+    // The composer prints the disabled reason itself. The status line used
+    // to fall back to the same sentence, so an agent that errored without a
+    // message of its own showed it top and bottom of the same 60px.
     renderPane({
       agent: { ...dispatchAgent, status: "error", latestEvent: undefined },
     });
-    expect(screen.getByTestId("harness-status-line").textContent).toContain(
-      "The harness is not running. Press Start to relaunch it."
-    );
+    expect(screen.queryByTestId("harness-status-line")).toBeNull();
+    expect(
+      screen.getByTestId("chat-composer-disabled-reason").textContent
+    ).toContain("The harness is not running. Press Start to relaunch it.");
   });
 
   it("names what the harness is doing while it starts and opens nothing from the faded chips", () => {
@@ -1420,7 +1424,7 @@ describe("ChatPane harness composer", () => {
     HARNESS.queued = [queuedChat];
     renderPane({ agent: dispatchAgent });
     expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
-      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
+      "Agent is working · Enter queues your message · ↑ edits the newest queued message · Ctrl+C stops"
     );
   });
 

@@ -188,6 +188,58 @@ describe("ChatStore", () => {
     expect(await store.countUnread(B)).toBe(1);
   });
 
+  it("counts a settled turn as unread until the feed is marked read", async () => {
+    // A harness agent's answer is a turn, never a chat row, so this is the
+    // only thing its badge can count.
+    await pool.query("DELETE FROM agent_stream_events");
+    await store.markRead(A);
+    await store.markFeedRead(A);
+    expect(await store.countUnread(A)).toBe(0);
+
+    const settled = (seq: number) =>
+      pool.query(
+        `INSERT INTO agent_stream_events
+           (agent_id, seq, kind, payload, created_at, updated_at)
+         VALUES ($1, $2, 'turn', $3::jsonb, NOW(), NOW())`,
+        [
+          A,
+          seq,
+          JSON.stringify({
+            state: "settled",
+            prompt: { source: "system", text: "go" },
+          }),
+        ]
+      );
+    try {
+      await settled(1);
+      await settled(2);
+      expect(await store.countUnread(A)).toBe(2);
+      // An open turn is not news yet.
+      await pool.query(
+        `INSERT INTO agent_stream_events
+           (agent_id, seq, kind, payload, created_at, updated_at)
+         VALUES ($1, 3, 'turn', $2::jsonb, NOW(), NOW())`,
+        [
+          A,
+          JSON.stringify({
+            state: "started",
+            prompt: { source: "system", text: "go" },
+          }),
+        ]
+      );
+      expect(await store.countUnread(A)).toBe(2);
+
+      await store.markFeedRead(A);
+      expect(await store.countUnread(A)).toBe(0);
+      const summary = await store.unreadSummary();
+      expect(summary.agents[A]?.unread ?? 0).toBe(0);
+    } finally {
+      // A failure here would otherwise leave unread turns behind and count
+      // against the next case's agent.
+      await pool.query("DELETE FROM agent_stream_events");
+    }
+  });
+
   it("treats malformed ids as not found instead of erroring", async () => {
     expect(await store.getById("nope")).toBeNull();
     expect(await store.update("nope", { text: "x" })).toBeNull();

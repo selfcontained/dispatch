@@ -283,7 +283,7 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
 export const SIDE_POST_INDENT = "pl-[3.75rem]";
 
 /** A post-local clipboard action with the same confirmation used elsewhere. */
-function MessageCopyButton({ text }: { text: string }): JSX.Element {
+export function MessageCopyButton({ text }: { text: string }): JSX.Element {
   const [copied, copyText] = useCopyText();
   return (
     <Button

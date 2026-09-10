@@ -12,6 +12,8 @@ export type HarnessPrompt = {
   text: string;
   /** Cross-agent messages: who sent it. */
   senderName?: string;
+  /** Cross-agent messages: which agent sent it. */
+  senderAgentId?: string;
   chatMessageId?: string;
   attachments: ChatAttachment[];
 };

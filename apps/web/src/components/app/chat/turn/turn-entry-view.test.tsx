@@ -134,23 +134,25 @@ describe("TurnEntryView", () => {
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
   });
 
-  it("renders a prompt from another agent as a side post", () => {
+  it("leaves a prompt from another agent to its own feed row", () => {
+    // The message is already an `agent_message` entry, written when it was
+    // sent and carrying the sender's relation badge and id. Rendering it
+    // here too showed the same words twice, in two cards that disagreed.
     renderTurn(
       turn({
         prompt: {
           source: "agent",
           text: "take a look at the diff",
           senderName: "Reviewer",
+          senderAgentId: "agt_child",
           attachments: [],
         },
       })
     );
-    const post = screen.getByTestId("chat-agent-message");
-    expect(post.getAttribute("data-direction")).toBe("in");
-    expect(post.getAttribute("data-side")).toBe("true");
-    expect(post.textContent).toContain("Reviewer");
-    expect(post.textContent).toContain("take a look at the diff");
+    expect(screen.queryByTestId("chat-agent-message")).toBeNull();
     expect(screen.queryByTestId("chat-message")).toBeNull();
+    // The turn itself still renders: the rail and the answer.
+    expect(screen.getByTestId("chat-turn-result")).not.toBeNull();
   });
 
   it("renders a prompt Dispatch injected as a notice, not as a user post", () => {

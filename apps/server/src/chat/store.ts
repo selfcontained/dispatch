@@ -298,6 +298,11 @@ export class ChatStore {
    * holds: `readAt` is the stamp written, `upToAt` the bound's created time
    * (null when everything was marked). Both null when nothing changed.
    */
+  /**
+   * Mark an agent's feed read: the chat rows up to `upTo`, and the agent's
+   * own watermark, which is what turns are counted against: they carry no
+   * per-row read state of their own.
+   */
   async markRead(
     agentId: string,
     upTo?: string | null
@@ -334,10 +339,35 @@ export class ChatStore {
     };
   }
 
+  /**
+   * Move the agent's read watermark to now. Separate from the chat rows'
+   * own `read_at` because a turn is not a chat row: this is what
+   * {@link countUnread} measures settled turns against.
+   */
+  async markFeedRead(agentId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE agents SET chat_read_at = NOW() WHERE id = $1`,
+      [agentId]
+    );
+  }
+
+  /**
+   * What the agent has said that the user has not seen: unread chat rows,
+   * plus turns that settled after the read watermark. A harness agent's
+   * answer is a turn and never a chat row, so without the second half its
+   * badge could only ever count a question it asked.
+   */
   async countUnread(agentId: string): Promise<number> {
     const result = await this.db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM agent_chat_messages
-        WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL`,
+      `SELECT (
+         (SELECT COUNT(*) FROM agent_chat_messages
+           WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL)
+         + (SELECT COUNT(*) FROM agent_stream_events s
+             JOIN agents a ON a.id = s.agent_id
+            WHERE s.agent_id = $1 AND s.kind = 'turn'
+              AND s.payload->>'state' = 'settled'
+              AND s.updated_at > COALESCE(a.chat_read_at, '-infinity'))
+       )::text AS count`,
       [agentId]
     );
     return Number(result.rows[0].count);
@@ -353,14 +383,30 @@ export class ChatStore {
       unread: string;
       pending: string;
     }>(
-      `SELECT m.agent_id,
-              COUNT(*) FILTER (WHERE m.read_at IS NULL)::text AS unread,
-              COUNT(*) FILTER (WHERE m.kind = 'question' AND m.answer IS NULL)::text AS pending
-         FROM agent_chat_messages m
-         JOIN agents a ON a.id = m.agent_id AND a.deleted_at IS NULL
-        WHERE m.author_kind = 'agent'
-          AND (m.read_at IS NULL OR (m.kind = 'question' AND m.answer IS NULL))
-        GROUP BY m.agent_id`
+      `SELECT agent_id,
+              SUM(unread)::text AS unread,
+              SUM(pending)::text AS pending
+         FROM (
+           SELECT m.agent_id,
+                  COUNT(*) FILTER (WHERE m.read_at IS NULL) AS unread,
+                  COUNT(*) FILTER (WHERE m.kind = 'question' AND m.answer IS NULL) AS pending
+             FROM agent_chat_messages m
+             JOIN agents a ON a.id = m.agent_id AND a.deleted_at IS NULL
+            WHERE m.author_kind = 'agent'
+              AND (m.read_at IS NULL OR (m.kind = 'question' AND m.answer IS NULL))
+            GROUP BY m.agent_id
+           UNION ALL
+           -- A harness agent's answer is a turn, not a chat row, so the
+           -- badge has to count what settled since the read watermark.
+           SELECT s.agent_id, COUNT(*) AS unread, 0 AS pending
+             FROM agent_stream_events s
+             JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL
+            WHERE s.kind = 'turn'
+              AND s.payload->>'state' = 'settled'
+              AND s.updated_at > COALESCE(a.chat_read_at, '-infinity')
+            GROUP BY s.agent_id
+         ) counts
+        GROUP BY agent_id`
     );
     const agents: ChatUnreadSummary["agents"] = {};
     for (const row of result.rows) {

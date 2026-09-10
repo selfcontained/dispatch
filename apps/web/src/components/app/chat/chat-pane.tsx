@@ -60,20 +60,33 @@ export type ChatPaneProps = {
   isMobile: boolean;
 };
 
-/** Remove both directions of the selected agent's child conversations. */
+/**
+ * Remove both directions of the selected agent's child conversations.
+ *
+ * A turn counts too: a child's message to a dispatch agent drives a turn,
+ * and hiding the outbound half while leaving that turn visible would show
+ * one side of a conversation the reader asked not to see.
+ */
 export function filterChildAgentMessages(
   entries: readonly ChatFeedEntry[],
   childAgentIds: ReadonlySet<string>,
   showChildAgents: boolean
 ): ChatFeedEntry[] {
   if (showChildAgents) return [...entries];
-  return entries.filter(
-    (entry) =>
-      entry.type !== "agent_message" ||
-      (!entry.involvesChildAgent &&
+  return entries.filter((entry) => {
+    if (entry.type === "agent_message") {
+      return (
+        !entry.involvesChildAgent &&
         !childAgentIds.has(entry.senderAgentId) &&
-        !childAgentIds.has(entry.recipientAgentId))
-  );
+        !childAgentIds.has(entry.recipientAgentId)
+      );
+    }
+    if (entry.type === "turn") {
+      const sender = entry.prompt.senderAgentId;
+      return sender === undefined || !childAgentIds.has(sender);
+    }
+    return true;
+  });
 }
 
 /** How close to the bottom (px) still counts as "following" the feed. */
@@ -571,7 +584,6 @@ export function ChatPane({
     agent,
     entries,
     isMobile,
-    disabledReason,
     onError: setSendError,
   });
 
@@ -677,11 +689,16 @@ export function ChatPane({
                       No messages yet. Send the first one below and the agent
                       replies here.
                     </div>
-                    <div className="max-w-md text-xs">
-                      Agents launched before Chat was enabled won&apos;t have
-                      the Chat guidance until they are relaunched; until then
-                      their replies only show in the Console.
-                    </div>
+                    {/* Untrue for a dispatch agent: its Console is a plain
+                        shell it never writes to, and its persona always
+                        assumes Chat, so there is nowhere else to look. */}
+                    {agent.type === "dispatch" ? null : (
+                      <div className="max-w-md text-xs">
+                        Agents launched before Chat was enabled won&apos;t have
+                        the Chat guidance until they are relaunched; until then
+                        their replies only show in the Console.
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div>Select an agent to start chatting.</div>

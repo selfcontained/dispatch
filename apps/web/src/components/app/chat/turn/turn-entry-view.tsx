@@ -1,16 +1,15 @@
 import { memo, useMemo } from "react";
 import type {
-  ChatAgentMessageEntry,
   ChatMessage,
   ChatTurnEntry,
   ChatTurnStep,
 } from "@dispatch/shared";
 
 import {
-  AgentMessageView,
   agentAuthor,
   ChatMessageView,
   type FeedContext,
+  MessageCopyButton,
   Post,
   POST_BODY_MEASURE,
   SIDE_POST_INDENT,
@@ -88,24 +87,6 @@ export function promptChatMessage(entry: ChatTurnEntry): ChatMessage {
  * `agent_messages` row: there is no peer to look up, so the post reads as a
  * generic agent.
  */
-export function promptAgentEntry(
-  entry: ChatTurnEntry,
-  ctx: FeedContext
-): ChatAgentMessageEntry {
-  return {
-    type: "agent_message",
-    id: `${entry.id}:prompt`,
-    direction: "in",
-    senderAgentId: "",
-    senderName: entry.prompt.senderName ?? "agent",
-    recipientAgentId: entry.agentId,
-    recipientName: ctx.agentName ?? "this agent",
-    content: entry.prompt.text,
-    delivered: true,
-    at: entry.at,
-  };
-}
-
 /** The turn's answer as the result renderer's model. */
 export function resultTurnModel(entry: ChatTurnEntry, trace: Trace): Turn {
   return {
@@ -172,7 +153,6 @@ function TurnEntryViewImpl({
   );
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const promptMessage = useMemo(() => promptChatMessage(entry), [entry]);
-  const promptEntry = useMemo(() => promptAgentEntry(entry, ctx), [ctx, entry]);
   return (
     <div
       data-testid="chat-turn"
@@ -186,14 +166,10 @@ function TurnEntryViewImpl({
         >
           <PromptLine turn={promptTurn} />
         </div>
-      ) : entry.prompt.source === "agent" ? (
-        <AgentMessageView
-          entry={promptEntry}
-          grouped={false}
-          rule={rule}
-          ctx={ctx}
-        />
-      ) : (
+      ) : entry.prompt.source ===
+        "agent" ? // too showed the same words twice, in two cards that did not even // row carries the sender's relation badge and id. Rendering it here // written when it was sent rather than when its turn ran, and that // A message from another agent is already a feed row of its own,
+      // match, and minutes apart whenever the prompt had queued.
+      null : (
         <ChatMessageView
           message={promptMessage}
           held={false}
@@ -210,6 +186,13 @@ function TurnEntryViewImpl({
         author={agentAuthor(ctx, "Agent")}
         at={entry.updatedAt}
         grouped={false}
+        // The answer is the half a reader wants to lift out, and the prompt
+        // above it has had a copy button all along.
+        action={
+          entry.result?.text ? (
+            <MessageCopyButton text={entry.result.text} />
+          ) : undefined
+        }
         data-testid="chat-turn-result"
       >
         <div className={cn(POST_BODY_MEASURE, "min-w-0 font-terminal")}>

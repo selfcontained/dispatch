@@ -243,6 +243,11 @@ export type ChatTurnPrompt = {
   chatMessageId?: string;
   /** A prompt from another agent: who sent it. */
   senderName?: string;
+  /**
+   * A prompt from another agent: which one. The child-agent filter needs the
+   * id, not the name, to decide whether a turn belongs to a child.
+   */
+  senderAgentId?: string;
   attachments: ChatAttachment[];
 };
 
