@@ -68,7 +68,7 @@ function ResultTurnImpl({
 
 export const ResultTurn = memo(ResultTurnImpl);
 
-export function ResultText({
+function ResultText({
   content,
   error,
 }: {
