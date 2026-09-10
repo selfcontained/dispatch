@@ -56,9 +56,10 @@ export type SupervisorDeps = {
     input: { type: AgentLatestEventType; message: string }
   ) => Promise<void>;
   /**
-   * ChatService.publishHarnessChanged: the feed and the Harness view re-read
-   * after each stream write; `config` marks a session start, settle, or
-   * option switch, when the session config is worth re-reading too.
+   * ChatService.publishHarnessChanged: the queue is re-read after each
+   * stream write, and the turn itself is published separately as a feed
+   * row; `config` marks a session start, settle, or option switch, when
+   * the session config is worth re-reading too.
    */
   publishHarness: (agentId: string, config?: boolean) => void;
   /** Full persona text (see persona.ts). */

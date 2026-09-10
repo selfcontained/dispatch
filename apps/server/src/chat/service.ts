@@ -707,9 +707,10 @@ export class ChatService {
   }
 
   /**
-   * A Dispatch Harness stream write. The feed reads the stream rows and the
-   * Harness view its turns; `config` also refreshes the session's model,
-   * effort, and running state, which a chunk does not change.
+   * A Dispatch Harness stream write. The turn itself travels as a
+   * `chat.entry` from `publishTurnEntry`; this event carries the queue,
+   * and `config` also refreshes the session's model, effort, and running
+   * state, which a chunk does not change.
    */
   publishHarnessChanged(agentId: string, config = false): void {
     this.deps.publishUiEvent({

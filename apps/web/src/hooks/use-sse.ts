@@ -331,10 +331,11 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "harness.changed") {
-          // A stream write: the feed reads the stream rows, the queue is
-          // server-side. The session config is read again only when the
-          // write says it changed (a start, a settle, a switch).
-          invalidateChatFeed(queryClient, payload.agentId);
+          // A stream write. The turn it changed arrives as its own
+          // `chat.entry` carrying the whole entry, so the feed is patched
+          // and not refetched. The queue is in-memory server state, and
+          // the session config is read again only when the write says it
+          // changed (a start, a settle, a switch).
           invalidateHarnessQueue(queryClient, payload.agentId);
           if (payload.config) {
             invalidateHarnessConfig(queryClient, payload.agentId);
