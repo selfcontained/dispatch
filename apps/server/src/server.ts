@@ -486,9 +486,9 @@ const harnessSupervisor = new HarnessSupervisor({
   setLatestEvent: async (agentId, input) => {
     await agentManager.upsertLatestEvent(agentId, input);
   },
-  // Every flush announces itself twice for now: the coarse harness.changed
-  // the Harness view still listens for, and the affected turn as one feed
-  // row. Plan 4 of the one-feed work drops the coarse half.
+  // Every flush announces itself twice, and the halves carry different
+  // things: harness.changed carries the queue (and the session config when
+  // the write changed it), and the affected turn goes out as one feed row.
   publishHarness: (agentId, config) => {
     chatService.publishHarnessChanged(agentId, config);
     void chatService.publishTurnEntry(agentId);

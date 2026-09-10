@@ -74,8 +74,8 @@ the turn it was running.
 
 What the service does about it:
 
-- At shutdown the running turn is marked `interrupted by restart`; the Harness
-  view shows it as interrupted.
+- At shutdown the running turn is marked `interrupted by restart`; the Chat
+  feed shows that turn as interrupted.
 - At boot the agent is resumed on its stored session id with `session/resume`.
   If the cut was within the last hour and the agent had not already reported
   done, blocked, or waiting, it receives a `--- DISPATCH: RESTART ---` notice
@@ -108,8 +108,8 @@ them. The service now withholds `OPENAI_API_KEY`, `CODEX_API_KEY` and
 cannot bill an account behind the host login's back. `GEMINI_API_KEY` is the
 exception and still passes through: it is one of Gemini CLI's own logins.
 
-What each engine publishes over ACP differs, and the view says so where it
-matters: Gemini CLI publishes no plan, no usage, and no model option (its
+What each engine publishes over ACP differs, and the Chat feed says so where
+it matters: Gemini CLI publishes no plan, no usage, and no model option (its
 model is a launch flag, so `/model` is disabled); Codex reports tokens but
 no cost; OpenCode publishes no plan. Claude Code nests a subagent's steps;
 the others show a subagent as one step.

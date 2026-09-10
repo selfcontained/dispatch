@@ -1,7 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 //
-// The turn and trace data model, trimmed to what the Harness view renders.
+// The turn and trace data model, trimmed to what a turn entry renders.
 // PromptKit's Brane-specific pieces (forms, artifacts, reflection, feedback,
 // clarification, the transport port) and its stream-event reducer are left
 // out: the server assembles settled turns, so nothing folds events here.

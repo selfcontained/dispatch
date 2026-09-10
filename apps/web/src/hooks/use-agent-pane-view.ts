@@ -12,8 +12,6 @@ import {
  * Which of Chat / Console the Agent pane shows for `agentId`, remembered per
  * agent across reloads. Defaults to Chat. With no agent in focus the value
  * is an unpersisted placeholder so nothing is written under a bogus key.
- * For a Dispatch Harness agent "chat" is the Harness view; the pane decides
- * that from the agent type, not from a third view value.
  */
 export function useAgentPaneView(
   agentId: string | null

@@ -1,6 +1,6 @@
 /**
- * What a prompt sent to the harness was, for the Harness view's prompt
- * line. The wire text is an envelope Dispatch built; the view wants the
+ * What a prompt sent to the harness was, for the prompt a turn entry
+ * renders. The wire text is an envelope Dispatch built; the feed wants the
  * human-facing source behind it, not the envelope.
  */
 export type PromptSource =

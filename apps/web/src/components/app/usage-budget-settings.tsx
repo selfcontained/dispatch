@@ -108,9 +108,9 @@ export function UsageBudgetSettings(): JSX.Element {
         Usage budgets
       </div>
       <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        A monthly amount in USD per engine. The Harness view&apos;s usage dialog
-        (<span className="font-terminal">/usage</span>) draws each engine&apos;s
-        spend this month against it. No budget, no bar.
+        A monthly amount in USD per engine. A Dispatch Harness agent&apos;s
+        usage dialog (<span className="font-terminal">/usage</span>) draws each
+        engine&apos;s spend this month against it. No budget, no bar.
       </p>
       <div className="max-w-lg space-y-2">
         {rows.length === 0 && loaded ? (
