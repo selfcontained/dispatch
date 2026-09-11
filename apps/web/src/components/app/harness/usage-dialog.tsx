@@ -255,6 +255,12 @@ export function UsageDialog({
   const selectedPlan = providerUsage.data?.providers.find(
     (item) => item.engineId === providerId
   );
+  const selectedUsage = usage.data?.engines.find(
+    (item) => item.id === providerId
+  );
+  const selectedAuth = auth.data?.engines.find(
+    (item) => item.engineId === providerId
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -264,7 +270,7 @@ export function UsageDialog({
         <DialogHeader>
           <DialogTitle>Usage</DialogTitle>
           <DialogDescription>
-            Current session, provider plan, and local monthly totals
+            {selectedUsage?.label ?? "Selected provider"} plan and usage
           </DialogDescription>
         </DialogHeader>
         <ContextSection usage={contextUsage ?? null} />
@@ -286,16 +292,12 @@ export function UsageDialog({
             <p className="text-xs text-destructive" role="alert">
               {usage.error.message}
             </p>
+          ) : selectedUsage ? (
+            <EngineRow engine={selectedUsage} auth={selectedAuth} />
           ) : (
-            usage.data?.engines.map((engine) => (
-              <EngineRow
-                key={engine.id}
-                engine={engine}
-                auth={auth.data?.engines.find(
-                  (item) => item.engineId === engine.id
-                )}
-              />
-            ))
+            <p className="text-xs text-muted-foreground">
+              Usage is not available for this provider yet.
+            </p>
           )}
         </div>
         <p className="text-[10.5px] text-muted-foreground">

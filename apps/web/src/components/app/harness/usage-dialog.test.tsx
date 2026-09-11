@@ -156,7 +156,7 @@ describe("UsageDialog", () => {
     expect(within(plan).getByText("Extra usage: $12 of $50")).toBeTruthy();
   });
 
-  it("shows one row per engine with tokens, cost where reported, and a budget bar where set", () => {
+  it("shows monthly usage only for the selected provider", () => {
     renderDialog();
     const claude = screen.getByTestId("harness-usage-engine-claude");
     // The one agent under claude carries the same totals as the engine, so
@@ -166,15 +166,9 @@ describe("UsageDialog", () => {
     expect(
       within(claude).getByTestId("harness-usage-bar").getAttribute("data-pct")
     ).toBe("73");
-    const codex = screen.getByTestId("harness-usage-engine-codex");
-    expect(within(codex).getByText("ChatGPT subscription")).toBeTruthy();
-    expect(within(codex).getAllByText("55k").length).toBeGreaterThan(0);
-    expect(within(codex).getByText("no cost reported")).toBeTruthy();
-    expect(within(codex).queryByTestId("harness-usage-bar")).toBeNull();
-    const gemini = screen.getByTestId("harness-usage-engine-gemini");
-    expect(within(gemini).getByText("not reported over ACP")).toBeTruthy();
-    const opencode = screen.getByTestId("harness-usage-engine-opencode");
-    expect(within(opencode).getByText("no agents this month")).toBeTruthy();
+    expect(screen.queryByTestId("harness-usage-engine-codex")).toBeNull();
+    expect(screen.queryByTestId("harness-usage-engine-gemini")).toBeNull();
+    expect(screen.queryByTestId("harness-usage-engine-opencode")).toBeNull();
   });
 
   it("says what the bar is a fraction of", () => {
