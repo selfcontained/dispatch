@@ -108,7 +108,7 @@ export function StepRow({
       role="listitem"
       aria-live={running ? "polite" : undefined}
       data-testid="harness-step"
-      className="min-w-0 max-w-full"
+      className="w-full min-w-0 max-w-full"
       data-depth={depth}
       data-expandable={expandable ? "true" : "false"}
     >

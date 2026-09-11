@@ -184,7 +184,7 @@ function TurnEntryViewImpl({
       <Post
         author={agentAuthor(ctx, "Agent")}
         at={entry.updatedAt}
-        grouped={false}
+        grouped={true}
         // The answer is the half a reader wants to lift out, and the prompt
         // above it has had a copy button all along.
         action={
@@ -197,7 +197,7 @@ function TurnEntryViewImpl({
         <div
           className={cn(
             POST_BODY_MEASURE,
-            "min-w-0 font-terminal [overflow-wrap:anywhere]"
+            "w-full min-w-0 font-terminal [overflow-wrap:anywhere]"
           )}
         >
           {showsActivity(trace) ? (

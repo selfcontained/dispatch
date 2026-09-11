@@ -81,14 +81,14 @@ function renderTurn(entry: ChatTurnEntry) {
 }
 
 describe("TurnEntryView", () => {
-  it("renders the prompt as a user post and the result as an agent post", () => {
+  it("renders the prompt and a compact result post", () => {
     renderTurn(turn());
     const prompt = screen.getByTestId("chat-message");
     expect(prompt.getAttribute("data-author")).toBe("user");
     expect(prompt.textContent).toContain("read the readme");
     const result = screen.getByTestId("chat-turn-result");
     expect(result.getAttribute("data-author-kind")).toBe("agent");
-    expect(result.textContent).toContain("builder");
+    expect(result.getAttribute("data-grouped")).toBe("true");
     expect(result.textContent).toContain("It documents the CLI.");
     // The rail sits between the two halves, inside the agent post.
     expect(

@@ -72,7 +72,7 @@ function ActivityBlockImpl({
 
   return (
     <motion.div
-      className="min-w-0 max-w-full [overflow-wrap:anywhere]"
+      className="w-full min-w-0 max-w-full [overflow-wrap:anywhere]"
       data-testid="harness-activity-fold"
     >
       <AnimatePresence mode="wait" initial={false}>
@@ -106,7 +106,7 @@ function ActivityBlockImpl({
             exit="hidden"
             transition={{ ...arrive(DURATION.fast), borderColor: arrive() }}
             className={cn(
-              "min-w-0 max-w-full overflow-hidden rounded-md border border-border/60 px-3 py-2.5",
+              "w-full min-w-0 max-w-full overflow-hidden rounded-md border border-border/60 px-3 py-2.5",
               BLOCK_FILL
             )}
             data-testid="harness-activity"
