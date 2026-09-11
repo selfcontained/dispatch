@@ -116,11 +116,12 @@ export function latestContextUsage(
   entries: readonly ChatFeedEntry[],
   sessionStartedAt?: string
 ): ContextUsage | null {
-  const started = sessionStartedAt ? Date.parse(sessionStartedAt) : 0;
+  if (!sessionStartedAt) return null;
+  const started = Date.parse(sessionStartedAt);
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (entry?.type !== "turn" || !entry.usage) continue;
-    if (started && Date.parse(entry.at) < started) continue;
+    if (Date.parse(entry.at) < started) continue;
     return {
       used: entry.usage.used,
       size: entry.usage.size,

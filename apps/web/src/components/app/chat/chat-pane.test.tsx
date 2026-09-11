@@ -1018,6 +1018,14 @@ describe("latestContextUsage", () => {
       )
     ).toBeNull();
   });
+
+  it("does not label the last report as current while no session is live", () => {
+    expect(
+      latestContextUsage([
+        turnEntry({ usage: { used: 90, size: 100, costUsd: null } }),
+      ])
+    ).toBeNull();
+  });
 });
 
 describe("latestTurnPlan", () => {
