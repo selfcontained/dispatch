@@ -3,7 +3,11 @@ import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
-import type { HarnessAuthReport, HarnessUsageReport } from "@dispatch/shared";
+import type {
+  HarnessAuthReport,
+  HarnessProviderUsageReport,
+  HarnessUsageReport,
+} from "@dispatch/shared";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
@@ -67,6 +71,7 @@ type SystemRouteDeps = {
   usageReport?: () => Promise<HarnessUsageReport>;
   /** Sanitized host CLI login methods for the harness engines. */
   authReport?: () => Promise<HarnessAuthReport>;
+  providerUsageReport?: () => Promise<HarnessProviderUsageReport>;
 };
 
 export async function registerSystemRoutes(
@@ -481,6 +486,15 @@ export async function registerSystemRoutes(
       return reply.code(503).send({ error: "Auth reporting is not wired." });
     }
     return await deps.authReport();
+  });
+
+  app.get("/api/v1/harness/provider-usage", async (_request, reply) => {
+    if (!deps.providerUsageReport) {
+      return reply
+        .code(503)
+        .send({ error: "Provider usage reporting is not wired." });
+    }
+    return await deps.providerUsageReport();
   });
 
   app.get("/api/v1/app/settings/usage-budgets", async () => {

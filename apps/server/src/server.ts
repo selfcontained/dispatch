@@ -128,6 +128,7 @@ import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { createHarnessProviderUsageReporter } from "./agents/harness/provider-usage.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import { SurfaceService } from "./surfaces/service.js";
@@ -768,6 +769,7 @@ async function registerRoutes() {
     gemini: config.geminiBin,
     opencode: config.opencodeBin,
   });
+  const harnessProviderUsageReport = createHarnessProviderUsageReporter();
   await registerSystemRoutes(app, {
     pool,
     appLog: app.log,
@@ -778,6 +780,7 @@ async function registerRoutes() {
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     usageReport: async () => loadUsageReport(pool, await getUsageBudgets(pool)),
     authReport: harnessAuthReport,
+    providerUsageReport: harnessProviderUsageReport,
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -877,6 +880,8 @@ async function registerRoutes() {
     harness: {
       getConfigOptions: (agentId) =>
         harnessSupervisor.getConfigOptions(agentId),
+      getSessionStartedAt: (agentId) =>
+        harnessSupervisor.getSessionStartedAt(agentId),
       setConfigOption: (agentId, configId, value) =>
         harnessSupervisor.setConfigOption(agentId, configId, value),
       getCommands: (agentId) => harnessSupervisor.getCommands(agentId),

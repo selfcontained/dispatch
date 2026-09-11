@@ -90,6 +90,10 @@ export type {
   HarnessAuthKind,
   HarnessAuthStatus,
   HarnessAuthReport,
+  HarnessPlanWindow,
+  HarnessPlanSpend,
+  HarnessProviderPlan,
+  HarnessProviderUsageReport,
 } from "./harness-types.js";
 export {
   HARNESS_ENGINE_IDS,

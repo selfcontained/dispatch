@@ -68,6 +68,7 @@ type Live = {
   child: ChildProcessLike;
   conn: acp.ClientSideConnection;
   sessionId: string;
+  startedAt: string;
   stderrTail: string[];
   exited: Promise<ExitInfo>;
   stopping: boolean;
@@ -385,6 +386,7 @@ export class HarnessDriver {
       child,
       conn,
       sessionId: outcome.session.sessionId,
+      startedAt: new Date().toISOString(),
       stderrTail,
       exited,
       stopping: false,
@@ -418,6 +420,10 @@ export class HarnessDriver {
 
   getConfigOptions(agentId: string): acp.SessionConfigOption[] | null {
     return this.live.get(agentId)?.config.options ?? null;
+  }
+
+  getSessionStartedAt(agentId: string): string | null {
+    return this.live.get(agentId)?.startedAt ?? null;
   }
 
   getCommands(agentId: string): acp.AvailableCommand[] | null {

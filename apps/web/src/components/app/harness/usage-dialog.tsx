@@ -1,4 +1,8 @@
-import type { HarnessUsageEngine } from "@dispatch/shared";
+import type {
+  HarnessEngineId,
+  HarnessProviderPlan,
+  HarnessUsageEngine,
+} from "@dispatch/shared";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +19,13 @@ import { ProviderIcon } from "./provider-icon";
 import { useHarnessUsage } from "./use-harness-usage";
 import { AuthStatusBadge } from "./auth-status-badge";
 import { useHarnessAuth } from "./use-harness-auth";
+import { useHarnessProviderUsage } from "./use-provider-usage";
+
+export type ContextUsage = {
+  used: number;
+  size: number;
+  costUsd: number | null;
+};
 
 export function formatUsd(value: number): string {
   return value < 10 || !Number.isInteger(value)
@@ -28,7 +39,7 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-function BudgetBar({
+function UsageBar({
   spent,
   budget,
   label,
@@ -39,7 +50,6 @@ function BudgetBar({
 }): JSX.Element {
   const ratio = budget > 0 ? spent / budget : 0;
   const pct = Math.min(100, Math.round(ratio * 100));
-  /** What a screen reader hears. */
   const text = `${label}: ${pct}% of budget used`;
   const tone =
     ratio >= 0.9
@@ -64,6 +74,97 @@ function BudgetBar({
         style={{ width: `${pct}%` }}
       />
     </div>
+  );
+}
+
+function resetLabel(value: string | null): string | null {
+  if (!value) return null;
+  const reset = new Date(value);
+  if (Number.isNaN(reset.valueOf())) return null;
+  const delta = reset.valueOf() - Date.now();
+  if (delta <= 0) return "reset due";
+  const minutes = Math.ceil(delta / 60_000);
+  if (minutes < 60) return `resets in ${minutes}m`;
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return `resets in ${hours}h`;
+  return `resets in ${Math.ceil(hours / 24)}d`;
+}
+
+function ProviderPlan({ plan }: { plan?: HarnessProviderPlan }): JSX.Element {
+  return (
+    <section className="space-y-2" data-testid="harness-provider-plan">
+      <div className="flex items-center gap-2">
+        <h3 className="text-xs font-medium text-foreground">Provider plan</h3>
+        {plan?.plan ? (
+          <span className="text-[11px] text-muted-foreground">{plan.plan}</span>
+        ) : null}
+      </div>
+      {plan?.windows.length ? (
+        <div className="space-y-2.5 rounded-md border border-border/60 px-3 py-2.5">
+          {plan.windows.map((window) => (
+            <div className="space-y-1" key={window.id}>
+              <div className="flex items-center justify-between gap-3 text-[11px]">
+                <span>{window.label}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {Math.round(window.usedPercent)}% used
+                  {resetLabel(window.resetsAt)
+                    ? ` · ${resetLabel(window.resetsAt)}`
+                    : ""}
+                </span>
+              </div>
+              <UsageBar
+                spent={window.usedPercent}
+                budget={100}
+                label={`${window.label} provider limit`}
+              />
+            </div>
+          ))}
+          {plan.spend ? (
+            <p className="text-[11px] tabular-nums text-muted-foreground">
+              Extra usage: {formatUsd(plan.spend.used)} of{" "}
+              {formatUsd(plan.spend.limit)}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+          {plan?.unavailableReason ??
+            "Provider plan usage is not available yet."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function ContextSection({
+  usage,
+}: {
+  usage: ContextUsage | null;
+}): JSX.Element {
+  const percent = usage?.size ? (usage.used / usage.size) * 100 : 0;
+  return (
+    <section className="space-y-2" data-testid="harness-context-usage">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-medium text-foreground">Current context</h3>
+        {usage ? (
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {formatTokens(usage.used)} of {formatTokens(usage.size)} ·{" "}
+            {Math.round(percent)}%
+          </span>
+        ) : null}
+      </div>
+      {usage ? (
+        <UsageBar
+          spent={usage.used}
+          budget={usage.size}
+          label="Model context"
+        />
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Available after this provider reports usage for the current session.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -99,12 +200,11 @@ function EngineRow({
       ) : null}
       {cost !== null && engine.budgetUsd ? (
         <div className="space-y-1">
-          <BudgetBar
+          <UsageBar
             spent={cost}
             budget={engine.budgetUsd}
             label={engine.label}
           />
-          {/* The bar alone never says what the fraction is of. */}
           <p
             className="text-right text-[10.5px] tabular-nums text-muted-foreground"
             data-testid="harness-usage-budget-caption"
@@ -138,34 +238,49 @@ function EngineRow({
   );
 }
 
-/**
- * What the engines have been used for this month, one card per engine,
- * opened from the composer's usage chip or the /usage command.
- */
 export function UsageDialog({
   open,
   onOpenChange,
+  providerId,
+  contextUsage,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  providerId?: HarnessEngineId;
+  contextUsage?: ContextUsage | null;
 }): JSX.Element {
   const usage = useHarnessUsage(open);
   const auth = useHarnessAuth(open);
+  const providerUsage = useHarnessProviderUsage(open);
+  const selectedPlan = providerUsage.data?.providers.find(
+    (item) => item.engineId === providerId
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" data-testid="harness-usage-dialog">
+      <DialogContent
+        className="max-h-[min(85vh,46rem)] max-w-md overflow-y-auto"
+        data-testid="harness-usage-dialog"
+      >
         <DialogHeader>
-          <DialogTitle>Usage this month</DialogTitle>
+          <DialogTitle>Usage</DialogTitle>
           <DialogDescription>
-            {usage.data
-              ? `since ${new Date(usage.data.monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} (UTC)`
-              : "Usage this month"}
+            Current session, provider plan, and local monthly totals
           </DialogDescription>
         </DialogHeader>
+        <ContextSection usage={contextUsage ?? null} />
+        <ProviderPlan plan={selectedPlan} />
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <h3 className="text-xs font-medium text-foreground">
+            Local usage this month
+          </h3>
+          <span className="text-[10.5px] text-muted-foreground">
+            {usage.data
+              ? `since ${new Date(usage.data.monthStart).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}`
+              : ""}
+          </span>
+        </div>
         <div className="space-y-2">
           {usage.isLoading ? (
-            // The report is month-to-date turn rows out of the database, not
-            // a call to anyone.
             <p className="text-xs text-muted-foreground">Loading usage…</p>
           ) : usage.error ? (
             <p className="text-xs text-destructive" role="alert">
@@ -197,12 +312,18 @@ export function UsageDialog({
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => void usage.refetch()}
-            disabled={usage.isFetching}
+            onClick={() => {
+              void usage.refetch();
+              void providerUsage.refetch();
+            }}
+            disabled={usage.isFetching || providerUsage.isFetching}
             data-testid="harness-usage-refresh"
           >
             <RefreshCw
-              className={cn("mr-1 h-3 w-3", usage.isFetching && "animate-spin")}
+              className={cn(
+                "mr-1 h-3 w-3",
+                (usage.isFetching || providerUsage.isFetching) && "animate-spin"
+              )}
             />
             Refresh
           </Button>

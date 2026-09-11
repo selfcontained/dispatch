@@ -152,6 +152,7 @@ describe("GET /api/v1/agents/:id/harness/queue", () => {
       pool: ctx.pool,
       harness: {
         getConfigOptions: () => null,
+        getSessionStartedAt: () => null,
         setConfigOption: async () => [],
         getCommands: () => null,
         listQueued: () => [

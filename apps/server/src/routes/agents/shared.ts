@@ -25,6 +25,7 @@ export type AgentRouteDeps = {
   /** Session config (model, effort) for Dispatch Harness agents. */
   harness: {
     getConfigOptions: (agentId: string) => HarnessConfigOption[] | null;
+    getSessionStartedAt: (agentId: string) => string | null;
     setConfigOption: (
       agentId: string,
       configId: string,

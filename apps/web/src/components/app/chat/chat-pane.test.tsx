@@ -32,6 +32,7 @@ import {
 import {
   composerHint,
   harnessPromptHistory,
+  latestContextUsage,
   latestTurnPlan,
   newestTurnEntry,
 } from "./harness-chrome";
@@ -980,6 +981,42 @@ describe("newestTurnEntry", () => {
   it("is null when the feed carries no turn", () => {
     expect(newestTurnEntry([chat(message({ id: "m0" }))])).toBeNull();
     expect(newestTurnEntry([])).toBeNull();
+  });
+});
+
+describe("latestContextUsage", () => {
+  it("uses the newest report from the current live session", () => {
+    expect(
+      latestContextUsage(
+        [
+          turnEntry({
+            id: "turn:old",
+            at: "2026-09-11T00:00:00Z",
+            usage: { used: 90, size: 100, costUsd: null },
+          }),
+          turnEntry({
+            id: "turn:new",
+            at: "2026-09-11T02:00:00Z",
+            usage: { used: 25, size: 100, costUsd: 0.5 },
+          }),
+        ],
+        "2026-09-11T01:00:00Z"
+      )
+    ).toEqual({ used: 25, size: 100, costUsd: 0.5 });
+  });
+
+  it("does not reuse context from an earlier session", () => {
+    expect(
+      latestContextUsage(
+        [
+          turnEntry({
+            at: "2026-09-11T00:00:00Z",
+            usage: { used: 90, size: 100, costUsd: null },
+          }),
+        ],
+        "2026-09-11T01:00:00Z"
+      )
+    ).toBeNull();
   });
 });
 

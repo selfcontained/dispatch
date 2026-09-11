@@ -176,6 +176,33 @@ export type HarnessAuthReport = {
   engines: HarnessAuthStatus[];
 };
 
+export type HarnessPlanWindow = {
+  id: string;
+  label: string;
+  usedPercent: number;
+  resetsAt: string | null;
+};
+
+export type HarnessPlanSpend = {
+  used: number;
+  limit: number;
+  currency: string;
+};
+
+export type HarnessProviderPlan = {
+  engineId: HarnessEngineId;
+  plan: string | null;
+  observedAt: string | null;
+  windows: HarnessPlanWindow[];
+  spend?: HarnessPlanSpend;
+  unavailableReason?: string;
+};
+
+export type HarnessProviderUsageReport = {
+  checkedAt: string;
+  providers: HarnessProviderPlan[];
+};
+
 /** One completion of the composer's "@" path picker, spelled as the user typed the prefix. */
 export type HarnessPath = {
   path: string;
@@ -215,6 +242,7 @@ export type HarnessConfigOption = {
 export type HarnessConfigResponse = {
   /** False when the agent has no live session; options are then empty. */
   running: boolean;
+  sessionStartedAt?: string;
   options: HarnessConfigOption[];
 };
 

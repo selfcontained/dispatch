@@ -24,6 +24,7 @@ import { useHarnessPathPicker } from "@/components/app/harness/use-harness-paths
 import { ModelPicker } from "@/components/app/harness/model-picker";
 import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { UsageDialog } from "@/components/app/harness/usage-dialog";
+import type { ContextUsage } from "@/components/app/harness/usage-dialog";
 import { AuthStatusBadge } from "@/components/app/harness/auth-status-badge";
 import { useHarnessAuth } from "@/components/app/harness/use-harness-auth";
 import {
@@ -111,6 +112,24 @@ export function harnessPromptHistory(
   return out;
 }
 
+export function latestContextUsage(
+  entries: readonly ChatFeedEntry[],
+  sessionStartedAt?: string
+): ContextUsage | null {
+  const started = sessionStartedAt ? Date.parse(sessionStartedAt) : 0;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry?.type !== "turn" || !entry.usage) continue;
+    if (started && Date.parse(entry.at) < started) continue;
+    return {
+      used: entry.usage.used,
+      size: entry.usage.size,
+      costUsd: entry.usage.costUsd,
+    };
+  }
+  return null;
+}
+
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:px-3";
 
@@ -196,6 +215,10 @@ export function useHarnessChrome({
   const tasks = useMemo(() => latestTurnPlan(entries), [entries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const history = useMemo(() => harnessPromptHistory(entries), [entries]);
+  const contextUsage = useMemo(
+    () => latestContextUsage(entries, config.sessionStartedAt),
+    [entries, config.sessionStartedAt]
+  );
 
   const applyConfig = useCallback(
     async (changes: { configId: string; value: string }[]) => {
@@ -499,7 +522,7 @@ export function useHarnessChrome({
             <button
               type="button"
               onClick={() => setUsageOpen(true)}
-              title="Provider usage this month (or type /usage)"
+              title="Context and provider usage (or type /usage)"
               data-testid="harness-usage-chip"
               disabled={starting}
               tabIndex={starting ? -1 : 0}
@@ -509,7 +532,9 @@ export function useHarnessChrome({
                 className="h-3 w-3 shrink-0"
                 aria-hidden="true"
               />
-              usage
+              {contextUsage?.size
+                ? `${Math.round((contextUsage.used / contextUsage.size) * 100)}% context`
+                : "usage"}
             </button>
             {/* The Stop slot is always laid out, so the row does not reflow
               when a turn starts; the button only shows while one runs. */}
@@ -530,7 +555,12 @@ export function useHarnessChrome({
               {interrupting ? "Stopping…" : "Stop"}
             </button>
           </div>
-          <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
+          <UsageDialog
+            open={usageOpen}
+            onOpenChange={setUsageOpen}
+            providerId={engine?.id}
+            contextUsage={contextUsage}
+          />
           <ModelPicker
             open={pickerOpen}
             onOpenChange={setPickerOpen}

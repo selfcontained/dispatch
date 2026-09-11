@@ -32,8 +32,10 @@ export async function registerAgentHarnessRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     const options = deps.harness.getConfigOptions(id);
+    const sessionStartedAt = deps.harness.getSessionStartedAt(id);
     const response: HarnessConfigResponse = {
       running: options !== null,
+      ...(sessionStartedAt ? { sessionStartedAt } : {}),
       options: options ?? [],
     };
     return response;
@@ -63,7 +65,12 @@ export async function registerAgentHarnessRoutes(
         body.configId,
         body.value
       );
-      const response: HarnessConfigResponse = { running: true, options };
+      const sessionStartedAt = deps.harness.getSessionStartedAt(id);
+      const response: HarnessConfigResponse = {
+        running: true,
+        ...(sessionStartedAt ? { sessionStartedAt } : {}),
+        options,
+      };
       return response;
     } catch (err) {
       return reply

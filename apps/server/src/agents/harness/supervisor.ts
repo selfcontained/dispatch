@@ -414,6 +414,10 @@ export class HarnessSupervisor {
     return options ? (options as HarnessConfigOption[]) : null;
   }
 
+  getSessionStartedAt(agentId: string): string | null {
+    return this.driver.getSessionStartedAt(agentId);
+  }
+
   getCommands(agentId: string): HarnessCommand[] | null {
     const commands = this.driver.getCommands(agentId);
     return commands

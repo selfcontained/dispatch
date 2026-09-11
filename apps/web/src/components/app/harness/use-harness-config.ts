@@ -43,6 +43,7 @@ export function currentChoiceName(
 /** The live session's config (model, reasoning effort) for a harness agent. */
 export function useHarnessConfig(agentId: string | null): {
   running: boolean;
+  sessionStartedAt?: string;
   options: HarnessConfigOption[];
   model: HarnessConfigOption | undefined;
   effort: HarnessConfigOption | undefined;
@@ -62,6 +63,7 @@ export function useHarnessConfig(agentId: string | null): {
   const options = query.data?.options ?? [];
   return {
     running: query.data?.running ?? false,
+    sessionStartedAt: query.data?.sessionStartedAt,
     options,
     model: options.find((o) => o.id === "model"),
     effort: options.find(
