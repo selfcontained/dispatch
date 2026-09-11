@@ -32,6 +32,7 @@ export {
   CHAT_ATTACHMENTS_MAX,
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_QUESTION_OPTIONS_MAX,
+  CHAT_REACTIONS_MAX,
 } from "./chat-types.js";
 export type {
   ChatAgentMessageEntry,
@@ -54,6 +55,9 @@ export type {
   ChatQuestion,
   ChatQuestionOption,
   ChatPinEntry,
+  ChatReaction,
+  ChatReactionRequest,
+  ChatReactionResponse,
   ChatReviewEntry,
   ChatSendRequest,
   ChatSendResponse,

@@ -166,6 +166,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_surface_resolve",
   "dispatch_chat_post",
   "dispatch_chat_update",
+  "dispatch_chat_react",
   "get_activity_summary",
   "get_feedback_summary",
   "whiteboard_get",
@@ -237,6 +238,7 @@ const JOB_TOOLS = new Set([
   "dispatch_surface_resolve",
   "dispatch_chat_post",
   "dispatch_chat_update",
+  "dispatch_chat_react",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -298,6 +300,7 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_surface_resolve",
   "dispatch_chat_post",
   "dispatch_chat_update",
+  "dispatch_chat_react",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -338,8 +341,11 @@ export type McpRequestContext = {
    */
   publishUiEvent?: (event: ToolInvokedEvent) => void;
   surfaces?: SurfaceService;
-  /** Chat tab posting (dispatch_chat_post / dispatch_chat_update). */
-  chat?: Pick<ChatService, "post" | "update">;
+  /** Chat tab posting and reactions (dispatch_chat_post / _update / _react). */
+  chat?: Pick<
+    ChatService,
+    "post" | "update" | "addReaction" | "removeReaction"
+  >;
   /**
    * The chat-surface flag (`chat_surface_enabled`) as of this request. Only
    * `dispatch_chat_post`'s description reads it — see `chat-tools.ts`. Left

@@ -17,6 +17,8 @@ export type ChatFeedContextInput = {
   agent: Agent | null;
   openLightbox: (mediaId: number) => void;
   onOpenReview?: (reviewId: number) => void;
+  /** Must be stable: every row is memoised on the context it lands in. */
+  onToggleReaction?: FeedContext["onToggleReaction"];
 };
 
 export type ChatFeedContextResult = {
@@ -51,6 +53,7 @@ export function useChatFeedContext({
   agent,
   openLightbox,
   onOpenReview,
+  onToggleReaction,
 }: ChatFeedContextInput): ChatFeedContextResult {
   // Every agent.upsert hands over a fresh pins array; key on its content so
   // unchanged pins don't invalidate the pin rows.
@@ -127,8 +130,17 @@ export function useChatFeedContext({
       peers,
       onOpenMedia: openLightbox,
       onOpenReview,
+      onToggleReaction,
     }),
-    [agentId, agentName, agentType, onOpenReview, openLightbox, peers]
+    [
+      agentId,
+      agentName,
+      agentType,
+      onOpenReview,
+      onToggleReaction,
+      openLightbox,
+      peers,
+    ]
   );
 
   return { ctx, pinShortcuts, shortcutDialog: shortcuts.dialog };

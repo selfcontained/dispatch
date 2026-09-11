@@ -35,6 +35,7 @@ import {
   useChatFeed,
   useMarkChatRead,
   useSendChatMessage,
+  useToggleChatReaction,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
 import { uploadAgentMedia } from "@/lib/media-upload";
@@ -258,6 +259,7 @@ export function ChatPane({
   const feed = useChatFeed(agentId);
   const send = useSendChatMessage(agentId);
   const answer = useAnswerChatQuestion(agentId);
+  const reaction = useToggleChatReaction(agentId);
   const markRead = useMarkChatRead(agentId, feed.unreadCount);
   const holdState = useInjectionHoldState(agentId);
 
@@ -554,11 +556,30 @@ export function ChatPane({
     [answerNow]
   );
 
+  const { mutate: toggleReactionNow } = reaction;
+  const onToggleReaction = useCallback(
+    (messageId: string, emoji: string, remove: boolean) => {
+      setSendError(null);
+      // The pane's one error line is shared with sends, so say what failed.
+      toggleReactionNow(
+        { messageId, emoji, remove },
+        {
+          onError: (err) =>
+            setSendError(
+              `Couldn't ${remove ? "remove" : "add"} your ${emoji} reaction: ${err.message}`
+            ),
+        }
+      );
+    },
+    [toggleReactionNow]
+  );
+
   const { ctx, pinShortcuts, shortcutDialog } = useChatFeedContext({
     agentId,
     agent,
     openLightbox,
     onOpenReview,
+    onToggleReaction,
   });
   // The live agent record a turn entry's shortcut pins need. Separate from
   // `ctx` on purpose: `ctx` is what every memoized feed row is keyed on and

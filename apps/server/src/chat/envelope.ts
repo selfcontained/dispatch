@@ -1,3 +1,5 @@
+import type { ChatMessageKind } from "@dispatch/shared";
+
 /**
  * The envelope's own markers, line-anchored exactly as they are emitted:
  * `--- DISPATCH CHAT (id: …) ---` and `--- END DISPATCH CHAT ---`. Leading
@@ -92,6 +94,86 @@ export function buildChatEnvelope(
     options.nativeReplies
       ? `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${messageId}").`
       : `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
+  ].join("\n");
+}
+
+/**
+ * How much of the reacted message the envelope quotes. The latest post needs
+ * little: "your latest" already names it, so the quote only confirms it. An
+ * older one has to be recognizable from the quote alone, so it gets enough
+ * to tell apart from its neighbours.
+ */
+export const REACTION_EXCERPT_LATEST_CHARS = 100;
+export const REACTION_EXCERPT_EARLIER_CHARS = 300;
+
+/**
+ * The opening of a message as one quotable line: leading markdown on each
+ * line (headings, bullets, quotes) and emphasis markers dropped, whitespace
+ * collapsed, cut at a word boundary within `maxChars`.
+ */
+export function reactionExcerpt(text: string, maxChars: number): string {
+  const line = text
+    .split(/\r?\n/)
+    .map((part) => part.replace(/^[\s#>*+-]+/, ""))
+    .join(" ")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (line.length <= maxChars) return line;
+  const cut = line.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(" ");
+  // Break on a word only when that keeps most of the budget.
+  const head = lastSpace > maxChars / 2 ? cut.slice(0, lastSpace) : cut;
+  return `${head.trimEnd()}…`;
+}
+
+const KIND_NOUN: Record<ChatMessageKind, string> = {
+  reply: "message",
+  question: "question",
+  update: "progress update",
+  summary: "summary",
+};
+
+/**
+ * The pane-injection envelope for the user's emoji reaction. Its markers say
+ * REACTION on purpose: the agent must not read a reaction as the user typing
+ * a new request.
+ *
+ * It has to let the agent tell which post the user means without pasting
+ * the whole post back: the id (exact, and what `replyTo` takes), the kind of
+ * post, where it sits among the agent's posts ("latest", or "3 posts ago"),
+ * and a quote of its opening — short for the latest post, longer for an
+ * older one, which the agent can only place by its content.
+ *
+ * The body passes through `escapeEnvelopeMarkers` like a chat envelope's, so
+ * nothing taken from the message can open or close a block.
+ */
+export function buildReactionEnvelope(input: {
+  messageId: string;
+  emoji: string;
+  kind: ChatMessageKind;
+  text: string;
+  /** How many posts the agent has made on the feed since this one. */
+  postsSince: number;
+}): string {
+  const { messageId, emoji, postsSince } = input;
+  const noun = KIND_NOUN[input.kind];
+  const latest = postsSince <= 0;
+  const target = latest
+    ? `your latest ${noun}`
+    : `your ${noun} from ${postsSince} ${postsSince === 1 ? "post" : "posts"} ago`;
+  const excerpt = reactionExcerpt(
+    input.text,
+    latest ? REACTION_EXCERPT_LATEST_CHARS : REACTION_EXCERPT_EARLIER_CHARS
+  );
+  const body = excerpt
+    ? `The user reacted ${emoji} to ${target}:\n> ${excerpt}`
+    : `The user reacted ${emoji} to ${target}.`;
+  return [
+    `--- DISPATCH CHAT REACTION (message id: ${messageId}) ---`,
+    escapeEnvelopeMarkers(body),
+    "--- END DISPATCH CHAT REACTION ---",
+    `A reaction, not a new message — reply only if it calls for one (dispatch_chat_post, replyTo: "${messageId}").`,
   ].join("\n");
 }
 

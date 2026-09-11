@@ -6,6 +6,7 @@ import {
   validatePinValue,
   type PinType,
 } from "../pins.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import { AgentError } from "./errors.js";
 import { finalizePin, mergePin, type DraftPin } from "./pin-merge.js";
 import type { AgentPin } from "./types.js";
@@ -48,10 +49,7 @@ function validateStoredPin(pin: DraftPin): AgentPin {
     validatePinValue(stored.type, stored.value);
     if (stored.type === "shortcut") validatePinShortcutFields(stored);
   } catch (error) {
-    throw new AgentError(
-      error instanceof Error ? error.message : String(error),
-      400
-    );
+    throw new AgentError(errorMessage(error), 400);
   }
   return stored;
 }

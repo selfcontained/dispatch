@@ -137,12 +137,27 @@ async function listChatEntries(
        SELECT message_id, jsonb_agg(attachment ORDER BY ord) AS attachments
          FROM expanded
         GROUP BY message_id
+     ), rx AS (
+       SELECT r.message_id,
+              jsonb_agg(
+                jsonb_build_object(
+                  'id', r.id,
+                  'authorKind', r.author_kind,
+                  'emoji', r.emoji,
+                  'delivered', r.delivered,
+                  'createdAt', r.created_at)
+                ORDER BY r.created_at, r.id) AS reactions
+         FROM page p
+         JOIN agent_chat_reactions r ON r.message_id = p.id
+        GROUP BY r.message_id
      )
      SELECT ${PAGE_COLUMNS_SQL},
             p.at_key,
-            COALESCE(live.attachments, '[]'::jsonb) AS attachments
+            COALESCE(live.attachments, '[]'::jsonb) AS attachments,
+            rx.reactions
        FROM page p
-       LEFT JOIN live ON live.message_id = p.id`,
+       LEFT JOIN live ON live.message_id = p.id
+       LEFT JOIN rx ON rx.message_id = p.id`,
     params
   );
   return result.rows.map((row) => {

@@ -88,6 +88,12 @@ vi.mock("@/hooks/use-chat", () => ({
     variables: undefined,
   }),
   useMarkChatRead: () => H.markRead,
+  // One mutate for the whole file: the feed's rows are memoised on a context
+  // built from it.
+  useToggleChatReaction: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate });
+  })(),
 }));
 const HARNESS = vi.hoisted(() => ({
   queued: [] as import("@dispatch/shared").HarnessQueuedPrompt[],

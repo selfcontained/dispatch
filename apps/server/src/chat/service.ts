@@ -5,9 +5,11 @@ import type { Pool } from "pg";
 import type {
   ChatAnswerResponse,
   ChatAttachment,
+  ChatAuthorKind,
   ChatMessage,
   ChatMessageKind,
   ChatQuestion,
+  ChatReactionResponse,
   ChatSendResponse,
   ChatUserAttachmentInput,
   ChatChangedEvent,
@@ -20,11 +22,16 @@ import {
   CHAT_ATTACHMENTS_MAX,
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_QUESTION_OPTIONS_MAX,
+  CHAT_REACTIONS_MAX,
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
-import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
+import {
+  buildChatEnvelope,
+  buildReactionEnvelope,
+  formatAttachmentSize,
+} from "./envelope.js";
 import { loadChatMessageEntry } from "./feed.js";
 import { loadLatestTurnEntry } from "./turns.js";
 import {
@@ -32,6 +39,7 @@ import {
   isChatMessageId,
   type UpdateChatMessageInput,
 } from "./store.js";
+import { normalizeReactionEmoji } from "./validation.js";
 
 /**
  * An attachment as an agent supplies it to dispatch_chat_post: `file` carries
@@ -512,6 +520,147 @@ export class ChatService {
     return { question: answered, reply: replyMessage, delivered };
   }
 
+  /**
+   * Add a reaction from `authorKind` to one of the other side's messages.
+   * The reaction is stored and published at once. A user reaction is then
+   * enqueued into the pane behind the quiet gate exactly like a user
+   * message, and its outcome lands on the reaction row (with no pane it is
+   * stored as not delivered). An agent reaction is only shown.
+   *
+   * Adding an emoji the author already put on the message changes nothing
+   * and delivers nothing, so a double click cannot inject it twice.
+   */
+  async addReaction(
+    agentId: string,
+    messageId: string,
+    rawEmoji: unknown,
+    authorKind: ChatAuthorKind = "user"
+  ): Promise<ChatReactionResponse> {
+    const { message, emoji } = await this.reactionTarget(
+      agentId,
+      messageId,
+      rawEmoji,
+      authorKind
+    );
+    const existing = await this.store.listReactions(message.id);
+    if (
+      existing.some(
+        (reaction) =>
+          reaction.authorKind === authorKind && reaction.emoji === emoji
+      )
+    ) {
+      return { messageId: message.id, reactions: existing };
+    }
+    if (existing.length >= CHAT_REACTIONS_MAX) {
+      throw new ChatValidationError(
+        `A message can carry ${CHAT_REACTIONS_MAX} reactions at most.`
+      );
+    }
+    const sessionName =
+      authorKind === "user" ? await this.deliverySession(agentId, true) : null;
+    const reaction = await this.store.insertReaction({
+      agentId,
+      messageId: message.id,
+      authorKind,
+      emoji,
+      delivered: authorKind === "user" && sessionName === null ? false : null,
+    });
+    // Null means a concurrent add of the same emoji won; that one delivers.
+    if (reaction) {
+      await this.publishEntry(agentId, message.id);
+      if (sessionName !== null) {
+        const postsSince = await this.store.countLaterPostsBySameAuthor(
+          message.id
+        );
+        this.injectDetached({
+          agentId,
+          sessionName,
+          envelope: buildReactionEnvelope({
+            messageId: message.id,
+            emoji,
+            kind: message.kind,
+            text: message.text,
+            postsSince,
+          }),
+          record: async (delivered) => {
+            await this.store.setReactionDelivered(reaction.id, delivered);
+            await this.publishEntry(agentId, message.id);
+          },
+          logContext: { messageId: message.id, reactionId: reaction.id },
+        });
+      }
+    }
+    return {
+      messageId: message.id,
+      reactions: await this.store.listReactions(message.id),
+    };
+  }
+
+  /**
+   * Take an author's reaction back off a message. Only the chip goes: an
+   * agent already told about a user reaction stays told, and nothing is
+   * injected. Removing an emoji the author did not put there is a no-op.
+   */
+  async removeReaction(
+    agentId: string,
+    messageId: string,
+    rawEmoji: unknown,
+    authorKind: ChatAuthorKind = "user"
+  ): Promise<ChatReactionResponse> {
+    const { message, emoji } = await this.reactionTarget(
+      agentId,
+      messageId,
+      rawEmoji,
+      authorKind
+    );
+    if (await this.store.deleteReaction(message.id, authorKind, emoji)) {
+      await this.publishEntry(agentId, message.id);
+    }
+    return {
+      messageId: message.id,
+      reactions: await this.store.listReactions(message.id),
+    };
+  }
+
+  /**
+   * The message a reaction names, and the emoji as stored. Each side reacts
+   * only to the other's posts on this feed: the user to the agent's, the
+   * agent to the user's.
+   */
+  private async reactionTarget(
+    agentId: string,
+    messageId: string,
+    rawEmoji: unknown,
+    authorKind: ChatAuthorKind
+  ): Promise<{ message: ChatMessage; emoji: string }> {
+    if (!isChatMessageId(messageId)) {
+      throw new ChatValidationError(
+        authorKind === "agent"
+          ? "messageId must be the id from a DISPATCH CHAT envelope."
+          : "messageId must be a UUID."
+      );
+    }
+    const emoji = normalizeReactionEmoji(rawEmoji);
+    if (emoji === null) {
+      throw new ChatValidationError(
+        "emoji must be a single emoji, such as 👍."
+      );
+    }
+    const message = await this.store.getById(messageId);
+    if (
+      !message ||
+      message.agentId !== agentId ||
+      message.authorKind === authorKind
+    ) {
+      throw new ChatNotFoundError(
+        authorKind === "agent"
+          ? "Message not found — you can react to the user's messages on your own Chat feed, by the id from their DISPATCH CHAT envelope."
+          : "Message not found."
+      );
+    }
+    return { message, emoji };
+  }
+
   /** A real pane's session name, or null when this Chat flow permits inert. */
   private async deliverySession(
     agentId: string,
@@ -565,32 +714,52 @@ export class ChatService {
     attachmentLines: string[] = [],
     options: { nativeReplies?: boolean } = {}
   ): { held: boolean } {
+    return this.injectDetached({
+      agentId,
+      sessionName,
+      envelope: buildChatEnvelope(
+        message.id,
+        message.text,
+        attachmentLines,
+        options
+      ),
+      record: async (delivered) => {
+        await this.store.setDelivered(message.id, delivered);
+        await this.publishEntry(agentId, message.id);
+      },
+      logContext: { messageId: message.id },
+    });
+  }
+
+  /**
+   * The detached half every pane delivery shares: inject, then hand the
+   * outcome to `record`, tracked so shutdown can wait for it.
+   */
+  private injectDetached(input: {
+    agentId: string;
+    sessionName: string;
+    envelope: string;
+    record: (delivered: boolean) => Promise<void>;
+    logContext: Record<string, string>;
+  }): { held: boolean } {
+    const { agentId, logContext } = input;
     const delivery = this.delivery();
-    const envelope = buildChatEnvelope(
-      message.id,
-      message.text,
-      attachmentLines,
-      { nativeReplies: options.nativeReplies ?? false }
-    );
     const settlement = delivery
-      .inject(agentId, sessionName, envelope)
+      .inject(agentId, input.sessionName, input.envelope)
       .then(
         () => true,
         (error: unknown) => {
           this.log.warn(
-            { err: error, agentId, messageId: message.id },
+            { err: error, agentId, ...logContext },
             "chat: pane delivery failed — agent may have exited"
           );
           return false;
         }
       )
-      .then(async (delivered) => {
-        await this.store.setDelivered(message.id, delivered);
-        await this.publishEntry(agentId, message.id);
-      })
+      .then(input.record)
       .catch((error: unknown) => {
         this.log.error(
-          { err: error, agentId, messageId: message.id },
+          { err: error, agentId, ...logContext },
           "chat: failed to record delivery outcome"
         );
       });
@@ -819,14 +988,20 @@ export class ChatService {
   }
 
   /**
-   * Startup recovery for deliveries the previous process never settled: the
-   * quiet-gate queue is in-memory, so a restart abandons them while their
-   * rows still say pending. Mark them not-delivered (no replay — a resend
-   * is the user's call, a duplicate injection is not) and announce each
-   * affected feed. Returns the agent ids touched.
+   * Startup recovery for deliveries (messages and reactions) the previous
+   * process never settled: the quiet-gate queue is in-memory, so a restart
+   * abandons them while their rows still say pending. Mark them
+   * not-delivered (no replay — a resend is the user's call, a duplicate
+   * injection is not) and announce each affected feed. Returns the agent ids
+   * touched.
    */
   async recoverPendingDeliveries(): Promise<string[]> {
-    const agentIds = await this.store.sweepPendingDeliveries();
+    const agentIds = [
+      ...new Set([
+        ...(await this.store.sweepPendingDeliveries()),
+        ...(await this.store.sweepPendingReactions()),
+      ]),
+    ];
     for (const agentId of agentIds) this.publishChanged(agentId);
     return agentIds;
   }

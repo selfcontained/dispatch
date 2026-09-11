@@ -1,6 +1,8 @@
 ## What's Changed
-* refactor(web): extract ToggleSettingCard from three settings toggles by @selfcontained in https://github.com/selfcontained/dispatch/pull/1075
-* feat(models): add gpt-6-astra to the codex model catalog by @selfcontained in https://github.com/selfcontained/dispatch/pull/1076
+* refactor(server): sweep three inline errorMessage ternaries onto the shared helper (#tech-debt) by @selfcontained in https://github.com/selfcontained/dispatch/pull/1079
+* test(web): cover slot-actions and progress-block logic by @selfcontained in https://github.com/selfcontained/dispatch/pull/1080
+* refactor(web): split the chat attachment views out of chat-entries.tsx (#tech-debt) by @selfcontained in https://github.com/selfcontained/dispatch/pull/1081
+* feat(chat): emoji reactions on Chat messages, both directions by @selfcontained in https://github.com/selfcontained/dispatch/pull/1082
 
 ### Dispatch Harness
 
@@ -19,3 +21,5 @@ These two are not about the harness, and they change agents you already have.
 
 - **Launch guidance for every CLI agent type.** One rule is now added to the launch prompt of every `claude`, `codex`, `cursor` and `opencode` agent: once a task is accepted, do not end a turn after only announcing a plan or a status, continue into the work in the same turn, or report `waiting_user` or `blocked` when you genuinely cannot proceed. Existing agents pick it up the next time their session starts.
 - **A persona review runs as its parent's own kind.** Before, a parent whose type had no saved reviewer type fell back to Codex; now it falls back to the parent's own type, so a Cursor parent's review runs on Cursor. A harness parent's review also inherits its engine, rather than defaulting to Claude Code.
+
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.13-harness.3...v0.38.14

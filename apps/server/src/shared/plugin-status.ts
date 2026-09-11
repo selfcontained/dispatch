@@ -38,6 +38,7 @@ import { readFile } from "node:fs/promises";
 import { isPluginAgentType, PLUGIN_AGENT_TYPES } from "./agent-types.js";
 import type { PluginAgentType } from "./agent-types.js";
 import { compareSemver } from "./lib/compare-semver.js";
+import { errorMessage } from "./lib/error-message.js";
 import { runCommand, type CommandRunner } from "./lib/run-command.js";
 
 export { isPluginAgentType, PLUGIN_AGENT_TYPES };
@@ -121,7 +122,7 @@ async function runStep(
     const result = await run(bin, args, { timeoutMs });
     return { stdout: result.stdout };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { error: errorMessage(err) };
   }
 }
 
