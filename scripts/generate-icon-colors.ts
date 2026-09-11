@@ -81,7 +81,6 @@ async function main() {
       recoloredFullLogo
     );
 
-    // Recolor the harness icon SVG
     fs.writeFileSync(
       path.join(colorDir, "harness-icon.svg"),
       harnessSvg

@@ -186,9 +186,6 @@ async function simulateVisibleWithFocus(page: Page): Promise<void> {
 test.describe("Terminal live connection", () => {
   test.skip(!IS_LIVE, "Requires tmux runtime — run via pnpm run test:e2e:live");
 
-  // Every test here creates a terminal agent, and another spec in the run may
-  // have left the type disabled, so re-enable it: the live run pairs this
-  // spec with e2e/harness-agent.spec.ts, which enables its own three types.
   test.beforeEach(async ({ request }) => {
     await setEnabledAgentTypesViaAPI(request, [
       "codex",

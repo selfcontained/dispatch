@@ -247,7 +247,6 @@ describe("ChatComposer path picker", () => {
     // A directory pick keeps the token open one level down; the menu
     // shows again once the host answers for the new prefix.
     expect(input.value).toBe("look at @apps/");
-    // The filled path reads as a token: painted over the field in color.
     expect(
       screen.getAllByTestId("chat-composer-token").map((t) => t.textContent)
     ).toEqual(["@apps/"]);
@@ -381,7 +380,6 @@ describe("ChatComposer slash menu", () => {
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
-    // A plain Enter now sends the text as typed.
     fireEvent.change(input, { target: { value: "/jobs list" } });
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
   });
@@ -424,7 +422,6 @@ describe("ChatComposer slash menu", () => {
 
   it("replaces only the token at the caret, keeping what follows it", () => {
     const { input } = renderComposer({ slashItems: items });
-    // The caret sits right after "/br", before " and then more".
     fireEvent.change(input, { target: { value: "use /br and then more" } });
     input.setSelectionRange(7, 7);
     fireEvent.select(input);
@@ -439,13 +436,10 @@ describe("ChatComposer slash menu", () => {
 
   it("needs a word boundary before the slash and nothing glued after the caret", () => {
     const { input } = renderComposer({ slashItems: items });
-    // A path segment is not a command.
     fireEvent.change(input, { target: { value: "see apps/web/" } });
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
-    // A slash on a new line is.
     fireEvent.change(input, { target: { value: "first line\n/" } });
     expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
-    // The caret inside a longer token does not open it.
     fireEvent.change(input, { target: { value: "go /jobs" } });
     input.setSelectionRange(5, 5);
     fireEvent.select(input);
@@ -482,7 +476,6 @@ describe("ChatComposer slash menu", () => {
     fireEvent.change(input, { target: { value: "lets /" } });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
-    // Typing on reopens it; Enter now picks rather than sends.
     fireEvent.change(input, { target: { value: "lets /re" } });
     expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(1);
   });
@@ -501,7 +494,6 @@ describe("ChatComposer history", () => {
     expect(input.value).toBe("second");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(input.value).toBe("");
-    // A field with a draft is left alone.
     fireEvent.change(input, { target: { value: "typing" } });
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(input.value).toBe("typing");
@@ -526,15 +518,12 @@ describe("ChatComposer history on multi-line entries", () => {
     });
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(input.value).toBe("line a\nline b\nline c");
-    // Caret on the last line: ArrowUp is the textarea's own.
     input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(input.value).toBe("line a\nline b\nline c");
-    // Caret on the first line: ArrowUp walks back.
     input.setSelectionRange(2, 2);
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(input.value).toBe("one");
-    // An IME arrow press never swaps the field.
     const composing = new KeyboardEvent("keydown", {
       key: "ArrowDown",
       bubbles: true,

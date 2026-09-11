@@ -345,7 +345,6 @@ test.describe("Settings pane", () => {
       .getByText("Agents", { exact: true })
       .click();
 
-    // The type list is not where the harness is turned on.
     await expect(page.getByTestId("agent-type-toggle-claude")).toBeVisible();
     await expect(page.getByTestId("agent-type-toggle-dispatch")).toHaveCount(0);
 
@@ -367,7 +366,6 @@ test.describe("Settings pane", () => {
       })
       .toBe(true);
 
-    // With the flag on, the create dialog offers the type from that one place.
     await page.getByTestId("agents-button").click();
     await page.getByTestId("create-agent-button").click();
     const form = page.getByTestId("create-agent-form");

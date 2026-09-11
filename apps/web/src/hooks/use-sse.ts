@@ -145,7 +145,6 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
   });
 }
 
-/** The supervisor's queue: a prompt queued, promoted, dropped, or started. */
 function invalidateHarnessQueue(
   queryClient: QueryClient,
   agentId: string

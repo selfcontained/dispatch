@@ -12,7 +12,6 @@ import {
 
 type AgentModelOption = { id: string; label: string; group?: string };
 
-/** Options in first-seen group order; ungrouped ones under no header. */
 export function groupModelOptions(
   options: readonly AgentModelOption[]
 ): { group: string | null; options: AgentModelOption[] }[] {

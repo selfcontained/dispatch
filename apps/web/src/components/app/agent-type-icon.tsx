@@ -151,10 +151,6 @@ export function AgentTypeIcon({
   );
 }
 
-/**
- * The Dispatch Harness wears the harness icon: the brand mark inside a
- * ring, in the icon color the user picked for the sidebar.
- */
 function DispatchHarnessMark({
   className,
   label,

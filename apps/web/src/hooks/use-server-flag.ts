@@ -52,11 +52,8 @@ export function useServerFlag(
 }
 
 export type ServerFlagSetting = {
-  /** The confirmed value, or the optimistic one while a write is in flight. */
   enabled: boolean;
-  /** False until either the fetch or a toggle has produced a value. */
   loaded: boolean;
-  /** Empty string when there is nothing to report. */
   error: string;
   setEnabled: (next: boolean) => void;
 };

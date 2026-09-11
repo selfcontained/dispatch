@@ -118,7 +118,6 @@ export type ChatComposerProps = {
    * pane, so a file dropped anywhere on the conversation attaches here.
    */
   dropTargetRef?: RefObject<HTMLElement | null>;
-  /** Reports drag-over state of `dropTargetRef` for the host's overlay. */
   onDropZoneDragging?: (dragging: boolean) => void;
   /**
    * Replaces the idle helper line ("Enter to send · …") with the host's word
@@ -164,12 +163,9 @@ export type SlashItem = {
 const SLASH_MENU_MAX = 8;
 const AT_MENU_MAX = 12;
 
-/** The "/partial" token the caret sits at the end of. */
 export type SlashToken = {
   query: string;
-  /** Index of the "/" in the text. */
   start: number;
-  /** Index just past the token: the caret. */
   end: number;
 };
 

@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 export const USAGE_BUDGETS_ENDPOINT = "/api/v1/app/settings/usage-budgets";
 export const USAGE_BUDGETS_QUERY_KEY = ["usage-budgets"] as const;
 
-/** Monthly budgets per provider, as Settings holds them. */
 export function useUsageBudgets() {
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -23,7 +22,6 @@ export function useUsageBudgets() {
       }),
     onSuccess: (data) => {
       queryClient.setQueryData(USAGE_BUDGETS_QUERY_KEY, data);
-      // The usage dialog draws its bars from these.
       void queryClient.invalidateQueries({ queryKey: HARNESS_USAGE_QUERY_KEY });
     },
   });

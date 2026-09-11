@@ -918,7 +918,6 @@ export const ChatMessageView = memo(function ChatMessageView({
   answering: boolean;
   /** Answers go through the same injection as the composer; lock them together. */
   answersDisabled?: boolean;
-  /** Canonical option label when this user row answers a declared option. */
   answeredOptionLabel?: string | null;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
