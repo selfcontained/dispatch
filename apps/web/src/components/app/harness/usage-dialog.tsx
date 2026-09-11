@@ -44,17 +44,14 @@ function UsageBar({
   spent,
   budget,
   label,
-  remaining = false,
 }: {
   spent: number;
   budget: number;
   label: string;
-  remaining?: boolean;
 }): JSX.Element {
   const ratio = budget > 0 ? spent / budget : 0;
-  const pct = Math.max(0, Math.min(100, ratio * 100));
-  const shown = Math.round(remaining ? 100 - pct : pct);
-  const text = `${label}: ${shown}% ${remaining ? "left" : "of budget used"}`;
+  const pct = Math.min(100, Math.round(ratio * 100));
+  const text = `${label}: ${pct}% of budget used`;
   const tone =
     ratio >= 0.9
       ? "bg-status-blocked"
@@ -67,15 +64,15 @@ function UsageBar({
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={shown}
+      aria-valuenow={pct}
       aria-valuetext={text}
       aria-label={text}
       data-testid="harness-usage-bar"
-      data-pct={shown}
+      data-pct={pct}
     >
       <div
         className={cn("h-full rounded-full", tone)}
-        style={{ width: `${shown}%` }}
+        style={{ width: `${pct}%` }}
       />
     </div>
   );
@@ -110,9 +107,7 @@ function ProviderPlan({ plan }: { plan?: HarnessProviderPlan }): JSX.Element {
               <div className="flex items-center justify-between gap-3 text-[11px]">
                 <span>{window.label}</span>
                 <span className="tabular-nums text-muted-foreground">
-                  {plan.engineId === "codex"
-                    ? `${Math.round(100 - window.usedPercent)}% left`
-                    : `${Math.round(window.usedPercent)}% used`}
+                  {Math.round(window.usedPercent)}% used
                   {resetLabel(window.resetsAt)
                     ? ` · ${resetLabel(window.resetsAt)}`
                     : ""}
@@ -122,7 +117,6 @@ function ProviderPlan({ plan }: { plan?: HarnessProviderPlan }): JSX.Element {
                 spent={window.usedPercent}
                 budget={100}
                 label={`${window.label} provider limit`}
-                remaining={plan.engineId === "codex"}
               />
             </div>
           ))}

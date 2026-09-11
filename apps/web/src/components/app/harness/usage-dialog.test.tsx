@@ -176,13 +176,13 @@ function renderDialog(props: Partial<Parameters<typeof UsageDialog>[0]> = {}) {
 }
 
 describe("UsageDialog", () => {
-  it("matches Codex status by showing remaining plan capacity", () => {
+  it("shows Codex plan consumption as percent used", () => {
     renderDialog({ providerId: "codex" });
     const plan = screen.getByTestId("harness-provider-plan");
-    expect(within(plan).getByText("29% left")).toBeTruthy();
+    expect(within(plan).getByText("71% used")).toBeTruthy();
     expect(
       within(plan).getByRole("progressbar").getAttribute("aria-valuenow")
-    ).toBe("29");
+    ).toBe("71");
   });
   it("shows current context and the selected provider plan", () => {
     renderDialog();

@@ -197,7 +197,7 @@ function TurnEntryViewImpl({
         <div
           className={cn(
             POST_BODY_MEASURE,
-            "min-w-0 max-w-full font-terminal [overflow-wrap:anywhere]"
+            "min-w-0 font-terminal [overflow-wrap:anywhere]"
           )}
         >
           {showsActivity(trace) ? (
