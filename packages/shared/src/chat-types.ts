@@ -228,7 +228,6 @@ export type ChatTurnStep = {
   children?: ChatTurnStep[];
 };
 
-/** One entry of the agent's task list, as ACP `plan` carries it. */
 export type ChatTurnPlanEntry = {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -251,7 +250,6 @@ export type ChatTurnPrompt = {
   attachments: ChatAttachment[];
 };
 
-/** A question asked during the turn. Its card is a `chat` entry of its own. */
 export type ChatTurnQuestionRef = { messageId: string; answered: boolean };
 
 /**
@@ -262,12 +260,10 @@ export type ChatTurnQuestionRef = { messageId: string; answered: boolean };
  */
 export type ChatTurnEntry = {
   type: "turn";
-  /** `turn:<stream row id>`, or `turn:pre:<first row id>` for a pre-turn group. */
   id: string;
   agentId: string;
   /** The anchor row's `created_at`: the turn's place in the feed, fixed for its life. */
   at: string;
-  /** The newest row folded in so far; moves while the turn streams. */
   updatedAt: string;
   prompt: ChatTurnPrompt;
   trace: {

@@ -38,7 +38,6 @@ export function encodeFeedCursor(cursor: FeedCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-/** Serial ids: digits only, and small enough for a Postgres int4 cast. */
 const SERIAL_ID_RE = /^\d{1,10}$/;
 
 function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
@@ -102,9 +101,7 @@ export function clampFeedLimit(limit: number | undefined): number {
 export type Keyed<E extends ChatFeedEntry> = {
   entry: E;
   atKey: string;
-  /** Raw id for the cursor and the SQL tuple comparison. */
   rawId: string;
-  /** Fixed-width form so JS ordering matches the column's ordering. */
   idKey: string;
 };
 

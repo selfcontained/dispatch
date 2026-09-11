@@ -67,9 +67,7 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  /** What the harness engines have used this month (agents/harness/usage.ts). */
   usageReport?: () => Promise<HarnessUsageReport>;
-  /** Sanitized host CLI login methods for the harness engines. */
   authReport?: () => Promise<HarnessAuthReport>;
   providerUsageReport?: () => Promise<HarnessProviderUsageReport>;
 };

@@ -12,7 +12,6 @@ import { loadQueued } from "../../chat/turns.js";
 import { loadAgentUsage, monthStartUtc } from "../../agents/harness/usage.js";
 import type { AgentRouteDeps } from "./shared.js";
 
-/** A Dispatch Harness agent's routes: the queue, session config, commands, usage, paths. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
   deps: Pick<AgentRouteDeps, "pool" | "harness">
@@ -25,7 +24,6 @@ export async function registerAgentHarnessRoutes(
     return row.rows.length > 0;
   };
 
-  // Session config: the model and reasoning effort the engine serves, live.
   app.get("/api/v1/agents/:id/harness/config", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
@@ -91,7 +89,6 @@ export async function registerAgentHarnessRoutes(
     return response;
   });
 
-  // The queue: a prompt that has not started can jump the line or leave it.
   app.post(
     "/api/v1/agents/:id/harness/queue/:queuedId/send-now",
     async (request, reply) => {
@@ -130,7 +127,6 @@ export async function registerAgentHarnessRoutes(
     }
   );
 
-  // Stop: cancel the running turn. Queued prompts stay queued and run next.
   app.post("/api/v1/agents/:id/harness/interrupt", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
@@ -142,7 +138,6 @@ export async function registerAgentHarnessRoutes(
     return reply.code(204).send();
   });
 
-  // The slash commands the engine advertises, for the composer's "/" menu.
   app.get("/api/v1/agents/:id/harness/commands", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
@@ -154,7 +149,6 @@ export async function registerAgentHarnessRoutes(
     return response;
   });
 
-  // This agent's tokens and cost this month, for the usage chip.
   app.get("/api/v1/agents/:id/harness/usage", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
@@ -166,7 +160,6 @@ export async function registerAgentHarnessRoutes(
     };
   });
 
-  /** The tree the agent works in (its worktree, else its cwd); null when no such agent. */
   const agentWorkingDir = async (id: string): Promise<string | null> => {
     const row = await deps.pool.query<{
       cwd: string;
@@ -179,8 +172,6 @@ export async function registerAgentHarnessRoutes(
     return agent ? (agent.worktree_path ?? agent.cwd) : null;
   };
 
-  // Paths under the working tree (or "~/…", or absolute), for the
-  // composer's "@" picker: what was typed after the "@" is the query.
   app.get("/api/v1/agents/:id/harness/paths", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     const q = (request.query as { q?: unknown }).q;

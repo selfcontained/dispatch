@@ -395,7 +395,6 @@ export class AgentManager {
     return result.rows.map((row) => row.id);
   }
 
-  /** A harness agent that could not be brought back at boot. */
   /** The harness child died on its own: the agent cannot stay "running" over it. */
   async markHarnessExited(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
@@ -418,7 +417,6 @@ export class AgentManager {
     });
   }
 
-  /** The system-prompt persona a harness agent launches with (see agents/harness/persona.ts). */
   async buildHarnessPersonaFor(
     agent: AgentRecord,
     jobRunId?: string
@@ -465,7 +463,6 @@ export class AgentManager {
     };
   }
 
-  /** Record the harness session id a harness agent runs under (for resume). */
   async setCliSessionId(id: string, cliSessionId: string): Promise<void> {
     await this.pool.query(
       `UPDATE agents SET cli_session_id = $2, updated_at = NOW() WHERE id = $1`,
