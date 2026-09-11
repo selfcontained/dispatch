@@ -1548,6 +1548,21 @@ describe("AgentManager", () => {
       expect(access.mode).toBe("inert");
       expect(access.message).toContain("inert mode");
     });
+
+    it("keeps an errored harness shell available for provider login", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await pool.query(
+        "UPDATE agents SET type = 'dispatch', status = 'error' WHERE id = $1",
+        [agent.id]
+      );
+
+      const access = await manager.getTerminalAccess(agent.id);
+
+      expect(access).toEqual({ mode: "tmux", sessionName: agent.tmuxSession });
+    });
   });
 
   describe("upsertLatestEvent", () => {

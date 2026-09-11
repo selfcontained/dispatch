@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type {
   HarnessAuthKind,
   HarnessProviderUsageReport,
@@ -128,6 +134,8 @@ vi.mock("./use-harness-auth", () => ({
         },
       ],
     },
+    refetch: vi.fn(),
+    isFetching: false,
   }),
 }));
 vi.mock("./use-provider-usage", () => ({
@@ -144,7 +152,7 @@ afterEach(() => {
   mockAuth.kind = "subscription";
 });
 
-function renderDialog() {
+function renderDialog(props: Partial<Parameters<typeof UsageDialog>[0]> = {}) {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
@@ -153,6 +161,7 @@ function renderDialog() {
         onOpenChange={() => {}}
         providerId="claude"
         contextUsage={{ used: 42_000, size: 200_000, costUsd: 1.25 }}
+        {...props}
       />
     </QueryClientProvider>
   );
@@ -215,6 +224,20 @@ describe("UsageDialog", () => {
     );
     expect(screen.queryByTestId("harness-provider-plan")).toBeNull();
     expect(screen.queryByTestId("harness-api-usage")).toBeNull();
+  });
+
+  it("hides stale monthly API usage and offers login when runtime auth fails", () => {
+    mockAuth.kind = "api_key";
+    const onLogin = vi.fn();
+    renderDialog({ loginRequired: true, onLogin });
+
+    expect(screen.queryByTestId("harness-api-usage")).toBeNull();
+    expect(screen.getByText("Sign in required")).toBeTruthy();
+    expect(screen.getByTestId("harness-billing-unknown").textContent).toContain(
+      "Sign in to this provider"
+    );
+    fireEvent.click(screen.getByTestId("harness-usage-login"));
+    expect(onLogin).toHaveBeenCalledTimes(1);
   });
 });
 

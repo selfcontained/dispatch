@@ -53,12 +53,15 @@ const H = vi.hoisted(() => ({
   sendNow: vi.fn(),
   markRead: vi.fn(),
 }));
+const API = vi.hoisted(() => ({
+  call: vi.fn(async () => ({ agents: [] })),
+}));
 
 // No real request may be in flight under a test: the pane's peers query
 // (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: [] })),
+  api: API.call,
 }));
 
 vi.mock("@/hooks/use-chat", () => ({
@@ -306,6 +309,7 @@ beforeEach(() => {
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
+  API.call.mockClear();
   HARNESS.queued = [];
   // Cleared, not reset: on Vitest 2 mockReset() drops the async body too,
   // so interrupt() would return undefined and onStop's .catch would throw.
@@ -1202,6 +1206,42 @@ describe("ChatPane harness chrome", () => {
     expect(screen.getByTestId("harness-login-hint").textContent).toContain(
       "codex login --device-auth"
     );
+  });
+
+  it("opens Console and starts provider login after an OAuth failure", async () => {
+    H.entries = [
+      turnEntry({
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          endedAt: "2026-09-02T10:00:09.000Z",
+          finalResult: "error",
+          steps: [],
+        },
+        result: {
+          text: "Failed to authenticate: OAuth session expired",
+          streaming: false,
+        },
+        error: "authentication_failed",
+      }),
+    ];
+    const onOpenConsole = vi.fn();
+    renderPane({ agent: dispatchAgent, onOpenConsole });
+
+    fireEvent.click(screen.getByTestId("harness-login-action"));
+
+    await waitFor(() => {
+      expect(API.call).toHaveBeenCalledWith(
+        "/api/v1/agents/agt_1/terminal/inject-text",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            text: "codex login --device-auth",
+            submit: true,
+          }),
+        })
+      );
+      expect(onOpenConsole).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("says the harness is not running once, under the field, not twice", () => {

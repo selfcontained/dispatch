@@ -1532,7 +1532,13 @@ export class AgentManager {
     agent: AgentRecord
   ): Promise<AgentTerminalAccess> {
     const id = agent.id;
-    if (agent.status !== "running" && agent.status !== "creating") {
+    const harnessLoginShell =
+      agent.type === "dispatch" && agent.status === "error";
+    if (
+      agent.status !== "running" &&
+      agent.status !== "creating" &&
+      !harnessLoginShell
+    ) {
       throw new AgentError("Agent is not running.", 409);
     }
 

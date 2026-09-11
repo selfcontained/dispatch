@@ -342,6 +342,7 @@ export function AgentPane({
               onShowChildAgentsChange={onShowChildAgentsChange}
               openLightbox={openLightbox}
               onOpenReview={onOpenReview}
+              onOpenConsole={() => onViewChange("console")}
               isMobile={isMobile}
             />
           </motion.div>

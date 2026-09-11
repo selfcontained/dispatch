@@ -4,7 +4,7 @@ import type {
   HarnessProviderPlan,
   HarnessUsageEngine,
 } from "@dispatch/shared";
-import { RefreshCw } from "lucide-react";
+import { LogIn, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -267,15 +267,37 @@ function ApiUsage({
   );
 }
 
-function UnknownBilling({ auth }: { auth?: HarnessAuthStatus }): JSX.Element {
+function UnknownBilling({
+  auth,
+  onLogin,
+  loginPending,
+}: {
+  auth?: HarnessAuthStatus;
+  onLogin?: () => void | Promise<void>;
+  loginPending: boolean;
+}): JSX.Element {
+  const signedOut = auth?.kind === "not_signed_in";
   return (
     <section className="space-y-2" data-testid="harness-billing-unknown">
       <h3 className="text-xs font-medium text-foreground">Billing usage</h3>
       <p className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
-        {auth?.kind === "not_signed_in"
+        {signedOut
           ? "Sign in to this provider to see its billing usage."
           : "Could not determine whether this provider uses a subscription or API key."}
       </p>
+      {signedOut && onLogin ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="default"
+          onClick={() => void onLogin()}
+          disabled={loginPending}
+          data-testid="harness-usage-login"
+        >
+          <LogIn className="mr-1.5 h-3.5 w-3.5" />
+          {loginPending ? "Opening Console…" : "Log in"}
+        </Button>
+      ) : null}
     </section>
   );
 }
@@ -285,11 +307,17 @@ export function UsageDialog({
   onOpenChange,
   providerId,
   contextUsage,
+  loginRequired = false,
+  loginPending = false,
+  onLogin,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   providerId?: HarnessEngineId;
   contextUsage?: ContextUsage | null;
+  loginRequired?: boolean;
+  loginPending?: boolean;
+  onLogin?: () => void | Promise<void>;
 }): JSX.Element {
   const usage = useHarnessUsage(open);
   const auth = useHarnessAuth(open);
@@ -303,12 +331,28 @@ export function UsageDialog({
   const selectedAuth = auth.data?.engines.find(
     (item) => item.engineId === providerId
   );
-  const billingMethod =
-    selectedAuth?.kind === "subscription"
+  const billingMethod = loginRequired
+    ? "unknown"
+    : selectedAuth?.kind === "subscription"
       ? "subscription"
       : selectedAuth?.kind === "api_key"
         ? "api_key"
         : "unknown";
+  const displayedAuth = loginRequired
+    ? selectedAuth
+      ? {
+          ...selectedAuth,
+          kind: "not_signed_in" as const,
+          label: "Sign in required",
+        }
+      : providerId
+        ? {
+            engineId: providerId,
+            kind: "not_signed_in" as const,
+            label: "Sign in required",
+          }
+        : undefined
+    : selectedAuth;
   const providerLabel = selectedUsage?.label ?? "Selected provider";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -327,14 +371,18 @@ export function UsageDialog({
                 : "usage"}
           </DialogDescription>
         </DialogHeader>
-        {selectedAuth ? <AuthStatusBadge auth={selectedAuth} /> : null}
+        {displayedAuth ? <AuthStatusBadge auth={displayedAuth} /> : null}
         <ContextSection usage={contextUsage ?? null} />
         {billingMethod === "subscription" ? (
           <ProviderPlan plan={selectedPlan} />
         ) : billingMethod === "api_key" ? (
           <ApiUsage usage={usage} selectedUsage={selectedUsage} />
         ) : (
-          <UnknownBilling auth={selectedAuth} />
+          <UnknownBilling
+            auth={displayedAuth}
+            onLogin={onLogin}
+            loginPending={loginPending}
+          />
         )}
         <div className="flex items-center justify-between">
           <span className="text-[10.5px] text-muted-foreground">
@@ -348,15 +396,21 @@ export function UsageDialog({
             variant="ghost"
             onClick={() => {
               void usage.refetch();
+              void auth.refetch();
               void providerUsage.refetch();
             }}
-            disabled={usage.isFetching || providerUsage.isFetching}
+            disabled={
+              usage.isFetching || auth.isFetching || providerUsage.isFetching
+            }
             data-testid="harness-usage-refresh"
           >
             <RefreshCw
               className={cn(
                 "mr-1 h-3 w-3",
-                (usage.isFetching || providerUsage.isFetching) && "animate-spin"
+                (usage.isFetching ||
+                  auth.isFetching ||
+                  providerUsage.isFetching) &&
+                  "animate-spin"
               )}
             />
             Refresh

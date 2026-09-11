@@ -57,6 +57,8 @@ export type ChatPaneProps = {
   openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded; from a review card. */
   onOpenReview?: (reviewId: number) => void;
+  /** Opens the selected agent's Console, used by provider login flows. */
+  onOpenConsole?: () => void;
   isMobile: boolean;
 };
 
@@ -250,6 +252,7 @@ export function ChatPane({
   onShowChildAgentsChange,
   openLightbox,
   onOpenReview,
+  onOpenConsole,
   isMobile,
 }: ChatPaneProps): JSX.Element {
   const feed = useChatFeed(agentId);
@@ -581,6 +584,7 @@ export function ChatPane({
     entries,
     isMobile,
     onError: setSendError,
+    onOpenConsole,
   });
 
   return (

@@ -6,7 +6,7 @@ import type {
 } from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { AnimatePresence, motion } from "framer-motion";
-import { CircleDollarSign, Cpu, Square } from "lucide-react";
+import { CircleDollarSign, Cpu, LogIn, Square } from "lucide-react";
 
 import type { SlashItem } from "@/components/app/chat/chat-composer";
 import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
@@ -39,6 +39,8 @@ import {
 } from "@/components/app/harness/use-harness-queue";
 import type { Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -152,7 +154,18 @@ export type HarnessChromeInput = {
   isMobile: boolean;
   /** Reports an action failure to the pane's one error slot. */
   onError: (message: string | null) => void;
+  /** Reveals the harness shell where an interactive provider login runs. */
+  onOpenConsole?: () => void;
 };
+
+export function isHarnessAuthFailure(message: string | null | undefined) {
+  return Boolean(
+    message &&
+    /auth(?:entication)?(?:[_ ]failed| required)|failed to authenticate|not logged in|sign[ -]?in required|oauth session expired|token (?:has )?expired/i.test(
+      message
+    )
+  );
+}
 
 /**
  * Every field is absent for an agent that is not a Dispatch Harness agent,
@@ -192,6 +205,7 @@ export function useHarnessChrome({
   entries,
   isMobile,
   onError,
+  onOpenConsole,
 }: HarnessChromeInput): HarnessChrome {
   const { queued } = useQueuedPrompts(agentId);
   const {
@@ -208,6 +222,7 @@ export function useHarnessChrome({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [loginStarting, setLoginStarting] = useState(false);
   // The tasks strip's fold, kept here so a new list does not reopen it.
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
 
@@ -322,6 +337,15 @@ export function useHarnessChrome({
   const engineAuth = auth.data?.engines.find(
     (item) => item.engineId === engine?.id
   );
+  const runtimeNeedsLogin =
+    isHarnessAuthFailure(statusMessage) ||
+    (newest?.trace.finalResult === "error" &&
+      isHarnessAuthFailure(
+        `${newest.error ?? ""} ${newest.result?.text ?? ""}`
+      ));
+  const loginRequired =
+    Boolean(engine) &&
+    (engineAuth?.kind === "not_signed_in" || runtimeNeedsLogin);
   const modelName = currentChoiceName(config.model);
   const effortName = currentChoiceName(config.effort);
   const fixedReason =
@@ -353,10 +377,23 @@ export function useHarnessChrome({
         // case is the login hint below, which keys off statusMessage anyway.
         statusMessage
       : null;
-  const loginCommand =
-    errored && engine && /not logged in/i.test(statusMessage ?? "")
-      ? engine.loginCommand
-      : null;
+  const loginCommand = loginRequired ? engine?.loginCommand : null;
+  const startLogin = useCallback(async () => {
+    if (!agentId || !engine || !onOpenConsole) return;
+    setLoginStarting(true);
+    onError(null);
+    try {
+      await api<null>(`/api/v1/agents/${agentId}/terminal/inject-text`, {
+        method: "POST",
+        body: JSON.stringify({ text: engine.loginCommand, submit: true }),
+      });
+      onOpenConsole();
+    } catch (err) {
+      onError(errorText(err, `Could not start ${engine.label} login.`));
+    } finally {
+      setLoginStarting(false);
+    }
+  }, [agentId, engine, onError, onOpenConsole]);
 
   const composer = useMemo<HarnessComposerProps>(
     () =>
@@ -418,6 +455,28 @@ export function useHarnessChrome({
               </p>
             ) : null}
           </div>
+        ) : null}
+        {loginCommand && !statusLine ? (
+          <p
+            className="mb-1.5 text-[11px] text-muted-foreground"
+            data-testid="harness-login-hint"
+          >
+            {engine?.label} needs you to sign in.
+          </p>
+        ) : null}
+        {loginCommand && onOpenConsole ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
+            className="mb-2 h-7 text-xs"
+            onClick={() => void startLogin()}
+            disabled={loginStarting}
+            data-testid="harness-login-action"
+          >
+            <LogIn className="mr-1.5 h-3.5 w-3.5" />
+            {loginStarting ? "Opening Console…" : `Log in to ${engine?.label}`}
+          </Button>
         ) : null}
         {/* Driven by `starting` rather than keyed on it, so the chips keep
           their nodes (and their dialogs) across the handoff. While faded out
@@ -561,6 +620,9 @@ export function useHarnessChrome({
             onOpenChange={setUsageOpen}
             providerId={engine?.id}
             contextUsage={contextUsage}
+            loginRequired={loginRequired}
+            loginPending={loginStarting}
+            onLogin={onOpenConsole ? startLogin : undefined}
           />
           <ModelPicker
             open={pickerOpen}
