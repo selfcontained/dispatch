@@ -97,13 +97,12 @@ export function useServerFlagSetting(
       }),
     onMutate: async (next) => {
       const seq = (latestWrite.current += 1);
-      // A GET still in flight would otherwise resolve after this toggle and
-      // overwrite the optimistic value with the pre-toggle one.
-      await queryClient.cancelQueries({ queryKey });
+      const cancellation = queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<ServerFlagResponse>(queryKey);
       queryClient.setQueryData<ServerFlagResponse>(queryKey, {
         enabled: next,
       });
+      await cancellation;
       return { seq, previous };
     },
     onSuccess: (data, _next, context) => {
