@@ -6,6 +6,9 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMessage,
+  ChatReaction,
+  ChatReactionRequest,
+  ChatReactionResponse,
   ChatSendRequest,
   ChatSendResponse,
   ChatUserAttachmentInput,
@@ -625,6 +628,132 @@ export function useAnswerChatQuestion(agentId: string | null) {
     },
   });
   return useWithMintedId(mutation);
+}
+
+/**
+ * Rewrite one message's reactions wherever it sits. An empty list drops the
+ * key, as the server's feed row does, so a later `chat.entry` for the same
+ * row compares equal. Everything else keeps its identity.
+ */
+export function updateMessageReactions(
+  cache: FeedCache | undefined,
+  messageId: string,
+  update: (reactions: ChatReaction[]) => ChatReaction[]
+): FeedCache | undefined {
+  if (!cache) return cache;
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    let touched = false;
+    const entries = page.entries.map((entry) => {
+      if (entry.type !== "chat" || entry.message.id !== messageId) {
+        return entry;
+      }
+      const current = entry.message.reactions ?? [];
+      const next = update(current);
+      if (next === current) return entry;
+      touched = true;
+      const { reactions: _reactions, ...rest } = entry.message;
+      return {
+        ...entry,
+        message: next.length > 0 ? { ...rest, reactions: next } : rest,
+      };
+    });
+    if (!touched) return page;
+    changed = true;
+    return { ...page, entries };
+  });
+  return changed ? { ...cache, pages } : cache;
+}
+
+/** Stands in for a reaction until the server names it. */
+const OPTIMISTIC_REACTION_PREFIX = "optimistic:";
+
+/**
+ * Whether a reaction is still the placeholder for an add in flight — the
+ * server has not stored it yet, so there is nothing to take back off.
+ */
+export function isOptimisticReaction(reaction: ChatReaction): boolean {
+  return reaction.id.startsWith(OPTIMISTIC_REACTION_PREFIX);
+}
+
+export type ChatReactionInput = {
+  messageId: string;
+  emoji: string;
+  /** True to take the reaction back off, false to add it. */
+  remove: boolean;
+};
+
+/**
+ * Add or remove one of the user's emoji reactions on an agent message. The
+ * chip changes at once; the stored row, and its delivery outcome, arrive as
+ * the message's `chat.entry`. The response only settles the one emoji this call touched,
+ * so it can never undo a newer reaction the stream already put in place.
+ */
+export function useToggleChatReaction(agentId: string | null) {
+  const queryClient = useQueryClient();
+  const key = chatFeedQueryKey(agentId);
+
+  return useMutation<ChatReactionResponse, Error, ChatReactionInput>({
+    mutationFn: async ({ messageId, emoji, remove }) => {
+      const base = `/api/v1/agents/${agentId}/chat/messages/${encodeURIComponent(messageId)}/reactions`;
+      return remove
+        ? api<ChatReactionResponse>(`${base}/${encodeURIComponent(emoji)}`, {
+            method: "DELETE",
+          })
+        : api<ChatReactionResponse>(base, {
+            method: "POST",
+            body: JSON.stringify({ emoji } satisfies ChatReactionRequest),
+          });
+    },
+    onMutate: async ({ messageId, emoji, remove }) => {
+      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        updateMessageReactions(old, messageId, (reactions) => {
+          const mine = (r: ChatReaction) =>
+            r.authorKind === "user" && r.emoji === emoji;
+          const has = reactions.some(mine);
+          if (remove) {
+            return has ? reactions.filter((r) => !mine(r)) : reactions;
+          }
+          if (has) return reactions;
+          return [
+            ...reactions,
+            {
+              id: `${OPTIMISTIC_REACTION_PREFIX}${emoji}`,
+              authorKind: "user",
+              emoji,
+              delivered: null,
+              createdAt: new Date().toISOString(),
+            },
+          ];
+        })
+      );
+    },
+    onSuccess: (data, { emoji, remove }) => {
+      if (remove) return;
+      const mine = (r: ChatReaction) =>
+        r.authorKind === "user" && r.emoji === emoji;
+      const stored = data.reactions.find(mine);
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        updateMessageReactions(old, data.messageId, (reactions) => {
+          const index = reactions.findIndex(mine);
+          const current = index === -1 ? undefined : reactions[index];
+          // Only the placeholder is ours to replace: a stored reaction here
+          // came over the stream and is at least as new as this response.
+          if (!stored || !current || !isOptimisticReaction(current)) {
+            return reactions;
+          }
+          const next = reactions.slice();
+          next[index] = stored;
+          return next;
+        })
+      );
+    },
+    // Whatever the failure left behind, the server's copy settles it.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+    },
+  });
 }
 
 /**

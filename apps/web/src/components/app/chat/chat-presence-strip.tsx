@@ -24,6 +24,7 @@ const TOOL_BLIP_LABELS: Readonly<Record<string, string>> = {
   dispatch_pins: "pinning",
   dispatch_chat_post: "posting to chat",
   dispatch_chat_update: "posting to chat",
+  dispatch_chat_react: "reacting in chat",
   dispatch_launch_agent: "launching an agent",
   dispatch_launch_persona: "launching an agent",
   brain_store_object: "saving notes",

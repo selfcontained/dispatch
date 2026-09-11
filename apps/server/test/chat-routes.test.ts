@@ -12,7 +12,7 @@ import type { ChatMessage } from "@dispatch/shared";
 const ctx = useInjectApp();
 
 async function authedInject(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   url: string,
   payload?: unknown
 ) {
@@ -20,7 +20,11 @@ async function authedInject(
   return ctx.app.inject({
     method,
     url,
-    headers: { cookie, "content-type": "application/json" },
+    // Like the web client, only a request with a body says it is JSON.
+    headers: {
+      cookie,
+      ...(payload !== undefined ? { "content-type": "application/json" } : {}),
+    },
     ...(payload !== undefined ? { payload } : {}),
   });
 }
@@ -349,6 +353,79 @@ describe("POST /api/v1/agents/:id/chat/messages/:messageId/answer (inert runtime
   });
 });
 
+describe("chat reaction routes (inert runtime)", () => {
+  async function agentPost(): Promise<ChatMessage> {
+    return store.insert({ agentId, authorKind: "agent", text: "Done." });
+  }
+
+  it("adds a reaction as not delivered and shows it on the feed row", async () => {
+    const message = await agentPost();
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agentId}/chat/messages/${message.id}/reactions`,
+      { emoji: "👍" }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      messageId: message.id,
+      reactions: [
+        {
+          id: expect.any(String),
+          authorKind: "user",
+          emoji: "👍",
+          delivered: false,
+          createdAt: expect.any(String),
+        },
+      ],
+    });
+    const feed = await authedInject("GET", `/api/v1/agents/${agentId}/chat`);
+    const entry = feed
+      .json()
+      .entries.find((e: { id: string }) => e.id === message.id);
+    expect(entry.message.reactions).toEqual(res.json().reactions);
+  });
+
+  it("removes a reaction by its URL-encoded emoji", async () => {
+    const message = await agentPost();
+    await authedInject(
+      "POST",
+      `/api/v1/agents/${agentId}/chat/messages/${message.id}/reactions`,
+      { emoji: "❤️" }
+    );
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/agents/${agentId}/chat/messages/${message.id}/reactions/${encodeURIComponent("❤️")}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ messageId: message.id, reactions: [] });
+  });
+
+  it("400s a bad emoji or message id and 404s a message that takes no reaction", async () => {
+    const message = await agentPost();
+    const userPost = await store.insert({
+      agentId,
+      authorKind: "user",
+      text: "mine",
+    });
+    const post = (id: string, payload: unknown) =>
+      authedInject(
+        "POST",
+        `/api/v1/agents/${agentId}/chat/messages/${id}/reactions`,
+        payload
+      );
+    expect((await post(message.id, { emoji: "nice" })).statusCode).toBe(400);
+    expect((await post(message.id, {})).statusCode).toBe(400);
+    expect((await post("nope", { emoji: "👍" })).statusCode).toBe(400);
+    expect((await post(userPost.id, { emoji: "👍" })).statusCode).toBe(404);
+    const other = await authedInject(
+      "POST",
+      `/api/v1/agents/agt_nope/chat/messages/${message.id}/reactions`,
+      { emoji: "👍" }
+    );
+    expect(other.statusCode).toBe(404);
+  });
+});
+
 describe("POST /api/v1/agents/:id/chat/read", () => {
   it("marks agent messages read and returns the new unread count", async () => {
     const first = await store.insert({
@@ -456,7 +533,7 @@ describe("chat-surface setting", () => {
 });
 
 describe("agent MCP route exposes the chat tools", () => {
-  it("lists dispatch_chat_post and dispatch_chat_update", async () => {
+  it("lists dispatch_chat_post, dispatch_chat_update and dispatch_chat_react", async () => {
     const authTokenResult = await ctx.pool.query<{ value: string }>(
       "SELECT value FROM settings WHERE key = 'auth_token'"
     );
@@ -480,6 +557,7 @@ describe("agent MCP route exposes the chat tools", () => {
     }
     expect(names).toContain("dispatch_chat_post");
     expect(names).toContain("dispatch_chat_update");
+    expect(names).toContain("dispatch_chat_react");
   });
 });
 

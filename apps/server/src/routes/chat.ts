@@ -177,6 +177,45 @@ export async function registerChatRoutes(
     }
   );
 
+  // Reactions: the body (or path) carries the emoji; the service validates
+  // it, since the same rule has to hold for both verbs.
+  app.post(
+    "/api/v1/agents/:id/chat/messages/:messageId/reactions",
+    async (request, reply) => {
+      const params = request.params as { id?: string; messageId?: string };
+      const body = request.body as { emoji?: unknown } | null;
+      try {
+        return await chat.addReaction(
+          params.id ?? "",
+          params.messageId ?? "",
+          body?.emoji
+        );
+      } catch (error) {
+        return sendError(reply, error);
+      }
+    }
+  );
+
+  app.delete(
+    "/api/v1/agents/:id/chat/messages/:messageId/reactions/:emoji",
+    async (request, reply) => {
+      const params = request.params as {
+        id?: string;
+        messageId?: string;
+        emoji?: string;
+      };
+      try {
+        return await chat.removeReaction(
+          params.id ?? "",
+          params.messageId ?? "",
+          params.emoji
+        );
+      } catch (error) {
+        return sendError(reply, error);
+      }
+    }
+  );
+
   app.post("/api/v1/agents/:id/chat/read", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     const body = request.body as { upTo?: unknown } | null;

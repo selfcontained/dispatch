@@ -45,6 +45,12 @@ vi.mock("@/hooks/use-chat", () => ({
     variables: undefined,
   }),
   useMarkChatRead: () => vi.fn(),
+  // One mutate for the whole file: the feed's rows are memoised on a context
+  // built from it.
+  useToggleChatReaction: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate });
+  })(),
 }));
 vi.mock("@/hooks/use-injection-hold-state", () => ({
   useInjectionHoldState: () => null,
