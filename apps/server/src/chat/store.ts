@@ -8,6 +8,7 @@ import type {
   ChatMessageKind,
   ChatMessageOrigin,
   ChatQuestion,
+  ChatReaction,
   ChatUnreadSummary,
 } from "@dispatch/shared";
 
@@ -56,6 +57,38 @@ export function isChatMessageId(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
+/**
+ * A reaction as the feed query aggregates it into JSON: `createdAt` is the
+ * timestamptz's JSON text, normalized to ISO on the way out.
+ */
+type ReactionJson = {
+  id: string;
+  authorKind: ChatAuthorKind;
+  emoji: string;
+  delivered: boolean | null;
+  createdAt: string;
+};
+
+type ReactionRow = {
+  id: string;
+  message_id: string;
+  agent_id: string;
+  author_kind: ChatAuthorKind;
+  emoji: string;
+  delivered: boolean | null;
+  created_at: Date;
+};
+
+function toChatReaction(row: ReactionRow): ChatReaction {
+  return {
+    id: row.id,
+    authorKind: row.author_kind,
+    emoji: row.emoji,
+    delivered: row.delivered,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
 type Row = {
   id: string;
   agent_id: string;
@@ -70,6 +103,8 @@ type Row = {
   read_at: Date | null;
   origin: ChatMessageOrigin | null;
   launched_by_agent_id: string | null;
+  /** Only on rows read through the feed query; see `listChatEntries`. */
+  reactions?: ReactionJson[] | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -91,6 +126,17 @@ export function toChatMessage(row: Row): ChatMessage {
     ...(row.origin ? { origin: row.origin } : {}),
     ...(row.launched_by_agent_id
       ? { launchedByAgentId: row.launched_by_agent_id }
+      : {}),
+    ...(Array.isArray(row.reactions) && row.reactions.length > 0
+      ? {
+          reactions: row.reactions.map((reaction) => ({
+            id: reaction.id,
+            authorKind: reaction.authorKind,
+            emoji: reaction.emoji,
+            delivered: reaction.delivered,
+            createdAt: new Date(reaction.createdAt).toISOString(),
+          })),
+        }
       : {}),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -224,6 +270,107 @@ export class ChatStore {
         RETURNING agent_id`
     );
     return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /**
+   * User reactions still pending from a previous process, marked
+   * not-delivered for the same reason as `sweepPendingDeliveries`. Returns
+   * the distinct agent ids touched.
+   */
+  async sweepPendingReactions(): Promise<string[]> {
+    const result = await this.db.query<{ agent_id: string }>(
+      `UPDATE agent_chat_reactions SET delivered = false
+        WHERE author_kind = 'user' AND delivered IS NULL
+        RETURNING agent_id`
+    );
+    return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /** A message's reactions, oldest first — the order the feed lists them in. */
+  async listReactions(messageId: string): Promise<ChatReaction[]> {
+    if (!isChatMessageId(messageId)) return [];
+    const result = await this.db.query<ReactionRow>(
+      `SELECT * FROM agent_chat_reactions
+        WHERE message_id = $1
+        ORDER BY created_at, id`,
+      [messageId]
+    );
+    return result.rows.map(toChatReaction);
+  }
+
+  /**
+   * Add one reaction. Returns null when this author already put that emoji
+   * on the message — a double click or a second tab raced this one, and the
+   * reaction that won is the one that gets delivered.
+   */
+  async insertReaction(input: {
+    agentId: string;
+    messageId: string;
+    authorKind: ChatAuthorKind;
+    emoji: string;
+    delivered: boolean | null;
+  }): Promise<ChatReaction | null> {
+    const result = await this.db.query<ReactionRow>(
+      `INSERT INTO agent_chat_reactions
+         (id, message_id, agent_id, author_kind, emoji, delivered)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (message_id, author_kind, emoji) DO NOTHING
+       RETURNING *`,
+      [
+        randomUUID(),
+        input.messageId,
+        input.agentId,
+        input.authorKind,
+        input.emoji,
+        input.delivered,
+      ]
+    );
+    return result.rows[0] ? toChatReaction(result.rows[0]) : null;
+  }
+
+  /** Remove one author's reaction; false when it was not there. */
+  async deleteReaction(
+    messageId: string,
+    authorKind: ChatAuthorKind,
+    emoji: string
+  ): Promise<boolean> {
+    if (!isChatMessageId(messageId)) return false;
+    const result = await this.db.query(
+      `DELETE FROM agent_chat_reactions
+        WHERE message_id = $1 AND author_kind = $2 AND emoji = $3`,
+      [messageId, authorKind, emoji]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * How many posts the message's author has made on this feed since it — so
+   * a reaction envelope can say "your latest message" or "3 posts ago".
+   * Compared against the stored timestamp, not the millisecond ISO on the
+   * wire, which would put a row after itself.
+   */
+  async countLaterPostsBySameAuthor(messageId: string): Promise<number> {
+    if (!isChatMessageId(messageId)) return 0;
+    const result = await this.db.query<{ later: number }>(
+      `SELECT COUNT(later.id)::int AS later
+         FROM agent_chat_messages m
+         JOIN agent_chat_messages later
+           ON later.agent_id = m.agent_id
+          AND later.author_kind = m.author_kind
+          AND (later.created_at, later.id) > (m.created_at, m.id)
+        WHERE m.id = $1`,
+      [messageId]
+    );
+    return result.rows[0]?.later ?? 0;
+  }
+
+  /** Record whether a reaction's pane injection succeeded. */
+  async setReactionDelivered(id: string, delivered: boolean): Promise<void> {
+    if (!isChatMessageId(id)) return;
+    await this.db.query(
+      `UPDATE agent_chat_reactions SET delivered = $2 WHERE id = $1`,
+      [id, delivered]
+    );
   }
 
   async getById(id: string): Promise<ChatMessage | null> {

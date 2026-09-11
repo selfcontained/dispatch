@@ -23,12 +23,18 @@ function createMockServer() {
 }
 
 const AGENT_ID = "agt_chat_tools";
-const ALL = new Set(["dispatch_chat_post", "dispatch_chat_update"]);
+const ALL = new Set([
+  "dispatch_chat_post",
+  "dispatch_chat_update",
+  "dispatch_chat_react",
+]);
 
 describe("registerChatTools", () => {
   let server: ReturnType<typeof createMockServer>;
   let post: ReturnType<typeof vi.fn>;
   let update: ReturnType<typeof vi.fn>;
+  let addReaction: ReturnType<typeof vi.fn>;
+  let removeReaction: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     server = createMockServer();
@@ -41,9 +47,18 @@ describe("registerChatTools", () => {
       id: "msg_1",
       updatedAt: "2026-01-02T00:00:00.000Z",
     }));
+    const reactions = {
+      messageId: "msg_u",
+      reactions: [
+        { id: "r1", authorKind: "user", emoji: "🎉", delivered: true },
+        { id: "r2", authorKind: "agent", emoji: "👍", delivered: null },
+      ],
+    };
+    addReaction = vi.fn(async () => reactions);
+    removeReaction = vi.fn(async () => ({ messageId: "msg_u", reactions: [] }));
     registerChatTools(server as never, ALL, {
       agentId: AGENT_ID,
-      chat: { post, update } as never,
+      chat: { post, update, addReaction, removeReaction } as never,
     });
   });
 
@@ -53,10 +68,11 @@ describe("registerChatTools", () => {
     return found;
   }
 
-  it("registers both tools only when allowed and a service is present", () => {
+  it("registers the tools only when allowed and a service is present", () => {
     expect(server.tools.map((t) => t.name)).toEqual([
       "dispatch_chat_post",
       "dispatch_chat_update",
+      "dispatch_chat_react",
     ]);
     const none = createMockServer();
     registerChatTools(none as never, ALL, { agentId: AGENT_ID });
@@ -134,6 +150,47 @@ describe("registerChatTools", () => {
       on.tools.find((t) => t.name === "dispatch_chat_update")?.config
         .description
     ).toBe(tool("dispatch_chat_update").config.description);
+  });
+
+  it("reacts as the agent and returns only the agent's own emoji", async () => {
+    const result = await tool("dispatch_chat_react").handler({
+      messageId: "msg_u",
+      emoji: "👍",
+    });
+    expect(addReaction).toHaveBeenCalledWith(AGENT_ID, "msg_u", "👍", "agent");
+    expect(result.structuredContent).toEqual({
+      messageId: "msg_u",
+      emoji: ["👍"],
+    });
+    expect(tool("dispatch_chat_react").config.description).toContain(
+      "DISPATCH CHAT envelope"
+    );
+  });
+
+  it("takes a reaction back with remove: true, and surfaces service errors", async () => {
+    const removed = await tool("dispatch_chat_react").handler({
+      messageId: "msg_u",
+      emoji: "👍",
+      remove: true,
+    });
+    expect(removeReaction).toHaveBeenCalledWith(
+      AGENT_ID,
+      "msg_u",
+      "👍",
+      "agent"
+    );
+    expect(removed.structuredContent).toEqual({
+      messageId: "msg_u",
+      emoji: [],
+    });
+
+    addReaction.mockRejectedValueOnce(new Error("Message not found"));
+    const failed = await tool("dispatch_chat_react").handler({
+      messageId: "msg_u",
+      emoji: "👍",
+    });
+    expect(failed.isError).toBe(true);
+    expect(failed.content[0]?.text).toBe("Message not found");
   });
 
   it("posts a reply and returns id + createdAt", async () => {

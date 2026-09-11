@@ -70,6 +70,20 @@ export default {
           from: { opacity: "0", transform: "translateY(3px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // The Chat reaction picker, grown from its trigger.
+        "reaction-picker-in": {
+          from: { opacity: "0", transform: "translateY(4px) scale(0.94)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        "reaction-picker-out": {
+          from: { opacity: "1", transform: "scale(1)" },
+          to: { opacity: "0", transform: "scale(0.96)" },
+        },
+        // Each emoji in the picker, staggered in after the panel.
+        "reaction-emoji-in": {
+          from: { opacity: "0", transform: "scale(0.4)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
         "mobile-toolbar-flash": {
           "0%": {
             backgroundColor: "rgba(255,255,255,0.06)",
@@ -92,6 +106,11 @@ export default {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
         "chat-enter": "chat-enter 200ms ease-out both",
+        "reaction-picker-in": "reaction-picker-in 160ms ease-out both",
+        "reaction-picker-out": "reaction-picker-out 100ms ease-in both",
+        // A slight overshoot, so each emoji lands with a pop.
+        "reaction-emoji-in":
+          "reaction-emoji-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
       },
     },
   },

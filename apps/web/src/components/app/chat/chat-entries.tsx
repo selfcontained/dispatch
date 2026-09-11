@@ -47,6 +47,12 @@ import {
   LivePin,
   mediaFileUrl,
 } from "./chat-attachment-views";
+import {
+  POST_ACTION_BUTTON,
+  POST_ACTION_FACE,
+  ReactionBar,
+  ReactionPickerButton,
+} from "./chat-reactions";
 
 type EventType = Parameters<typeof latestEventLabel>[0];
 
@@ -130,6 +136,16 @@ export type FeedContext = {
   onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
+  /**
+   * Adds (`remove: false`) or takes back an emoji reaction on an agent
+   * message. Absent, the feed shows reactions but offers no way to change
+   * them.
+   */
+  onToggleReaction?: (
+    messageId: string,
+    emoji: string,
+    remove: boolean
+  ) => void;
 };
 
 export type PostAuthor = {
@@ -279,10 +295,7 @@ function MessageCopyButton({ text }: { text: string }): JSX.Element {
       variant="ghost"
       size="icon"
       className={cn(
-        "h-7 w-7 p-0 hover:bg-transparent",
-        "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
-        "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-        "max-sm:opacity-100 [@media(pointer:coarse)]:opacity-100",
+        POST_ACTION_BUTTON,
         copied && "opacity-100 text-status-working"
       )}
       onClick={() => copyText(text)}
@@ -290,7 +303,7 @@ function MessageCopyButton({ text }: { text: string }): JSX.Element {
       aria-label={copied ? "Message copied" : "Copy message"}
       data-testid="chat-copy-message"
     >
-      <span className="flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background/90 shadow-sm">
+      <span className={POST_ACTION_FACE}>
         {copied ? (
           <Check className="h-3.5 w-3.5" aria-hidden="true" />
         ) : (
@@ -657,12 +670,44 @@ export const ChatMessageView = memo(function ChatMessageView({
         ) : null}
         <AttachmentList attachments={message.attachments} ctx={ctx} />
         <DeliveryMeta message={message} held={held} />
+        <ReactionBar
+          reactions={message.reactions ?? []}
+          agentName={ctx.agentName || "Agent"}
+        />
       </Post>
     );
   }
 
   const author = agentAuthor(ctx, "Agent");
   const isQuestion = message.kind === "question";
+  const reactions = message.reactions ?? [];
+  const { onToggleReaction } = ctx;
+  const toggleReaction = onToggleReaction
+    ? (emoji: string, remove: boolean) =>
+        onToggleReaction(message.id, emoji, remove)
+    : undefined;
+  // Adding a reaction injects it like a message, so the picker is disabled
+  // whenever a message could not be sent; taking one back off never needs
+  // the agent.
+  const agentAction = (
+    <div className="flex items-center gap-0.5">
+      {toggleReaction ? (
+        <ReactionPickerButton
+          reactions={reactions}
+          onToggle={toggleReaction}
+          disabled={answersDisabled}
+        />
+      ) : null}
+      {copyAction}
+    </div>
+  );
+  const reactionBar = (
+    <ReactionBar
+      reactions={reactions}
+      agentName={author.name}
+      onToggle={toggleReaction}
+    />
+  );
 
   if (message.kind === "update") {
     return (
@@ -675,12 +720,13 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-author="agent"
         data-kind="update"
         data-message-id={message.id}
-        action={copyAction}
+        action={agentAction}
       >
         <Markdown className="text-muted-foreground prose-p:my-0.5">
           {message.text}
         </Markdown>
         <AttachmentList attachments={message.attachments} ctx={ctx} />
+        {reactionBar}
       </Post>
     );
   }
@@ -702,7 +748,7 @@ export const ChatMessageView = memo(function ChatMessageView({
       data-author="agent"
       data-kind={message.kind}
       data-message-id={message.id}
-      action={copyAction}
+      action={agentAction}
     >
       {message.kind === "summary" ? (
         <AttachmentBlock
@@ -726,6 +772,7 @@ export const ChatMessageView = memo(function ChatMessageView({
           onAnswer={(option) => onAnswer(message.id, option)}
         />
       ) : null}
+      {reactionBar}
     </Post>
   );
 });

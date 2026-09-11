@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type {
   ChatAnswerResponse,
+  ChatReaction,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMessage,
@@ -22,10 +23,12 @@ import {
   replaceMessage,
   shareFeedByEntryId,
   shareFeedCache,
+  updateMessageReactions,
   upsertFeedEntry,
   useAnswerChatQuestion,
   useChatFeed,
   useSendChatMessage,
+  useToggleChatReaction,
 } from "./use-chat";
 
 afterEach(() => {
@@ -772,5 +775,195 @@ describe("replaceMessage", () => {
     const next = replaceMessage(cache, "optimistic-1", real)!;
     expect(next.pages[0]!.entries.map((e) => e.id)).toEqual(["real"]);
     expect(next.pages[0]!.entries[0]).toBe(cache.pages[0]!.entries[1]);
+  });
+});
+
+describe("updateMessageReactions", () => {
+  const thumbs: ChatReaction = {
+    id: "r1",
+    authorKind: "user",
+    emoji: "👍",
+    delivered: true,
+    createdAt: "2026-09-02T10:01:00.000Z",
+  };
+
+  it("rewrites one message's reactions and keeps everything else by identity", () => {
+    const client = seededClient([
+      chat(message({ id: "a" })),
+      chat(message({ id: "b" })),
+    ]);
+    const cache = client.getQueryData<FeedCache>(chatFeedQueryKey("agt_1"))!;
+    const next = updateMessageReactions(cache, "b", () => [thumbs])!;
+    expect(next.pages[0]!.entries[0]).toBe(cache.pages[0]!.entries[0]);
+    const b = next.pages[0]!.entries[1]!;
+    expect(b.type === "chat" && b.message.reactions).toEqual([thumbs]);
+  });
+
+  it("drops the key when the last reaction goes, matching the server's row", () => {
+    const client = seededClient([
+      chat(message({ id: "a", reactions: [thumbs] })),
+    ]);
+    const cache = client.getQueryData<FeedCache>(chatFeedQueryKey("agt_1"))!;
+    const next = updateMessageReactions(cache, "a", () => [])!;
+    const a = next.pages[0]!.entries[0]!;
+    expect(a.type === "chat" && "reactions" in a.message).toBe(false);
+  });
+
+  it("returns the same cache when the update changes nothing", () => {
+    const client = seededClient([chat(message({ id: "a" }))]);
+    const cache = client.getQueryData<FeedCache>(chatFeedQueryKey("agt_1"))!;
+    expect(updateMessageReactions(cache, "a", (r) => r)).toBe(cache);
+    expect(updateMessageReactions(cache, "missing", () => [thumbs])).toBe(
+      cache
+    );
+  });
+});
+
+describe("useToggleChatReaction", () => {
+  function setup(entries: ChatFeedEntry[]) {
+    const client = seededClient(entries);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useToggleChatReaction("agt_1"), {
+      wrapper,
+    });
+    return { client, result };
+  }
+
+  const stored = (delivered: boolean | null): ChatReaction => ({
+    id: "3f1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5",
+    authorKind: "user",
+    emoji: "🎉",
+    delivered,
+    createdAt: "2026-09-02T10:01:00.000Z",
+  });
+
+  it("shows the chip at once, posts the emoji, then swaps in the stored reaction", async () => {
+    const { client, result } = setup([chat(message({ id: "a" }))]);
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    let done: Promise<unknown> = Promise.resolve();
+    act(() => {
+      done = result.current.mutateAsync({
+        messageId: "a",
+        emoji: "🎉",
+        remove: false,
+      });
+    });
+    await waitFor(() =>
+      expect(feedMessages(client)[0]!.reactions).toEqual([
+        expect.objectContaining({
+          authorKind: "user",
+          emoji: "🎉",
+          delivered: null,
+        }),
+      ])
+    );
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/agents/agt_1/chat/messages/a/reactions",
+      { method: "POST", body: JSON.stringify({ emoji: "🎉" }) }
+    );
+    await act(async () => {
+      respond({ messageId: "a", reactions: [stored(null)] });
+      await done;
+    });
+    expect(feedMessages(client)[0]!.reactions).toEqual([stored(null)]);
+  });
+
+  it("never puts a pending response over a delivered reaction the stream already placed", async () => {
+    const { client, result } = setup([chat(message({ id: "a" }))]);
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    let done: Promise<unknown> = Promise.resolve();
+    act(() => {
+      done = result.current.mutateAsync({
+        messageId: "a",
+        emoji: "🎉",
+        remove: false,
+      });
+    });
+    await waitFor(() =>
+      expect(feedMessages(client)[0]!.reactions).toBeDefined()
+    );
+    // Delivery settled and its chat.entry landed before the response.
+    act(() => {
+      client.setQueryData<FeedCache>(chatFeedQueryKey("agt_1"), (old) =>
+        old
+          ? upsertFeedEntry(
+              old,
+              chat(message({ id: "a", reactions: [stored(true)] }))
+            ).cache
+          : old
+      );
+    });
+    await act(async () => {
+      respond({ messageId: "a", reactions: [stored(null)] });
+      await done;
+    });
+    expect(feedMessages(client)[0]!.reactions).toEqual([stored(true)]);
+  });
+
+  it("adds the user's emoji alongside the same emoji from the agent", async () => {
+    const agentThumbs: ChatReaction = {
+      ...stored(null),
+      id: "agent-r",
+      authorKind: "agent",
+    };
+    const { client, result } = setup([
+      chat(message({ id: "a", reactions: [agentThumbs] })),
+    ]);
+    apiMock.mockReturnValueOnce(new Promise(() => undefined));
+    act(() => {
+      void result.current.mutateAsync({
+        messageId: "a",
+        emoji: "🎉",
+        remove: false,
+      });
+    });
+    await waitFor(() =>
+      expect(feedMessages(client)[0]!.reactions).toEqual([
+        agentThumbs,
+        expect.objectContaining({ authorKind: "user", emoji: "🎉" }),
+      ])
+    );
+  });
+
+  it("removes the chip at once and deletes by the encoded emoji", async () => {
+    const { client, result } = setup([
+      chat(message({ id: "a", reactions: [stored(true)] })),
+    ]);
+    apiMock.mockResolvedValueOnce({ messageId: "a", reactions: [] });
+    await act(async () => {
+      await result.current.mutateAsync({
+        messageId: "a",
+        emoji: "🎉",
+        remove: true,
+      });
+    });
+    expect(apiMock).toHaveBeenCalledWith(
+      `/api/v1/agents/agt_1/chat/messages/a/reactions/${encodeURIComponent("🎉")}`,
+      { method: "DELETE" }
+    );
+    expect(feedMessages(client)[0]!.reactions).toBeUndefined();
+  });
+
+  it("asks the server again when a toggle fails", async () => {
+    const { client, result } = setup([chat(message({ id: "a" }))]);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    apiMock.mockRejectedValueOnce(new Error("agent stopped"));
+    await act(async () => {
+      await result.current
+        .mutateAsync({ messageId: "a", emoji: "👍", remove: false })
+        .catch(() => undefined);
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: chatFeedQueryKey("agt_1"),
+      exact: true,
+    });
   });
 });

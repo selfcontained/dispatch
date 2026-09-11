@@ -13,7 +13,10 @@ import { chatUrlSchema } from "../../chat/validation.js";
 
 export type ChatToolsContext = {
   agentId: string;
-  chat?: Pick<ChatService, "post" | "update">;
+  chat?: Pick<
+    ChatService,
+    "post" | "update" | "addReaction" | "removeReaction"
+  >;
   /**
    * The chat-surface flag (`chat_surface_enabled`). The tool is registered
    * either way — only its description changes, from describing an optional
@@ -162,6 +165,18 @@ export function buildChatPostDescription(chatSurface: boolean): string {
   );
 }
 
+/**
+ * What an agent can do with a reaction, and when one fits. Mechanics only:
+ * where the user is reading is the launch guidance's business, as for
+ * dispatch_chat_post's neutral description.
+ */
+export const CHAT_REACT_DESCRIPTION =
+  "React to one of the user's Chat messages with an emoji, shown under their message — a lightweight acknowledgement (👍 got it, 👀 looking into it, ✅ done) for a message that does not need a written reply. " +
+  "A reaction does not count as an unread message for the user, so anything they need to read still belongs in dispatch_chat_post. " +
+  "messageId is the id from the message's DISPATCH CHAT envelope. One of each emoji per message; set remove: true to take yours back. " +
+  "Returns { messageId, emoji } with the emoji you now have on that message. " +
+  "The user can react to your posts too; each of their reactions arrives as a DISPATCH CHAT REACTION envelope naming the message.";
+
 export function registerChatTools(
   server: McpServer,
   allowed: Set<string>,
@@ -236,6 +251,60 @@ export function registerChatTools(
             attachments: args.attachments,
           });
           const result = { id: message.id, updatedAt: message.updatedAt };
+          return {
+            content: [{ type: "text", text: jsonText(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_chat_react")) {
+    server.registerTool(
+      "dispatch_chat_react",
+      {
+        description: CHAT_REACT_DESCRIPTION,
+        inputSchema: {
+          messageId: z
+            .uuid()
+            .describe(
+              "Id of the user's message, from its DISPATCH CHAT envelope."
+            ),
+          emoji: z
+            .string()
+            .min(1)
+            .max(32)
+            .describe("A single emoji, such as 👍."),
+          remove: z
+            .boolean()
+            .optional()
+            .describe("True to take your reaction back off. Default false."),
+        },
+      },
+      async (args) => {
+        try {
+          const response = args.remove
+            ? await chat.removeReaction(
+                agentId,
+                args.messageId,
+                args.emoji,
+                "agent"
+              )
+            : await chat.addReaction(
+                agentId,
+                args.messageId,
+                args.emoji,
+                "agent"
+              );
+          const result = {
+            messageId: response.messageId,
+            emoji: response.reactions
+              .filter((reaction) => reaction.authorKind === "agent")
+              .map((reaction) => reaction.emoji),
+          };
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,

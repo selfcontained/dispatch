@@ -96,6 +96,33 @@ export type ChatAnswerRequest = {
   attachments?: ChatUserAttachmentInput[];
 };
 
+/**
+ * An emoji reaction on a Chat message. Each side reacts to the other's
+ * posts: the user to the agent's (the reaction is injected into the agent's
+ * pane), the agent to the user's via dispatch_chat_react (shown only).
+ * Removing a reaction only removes the chip.
+ */
+export type ChatReaction = {
+  id: string;
+  authorKind: ChatAuthorKind;
+  emoji: string;
+  /**
+   * User reactions only: whether pane injection succeeded; `null` while
+   * pending. Always `null` on agent reactions.
+   */
+  delivered: boolean | null;
+  createdAt: string;
+};
+
+/** Body of `POST /agents/:id/chat/messages/:messageId/reactions`. */
+export type ChatReactionRequest = { emoji: string };
+
+/** Response of the reaction add/remove routes: the message's reactions now. */
+export type ChatReactionResponse = {
+  messageId: string;
+  reactions: ChatReaction[];
+};
+
 export type ChatMessage = {
   id: string;
   agentId: string;
@@ -128,6 +155,11 @@ export type ChatMessage = {
    * attributes the post to that agent instead of to "You". Absent otherwise.
    */
   launchedByAgentId?: string;
+  /**
+   * Emoji reactions from the other side of the conversation, oldest first.
+   * Absent when there are none, and on rows not read through the feed.
+   */
+  reactions?: ChatReaction[];
   createdAt: string;
   updatedAt: string;
 };
@@ -292,3 +324,5 @@ export type ChatReadEvent = {
 export const CHAT_MESSAGE_MAX_CHARS = 20_000;
 export const CHAT_ATTACHMENTS_MAX = 20;
 export const CHAT_QUESTION_OPTIONS_MAX = 10;
+/** Distinct emoji one message can carry. */
+export const CHAT_REACTIONS_MAX = 20;

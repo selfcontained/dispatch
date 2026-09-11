@@ -1592,3 +1592,169 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(edited)).not.toBeNull();
   });
 });
+
+describe("reactions", () => {
+  const reaction = (
+    emoji: string,
+    delivered: boolean | null,
+    authorKind: "user" | "agent" = "user"
+  ): NonNullable<ChatMessage["reactions"]>[number] => ({
+    id: `r-${authorKind}-${emoji}`,
+    authorKind,
+    emoji,
+    delivered,
+    createdAt: "2026-09-02T10:01:00.000Z",
+  });
+
+  it("shows a chip per reaction with its delivery state, and clicking one removes it", () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "m1",
+            reactions: [
+              reaction("👍", true),
+              reaction("🎉", null),
+              reaction("👀", false),
+            ],
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction }
+    );
+    const chips = screen.getAllByTestId("chat-reaction");
+    expect(chips.map((chip) => chip.getAttribute("data-emoji"))).toEqual([
+      "👍",
+      "🎉",
+      "👀",
+    ]);
+    expect(chips.map((chip) => chip.getAttribute("data-delivered"))).toEqual([
+      "true",
+      "null",
+      "false",
+    ]);
+    expect(chips[2]!.getAttribute("title")).toMatch(/Not delivered/);
+    fireEvent.click(chips[0]!);
+    expect(onToggleReaction).toHaveBeenCalledWith("m1", "👍", true);
+  });
+
+  it("adds a reaction from the picker, and takes back one the message already has", async () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [chat(message({ id: "m1", reactions: [reaction("👍", true)] }))],
+      {},
+      { onToggleReaction }
+    );
+    fireEvent.click(screen.getByTestId("chat-add-reaction"));
+    const picker = await screen.findByTestId("chat-reaction-picker");
+    const thumbs = within(picker).getByRole("button", {
+      name: "Remove 👍 reaction",
+    });
+    expect(thumbs.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(
+      within(picker).getByRole("button", { name: "React with 🎉" })
+    );
+    expect(onToggleReaction).toHaveBeenCalledWith("m1", "🎉", false);
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-reaction-picker")).toBeNull()
+    );
+    fireEvent.click(screen.getByTestId("chat-add-reaction"));
+    fireEvent.click(
+      within(await screen.findByTestId("chat-reaction-picker")).getByRole(
+        "button",
+        { name: "Remove 👍 reaction" }
+      )
+    );
+    expect(onToggleReaction).toHaveBeenLastCalledWith("m1", "👍", true);
+  });
+
+  it("shows the agent's reactions on the user's post as labels the user cannot remove", () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "u1",
+            authorKind: "user",
+            text: "Can you check the logs?",
+            delivered: true,
+            reactions: [reaction("👀", null, "agent")],
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction }
+    );
+    const chip = screen.getByTestId("chat-reaction");
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.getAttribute("data-author-kind")).toBe("agent");
+    expect(chip.getAttribute("title")).toBe("builder reacted 👀");
+    fireEvent.click(chip);
+    expect(onToggleReaction).not.toHaveBeenCalled();
+  });
+
+  it("offers the picker only on agent messages, and only while messages can be sent", () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
+        chat(message({ id: "u1", authorKind: "user", text: "mine" })),
+        chat(
+          message({
+            id: "a1",
+            kind: "update",
+            createdAt: "2026-09-02T10:10:00.000Z",
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction }
+    );
+    const pickers = screen.getAllByTestId("chat-add-reaction");
+    expect(pickers).toHaveLength(1);
+    expect(
+      pickers[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+    ).toBe("a1");
+    cleanup();
+
+    renderFeed(
+      [chat(message({ id: "a1", reactions: [reaction("👍", true)] }))],
+      { answersDisabled: true },
+      { onToggleReaction }
+    );
+    // Greyed in place rather than removed, with the reason on hover.
+    const picker = screen.getByTestId("chat-add-reaction") as HTMLButtonElement;
+    expect(picker.disabled).toBe(true);
+    expect(
+      screen.getByTestId("chat-add-reaction-disabled").getAttribute("title")
+    ).toMatch(/can't receive them right now/);
+    fireEvent.click(picker);
+    expect(screen.queryByTestId("chat-reaction-picker")).toBeNull();
+    // A reaction can still be taken back while the agent is stopped.
+    expect(
+      (screen.getByTestId("chat-reaction") as HTMLButtonElement).disabled
+    ).toBe(false);
+  });
+
+  it("does not offer to remove a reaction whose add is still in flight", () => {
+    const onToggleReaction = vi.fn();
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "a1",
+            reactions: [{ ...reaction("🎉", null), id: "optimistic:🎉" }],
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction }
+    );
+    const chip = screen.getByTestId("chat-reaction") as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
+    expect(chip.getAttribute("aria-label")).toBe("Your 🎉 reaction");
+    fireEvent.click(chip);
+    expect(onToggleReaction).not.toHaveBeenCalled();
+  });
+});

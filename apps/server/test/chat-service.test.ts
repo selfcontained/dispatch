@@ -1029,3 +1029,282 @@ describe("ChatService user workflows", () => {
     expect(svc.inFlightDeliveryCount).toBe(1);
   });
 });
+
+describe("ChatService reactions", () => {
+  type Injected = { agentId: string; text: string };
+
+  function build(
+    opts: {
+      access?: ChatDeliveryAdapter["access"];
+      gate?: Promise<void>;
+      fail?: boolean;
+    } = {}
+  ) {
+    const events: unknown[] = [];
+    const injected: Injected[] = [];
+    const svc = new ChatService({
+      pool,
+      publishUiEvent: (event) => events.push(event),
+      getAgent: async (id) =>
+        id === A ? { id, mediaDir: null, pins: PINS as never } : null,
+      mediaRoot: "/media-root",
+      delivery: {
+        access:
+          opts.access ??
+          (async () => ({ mode: "tmux" as const, sessionName: "sess" })),
+        inject: async (agentId, _sessionName, text) => {
+          if (opts.gate) await opts.gate;
+          injected.push({ agentId, text });
+          if (opts.fail) throw new Error("pane gone");
+        },
+        held: () => false,
+      },
+    });
+    return { svc, events, injected };
+  }
+
+  /** The reactions on the message's feed row, as the last event carried them. */
+  function lastEntryReactions(events: unknown[]): unknown {
+    const last = events[events.length - 1] as {
+      type: string;
+      entry: { message: ChatMessage };
+    };
+    expect(last.type).toBe("chat.entry");
+    return last.entry.message.reactions;
+  }
+
+  async function agentPost(text = "Shipped it."): Promise<ChatMessage> {
+    return service.post(A, { text });
+  }
+
+  it("stores a pending reaction, injects a reaction envelope, then settles delivered", async () => {
+    const message = await agentPost("Shipped the fix.");
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { svc, events, injected } = build({ gate });
+
+    const res = await svc.addReaction(A, message.id, "👍");
+    expect(res).toEqual({
+      messageId: message.id,
+      reactions: [
+        {
+          id: expect.any(String),
+          authorKind: "user",
+          emoji: "👍",
+          delivered: null,
+          createdAt: expect.any(String),
+        },
+      ],
+    });
+    expect(injected).toHaveLength(0);
+    // The message's own feed row goes out with the pending reaction on it.
+    expect(events).toHaveLength(1);
+    expect(lastEntryReactions(events)).toEqual(res.reactions);
+
+    release();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([
+      {
+        agentId: A,
+        text: expect.stringContaining(
+          `--- DISPATCH CHAT REACTION (message id: ${message.id}) ---\nThe user reacted 👍 to your latest message:\n> Shipped the fix.\n`
+        ),
+      },
+    ]);
+    expect(await svc.store.listReactions(message.id)).toEqual([
+      expect.objectContaining({ emoji: "👍", delivered: true }),
+    ]);
+    expect(events).toHaveLength(2);
+    expect(lastEntryReactions(events)).toEqual([
+      expect.objectContaining({ emoji: "👍", delivered: true }),
+    ]);
+  });
+
+  it("adding an emoji the message already carries delivers nothing again", async () => {
+    const message = await agentPost();
+    const { svc, events, injected } = build();
+    await svc.addReaction(A, message.id, "🎉");
+    await svc.waitForInFlightDeliveries(1_000);
+    events.length = 0;
+
+    const again = await svc.addReaction(A, message.id, " 🎉 ");
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(again.reactions).toHaveLength(1);
+    expect(injected).toHaveLength(1);
+    expect(events).toEqual([]);
+  });
+
+  it("keeps several emoji on one message in the order they were added", async () => {
+    const message = await agentPost();
+    const { svc } = build();
+    await svc.addReaction(A, message.id, "👍");
+    await svc.addReaction(A, message.id, "🚀");
+    await svc.waitForInFlightDeliveries(1_000);
+    const entry = await svc.store.listReactions(message.id);
+    expect(entry.map((r) => r.emoji)).toEqual(["👍", "🚀"]);
+  });
+
+  it("records delivered=false when the pane write fails, and when there is no pane", async () => {
+    const message = await agentPost();
+    const failing = build({ fail: true });
+    await failing.svc.addReaction(A, message.id, "👀");
+    await failing.svc.waitForInFlightDeliveries(1_000);
+
+    const inert = build({
+      access: async () => ({ mode: "inert" as const, message: "no pane" }),
+    });
+    const res = await inert.svc.addReaction(A, message.id, "✅");
+    expect(inert.injected).toEqual([]);
+    expect(res.reactions).toEqual([
+      expect.objectContaining({ emoji: "👀", delivered: false }),
+      expect.objectContaining({ emoji: "✅", delivered: false }),
+    ]);
+  });
+
+  it("removes a reaction without injecting anything", async () => {
+    const message = await agentPost();
+    const { svc, events, injected } = build();
+    await svc.addReaction(A, message.id, "👍");
+    await svc.waitForInFlightDeliveries(1_000);
+    events.length = 0;
+
+    const res = await svc.removeReaction(A, message.id, "👍");
+    expect(res).toEqual({ messageId: message.id, reactions: [] });
+    expect(injected).toHaveLength(1);
+    // The feed row goes out again, now with no reactions key at all.
+    expect(events).toHaveLength(1);
+    expect(lastEntryReactions(events)).toBeUndefined();
+
+    // Removing what is not there changes and publishes nothing.
+    events.length = 0;
+    await svc.removeReaction(A, message.id, "👍");
+    expect(events).toEqual([]);
+  });
+
+  it("only takes reactions on this agent's own messages, with a real emoji", async () => {
+    const { svc, injected } = build();
+    const userMessage = await svc.sendUserMessage(A, "hi");
+    const message = await agentPost();
+    const elsewhere = await service.post("agt_someone_else", { text: "x" });
+
+    await expect(
+      svc.addReaction(A, userMessage.message.id, "👍")
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+    await expect(svc.addReaction(A, elsewhere.id, "👍")).rejects.toBeInstanceOf(
+      ChatNotFoundError
+    );
+    await expect(svc.addReaction(A, "not-a-uuid", "👍")).rejects.toBeInstanceOf(
+      ChatValidationError
+    );
+    await expect(svc.addReaction(A, message.id, "lgtm")).rejects.toBeInstanceOf(
+      ChatValidationError
+    );
+    await expect(
+      svc.removeReaction(A, elsewhere.id, "👍")
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+    await svc.waitForInFlightDeliveries(1_000);
+    // Only the user message was ever injected.
+    expect(injected).toHaveLength(1);
+  });
+
+  it("caps the distinct emoji on one message", async () => {
+    const message = await agentPost();
+    const { svc } = build({
+      access: async () => ({ mode: "inert" as const, message: "no pane" }),
+    });
+    const emoji = [..."😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙🥲😚🙂"];
+    for (const e of emoji) await svc.addReaction(A, message.id, e);
+    await expect(svc.addReaction(A, message.id, "🤗")).rejects.toBeInstanceOf(
+      ChatValidationError
+    );
+  });
+
+  it("recovery marks a reaction abandoned by a restart as not delivered", async () => {
+    const message = await agentPost();
+    const { svc, events } = build({ gate: new Promise<void>(() => {}) });
+    await svc.addReaction(A, message.id, "👍");
+    events.length = 0;
+    expect(await svc.recoverPendingDeliveries()).toEqual([A]);
+    expect(await svc.store.listReactions(message.id)).toEqual([
+      expect.objectContaining({ delivered: false }),
+    ]);
+    expect(events).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+  it("counts how many posts back an older message is, ignoring the user's posts", async () => {
+    const first = await agentPost("First take.");
+    const { svc, injected } = build();
+    await svc.sendUserMessage(A, "hmm");
+    await agentPost("Second take.");
+    await agentPost("Third take.");
+    await svc.waitForInFlightDeliveries(1_000);
+    injected.length = 0;
+    await svc.addReaction(A, first.id, "🤔");
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected[0]?.text).toContain(
+      "The user reacted 🤔 to your message from 2 posts ago:\n> First take."
+    );
+  });
+
+  it("lets the agent react to the user's messages, shown but never injected", async () => {
+    const { svc, events, injected } = build();
+    const userMessage = await svc.sendUserMessage(A, "Can you check the logs?");
+    await svc.waitForInFlightDeliveries(1_000);
+    injected.length = 0;
+    events.length = 0;
+
+    const res = await svc.addReaction(A, userMessage.message.id, "👀", "agent");
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(res.reactions).toEqual([
+      {
+        id: expect.any(String),
+        authorKind: "agent",
+        emoji: "👀",
+        delivered: null,
+        createdAt: expect.any(String),
+      },
+    ]);
+    expect(injected).toEqual([]);
+    expect(events).toHaveLength(1);
+    expect(lastEntryReactions(events)).toEqual(res.reactions);
+
+    // A restart's sweep leaves agent reactions alone: they had nothing to deliver.
+    expect(await svc.recoverPendingDeliveries()).toEqual([]);
+    expect(
+      (await svc.store.listReactions(userMessage.message.id))[0]?.delivered
+    ).toBeNull();
+
+    const removed = await svc.removeReaction(
+      A,
+      userMessage.message.id,
+      "👀",
+      "agent"
+    );
+    expect(removed.reactions).toEqual([]);
+  });
+
+  it("keeps each side to the other's posts, and each author's reactions its own", async () => {
+    const { svc } = build({
+      access: async () => ({ mode: "inert" as const, message: "no pane" }),
+    });
+    const agentMessage = await agentPost();
+    const userMessage = await svc.sendUserMessage(A, "hi", [], {
+      allowInert: true,
+    });
+
+    await expect(
+      svc.addReaction(A, agentMessage.id, "👍", "agent")
+    ).rejects.toThrow(/react to the user's messages/);
+    await expect(
+      svc.addReaction(A, userMessage.message.id, "👍", "user")
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+
+    await svc.addReaction(A, agentMessage.id, "👍", "user");
+    // The agent cannot take the user's reaction back off.
+    await svc.removeReaction(A, userMessage.message.id, "👍", "agent");
+    expect(await svc.store.listReactions(agentMessage.id)).toEqual([
+      expect.objectContaining({ authorKind: "user", emoji: "👍" }),
+    ]);
+  });
+});

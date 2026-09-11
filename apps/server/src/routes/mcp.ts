@@ -105,7 +105,7 @@ type McpRouteDeps = {
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
   surfaces: SurfaceService;
-  chat: Pick<ChatService, "post" | "update">;
+  chat: Pick<ChatService, "post" | "update" | "addReaction" | "removeReaction">;
 };
 
 function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {

@@ -73,6 +73,12 @@ vi.mock("@/hooks/use-chat", () => ({
     variables: undefined,
   }),
   useMarkChatRead: () => H.markRead,
+  // One mutate for the whole file: the feed's rows are memoised on a context
+  // built from it.
+  useToggleChatReaction: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate });
+  })(),
 }));
 // Counts renders of a post's markdown body: the feed's rows are memoised,
 // so a pane re-render that changes nothing they show must not reach it.
