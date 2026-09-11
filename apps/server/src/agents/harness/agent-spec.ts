@@ -1,12 +1,5 @@
 import { HARNESS_ENGINE_IDS, type HarnessEngineId } from "@dispatch/shared";
 
-/**
- * One row per engine the harness can run: what to spawn, how it gets full
- * access, how the persona reaches it, and what it negotiates. The
- * supervisor picks a row from the agent's model id; the driver spawns what
- * the row says and knows nothing else about the engine.
- */
-
 export type EngineBins = {
   claudeHarnessBin: string;
   codexHarnessBin: string;
@@ -48,7 +41,6 @@ export type EngineSpec = {
 
 const ENGINE_IDS: readonly string[] = HARNESS_ENGINE_IDS;
 
-/** `engine/model` at the first slash; the model half may itself contain slashes. */
 export function splitModelId(model: string): {
   engine: HarnessEngineId;
   model: string;

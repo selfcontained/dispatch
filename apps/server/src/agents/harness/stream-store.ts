@@ -9,7 +9,6 @@ export type StreamEventKind =
   | "turn"
   | "plan";
 
-/** Payload shapes by row kind. The recorder writes them; the Chat feed reads them. */
 export type AssistantPayload = {
   text: string;
   streaming: boolean;
@@ -33,11 +32,9 @@ export type ToolPayload = {
   parentToolCallId?: string;
 };
 export type StatusPayload = { message: string };
-/** The task list as the engine last published it; one row per turn, rewritten in place. */
 export type PlanPayload = {
   entries: { content: string; status: string; priority: string }[];
 };
-/** One harness turn: written at start, settled in place. */
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
@@ -48,7 +45,6 @@ export type TurnPayload = {
   autonomous?: boolean;
   stopReason?: string;
   error?: string;
-  /** ISO time of settle. */
   endedAt?: string;
   /** The engine's last usage_update in this turn: context used and, when reported, cost so far. */
   usage?: {
@@ -71,7 +67,6 @@ export type StreamEventRow = {
   agentId: string;
   seq: number;
   kind: StreamEventKind;
-  /** toolCallId for tool_call rows; null for everything else. */
   key: string | null;
   payload: Record<string, unknown>;
   createdAt: Date;

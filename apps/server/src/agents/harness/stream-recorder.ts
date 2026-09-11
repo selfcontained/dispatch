@@ -16,21 +16,16 @@ type OpenText = {
   row: StreamEventRow;
   text: string;
   truncated: boolean;
-  /** Text as last written; a flush is a no-op when nothing changed. */
   written: string;
   flushTimer: NodeJS.Timeout | null;
-  /** Writes for this row run in order: a timer flush never lands after close. */
   writing: Promise<void>;
 };
 
 /** Model output is not trusted input: bound what one row can hold. */
 export const TEXT_MAX_BYTES = 64 * 1024;
 export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
-/** A self-opened turn with no update for this long is over. */
 export const AUTONOMOUS_IDLE_MS = 20_000;
-/** The error a turn carries when the service went down under it. */
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
-/** Chunks arrive per token; rewrite the row at most this often. */
 export const FLUSH_INTERVAL_MS = 100;
 
 /**
@@ -60,7 +55,6 @@ function textOf(content: { type: string; text?: string } | undefined): string {
     : "";
 }
 
-/** Keep the head and the tail of over-long output; the middle is the least useful part. */
 export function boundOutput(
   text: string,
   maxBytes: number
@@ -95,7 +89,6 @@ export function boundInput(input: unknown): unknown {
   };
 }
 
-/** The parent tool call a nested call names (Claude stamps `_meta.claudeCode.parentToolUseId`). */
 function parentToolCallIdOf(meta: unknown): string | null {
   if (typeof meta !== "object" || meta === null) return null;
   const claude = (meta as { claudeCode?: unknown }).claudeCode;
@@ -166,7 +159,6 @@ export class StreamRecorder {
     Partial<Record<TextKind, OpenText>>
   >();
   private readonly cwd = new Map<string, string>();
-  /** The turn row awaiting its settle, per agent. */
   private readonly openTurn = new Map<string, StreamEventRow>();
   /**
    * A turn the engine opened on its own (a goal round) has no prompt response
@@ -178,14 +170,11 @@ export class StreamRecorder {
   constructor(
     private readonly store: StreamStore,
     private readonly deps: {
-      /** Quiet time after which a turn the engine opened by itself is settled. */
       autonomousIdleMs?: number;
-      /** A self-opened turn settled: the feed should re-read. */
       onAutonomousSettled?: (agentId: string) => void;
     } = {}
   ) {}
 
-  /** The agent's working directory, so file paths render relative to it. */
   setCwd(agentId: string, cwd: string): void {
     this.cwd.set(agentId, cwd);
   }

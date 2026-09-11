@@ -45,9 +45,7 @@ export type SupervisorDeps = {
     | "mediaRoot"
   >;
   logger: DriverLogger;
-  /** Injectable for tests; defaults to a driver that spawns the real binaries. */
   driver?: HarnessDriver;
-  /** How engine binaries are found before spawning; defaults to a PATH lookup. */
   resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   setCliSessionId: (id: string, sessionId: string) => Promise<void>;
@@ -62,7 +60,6 @@ export type SupervisorDeps = {
    * the session config is worth re-reading too.
    */
   publishHarness: (agentId: string, config?: boolean) => void;
-  /** Full persona text (see persona.ts). */
   personaPromptFor: (
     agent: AgentRecord,
     jobRunId: string | null
@@ -79,11 +76,8 @@ export type SupervisorDeps = {
    * first turn of a fresh session.
    */
   launchPromptFor: (agentId: string) => Promise<string | null>;
-  /** Harness agents recorded as running, for {@link HarnessSupervisor.restoreRunning}. */
   listRunningAgentIds: () => Promise<string[]>;
-  /** Record that an agent could not be brought back at boot. */
   markStartFailed: (id: string, message: string) => Promise<void>;
-  /** Persist a model switched mid-session, so a restart resumes on it. */
   setAgentModel?: (id: string, model: string | null) => Promise<void>;
   /**
    * The child exited without Dispatch asking it to: the agent must not stay
@@ -127,7 +121,6 @@ export function buildChildEnv(input: {
   mediaDir: string;
   config: Pick<AppConfig, "port" | "tls" | "dispatchBinDir">;
   base?: NodeJS.ProcessEnv;
-  /** The engine about to be launched, for the one variable that is engine-specific. */
   engine?: HarnessEngineId;
 }): NodeJS.ProcessEnv {
   const base = input.base ?? process.env;
@@ -170,7 +163,6 @@ export function buildChildEnv(input: {
   return env;
 }
 
-/** The `model` option: by id, or by ACP category for engines that name it otherwise. */
 export function modelOptionOf(
   options: readonly HarnessConfigOption[]
 ): HarnessConfigOption | undefined {
@@ -355,7 +347,6 @@ export class HarnessSupervisor {
     return this.driver.isRunning(agentId);
   }
 
-  /** A turn is running or queued for this agent. */
   isBusy(agentId: string): boolean {
     return this.running.has(agentId) || this.pendingOf(agentId).length > 0;
   }
@@ -364,7 +355,6 @@ export class HarnessSupervisor {
     return this.pending.get(agentId) ?? [];
   }
 
-  /** What waits behind the running turn, first to run first. */
   listQueued(agentId: string): QueuedPrompt[] {
     return this.pendingOf(agentId).map(({ id, source, createdAt }) => ({
       id,
@@ -389,7 +379,6 @@ export class HarnessSupervisor {
     return true;
   }
 
-  /** Move a queued prompt to the front; it runs as the next turn. */
   promoteQueued(agentId: string, id: string): boolean {
     const list = this.pendingOf(agentId);
     const index = list.findIndex((item) => item.id === id);
@@ -414,20 +403,17 @@ export class HarnessSupervisor {
     return true;
   }
 
-  /** "Send now": the prompt goes first, and the running turn is cut short. */
   async sendQueuedNow(agentId: string, id: string): Promise<boolean> {
     if (!this.promoteQueued(agentId, id)) return false;
     await this.interrupt(agentId);
     return true;
   }
 
-  /** The running session's options (model, effort); null when not running. */
   getConfigOptions(agentId: string): HarnessConfigOption[] | null {
     const options = this.driver.getConfigOptions(agentId);
     return options ? (options as HarnessConfigOption[]) : null;
   }
 
-  /** The slash commands the engine advertised; null when not running. */
   getCommands(agentId: string): HarnessCommand[] | null {
     const commands = this.driver.getCommands(agentId);
     return commands
@@ -439,7 +425,6 @@ export class HarnessSupervisor {
       : null;
   }
 
-  /** Switch a session option; a model switch is also stored on the agent as engine/model. */
   async setConfigOption(
     agentId: string,
     configId: string,
@@ -649,7 +634,6 @@ export class HarnessSupervisor {
     return { restored, failed };
   }
 
-  /** The engine a stored agent's model id names; null when it cannot be read. */
   private async engineFor(agentId: string): Promise<HarnessEngineId | null> {
     try {
       const agent = await this.deps.getAgent(agentId);
@@ -783,7 +767,6 @@ export class HarnessSupervisor {
     if (list.length > 0) this.deps.publishHarness(agentId);
   }
 
-  /** Runs one turn after any queued before it; resolves when it settles. */
   async prompt(agentId: string, text: string): Promise<void> {
     await this.enqueuePrompt(agentId, text).settled;
   }
@@ -902,7 +885,6 @@ export class HarnessSupervisor {
     }
   }
 
-  /** Publish now, dropping whatever an earlier update left on the timer. */
   private publishNow(agentId: string, config: boolean): void {
     const timer = this.publishTimers.get(agentId);
     if (timer) {
@@ -912,7 +894,6 @@ export class HarnessSupervisor {
     this.deps.publishHarness(agentId, config);
   }
 
-  /** Publish on a trailing timer: every update in one window is one frame. */
   private publishCoalesced(agentId: string): void {
     if (this.publishTimers.has(agentId)) return;
     const timer = setTimeout(() => {
@@ -923,7 +904,6 @@ export class HarnessSupervisor {
     this.publishTimers.set(agentId, timer);
   }
 
-  /** Resolves once every event queued so far for the agent has been handled. */
   private async drained(agentId: string): Promise<void> {
     await this.queues.get(agentId);
   }

@@ -5,24 +5,15 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./agent-spec.js";
 
-/**
- * The ACP client for the Dispatch Harness. One child per Dispatch agent,
- * spawned from the agent's engine spec; this module is the only place in
- * the server that speaks the protocol. Everything downstream consumes
- * {@link DriverEvent}s.
- */
-
 export type DriverUpdate = acp.SessionUpdate;
 export type DriverUsage = acp.Usage;
 
 export type DriverLaunch = {
   agentId: string;
   cwd: string;
-  /** What to spawn and how it takes persona, full access, and subagents. */
   engine: EngineSpec;
   /** The persona, for an engine whose spec says `system_prompt`; null otherwise. */
   systemPromptAppend: string | null;
-  /** Dispatch's streamable HTTP MCP endpoint for this agent. */
   mcp: { url: string; token: string };
   /** Resume this ACP session when set; falls back to a new one if the engine lost it. */
   sessionId: string | null;
@@ -79,11 +70,8 @@ type Live = {
   sessionId: string;
   stderrTail: string[];
   exited: Promise<ExitInfo>;
-  /** Set at the top of stop(): the exit that follows is expected. */
   stopping: boolean;
-  /** Session config options (model, reasoning effort) as the engine last reported. */
   config: { options: acp.SessionConfigOption[] };
-  /** Slash commands as the engine last advertised them; a holder shared with the update handler, like `config`. */
   commands: { list: acp.AvailableCommand[] };
 };
 
@@ -428,17 +416,14 @@ export class HarnessDriver {
     return outcome.session;
   }
 
-  /** The session's config options as last reported; null when not running. */
   getConfigOptions(agentId: string): acp.SessionConfigOption[] | null {
     return this.live.get(agentId)?.config.options ?? null;
   }
 
-  /** The slash commands the engine advertised; null when not running. */
   getCommands(agentId: string): acp.AvailableCommand[] | null {
     return this.live.get(agentId)?.commands.list ?? null;
   }
 
-  /** Apply one session config option (model, reasoning effort) to later turns. */
   async setConfigOption(
     agentId: string,
     configId: string,
