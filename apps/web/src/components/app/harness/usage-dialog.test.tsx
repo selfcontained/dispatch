@@ -77,6 +77,26 @@ vi.mock("./use-harness-usage", () => ({
     isFetching: false,
   }),
 }));
+vi.mock("./use-harness-auth", () => ({
+  HARNESS_AUTH_QUERY_KEY: ["harness-auth"],
+  useHarnessAuth: () => ({
+    data: {
+      checkedAt: "2026-09-11T00:00:00.000Z",
+      engines: [
+        {
+          engineId: "claude",
+          kind: "subscription",
+          label: "Claude team subscription",
+        },
+        {
+          engineId: "codex",
+          kind: "subscription",
+          label: "ChatGPT subscription",
+        },
+      ],
+    },
+  }),
+}));
 
 afterEach(cleanup);
 
@@ -101,6 +121,7 @@ describe("UsageDialog", () => {
       within(claude).getByTestId("harness-usage-bar").getAttribute("data-pct")
     ).toBe("73");
     const codex = screen.getByTestId("harness-usage-engine-codex");
+    expect(within(codex).getByText("ChatGPT subscription")).toBeTruthy();
     expect(within(codex).getAllByText("55k").length).toBeGreaterThan(0);
     expect(within(codex).getByText("no cost reported")).toBeTruthy();
     expect(within(codex).queryByTestId("harness-usage-bar")).toBeNull();

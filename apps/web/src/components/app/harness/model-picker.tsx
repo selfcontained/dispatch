@@ -109,7 +109,7 @@ export function ModelPicker({
   // composer's chip does with the same value.
   const fixedModelText =
     !launchModel || launchModel === "default"
-      ? `${engineLabel ?? "The engine"} default`
+      ? `${engineLabel ?? "The provider"} default`
       : launchModel;
 
   const apply = async () => {

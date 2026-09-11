@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ListChecks } from "lucide-react";
+import { ChevronDown, ChevronRight, ListChecks } from "lucide-react";
 
 import type { TodoItem } from "./registry";
 import { TodoList, todoProgress } from "./todo-list";
@@ -60,7 +60,11 @@ export function TasksStrip({
           aria-hidden="true"
           className="text-[9px] text-muted-foreground/70"
         >
-          {open ? "⏷" : "⏵"}
+          {open ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
         </span>
       </button>
       {open ? (

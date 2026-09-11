@@ -1,7 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -178,7 +178,11 @@ function NoticeLine({ notice }: { notice: DispatchNotice }): JSX.Element {
             aria-hidden="true"
             className="shrink-0 pt-1 text-[9px] text-muted-foreground/70"
           >
-            {open ? "⏷" : "⏵"}
+            {open ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
           </span>
         ) : null}
       </button>

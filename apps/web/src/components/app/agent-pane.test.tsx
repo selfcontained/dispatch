@@ -89,6 +89,10 @@ vi.mock("@/components/app/harness/use-harness-usage", () => ({
     refetch: vi.fn(),
   }),
 }));
+vi.mock("@/components/app/harness/use-harness-auth", () => ({
+  HARNESS_AUTH_QUERY_KEY: ["harness-auth"],
+  useHarnessAuth: () => ({ data: undefined }),
+}));
 vi.mock("@/hooks/use-injection-hold-state", () => ({
   useInjectionHoldState: () => null,
 }));

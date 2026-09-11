@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentModelSelect } from "./agent-model-select";
@@ -35,10 +35,7 @@ describe("AgentModelSelect", () => {
     }
   );
 
-  it("names the engine behind Default for the grouped harness catalog", () => {
-    // "Default (CLI setting)" is wrong for the harness: there is no single
-    // CLI, and the server stores claude/default, so the user got Claude Code
-    // without ever seeing the name.
+  it("splits the harness engine from its model", () => {
     const grouped = [
       {
         id: "claude/default",
@@ -47,13 +44,20 @@ describe("AgentModelSelect", () => {
       },
       { id: "codex/default", label: "Codex default", group: "Codex" },
     ];
+    const onChange = vi.fn();
     render(
-      <AgentModelSelect value={null} options={grouped} onChange={vi.fn()} />
+      <AgentModelSelect value={null} options={grouped} onChange={onChange} />
     );
+    expect(screen.getByText("Provider")).toBeTruthy();
+    expect(
+      screen.getByTestId("create-agent-model-engine").textContent
+    ).toContain("Claude Code");
     expect(screen.getByTestId("create-agent-model").textContent).toContain(
-      "Default (Claude Code)"
+      "Claude Code default"
     );
-    expect(screen.getByText("Engine and model")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("create-agent-model-engine"));
+    fireEvent.click(screen.getByRole("option", { name: "Codex" }));
+    expect(onChange).toHaveBeenLastCalledWith("codex/default");
   });
 
   it("keeps the trigger labelled while the catalog loads", () => {

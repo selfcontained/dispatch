@@ -195,6 +195,7 @@ describe("GET /api/v1/agents/:id/harness/queue", () => {
           id: "q_2",
           source: "agent",
           text: "take a look",
+          senderAgentId: "agt_other",
           senderName: "Reviewer",
           attachments: [],
           createdAt: "2026-09-08T10:00:01.000Z",

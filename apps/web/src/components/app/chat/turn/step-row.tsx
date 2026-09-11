@@ -2,6 +2,7 @@
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { Check, ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -114,7 +115,11 @@ export function StepRow({
           !expandable && "invisible"
         )}
       >
-        {expanded ? "⏷" : "⏵"}
+        {expanded ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
       </span>
     </>
   );
@@ -195,13 +200,13 @@ export function StatusGlyph({
           transition={arrive(DURATION.fast)}
           aria-hidden="true"
         >
-          ✓
+          <Check className="h-3 w-3" strokeWidth={2.5} />
         </motion.span>
       );
     case "retry":
       return (
         <span className={cn(base, "text-status-waiting")} aria-hidden="true">
-          ↻
+          <RotateCcw className="h-3 w-3" />
         </span>
       );
     case "error":
@@ -210,7 +215,7 @@ export function StatusGlyph({
           className={cn(base, "font-bold text-status-blocked")}
           aria-hidden="true"
         >
-          ✗
+          <X className="h-3 w-3" strokeWidth={2.5} />
         </span>
       );
     case "skipped":

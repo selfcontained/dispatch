@@ -1,4 +1,4 @@
-import { DEFAULT_HARNESS_MODEL, harnessEngineOf } from "@dispatch/shared";
+import { DEFAULT_HARNESS_MODEL } from "@dispatch/shared";
 
 import {
   Select,
@@ -57,19 +57,95 @@ export function AgentModelSelect({
       ? value
       : DEFAULT_VALUE;
 
-  // Only the harness catalog carries groups, and for it the choice is an
-  // engine as much as a model, while "Default" is not a CLI setting: the
-  // server stores DEFAULT_HARNESS_MODEL, so the row names that engine
-  // instead of leaving the user to find out after the agent starts.
   const grouped = options.some((option) => option.group);
-  const defaultEngine = harnessEngineOf(DEFAULT_HARNESS_MODEL)?.label;
-  const defaultQualifier =
-    grouped && defaultEngine ? defaultEngine : "CLI setting";
+  if (grouped) {
+    const groups = groupModelOptions(options).filter(
+      (bucket): bucket is { group: string; options: AgentModelOption[] } =>
+        bucket.group !== null
+    );
+    const resolved =
+      options.find((option) => option.id === value) ??
+      options.find((option) => option.id === DEFAULT_HARNESS_MODEL) ??
+      options[0];
+    const selectedGroup =
+      groups.find((bucket) => bucket.group === resolved?.group) ?? groups[0];
+    const modelValue = resolved?.id ?? "";
+    return (
+      <div className="grid gap-3 min-[420px]:grid-cols-2">
+        <div className="space-y-1">
+          <label
+            className="text-sm text-muted-foreground"
+            htmlFor={`${id}-engine`}
+          >
+            Provider
+          </label>
+          <Select
+            value={selectedGroup?.group ?? ""}
+            onValueChange={(group) => {
+              const bucket = groups.find(
+                (candidate) => candidate.group === group
+              );
+              const next =
+                bucket?.options.find((option) =>
+                  option.id.endsWith("/default")
+                ) ?? bucket?.options[0];
+              if (next) onChange(next.id);
+            }}
+          >
+            <SelectTrigger
+              id={`${id}-engine`}
+              data-testid={`${testId}-engine`}
+              disabled={loading}
+            >
+              <SelectValue>
+                {loading ? "Loading providers..." : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((bucket) => (
+                <SelectItem key={bucket.group} value={bucket.group}>
+                  {bucket.group}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-muted-foreground" htmlFor={id}>
+            Model
+          </label>
+          <Select
+            value={modelValue}
+            onValueChange={(nextValue) => {
+              // When the engine changes, Radix briefly rebuilds the hidden
+              // native select with a new option set. Ignore its transient
+              // empty value so it cannot overwrite the engine's default.
+              if (!nextValue) return;
+              onChange(nextValue);
+            }}
+          >
+            <SelectTrigger id={id} data-testid={testId} disabled={loading}>
+              <SelectValue>
+                {loading ? "Loading models..." : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {selectedGroup?.options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1">
       <label className="text-sm text-muted-foreground" htmlFor={id}>
-        {grouped ? "Engine and model" : "Model"}
+        {grouped ? "Provider and model" : "Model"}
       </label>
       <Select
         value={selectedValue}
@@ -87,9 +163,7 @@ export function AgentModelSelect({
         <SelectContent>
           <SelectItem value={DEFAULT_VALUE}>
             Default{" "}
-            <span className="text-xs text-muted-foreground">
-              ({defaultQualifier})
-            </span>
+            <span className="text-xs text-muted-foreground">(CLI setting)</span>
           </SelectItem>
           {groupModelOptions(options).map((bucket) =>
             bucket.group ? (

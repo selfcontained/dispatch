@@ -87,6 +87,9 @@ export type {
   HarnessUsageAgent,
   HarnessUsageEngine,
   HarnessUsageReport,
+  HarnessAuthKind,
+  HarnessAuthStatus,
+  HarnessAuthReport,
 } from "./harness-types.js";
 export {
   HARNESS_ENGINE_IDS,

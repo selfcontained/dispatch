@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 
 import { ProviderIcon } from "./provider-icon";
 import { useHarnessUsage } from "./use-harness-usage";
+import { AuthStatusBadge } from "./auth-status-badge";
+import { useHarnessAuth } from "./use-harness-auth";
 
 export function formatUsd(value: number): string {
   return value < 10 || !Number.isInteger(value)
@@ -65,7 +67,13 @@ function BudgetBar({
   );
 }
 
-function EngineRow({ engine }: { engine: HarnessUsageEngine }): JSX.Element {
+function EngineRow({
+  engine,
+  auth,
+}: {
+  engine: HarnessUsageEngine;
+  auth?: import("@dispatch/shared").HarnessAuthStatus;
+}): JSX.Element {
   const cost = engine.costUsd;
   return (
     <section
@@ -86,6 +94,9 @@ function EngineRow({ engine }: { engine: HarnessUsageEngine }): JSX.Element {
           </span>
         ) : null}
       </div>
+      {auth ? (
+        <AuthStatusBadge auth={auth} className="pl-5 text-[10.5px]" />
+      ) : null}
       {cost !== null && engine.budgetUsd ? (
         <div className="space-y-1">
           <BudgetBar
@@ -139,6 +150,7 @@ export function UsageDialog({
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const usage = useHarnessUsage(open);
+  const auth = useHarnessAuth(open);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" data-testid="harness-usage-dialog">
@@ -161,10 +173,20 @@ export function UsageDialog({
             </p>
           ) : (
             usage.data?.engines.map((engine) => (
-              <EngineRow key={engine.id} engine={engine} />
+              <EngineRow
+                key={engine.id}
+                engine={engine}
+                auth={auth.data?.engines.find(
+                  (item) => item.engineId === engine.id
+                )}
+              />
             ))
           )}
         </div>
+        <p className="text-[10.5px] text-muted-foreground">
+          Authentication reflects the host CLI login. ACP usage may differ from
+          provider billing.
+        </p>
         <div className="flex items-center justify-between">
           <span className="text-[10.5px] text-muted-foreground">
             {usage.data

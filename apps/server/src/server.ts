@@ -20,6 +20,7 @@ import * as z from "zod/v4";
 import { AgentManager } from "./agents/manager.js";
 import { HarnessSupervisor } from "./agents/harness/supervisor.js";
 import { loadUsageReport } from "./agents/harness/usage.js";
+import { createHarnessAuthReporter } from "./agents/harness/auth-status.js";
 import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
@@ -761,6 +762,12 @@ async function registerRoutes() {
     chat: chatService,
   });
 
+  const harnessAuthReport = createHarnessAuthReporter({
+    claude: config.claudeBin,
+    codex: config.codexBin,
+    gemini: config.geminiBin,
+    opencode: config.opencodeBin,
+  });
   await registerSystemRoutes(app, {
     pool,
     appLog: app.log,
@@ -770,6 +777,7 @@ async function registerRoutes() {
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     usageReport: async () => loadUsageReport(pool, await getUsageBudgets(pool)),
+    authReport: harnessAuthReport,
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 

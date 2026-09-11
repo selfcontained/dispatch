@@ -584,7 +584,7 @@ export function ChatPane({
   });
 
   return (
-    <MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion={isMobile ? "always" : "user"}>
       <div
         ref={dropRef}
         className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"

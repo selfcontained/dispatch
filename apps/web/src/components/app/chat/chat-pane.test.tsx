@@ -140,6 +140,21 @@ vi.mock("@/components/app/harness/use-harness-usage", () => ({
     refetch: vi.fn(),
   }),
 }));
+vi.mock("@/components/app/harness/use-harness-auth", () => ({
+  HARNESS_AUTH_QUERY_KEY: ["harness-auth"],
+  useHarnessAuth: () => ({
+    data: {
+      checkedAt: "2026-09-11T00:00:00.000Z",
+      engines: [
+        {
+          engineId: "codex",
+          kind: "subscription",
+          label: "ChatGPT subscription",
+        },
+      ],
+    },
+  }),
+}));
 vi.mock("@/components/app/harness/use-harness-commands", () => ({
   harnessCommandsQueryKey: (agentId: string | null) => [
     "harness-commands",
@@ -1087,7 +1102,12 @@ describe("ChatPane harness chrome", () => {
       .getByTestId("harness-model-chip")
       .querySelector('[data-testid="provider-icon"]');
     expect(mark?.getAttribute("data-provider")).toBe("openai");
-    expect(screen.getByTestId("harness-model-chip-label")).not.toBeNull();
+    expect(
+      screen.getByTestId("harness-model-chip-label").textContent
+    ).toContain("Codex");
+    expect(screen.getByTestId("harness-auth-codex").textContent).toContain(
+      "ChatGPT subscription"
+    );
   });
 
   it("falls back to the default engine's mark and login command when no model is stored", () => {

@@ -117,7 +117,9 @@ function CreateAgentDialogContent({
                 <div
                   className={cn(
                     "grid gap-3",
-                    showModelSelect && "min-[420px]:grid-cols-2"
+                    showModelSelect &&
+                      form.createType !== "dispatch" &&
+                      "min-[420px]:grid-cols-2"
                   )}
                 >
                   <AgentTypeSelect

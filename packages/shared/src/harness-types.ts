@@ -155,6 +155,27 @@ export type HarnessUsageReport = {
   engines: HarnessUsageEngine[];
 };
 
+export type HarnessAuthKind =
+  | "subscription"
+  | "api_key"
+  | "oauth"
+  | "configured"
+  | "not_signed_in"
+  | "unavailable";
+
+/** Sanitized host-CLI authentication metadata. Never contains credentials. */
+export type HarnessAuthStatus = {
+  engineId: HarnessEngineId;
+  kind: HarnessAuthKind;
+  label: string;
+  detail?: string;
+};
+
+export type HarnessAuthReport = {
+  checkedAt: string;
+  engines: HarnessAuthStatus[];
+};
+
 /** One completion of the composer's "@" path picker, spelled as the user typed the prefix. */
 export type HarnessPath = {
   path: string;

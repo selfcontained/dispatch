@@ -670,6 +670,7 @@ describe("loadQueued", () => {
         id: "q_1",
         source: "agent",
         text: "also this",
+        senderAgentId: "agt_r",
         senderName: "Reviewer",
         attachments: [],
         createdAt: at(2).toISOString(),

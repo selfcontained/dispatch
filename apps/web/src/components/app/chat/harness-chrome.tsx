@@ -24,6 +24,8 @@ import { useHarnessPathPicker } from "@/components/app/harness/use-harness-paths
 import { ModelPicker } from "@/components/app/harness/model-picker";
 import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { UsageDialog } from "@/components/app/harness/usage-dialog";
+import { AuthStatusBadge } from "@/components/app/harness/auth-status-badge";
+import { useHarnessAuth } from "@/components/app/harness/use-harness-auth";
 import {
   currentChoiceName,
   useHarnessConfig,
@@ -182,6 +184,7 @@ export function useHarnessChrome({
   const setConfig = useSetHarnessConfig(agentId);
   const commands = useHarnessCommands(agentId);
   const pathPicker = useHarnessPathPicker(agentId);
+  const auth = useHarnessAuth(agentId !== null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -292,6 +295,9 @@ export function useHarnessChrome({
   const errored = agent?.status === "error";
   const statusMessage = agent?.latestEvent?.message?.trim() || null;
   const engine = harnessEngineOf(agent?.model);
+  const engineAuth = auth.data?.engines.find(
+    (item) => item.engineId === engine?.id
+  );
   const modelName = currentChoiceName(config.model);
   const effortName = currentChoiceName(config.effort);
   const fixedReason =
@@ -302,9 +308,9 @@ export function useHarnessChrome({
     ? agent.model.slice(agent.model.indexOf("/") + 1)
     : null;
   const chipLabel = fixedReason
-    ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
+    ? `${engine?.label ?? "Engine"} · ${launchModel === "default" || !launchModel ? "default" : launchModel} · fixed`
     : config.running
-      ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+      ? `${engine?.label ?? "Engine"} · ${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
       : starting || agent?.status === "running"
         ? "starting…"
         : "model · not running";
@@ -441,7 +447,7 @@ export function useHarnessChrome({
               </motion.div>
             ) : null}
           </AnimatePresence>
-          <div className="mb-1 flex items-center gap-2">
+          <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setPickerOpen(true)}
@@ -483,10 +489,17 @@ export function useHarnessChrome({
                 </motion.span>
               </AnimatePresence>
             </button>
+            {engineAuth ? (
+              <AuthStatusBadge
+                auth={engineAuth}
+                compact
+                className="max-w-[11rem] rounded-full border border-border/60 px-2 py-0.5 text-[11px] pointer-coarse:min-h-11 pointer-coarse:px-3 max-sm:max-w-[9rem]"
+              />
+            ) : null}
             <button
               type="button"
               onClick={() => setUsageOpen(true)}
-              title="Engine usage this month (or type /usage)"
+              title="Provider usage this month (or type /usage)"
               data-testid="harness-usage-chip"
               disabled={starting}
               tabIndex={starting ? -1 : 0}

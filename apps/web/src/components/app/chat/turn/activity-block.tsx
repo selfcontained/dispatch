@@ -2,6 +2,7 @@
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
@@ -195,15 +196,15 @@ function BlockHeader({
     <ActivityBars size={11} className="justify-center" />
   ) : trace.finalResult === "error" ? (
     <span className="font-bold text-status-blocked" aria-hidden="true">
-      ✗
+      <X className="h-3 w-3" strokeWidth={2.5} />
     </span>
   ) : trace.finalResult === "interrupted" ? (
     <span className="font-bold text-status-waiting" aria-hidden="true">
-      ■
+      <Square className="h-2.5 w-2.5" fill="currentColor" />
     </span>
   ) : (
     <span className="font-bold text-status-done" aria-hidden="true">
-      ✓
+      <Check className="h-3 w-3" strokeWidth={2.5} />
     </span>
   );
   const inner = (
@@ -238,7 +239,7 @@ function BlockHeader({
           aria-hidden="true"
           className="text-[9px] text-muted-foreground/70"
         >
-          ⏷
+          <ChevronDown className="h-3 w-3" />
         </span>
       ) : null}
     </>
@@ -312,11 +313,11 @@ function CollapsedSummary({
         aria-hidden="true"
       >
         {failed ? (
-          <span className="font-bold text-status-blocked">✗</span>
+          <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />
         ) : interrupted ? (
-          <span className="font-bold text-status-waiting">■</span>
+          <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />
         ) : (
-          <span className="font-bold text-status-done">✓</span>
+          <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />
         )}
       </span>
       <span
@@ -332,7 +333,7 @@ function CollapsedSummary({
         aria-hidden="true"
         className="ml-auto text-[9px] text-muted-foreground/70"
       >
-        ⏵
+        <ChevronRight className="h-3 w-3" />
       </span>
     </button>
   );
@@ -377,7 +378,7 @@ function ThinkingRow({
       <RunningDots />
       <LiveDuration startedAt={since} />
       <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
-        ⏵
+        <ChevronRight className="h-3 w-3" />
       </span>
     </div>
   );
