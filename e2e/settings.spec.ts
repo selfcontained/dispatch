@@ -352,7 +352,7 @@ test.describe("Settings pane", () => {
     await toggle.scrollIntoViewIfNeeded();
     await expect(toggle).not.toBeChecked();
 
-    await toggle.check();
+    await toggle.click();
     await expect(toggle).toBeChecked();
 
     await expect
