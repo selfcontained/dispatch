@@ -194,7 +194,12 @@ function TurnEntryViewImpl({
         }
         data-testid="chat-turn-result"
       >
-        <div className={cn(POST_BODY_MEASURE, "min-w-0 font-terminal")}>
+        <div
+          className={cn(
+            POST_BODY_MEASURE,
+            "min-w-0 max-w-full font-terminal [overflow-wrap:anywhere]"
+          )}
+        >
           {showsActivity(trace) ? (
             <div className="mb-2">
               <ActivityBlock trace={trace} label={foldLabel} />

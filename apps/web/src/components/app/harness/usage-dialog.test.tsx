@@ -81,6 +81,14 @@ const providerReport: HarnessProviderUsageReport = {
   checkedAt: "2026-09-11T00:00:00.000Z",
   providers: [
     {
+      engineId: "codex",
+      plan: "Business",
+      observedAt: "2026-09-11T00:00:00.000Z",
+      windows: [
+        { id: "primary", label: "Weekly", usedPercent: 71, resetsAt: null },
+      ],
+    },
+    {
       engineId: "claude",
       plan: "Team",
       observedAt: "2026-09-11T00:00:00.000Z",
@@ -168,6 +176,14 @@ function renderDialog(props: Partial<Parameters<typeof UsageDialog>[0]> = {}) {
 }
 
 describe("UsageDialog", () => {
+  it("matches Codex status by showing remaining plan capacity", () => {
+    renderDialog({ providerId: "codex" });
+    const plan = screen.getByTestId("harness-provider-plan");
+    expect(within(plan).getByText("29% left")).toBeTruthy();
+    expect(
+      within(plan).getByRole("progressbar").getAttribute("aria-valuenow")
+    ).toBe("29");
+  });
   it("shows current context and the selected provider plan", () => {
     renderDialog();
     const context = screen.getByTestId("harness-context-usage");

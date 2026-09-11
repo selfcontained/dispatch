@@ -328,7 +328,7 @@ test.describe("harness agent", () => {
     );
   });
 
-  test("shows a running step's command live, then folds it when it settles", async ({
+  test("keeps step details closed until opened and preserves the choice when settled", async ({
     page,
     request,
   }) => {
@@ -360,9 +360,10 @@ test.describe("harness agent", () => {
     const step = live.getByTestId("harness-step").filter({ hasText: "bash" });
     await expect(step.getByRole("button")).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
       { timeout: 10_000 }
     );
+    await step.getByRole("button").click();
     await expect(step).toContainText("$ sleep 8");
     await expect(step).not.toContainText("slept well");
     await page.screenshot({
@@ -380,10 +381,9 @@ test.describe("harness agent", () => {
       .first();
     await expect(settled.getByRole("button")).toHaveAttribute(
       "aria-expanded",
-      "false"
+      "true"
     );
     await expect(settled).toContainText("sleep 8");
-    await settled.getByRole("button").click();
     await expect(settled).toContainText("slept well");
   });
 });

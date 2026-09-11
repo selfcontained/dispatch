@@ -27,18 +27,15 @@ const settled: Step = {
 };
 
 describe("StepRow fold", () => {
-  it("keeps showing the body it was open on while it folds after settling", () => {
+  it("removes closed details immediately without a height transition", () => {
     const { rerender } = render(
       <StepRow step={running} open onToggle={() => {}} maskClass="" />
     );
     expect(screen.getAllByText(/pnpm test/).length).toBeGreaterThan(0);
-    // The result lands and the row closes in the same commit: the fold
-    // still shows the command it was open on, not the output.
     rerender(
       <StepRow step={settled} open={false} onToggle={() => {}} maskClass="" />
     );
-    // The row summary and the frozen body both carry the command.
-    expect(screen.getAllByText(/pnpm test/).length).toBe(2);
+    expect(screen.getAllByText(/pnpm test/).length).toBe(1);
     expect(screen.queryByText(/42 passed/)).toBeNull();
     expect(screen.getByRole("button").getAttribute("aria-expanded")).toBe(
       "false"

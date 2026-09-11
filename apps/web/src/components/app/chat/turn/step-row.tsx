@@ -1,6 +1,5 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
 
@@ -13,9 +12,6 @@ import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
 
-/** Matches the fold's transition duration. */
-const FOLD_MS = DURATION.base * 1000;
-
 const STATUS_ARIA: Record<StepStatus, string> = {
   running: "running",
   ok: "completed",
@@ -25,7 +21,7 @@ const STATUS_ARIA: Record<StepStatus, string> = {
 };
 
 const ROW_CLASS =
-  "flex w-full items-center gap-[9px] py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
+  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
 
 /** One step in the activity rail: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -50,24 +46,6 @@ export function StepRow({
   // Only a step with something underneath gets a toggle.
   const expandable = hasDetail(step);
   const expanded = expandable && open;
-  // The body stays mounted while the rows collapse, or the fold snaps
-  // shut instead of animating; it unmounts once the transition ends (or
-  // after its duration, for a reduced-motion run that fires no event).
-  const [mounted, setMounted] = useState(expanded);
-  // What the fold shows is what was open: on the settle commit the step
-  // already carries its result, and rendering that would pop the body to
-  // the settled height before easing to zero. The last expanded render
-  // is kept and shown until the fold ends.
-  const shown = useRef(step);
-  if (expanded) shown.current = step;
-  useEffect(() => {
-    if (expanded) {
-      setMounted(true);
-      return;
-    }
-    const timer = setTimeout(() => setMounted(false), FOLD_MS + 50);
-    return () => clearTimeout(timer);
-  }, [expanded]);
   const label = stepLabel(step);
   const server = step.label ? toolName(step.label).server : undefined;
   const summary = running ? undefined : stepSummary(step);
@@ -76,7 +54,7 @@ export function StepRow({
       <StatusGlyph status={step.status} maskClass={maskClass} />
       <span
         className={cn(
-          "shrink-0 truncate text-[12px]",
+          "min-w-0 flex-1 truncate text-[12px]",
           running
             ? "font-medium text-status-working"
             : "font-normal text-foreground"
@@ -95,12 +73,10 @@ export function StepRow({
       {running ? (
         <RunningDots />
       ) : summary ? (
-        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+        <span className="hidden min-w-0 max-w-[35%] truncate text-[11px] text-muted-foreground sm:block">
           · {summary}
         </span>
-      ) : (
-        <span className="flex-1" />
-      )}
+      ) : null}
       {step.durMs ? (
         <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
           {formatStepDuration(step.durMs)}
@@ -132,6 +108,7 @@ export function StepRow({
       role="listitem"
       aria-live={running ? "polite" : undefined}
       data-testid="harness-step"
+      className="min-w-0 max-w-full"
       data-depth={depth}
       data-expandable={expandable ? "true" : "false"}
     >
@@ -153,21 +130,11 @@ export function StepRow({
           {inner}
         </div>
       )}
-      {/* The body's height animates 0 to auto on the fold's motion token. */}
-      <motion.div
-        animate={{ height: expanded ? "auto" : 0 }}
-        transition={arrive()}
-        style={{ overflow: "hidden" }}
-        onAnimationComplete={() => {
-          if (!expanded) setMounted(false);
-        }}
-      >
-        {expanded ? (
+      {expanded ? (
+        <div className="min-w-0 overflow-hidden pb-1">
           <StepDetail step={step} depth={depth} />
-        ) : mounted ? (
-          <StepDetail step={shown.current} depth={depth} />
-        ) : null}
-      </motion.div>
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -243,7 +210,7 @@ export function RunningDots(): JSX.Element {
   const { dots } = useStreamTicker(true);
   return (
     <span
-      className="min-w-0 flex-1 text-[11px] text-muted-foreground"
+      className="w-5 shrink-0 text-[11px] text-muted-foreground"
       aria-hidden="true"
     >
       {dots}

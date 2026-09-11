@@ -62,11 +62,11 @@ export function StepDetail({
               <StepRow
                 key={child.id}
                 step={child}
-                open={openIds[child.id] ?? child.status === "running"}
+                open={openIds[child.id] ?? false}
                 onToggle={() =>
                   setOpenIds((prev) => ({
                     ...prev,
-                    [child.id]: !(prev[child.id] ?? child.status === "running"),
+                    [child.id]: !(prev[child.id] ?? false),
                   }))
                 }
                 maskClass="bg-muted"

@@ -21,10 +21,10 @@ export function rowDelay(indexInBurst: number): number {
   return Math.min(Math.max(indexInBurst, 0), STAGGER_CAP) * STAGGER_S;
 }
 
-/** A step row landing: rise 4px and fade in. */
+/** Streamed rows fade without moving the text the user is reading. */
 export const rowVariants: Variants = {
-  hidden: { opacity: 0, y: 4 },
-  shown: { opacity: 1, y: 0 },
+  hidden: { opacity: 0 },
+  shown: { opacity: 1 },
 };
 
 export const fadeVariants: Variants = {

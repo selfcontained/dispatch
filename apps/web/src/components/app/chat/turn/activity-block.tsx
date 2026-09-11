@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "@/components/app/harness/format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
-import { hasChildren } from "./registry";
 import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
@@ -66,22 +65,14 @@ function ActivityBlockImpl({
   };
 
   const unaccountedMs = computeUnaccountedMs(trace);
-  // Open while running; a subagent step stays open while the turn runs,
-  // since its call returns the moment the child starts and the child's
-  // progress lives under it.
-  const stepOpen = (step: Step): boolean =>
-    stepOverrides[step.id] ??
-    (!done && (step.status === "running" || hasChildren(step)));
-  // The override flips the effective state, not the stored one: a step
-  // open by default (running) has no override yet, and its first click
-  // must close it.
+  // Stream updates must not open and close details underneath the reader.
+  const stepOpen = (step: Step): boolean => stepOverrides[step.id] ?? false;
   const toggleStep = (step: Step) =>
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
   return (
     <motion.div
-      layout
-      transition={arrive(DURATION.slow)}
+      className="min-w-0 max-w-full [overflow-wrap:anywhere]"
       data-testid="harness-activity-fold"
     >
       <AnimatePresence mode="wait" initial={false}>
@@ -115,7 +106,7 @@ function ActivityBlockImpl({
             exit="hidden"
             transition={{ ...arrive(DURATION.fast), borderColor: arrive() }}
             className={cn(
-              "rounded-md border border-border/60 px-3 py-2.5",
+              "min-w-0 max-w-full overflow-hidden rounded-md border border-border/60 px-3 py-2.5",
               BLOCK_FILL
             )}
             data-testid="harness-activity"

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ActivityBlock } from "./activity-block";
 import type { Trace } from "./contracts";
@@ -22,8 +28,43 @@ const open: Trace = {
   ],
 };
 const done: Trace = { ...open, endedAt: at + 1000, finalResult: "ok" };
+afterEach(cleanup);
 
 describe("ActivityBlock settle", () => {
+  it("does not toggle step details as the stream progresses", () => {
+    const step = {
+      ...open.steps[0],
+      kind: "execute" as const,
+      status: "running" as const,
+      detail: { input: { command: "pnpm test" } },
+    };
+    const { rerender } = render(
+      <ActivityBlock trace={{ ...open, steps: [step] }} />
+    );
+    const button = screen.getByRole("button", { name: /running/ });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(button);
+    rerender(
+      <ActivityBlock
+        trace={{
+          ...open,
+          steps: [
+            {
+              ...step,
+              status: "ok",
+              detail: { ...step.detail, terminalOutput: "Passed" },
+            },
+          ],
+        }}
+      />
+    );
+    expect(
+      screen
+        .getByRole("button", { name: /completed/ })
+        .getAttribute("aria-expanded")
+    ).toBe("true");
+    expect(screen.getByText("Passed")).toBeTruthy();
+  });
   it("renders the open rail while running and the collapsed summary once settled, both inside one layout group", async () => {
     const { rerender } = render(
       <MotionConfig reducedMotion="always">
