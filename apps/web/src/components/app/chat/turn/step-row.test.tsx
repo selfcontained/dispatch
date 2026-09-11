@@ -27,6 +27,20 @@ const settled: Step = {
 };
 
 describe("StepRow fold", () => {
+  it("expands a settled command even when the tool returned no output", () => {
+    const command = "git status --short --branch";
+    const noOutput: Step = {
+      ...running,
+      status: "ok",
+      detail: { input: { command }, terminalOutput: null },
+    };
+    render(<StepRow step={noOutput} open onToggle={() => {}} maskClass="" />);
+    expect(screen.getByRole("button").getAttribute("aria-expanded")).toBe(
+      "true"
+    );
+    expect(screen.getByText(command)).toBeTruthy();
+  });
+
   it("removes closed details immediately without a height transition", () => {
     const { rerender } = render(
       <StepRow step={running} open onToggle={() => {}} maskClass="" />

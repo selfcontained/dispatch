@@ -124,12 +124,10 @@ describe("hasDetail", () => {
     ).toBe(true);
   });
 
-  it("shows a running step's input before any output lands", () => {
+  it("keeps an execute command available before and after output lands", () => {
     const detail = { input: { command: "pnpm test" }, terminalOutput: null };
-    // Settled with no output there is nothing to open; running, the
-    // command it is waiting on is the body.
     expect(hasDetail(step({ kind: "execute", label: "bash", detail }))).toBe(
-      false
+      true
     );
     expect(
       hasDetail(

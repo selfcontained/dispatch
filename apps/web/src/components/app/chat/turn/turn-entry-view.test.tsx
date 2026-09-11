@@ -89,6 +89,7 @@ describe("TurnEntryView", () => {
     const result = screen.getByTestId("chat-turn-result");
     expect(result.getAttribute("data-author-kind")).toBe("agent");
     expect(result.getAttribute("data-grouped")).toBe("true");
+    expect(result.parentElement?.className).toContain("mt-3");
     expect(result.textContent).toContain("It documents the CLI.");
     // The rail sits between the two halves, inside the agent post.
     expect(

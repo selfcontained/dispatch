@@ -181,38 +181,40 @@ function TurnEntryViewImpl({
           onAnswer={NO_ANSWER}
         />
       ) : null}
-      <Post
-        author={agentAuthor(ctx, "Agent")}
-        at={entry.updatedAt}
-        grouped={true}
-        // The answer is the half a reader wants to lift out, and the prompt
-        // above it has had a copy button all along.
-        action={
-          entry.result?.text ? (
-            <MessageCopyButton text={entry.result.text} />
-          ) : undefined
-        }
-        data-testid="chat-turn-result"
-      >
-        <div
-          className={cn(
-            POST_BODY_MEASURE,
-            "w-full min-w-0 font-terminal [overflow-wrap:anywhere]"
-          )}
+      <div className="mt-3">
+        <Post
+          author={agentAuthor(ctx, "Agent")}
+          at={entry.updatedAt}
+          grouped={true}
+          // The answer is the half a reader wants to lift out, and the prompt
+          // above it has had a copy button all along.
+          action={
+            entry.result?.text ? (
+              <MessageCopyButton text={entry.result.text} />
+            ) : undefined
+          }
+          data-testid="chat-turn-result"
         >
-          {showsActivity(trace) ? (
-            <div className="mb-2">
-              <ActivityBlock trace={trace} label={foldLabel} />
-            </div>
-          ) : null}
-          <ResultTurn turn={result} />
-          <TurnShortcuts
-            agent={agent}
-            agentId={ctx.agentId}
-            steps={trace.steps}
-          />
-        </div>
-      </Post>
+          <div
+            className={cn(
+              POST_BODY_MEASURE,
+              "w-full min-w-0 font-terminal [overflow-wrap:anywhere]"
+            )}
+          >
+            {showsActivity(trace) ? (
+              <div className="mb-2">
+                <ActivityBlock trace={trace} label={foldLabel} />
+              </div>
+            ) : null}
+            <ResultTurn turn={result} />
+            <TurnShortcuts
+              agent={agent}
+              agentId={ctx.agentId}
+              steps={trace.steps}
+            />
+          </div>
+        </Post>
+      </div>
     </div>
   );
 }

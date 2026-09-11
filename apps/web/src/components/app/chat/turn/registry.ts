@@ -271,11 +271,12 @@ export function hasDetail(step: Step): boolean {
 export function hasSettledDetail(step: Step): boolean {
   if (hasChildren(step)) return true;
   const d = stepDetailData(step);
+  const input = inputRecord(d.input);
   const output = !!d.terminalOutput?.trim();
   const locations = (d.locations?.length ?? 0) > 0;
   switch (step.kind) {
     case "execute":
-      return output;
+      return output || typeof (input?.command ?? input?.cmd) === "string";
     case "edit":
       return !!d.diff || locations;
     case "read":
