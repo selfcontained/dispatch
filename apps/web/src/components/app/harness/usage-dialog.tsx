@@ -1,4 +1,5 @@
 import type {
+  HarnessAuthStatus,
   HarnessEngineId,
   HarnessProviderPlan,
   HarnessUsageEngine,
@@ -168,13 +169,7 @@ function ContextSection({
   );
 }
 
-function EngineRow({
-  engine,
-  auth,
-}: {
-  engine: HarnessUsageEngine;
-  auth?: import("@dispatch/shared").HarnessAuthStatus;
-}): JSX.Element {
+function EngineRow({ engine }: { engine: HarnessUsageEngine }): JSX.Element {
   const cost = engine.costUsd;
   return (
     <section
@@ -195,9 +190,6 @@ function EngineRow({
           </span>
         ) : null}
       </div>
-      {auth ? (
-        <AuthStatusBadge auth={auth} className="pl-5 text-[10.5px]" />
-      ) : null}
       {cost !== null && engine.budgetUsd ? (
         <div className="space-y-1">
           <UsageBar
@@ -238,6 +230,56 @@ function EngineRow({
   );
 }
 
+function ApiUsage({
+  usage,
+  selectedUsage,
+}: {
+  usage: ReturnType<typeof useHarnessUsage>;
+  selectedUsage?: HarnessUsageEngine;
+}): JSX.Element {
+  return (
+    <section className="space-y-2" data-testid="harness-api-usage">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-medium text-foreground">API usage</h3>
+        <span className="text-[10.5px] text-muted-foreground">
+          {usage.data
+            ? `since ${new Date(usage.data.monthStart).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}`
+            : ""}
+        </span>
+      </div>
+      {usage.isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading usage…</p>
+      ) : usage.error ? (
+        <p className="text-xs text-destructive" role="alert">
+          {usage.error.message}
+        </p>
+      ) : selectedUsage ? (
+        <EngineRow engine={selectedUsage} />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          API usage is not available for this provider yet.
+        </p>
+      )}
+      <p className="text-[10.5px] text-muted-foreground">
+        Reported through ACP and may differ from the provider invoice.
+      </p>
+    </section>
+  );
+}
+
+function UnknownBilling({ auth }: { auth?: HarnessAuthStatus }): JSX.Element {
+  return (
+    <section className="space-y-2" data-testid="harness-billing-unknown">
+      <h3 className="text-xs font-medium text-foreground">Billing usage</h3>
+      <p className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+        {auth?.kind === "not_signed_in"
+          ? "Sign in to this provider to see its billing usage."
+          : "Could not determine whether this provider uses a subscription or API key."}
+      </p>
+    </section>
+  );
+}
+
 export function UsageDialog({
   open,
   onOpenChange,
@@ -261,6 +303,13 @@ export function UsageDialog({
   const selectedAuth = auth.data?.engines.find(
     (item) => item.engineId === providerId
   );
+  const billingMethod =
+    selectedAuth?.kind === "subscription"
+      ? "subscription"
+      : selectedAuth?.kind === "api_key"
+        ? "api_key"
+        : "unknown";
+  const providerLabel = selectedUsage?.label ?? "Selected provider";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -270,40 +319,23 @@ export function UsageDialog({
         <DialogHeader>
           <DialogTitle>Usage</DialogTitle>
           <DialogDescription>
-            {selectedUsage?.label ?? "Selected provider"} plan and usage
+            {providerLabel}{" "}
+            {billingMethod === "subscription"
+              ? "subscription usage"
+              : billingMethod === "api_key"
+                ? "API usage"
+                : "usage"}
           </DialogDescription>
         </DialogHeader>
+        {selectedAuth ? <AuthStatusBadge auth={selectedAuth} /> : null}
         <ContextSection usage={contextUsage ?? null} />
-        <ProviderPlan plan={selectedPlan} />
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <h3 className="text-xs font-medium text-foreground">
-            Local usage this month
-          </h3>
-          <span className="text-[10.5px] text-muted-foreground">
-            {usage.data
-              ? `since ${new Date(usage.data.monthStart).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}`
-              : ""}
-          </span>
-        </div>
-        <div className="space-y-2">
-          {usage.isLoading ? (
-            <p className="text-xs text-muted-foreground">Loading usage…</p>
-          ) : usage.error ? (
-            <p className="text-xs text-destructive" role="alert">
-              {usage.error.message}
-            </p>
-          ) : selectedUsage ? (
-            <EngineRow engine={selectedUsage} auth={selectedAuth} />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Usage is not available for this provider yet.
-            </p>
-          )}
-        </div>
-        <p className="text-[10.5px] text-muted-foreground">
-          Authentication reflects the host CLI login. ACP usage may differ from
-          provider billing.
-        </p>
+        {billingMethod === "subscription" ? (
+          <ProviderPlan plan={selectedPlan} />
+        ) : billingMethod === "api_key" ? (
+          <ApiUsage usage={usage} selectedUsage={selectedUsage} />
+        ) : (
+          <UnknownBilling auth={selectedAuth} />
+        )}
         <div className="flex items-center justify-between">
           <span className="text-[10.5px] text-muted-foreground">
             {usage.data

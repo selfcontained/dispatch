@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import type {
+  HarnessAuthKind,
   HarnessProviderUsageReport,
   HarnessUsageReport,
 } from "@dispatch/shared";
@@ -90,6 +91,10 @@ const providerReport: HarnessProviderUsageReport = {
   ],
 };
 
+const mockAuth = vi.hoisted(() => ({
+  kind: "subscription" as HarnessAuthKind,
+}));
+
 vi.mock("./use-harness-usage", () => ({
   HARNESS_USAGE_QUERY_KEY: ["harness-usage"],
   useHarnessUsage: () => ({
@@ -108,8 +113,13 @@ vi.mock("./use-harness-auth", () => ({
       engines: [
         {
           engineId: "claude",
-          kind: "subscription",
-          label: "Claude team subscription",
+          kind: mockAuth.kind,
+          label:
+            mockAuth.kind === "subscription"
+              ? "Claude team subscription"
+              : mockAuth.kind === "api_key"
+                ? "Anthropic API key"
+                : "Claude login configured",
         },
         {
           engineId: "codex",
@@ -129,7 +139,10 @@ vi.mock("./use-provider-usage", () => ({
   }),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mockAuth.kind = "subscription";
+});
 
 function renderDialog() {
   const client = new QueryClient();
@@ -154,13 +167,16 @@ describe("UsageDialog", () => {
     expect(within(plan).getByText("Team")).toBeTruthy();
     expect(within(plan).getByText("32% used")).toBeTruthy();
     expect(within(plan).getByText("Extra usage: $12 of $50")).toBeTruthy();
+    expect(screen.queryByTestId("harness-api-usage")).toBeNull();
   });
 
-  it("shows monthly usage only for the selected provider", () => {
+  it("shows API usage only for the selected provider when using an API key", () => {
+    mockAuth.kind = "api_key";
     renderDialog();
+    expect(screen.getByText("Claude Code API usage")).toBeTruthy();
+    expect(screen.getByText("Anthropic API key")).toBeTruthy();
+    expect(screen.queryByTestId("harness-provider-plan")).toBeNull();
     const claude = screen.getByTestId("harness-usage-engine-claude");
-    // The one agent under claude carries the same totals as the engine, so
-    // both the engine summary and the agent line read "1.2M" / "$14.50".
     expect(within(claude).getAllByText("1.2M").length).toBeGreaterThan(0);
     expect(within(claude).getAllByText("$14.50").length).toBeGreaterThan(0);
     expect(
@@ -172,7 +188,7 @@ describe("UsageDialog", () => {
   });
 
   it("says what the bar is a fraction of", () => {
-    // A bar at 73% with only the spend beside it never says 73% of what.
+    mockAuth.kind = "api_key";
     renderDialog();
     expect(
       within(screen.getByTestId("harness-usage-engine-claude")).getByTestId(
@@ -182,12 +198,23 @@ describe("UsageDialog", () => {
   });
 
   it("lists the agents under an engine", () => {
+    mockAuth.kind = "api_key";
     renderDialog();
     expect(
       within(screen.getByTestId("harness-usage-engine-claude")).getByText(
         "Docs bot"
       )
     ).toBeTruthy();
+  });
+
+  it("does not guess the billing method for a configured login", () => {
+    mockAuth.kind = "configured";
+    renderDialog();
+    expect(screen.getByTestId("harness-billing-unknown").textContent).toContain(
+      "Could not determine whether this provider uses a subscription or API key."
+    );
+    expect(screen.queryByTestId("harness-provider-plan")).toBeNull();
+    expect(screen.queryByTestId("harness-api-usage")).toBeNull();
   });
 });
 
