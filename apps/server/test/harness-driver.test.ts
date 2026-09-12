@@ -6,6 +6,7 @@ import {
 } from "../src/agents/harness/agent-spec.js";
 import {
   HarnessDriver,
+  CANCEL_GRACE_MS,
   type DriverEvent,
   type DriverLaunch,
 } from "../src/agents/harness/driver.js";
@@ -48,6 +49,62 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("HarnessDriver", () => {
+  it("terminates an engine that ignores Stop instead of holding the turn forever", async () => {
+    const fake = createFakeAcpAgent({
+      turn: async () => new Promise(() => {}),
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start(launch());
+    const turn = driver.prompt("agt_1", "hang");
+    const failed = expect(turn).rejects.toThrow(/exited/);
+    await vi.waitFor(() => expect(fake.seen.prompts).toEqual(["hang"]));
+    vi.useFakeTimers();
+    try {
+      await driver.cancel("agt_1");
+      await vi.advanceTimersByTimeAsync(CANCEL_GRACE_MS);
+      await failed;
+      expect(fake.signals).toEqual(["SIGKILL"]);
+      expect(driver.isRunning("agt_1")).toBe(false);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "exit",
+          expected: false,
+          reason: expect.stringContaining("did not respond to Stop"),
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+      await driver.stop("agt_1");
+    }
+  });
+
+  it("clears the Stop deadline when cancellation settles normally", async () => {
+    const fake = createFakeAcpAgent({
+      turn: async (_text, _emit, _ask, signal) =>
+        new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve("cancelled"), {
+            once: true,
+          });
+        }),
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(launch());
+    const turn = driver.prompt("agt_1", "wait");
+    await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+    await driver.cancel("agt_1");
+    await turn;
+    vi.useFakeTimers();
+    try {
+      await vi.advanceTimersByTimeAsync(CANCEL_GRACE_MS);
+      expect(fake.signals).toEqual([]);
+      expect(driver.isRunning("agt_1")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      await driver.stop("agt_1");
+    }
+  });
   it("claude: spawns the adapter with its args and env, declares subagent transcripts, sends the persona in _meta", async () => {
     const fake = createFakeAcpAgent();
     const { spawn, driver } = driverWith(fake);

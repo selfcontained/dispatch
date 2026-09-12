@@ -131,6 +131,30 @@ describe("injectAgentPrompt (wrapper)", () => {
 });
 
 describe("enqueueAgentPrompt for harness agents", () => {
+  it("acknowledges a notification while the receiving harness turn is busy", async () => {
+    const { injectAgentPrompt, agentManager } = build();
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "harness",
+      busy: true,
+    });
+    let accept!: () => void;
+    agentManager.promptHarness.mockReturnValue({
+      started: new Promise<void>((resolve) => {
+        accept = resolve;
+      }),
+      settled: Promise.resolve(),
+    });
+    // Resolves before accept: a reviewer can finish its tool call even when
+    // the parent has not yielded the turn needed to receive the review.
+    await injectAgentPrompt("agt_d", "review complete", {
+      awaitDelivery: false,
+    });
+    expect(agentManager.promptHarness).toHaveBeenCalledWith(
+      "agt_d",
+      "review complete"
+    );
+    accept();
+  });
   it("routes the prompt to the manager's harness turn instead of the pane", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
     agentManager.getPromptTarget.mockResolvedValue({

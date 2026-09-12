@@ -179,7 +179,8 @@ describe("createReviewHandlers", () => {
       });
       expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
         "agt_parent",
-        "item-state-prompt"
+        "item-state-prompt",
+        { awaitDelivery: false }
       );
     });
 
@@ -399,7 +400,8 @@ describe("createReviewHandlers", () => {
       );
       expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
         "agt_parent",
-        "submitted-prompt"
+        "submitted-prompt",
+        { awaitDelivery: false }
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
         type: "review.created",

@@ -117,6 +117,22 @@ test.describe("harness agent", () => {
       });
       expect(agent.status).toBe("running");
 
+      // This scenario checks ACP token/cost reporting, shown for API-key
+      // billing. Do not let the developer's CLI login choose a plan view.
+      await page.route("**/api/v1/harness/auth", (route) =>
+        route.fulfill({
+          json: {
+            checkedAt: new Date().toISOString(),
+            engines: [
+              {
+                engineId: engine.model.split("/")[0],
+                kind: "api_key",
+                label: "Test API key",
+              },
+            ],
+          },
+        })
+      );
       await loadApp(page);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await clickAgentRow(page, agent.id);
@@ -304,6 +320,43 @@ test.describe("harness agent", () => {
     await expect(
       pane.getByTestId("chat-scroll").getByTestId("harness-queued")
     ).toHaveCount(0);
+
+    // A burst of persona replies must not consume the fixed composer area.
+    // Queue user prompts here through the same supervisor path.
+    for (let i = 0; i < 10; i++) {
+      await input.fill(`background reply ${i}`);
+      await input.press("Enter");
+      await expect(
+        pane.getByRole("button", {
+          name: `${i + 3} queued messages`,
+          exact: false,
+        })
+      ).toBeVisible();
+    }
+    const queueToggle = pane.getByRole("button", {
+      name: "12 queued messages",
+      exact: false,
+    });
+    await expect(queueToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(input).toBeInViewport();
+    await queueToggle.click();
+    const queueRegion = pane.getByRole("region", { name: "Queued messages" });
+    await expect(queued).toHaveCount(12);
+    expect(
+      await queueRegion.evaluate(
+        (element) => element.scrollHeight > element.clientHeight
+      )
+    ).toBe(true);
+    await expect(input).toBeInViewport();
+    await page.screenshot({
+      path: path.join(os.tmpdir(), "dispatch-harness-queue-expanded.png"),
+    });
+    // Remove from the bottom, exercising the scrollable list and preserving
+    // the original two messages for the Send now flow below.
+    for (let count = 12; count > 2; count--) {
+      await queued.last().getByTestId("harness-queued-remove").click();
+      await expect(queued).toHaveCount(count - 1);
+    }
 
     await queued.nth(0).getByTestId("harness-queued-remove").click();
     await expect(queued).toHaveCount(1, { timeout: 30_000 });

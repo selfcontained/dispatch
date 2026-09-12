@@ -161,6 +161,15 @@ export class StreamRecorder {
   private readonly cwd = new Map<string, string>();
   private readonly openTurn = new Map<string, StreamEventRow>();
   /**
+   * ACP defines the prompt response as the turn boundary. An adapter can
+   * still flush transport notifications behind that response; retain them as
+   * trailing output of the closed prompt rather than inventing a second live
+   * turn that races the next prompt. The window is deliberately open until
+   * the next prompt, exit, or reconcile: no bridged engine starts work of its
+   * own after a response, so anything that arrives in between is a tail.
+   */
+  private readonly trailingPrompt = new Set<string>();
+  /**
    * A turn the engine opened on its own (a goal round) has no prompt response
    * to end it; it settles once the stream has been quiet for a while, or when
    * something else starts.
@@ -186,6 +195,11 @@ export class StreamRecorder {
       case "turn": {
         if (event.state === "started") {
           await this.settleAutonomous(event.agentId);
+          // A text tail that arrived after the previous prompt settled opened
+          // its own assistant row under that turn; close it so this turn's
+          // reply starts a row of its own.
+          await this.closeText(event.agentId);
+          this.trailingPrompt.delete(event.agentId);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt: parsePromptSource(event.text),
@@ -205,6 +219,9 @@ export class StreamRecorder {
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
+          if (!(prev as TurnPayload).autonomous) {
+            this.trailingPrompt.add(event.agentId);
+          }
         }
         if (event.error) {
           await this.store.append(event.agentId, "status", {
@@ -216,6 +233,7 @@ export class StreamRecorder {
       case "exit": {
         await this.closeText(event.agentId);
         this.cwd.delete(event.agentId);
+        this.trailingPrompt.delete(event.agentId);
         // The child is gone, so the turn it was running can never settle
         // through the prompt path; settle it here or the view spins forever.
         const open = this.openTurn.get(event.agentId);
@@ -252,6 +270,7 @@ export class StreamRecorder {
     if (timer) clearTimeout(timer);
     this.autonomousIdle.delete(agentId);
     this.openTurn.delete(agentId);
+    this.trailingPrompt.delete(agentId);
     return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
   }
 
@@ -310,6 +329,10 @@ export class StreamRecorder {
       this.touchAutonomous(agentId);
       return;
     }
+    // ACP's prompt response closes a turn. Notifications that arrive after
+    // that response are a transport tail of the closed turn, not autonomous
+    // work, and must never make the composer advertise a phantom Stop state.
+    if (this.trailingPrompt.has(agentId)) return;
     // Only content opens a turn; a config change is not the agent working.
     if (
       update.sessionUpdate !== "agent_message_chunk" &&
@@ -342,8 +365,30 @@ export class StreamRecorder {
 
   /** Close a turn the engine opened by itself; a no-op for a prompted turn. */
   async settleAutonomous(agentId: string): Promise<void> {
+    await this.closeAutonomous(agentId, "end_turn");
+  }
+
+  /** Whether late stream activity has opened its own, promptless turn. */
+  hasAutonomousTurn(agentId: string): boolean {
     const open = this.openTurn.get(agentId);
-    if (!open || !(open.payload as TurnPayload).autonomous) return;
+    return Boolean(open && (open.payload as TurnPayload).autonomous);
+  }
+
+  /**
+   * Stop a promptless round explicitly. A few ACP adapters resolve the
+   * original prompt before their final tool activity has drained; that work
+   * is still visible and must remain cancellable from the harness chrome.
+   */
+  async interruptAutonomous(agentId: string): Promise<boolean> {
+    return this.closeAutonomous(agentId, "cancelled");
+  }
+
+  private async closeAutonomous(
+    agentId: string,
+    stopReason: "end_turn" | "cancelled"
+  ): Promise<boolean> {
+    const open = this.openTurn.get(agentId);
+    if (!open || !(open.payload as TurnPayload).autonomous) return false;
     const timer = this.autonomousIdle.get(agentId);
     if (timer) clearTimeout(timer);
     this.autonomousIdle.delete(agentId);
@@ -352,11 +397,12 @@ export class StreamRecorder {
     await this.store.updatePayload(open.id, {
       ...prev,
       state: "settled",
-      stopReason: "end_turn",
+      stopReason,
       endedAt: new Date().toISOString(),
     } satisfies TurnPayload);
     this.openTurn.delete(agentId);
     this.deps.onAutonomousSettled?.(agentId);
+    return true;
   }
 
   private async handleUpdate(

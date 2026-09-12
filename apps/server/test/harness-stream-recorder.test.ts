@@ -648,6 +648,67 @@ describe("StreamRecorder autonomous turns", () => {
     await rec.reconcile(A);
   });
 
+  it("can interrupt a promptless round before its idle timer fires", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle(call("c1"));
+    expect(rec.hasAutonomousTurn(A)).toBe(true);
+    expect(await rec.interruptAutonomous(A)).toBe(true);
+    expect(rec.hasAutonomousTurn(A)).toBe(false);
+    expect((await turnRows())[0]).toMatchObject({
+      state: "settled",
+      stopReason: "cancelled",
+    });
+  });
+
+  it("does not reopen a settled prompt for a delayed transport tail", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle({ type: "turn", agentId: A, state: "settled" });
+    await rec.handle(call("late"));
+    expect(rec.hasAutonomousTurn(A)).toBe(false);
+    expect((await turnRows())[0]).toMatchObject({ state: "settled" });
+  });
+
+  it("closes a late text tail before the next prompt so its reply gets a row of its own", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    const start = (text: string): DriverEvent => ({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text,
+    });
+    await rec.handle(start("one"));
+    await rec.handle(chunk("reply one"));
+    await rec.handle({ type: "turn", agentId: A, state: "settled" });
+    await rec.handle(chunk(" [late tail]"));
+    await rec.handle(start("two"));
+    await rec.handle(chunk("reply two"));
+    await rec.handle({ type: "turn", agentId: A, state: "settled" });
+    const rows = (
+      await pool.query<{ kind: string; payload: Record<string, unknown> }>(
+        `SELECT kind, payload FROM agent_stream_events WHERE agent_id = $1 ORDER BY seq`,
+        [A]
+      )
+    ).rows;
+    expect(
+      rows.map((r) => [
+        r.kind,
+        r.kind === "assistant" ? r.payload.text : r.payload.state,
+      ])
+    ).toEqual([
+      ["turn", "settled"],
+      ["assistant", "reply one"],
+      ["assistant", " [late tail]"],
+      ["turn", "settled"],
+      ["assistant", "reply two"],
+    ]);
+  });
+
   it("does not open a turn for a config change alone", async () => {
     const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
     await rec.handle({

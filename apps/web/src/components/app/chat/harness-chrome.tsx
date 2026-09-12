@@ -9,13 +9,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CircleDollarSign, Cpu, LogIn, Square } from "lucide-react";
 
 import type { SlashItem } from "@/components/app/chat/chat-composer";
-import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
+import { PromptQueue } from "@/components/app/chat/turn/prompt-queue";
 import {
   arrive,
   DURATION,
   exitShrink,
   fadeVariants,
-  rowVariants,
 } from "@/components/app/chat/turn/motion";
 import type { TodoItem } from "@/components/app/chat/turn/registry";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
@@ -489,28 +488,13 @@ export function useHarnessChrome({
           data-testid="chat-harness-chrome"
           data-starting={starting ? "true" : undefined}
         >
-          <AnimatePresence initial={false}>
-            {queued.map((prompt) => (
-              <motion.div
-                key={prompt.id}
-                layout
-                variants={rowVariants}
-                initial="hidden"
-                animate="shown"
-                exit={exitShrink}
-                transition={arrive()}
-                className="mb-1.5"
-                style={{ overflow: "hidden" }}
-              >
-                <QueuedPrompt
-                  prompt={prompt}
-                  busy={queueBusyId === prompt.id}
-                  onSendNow={onSendNow}
-                  onRemove={onRemoveQueued}
-                />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+          <PromptQueue
+            key={agentId}
+            queued={queued}
+            busyId={queueBusyId}
+            onSendNow={onSendNow}
+            onRemove={onRemoveQueued}
+          />
           <AnimatePresence initial={false}>
             {tasksOpen ? (
               <motion.div
@@ -604,7 +588,7 @@ export function useHarnessChrome({
               disabled={interrupting || !streaming}
               aria-hidden={!streaming}
               tabIndex={streaming ? 0 : -1}
-              title="Stop the running turn (Ctrl+C in the field); queued messages run next"
+              title="Stop the running turn (Ctrl+C in the field). Queued messages run next. If the engine ignores Stop for 5 seconds, it is terminated; use Start to resume."
               data-testid="harness-stop"
               className={cn(
                 "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",

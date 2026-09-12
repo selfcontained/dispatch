@@ -40,6 +40,7 @@ export type DriverEvent =
       stderrTail: string;
       /** True when Dispatch asked the child to stop; false for a crash. */
       expected: boolean;
+      reason?: string;
     };
 
 export type DriverListener = (event: DriverEvent) => void;
@@ -74,6 +75,8 @@ type Live = {
   stopping: boolean;
   config: { options: acp.SessionConfigOption[] };
   commands: { list: acp.AvailableCommand[] };
+  activePrompt?: { cancelTimer: NodeJS.Timeout | null };
+  failureReason?: string;
 };
 
 const STDERR_TAIL_LINES = 20;
@@ -84,6 +87,7 @@ const STDERR_TAIL_LINES = 20;
  */
 export const TEARDOWN_STEP_MS = 1_500;
 const HANDSHAKE_TIMEOUT_MS = 30_000;
+export const CANCEL_GRACE_MS = 5_000;
 
 /**
  * The ACP SDK reports an agent-side exception as JSON-RPC "Internal error"
@@ -405,6 +409,7 @@ export class HarnessDriver {
         signal: exit.signal,
         stderrTail: stderrTail.join("\n"),
         expected: entry.stopping,
+        ...(entry.failureReason ? { reason: entry.failureReason } : {}),
       });
     });
     this.opts.logger.info(
@@ -463,6 +468,8 @@ export class HarnessDriver {
     onAccepted?: () => void
   ): Promise<void> {
     const entry = this.require(agentId);
+    const active = { cancelTimer: null as NodeJS.Timeout | null };
+    entry.activePrompt = active;
     this.emit({ type: "turn", agentId, state: "started", text });
     // A child that exits mid-turn never answers the request; the pending
     // call would hang and hold the agent's turn slot for ever.
@@ -493,11 +500,32 @@ export class HarnessDriver {
         this.emit({ type: "turn", agentId, state: "settled", error: message });
       }
       throw new Error(message, { cause: err });
+    } finally {
+      if (active.cancelTimer) clearTimeout(active.cancelTimer);
+      if (entry.activePrompt === active) delete entry.activePrompt;
     }
   }
 
   async cancel(agentId: string): Promise<void> {
     const entry = this.require(agentId);
+    const active = entry.activePrompt;
+    // session/cancel is only a notification. A successful write does not
+    // mean the engine ended its prompt, so an ignored cancel used to leave
+    // Stop and Send now apparently successful while the queue never moved.
+    if (active && !active.cancelTimer) {
+      active.cancelTimer = setTimeout(() => {
+        if (entry.activePrompt !== active || this.live.get(agentId) !== entry)
+          return;
+        this.opts.logger.warn(
+          { agentId, graceMs: CANCEL_GRACE_MS },
+          "harness ignored cancellation; terminating the engine"
+        );
+        entry.failureReason =
+          "The engine did not respond to Stop and was terminated; press Start to resume.";
+        entry.child.kill("SIGKILL");
+      }, CANCEL_GRACE_MS);
+      active.cancelTimer.unref?.();
+    }
     await entry.conn.cancel({ sessionId: entry.sessionId });
   }
 

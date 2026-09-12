@@ -120,7 +120,9 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
   ) => {
     if (!agentId) return;
     try {
-      await sendAgentPrompt(agentId, prompt);
+      // The receiver may be waiting for this review tool to finish. Waiting
+      // for its next turn to start would make both agents wait on each other.
+      await sendAgentPrompt(agentId, prompt, { awaitDelivery: false });
     } catch (error) {
       appLog.warn(
         { err: error, agentId },
