@@ -99,6 +99,24 @@ describe("TurnEntryView", () => {
     ).not.toBeNull();
   });
 
+  it("eases the agent post's height: the rail and the answer sit in one measured body", () => {
+    // A step landing, the thinking row coming and going, the answer
+    // streaming in and the rail folding on settle all change the post's
+    // height; the body wrapper is what animates between those sizes so the
+    // feed above it glides instead of jumping.
+    renderTurn(turn());
+    const body = screen
+      .getByTestId("chat-turn-result")
+      .querySelector('[data-testid="chat-turn-body"]');
+    expect(body).not.toBeNull();
+    expect(
+      body!.querySelector('[data-testid="harness-activity-fold"]')
+    ).not.toBeNull();
+    expect(
+      body!.querySelector('[data-testid="harness-result"]')
+    ).not.toBeNull();
+  });
+
   it("names the entry and its settled state on the wrapper", () => {
     renderTurn(turn());
     const wrapper = screen.getByTestId("chat-turn");

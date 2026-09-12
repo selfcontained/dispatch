@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ActivityBlock, showsActivity } from "./activity-block";
+import { AutoHeight } from "./auto-height";
 import type { Step, Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
@@ -201,17 +202,24 @@ function TurnEntryViewImpl({
               "w-full min-w-0 font-terminal [overflow-wrap:anywhere]"
             )}
           >
-            {showsActivity(trace) ? (
-              <div className="mb-2">
-                <ActivityBlock trace={trace} label={foldLabel} />
-              </div>
-            ) : null}
-            <ResultTurn turn={result} />
-            <TurnShortcuts
-              agent={agent}
-              agentId={ctx.agentId}
-              steps={trace.steps}
-            />
+            {/* One measured body for the rail and the answer: every size
+                change inside it — a row landing, the thinking row coming and
+                going, text streaming in, the rail folding on settle — eases
+                instead of snapping, so the feed above glides rather than
+                jumps while it follows the bottom. */}
+            <AutoHeight data-testid="chat-turn-body">
+              {showsActivity(trace) ? (
+                <div className="mb-2">
+                  <ActivityBlock trace={trace} label={foldLabel} />
+                </div>
+              ) : null}
+              <ResultTurn turn={result} />
+              <TurnShortcuts
+                agent={agent}
+                agentId={ctx.agentId}
+                steps={trace.steps}
+              />
+            </AutoHeight>
           </div>
         </Post>
       </div>
