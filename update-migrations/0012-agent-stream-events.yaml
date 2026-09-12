@@ -73,15 +73,24 @@ validation:
 
 rollback:
   - >
-    The supported rollback target is the last official release, v0.38.13.
-    The schema is safe to leave: the agent_stream_events table and the
-    agent_chat_messages.delivery_text column are both additive, that release
-    ignores them, and leaving them in place is safer than dropping them. The
-    `dispatch` agent type is not safe to leave, so do the three steps below
-    before the binary swap. They apply to any release that does not include
-    the harness, not only v0.38.13: the updater's version compare ignores the
-    prerelease suffix, so once a later official release exists the Updates UI
-    will offer it to a harness install.
+    Two rollback targets. v0.38.14, the previous official release, boots
+    only after the bookkeeping repair in step 3: it ships 51 migration files
+    ending in 0051_agent-chat-reactions, while this release leaves
+    pgmigrations holding 0051_agent-stream-events through
+    0057_agent-chat-reactions, and node-pg-migrate compares the two lists
+    position by position, so without the repair v0.38.14 refuses to start
+    with "Not run migration 0051_agent-chat-reactions is preceding already
+    run migration 0051_agent-stream-events". v0.38.13 boots with no
+    bookkeeping change: its 50 files are a prefix of the stored list. The
+    schema is safe to leave for either: the agent_stream_events table, the
+    agent_chat_messages.delivery_text column, the feed index and
+    agents.chat_read_at are additive, agent_chat_reactions exists through
+    0057, and leaving them in place is safer than dropping them. The
+    `dispatch` agent type is not safe to leave, so do the steps below before
+    the binary swap. They apply to any release that does not include the
+    harness, not only these two: the updater's version compare ignores the
+    prerelease suffix, so once a later official release exists the Updates
+    UI will offer it to a harness install.
   - |
     Step 1. Stop or archive every Dispatch Harness agent from the UI. Every
     one of them, not only those mid-turn:
@@ -104,8 +113,21 @@ rollback:
     type, which the older release cannot launch at all:
     `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'` and the same
     over `templates`. Set each to an agent type that release does know.
+  - |
+    Step 3, for a rollback to v0.38.14 only. Repair the migration bookkeeping
+    so that release recognises the stored list. Re-upgrading to this release
+    afterwards round-trips: boot deletes the 0051_agent-chat-reactions row
+    again and re-runs the guarded files. Skip this step for v0.38.13.
+
+      DELETE FROM pgmigrations WHERE name IN (
+        '0051_agent-stream-events','0052_agent-chat-messages-delivery-text',
+        '0053_agent-stream-events-kind','0054_agent-stream-events-turn-prompt',
+        '0055_dispatch-harness-carry-over','0056_agents-chat-read-at',
+        '0057_agent-chat-reactions');
+      INSERT INTO pgmigrations (name, run_on)
+        VALUES ('0051_agent-chat-reactions', NOW());
   - >
-    Step 3. Roll back using the normal release rollback path for this host.
+    Step 4. Roll back using the normal release rollback path for this host.
   - >
     Rolling back to an earlier prerelease of this branch is not supported.
     Boot on this release deletes the bookkeeping records those prereleases

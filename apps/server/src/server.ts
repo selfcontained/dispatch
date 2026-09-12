@@ -1132,6 +1132,17 @@ async function cleanupAppResources(): Promise<void> {
   notificationRuntime.clearPendingWebNotifications();
 
   await jobService.shutdown();
+  // Stop harness children through their teardown ladder first: it is
+  // bounded (a few seconds) and must finish before the pool goes away (the
+  // exit rows need it), while the archive and delivery waits below can each
+  // run to their full budget. launchd's default ExitTimeOut is 20 s on an
+  // install that predates the installer's 30 s, and a SIGKILL partway
+  // through the ladder leaves engine children running with full-access
+  // permissions and a stale MCP token. A prompt still in flight to a
+  // harness agent is marked interrupted here and redelivered at boot.
+  await harnessSupervisor.stopAll().catch((err: unknown) => {
+    app.log.warn({ err }, "Stopping harness agents on shutdown failed");
+  });
   await agentLifecycleRuntime.waitForActiveArchives(10_000);
   // Let deliveries that are about to settle record their outcome; anything
   // still waiting on the quiet gate is swept to not-delivered at next start.
@@ -1141,13 +1152,6 @@ async function cleanupAppResources(): Promise<void> {
       "Shutting down with chat deliveries still in flight"
     );
   }
-
-  // Stop harness children through their teardown ladder before the pool
-  // goes away (the exit rows need it); otherwise they outlive the server
-  // with full-access permissions and a stale MCP token.
-  await harnessSupervisor.stopAll().catch((err: unknown) => {
-    app.log.warn({ err }, "Stopping harness agents on shutdown failed");
-  });
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);

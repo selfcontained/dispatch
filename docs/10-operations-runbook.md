@@ -205,6 +205,21 @@ command in the agent's working tree. So before the binary swap:
    the older release cannot launch at all:
    `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'`, and the same
    over `templates`.
+3. For v0.38.14 specifically, repair the migration bookkeeping. That release
+   numbers the reactions table `0051_agent-chat-reactions`, where this one
+   stores `0051_agent-stream-events`, and node-pg-migrate compares the two
+   lists position by position, so v0.38.14 refuses to boot until the rows
+   match its files. v0.38.13 needs nothing here. Re-upgrading afterwards
+   round-trips: boot forgets the row again and re-runs the guarded files.
+
+   ```sql
+   DELETE FROM pgmigrations WHERE name IN (
+     '0051_agent-stream-events','0052_agent-chat-messages-delivery-text',
+     '0053_agent-stream-events-kind','0054_agent-stream-events-turn-prompt',
+     '0055_dispatch-harness-carry-over','0056_agents-chat-read-at',
+     '0057_agent-chat-reactions');
+   INSERT INTO pgmigrations (name, run_on) VALUES ('0051_agent-chat-reactions', NOW());
+   ```
 
 This applies to any release without the harness, not only the one before it:
 the updater's version compare ignores the prerelease suffix, so a later
