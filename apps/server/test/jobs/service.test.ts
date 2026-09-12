@@ -635,7 +635,9 @@ describe("JobService", () => {
           prompt: "Test",
           schedule: "invalid cron",
         })
-      ).rejects.toThrow("invalid cron expression");
+      ).rejects.toThrow(
+        'Job "bad-cron" has an invalid cron expression: "invalid cron"'
+      );
 
       await service.shutdown();
     });
@@ -759,7 +761,9 @@ describe("JobService", () => {
           directory: "/tmp/test-upd-cron",
           schedule: "not a cron",
         })
-      ).rejects.toThrow("invalid cron expression");
+      ).rejects.toThrow(
+        'Job "upd-bad-cron" has an invalid cron expression: "not a cron"'
+      );
 
       await service.shutdown();
     });
