@@ -909,6 +909,71 @@ describe("HarnessSupervisor message queue", () => {
     await sup.stop("agt_1");
   });
 
+  it("keeps an adapter's late tail closed after its prompt settled", async () => {
+    const { sup, fake } = await build({
+      turn: async (_prompt, emit) => {
+        setTimeout(() => {
+          void emit({
+            sessionUpdate: "tool_call",
+            toolCallId: "late_tool",
+            title: "edit late-file.ts",
+            kind: "edit",
+            status: "in_progress",
+            content: [],
+          });
+        }, 0);
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    await sup.enqueuePrompt("agt_1", "one").settled;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(sup.isBusy("agt_1")).toBe(false);
+    expect(await sup.interrupt("agt_1")).toBe(false);
+    expect(fake.seen.cancels).toBe(0);
+    await sup.stop("agt_1");
+  });
+
+  it("starts a queued prompt before a delayed adapter tail without a phantom turn", async () => {
+    const { sup, fake } = await build({
+      turn: async (prompt, emit, _ask, signal) => {
+        if (prompt === "one") {
+          setTimeout(() => {
+            void emit({
+              sessionUpdate: "tool_call",
+              toolCallId: "late_tool",
+              title: "edit late-file.ts",
+              kind: "edit",
+              status: "in_progress",
+              content: [],
+            });
+          }, 50);
+          return "end_turn";
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 100);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+        return signal.aborted ? "cancelled" : "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const second = sup.enqueuePrompt("agt_1", "two");
+    await first.settled;
+    await second.started;
+    await vi.waitFor(() => {
+      expect(fake.seen.prompts).toEqual(["one", "two"]);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    expect(fake.seen.prompts).toEqual(["one", "two"]);
+    await second.settled;
+    await sup.stop("agt_1");
+  });
+
   it("shutdown leaves a queued chat message pending for the next boot", async () => {
     const { sup, fake } = await build({
       turn: async (_p, _emit, _ask, signal) => {
