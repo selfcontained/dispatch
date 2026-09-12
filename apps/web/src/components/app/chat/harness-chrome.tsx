@@ -9,13 +9,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CircleDollarSign, Cpu, LogIn, Square } from "lucide-react";
 
 import type { SlashItem } from "@/components/app/chat/chat-composer";
-import { QueuedPrompt } from "@/components/app/chat/turn/queued-prompt";
+import { QueuedStack } from "@/components/app/chat/turn/queued-prompt";
 import {
   arrive,
   DURATION,
   exitShrink,
   fadeVariants,
-  rowVariants,
 } from "@/components/app/chat/turn/motion";
 import type { TodoItem } from "@/components/app/chat/turn/registry";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
@@ -489,28 +488,12 @@ export function useHarnessChrome({
           data-testid="chat-harness-chrome"
           data-starting={starting ? "true" : undefined}
         >
-          <AnimatePresence initial={false}>
-            {queued.map((prompt) => (
-              <motion.div
-                key={prompt.id}
-                layout
-                variants={rowVariants}
-                initial="hidden"
-                animate="shown"
-                exit={exitShrink}
-                transition={arrive()}
-                className="mb-1.5"
-                style={{ overflow: "hidden" }}
-              >
-                <QueuedPrompt
-                  prompt={prompt}
-                  busy={queueBusyId === prompt.id}
-                  onSendNow={onSendNow}
-                  onRemove={onRemoveQueued}
-                />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+          <QueuedStack
+            queued={queued}
+            busyId={queueBusyId}
+            onSendNow={onSendNow}
+            onRemove={onRemoveQueued}
+          />
           <AnimatePresence initial={false}>
             {tasksOpen ? (
               <motion.div

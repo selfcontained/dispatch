@@ -561,8 +561,30 @@ export function buildAgentCommand(
   // Harness agents get the same shell: the ACP supervisor (agents/harness)
   // owns the engine process, and the pane is the human's console into the
   // worktree.
+  //
+  // The `-i` is also what makes the pane land in the wrong place. It sources
+  // the user's rc, and an rc that ends in `cd ~/some-repo` runs *after* the
+  // setup script's `cd "$EFFECTIVE_CWD"`, so the rc wins and the pane opens
+  // on that repo instead of this agent's worktree. CLI agents never see this
+  // because they exec a binary rather than an interactive shell.
+  //
+  // A hook on the first prompt is the only place later than the rc. It fires
+  // once and clears itself, so a cd the user makes afterwards sticks.
+  // $PWD is deliberately unexpanded here: the setup script cds to the
+  // worktree before `exec bash -c`, so it resolves at launch. Limitation: a
+  // user whose rc assigns PROMPT_COMMAND outright drops the hook, and zsh has
+  // no PROMPT_COMMAND at all, so both keep today's behavior.
   if (type === "terminal" || type === "dispatch") {
-    return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
+    const returnToCwd =
+      'if [ -n "$DISPATCH_AGENT_CWD" ]; then ' +
+      'cd "$DISPATCH_AGENT_CWD" 2>/dev/null; ' +
+      "unset DISPATCH_AGENT_CWD PROMPT_COMMAND; fi";
+    return [
+      envPrefix,
+      'DISPATCH_AGENT_CWD="$PWD"',
+      `PROMPT_COMMAND=${shellEscape(returnToCwd)}`,
+      '"${SHELL:-/bin/bash}" -il',
+    ].join(" ");
   }
 
   const cliBin = config[CLI_BY_AGENT_TYPE[type]];

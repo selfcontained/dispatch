@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type {
   ChatAgentMessageEntry,
   ChatMediaEntry,
@@ -310,6 +310,45 @@ export function MessageCopyButton({ text }: { text: string }): JSX.Element {
  * peer's post whoever sent it, its body muted, its header "sender →
  * recipient" and its avatar badged with arrows.
  */
+/**
+ * A peer post's body, folded to its opening lines until asked.
+ *
+ * Agents talk to each other in full paragraphs, and a handful of those
+ * between two turns buries the conversation the user is actually in. The
+ * header already says who spoke to whom and when, which is the part worth
+ * scanning; the body is detail, so it waits behind a click.
+ *
+ * Bounded by height rather than `line-clamp`, because a post body is
+ * arbitrary markdown: `-webkit-line-clamp` needs a `-webkit-box`, which
+ * breaks lists and code blocks.
+ */
+function PeerBody({ children }: { children: ReactNode }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid="chat-peer-body" data-open={open ? "true" : undefined}>
+      {/* Clipped visually, never hidden from assistive tech: the text is all
+          in the DOM either way, so a screen reader reads the whole post and
+          the fold costs it nothing. */}
+      <div className={cn("relative", !open && "max-h-12 overflow-hidden")}>
+        {children}
+        {open ? null : (
+          // The fade says "there is more" without spending a row on a label.
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-background" />
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        data-testid="chat-peer-expand"
+        className="mt-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground pointer-coarse:py-2"
+      >
+        {open ? "Show less" : "Show more"}
+      </button>
+    </div>
+  );
+}
+
 export function Post({
   author,
   at,
@@ -416,7 +455,7 @@ export function Post({
             POST_BODY_MEASURE
           )}
         >
-          {children}
+          {author.kind === "peer" ? <PeerBody>{children}</PeerBody> : children}
         </div>
       </div>
     </div>

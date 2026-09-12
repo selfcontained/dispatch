@@ -355,6 +355,46 @@ describe("buildAgentCommand", () => {
     expect(cmd).not.toContain("--append-system-prompt");
   });
 
+  // An interactive shell sources the user's rc, and an rc that cds (a
+  // "primary repo" habit) lands the pane somewhere else entirely. The setup
+  // script's own cd runs before the rc, so it cannot win; only a hook that
+  // fires after startup can.
+  it.each(["terminal", "dispatch"] as const)(
+    "for %s type, returns the shell to the agent's cwd after the rc files run",
+    (type) => {
+      const cmd = buildAgentCommand(
+        baseConfig,
+        type,
+        "standard",
+        [],
+        "/tmp/media",
+        SESSION,
+        false
+      );
+      // Unquoted on purpose: the setup script has already cd'd to the
+      // worktree, so $PWD resolves at launch to the directory we want.
+      expect(cmd).toContain('DISPATCH_AGENT_CWD="$PWD"');
+      expect(cmd).toContain("PROMPT_COMMAND=");
+      expect(cmd).toContain('cd "$DISPATCH_AGENT_CWD"');
+      // One shot: the hook clears itself so it never fights a later cd.
+      expect(cmd).toContain("unset DISPATCH_AGENT_CWD PROMPT_COMMAND");
+    }
+  );
+
+  it("does not install the cwd hook for a CLI agent, which execs a binary", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).not.toContain("DISPATCH_AGENT_CWD");
+    expect(cmd).not.toContain("PROMPT_COMMAND");
+  });
+
   it("for claude type, includes --mcp-config, --append-system-prompt, and the cli binary", () => {
     const cmd = buildAgentCommand(
       baseConfig,

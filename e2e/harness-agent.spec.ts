@@ -328,6 +328,78 @@ test.describe("harness agent", () => {
     );
   });
 
+  test("folds the queue past two rows and opens it on the count", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-harness-fold-${Date.now()}`,
+      type: "dispatch",
+      cwd: repo,
+      useWorktree: true,
+    });
+
+    await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const pane = page.getByTestId("chat-pane");
+    const input = pane.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    await input.fill("sleep:60000 first");
+    await input.press("Enter");
+    await expect(
+      pane.locator('[data-testid="chat-turn"]:not([data-settled])')
+    ).toBeVisible({ timeout: 30_000 });
+
+    // Four behind the running turn. Each Enter is ignored while the previous
+    // send is in flight, so each one waits for its row before the next.
+    const queued = pane.getByTestId("harness-queued");
+    for (const [i, text] of ["two", "three", "four", "five"].entries()) {
+      await input.fill(text);
+      await input.press("Enter");
+      // Only the first two get a row; after that the count carries them.
+      const expected = Math.min(i + 1, 2);
+      await expect(queued).toHaveCount(expected, { timeout: 30_000 });
+      if (i >= 2) {
+        await expect(pane.getByTestId("harness-queued-more")).toContainText(
+          `+${i - 1} more queued`
+        );
+      }
+    }
+
+    // Folded, the whole queue costs two rows plus the count: four waiting,
+    // two shown.
+    await expect(queued).toHaveCount(2);
+    const more = pane.getByTestId("harness-queued-more");
+    await expect(more).toContainText("+2 more queued");
+    await page.screenshot({
+      path: test.info().outputPath("queue-folded.png"),
+      fullPage: true,
+    });
+
+    await more.click();
+    await expect(queued).toHaveCount(4);
+    await expect(more).toContainText("Show fewer");
+    await page.screenshot({
+      path: test.info().outputPath("queue-open.png"),
+      fullPage: true,
+    });
+
+    // A row stays one line until its own chevron opens it.
+    const first = queued.first();
+    await first.getByTestId("harness-queued-toggle").click();
+    await expect(first.getByTestId("harness-queued-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+  });
+
   test("keeps step details closed until opened and preserves the choice when settled", async ({
     page,
     request,

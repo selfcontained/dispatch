@@ -503,6 +503,51 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
   });
 
+  it("folds a peer post's body until asked, and leaves the user's own alone", () => {
+    const long = Array.from({ length: 12 }, (_, i) => `line ${i}`).join(" ");
+    renderFeed([
+      {
+        type: "agent_message",
+        id: "p1",
+        direction: "in",
+        senderAgentId: "agt_sib",
+        senderName: "sib",
+        recipientAgentId: AGENT_ID,
+        recipientName: "builder",
+        content: long,
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          kind: "reply",
+          text: long,
+          createdAt: "2026-09-02T10:01:00.000Z",
+          updatedAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
+    ]);
+
+    // One fold, on the peer post: the user's own post is never folded.
+    const body = screen.getByTestId("chat-peer-body");
+    expect(body.getAttribute("data-open")).toBeNull();
+    // The text stays in the DOM while folded, so a reader using a screen
+    // reader still gets the whole post.
+    expect(body.textContent).toContain("line 11");
+
+    const toggle = screen.getByTestId("chat-peer-expand");
+    expect(toggle.textContent).toBe("Show more");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("chat-peer-body").getAttribute("data-open")).toBe(
+      "true"
+    );
+    expect(screen.getByTestId("chat-peer-expand").textContent).toBe(
+      "Show less"
+    );
+  });
+
   it("shows a peer's own icon and its relation to this agent", () => {
     const peers = peerDirectory(AGENT_ID, [
       {

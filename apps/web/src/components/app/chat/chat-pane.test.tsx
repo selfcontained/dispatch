@@ -1522,6 +1522,53 @@ describe("ChatPane harness chrome", () => {
     expect(screen.queryByTestId("harness-tasks")).toBeNull();
   });
 
+  it("folds the queue past two rows so it cannot walk the composer off", () => {
+    HARNESS.queued = ["a", "b", "c", "d"].map((letter, i) => ({
+      id: `q_${letter}`,
+      source: "chat" as const,
+      text: `message ${letter}`,
+      chatMessageId: `q_${letter}`,
+      attachments: [],
+      createdAt: `2026-09-04T10:00:0${i}.000Z`,
+    }));
+    renderPane({ agent: dispatchAgent });
+
+    expect(screen.getAllByTestId("harness-queued")).toHaveLength(2);
+    const more = screen.getByTestId("harness-queued-more");
+    expect(more.textContent).toBe("+2 more queued");
+
+    fireEvent.click(more);
+    expect(screen.getAllByTestId("harness-queued")).toHaveLength(4);
+    expect(screen.getByTestId("harness-queued-more").textContent).toBe(
+      "Show fewer"
+    );
+  });
+
+  it("keeps a queued row to one line until its chevron opens it", () => {
+    HARNESS.queued = [
+      {
+        id: "q_1",
+        source: "agent",
+        text: "the first line\nand a second the row must not show",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:00.000Z",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+
+    const row = screen.getByTestId("harness-queued");
+    const toggle = screen.getByTestId("harness-queued-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Collapsed, the row shows the text once; opened, it shows the full
+    // body instead of the truncated line, so still once.
+    fireEvent.click(toggle);
+    expect(
+      screen.getByTestId("harness-queued-toggle").getAttribute("aria-expanded")
+    ).toBe("true");
+    expect(row.textContent).toContain("and a second the row must not show");
+  });
+
   it("lists queued prompts above the composer with Send now and Remove", () => {
     HARNESS.queued = [
       {
