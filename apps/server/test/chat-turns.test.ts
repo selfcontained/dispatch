@@ -615,7 +615,9 @@ describe("loadQueued", () => {
     const message = chatMsg(CHAT_ID, "second thoughts");
     const db = {
       query: async (_sql: string, params?: unknown[]) => {
-        expect(params?.[0]).toEqual([CHAT_ID]);
+        // Scoped to the agent: a chat id parsed out of embedded text must
+        // not join another agent's message.
+        expect(params).toEqual(["a", [CHAT_ID]]);
         return {
           rows: [
             {
@@ -640,7 +642,7 @@ describe("loadQueued", () => {
         };
       },
     };
-    const queued = await loadQueued(db as never, [
+    const queued = await loadQueued(db as never, "a", [
       {
         id: CHAT_ID,
         source: { source: "chat", chatMessageId: CHAT_ID },
@@ -687,7 +689,7 @@ describe("loadQueued", () => {
       },
     };
     expect(
-      await loadQueued(db as never, [
+      await loadQueued(db as never, "a", [
         {
           id: "0".repeat(36),
           source: { source: "chat", chatMessageId: "0".repeat(36) },
@@ -712,7 +714,7 @@ describe("loadQueued", () => {
         throw new Error("should not query");
       },
     };
-    expect(await loadQueued(db as never, [])).toEqual([]);
+    expect(await loadQueued(db as never, "a", [])).toEqual([]);
   });
 });
 

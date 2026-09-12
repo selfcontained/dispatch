@@ -99,21 +99,6 @@ describe("GET /api/v1/agents/:id/harness/commands", () => {
   });
 });
 
-describe("GET /api/v1/agents/:id/harness/usage", () => {
-  it("reports the agent's month, null cost when the engine sent none", async () => {
-    await ctx.pool.query(
-      `UPDATE agents SET type = 'dispatch', model = 'codex/default' WHERE id = $1`,
-      [agentId]
-    );
-    const res = await authedGet(`/api/v1/agents/${agentId}/harness/usage`);
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
-      agent: { agentId, tokens: 0, costUsd: null },
-    });
-    expect(typeof res.json().monthStart).toBe("string");
-  });
-});
-
 describe("GET /api/v1/harness/usage", () => {
   it("lists the four engines", async () => {
     const res = await authedGet("/api/v1/harness/usage");

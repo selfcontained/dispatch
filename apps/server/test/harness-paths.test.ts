@@ -24,6 +24,7 @@ beforeAll(async () => {
   await writeFile(path.join(cwd, "apps", "notes.txt"), "n\n");
   await writeFile(path.join(cwd, ".env"), "x=1\n");
   await symlink(path.join(cwd, "docs"), path.join(cwd, "docs-link"));
+  await symlink(root, path.join(cwd, "out-link"));
   await mkdir(path.join(home, "src"), { recursive: true });
   await writeFile(path.join(home, "notes.md"), "n\n");
   await writeFile(path.join(root, "outside.txt"), "o\n");
@@ -69,6 +70,7 @@ describe("listHarnessPaths", () => {
       { path: "apps", kind: "dir" },
       { path: "docs", kind: "dir" },
       { path: "docs-link", kind: "dir" },
+      { path: "out-link", kind: "dir" },
       { path: "README.md", kind: "file" },
     ]);
     expect(await listHarnessPaths(".", { cwd, home })).toEqual([
@@ -128,6 +130,17 @@ describe("listHarnessPaths", () => {
       path: "README.md",
       kind: "file",
     });
+  });
+
+  it("treats a symlink that leaves the working tree as outside it", async () => {
+    // `out-link` sits inside the tree but resolves to its parent, so files
+    // there must not list; a link that stays inside still lists files.
+    const escaped = await listHarnessPaths("out-link/", { cwd, home });
+    expect(escaped.every((entry) => entry.kind === "dir")).toBe(true);
+    expect(escaped.map((entry) => entry.path)).not.toContain(
+      "out-link/outside.txt"
+    );
+    expect(escaped.map((entry) => entry.path)).toContain("out-link/repo");
   });
 
   it("does not read a macOS privacy-protected directory", async () => {

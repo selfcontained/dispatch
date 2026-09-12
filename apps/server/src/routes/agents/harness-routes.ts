@@ -9,7 +9,6 @@ import type {
 
 import { listHarnessPaths } from "../../agents/harness/paths.js";
 import { loadQueued } from "../../chat/turns.js";
-import { loadAgentUsage, monthStartUtc } from "../../agents/harness/usage.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentHarnessRoutes(
@@ -84,7 +83,7 @@ export async function registerAgentHarnessRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     const response: HarnessQueueResponse = {
-      queued: await loadQueued(deps.pool, deps.harness.listQueued(id)),
+      queued: await loadQueued(deps.pool, id, deps.harness.listQueued(id)),
     };
     return response;
   });
@@ -147,17 +146,6 @@ export async function registerAgentHarnessRoutes(
       commands: deps.harness.getCommands(id) ?? [],
     };
     return response;
-  });
-
-  app.get("/api/v1/agents/:id/harness/usage", async (request, reply) => {
-    const id = (request.params as { id?: string }).id ?? "";
-    if (!(await exists(id))) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-    return {
-      agent: await loadAgentUsage(deps.pool, id),
-      monthStart: monthStartUtc().toISOString(),
-    };
   });
 
   const agentWorkingDir = async (id: string): Promise<string | null> => {

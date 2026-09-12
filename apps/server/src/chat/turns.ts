@@ -572,7 +572,7 @@ export async function listTurnEntries(
       updatedAt: r.updated_at,
     });
   }
-  const chat = await loadChatMessages(db, chatPromptIds(source));
+  const chat = await loadChatMessages(db, agentId, chatPromptIds(source));
   // Questions the agent asked while this page's turns ran. Bounded above as
   // well as below: a question from a newer turn would otherwise attach to
   // this page's last turn, which is the one that had started when it landed.
@@ -638,9 +638,15 @@ export async function loadLatestTurnEntry(
   return newest?.entry ?? null;
 }
 
-/** The chat messages behind chat-sourced prompts, by id. */
+/**
+ * The chat messages behind chat-sourced prompts, by id. Scoped to the agent:
+ * a prompt's chat id is parsed out of text that can embed another agent's
+ * message or a review body verbatim, so an id that names a message of some
+ * other agent reads as a prompt with no chat text behind it.
+ */
 async function loadChatMessages(
   db: Queryable,
+  agentId: string,
   ids: string[]
 ): Promise<Map<string, ChatMessage>> {
   const chat = new Map<string, ChatMessage>();
@@ -651,8 +657,9 @@ async function loadChatMessages(
   const valid = ids.filter((id) => isChatMessageId(id));
   if (valid.length === 0) return chat;
   const messages = await db.query(
-    `SELECT * FROM agent_chat_messages WHERE id = ANY($1::uuid[])`,
-    [valid]
+    `SELECT * FROM agent_chat_messages
+      WHERE agent_id = $1 AND id = ANY($2::uuid[])`,
+    [agentId, valid]
   );
   for (const row of messages.rows) {
     const message = toChatMessage(row as never);
@@ -664,10 +671,12 @@ async function loadChatMessages(
 /** The supervisor's queue, shaped for the view with chat text joined. */
 export async function loadQueued(
   db: Queryable,
+  agentId: string,
   queued: { id: string; source: PromptSource; createdAt: string }[]
 ): Promise<HarnessQueuedPrompt[]> {
   const chat = await loadChatMessages(
     db,
+    agentId,
     queued
       .map((q) => q.source)
       .filter(

@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -20,6 +20,18 @@ const MAX_ENTRIES = 50;
 function isInsideTree(dir: string, cwd: string): boolean {
   const rel = path.relative(cwd, dir);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** The same test on the real locations; a directory that cannot be resolved is outside. */
+async function isInsideRealTree(dir: string, cwd: string): Promise<boolean> {
+  let realDir: string;
+  let realCwd: string;
+  try {
+    [realDir, realCwd] = await Promise.all([realpath(dir), realpath(cwd)]);
+  } catch {
+    return false;
+  }
+  return isInsideTree(realDir, realCwd);
 }
 
 /** Where a typed prefix points: the directory to list, and the segment to match. */
@@ -63,8 +75,11 @@ export async function listHarnessPaths(
   if (shouldSkipAutomaticMacPathProbe(dir, home, input.platform)) return [];
   // Outside the agent's working tree only directories list, which is the
   // posture of the completion route this parallels. Inside it, naming files
-  // is the whole point of the picker.
-  const dirsOnly = !isInsideTree(dir, input.cwd);
+  // is the whole point of the picker. Both sides are resolved first: a
+  // symlink inside the tree that points out of it (node_modules, a linked
+  // worktree) is outside for this purpose, and the tree itself may sit
+  // behind a link (/tmp on macOS).
+  const dirsOnly = !(await isInsideRealTree(dir, input.cwd));
   const showHidden = segment.startsWith(".");
   const needle = segment.toLowerCase();
   let entries: import("node:fs").Dirent[];

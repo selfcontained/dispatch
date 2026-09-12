@@ -1,11 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import {
-  loadAgentUsage,
-  loadUsageReport,
-  monthStartUtc,
-} from "../src/agents/harness/usage.js";
+import { loadUsageReport, monthStartUtc } from "../src/agents/harness/usage.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -140,9 +136,6 @@ describe("loadUsageReport", () => {
     expect(opencode?.agents).toEqual([
       { agentId: "agt_e", name: "E", tokens: 0, costUsd: null },
     ]);
-    expect(await loadAgentUsage(pool, "agt_e", NOW)).toMatchObject({
-      costUsd: null,
-    });
   });
 
   it("ignores non-harness agents and agents with an unknown engine", async () => {
@@ -152,25 +145,5 @@ describe("loadUsageReport", () => {
     await agent("agt_u", "U", "unknown/x");
     const report = await loadUsageReport(pool, {}, NOW);
     expect(report.engines.flatMap((e) => e.agents)).toEqual([]);
-  });
-});
-
-describe("loadAgentUsage", () => {
-  it("returns one agent's month, or null for an unknown agent", async () => {
-    await agent("agt_a", "A", "opencode/default");
-    await tokens("agt_a", "s1", 10, 1, NOW);
-    await turn(
-      "agt_a",
-      1,
-      { used: 1, size: 2, cost: { amount: 1.25, currency: "USD" } },
-      NOW
-    );
-    expect(await loadAgentUsage(pool, "agt_a", NOW)).toEqual({
-      agentId: "agt_a",
-      name: "A",
-      tokens: 11,
-      costUsd: 1.25,
-    });
-    expect(await loadAgentUsage(pool, "agt_nope", NOW)).toBeNull();
   });
 });

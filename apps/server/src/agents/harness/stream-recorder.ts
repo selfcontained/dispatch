@@ -24,6 +24,11 @@ type OpenText = {
 /** Model output is not trusted input: bound what one row can hold. */
 export const TEXT_MAX_BYTES = 64 * 1024;
 const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+const STATUS_MAX_BYTES = 8 * 1024;
+const PLAN_ENTRY_MAX_BYTES = 4 * 1024;
+const PLAN_MAX_ENTRIES = 200;
+const TITLE_MAX_CHARS = 1024;
+const LOCATIONS_MAX = 200;
 const AUTONOMOUS_IDLE_MS = 20_000;
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 export const FLUSH_INTERVAL_MS = 100;
@@ -68,6 +73,13 @@ export function boundOutput(
 }
 
 const INPUT_MAX_BYTES = 8 * 1024;
+
+/** A tool title is one line in the rail; cut rather than head-and-tail it. */
+function boundTitle(title: string): string {
+  return title.length > TITLE_MAX_CHARS
+    ? `${title.slice(0, TITLE_MAX_CHARS)}…`
+    : title;
+}
 
 /**
  * Keep a tool call's raw input as sent, unless serializing it is large:
@@ -223,11 +235,7 @@ export class StreamRecorder {
             this.trailingPrompt.add(event.agentId);
           }
         }
-        if (event.error) {
-          await this.store.append(event.agentId, "status", {
-            message: event.error,
-          });
-        }
+        if (event.error) await this.appendStatus(event.agentId, event.error);
         return;
       }
       case "exit": {
@@ -253,12 +261,20 @@ export class StreamRecorder {
         const how =
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
         const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
-        await this.store.append(event.agentId, "status", {
-          message: `the harness exited with ${how}${detail}`,
-        });
+        await this.appendStatus(
+          event.agentId,
+          `the harness exited with ${how}${detail}`
+        );
         return;
       }
     }
+  }
+
+  /** A status row's text comes from the engine (an RPC error, a stderr tail): bound it. */
+  private async appendStatus(agentId: string, message: string): Promise<void> {
+    await this.store.append(agentId, "status", {
+      message: boundOutput(message, STATUS_MAX_BYTES).text,
+    });
   }
 
   /**
@@ -303,7 +319,7 @@ export class StreamRecorder {
       | undefined
   ): ToolPayload["locations"] {
     const cwd = this.cwd.get(agentId);
-    return (locations ?? []).map((l) => {
+    return (locations ?? []).slice(0, LOCATIONS_MAX).map((l) => {
       const relative =
         cwd && (l.path === cwd || l.path.startsWith(`${cwd}${path.sep}`))
           ? path.relative(cwd, l.path) || "."
@@ -424,7 +440,7 @@ export class StreamRecorder {
         const parentToolCallId = parentToolCallIdOf(update._meta);
         const payload: ToolPayload = {
           toolKind: inferToolKind(update.kind, update.title),
-          title: update.title,
+          title: boundTitle(update.title),
           status: update.status ?? "pending",
           locations: this.projectLocations(agentId, update.locations),
           diff,
@@ -462,7 +478,7 @@ export class StreamRecorder {
           : null;
         const truncated =
           (projected?.truncated ?? false) || prev.truncated === true;
-        const title = update.title ?? prev.title ?? "";
+        const title = boundTitle(update.title ?? prev.title ?? "");
         const next: ToolPayload = {
           toolKind: inferToolKind(update.kind ?? prev.toolKind, title),
           title,
@@ -513,8 +529,8 @@ export class StreamRecorder {
     const open = this.openTurn.get(agentId);
     const key = open ? `plan:${open.id}` : "plan:pre";
     const payload: PlanPayload = {
-      entries: entries.map((e) => ({
-        content: e.content,
+      entries: entries.slice(0, PLAN_MAX_ENTRIES).map((e) => ({
+        content: boundOutput(e.content, PLAN_ENTRY_MAX_BYTES).text,
         status: e.status,
         priority: e.priority,
       })),

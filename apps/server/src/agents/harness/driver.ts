@@ -76,6 +76,8 @@ type Live = {
 };
 
 const STDERR_TAIL_LINES = 20;
+const STDERR_LINE_MAX_CHARS = 1024;
+const STDERR_TAIL_MAX_CHARS = 8 * 1024;
 /**
  * One rung of the teardown ladder in {@link HarnessDriver.stop}. Exported so
  * the supervisor's own shutdown bound is derived from it rather than guessed
@@ -220,11 +222,24 @@ export class HarnessDriver {
     void exited.then((exit) => {
       settledExit = exit;
     });
+    // Bounded by lines and by bytes: the tail lands in a status row the feed
+    // reads back on every page, and one line can be a whole JSON dump.
+    let stderrBytes = 0;
     child.stderr?.on("data", (chunk: Buffer) => {
-      for (const line of chunk.toString("utf8").split("\n")) {
-        if (!line.trim()) continue;
+      for (const raw of chunk.toString("utf8").split("\n")) {
+        if (!raw.trim()) continue;
+        const line =
+          raw.length > STDERR_LINE_MAX_CHARS
+            ? `${raw.slice(0, STDERR_LINE_MAX_CHARS)}…`
+            : raw;
         stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
+        stderrBytes += line.length;
+        while (
+          stderrTail.length > STDERR_TAIL_LINES ||
+          (stderrBytes > STDERR_TAIL_MAX_CHARS && stderrTail.length > 1)
+        ) {
+          stderrBytes -= stderrTail.shift()?.length ?? 0;
+        }
       }
     });
 

@@ -104,16 +104,3 @@ export async function loadUsageReport(
     engines,
   };
 }
-
-export async function loadAgentUsage(
-  db: Queryable,
-  agentId: string,
-  now: Date = new Date()
-): Promise<HarnessUsageAgent | null> {
-  const result = await db.query<AgentRow>(`${AGENTS_SQL} AND a.id = $2`, [
-    monthStartUtc(now),
-    agentId,
-  ]);
-  const row = result.rows[0];
-  return row ? toAgent(row) : null;
-}

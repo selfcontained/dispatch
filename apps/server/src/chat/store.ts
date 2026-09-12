@@ -475,6 +475,12 @@ export class ChatStore {
     };
   }
 
+  /**
+   * Move the agent's turn watermark to now. Deliberately not bounded by the
+   * read's `upTo`: the pane sends the newest agent chat message it holds,
+   * which on a harness agent is older than the turns on screen, and a
+   * watermark held at that message would never clear them.
+   */
   async markFeedRead(agentId: string): Promise<void> {
     await this.db.query(
       `UPDATE agents SET chat_read_at = NOW() WHERE id = $1`,
