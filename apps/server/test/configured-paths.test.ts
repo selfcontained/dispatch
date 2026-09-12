@@ -150,6 +150,7 @@ describe("configured executables expand a leading tilde", () => {
       expect(config.claudeBin).toBe(local("claude"));
       expect(config.cursorBin).toBe(local("agent"));
       expect(config.codexBin).toBe("codex");
+      expect(config.codexBinConfigured).toBe(true);
     } finally {
       for (const [name, value] of saved) {
         if (value === undefined) delete process.env[name];

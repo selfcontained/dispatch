@@ -71,27 +71,39 @@ async function forgetPrereleaseMigrations(client: pg.Client): Promise<void> {
   );
   if (!table.rows[0]?.oid) return; // fresh database: nothing to forget
 
-  const forgotten = await client.query(
-    "DELETE FROM pgmigrations WHERE name = ANY($1::text[])",
-    [PRERELEASE_MIGRATION_NAMES]
-  );
-  if (!forgotten.rowCount) return;
-  console.log(
-    `[migrate] forgot ${forgotten.rowCount} prerelease migration record(s)`
-  );
+  // One transaction: a boot that died between the DELETE and the renames
+  // would find nothing to forget next time and never rename the rows.
+  await client.query("BEGIN");
+  try {
+    const forgotten = await client.query(
+      "DELETE FROM pgmigrations WHERE name = ANY($1::text[])",
+      [PRERELEASE_MIGRATION_NAMES]
+    );
+    if (!forgotten.rowCount) {
+      await client.query("COMMIT");
+      return;
+    }
+    console.log(
+      `[migrate] forgot ${forgotten.rowCount} prerelease migration record(s)`
+    );
 
-  // Those prereleases stored the harness agent type under an older value and
-  // renamed it in a migration this branch does not ship, so the rename is
-  // carried over here. Only reached when a record was deleted just above,
-  // which means the database ran a prerelease and every column below
-  // exists.
-  let renamed = 0;
-  for (const sql of PRERELEASE_TYPE_RENAMES) {
-    const result = await client.query(sql);
-    renamed += result.rowCount ?? 0;
-  }
-  if (renamed) {
-    console.log(`[migrate] carried the type rename to ${renamed} row(s)`);
+    // Those prereleases stored the harness agent type under an older value
+    // and renamed it in a migration this branch does not ship, so the rename
+    // is carried over here. Only reached when a record was deleted just
+    // above, which means the database ran a prerelease and every column
+    // below exists.
+    let renamed = 0;
+    for (const sql of PRERELEASE_TYPE_RENAMES) {
+      const result = await client.query(sql);
+      renamed += result.rowCount ?? 0;
+    }
+    if (renamed) {
+      console.log(`[migrate] carried the type rename to ${renamed} row(s)`);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
   }
 }
 

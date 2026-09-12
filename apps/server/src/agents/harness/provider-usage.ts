@@ -246,6 +246,19 @@ function unavailable(
   };
 }
 
+/**
+ * Claude Code's state file, `.claude.json`, sits in the home directory
+ * itself (or in `CLAUDE_CONFIG_DIR` when that is set), not under `~/.claude/`,
+ * which holds sessions and settings.
+ */
+export function claudeConfigPath(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const configDir = env.CLAUDE_CONFIG_DIR?.trim();
+  return path.join(configDir || homeDir, ".claude.json");
+}
+
 export async function loadHarnessProviderUsage(
   options: ProviderUsageOptions = {}
 ): Promise<HarnessProviderUsageReport> {
@@ -278,9 +291,7 @@ export async function loadHarnessProviderUsage(
   let claude: HarnessProviderPlan;
   try {
     claude = parseClaudeProviderUsage(
-      await read(
-        path.join(options.homeDir ?? os.homedir(), ".claude", ".claude.json")
-      )
+      await read(claudeConfigPath(options.homeDir ?? os.homedir()))
     );
   } catch {
     claude = parseClaudeProviderUsage("");

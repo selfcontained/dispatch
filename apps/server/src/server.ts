@@ -18,7 +18,10 @@ import Fastify from "fastify";
 import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
-import { HarnessSupervisor } from "./agents/harness/supervisor.js";
+import {
+  harnessSearchPath,
+  HarnessSupervisor,
+} from "./agents/harness/supervisor.js";
 import { loadUsageReport } from "./agents/harness/usage.js";
 import { createHarnessAuthReporter } from "./agents/harness/auth-status.js";
 import { getUsageBudgets } from "./usage-budget-settings.js";
@@ -763,12 +766,17 @@ async function registerRoutes() {
     chat: chatService,
   });
 
-  const harnessAuthReport = createHarnessAuthReporter({
-    claude: config.claudeBin,
-    codex: config.codexBin,
-    gemini: config.geminiBin,
-    opencode: config.opencodeBin,
-  });
+  const harnessAuthReport = createHarnessAuthReporter(
+    {
+      claude: config.claudeBin,
+      codex: config.codexBin,
+      gemini: config.geminiBin,
+      opencode: config.opencodeBin,
+    },
+    undefined,
+    // The probes must find a bare engine name where the harness spawn does.
+    { PATH: harnessSearchPath(config) }
+  );
   const harnessProviderUsageReport = createHarnessProviderUsageReporter();
   await registerSystemRoutes(app, {
     pool,

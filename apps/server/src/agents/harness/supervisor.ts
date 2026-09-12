@@ -38,6 +38,7 @@ export type SupervisorDeps = {
     | "opencodeBin"
     | "claudeBin"
     | "codexBin"
+    | "codexBinConfigured"
     | "dispatchBinDir"
     | "port"
     | "tls"
@@ -116,6 +117,22 @@ const ENV_DENY_EXACT = new Set([
 ]);
 const ENV_DENY_PREFIX = "DISPATCH_";
 
+/**
+ * The PATH every harness lookup uses: Dispatch's own bin/, then ~/.local/bin,
+ * then the service's. One helper so the engine spawn, `resolveBinary`, and
+ * the login probes on the settings page all agree on where an engine is.
+ */
+export function harnessSearchPath(
+  config: Pick<AppConfig, "dispatchBinDir">,
+  base: NodeJS.ProcessEnv = process.env
+): string {
+  const localBin = base.HOME ? path.join(base.HOME, ".local/bin") : null;
+  const entries = [config.dispatchBinDir, localBin]
+    .concat(base.PATH ? base.PATH.split(path.delimiter) : [])
+    .filter((entry): entry is string => Boolean(entry));
+  return Array.from(new Set(entries)).join(path.delimiter);
+}
+
 export function buildChildEnv(input: {
   agentId: string;
   mediaDir: string;
@@ -148,11 +165,7 @@ export function buildChildEnv(input: {
   // install recipe uses, so without this an engine a pane agent launches
   // fine is "not found on the server's PATH" here, and so is every tool the
   // engine's shell runs. `resolveBinary` reads this same PATH.
-  const localBin = base.HOME ? path.join(base.HOME, ".local/bin") : null;
-  const entries = [input.config.dispatchBinDir, localBin]
-    .concat(env.PATH ? env.PATH.split(path.delimiter) : [])
-    .filter((entry): entry is string => Boolean(entry));
-  env.PATH = Array.from(new Set(entries)).join(path.delimiter);
+  env.PATH = harnessSearchPath(input.config, base);
   // Pin the Bash tool's cwd to the project root after every command, as the
   // pane launch does, so it does not drift back to the original repo root
   // over a long conversation. Claude Code's own variable; the other engines
@@ -606,7 +619,7 @@ export class HarnessSupervisor {
           ? await this.resolveBinary(c.claudeBin, env)
           : c.claudeBin,
       codexBin:
-        engine === "codex" && process.env.DISPATCH_CODEX_BIN
+        engine === "codex" && c.codexBinConfigured
           ? await this.resolveBinary(c.codexBin, env)
           : null,
     };

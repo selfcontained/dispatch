@@ -128,6 +128,7 @@ async function build(
       opencodeBin: "/bin/opencode",
       claudeBin: "/bin/claude",
       codexBin: "/bin/codex",
+      codexBinConfigured: false,
       dispatchBinDir: "/opt/dispatch/bin",
       port: 1,
       tls: null,

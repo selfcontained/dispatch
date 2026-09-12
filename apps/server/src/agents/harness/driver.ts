@@ -53,7 +53,7 @@ export type DriverLogger = {
 
 export type ChildProcessLike = Pick<
   ChildProcess,
-  "stdin" | "stdout" | "stderr" | "on" | "kill" | "killed"
+  "stdin" | "stdout" | "stderr" | "on" | "kill" | "killed" | "pid"
 >;
 
 export type SpawnFn = (
@@ -145,7 +145,33 @@ function defaultSpawn(
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv }
 ): ChildProcessLike {
-  return nodeSpawn(bin, args, { ...opts, stdio: ["pipe", "pipe", "pipe"] });
+  // Its own process group: an adapter spawns the engine CLI as a child of
+  // its own, and a signal to the adapter alone leaves that CLI running with
+  // full-access permissions and a live MCP token. signalChild targets the
+  // group.
+  return nodeSpawn(bin, args, {
+    ...opts,
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+  });
+}
+
+/**
+ * Signal the child and everything it spawned. The group is addressed by
+ * the child's pid (it leads its own group, see defaultSpawn); a child
+ * without a pid, or one whose group is already gone, gets the plain kill.
+ */
+function signalChild(child: ChildProcessLike, signal: NodeJS.Signals): void {
+  if (child.pid && process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // ESRCH: the group is gone already. Anything else: fall back to the
+      // child itself rather than skip the signal.
+    }
+  }
+  child.kill(signal);
 }
 
 function describeExit(exit: ExitInfo): string {
@@ -281,7 +307,7 @@ export class HarnessDriver {
       },
     };
     if (!child.stdin || !child.stdout) {
-      child.kill("SIGKILL");
+      signalChild(child, "SIGKILL");
       throw new Error("harness start failed: child has no stdio pipes");
     }
     const stream = acp.ndJsonStream(
@@ -386,7 +412,7 @@ export class HarnessDriver {
     ]);
     if (!outcome.ok) {
       handshake.catch(() => {});
-      child.kill("SIGKILL");
+      signalChild(child, "SIGKILL");
       // A spawn failure aborts the handshake too, and that rejection can win
       // the race; the child's own exit reason is the useful one.
       const reason = settledExit
@@ -536,8 +562,10 @@ export class HarnessDriver {
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
       ]);
     entry.child.stdin?.end();
-    if (!(await exitedWithin(TEARDOWN_STEP_MS))) entry.child.kill("SIGTERM");
-    if (!(await exitedWithin(TEARDOWN_STEP_MS))) entry.child.kill("SIGKILL");
+    if (!(await exitedWithin(TEARDOWN_STEP_MS)))
+      signalChild(entry.child, "SIGTERM");
+    if (!(await exitedWithin(TEARDOWN_STEP_MS)))
+      signalChild(entry.child, "SIGKILL");
     await entry.exited;
     this.live.delete(agentId);
   }
@@ -554,7 +582,7 @@ export class HarnessDriver {
     const killed: string[] = [];
     for (const [agentId, entry] of this.live) {
       try {
-        entry.child.kill("SIGKILL");
+        signalChild(entry.child, "SIGKILL");
         killed.push(agentId);
       } catch (err) {
         this.opts.logger.warn(

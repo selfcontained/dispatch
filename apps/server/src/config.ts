@@ -24,6 +24,11 @@ export type AppConfig = {
   mediaRoot: string;
   dispatchBinDir: string;
   codexBin: string;
+  /**
+   * Whether the operator named a host Codex (`DISPATCH_CODEX_BIN` or the
+   * older `CODEX_BIN`); the Codex engine's adapter bundles its own otherwise.
+   */
+  codexBinConfigured: boolean;
   claudeBin: string;
   opencodeBin: string;
   cursorBin: string;
@@ -111,6 +116,9 @@ export function loadConfig(): AppConfig {
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin: resolveConfiguredBin(
       process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex"
+    ),
+    codexBinConfigured: Boolean(
+      process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN
     ),
     claudeBin: resolveConfiguredBin(
       process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude"

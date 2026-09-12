@@ -109,7 +109,12 @@ describe("harness provider usage", () => {
       codexFiles: async () => files,
       modifiedAt: async (file) => (file.includes("new") ? 2 : 1),
       read: async (file) => {
-        if (file.endsWith(".claude.json")) throw new Error("missing");
+        // Claude Code's state file is `~/.claude.json`, in the home directory
+        // itself; a read anywhere else is the bug this pins.
+        if (file === "/home/service/.claude.json") throw new Error("missing");
+        if (file.endsWith(".claude.json")) {
+          throw new Error(`unexpected Claude config path ${file}`);
+        }
         const used = file.includes("new") ? 70 : 20;
         return JSON.stringify({
           timestamp: "2026-09-11T02:30:00Z",
@@ -131,5 +136,21 @@ describe("harness provider usage", () => {
     ).toMatchObject({
       windows: [expect.objectContaining({ usedPercent: 70 })],
     });
+  });
+});
+
+describe("claudeConfigPath", () => {
+  it("is ~/.claude.json, or CLAUDE_CONFIG_DIR/.claude.json when that is set", async () => {
+    const { claudeConfigPath } =
+      await import("../src/agents/harness/provider-usage.js");
+    expect(claudeConfigPath("/home/service", {})).toBe(
+      "/home/service/.claude.json"
+    );
+    expect(
+      claudeConfigPath("/home/service", { CLAUDE_CONFIG_DIR: "/etc/claude" })
+    ).toBe("/etc/claude/.claude.json");
+    expect(claudeConfigPath("/home/service", { CLAUDE_CONFIG_DIR: " " })).toBe(
+      "/home/service/.claude.json"
+    );
   });
 });

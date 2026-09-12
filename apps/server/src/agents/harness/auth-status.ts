@@ -89,12 +89,14 @@ async function commandStatus(
   engineId: "claude" | "codex" | "opencode",
   command: string,
   args: string[],
-  runner: CommandRunner
+  runner: CommandRunner,
+  env: NodeJS.ProcessEnv | undefined
 ): Promise<HarnessAuthStatus> {
   try {
     const result = await runner(command, args, {
       allowedExitCodes: [0, 1],
       timeoutMs: 4_000,
+      ...(env ? { env } : {}),
     });
     const output = `${result.stdout}\n${result.stderr}`.trim();
     if (engineId === "codex") return parseCodexAuth(output);
@@ -115,15 +117,22 @@ export async function loadHarnessAuthReport(
     read?: FileReader;
     homeDir?: string;
     now?: Date;
+    /**
+     * Extra env for the probes, the PATH above all: a bare engine name must
+     * resolve where the harness spawn resolves it, not on the service's own
+     * PATH, or the settings page says "unavailable" for an engine that runs.
+     */
+    env?: NodeJS.ProcessEnv;
   } = {}
 ): Promise<HarnessAuthReport> {
   const runner = options.runner ?? runCommand;
   const read = options.read ?? readFile;
   const homeDir = options.homeDir ?? os.homedir();
+  const env = options.env;
   const [claude, codex, opencode, gemini] = await Promise.all([
-    commandStatus("claude", bins.claude, ["auth", "status"], runner),
-    commandStatus("codex", bins.codex, ["login", "status"], runner),
-    commandStatus("opencode", bins.opencode, ["auth", "list"], runner),
+    commandStatus("claude", bins.claude, ["auth", "status"], runner, env),
+    commandStatus("codex", bins.codex, ["login", "status"], runner, env),
+    commandStatus("opencode", bins.opencode, ["auth", "list"], runner, env),
     read(path.join(homeDir, ".gemini", "settings.json"), "utf8")
       .then((raw) => {
         const parsed = JSON.parse(raw) as {
@@ -141,12 +150,13 @@ export async function loadHarnessAuthReport(
 
 export function createHarnessAuthReporter(
   bins: HarnessAuthBins,
-  ttlMs = 60_000
+  ttlMs = 60_000,
+  env?: NodeJS.ProcessEnv
 ): () => Promise<HarnessAuthReport> {
   let cached: { expiresAt: number; report: HarnessAuthReport } | null = null;
   return async () => {
     if (cached && cached.expiresAt > Date.now()) return cached.report;
-    const report = await loadHarnessAuthReport(bins);
+    const report = await loadHarnessAuthReport(bins, env ? { env } : {});
     cached = { expiresAt: Date.now() + ttlMs, report };
     return report;
   };

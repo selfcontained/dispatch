@@ -293,7 +293,7 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DISPATCH_GEMINI_BIN`         | `gemini`                                               | Gemini CLI, which speaks ACP itself. Absolute path.                                                                |
 | `DISPATCH_OPENCODE_BIN`       | `opencode`                                             | OpenCode, which speaks ACP itself (`opencode acp`). Absolute path.                                                 |
 | `DISPATCH_CLAUDE_BIN`         | `claude`                                               | Existing. Also handed to the Claude adapter as `CLAUDE_CODE_EXECUTABLE`.                                           |
-| `DISPATCH_CODEX_BIN`          | `codex`                                                | Existing. Handed to the Codex adapter as `CODEX_PATH` only when set; otherwise the adapter runs its bundled Codex. |
+| `DISPATCH_CODEX_BIN`          | `codex`                                                | Existing (`CODEX_BIN` is the older spelling and still read). Handed to the Codex adapter as `CODEX_PATH` only when either is set; otherwise the adapter runs its bundled Codex. |
 
 Changes to `.env` require a service restart to take effect.
 

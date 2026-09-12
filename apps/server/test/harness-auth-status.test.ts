@@ -78,4 +78,27 @@ describe("harness auth status", () => {
     ]);
     expect(JSON.stringify(report)).not.toContain("credential");
   });
+
+  it("hands the probes the harness PATH so a bare engine name resolves where the spawn does", async () => {
+    const runner = vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    await loadHarnessAuthReport(
+      {
+        claude: "claude",
+        codex: "codex",
+        gemini: "gemini",
+        opencode: "opencode",
+      },
+      {
+        runner,
+        read: async () => "{}",
+        env: { PATH: "/srv/dispatch/bin:/home/service/.local/bin:/usr/bin" },
+      }
+    );
+    for (const call of runner.mock.calls) {
+      expect((call[2] as { env?: NodeJS.ProcessEnv }).env?.PATH).toBe(
+        "/srv/dispatch/bin:/home/service/.local/bin:/usr/bin"
+      );
+    }
+    expect(runner).toHaveBeenCalledTimes(3);
+  });
 });
