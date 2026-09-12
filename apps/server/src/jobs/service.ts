@@ -592,16 +592,12 @@ export class JobService {
   async addJob(input: AddJobInput): Promise<JobRecord> {
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
-    if (schedule && !validateCronExpression(schedule)) {
-      throw new Error(
-        `Job "${displayName}" has an invalid cron expression: "${schedule}"`
-      );
-    }
-    if (input.enabled && !schedule && !input.continuationEnabled) {
-      throw new Error(
-        `Job "${displayName}" needs a schedule or continuation enabled before it can be enabled.`
-      );
-    }
+    assertScheduleValid({
+      label: displayName,
+      schedule,
+      enabled: input.enabled,
+      continuationEnabled: input.continuationEnabled,
+    });
 
     const agentConfig = applyAgentConfigDefaults(input);
 
@@ -677,18 +673,14 @@ export class JobService {
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule =
       input.schedule === undefined ? existing.schedule : schedule;
-    if (nextSchedule && !validateCronExpression(nextSchedule)) {
-      throw new Error(
-        `Job "${input.displayName ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`
-      );
-    }
     const nextContinuationEnabled =
       input.continuationEnabled ?? existing.continuationEnabled;
-    if (input.enabled && !nextSchedule && !nextContinuationEnabled) {
-      throw new Error(
-        `Job "${input.displayName ?? existing.name}" needs a schedule or continuation enabled before it can be enabled.`
-      );
-    }
+    assertScheduleValid({
+      label: input.displayName ?? existing.name,
+      schedule: nextSchedule,
+      enabled: input.enabled,
+      continuationEnabled: nextContinuationEnabled,
+    });
 
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
     const displayName = normalizeOptionalString(input.displayName);
@@ -1345,6 +1337,30 @@ function formatCompletionCriteria(
 ): string {
   if (!criteria?.length) return "Not specified.";
   return criteria.map((criterion) => `- ${criterion}`).join("\n");
+}
+
+/**
+ * Shared schedule guards for addJob and updateJob. Each caller resolves the
+ * label, schedule and continuation flag with its own policy and passes the
+ * already-resolved values, so only the two thrown messages are shared.
+ */
+function assertScheduleValid(params: {
+  label: string;
+  schedule: string | null | undefined;
+  enabled: boolean | undefined;
+  continuationEnabled: boolean | undefined;
+}): void {
+  const { label, schedule, enabled, continuationEnabled } = params;
+  if (schedule && !validateCronExpression(schedule)) {
+    throw new Error(
+      `Job "${label}" has an invalid cron expression: "${schedule}"`
+    );
+  }
+  if (enabled && !schedule && !continuationEnabled) {
+    throw new Error(
+      `Job "${label}" needs a schedule or continuation enabled before it can be enabled.`
+    );
+  }
 }
 
 function normalizeOptionalString(
