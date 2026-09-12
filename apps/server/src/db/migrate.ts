@@ -14,15 +14,18 @@ const MIGRATION_LOCK_ID = 8675309;
 const TIMESTAMP_PARSE_NOISE_RE = /^Can't determine timestamp for \d+$/;
 
 /**
- * Bookkeeping names written into `pgmigrations` by earlier prereleases of
- * this branch, under file names this branch no longer ships. The schema
- * those files created is the schema `0051_agent-stream-events.sql` and
- * `0052_agent-chat-messages-delivery-text.sql` create now, and both of
- * those files re-apply idempotently (every statement is guarded), so the
- * dead records are deleted before the runner reads the table. No migration
- * can repair this from the inside: node-pg-migrate compares the stored
- * list against the shipped files position by position and throws before
- * the first migration executes.
+ * Bookkeeping names written into `pgmigrations` under file names this
+ * branch does not ship. Most are from earlier prereleases of this branch;
+ * the schema those files created is the schema `0051_agent-stream-events.sql`
+ * and `0052_agent-chat-messages-delivery-text.sql` create now. The last one
+ * is from the v0.38.14 release on main, which numbered the reactions table
+ * 0051 — the number this branch gives its stream-events file — and which
+ * this branch ships as `0057_agent-chat-reactions.sql`. Every one of those
+ * files re-applies idempotently (every statement is guarded), so the dead
+ * records are deleted before the runner reads the table. No migration can
+ * repair this from the inside: node-pg-migrate compares the stored list
+ * against the shipped files position by position and throws before the
+ * first migration executes.
  */
 const PRERELEASE_MIGRATION_NAMES = [
   "0048_agent-stream-events",
@@ -32,6 +35,7 @@ const PRERELEASE_MIGRATION_NAMES = [
   "0052_agent-stream-events-turn",
   "0053_agent-chat-messages-delivery-text",
   "0054_agent-type-dispatch",
+  "0051_agent-chat-reactions",
 ];
 
 /**

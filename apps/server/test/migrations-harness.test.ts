@@ -15,6 +15,10 @@ const PRERELEASE_MIGRATION_NAMES = [
   "0054_agent-type-dispatch",
 ];
 
+// The name the official v0.38.14 release wrote for the reactions table this
+// branch ships as 0057 (migrate.ts deletes it at boot too).
+const OFFICIAL_REACTIONS_MIGRATION_NAME = "0051_agent-chat-reactions";
+
 // The subset of those names written by the lineage whose stream-events file
 // was called `0051_agent-stream-events`, the name this branch also ships. That
 // collision is why the shipped file was skipped on such a database and its
@@ -247,5 +251,39 @@ describe("harness migrations", () => {
            VALUES ('agt_mig', 42, 'plan', 'plan:42', '{"entries":[]}'::jsonb)`
       )
     ).resolves.toBeDefined();
+  });
+
+  it("boot on a database that ran the official release's 0051_agent-chat-reactions", async () => {
+    // v0.38.14 on main shipped the reactions table as 0051, the number this
+    // branch gives its stream-events file, and this branch ships the same
+    // table as 0057. An install upgrading from that release has the 0051
+    // record where the runner expects 0051_agent-stream-events, so without
+    // forgetting it the position-by-position comparison throws before the
+    // first migration executes.
+    await forgetFrom("0051_agent-stream-events");
+    await pool.query(
+      `INSERT INTO pgmigrations (name, run_on) VALUES ($1, NOW())`,
+      [OFFICIAL_REACTIONS_MIGRATION_NAME]
+    );
+
+    await expect(runTestMigrations()).resolves.not.toThrow();
+
+    const dead = await pool.query(
+      `SELECT name FROM pgmigrations WHERE name = $1`,
+      [OFFICIAL_REACTIONS_MIGRATION_NAME]
+    );
+    expect(dead.rows).toEqual([]);
+    const live = await pool.query<{ name: string; count: string }>(
+      `SELECT name, COUNT(*)::text AS count FROM pgmigrations
+        WHERE name = ANY($1::text[]) GROUP BY name ORDER BY name`,
+      [HARNESS_MIGRATION_NAMES]
+    );
+    expect(live.rows).toEqual(
+      HARNESS_MIGRATION_NAMES.map((name) => ({ name, count: "1" }))
+    );
+    const table = await pool.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_name = 'agent_chat_reactions'`
+    );
+    expect(table.rowCount).toBe(1);
   });
 });
