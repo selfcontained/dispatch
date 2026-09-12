@@ -164,7 +164,9 @@ export class StreamRecorder {
    * ACP defines the prompt response as the turn boundary. An adapter can
    * still flush transport notifications behind that response; retain them as
    * trailing output of the closed prompt rather than inventing a second live
-   * turn that races the next prompt.
+   * turn that races the next prompt. The window is deliberately open until
+   * the next prompt, exit, or reconcile: no bridged engine starts work of its
+   * own after a response, so anything that arrives in between is a tail.
    */
   private readonly trailingPrompt = new Set<string>();
   /**
@@ -193,6 +195,10 @@ export class StreamRecorder {
       case "turn": {
         if (event.state === "started") {
           await this.settleAutonomous(event.agentId);
+          // A text tail that arrived after the previous prompt settled opened
+          // its own assistant row under that turn; close it so this turn's
+          // reply starts a row of its own.
+          await this.closeText(event.agentId);
           this.trailingPrompt.delete(event.agentId);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",

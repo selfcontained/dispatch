@@ -337,15 +337,30 @@ export class HarnessSupervisor {
     });
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {
-      const prior = this.queues.get(event.agentId) ?? Promise.resolve();
-      const next = prior.then(() => this.onEvent(event));
-      this.queues.set(event.agentId, next);
-      void next.finally(() => {
-        if (this.queues.get(event.agentId) === next) {
-          this.queues.delete(event.agentId);
-        }
-      });
+      void this.chain(event.agentId, () => this.onEvent(event));
     });
+  }
+
+  /**
+   * Run `task` after everything already queued for the agent. The recorder
+   * keeps open-row state per agent and expects its callers to serialize, so
+   * every write into it, from the driver's events or from a request, goes
+   * through here.
+   */
+  private chain<T>(agentId: string, task: () => Promise<T>): Promise<T> {
+    const prior = this.queues.get(agentId) ?? Promise.resolve();
+    const next = prior.then(task, task);
+    const settled: Promise<void> = next.then(
+      () => undefined,
+      () => undefined
+    );
+    this.queues.set(agentId, settled);
+    void settled.finally(() => {
+      if (this.queues.get(agentId) === settled) {
+        this.queues.delete(agentId);
+      }
+    });
+    return next;
   }
 
   isRunning(agentId: string): boolean {
@@ -422,7 +437,9 @@ export class HarnessSupervisor {
     });
     // Even if the adapter says it has no active prompt, close the visible
     // stream turn and let its settlement callback safely resume the queue.
-    await this.streams.interruptAutonomous(agentId);
+    // Through the event chain, so the cancel's own tail is folded into the
+    // row before it closes and no driver event is mid-write underneath.
+    await this.chain(agentId, () => this.streams.interruptAutonomous(agentId));
     return true;
   }
 
