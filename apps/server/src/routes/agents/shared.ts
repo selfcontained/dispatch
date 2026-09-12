@@ -1,3 +1,5 @@
+import type { HarnessCommand, HarnessConfigOption } from "@dispatch/shared";
+import type { QueuedPrompt } from "../../agents/harness/prompt-source.js";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -20,6 +22,25 @@ export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 export type AgentRouteDeps = {
   pool: Pool;
+  /** Session config (model, effort) for Dispatch Harness agents. */
+  harness: {
+    getConfigOptions: (agentId: string) => HarnessConfigOption[] | null;
+    getSessionStartedAt: (agentId: string) => string | null;
+    setConfigOption: (
+      agentId: string,
+      configId: string,
+      value: string
+    ) => Promise<HarnessConfigOption[]>;
+    /** The slash commands the engine advertised; null when not running. */
+    getCommands: (agentId: string) => HarnessCommand[] | null;
+    /** Prompts waiting behind the running turn (HarnessSupervisor.listQueued). */
+    listQueued: (agentId: string) => QueuedPrompt[];
+    /** Promote and interrupt; false when nothing queued has that id. */
+    sendQueuedNow: (agentId: string, id: string) => Promise<boolean>;
+    removeQueued: (agentId: string, id: string) => boolean;
+    /** Cancel the running turn; false when nothing runs. */
+    interrupt: (agentId: string) => Promise<boolean>;
+  };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
   publishUiEvent: PublishUiEvent;

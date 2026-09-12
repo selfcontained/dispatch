@@ -21,6 +21,9 @@ const baseConfig: AppConfig = {
   claudeBin: "/opt/claude",
   opencodeBin: "/opt/opencode",
   cursorBin: "/opt/cursor",
+  claudeHarnessBin: "/opt/claude-agent-acp",
+  codexHarnessBin: "/opt/codex-acp",
+  geminiBin: "/opt/gemini",
   agentRuntime: "inert",
   sessionPrefix: "dispatch",
   tls: null,
@@ -350,6 +353,46 @@ describe("buildAgentCommand", () => {
     // Terminal sessions never need MCP tokens or system prompts.
     expect(cmd).not.toContain("--mcp-config");
     expect(cmd).not.toContain("--append-system-prompt");
+  });
+
+  // An interactive shell sources the user's rc, and an rc that cds (a
+  // "primary repo" habit) lands the pane somewhere else entirely. The setup
+  // script's own cd runs before the rc, so it cannot win; only a hook that
+  // fires after startup can.
+  it.each(["terminal", "dispatch"] as const)(
+    "for %s type, returns the shell to the agent's cwd after the rc files run",
+    (type) => {
+      const cmd = buildAgentCommand(
+        baseConfig,
+        type,
+        "standard",
+        [],
+        "/tmp/media",
+        SESSION,
+        false
+      );
+      // Unquoted on purpose: the setup script has already cd'd to the
+      // worktree, so $PWD resolves at launch to the directory we want.
+      expect(cmd).toContain('DISPATCH_AGENT_CWD="$PWD"');
+      expect(cmd).toContain("PROMPT_COMMAND=");
+      expect(cmd).toContain('cd "$DISPATCH_AGENT_CWD"');
+      // One shot: the hook clears itself so it never fights a later cd.
+      expect(cmd).toContain("unset DISPATCH_AGENT_CWD PROMPT_COMMAND");
+    }
+  );
+
+  it("does not install the cwd hook for a CLI agent, which execs a binary", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).not.toContain("DISPATCH_AGENT_CWD");
+    expect(cmd).not.toContain("PROMPT_COMMAND");
   });
 
   it("for claude type, includes --mcp-config, --append-system-prompt, and the cli binary", () => {
@@ -1111,6 +1154,18 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(text).toContain("auto-corrected");
   });
 
+  it("requires accepted tasks to continue past plan-only turns", () => {
+    for (const agentType of ["claude", "codex"] as const) {
+      for (const trimmedGuidance of [false, true]) {
+        const text = guidance({ agentType, trimmedGuidance });
+        expect(text).toContain(
+          "do not end a turn after only announcing a plan or status"
+        );
+        expect(text).toContain("Continue into substantive work");
+      }
+    }
+  });
+
   it("folds the two pin rules into one", () => {
     const full = guidance({ agentType: "claude" });
     const text = guidance({ agentType: "claude", trimmedGuidance: true });
@@ -1251,5 +1306,26 @@ describe("buildLaunchGuidance — chat surface rule", () => {
       {}
     );
     expect(without).not.toContain("dispatch_chat_post");
+  });
+});
+
+describe("dispatch harness agents", () => {
+  it("launch into a login shell like terminal agents; the ACP supervisor owns the engine", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "dispatch",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).toContain('"${SHELL:-/bin/bash}" -il');
+    expect(cmd).not.toContain("--mcp-config");
+    expect(cmd).not.toContain("--append-system-prompt");
+    expect(cmd).not.toContain("split-window");
+    expect(cmd).not.toContain("tail -n 300");
+    // The dispatch pane is a plain login shell, the same line terminal agents get.
+    expect(cmd.trim().endsWith('"${SHELL:-/bin/bash}" -il')).toBe(true);
   });
 });

@@ -1,6 +1,9 @@
 import { Bot, Terminal as TerminalIcon } from "lucide-react";
+
+import { useIconColor } from "@/hooks/use-icon-color";
 import { siClaude, siCursor } from "simple-icons";
 
+import { AGENT_TYPE_LABELS } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type AgentEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
@@ -25,7 +28,14 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "cursor" | "terminal" | "unknown" {
+):
+  | "codex"
+  | "claude"
+  | "opencode"
+  | "cursor"
+  | "dispatch"
+  | "terminal"
+  | "unknown" {
   if (type === "claude") {
     return "claude";
   }
@@ -37,6 +47,9 @@ function normalizeAgentType(
   }
   if (type === "terminal") {
     return "terminal";
+  }
+  if (type === "dispatch") {
+    return "dispatch";
   }
   if (type === "codex") {
     return "codex";
@@ -54,17 +67,7 @@ export function AgentTypeIcon({
 }: AgentTypeIconProps): JSX.Element {
   const normalizedType = normalizeAgentType(type);
   const label =
-    normalizedType === "claude"
-      ? "Claude"
-      : normalizedType === "opencode"
-        ? "OpenCode"
-        : normalizedType === "cursor"
-          ? "Cursor"
-          : normalizedType === "terminal"
-            ? "Terminal"
-            : normalizedType === "codex"
-              ? "Codex"
-              : "Agent";
+    normalizedType === "unknown" ? "Agent" : AGENT_TYPE_LABELS[normalizedType];
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
@@ -84,6 +87,15 @@ export function AgentTypeIcon({
       >
         OC
       </span>
+    );
+  }
+
+  if (normalizedType === "dispatch") {
+    return (
+      <DispatchHarnessMark
+        className={cn(baseClass, statusClass, className)}
+        label={label}
+      />
     );
   }
 
@@ -134,6 +146,30 @@ export function AgentTypeIcon({
         fill="currentColor"
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: `<path d="${logoPath}" />` }}
+      />
+    </span>
+  );
+}
+
+function DispatchHarnessMark({
+  className,
+  label,
+}: {
+  className: string;
+  label: string;
+}): JSX.Element {
+  const { iconColor } = useIconColor();
+  return (
+    <span
+      className={className}
+      title={`${label} agent`}
+      aria-label={`${label} agent`}
+    >
+      <img
+        src={`/icons/${iconColor}/harness-icon.svg`}
+        alt=""
+        className="h-3.5 w-3.5 object-contain"
+        aria-hidden="true"
       />
     </span>
   );

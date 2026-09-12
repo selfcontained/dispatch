@@ -14,6 +14,7 @@ import type {
   ChatUserAttachmentInput,
   ChatChangedEvent,
   ChatEntryEvent,
+  HarnessChangedEvent,
   ChatMessageEntry,
   ChatReadEvent,
 } from "@dispatch/shared";
@@ -32,6 +33,7 @@ import {
   formatAttachmentSize,
 } from "./envelope.js";
 import { loadChatMessageEntry } from "./feed.js";
+import { loadLatestTurnEntry } from "./turns.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -85,12 +87,16 @@ export type ChatDeliveryAdapter = {
   held: (agentId: string) => boolean;
 };
 
-type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
+type ChatAgent = Pick<AgentRecord, "id" | "type" | "mediaDir" | "pins">;
 
 export type ChatServiceDeps = {
   pool: Pool;
   publishUiEvent: (
-    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+    event:
+      | ChatChangedEvent
+      | ChatEntryEvent
+      | ChatReadEvent
+      | HarnessChangedEvent
   ) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
   getAgent: (agentId: string) => Promise<ChatAgent | null>;
@@ -100,6 +106,13 @@ export type ChatServiceDeps = {
    * resolution `GET /media/:file` serves from.
    */
   mediaRoot: string;
+  /**
+   * Whether any browser is listening. Composing a turn entry reads the whole
+   * open turn, and the recorder asks for one about ten times a second, so an
+   * unattended agent would pay for an announcement nobody receives. Absent
+   * means assume someone is listening.
+   */
+  hasUiClient?: () => boolean;
   /** Required for the user-side workflows (send, answer). */
   delivery?: ChatDeliveryAdapter;
   log?: {
@@ -146,6 +159,13 @@ export type ChatLaunchContextInput = {
   pins?: Array<{ id: string; type: string; value: string }>;
   /** The agent that created this one via dispatch_launch_agent, if any. */
   launchedByAgentId?: string | null;
+  /**
+   * What the first turn must carry when it is more than the display text:
+   * an MCP launch header, a rendered template. Only the harness reads its
+   * first turn from the post; CLI agents get this typed into the pane
+   * instead.
+   */
+  deliveryText?: string;
 };
 
 /** A launch post resolved but not yet written; see `prepareLaunchContext`. */
@@ -270,10 +290,19 @@ export function validateChatContent(input: {
   }
 }
 
+/** Whether the agent's harness streams its replies into Chat itself. */
+function nativeRepliesFor(agent: ChatAgent): boolean {
+  return agent.type === "dispatch";
+}
+
+/** One agent's in-flight turn compose, and whether another is owed after it. */
+type TurnPublish = { done: Promise<void>; again: boolean };
+
 export class ChatService {
   readonly store: ChatStore;
   /** Detached pane deliveries that have not recorded their outcome yet. */
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
+  private readonly turnPublishes = new Map<string, TurnPublish>();
   private readonly log: NonNullable<ChatServiceDeps["log"]>;
 
   constructor(private readonly deps: ChatServiceDeps) {
@@ -316,17 +345,19 @@ export class ChatService {
         `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    let resolved: ChatAttachment[] = [];
-    let attachmentLines: string[] = [];
-    if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
-      resolved = await this.resolveAttachmentsFor(agent, attachments);
-      attachmentLines = this.describeAttachments(agent, resolved);
-    }
     const sessionName = await this.deliverySession(
       agentId,
       options.allowInert ?? false
     );
+    // The agent is needed either way: for its attachments, and to know
+    // whether its harness streams replies into Chat itself.
+    const agent = await this.requireAgent(agentId);
+    let resolved: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (attachments.length > 0) {
+      resolved = await this.resolveAttachmentsFor(agent, attachments);
+      attachmentLines = this.describeAttachments(agent, resolved);
+    }
     const delivered = sessionName === null ? false : null;
     const row = {
       agentId,
@@ -353,7 +384,8 @@ export class ChatService {
       agentId,
       sessionName,
       message,
-      attachmentLines
+      attachmentLines,
+      { nativeReplies: nativeRepliesFor(agent) }
     );
     return { message, delivered: null, held };
   }
@@ -415,15 +447,15 @@ export class ChatService {
         `value must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
       );
     }
+    const sessionName = await this.deliverySession(agentId, true);
+    const agent = await this.requireAgent(agentId);
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
       resolved = await this.resolveAttachmentsFor(agent, attachments);
       attachmentLines = this.describeAttachments(agent, resolved);
     }
 
-    const sessionName = await this.deliverySession(agentId, true);
     const delivered = sessionName === null ? false : null;
 
     // Reply row and answer land together or not at all: a concurrent answer
@@ -475,7 +507,15 @@ export class ChatService {
     await this.publishEntry(agentId, answered.id);
     await this.publishEntry(agentId, replyMessage.id);
     if (sessionName !== null) {
-      this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
+      this.deliverDetached(
+        agentId,
+        sessionName,
+        replyMessage,
+        attachmentLines,
+        {
+          nativeReplies: nativeRepliesFor(agent),
+        }
+      );
     }
     return { question: answered, reply: replyMessage, delivered };
   }
@@ -640,21 +680,49 @@ export class ChatService {
   }
 
   /**
+   * The first turn for a harness that takes no launch argument: the
+   * launch-context post, wrapped in the same envelope a typed message gets.
+   */
+  async launchPromptFor(agentId: string): Promise<string | null> {
+    const post = await this.store.getLaunchPost(agentId);
+    if (!post) return null;
+    const attachmentLines = post.attachments.length
+      ? this.describeAttachments(
+          await this.requireAgent(agentId),
+          post.attachments
+        )
+      : [];
+    return buildChatEnvelope(
+      post.id,
+      post.deliveryText ?? post.text,
+      attachmentLines,
+      { nativeReplies: true }
+    );
+  }
+
+  /**
    * Enqueue the envelope and return at once. The detached continuation
-   * records true/false on the row and publishes `chat.changed`; graceful
+   * records true/false on the row and publishes the delivered row; graceful
    * shutdown waits (briefly) for it, and a restart sweeps whatever it could
-   * not wait for to delivered=false.
+   * not wait for to delivered=false. `nativeReplies` says the agent's
+   * harness streams its replies into Chat itself (see nativeRepliesFor).
    */
   private deliverDetached(
     agentId: string,
     sessionName: string,
     message: ChatMessage,
-    attachmentLines: string[] = []
+    attachmentLines: string[] = [],
+    options: { nativeReplies?: boolean } = {}
   ): { held: boolean } {
     return this.injectDetached({
       agentId,
       sessionName,
-      envelope: buildChatEnvelope(message.id, message.text, attachmentLines),
+      envelope: buildChatEnvelope(
+        message.id,
+        message.text,
+        attachmentLines,
+        options
+      ),
       record: async (delivered) => {
         await this.store.setDelivered(message.id, delivered);
         await this.publishEntry(agentId, message.id);
@@ -771,6 +839,7 @@ export class ChatService {
           delivered: true,
           origin: "launch",
           launchedByAgentId: input.launchedByAgentId ?? null,
+          deliveryText: input.deliveryText ?? null,
         });
         if (!message) {
           throw new ChatConflictError(
@@ -815,6 +884,77 @@ export class ChatService {
    */
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /**
+   * A Dispatch Harness stream write. The turn itself travels as a
+   * `chat.entry` from `publishTurnEntry`; this event carries the queue,
+   * and `config` also refreshes the session's model, effort, and running
+   * state, which a chunk does not change.
+   */
+  publishHarnessChanged(agentId: string, config = false): void {
+    this.deps.publishUiEvent({
+      type: "harness.changed",
+      agentId,
+      ...(config ? { config: true } : {}),
+    });
+  }
+
+  /**
+   * The agent's newest harness turn as the feed row it now is, so a mounted
+   * feed replaces that one row instead of refetching every page it holds.
+   * The newest turn is always the affected one: the recorder only ever
+   * writes into the turn it opened last. A flush that changed nothing about
+   * any turn (a queue edit) still publishes, and the client's upsert is a
+   * no-op when the row is unchanged.
+   *
+   * Never rejects: a stream write must not fail because its announcement did.
+   *
+   * One compose per agent at a time, with a single trailing re-run. The
+   * recorder flushes about ten times a second and each compose reads the
+   * whole open turn, so two of them overlap on a slow disk and the older
+   * read can publish last: a shorter, possibly still-streaming entry lands
+   * over a newer one. Nothing would correct it, because the turn's own
+   * `harness.changed` no longer refetches the feed and the flush that
+   * settled it was the last. Requests arriving mid-compose collapse into
+   * one re-run, since only the newest state is worth sending.
+   */
+  async publishTurnEntry(agentId: string): Promise<void> {
+    // A reconnecting client refetches the whole feed from the rows, so
+    // nothing is lost by not composing while nobody is watching.
+    if (this.deps.hasUiClient && !this.deps.hasUiClient()) return;
+    const running = this.turnPublishes.get(agentId);
+    if (running) {
+      running.again = true;
+      return running.done;
+    }
+    const state: TurnPublish = { done: Promise.resolve(), again: false };
+    this.turnPublishes.set(agentId, state);
+    state.done = (async () => {
+      try {
+        do {
+          state.again = false;
+          await this.composeTurnEntry(agentId);
+        } while (state.again);
+      } finally {
+        this.turnPublishes.delete(agentId);
+      }
+    })();
+    return state.done;
+  }
+
+  private async composeTurnEntry(agentId: string): Promise<void> {
+    try {
+      const entry = await loadLatestTurnEntry(this.store.db, agentId);
+      if (entry) {
+        this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+      }
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId },
+        "chat: could not compose the harness turn for its feed event"
+      );
+    }
   }
 
   /** A mark-read landed: the count, and which rows it stamped. */
@@ -864,6 +1004,43 @@ export class ChatService {
     ];
     for (const agentId of agentIds) this.publishChanged(agentId);
     return agentIds;
+  }
+
+  /**
+   * A Dispatch Harness agent brought back after a restart: the messages
+   * that were waiting in its queue when the service went down are still
+   * `delivered: null`, and go out again in the order they were sent.
+   */
+  async redeliverPending(agentId: string): Promise<number> {
+    const pending = await this.store.listPendingDeliveries(agentId);
+    if (pending.length === 0) return 0;
+    const agent = await this.requireAgent(agentId);
+    // A harness that came back has a pane; without one (an inert runtime)
+    // there is nowhere to redeliver to. The boot sweep skips running
+    // harness agents on purpose, so the rows are abandoned here, or they
+    // would read as pending for as long as the agent runs.
+    const sessionName = await this.deliverySession(agentId, true);
+    if (sessionName === null) {
+      await this.abandonPending([agentId]);
+      return 0;
+    }
+    for (const message of pending) {
+      const lines = message.attachments.length
+        ? this.describeAttachments(agent, message.attachments)
+        : [];
+      this.deliverDetached(agentId, sessionName, message, lines, {
+        nativeReplies: nativeRepliesFor(agent),
+      });
+    }
+    this.publishChanged(agentId);
+    return pending.length;
+  }
+
+  /** The boot sweep for agents that did not come back. */
+  async abandonPending(agentIds: string[]): Promise<string[]> {
+    const touched = await this.store.sweepPendingDeliveriesFor(agentIds);
+    for (const agentId of touched) this.publishChanged(agentId);
+    return touched;
   }
 
   /**

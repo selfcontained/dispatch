@@ -8,6 +8,8 @@ import {
   GitBranch,
 } from "lucide-react";
 
+import { harnessEngineOf } from "@dispatch/shared";
+
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
@@ -94,6 +96,16 @@ export function AgentCardDetails({
   copyWorktreePath,
 }: AgentCardDetailsProps): JSX.Element {
   const sidebarBaseBranch = agent.baseBranch ?? "main";
+  // A harness agent's engine lives in the first segment of its model id, and
+  // nothing outside the pane showed it: the type label is the product name
+  // and one icon serves all four engines, so two harness agents on different
+  // engines read identically in the sidebar.
+  const engine =
+    agent.type === "dispatch" ? harnessEngineOf(agent.model) : null;
+  const engineModel =
+    agent.model && agent.model.includes("/")
+      ? agent.model.slice(agent.model.indexOf("/") + 1)
+      : null;
 
   return (
     <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
@@ -152,6 +164,18 @@ export function AgentCardDetails({
           ) : null}
         </>
       )}
+      {engine ? (
+        <div data-testid="agent-card-engine">
+          <CompactMetaRow
+            label="Engine"
+            value={
+              engineModel && engineModel !== "default"
+                ? `${engine.label} · ${engineModel}`
+                : engine.label
+            }
+          />
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {agent.cwd ? (

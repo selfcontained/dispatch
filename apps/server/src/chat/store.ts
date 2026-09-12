@@ -40,6 +40,8 @@ export type InsertChatMessageInput = {
   origin?: ChatMessageOrigin | null;
   /** Launch-context posts only: the agent that created this one. */
   launchedByAgentId?: string | null;
+  /** Launch posts: text delivered to a harness when it differs from the post. */
+  deliveryText?: string | null;
 };
 
 export type UpdateChatMessageInput = {
@@ -103,11 +105,15 @@ type Row = {
   read_at: Date | null;
   origin: ChatMessageOrigin | null;
   launched_by_agent_id: string | null;
+  delivery_text?: string | null;
   /** Only on rows read through the feed query; see `listChatEntries`. */
   reactions?: ReactionJson[] | null;
   created_at: Date;
   updated_at: Date;
 };
+
+/** A launch post plus the text its first turn delivers (harness agents). */
+export type LaunchPost = ChatMessage & { deliveryText: string | null };
 
 export function toChatMessage(row: Row): ChatMessage {
   return {
@@ -155,8 +161,8 @@ export class ChatStore {
     const result = await this.db.query<Row>(
       `INSERT INTO agent_chat_messages
          (id, agent_id, author_kind, kind, text, reply_to, question,
-          attachments, delivered, origin, launched_by_agent_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+          attachments, delivered, origin, launched_by_agent_id, delivery_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
        RETURNING *`,
       [
         input.id ?? randomUUID(),
@@ -170,6 +176,7 @@ export class ChatStore {
         input.delivered ?? null,
         input.origin ?? null,
         input.launchedByAgentId ?? null,
+        input.deliveryText ?? null,
       ]
     );
     return toChatMessage(result.rows[0]);
@@ -188,8 +195,8 @@ export class ChatStore {
     const result = await this.db.query<Row>(
       `INSERT INTO agent_chat_messages
          (id, agent_id, author_kind, kind, text, reply_to, question,
-          attachments, delivered, origin, launched_by_agent_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+          attachments, delivered, origin, launched_by_agent_id, delivery_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING
        RETURNING *`,
       [
@@ -204,6 +211,7 @@ export class ChatStore {
         input.delivered ?? null,
         input.origin ?? null,
         input.launchedByAgentId ?? null,
+        input.deliveryText ?? null,
       ]
     );
     const row = result.rows[0];
@@ -267,7 +275,24 @@ export class ChatStore {
     const result = await this.db.query<{ agent_id: string }>(
       `UPDATE agent_chat_messages SET delivered = false
         WHERE author_kind = 'user' AND delivered IS NULL
+          AND agent_id NOT IN (
+            SELECT id FROM agents
+             WHERE type = 'dispatch' AND status = 'running' AND deleted_at IS NULL
+          )
         RETURNING agent_id`
+    );
+    return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /** The same sweep for named agents only (a harness that did not come back). */
+  async sweepPendingDeliveriesFor(agentIds: string[]): Promise<string[]> {
+    if (agentIds.length === 0) return [];
+    const result = await this.db.query<{ agent_id: string }>(
+      `UPDATE agent_chat_messages SET delivered = false
+        WHERE author_kind = 'user' AND delivered IS NULL
+          AND agent_id = ANY($1::text[])
+        RETURNING agent_id`,
+      [agentIds]
     );
     return [...new Set(result.rows.map((row) => row.agent_id))];
   }
@@ -284,6 +309,32 @@ export class ChatStore {
         RETURNING agent_id`
     );
     return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /** User messages still waiting to be delivered, oldest first. */
+  async listPendingDeliveries(agentId: string): Promise<ChatMessage[]> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_chat_messages
+        WHERE agent_id = $1 AND author_kind = 'user' AND delivered IS NULL
+        ORDER BY created_at ASC`,
+      [agentId]
+    );
+    return result.rows.map(toChatMessage);
+  }
+
+  /** The launch-context post recorded when the agent was created, if any. */
+  async getLaunchPost(agentId: string): Promise<LaunchPost | null> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_chat_messages
+        WHERE agent_id = $1 AND origin = 'launch'
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [agentId]
+    );
+    const row = result.rows[0];
+    return row
+      ? { ...toChatMessage(row), deliveryText: row.delivery_text ?? null }
+      : null;
   }
 
   /** A message's reactions, oldest first — the order the feed lists them in. */
@@ -383,11 +434,6 @@ export class ChatStore {
   }
 
   /**
-   * Mark unread agent messages as read. With `upTo`, only messages created
-   * at or before that message (an unknown id marks nothing). Returns the
-   * number of rows updated.
-   */
-  /**
    * Mark unread agent messages read — up to and including `upTo`, or all of
    * them. Reports what was marked so a client can mirror it on the rows it
    * holds: `readAt` is the stamp written, `upToAt` the bound's created time
@@ -429,10 +475,30 @@ export class ChatStore {
     };
   }
 
+  /**
+   * Move the agent's turn watermark to now. Deliberately not bounded by the
+   * read's `upTo`: the pane sends the newest agent chat message it holds,
+   * which on a harness agent is older than the turns on screen, and a
+   * watermark held at that message would never clear them.
+   */
+  async markFeedRead(agentId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE agents SET chat_read_at = NOW() WHERE id = $1`,
+      [agentId]
+    );
+  }
+
   async countUnread(agentId: string): Promise<number> {
     const result = await this.db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM agent_chat_messages
-        WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL`,
+      `SELECT (
+         (SELECT COUNT(*) FROM agent_chat_messages
+           WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL)
+         + (SELECT COUNT(*) FROM agent_stream_events s
+             JOIN agents a ON a.id = s.agent_id
+            WHERE s.agent_id = $1 AND s.kind = 'turn'
+              AND s.payload->>'state' = 'settled'
+              AND s.updated_at > COALESCE(a.chat_read_at, '-infinity'))
+       )::text AS count`,
       [agentId]
     );
     return Number(result.rows[0].count);
@@ -448,14 +514,28 @@ export class ChatStore {
       unread: string;
       pending: string;
     }>(
-      `SELECT m.agent_id,
-              COUNT(*) FILTER (WHERE m.read_at IS NULL)::text AS unread,
-              COUNT(*) FILTER (WHERE m.kind = 'question' AND m.answer IS NULL)::text AS pending
-         FROM agent_chat_messages m
-         JOIN agents a ON a.id = m.agent_id AND a.deleted_at IS NULL
-        WHERE m.author_kind = 'agent'
-          AND (m.read_at IS NULL OR (m.kind = 'question' AND m.answer IS NULL))
-        GROUP BY m.agent_id`
+      `SELECT agent_id,
+              SUM(unread)::text AS unread,
+              SUM(pending)::text AS pending
+         FROM (
+           SELECT m.agent_id,
+                  COUNT(*) FILTER (WHERE m.read_at IS NULL) AS unread,
+                  COUNT(*) FILTER (WHERE m.kind = 'question' AND m.answer IS NULL) AS pending
+             FROM agent_chat_messages m
+             JOIN agents a ON a.id = m.agent_id AND a.deleted_at IS NULL
+            WHERE m.author_kind = 'agent'
+              AND (m.read_at IS NULL OR (m.kind = 'question' AND m.answer IS NULL))
+            GROUP BY m.agent_id
+           UNION ALL
+           SELECT s.agent_id, COUNT(*) AS unread, 0 AS pending
+             FROM agent_stream_events s
+             JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL
+            WHERE s.kind = 'turn'
+              AND s.payload->>'state' = 'settled'
+              AND s.updated_at > COALESCE(a.chat_read_at, '-infinity')
+            GROUP BY s.agent_id
+         ) counts
+        GROUP BY agent_id`
     );
     const agents: ChatUnreadSummary["agents"] = {};
     for (const row of result.rows) {

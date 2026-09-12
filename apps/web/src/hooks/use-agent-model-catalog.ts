@@ -4,7 +4,7 @@ import { useCallback, useMemo } from "react";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = { id: string; label: string; group?: string };
 export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 /**

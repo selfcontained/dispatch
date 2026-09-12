@@ -7,7 +7,11 @@
  * and in the compiled server binary at once, so keep those to plain constants
  * that both sides genuinely have to agree on.
  */
-export { AGENT_TYPES, CLI_AGENT_TYPES } from "./agent-types.js";
+export {
+  AGENT_TYPES,
+  CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
+} from "./agent-types.js";
 export type { AgentType, CliAgentType } from "./agent-types.js";
 export type {
   AgentGitContext,
@@ -39,6 +43,7 @@ export type {
   ChatAuthorKind,
   ChatChangedEvent,
   ChatEntryEvent,
+  HarnessChangedEvent,
   ChatReadEvent,
   ChatFeedEntry,
   ChatFeedResponse,
@@ -57,9 +62,50 @@ export type {
   ChatSendRequest,
   ChatSendResponse,
   ChatStatusEntry,
+  ChatTurnEntry,
+  ChatTurnPlanEntry,
+  ChatTurnPrompt,
+  ChatTurnQuestionRef,
+  ChatTurnStep,
+  ChatTurnStepStatus,
   ChatUnreadSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";
+export type {
+  HarnessPrompt,
+  HarnessQueuedPrompt,
+  HarnessQueueResponse,
+  UsageBudgets,
+  UsageBudgetsResponse,
+  HarnessPath,
+  HarnessPathsResponse,
+  HarnessConfigChoice,
+  HarnessConfigGroup,
+  HarnessConfigOption,
+  HarnessConfigResponse,
+  HarnessConfigUpdateRequest,
+  HarnessEngineId,
+  HarnessEngine,
+  HarnessCommand,
+  HarnessCommandsResponse,
+  HarnessUsageAgent,
+  HarnessUsageEngine,
+  HarnessUsageReport,
+  HarnessAuthKind,
+  HarnessAuthStatus,
+  HarnessAuthReport,
+  HarnessPlanWindow,
+  HarnessPlanSpend,
+  HarnessProviderPlan,
+  HarnessProviderUsageReport,
+} from "./harness-types.js";
+export {
+  HARNESS_ENGINE_IDS,
+  HARNESS_ENGINES,
+  DEFAULT_HARNESS_MODEL,
+  harnessEngineOf,
+  HARNESS_BUDGET_ENGINE_IDS,
+} from "./harness-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,

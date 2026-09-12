@@ -9,6 +9,7 @@ import {
   loadChatMessageEntry,
   toStatusEntry,
 } from "../src/chat/feed.js";
+import { listTurnEntries, loadLatestTurnEntry } from "../src/chat/turns.js";
 import { ChatStore } from "../src/chat/store.js";
 import { writeLatestEvent } from "../src/agents/events.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -43,6 +44,8 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_messages");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM reviews");
+  await pool.query("DELETE FROM pin_events");
+  await pool.query("DELETE FROM agent_stream_events");
 });
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
@@ -585,6 +588,237 @@ describe("composeChatFeed", () => {
   });
 });
 
+describe("turn entries in the feed", () => {
+  const settledTurn = (text: string, ended: number) => ({
+    state: "settled",
+    prompt: { source: "system", text },
+    stopReason: "end_turn",
+    endedAt: at(ended).toISOString(),
+  });
+
+  async function turnRow(
+    seq: number,
+    payload: Record<string, unknown>,
+    when: number,
+    updated = when
+  ) {
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, $2, 'turn', $3::jsonb, $4, $5)`,
+      [A, seq, JSON.stringify(payload), at(when), at(updated)]
+    );
+  }
+
+  async function assistantRow(
+    seq: number,
+    text: string,
+    when: number,
+    updated = when
+  ) {
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, $2, 'assistant', $3::jsonb, $4, $5)`,
+      [
+        A,
+        seq,
+        JSON.stringify({ text, streaming: false }),
+        at(when),
+        at(updated),
+      ]
+    );
+  }
+
+  it("orders a turn at its anchor among chat, review, pin, status and media rows", async () => {
+    await pool.query(
+      `INSERT INTO agent_events (agent_id, event_type, message, created_at)
+       VALUES ($1, 'working', 'reading', $2)`,
+      [A, at(1)]
+    );
+    const m = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      text: "hi",
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [m.id, at(6)]
+    );
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description, created_at)
+       VALUES ($1, 'shot.png', 'screenshot', 10, 'a shot', $2)`,
+      [A, at(7)]
+    );
+    await pool.query(
+      `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
+       VALUES ($1, 'human', 'looks fine', $2)`,
+      [A, at(8)]
+    );
+    await pool.query(
+      `INSERT INTO pin_events (agent_id, action, pin_id, label, created_at)
+       VALUES ($1, 'created', 'pin_1', 'Dev URL', $2)`,
+      [A, at(9)]
+    );
+    await turnRow(1, settledTurn("do it", 4), 2, 4);
+    await assistantRow(2, "Done.", 3, 4);
+
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual([
+      "status",
+      "turn",
+      "chat",
+      "media",
+      "review",
+      "pin",
+    ]);
+    const turn = feed.entries[1];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.at).toBe(at(2).toISOString());
+    expect(turn.id).toMatch(/^turn:\d+$/);
+    expect(turn.agentId).toBe(A);
+    expect(turn.prompt.text).toBe("do it");
+    expect(turn.result).toEqual({ text: "Done.", streaming: false });
+    expect(turn.settled).toBe(true);
+    expect(turn.interrupted).toBe(false);
+  });
+
+  it("pages by anchor between two turns and repeats neither", async () => {
+    await turnRow(1, settledTurn("one", 2), 1, 2);
+    await assistantRow(2, "a", 2);
+    await turnRow(3, settledTurn("two", 4), 3, 4);
+    await assistantRow(4, "b", 4);
+
+    const page1 = await composeChatFeed(store, A, { limit: 1 });
+    expect(page1.hasMore).toBe(true);
+    expect(page1.entries.map((e) => e.type)).toEqual(["turn"]);
+    const page2 = await composeChatFeed(store, A, {
+      limit: 1,
+      cursor: decodeFeedCursor(page1.nextCursor!),
+    });
+    expect(page2.hasMore).toBe(false);
+    const prompts = [...page2.entries, ...page1.entries].map((e) =>
+      e.type === "turn" ? e.prompt.text : ""
+    );
+    expect(prompts).toEqual(["one", "two"]);
+    const results = [...page2.entries, ...page1.entries].map((e) =>
+      e.type === "turn" ? e.result?.text : ""
+    );
+    expect(results).toEqual(["a", "b"]);
+  });
+
+  it("returns a turn whole even when its rows straddle the page limit", async () => {
+    await turnRow(1, settledTurn("old", 2), 1, 2);
+    await assistantRow(2, "old answer", 2);
+    await turnRow(3, settledTurn("big", 9), 3, 9);
+    for (let i = 0; i < 5; i += 1) {
+      await assistantRow(4 + i, `chunk ${i}`, 4 + i);
+    }
+    // Two entries either way: the limit counts entries, not stream rows.
+    const feed = await composeChatFeed(store, A, { limit: 2 });
+    expect(feed.hasMore).toBe(false);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "turn"]);
+    const big = feed.entries[1];
+    if (big.type !== "turn") throw new Error("expected a turn entry");
+    expect(big.trace.steps.map((s) => s.label)).toEqual([
+      "chunk 0",
+      "chunk 1",
+      "chunk 2",
+      "chunk 3",
+    ]);
+    expect(big.result?.text).toBe("chunk 4");
+  });
+
+  it("carries an interrupted turn with its flag and final result", async () => {
+    await turnRow(
+      1,
+      {
+        state: "settled",
+        prompt: { source: "system", text: "stopped" },
+        stopReason: "cancelled",
+        endedAt: at(3).toISOString(),
+      },
+      1,
+      3
+    );
+    await assistantRow(2, "half", 2);
+    const feed = await composeChatFeed(store, A);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.interrupted).toBe(true);
+    expect(turn.trace.finalResult).toBe("interrupted");
+    expect(turn.settled).toBe(true);
+  });
+
+  it("lists a question asked during a turn once, as a chat entry the turn references", async () => {
+    const question = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "question",
+      text: "Which one?",
+      question: { options: [{ label: "A" }], allowFreeform: true },
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [question.id, at(3)]
+    );
+    await turnRow(1, settledTurn("asking", 5), 1, 5);
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "chat"]);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.questions).toEqual([
+      { messageId: question.id, answered: false },
+    ]);
+    expect(feed.entries[1]).toMatchObject({ id: question.id });
+  });
+
+  it("does not list the chat row a turn used as its prompt", async () => {
+    const prompt = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "look please",
+      delivered: true,
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [prompt.id, at(1)]
+    );
+    const reply = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      text: "an extra post",
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [reply.id, at(6)]
+    );
+    await turnRow(
+      1,
+      {
+        state: "settled",
+        prompt: { source: "chat", chatMessageId: prompt.id },
+        endedAt: at(4).toISOString(),
+      },
+      2,
+      4
+    );
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual(["turn", "chat"]);
+    const turn = feed.entries[0];
+    if (turn.type !== "turn") throw new Error("expected a turn entry");
+    expect(turn.prompt).toMatchObject({
+      source: "chat",
+      text: "look please",
+      chatMessageId: prompt.id,
+    });
+    expect(feed.entries[1]).toMatchObject({ id: reply.id });
+    // The prompt row is not on this feed at all, so no page can bring it back.
+    expect(await loadChatMessageEntry(pool, A, prompt.id)).toBeNull();
+    expect(await loadChatMessageEntry(pool, A, reply.id)).not.toBeNull();
+  });
+});
+
 describe("feed entries as events carry them", () => {
   it("reads one message back exactly as the feed lists it", async () => {
     const { m1, m2 } = await seedAll();
@@ -630,5 +864,320 @@ describe("feed entries as events carry them", () => {
         recorded.createdAt
       )
     ).toEqual(status);
+  });
+});
+
+describe("listTurnEntries", () => {
+  /**
+   * `listTurnEntries` windows on `seq` and orders anchors on `created_at`,
+   * which the recorder keeps in step (seq is MAX(seq)+1 per agent, created_at
+   * is the insert's now()). These fixtures keep them in step too.
+   */
+  async function stream(
+    rows: Array<{
+      seq: number;
+      kind: string;
+      payload: Record<string, unknown>;
+      at: number;
+      updated?: number;
+      key?: string;
+    }>
+  ) {
+    for (const r of rows) {
+      await pool.query(
+        `INSERT INTO agent_stream_events
+           (agent_id, seq, kind, key, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
+        [
+          A,
+          r.seq,
+          r.kind,
+          r.key ?? null,
+          JSON.stringify(r.payload),
+          at(r.at),
+          at(r.updated ?? r.at),
+        ]
+      );
+    }
+  }
+
+  const settledTurn = (text: string, ended: number) => ({
+    state: "settled",
+    prompt: { source: "system", text },
+    stopReason: "end_turn",
+    endedAt: at(ended).toISOString(),
+  });
+
+  it("returns one entry per turn, newest first, anchored on the turn row", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("first", 3), at: 1 },
+      {
+        seq: 2,
+        kind: "tool_call",
+        key: "c1",
+        payload: {
+          toolKind: "read",
+          title: "Read a",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        at: 2,
+        updated: 2,
+      },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "Done one.", streaming: false },
+        at: 3,
+      },
+      { seq: 4, kind: "turn", payload: settledTurn("second", 6), at: 4 },
+      {
+        seq: 5,
+        kind: "assistant",
+        payload: { text: "Done two.", streaming: false },
+        at: 5,
+        updated: 6,
+      },
+    ]);
+    const page = await listTurnEntries(pool, A, null, 10);
+    expect(page.map((k) => k.entry.prompt.text)).toEqual(["second", "first"]);
+    const [second, first] = page;
+    expect(first.entry.at).toBe(at(1).toISOString());
+    expect(first.entry.result).toEqual({ text: "Done one.", streaming: false });
+    expect(first.entry.trace.steps.map((s) => s.label)).toEqual(["Read a"]);
+    expect(first.entry.settled).toBe(true);
+    expect(second.entry.updatedAt).toBe(at(6).toISOString());
+    // The cursor key is the anchor row's own id and microsecond time.
+    expect(first.rawId).toMatch(/^\d+$/);
+    expect(first.atKey).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/);
+  });
+
+  it("keeps rows before the first turn row as one closed synthetic turn", async () => {
+    await stream([
+      {
+        seq: 1,
+        kind: "assistant",
+        payload: { text: "older history", streaming: false },
+        at: 1,
+        updated: 2,
+      },
+      { seq: 2, kind: "turn", payload: settledTurn("after", 5), at: 4 },
+    ]);
+    const page = await listTurnEntries(pool, A, null, 10);
+    expect(page).toHaveLength(2);
+    const pre = page[1];
+    expect(pre.entry.id).toMatch(/^turn:pre:\d+$/);
+    expect(pre.entry.prompt.text).toBe("Earlier activity");
+    expect(pre.entry.settled).toBe(true);
+    expect(pre.entry.at).toBe(at(1).toISOString());
+  });
+
+  it("pages by anchor and never re-reads a newer turn's rows", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("one", 2), at: 1 },
+      {
+        seq: 2,
+        kind: "assistant",
+        payload: { text: "a", streaming: false },
+        at: 2,
+      },
+      { seq: 3, kind: "turn", payload: settledTurn("two", 4), at: 3 },
+      {
+        seq: 4,
+        kind: "assistant",
+        payload: { text: "b", streaming: false },
+        at: 4,
+      },
+      { seq: 5, kind: "turn", payload: settledTurn("three", 6), at: 5 },
+      {
+        seq: 6,
+        kind: "assistant",
+        payload: { text: "c", streaming: false },
+        at: 6,
+      },
+    ]);
+    const newest = await listTurnEntries(pool, A, null, 2);
+    expect(newest.map((k) => k.entry.prompt.text)).toEqual(["three", "two"]);
+    expect(newest.map((k) => k.entry.result?.text)).toEqual(["c", "b"]);
+    const oldest = newest[newest.length - 1];
+    const older = await listTurnEntries(
+      pool,
+      A,
+      { at: oldest.atKey, type: "turn", id: oldest.rawId },
+      2
+    );
+    expect(older.map((k) => k.entry.prompt.text)).toEqual(["one"]);
+    expect(older[0].entry.result?.text).toBe("a");
+  });
+
+  it("carries an open turn with its live rail and growing text", async () => {
+    await stream([
+      {
+        seq: 1,
+        kind: "turn",
+        payload: { state: "started", prompt: { source: "system", text: "go" } },
+        at: 1,
+      },
+      {
+        seq: 2,
+        kind: "tool_call",
+        key: "c1",
+        payload: {
+          toolKind: "execute",
+          title: "bash",
+          status: "in_progress",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        at: 2,
+        updated: 4,
+      },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "half", streaming: true },
+        at: 3,
+        updated: 5,
+      },
+    ]);
+    const [live] = await listTurnEntries(pool, A, null, 10);
+    expect(live.entry.settled).toBe(false);
+    expect(live.entry.updatedAt).toBe(at(5).toISOString());
+    expect(live.entry.result).toEqual({ text: "half", streaming: true });
+    expect(live.entry.trace.steps[0]).toMatchObject({
+      label: "bash",
+      status: "running",
+    });
+    expect(live.entry.trace.endedAt).toBeUndefined();
+  });
+
+  it("joins the chat prompt and references a question asked during the turn", async () => {
+    const prompt = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "look please",
+      delivered: true,
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [prompt.id, at(1)]
+    );
+    const question = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "question",
+      text: "Which one?",
+      question: { options: [{ label: "A" }], allowFreeform: true },
+    });
+    await pool.query(
+      `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+      [question.id, at(3)]
+    );
+    await stream([
+      {
+        seq: 1,
+        kind: "turn",
+        payload: {
+          state: "settled",
+          prompt: { source: "chat", chatMessageId: prompt.id },
+          endedAt: at(4).toISOString(),
+        },
+        at: 2,
+        updated: 4,
+      },
+    ]);
+    const [entry] = await listTurnEntries(pool, A, null, 10);
+    expect(entry.entry.prompt).toMatchObject({
+      source: "chat",
+      text: "look please",
+      chatMessageId: prompt.id,
+    });
+    expect(entry.entry.questions).toEqual([
+      { messageId: question.id, answered: false },
+    ]);
+  });
+
+  it("hands back nothing for an agent with no stream rows", async () => {
+    expect(await listTurnEntries(pool, A, null, 10)).toEqual([]);
+    expect(await loadLatestTurnEntry(pool, A)).toBeNull();
+  });
+
+  it("never invents a pre-turn entry on a page below the first turn", async () => {
+    // A window that began mid-turn would group the tail of a turn whose
+    // anchor sits on the next page into a synthetic "Earlier activity" turn,
+    // and those steps would render twice. listTurnEntries cannot do that,
+    // because every window starts at an anchor and an anchor is either a
+    // turn row or the agent's oldest row. This walks every page to prove it.
+    await stream([
+      {
+        seq: 1,
+        kind: "assistant",
+        payload: { text: "history", streaming: false },
+        at: 1,
+      },
+      { seq: 2, kind: "turn", payload: settledTurn("one", 3), at: 2 },
+      {
+        seq: 3,
+        kind: "assistant",
+        payload: { text: "a", streaming: false },
+        at: 3,
+      },
+      { seq: 4, kind: "turn", payload: settledTurn("two", 5), at: 4 },
+      {
+        seq: 5,
+        kind: "assistant",
+        payload: { text: "b", streaming: false },
+        at: 5,
+      },
+    ]);
+    const seen: string[] = [];
+    let cursor: { at: string; type: "turn"; id: string } | null = null;
+    for (let page = 0; page < 5; page++) {
+      const entries = await listTurnEntries(pool, A, cursor, 1);
+      if (entries.length === 0) break;
+      for (const k of entries) seen.push(k.entry.id);
+      const oldest = entries[entries.length - 1];
+      cursor = { at: oldest.atKey, type: "turn", id: oldest.rawId };
+    }
+    // Three anchors, three entries, each exactly once: the two turns and the
+    // one genuine pre-turn group.
+    expect(seen).toHaveLength(3);
+    expect(new Set(seen).size).toBe(3);
+    expect(seen.filter((id) => id.startsWith("turn:pre:"))).toHaveLength(1);
+  });
+
+  it("loadLatestTurnEntry composes only the newest turn", async () => {
+    await stream([
+      { seq: 1, kind: "turn", payload: settledTurn("old", 2), at: 1 },
+      {
+        seq: 2,
+        kind: "assistant",
+        payload: { text: "old answer", streaming: false },
+        at: 2,
+      },
+      {
+        seq: 3,
+        kind: "turn",
+        payload: {
+          state: "started",
+          prompt: { source: "system", text: "new" },
+        },
+        at: 3,
+      },
+      {
+        seq: 4,
+        kind: "assistant",
+        payload: { text: "new answer", streaming: true },
+        at: 4,
+        updated: 5,
+      },
+    ]);
+    const entry = await loadLatestTurnEntry(pool, A);
+    expect(entry?.prompt.text).toBe("new");
+    expect(entry?.result?.text).toBe("new answer");
+    expect(entry?.settled).toBe(false);
   });
 });

@@ -5,7 +5,12 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import { execSync } from "child_process";
-import { cleanupE2EAgents, clickAgentRow, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  clickAgentRow,
+  loadApp,
+  setEnabledAgentTypesViaAPI,
+} from "./helpers";
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 const IS_LIVE = process.env.DISPATCH_AGENT_RUNTIME === "tmux";
@@ -180,6 +185,15 @@ async function simulateVisibleWithFocus(page: Page): Promise<void> {
 
 test.describe("Terminal live connection", () => {
   test.skip(!IS_LIVE, "Requires tmux runtime — run via pnpm run test:e2e:live");
+
+  test.beforeEach(async ({ request }) => {
+    await setEnabledAgentTypesViaAPI(request, [
+      "codex",
+      "claude",
+      "opencode",
+      "terminal",
+    ]);
+  });
 
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request, "all");

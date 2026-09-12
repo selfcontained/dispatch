@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AgentsRoute,
   AutomationsRoute,
   ActivityRoute,
   SettingsRoute,
@@ -203,6 +204,7 @@ function defaultContext(): Record<string, unknown> {
   return {
     agents: [],
     enabledAgentTypes: ["claude"],
+    offeredAgentTypes: ["claude", "dispatch"],
     setEnabledAgentTypes: vi.fn(),
     enabledIdes: ["vscode"],
     setEnabledIdes: vi.fn(),
@@ -251,6 +253,7 @@ function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
+        <Route path="/agents" element={<AgentsRoute />} />
         <Route path="/automations" element={<AutomationsRoute />} />
         <Route path="/activity/:tab" element={<ActivityRoute />} />
         <Route path="/settings" element={<SettingsRoute />} />
@@ -490,5 +493,38 @@ describe("AutomationsRoute", () => {
     renderAt("/automations");
     fireEvent.click(screen.getByTestId("close-automations-sidebar"));
     expect(H.context.setMobileLeftOpen).toHaveBeenCalledWith(false);
+  });
+});
+
+// The two lists are the same type, so a route wired to the wrong one still
+// type-checks. `enabledAgentTypes` is what Settings edits and never holds
+// `dispatch`; `offeredAgentTypes` is what may be created right now.
+describe("which agent-type list reaches which route", () => {
+  it("hands the offered list to the agents route", () => {
+    renderAt("/agents");
+
+    expect(propsOf("AgentsView").enabledAgentTypes).toEqual([
+      "claude",
+      "dispatch",
+    ]);
+  });
+
+  it("hands the offered list to both halves of the automations route", () => {
+    renderAt("/automations");
+
+    expect(propsOf("AutomationsSidebarContent").enabledAgentTypes).toEqual([
+      "claude",
+      "dispatch",
+    ]);
+    expect(propsOf("AutomationsDetailContent").enabledAgentTypes).toEqual([
+      "claude",
+      "dispatch",
+    ]);
+  });
+
+  it("hands the persisted list to settings, which is what edits it", () => {
+    renderAt("/settings");
+
+    expect(propsOf("SettingsContent").enabledAgentTypes).toEqual(["claude"]);
   });
 });

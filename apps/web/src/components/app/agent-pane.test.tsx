@@ -52,6 +52,53 @@ vi.mock("@/hooks/use-chat", () => ({
     return () => ({ mutate });
   })(),
 }));
+vi.mock(
+  "@/components/app/harness/use-harness-config",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/components/app/harness/use-harness-config")
+    >()),
+    useHarnessConfig: () => ({
+      running: false,
+      options: [],
+      model: undefined,
+      effort: undefined,
+      loading: false,
+    }),
+    useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  })
+);
+vi.mock("@/components/app/harness/use-harness-commands", () => ({
+  harnessCommandsQueryKey: (agentId: string | null) => [
+    "harness-commands",
+    agentId,
+  ],
+  useHarnessCommands: () => [],
+}));
+vi.mock("@/components/app/harness/use-harness-queue", () => ({
+  harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
+  useQueuedPrompts: () => ({ queued: [], loading: false, error: null }),
+  useHarnessQueue: () => ({
+    sendNow: vi.fn(),
+    remove: vi.fn(),
+    busyId: null,
+  }),
+  useHarnessInterrupt: () => ({ interrupt: vi.fn(), interrupting: false }),
+}));
+vi.mock("@/components/app/harness/use-harness-usage", () => ({
+  HARNESS_USAGE_QUERY_KEY: ["harness-usage"],
+  useHarnessUsage: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+vi.mock("@/components/app/harness/use-harness-auth", () => ({
+  HARNESS_AUTH_QUERY_KEY: ["harness-auth"],
+  useHarnessAuth: () => ({ data: undefined }),
+}));
 vi.mock("@/hooks/use-injection-hold-state", () => ({
   useInjectionHoldState: () => null,
 }));
@@ -78,6 +125,10 @@ function agentNamed(id: string): Agent {
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt: "2026-09-02T10:00:00.000Z",
   };
+}
+
+function dispatchAgentNamed(id: string): Agent {
+  return { ...agentNamed(id), type: "dispatch", model: "codex/default" };
 }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -393,6 +444,49 @@ describe("AgentPane", () => {
     renderPane({ view: "console", active: true });
     expect(document.activeElement).not.toBe(
       screen.getByTestId("chat-composer-input")
+    );
+  });
+});
+
+describe("AgentPane for a dispatch agent", () => {
+  it("hosts the chat pane like every other type, with no harness pane left", () => {
+    renderPane({ agent: dispatchAgentNamed("agt_a"), view: "chat" });
+    expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(false);
+    expect(screen.getByTestId("chat-pane")).toBeTruthy();
+    expect(screen.queryByTestId("harness-pane")).toBeNull();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
+    expect(screen.getByTestId("chat-harness-chrome")).toBeTruthy();
+  });
+
+  it("keeps the terminal segment and the chat filter, and shows unread under it", () => {
+    renderPane({
+      agent: dispatchAgentNamed("agt_a"),
+      view: "console",
+      chatUnreadCount: 3,
+    });
+    expect(screen.getByTestId("agent-view-console")).toBeTruthy();
+    expect(screen.getByTestId("agent-view-chat")).toBeTruthy();
+    expect(screen.queryByTestId("agent-view-harness")).toBeNull();
+    expect(screen.getByTestId("chat-filters-trigger")).toBeTruthy();
+    expect(screen.getByTestId("agent-view-chat-unread").textContent).toBe("3");
+    expect(screen.getByTestId("chat-pane")).toBeTruthy();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(false);
+  });
+
+  it("calls the second segment Terminal, since the engine never writes there", () => {
+    const { unmount } = renderPane({
+      agent: dispatchAgentNamed("agt_a"),
+      view: "chat",
+    });
+    const segment = screen.getByTestId("agent-view-console");
+    expect(segment.textContent).toContain("Terminal");
+    expect(segment.getAttribute("aria-label")).toBe("Terminal");
+    unmount();
+
+    // Every other type still writes to that pane, so it stays "Console".
+    renderPane({ agent: agentNamed("agt_b"), view: "chat" });
+    expect(screen.getByTestId("agent-view-console").textContent).toContain(
+      "Console"
     );
   });
 });

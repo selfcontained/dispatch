@@ -9,15 +9,31 @@ import {
   CLI_AGENT_TYPES,
 } from "@/lib/agent-types";
 
+/**
+ * Every type this card can toggle. The Dispatch Harness is not one: it has
+ * its own setting (`DispatchHarnessSettings`), and the server answers 400 to
+ * an agent-types POST that names it, so a checkbox here would be a switch
+ * that cannot be saved.
+ */
+type ToggleableAgentType = Exclude<AgentType, "dispatch">;
+
+function isToggleableAgentType(type: AgentType): type is ToggleableAgentType {
+  return type !== "dispatch";
+}
+
+const TOGGLEABLE_CLI_AGENT_TYPES: ToggleableAgentType[] = (
+  CLI_AGENT_TYPES as readonly AgentType[]
+).filter(isToggleableAgentType);
+
 type AgentTypeSettingsResponse = {
   enabledAgentTypes: AgentType[];
 };
 
-const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
+const AGENT_TYPE_DESCRIPTIONS: Record<ToggleableAgentType, string> = {
   claude: "Claude Code CLI by Anthropic.",
   codex: "Codex CLI by OpenAI.",
   cursor: "Cursor Agent CLI by Anysphere.",
-  opencode: "OpenCode CLI — open-source terminal agent.",
+  opencode: "OpenCode CLI, an open-source terminal agent.",
   terminal: "Raw shell session with no AI agent.",
 };
 
@@ -32,7 +48,7 @@ function AgentTypeRow({
   disabled,
   onToggle,
 }: {
-  agentType: AgentType;
+  agentType: ToggleableAgentType;
   checked: boolean;
   disabled: boolean;
   onToggle: () => void;
@@ -70,12 +86,17 @@ export function AgentTypeSettings({
   enabledAgentTypes,
   onChange,
 }: AgentTypeSettingsProps): JSX.Element {
-  const [agentTypes, setAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
+  // Filtered on the way in as well as out: a prerelease install can still
+  // have `dispatch` in the persisted row, and letting it into this state
+  // would put it in the next POST body, which the server refuses.
+  const [agentTypes, setAgentTypes] = useState<ToggleableAgentType[]>(() =>
+    enabledAgentTypes.filter(isToggleableAgentType)
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setAgentTypes(enabledAgentTypes);
+    setAgentTypes(enabledAgentTypes.filter(isToggleableAgentType));
   }, [enabledAgentTypes]);
 
   useEffect(() => {
@@ -84,7 +105,7 @@ export function AgentTypeSettings({
     void api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types")
       .then((data) => {
         if (cancelled) return;
-        setAgentTypes(data.enabledAgentTypes);
+        setAgentTypes(data.enabledAgentTypes.filter(isToggleableAgentType));
         onChange(data.enabledAgentTypes);
         setError("");
       })
@@ -106,7 +127,7 @@ export function AgentTypeSettings({
   }, [onChange]);
 
   const toggleAgentType = useCallback(
-    async (agentType: AgentType) => {
+    async (agentType: ToggleableAgentType) => {
       setError("");
 
       const next = agentTypes.includes(agentType)
@@ -125,7 +146,7 @@ export function AgentTypeSettings({
             body: JSON.stringify({ enabledAgentTypes: next }),
           }
         );
-        setAgentTypes(data.enabledAgentTypes);
+        setAgentTypes(data.enabledAgentTypes.filter(isToggleableAgentType));
         onChange(data.enabledAgentTypes);
       } catch (err) {
         // Revert on failure
@@ -153,12 +174,13 @@ export function AgentTypeSettings({
         </div>
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
           Choose which agent runtimes can be created from the app. Disabled
-          types are removed from the create-agent dialog.
+          types are removed from the create-agent dialog. The Dispatch Harness
+          has its own switch below.
         </p>
       </div>
 
       <div className="max-w-lg space-y-2">
-        {CLI_AGENT_TYPES.map((agentType) => {
+        {TOGGLEABLE_CLI_AGENT_TYPES.map((agentType) => {
           const checked = agentTypes.includes(agentType);
           const disabled = checked && agentTypes.length === 1;
           return (

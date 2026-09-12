@@ -24,6 +24,7 @@ import { api } from "@/lib/api";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
+  defaultReviewAgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
 import { reviewAgentModelPrefAtom } from "@/lib/store";
@@ -34,17 +35,6 @@ type PersonaSummary = {
   name: string;
   description: string;
 };
-
-function defaultReviewAgentType(agent: Agent): AgentType {
-  return (
-    agent.reviewAgentType ??
-    (agent.type === "claude" ||
-    agent.type === "opencode" ||
-    agent.type === "cursor"
-      ? agent.type
-      : "codex")
-  );
-}
 
 export function PersonaLauncher({
   agent,
@@ -81,6 +71,17 @@ export function PersonaLauncher({
     useAgentModelCatalog(selectedAgentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
+  // A harness reviewer runs as its parent's kind, and for the harness the
+  // engine is the first segment of the model id. With nothing chosen the
+  // picker would read "Default", which for every parent means Claude Code,
+  // so the parent's own model stands in as the default instead. The server
+  // does the same for the MCP path.
+  const effectiveModel =
+    selectedModel ??
+    (selectedAgentType === "dispatch" && agent.type === "dispatch"
+      ? (agent.model ?? null)
+      : null);
+
   const { data: personas = [] } = useQuery<PersonaSummary[]>({
     queryKey: ["personas", cwd],
     queryFn: async () => {
@@ -104,8 +105,8 @@ export function PersonaLauncher({
           agentType: selectedAgentType,
           // A stored id the catalog no longer offers means "CLI default",
           // same as the select renders it.
-          model: modelOptions.some((option) => option.id === selectedModel)
-            ? selectedModel
+          model: modelOptions.some((option) => option.id === effectiveModel)
+            ? effectiveModel
             : null,
           note: note.trim() ? note.trim() : null,
         }),
@@ -250,7 +251,7 @@ export function PersonaLauncher({
         showModelSelect={showModelSelect}
         modelOptions={modelOptions}
         modelCatalogLoading={modelCatalogLoading}
-        selectedModel={selectedModel}
+        selectedModel={effectiveModel}
         setSelectedModel={setSelectedModel}
         personas={personas}
         selectedPersonas={selectedPersonas}

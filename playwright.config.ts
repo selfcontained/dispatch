@@ -29,6 +29,8 @@ const serialTests = [
   "e2e/media-sidebar.spec.ts",
   // Flips the server-wide chat surface flag, which changes every agent route.
   "e2e/chat-surface.spec.ts",
+  // Also flips the chat surface flag and the Dispatch Harness flag.
+  "e2e/harness-agent.spec.ts",
 ];
 
 export default defineConfig({
@@ -59,6 +61,8 @@ export default defineConfig({
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
+      // The four DISPATCH_*_BIN settings are not set here: scripts/e2e-isolated.sh
+      // pins them to the fake ACP agent, and this block must not override that.
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,

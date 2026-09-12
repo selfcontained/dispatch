@@ -8,7 +8,10 @@ import {
   loadApp,
   seedAgentMessageViaDB,
   seedChatMessageViaDB,
+  seedReviewAgentFixtureViaDB,
+  seedStreamTurnViaDB,
   setAgentPinsViaDB,
+  setDispatchHarnessViaAPI,
 } from "./helpers";
 
 const SETTING = "/api/v1/app/settings/chat-surface";
@@ -61,6 +64,9 @@ async function callMcpTool(
 test.describe("Chat surface", () => {
   test.afterEach(async ({ request }) => {
     await setChatSurface(request, false);
+    // Server-wide and not per-test: two cases here turn it on, and
+    // settings.spec.ts asserts the toggle starts off.
+    await setDispatchHarnessViaAPI(request, false);
     await cleanupE2EAgents(request);
   });
 
@@ -167,17 +173,10 @@ test.describe("Chat surface", () => {
     const pane = page.getByTestId("chat-pane");
     await expect(pane).toBeVisible();
 
-    // Every seeded entry renders.
-    // The server logs its own "Session started" event first; the two seeded
-    // working events collapse into the line after it.
-    const workingLine = pane
-      .getByTestId("chat-status")
-      .filter({ hasText: "Running tests" });
-    await expect(workingLine).toBeVisible();
-    await expect(workingLine).not.toContainText("Reading the plan");
-    await expect(pane.getByTestId("chat-status-collapsed-count")).toHaveText(
-      "×2"
-    );
+    // Every seeded post renders; the seeded status events do not. Those
+    // only show in the presence line above the composer.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
+    await expect(pane.getByTestId("chat-presence")).toBeVisible();
 
     const messages = pane.getByTestId("chat-message");
     await expect(messages).toHaveCount(3);
@@ -276,6 +275,75 @@ test.describe("Chat surface", () => {
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await page.getByTestId("agent-view-chat").click();
     await expect(page.getByTestId("chat-pane")).toBeVisible();
+  });
+
+  test("folds a peer post's body until the reader opens it", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-${Date.now()}`,
+    });
+    const peer = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-peer-${Date.now()}`,
+      type: "claude",
+      parentAgentId: agent.id,
+    });
+    // The shape that started this: a peer writing several paragraphs into a
+    // feed the user is trying to hold a conversation in.
+    const long = [
+      "Plan context does not define those values, and the protocol leaves",
+      "the staleness deadline as TODO. Recommended boundary:",
+      "- Use singleton entity keys, one latest snapshot each.",
+      "- Keep the two subscriptions beside the worker connection.",
+      "- Mark data unknown until the first valid snapshot.",
+      "THE TAIL LINE",
+    ].join("\n");
+    await seedAgentMessageViaDB({
+      senderAgentId: peer.id,
+      recipientAgentId: agent.id,
+      senderName: peer.name,
+      recipientName: agent.name,
+      content: long,
+      delivered: true,
+    });
+
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+
+    const body = pane.getByTestId("chat-peer-body");
+    await expect(body).toBeVisible();
+    const toggle = pane.getByTestId("chat-peer-expand");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Folded, the post is one notice-shaped row however long it is, and the
+    // row itself says who spoke to whom.
+    const foldedHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(foldedHeight).toBeLessThan(60);
+    await expect(pane.getByTestId("chat-side-header")).toBeVisible();
+    await expect(toggle).toContainText("Plan context does not define");
+    await page.screenshot({
+      path: test.info().outputPath("peer-folded.png"),
+      fullPage: true,
+    });
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(body).toContainText("THE TAIL LINE");
+    const openHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(openHeight).toBeGreaterThan(foldedHeight);
+    await page.screenshot({
+      path: test.info().outputPath("peer-open.png"),
+      fullPage: true,
+    });
   });
 
   test("renders a user post's attachments and a pending agent message", async ({
@@ -914,5 +982,179 @@ test.describe("Chat surface", () => {
     await page.screenshot({
       path: test.info().outputPath("chat-surface-wide-table-390.png"),
     });
+  });
+
+  test("dispatch agent: a turn, a review, a pin write and presence in one feed", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-feed-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    // No ACP engine runs in the inert suite, so the turn is seeded. It is
+    // anchored ten seconds back, which is what puts the rows written below
+    // after it: a row created while a turn ran keeps its own timestamp and
+    // lands under the turn rather than inside it.
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "read the readme and plan the work",
+      result: "It documents the CLI. Plan is up.",
+      stepTitle: "Read README.md",
+      plan: [
+        { content: "Read the README", status: "completed", priority: "high" },
+        {
+          content: "Echo the prompt",
+          status: "in_progress",
+          priority: "medium",
+        },
+        { content: "Wrap up", status: "pending", priority: "low" },
+      ],
+    });
+    const fixture = await seedReviewAgentFixtureViaDB(agent.id);
+    await callMcpTool(request, agent.id, "dispatch_event", {
+      type: "working",
+      message: "Wiring the feed",
+    });
+    await callMcpTool(request, agent.id, "dispatch_pin", {
+      label: "Dev server",
+      value: "http://127.0.0.1:5173",
+      type: "url",
+    });
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+    await expect(page.getByTestId("harness-pane")).toHaveCount(0);
+
+    const turn = pane.getByTestId("chat-turn");
+    await expect(turn).toHaveCount(1, { timeout: 30_000 });
+    await expect(turn.getByTestId("chat-message").first()).toContainText(
+      "read the readme and plan the work"
+    );
+    await expect(turn.getByTestId("harness-result")).toContainText(
+      "It documents the CLI."
+    );
+    await expect(turn).toHaveAttribute("data-settled", "true");
+
+    // The fixture seeds two reviews, so the open one is addressed by id.
+    // The card is the notice rather than a copy of the summary, so its
+    // block is what it must carry.
+    const review = pane.locator(
+      `[data-testid="chat-review"][data-review-id="${fixture.openReviewId}"]`
+    );
+    await expect(review).toBeVisible();
+    await expect(review.getByTestId("chat-review-block")).toBeVisible();
+    const pin = pane.getByTestId("chat-pin-entry");
+    await expect(pin).toBeVisible();
+    await expect(pin).toContainText("Dev server");
+
+    // Rows written while the turn ran keep their own timestamps, so they
+    // land below the turn entry rather than inside it.
+    const order = await pane.evaluate((root) =>
+      [
+        ...root.querySelectorAll(
+          '[data-testid="chat-turn"],[data-testid="chat-pin-entry"]'
+        ),
+      ].map((node) => node.getAttribute("data-testid"))
+    );
+    expect(order).toEqual(["chat-turn", "chat-pin-entry"]);
+
+    // The status event shows once, in the presence line, never as a row.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
+    await expect(pane.getByTestId("chat-presence")).toContainText(
+      "Wiring the feed"
+    );
+
+    // The strip is the plan the seeded turn published, which is the chrome
+    // reading the same entries the feed renders.
+    await expect(pane.getByTestId("harness-tasks")).toContainText(
+      "1 of 3 done"
+    );
+    await expect(pane.getByTestId("harness-model-chip")).toBeVisible();
+    await expect(pane.getByTestId("harness-usage-chip")).toBeVisible();
+
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-one-feed.png"),
+      fullPage: true,
+    });
+
+    // The engine writes to Chat, never to that pane, so the segment names
+    // the bare shell it actually is, and flipping to it still works.
+    const terminalSegment = page.getByTestId("agent-view-console");
+    await expect(terminalSegment).toHaveText("Terminal");
+    await terminalSegment.click();
+    await expect(page.getByTestId("agent-pane-console")).toHaveAttribute(
+      "data-state",
+      "shown"
+    );
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-terminal-segment.png"),
+      fullPage: true,
+    });
+  });
+
+  test("dispatch agent: touch-sized pill segments and chip row on a phone", async ({
+    browser,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-touch-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    const protocol = process.env.TLS_CERT ? "https" : "http";
+    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
+    const context = await browser.newContext({
+      baseURL,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 390, height: 844 },
+    });
+    const touchPage = await context.newPage();
+    try {
+      await touchPage.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await touchPage
+        .getByTestId("agent-view-toggle")
+        .waitFor({ state: "visible" });
+      expect(
+        await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
+      ).toBe(true);
+
+      // A Chat segment rather than a harness one, filter included.
+      for (const id of [
+        "agent-view-chat",
+        "agent-view-console",
+        "chat-filters-trigger",
+        "harness-model-chip",
+        "harness-usage-chip",
+      ]) {
+        await expect
+          .poll(() =>
+            touchPage
+              .getByTestId(id)
+              .evaluate((node) => node.getBoundingClientRect().height)
+          )
+          .toBeGreaterThanOrEqual(44);
+      }
+      await expect(touchPage.getByTestId("agent-view-harness")).toHaveCount(0);
+    } finally {
+      await touchPage.close();
+      await context.close();
+    }
   });
 });

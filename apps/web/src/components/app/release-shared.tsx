@@ -107,6 +107,15 @@ export function OperationLog({
           </div>
         )}
       </LogStream>
+      {isRestarting || postRestartPolling ? (
+        <p
+          className="mt-2 px-1 text-[11px] text-muted-foreground"
+          data-testid="release-harness-restart-note"
+        >
+          Dispatch Harness turns in progress are interrupted and resumed after
+          the restart.
+        </p>
+      ) : null}
     </div>
   );
 }

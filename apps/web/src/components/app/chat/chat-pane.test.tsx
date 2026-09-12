@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
+import type {
+  ChatFeedEntry,
+  ChatMessage,
+  ChatTurnEntry,
+} from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -14,6 +18,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import { chatDraftAtomFamily } from "@/lib/store";
 
 import {
   ChatPane,
@@ -24,6 +29,13 @@ import {
   REMEMBER_THROTTLE_MS,
   rememberChatScrollPosition,
 } from "./chat-pane";
+import {
+  composerHint,
+  harnessPromptHistory,
+  latestContextUsage,
+  latestTurnPlan,
+  newestTurnEntry,
+} from "./harness-chrome";
 
 // The pane's data layer is exercised elsewhere; here it is replaced so the
 // pane's own decisions can be driven directly: what the composer does with a
@@ -41,12 +53,15 @@ const H = vi.hoisted(() => ({
   sendNow: vi.fn(),
   markRead: vi.fn(),
 }));
+const API = vi.hoisted(() => ({
+  call: vi.fn(async () => ({ agents: [] })),
+}));
 
 // No real request may be in flight under a test: the pane's peers query
 // (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: [] })),
+  api: API.call,
 }));
 
 vi.mock("@/hooks/use-chat", () => ({
@@ -79,6 +94,83 @@ vi.mock("@/hooks/use-chat", () => ({
     const mutate = vi.fn();
     return () => ({ mutate });
   })(),
+}));
+const HARNESS = vi.hoisted(() => ({
+  queued: [] as import("@dispatch/shared").HarnessQueuedPrompt[],
+  sendNow: vi.fn(async (_id: string) => {}),
+  remove: vi.fn(async (_id: string) => {}),
+  interrupt: vi.fn(async () => {}),
+}));
+
+vi.mock("@/components/app/harness/use-harness-queue", () => ({
+  harnessQueueQueryKey: (agentId: string | null) => ["harness-queue", agentId],
+  useQueuedPrompts: () => ({
+    queued: HARNESS.queued,
+    loading: false,
+    error: null,
+  }),
+  useHarnessQueue: () => ({
+    sendNow: HARNESS.sendNow,
+    remove: HARNESS.remove,
+    busyId: null,
+  }),
+  useHarnessInterrupt: () => ({
+    interrupt: HARNESS.interrupt,
+    interrupting: false,
+  }),
+}));
+vi.mock(
+  "@/components/app/harness/use-harness-config",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/components/app/harness/use-harness-config")
+    >()),
+    // `running: true` because the shared fixture is a running agent, and
+    // the chip shows the activity bars in place of the engine's mark while
+    // the agent runs without a session.
+    useHarnessConfig: () => ({
+      running: true,
+      options: [],
+      model: undefined,
+      effort: undefined,
+      loading: false,
+    }),
+    useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  })
+);
+// The dialog reads a full query result; `api` is mocked file-wide, so the
+// real hook would hand it `{ agents: [] }` and `data.engines.map` would throw.
+vi.mock("@/components/app/harness/use-harness-usage", () => ({
+  HARNESS_USAGE_QUERY_KEY: ["harness-usage"],
+  useHarnessUsage: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+vi.mock("@/components/app/harness/use-harness-auth", () => ({
+  HARNESS_AUTH_QUERY_KEY: ["harness-auth"],
+  useHarnessAuth: () => ({
+    data: {
+      checkedAt: "2026-09-11T00:00:00.000Z",
+      engines: [
+        {
+          engineId: "codex",
+          kind: "subscription",
+          label: "ChatGPT subscription",
+        },
+      ],
+    },
+  }),
+}));
+vi.mock("@/components/app/harness/use-harness-commands", () => ({
+  harnessCommandsQueryKey: (agentId: string | null) => [
+    "harness-commands",
+    agentId,
+  ],
+  useHarnessCommands: () => [],
 }));
 // Counts renders of a post's markdown body: the feed's rows are memoised,
 // so a pane re-render that changes nothing they show must not reach it.
@@ -118,6 +210,12 @@ const agent: Agent = {
   },
 };
 
+const dispatchAgent: Agent = {
+  ...agent,
+  type: "dispatch",
+  model: "codex/default",
+};
+
 function message(overrides: Partial<ChatMessage>): ChatMessage {
   return {
     id: "m",
@@ -139,6 +237,32 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
 
 function chat(m: ChatMessage): ChatFeedEntry {
   return { type: "chat", id: m.id, at: m.createdAt, message: m };
+}
+
+function turnEntry(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
+  return {
+    type: "turn",
+    id: "turn:1",
+    agentId: "agt_1",
+    at: "2026-09-02T10:00:00.000Z",
+    updatedAt: "2026-09-02T10:00:09.000Z",
+    prompt: {
+      source: "chat",
+      text: "read the readme",
+      chatMessageId: "m-prompt",
+      attachments: [],
+    },
+    trace: {
+      startedAt: "2026-09-02T10:00:00.000Z",
+      endedAt: "2026-09-02T10:00:09.000Z",
+      finalResult: "ok",
+      steps: [],
+    },
+    result: { text: "It documents the CLI.", streaming: false },
+    settled: true,
+    interrupted: false,
+    ...overrides,
+  };
 }
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -191,6 +315,18 @@ beforeEach(() => {
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
+  API.call.mockClear();
+  HARNESS.queued = [];
+  // Cleared, not reset: on Vitest 2 mockReset() drops the async body too,
+  // so interrupt() would return undefined and onStop's .catch would throw.
+  HARNESS.sendNow.mockClear();
+  HARNESS.remove.mockClear();
+  HARNESS.interrupt.mockClear();
+  // The draft atom is keyed by agent and outlives a render, so an unsent
+  // draft left by an earlier case would make ArrowUp a history walk
+  // instead of a recall.
+  window.localStorage.clear();
+  chatDraftAtomFamily.remove("agt_1");
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -361,10 +497,12 @@ describe("ChatPane", () => {
     H.entries = [
       first,
       {
-        type: "status",
-        id: "event:late",
-        eventType: "working",
-        message: "Late status",
+        type: "media",
+        id: "media:late",
+        mediaId: 7,
+        fileName: "late.png",
+        sizeBytes: 10,
+        description: null,
         at: "2026-09-02T10:03:00.000Z",
       },
       last,
@@ -445,7 +583,7 @@ describe("ChatPane", () => {
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the empty state when there are no chat messages, keeping other entries", () => {
+  it("shows the empty state when the feed holds only status events", () => {
     H.entries = [
       {
         type: "status",
@@ -459,7 +597,83 @@ describe("ChatPane", () => {
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
     expect(empty.textContent).toContain("before Chat was enabled");
-    expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+  });
+
+  it("keeps status events out of the feed: the presence line already says it", () => {
+    // Every phase change used to land as a row in the feed and, at the same
+    // time, in the presence line above the composer. The row is the
+    // duplicate: it said the same words and moved the reader's tail.
+    H.entries = [
+      chat(message({ id: "a1", text: "hello" })),
+      {
+        type: "status",
+        id: "event:1",
+        eventType: "working",
+        message: "Reading files",
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    ];
+    renderPane({
+      agent: {
+        ...agent,
+        latestEvent: {
+          type: "working",
+          message: "Reading files",
+          updatedAt: "2026-09-02T10:00:01.000Z",
+          metadata: null,
+        },
+      },
+    });
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+    expect(screen.queryByTestId("chat-status-cluster")).toBeNull();
+    expect(screen.getByTestId("chat-presence").textContent).toContain(
+      "Reading files"
+    );
+  });
+
+  it("does not announce new messages for a status event that lands below the tail", () => {
+    const first = chat(
+      message({
+        id: "a1",
+        text: "first",
+        createdAt: "2026-09-02T10:00:00.000Z",
+      })
+    );
+    H.entries = [first];
+    const { rerender } = renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+
+    H.entries = [
+      first,
+      {
+        type: "status",
+        id: "event:late",
+        eventType: "working",
+        message: "Late status",
+        at: "2026-09-02T10:03:00.000Z",
+      },
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.queryByText("New messages")).toBeNull();
   });
 
   it("hides the empty state once a chat message exists", () => {
@@ -811,5 +1025,905 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("composerHint", () => {
+  it("says what Enter and the arrows do for each state", () => {
+    expect(composerHint(false, 0)).toBeUndefined();
+    expect(composerHint(true, 0)).toBe(
+      "Agent is working · Enter queues your message · Ctrl+C stops"
+    );
+    expect(composerHint(true, 2)).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the newest queued message · Ctrl+C stops"
+    );
+    expect(composerHint(false, 1)).toBe(
+      "Message queued · ↑ edits the newest queued message"
+    );
+  });
+
+  it("drops the key hints on a touch keyboard", () => {
+    // Neither ArrowUp nor Ctrl+C exists there, and the four-part string
+    // wraps to three lines under a 320px field. The Stop button and the
+    // queued row's own actions cover both on touch.
+    expect(composerHint(true, 2, true)).toBe(
+      "Agent is working · Enter queues your message"
+    );
+    expect(composerHint(false, 1, true)).toBe("Message queued");
+    expect(composerHint(false, 0, true)).toBeUndefined();
+  });
+});
+
+describe("newestTurnEntry", () => {
+  it("takes the last turn in the feed whatever follows it", () => {
+    const found = newestTurnEntry([
+      chat(message({ id: "m0", text: "before" })),
+      turnEntry({ id: "turn:1", settled: true }),
+      turnEntry({ id: "turn:2", settled: false }),
+      chat(message({ id: "m1", text: "after" })),
+    ]);
+    expect(found?.id).toBe("turn:2");
+    expect(found?.settled).toBe(false);
+  });
+
+  it("is null when the feed carries no turn", () => {
+    expect(newestTurnEntry([chat(message({ id: "m0" }))])).toBeNull();
+    expect(newestTurnEntry([])).toBeNull();
+  });
+});
+
+describe("latestContextUsage", () => {
+  it("uses the newest report from the current live session", () => {
+    expect(
+      latestContextUsage(
+        [
+          turnEntry({
+            id: "turn:old",
+            at: "2026-09-11T00:00:00Z",
+            usage: { used: 90, size: 100, costUsd: null },
+          }),
+          turnEntry({
+            id: "turn:new",
+            at: "2026-09-11T02:00:00Z",
+            usage: { used: 25, size: 100, costUsd: 0.5 },
+          }),
+        ],
+        "2026-09-11T01:00:00Z"
+      )
+    ).toEqual({ used: 25, size: 100, costUsd: 0.5 });
+  });
+
+  it("does not reuse context from an earlier session", () => {
+    expect(
+      latestContextUsage(
+        [
+          turnEntry({
+            at: "2026-09-11T00:00:00Z",
+            usage: { used: 90, size: 100, costUsd: null },
+          }),
+        ],
+        "2026-09-11T01:00:00Z"
+      )
+    ).toBeNull();
+  });
+
+  it("does not label the last report as current while no session is live", () => {
+    expect(
+      latestContextUsage([
+        turnEntry({ usage: { used: 90, size: 100, costUsd: null } }),
+      ])
+    ).toBeNull();
+  });
+});
+
+describe("latestTurnPlan", () => {
+  it("takes the newest turn that published a plan, running or settled", () => {
+    expect(
+      latestTurnPlan([
+        turnEntry({
+          id: "turn:1",
+          plan: [{ content: "old", status: "completed", priority: "low" }],
+        }),
+        turnEntry({
+          id: "turn:2",
+          settled: false,
+          plan: [
+            {
+              content: "Read the README",
+              status: "completed",
+              priority: "high",
+            },
+            {
+              content: "Echo the prompt",
+              status: "in_progress",
+              priority: "medium",
+            },
+          ],
+        }),
+      ])
+    ).toEqual([
+      { content: "Read the README", status: "completed" },
+      { content: "Echo the prompt", status: "in_progress" },
+    ]);
+  });
+
+  it("looks past a later turn that published none", () => {
+    expect(
+      latestTurnPlan([
+        turnEntry({
+          id: "turn:1",
+          plan: [{ content: "keep me", status: "pending", priority: "low" }],
+        }),
+        turnEntry({ id: "turn:2" }),
+      ])
+    ).toEqual([{ content: "keep me", status: "pending" }]);
+  });
+
+  it("is empty when no turn published one", () => {
+    expect(latestTurnPlan([turnEntry(), chat(message({ id: "m0" }))])).toEqual(
+      []
+    );
+  });
+});
+
+describe("harnessPromptHistory", () => {
+  it("keeps the typed prompts in order without immediate repeats", () => {
+    expect(
+      harnessPromptHistory([
+        turnEntry({
+          id: "turn:1",
+          prompt: { source: "chat", text: "first", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:2",
+          prompt: { source: "chat", text: " first ", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:3",
+          prompt: { source: "chat", text: "second", attachments: [] },
+        }),
+      ])
+    ).toEqual(["first", "second"]);
+  });
+
+  it("leaves out launch, agent and system prompts and empty text", () => {
+    expect(
+      harnessPromptHistory([
+        turnEntry({
+          id: "turn:1",
+          prompt: { source: "launch", text: "kickoff", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:2",
+          prompt: {
+            source: "agent",
+            text: "from a peer",
+            senderName: "Reviewer",
+            attachments: [],
+          },
+        }),
+        turnEntry({
+          id: "turn:3",
+          prompt: { source: "system", text: "injected", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:4",
+          prompt: { source: "chat", text: "   ", attachments: [] },
+        }),
+        turnEntry({
+          id: "turn:5",
+          prompt: { source: "chat", text: "mine", attachments: [] },
+        }),
+      ])
+    ).toEqual(["mine"]);
+  });
+});
+
+describe("ChatPane bottom-pinned follow", () => {
+  // jsdom has no ResizeObserver; the stub keeps every callback so a test can
+  // play a resize of the feed's content, the way a step row easing open or a
+  // streamed line landing does in a browser.
+  const observed: Array<{ callback: ResizeObserverCallback; target: Element }> =
+    [];
+  function resizeFeed(): void {
+    for (const { callback, target } of observed) {
+      callback(
+        [{ target, contentRect: { height: 900 } } as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
+    }
+  }
+  beforeEach(() => {
+    observed.length = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+        observe(target: Element): void {
+          observed.push({ callback: this.callback, target });
+        }
+        unobserve(): void {}
+        // A disconnected observer fires no more, so the pane switching it
+        // off when the reader scrolls up has to be visible to `resizeFeed`.
+        disconnect(): void {
+          for (let i = observed.length - 1; i >= 0; i -= 1) {
+            if (observed[i]!.callback === this.callback) observed.splice(i, 1);
+          }
+        }
+      }
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the bottom in view whenever the feed's content changes height while following", () => {
+    H.entries = [chat(message({ id: "a1", text: "one" }))];
+    renderPane();
+    // The feed content is what grows, so that is what is watched — not the
+    // scroller, whose size only changes with the window.
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.target.contains(screen.getByTestId("chat-feed"))).toBe(
+      true
+    );
+    expect(observed[0]!.target).not.toBe(screen.getByTestId("chat-scroll"));
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+
+    resizeFeed();
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the reader alone once they have scrolled up", () => {
+    H.entries = [chat(message({ id: "a1", text: "one" }))];
+    renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+
+    resizeFeed();
+
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChatPane harness chrome", () => {
+  it("puts the presence line above the chrome, so the event reads before the chips", () => {
+    renderPane({ agent: dispatchAgent });
+    const presence = screen.getByTestId("chat-presence");
+    const chrome = screen.getByTestId("chat-harness-chrome");
+    expect(
+      presence.compareDocumentPosition(chrome) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("mounts no chrome and no harness controls for an agent that is not a dispatch agent", () => {
+    renderPane();
+    expect(screen.queryByTestId("chat-harness-chrome")).toBeNull();
+    expect(screen.queryByTestId("harness-model-chip")).toBeNull();
+    expect(screen.queryByTestId("harness-usage-chip")).toBeNull();
+    expect(screen.queryByTestId("harness-stop")).toBeNull();
+    expect(screen.queryByTestId("harness-status-line")).toBeNull();
+  });
+
+  it("wears the engine's mark on the model chip for the model it was launched with", () => {
+    renderPane({ agent: dispatchAgent });
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("openai");
+    expect(
+      screen.getByTestId("harness-model-chip-label").textContent
+    ).toContain("Codex");
+    expect(screen.getByTestId("harness-auth-codex").textContent).toContain(
+      "ChatGPT subscription"
+    );
+  });
+
+  it("falls back to the default engine's mark and login command when no model is stored", () => {
+    // An agent created on the default path stores no model on older rows,
+    // and the chip and the hint both read the engine off the model.
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        model: null,
+        status: "error",
+        latestEvent: {
+          type: "blocked",
+          message: "Claude Code is not logged in on the server.",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    const mark = screen
+      .getByTestId("harness-model-chip")
+      .querySelector('[data-testid="provider-icon"]');
+    expect(mark?.getAttribute("data-provider")).toBe("anthropic");
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "claude /login"
+    );
+  });
+
+  it("shows the reason and the login command whether or not the feed has turns", () => {
+    // The old surface put this in an empty state, so an engine whose login
+    // lapsed mid-life showed nothing at all once the agent had history.
+    H.entries = [turnEntry()];
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        status: "error",
+        latestEvent: {
+          type: "blocked",
+          message: "Codex is not logged in on the server.",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    expect(screen.getByTestId("harness-status-line").textContent).toContain(
+      "Codex is not logged in on the server."
+    );
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "codex login --device-auth"
+    );
+  });
+
+  it("opens Console and starts provider login after an OAuth failure", async () => {
+    H.entries = [
+      turnEntry({
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          endedAt: "2026-09-02T10:00:09.000Z",
+          finalResult: "error",
+          steps: [],
+        },
+        result: {
+          text: "Failed to authenticate: OAuth session expired",
+          streaming: false,
+        },
+        error: "authentication_failed",
+      }),
+    ];
+    const onOpenConsole = vi.fn();
+    renderPane({ agent: dispatchAgent, onOpenConsole });
+
+    fireEvent.click(screen.getByTestId("harness-login-action"));
+
+    await waitFor(() => {
+      expect(API.call).toHaveBeenCalledWith(
+        "/api/v1/agents/agt_1/terminal/inject-text",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            text: "codex login --device-auth",
+            submit: true,
+          }),
+        })
+      );
+      expect(onOpenConsole).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("says the harness is not running once, under the field, not twice", () => {
+    // The composer prints the disabled reason itself. The status line used
+    // to fall back to the same sentence, so an agent that errored without a
+    // message of its own showed it top and bottom of the same 60px.
+    renderPane({
+      agent: { ...dispatchAgent, status: "error", latestEvent: undefined },
+    });
+    expect(screen.queryByTestId("harness-status-line")).toBeNull();
+    expect(
+      screen.getByTestId("chat-composer-disabled-reason").textContent
+    ).toContain("The harness is not running. Press Start to relaunch it.");
+  });
+
+  it("names what the harness is doing while it starts and opens nothing from the faded chips", () => {
+    // The chrome animates to opacity 0 but stays mounted, so without the
+    // pointer-events and tabindex guards a click on blank space opened the
+    // portaled Model dialog.
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        status: "creating",
+        latestEvent: {
+          type: "working",
+          message: "Installing dependencies…",
+          updatedAt: "2026-09-07T12:00:00.000Z",
+          metadata: null,
+        },
+      },
+    });
+    const line = screen.getByTestId("harness-status-line");
+    expect(line.textContent).toContain("Installing dependencies…");
+    expect(line.querySelector('[role="status"]')).not.toBeNull();
+    const chip = screen.getByTestId("harness-model-chip");
+    expect(chip.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(chip);
+    expect(screen.queryByTestId("harness-model-picker")).toBeNull();
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.queryByTestId("harness-usage-dialog")).toBeNull();
+    expect(
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it("keeps the composer mounted across the starting handoff", () => {
+    const { rerender } = renderPane({
+      agent: { ...dispatchAgent, status: "creating" },
+    });
+    const input = screen.getByTestId("chat-composer-input");
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={dispatchAgent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.getByTestId("chat-composer-input")).toBe(input);
+  });
+
+  it("pins the current task list above the composer and folds it", () => {
+    H.entries = [
+      turnEntry({
+        plan: [
+          { content: "Read the README", status: "completed", priority: "high" },
+          {
+            content: "Echo the prompt",
+            status: "in_progress",
+            priority: "medium",
+          },
+          { content: "Wrap up", status: "pending", priority: "low" },
+        ],
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const strip = screen.getByTestId("harness-tasks");
+    expect(screen.getByTestId("harness-tasks-presence")).not.toBeNull();
+    expect(strip.textContent).toContain("1 of 3 done");
+    const items = strip.querySelectorAll('[data-testid="harness-todo-item"]');
+    expect(items).toHaveLength(2);
+    expect(items[0]?.getAttribute("data-status")).toBe("in_progress");
+    expect(screen.getByTestId("harness-tasks-more").textContent).toBe(
+      "+1 more"
+    );
+    fireEvent.click(screen.getByTestId("harness-tasks-more"));
+    expect(
+      strip.querySelectorAll('[data-testid="harness-todo-item"]')
+    ).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
+    expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
+    expect(strip.textContent).toContain("Echo the prompt");
+  });
+
+  it("drops the strip once every task is done", () => {
+    H.entries = [
+      turnEntry({
+        plan: [
+          { content: "Read the README", status: "completed", priority: "high" },
+          { content: "Wrap up", status: "completed", priority: "low" },
+        ],
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.queryByTestId("harness-tasks")).toBeNull();
+  });
+
+  it("folds the queue past two rows so it cannot walk the composer off", () => {
+    HARNESS.queued = ["a", "b", "c", "d"].map((letter, i) => ({
+      id: `q_${letter}`,
+      source: "chat" as const,
+      text: `message ${letter}`,
+      chatMessageId: `q_${letter}`,
+      attachments: [],
+      createdAt: `2026-09-04T10:00:0${i}.000Z`,
+    }));
+    renderPane({ agent: dispatchAgent });
+
+    expect(screen.getAllByTestId("harness-queued")).toHaveLength(2);
+    const more = screen.getByTestId("harness-queued-more");
+    expect(more.textContent).toBe("+2 more queued");
+
+    fireEvent.click(more);
+    expect(screen.getAllByTestId("harness-queued")).toHaveLength(4);
+    expect(screen.getByTestId("harness-queued-more").textContent).toBe(
+      "Show fewer"
+    );
+  });
+
+  it("keeps a queued row to one line until its chevron opens it", () => {
+    HARNESS.queued = [
+      {
+        id: "q_1",
+        source: "agent",
+        text: "the first line\nand a second the row must not show",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:00.000Z",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+
+    const row = screen.getByTestId("harness-queued");
+    const toggle = screen.getByTestId("harness-queued-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Collapsed, the row shows the text once; opened, it shows the full
+    // body instead of the truncated line, so still once.
+    fireEvent.click(toggle);
+    expect(
+      screen.getByTestId("harness-queued-toggle").getAttribute("aria-expanded")
+    ).toBe("true");
+    expect(row.textContent).toContain("and a second the row must not show");
+  });
+
+  it("lists queued prompts above the composer with Send now and Remove", () => {
+    HARNESS.queued = [
+      {
+        id: "m2",
+        source: "chat",
+        text: "second thoughts",
+        chatMessageId: "m2",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:01.000Z",
+      },
+      {
+        id: "q_3",
+        source: "agent",
+        text: "and mine",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:02.000Z",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const rows = screen.getAllByTestId("harness-queued");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("second thoughts");
+    expect(rows[0]?.textContent).toContain("Queued");
+    expect(rows[1]?.textContent).toContain("from Reviewer");
+    const chrome = screen.getByTestId("chat-harness-chrome");
+    expect(chrome.contains(rows[0]!)).toBe(true);
+    expect(screen.getByTestId("chat-scroll").contains(rows[0]!)).toBe(false);
+
+    fireEvent.click(
+      rows[0]!.querySelector('[data-testid="harness-queued-send-now"]')!
+    );
+    expect(HARNESS.sendNow).toHaveBeenCalledWith("m2");
+    fireEvent.click(
+      rows[1]!.querySelector('[data-testid="harness-queued-remove"]')!
+    );
+    expect(HARNESS.remove).toHaveBeenCalledWith("q_3");
+  });
+
+  it("offers Stop while a turn runs and interrupts on click", () => {
+    H.entries = [
+      turnEntry({
+        settled: false,
+        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+        result: { text: "working", streaming: true },
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const stop = screen.getByTestId("harness-stop");
+    // React stringifies aria-* booleans, so the visible state reads "false".
+    expect(stop.getAttribute("aria-hidden")).toBe("false");
+    expect(stop.className).not.toContain("invisible");
+    fireEvent.click(stop);
+    expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Stop laid out but hidden when nothing runs", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    const stop = screen.getByTestId("harness-stop");
+    expect(stop.getAttribute("aria-hidden")).toBe("true");
+    expect(stop.className).toContain("invisible");
+  });
+
+  it("opens the usage dialog from the chip", () => {
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.getByTestId("harness-usage-dialog")).not.toBeNull();
+  });
+
+  it("keeps every chip a 44px target on a coarse pointer", () => {
+    renderPane({ agent: dispatchAgent });
+    for (const id of [
+      "harness-model-chip",
+      "harness-usage-chip",
+      "harness-stop",
+    ]) {
+      expect(screen.getByTestId(id).className).toContain(
+        "pointer-coarse:min-h-11"
+      );
+    }
+    // Without min-w-0 the button's min-content is the whole nowrap label, so
+    // the span's `truncate` never engages and the row overflows instead.
+    expect(screen.getByTestId("harness-model-chip").className).toContain(
+      "min-w-0"
+    );
+  });
+
+  it("renders a turn's shortcut pins, because the pane provides the turn context", () => {
+    H.entries = [
+      turnEntry({
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          endedAt: "2026-09-02T10:00:09.000Z",
+          finalResult: "ok",
+          steps: [
+            {
+              id: "s1",
+              kind: "other",
+              label: "mcp__dispatch__dispatch_pins",
+              status: "ok",
+              startedAt: "2026-09-02T10:00:01.000Z",
+              endedAt: "2026-09-02T10:00:02.000Z",
+              durMs: 1000,
+              detail: {
+                input: {
+                  pins: [
+                    {
+                      label: "Run the E2E",
+                      type: "shortcut",
+                      value: "run e2e",
+                    },
+                    { label: "Gone", type: "shortcut", value: "x" },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ];
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        pins: [
+          {
+            id: "p1",
+            label: "Run the E2E",
+            value: "run e2e",
+            type: "shortcut",
+            group: "Next steps",
+          },
+        ],
+      },
+    });
+    const row = screen.getByTestId("harness-shortcuts");
+    expect(
+      [...row.querySelectorAll('[data-testid="pin-item"]')].map((i) =>
+        i.getAttribute("data-pin-label")
+      )
+    ).toEqual(["Run the E2E"]);
+  });
+});
+
+describe("ChatPane harness composer", () => {
+  const runningTurn = () =>
+    turnEntry({
+      settled: false,
+      trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+      result: { text: "working", streaming: true },
+    });
+
+  const statusEntry = (id: string, at: string): ChatFeedEntry => ({
+    type: "status",
+    id,
+    eventType: "working",
+    message: "Reading the readme",
+    at,
+  });
+
+  const queuedChat = {
+    id: "m2",
+    source: "chat" as const,
+    text: "queued one",
+    chatMessageId: "m2",
+    attachments: [],
+    createdAt: "2026-09-04T10:00:01.000Z",
+  };
+
+  it("says what Enter does while a turn runs and something waits behind it", () => {
+    H.entries = [runningTurn()];
+    HARNESS.queued = [queuedChat];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the newest queued message · Ctrl+C stops"
+    );
+  });
+
+  it("keeps the plain composer line when nothing runs and nothing waits", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
+    expect(screen.queryByTestId("harness-queued")).toBeNull();
+  });
+
+  it("gives no hint and no history to an agent that is not a dispatch agent", () => {
+    H.entries = [runningTurn()];
+    HARNESS.queued = [queuedChat];
+    renderPane();
+    expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
+  });
+
+  it("pulls the queued message back on ArrowUp", async () => {
+    HARNESS.queued = [queuedChat];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued one"));
+    expect(HARNESS.remove).toHaveBeenCalledWith("m2");
+  });
+
+  it("refuses to recall a queued message that carries attachments", async () => {
+    HARNESS.queued = [
+      {
+        ...queuedChat,
+        id: "m3",
+        text: "with a file",
+        attachments: [
+          { type: "file", mediaId: 1, fileName: "a.png", sizeBytes: 1 },
+        ],
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("attachments")
+    );
+    expect(HARNESS.remove).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+  });
+
+  it("recalls the user's own queued message, not one another agent sent", async () => {
+    HARNESS.queued = [
+      queuedChat,
+      {
+        ...queuedChat,
+        id: "m9",
+        source: "agent" as const,
+        senderName: "child",
+        text: "a child agent's undelivered message",
+      },
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued one"));
+    // The child's message stays queued and undelivered.
+    expect(HARNESS.remove).toHaveBeenCalledWith("m2");
+    expect(HARNESS.remove).not.toHaveBeenCalledWith("m9");
+  });
+
+  it("walks back through the prompts the user typed before", async () => {
+    H.entries = [
+      turnEntry({
+        id: "turn:1",
+        prompt: { source: "chat", text: "earlier prompt", attachments: [] },
+      }),
+      turnEntry({ id: "turn:2" }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("read the readme"));
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("earlier prompt"));
+  });
+
+  it("stops the turn on Ctrl+C in the field while one runs", () => {
+    H.entries = [runningTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+      key: "c",
+      ctrlKey: true,
+    });
+    expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Ctrl+C alone when no turn runs", () => {
+    H.entries = [turnEntry()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+      key: "c",
+      ctrlKey: true,
+    });
+    expect(HARNESS.interrupt).not.toHaveBeenCalled();
+  });
+
+  it("opens the usage dialog from the /usage slash command", async () => {
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "/usage" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("harness-usage-dialog")).not.toBeNull();
+    });
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("opens the model picker from the /model slash command", async () => {
+    renderPane({ agent: dispatchAgent });
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "/model" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("harness-model-picker")).not.toBeNull();
+    });
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps following a live turn when a status row lands under it", () => {
+    // A turn is anchored where it started, so the status event the agent
+    // emits mid-turn becomes the tail entry while the turn keeps growing.
+    const running = runningTurn();
+    H.entries = [running, statusEntry("event:9", "2026-09-02T10:00:05.000Z")];
+    const { rerender } = renderPane({ agent: dispatchAgent });
+    (Element.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear();
+    H.entries = [
+      {
+        ...running,
+        updatedAt: "2026-09-02T10:00:20.000Z",
+        result: { text: "working a good deal more", streaming: true },
+      },
+      statusEntry("event:9", "2026-09-02T10:00:05.000Z"),
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={dispatchAgent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(Element.prototype.scrollTo).toHaveBeenCalled();
+  });
+
+  it("shows the drop overlay only for a dispatch agent, while files are dragged over the pane", () => {
+    const plain = renderPane();
+    const plainPane = screen.getByTestId("chat-pane");
+    fireEvent.dragOver(plainPane, {
+      dataTransfer: { types: ["Files"], files: [] },
+    });
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
+    plain.unmount();
+
+    renderPane({ agent: dispatchAgent });
+    const pane = screen.getByTestId("chat-pane");
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
+    fireEvent.dragOver(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.getByTestId("chat-drop-overlay")).not.toBeNull();
+    expect(pane.getAttribute("data-dragging")).toBe("true");
+    fireEvent.drop(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
   });
 });

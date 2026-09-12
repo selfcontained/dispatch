@@ -1,0 +1,243 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  HARNESS_BUDGET_ENGINE_IDS,
+  HARNESS_ENGINES,
+  type HarnessEngineId,
+  type UsageBudgets,
+} from "@dispatch/shared";
+import { X } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ProviderIcon } from "@/components/app/harness/provider-icon";
+import { useUsageBudgets } from "@/hooks/use-usage-budgets";
+
+type Row = { id: HarnessEngineId; amount: string };
+
+function labelOf(id: HarnessEngineId): string {
+  return HARNESS_ENGINES.find((e) => e.id === id)?.label ?? id;
+}
+
+function rowsFrom(budgets: UsageBudgets): Row[] {
+  return HARNESS_BUDGET_ENGINE_IDS.filter(
+    (id) => budgets[id] !== undefined
+  ).map((id) => ({ id, amount: String(budgets[id]) }));
+}
+
+/** A positive amount of dollars, or null for anything else (empty included). */
+function parseAmount(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Monthly spend budgets per engine that reports cost. Empty until a row is
+ * added from the dropdown; a row with an amount gives the usage dialog its
+ * bar. A row saves when its amount is committed (blur or Enter) and every
+ * row holds a valid amount; a row that does not yet stays here and says
+ * so, rather than vanishing. Saves are applied in order so a removal
+ * cannot be undone by an older save landing late.
+ */
+export function UsageBudgetSettings(): JSX.Element {
+  const { budgets, loaded, save, saving, error } = useUsageBudgets();
+  const [rows, setRows] = useState<Row[]>([]);
+  // Rows follow the server until the user starts editing.
+  const [dirty, setDirty] = useState(false);
+  // Counts edits, so a save that lands after a newer edit does not hand
+  // the rows back to the server and drop what was typed meanwhile.
+  const edits = useRef(0);
+  const markEdited = () => {
+    edits.current += 1;
+    setDirty(true);
+  };
+  const [focusId, setFocusId] = useState<HarnessEngineId | null>(null);
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    if (!dirty) setRows(rowsFrom(budgets));
+  }, [budgets, dirty]);
+
+  /**
+   * Save `next`. An amount that is not yet a number holds the whole save
+   * back, so a row being typed cannot be committed half-written.
+   *
+   * `skipInvalid` lifts only that hold, for a removal: keyed off "every row
+   * is valid", the X silently did nothing whenever another row was
+   * mid-edit, and because `dirty` stays true the rows never resync, so the
+   * budget came back on the next reload with nothing on screen saying the
+   * removal had not been saved. The incomplete row is left out of the
+   * payload and stays on screen.
+   */
+  const persist = (next: Row[], skipInvalid = false) => {
+    const incomplete = next.some((row) => parseAmount(row.amount) === null);
+    if (incomplete && !skipInvalid) return;
+    const payload: UsageBudgets = {};
+    for (const row of next) {
+      const amount = parseAmount(row.amount);
+      if (amount !== null) payload[row.id] = amount;
+    }
+    const at = edits.current;
+    saveChain.current = saveChain.current
+      .catch(() => {})
+      .then(() => save(payload))
+      .then(() => {
+        // Clearing dirty hands the rows back to the server, which would drop
+        // the row that was left out of the payload, so it waits until every
+        // row has been saved.
+        if (edits.current === at && !incomplete) setDirty(false);
+      })
+      .catch(() => {
+        // The hook reports it; the rows stay so nothing typed is lost.
+      });
+  };
+
+  const available = HARNESS_BUDGET_ENGINE_IDS.filter(
+    (id) => !rows.some((r) => r.id === id)
+  );
+
+  return (
+    <div className="p-6" data-testid="usage-budget-settings">
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Usage budgets
+      </div>
+      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+        A monthly amount in USD per engine. A Dispatch Harness agent&apos;s
+        usage dialog (<span className="font-terminal">/usage</span>) draws each
+        engine&apos;s spend this month against it. No budget, no bar.
+      </p>
+      <div className="max-w-lg space-y-2">
+        {rows.length === 0 && loaded ? (
+          <p
+            className="rounded border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground"
+            data-testid="usage-budget-empty"
+          >
+            No budgets yet. Add one below.
+          </p>
+        ) : null}
+        {rows.map((row) => {
+          const bad = parseAmount(row.amount) === null;
+          return (
+            <div
+              key={row.id}
+              className="rounded border border-border px-3 py-2"
+              data-testid="usage-budget-row"
+              data-provider={row.id}
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex w-28 items-center gap-1.5 text-sm font-medium text-foreground">
+                  <ProviderIcon provider={row.id} className="h-3.5 w-3.5" />
+                  {labelOf(row.id)}
+                </span>
+                <span className="text-sm text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="per month"
+                  value={row.amount}
+                  autoFocus={focusId === row.id}
+                  aria-label={`${labelOf(row.id)} monthly budget in USD`}
+                  aria-invalid={bad && row.amount !== "" ? true : undefined}
+                  data-testid="usage-budget-amount"
+                  className="h-8 w-32 pointer-coarse:h-11"
+                  onChange={(event) => {
+                    markEdited();
+                    setRows((current) =>
+                      current.map((r) =>
+                        r.id === row.id
+                          ? { ...r, amount: event.target.value }
+                          : r
+                      )
+                    );
+                  }}
+                  onBlur={() => persist(rows)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      persist(rows);
+                    }
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">/ month</span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={saving}
+                  className="ml-auto h-7 w-7 text-muted-foreground pointer-coarse:h-11 pointer-coarse:w-11"
+                  aria-label={`Remove ${labelOf(row.id)} budget`}
+                  data-testid="usage-budget-remove"
+                  onClick={() => {
+                    const next = rows.filter((r) => r.id !== row.id);
+                    markEdited();
+                    setRows(next);
+                    persist(next, true);
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {bad ? (
+                <p
+                  className="mt-1 text-[11px] text-muted-foreground"
+                  data-testid="usage-budget-invalid"
+                >
+                  {row.amount === ""
+                    ? "Enter an amount to save this budget."
+                    : "The amount must be a positive number of dollars."}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+        {available.length > 0 ? (
+          <Select
+            value=""
+            onValueChange={(id) => {
+              markEdited();
+              setFocusId(id as HarnessEngineId);
+              setRows((current) => [
+                ...current,
+                { id: id as HarnessEngineId, amount: "" },
+              ]);
+            }}
+          >
+            <SelectTrigger
+              className="h-8 w-48 pointer-coarse:h-11"
+              aria-label="Add a budget"
+              data-testid="usage-budget-add"
+            >
+              <SelectValue placeholder="Add budget…" />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((id) => (
+                <SelectItem key={id} value={id}>
+                  <span className="flex items-center gap-1.5">
+                    <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+                    {labelOf(id)}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {saving ? (
+          <p className="text-xs text-muted-foreground">Saving…</p>
+        ) : null}
+      </div>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}

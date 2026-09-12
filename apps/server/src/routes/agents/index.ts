@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { AgentRouteDeps } from "./shared.js";
 import { registerAgentCrudRoutes } from "./crud-routes.js";
 import { registerAgentEventRoutes } from "./events-routes.js";
+import { registerAgentHarnessRoutes } from "./harness-routes.js";
 import { registerAgentLifecycleRoutes } from "./lifecycle-routes.js";
 import { registerAgentStreamingRoutes } from "./streaming-routes.js";
 import { registerAgentTerminalRoutes } from "./terminal-routes.js";
@@ -18,4 +19,5 @@ export async function registerAgentRoutes(
   await registerAgentLifecycleRoutes(app, deps);
   await registerAgentStreamingRoutes(app, deps);
   await registerAgentTerminalRoutes(app, deps);
+  await registerAgentHarnessRoutes(app, deps);
 }

@@ -48,15 +48,22 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
-  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
+  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode", "dispatch"],
   getEnabledAgentTypes: vi.fn(async () => [
     "claude",
     "codex",
     "cursor",
     "opencode",
   ]),
+  getOfferedAgentTypes: vi.fn(async () => [
+    "claude",
+    "codex",
+    "cursor",
+    "opencode",
+    "dispatch",
+  ]),
   isCliAgentType: vi.fn((t: string) =>
-    ["claude", "codex", "cursor", "opencode"].includes(t)
+    ["claude", "codex", "cursor", "opencode", "dispatch"].includes(t)
   ),
 }));
 
@@ -138,7 +145,7 @@ import {
   loadPersonaBySlug,
 } from "../src/personas/loader.js";
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
-import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
+import { getOfferedAgentTypes } from "../src/agent-type-settings.js";
 import {
   isMediaFile,
   isTextFile,
@@ -972,7 +979,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when agent type is disabled", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([]);
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([]);
       await expect(
         handlers.launchPersona("agt_test1", {
           persona: "security",
@@ -982,7 +989,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("includes full-access arg for claude agents with fullAccess", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1016,7 +1023,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("includes full-access arg for codex agents with fullAccess", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1052,7 +1059,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("does not include full-access arg for opencode agents", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
         "claude",
         "codex",
         "opencode",
@@ -1189,6 +1196,78 @@ describe("createMcpHandlers", () => {
         expect.objectContaining({
           cwd: "/repo/.dispatch/worktrees/abc",
         })
+      );
+    });
+  });
+
+  describe("harness children inherit the parent's engine", () => {
+    // The engine is the first segment of a harness model id, so a child that
+    // runs as its parent's kind with no model of its own would otherwise run
+    // on Claude Code whatever the parent runs on, and bill that account.
+    const harnessParent = {
+      id: "agt_test1",
+      name: "test-agent",
+      cwd: "/repo",
+      status: "running",
+      type: "dispatch",
+      model: "codex/gpt-5.6-sol",
+      fullAccess: true,
+      pins: [],
+      latestEvent: null,
+      worktreePath: null,
+      worktreeBranch: null,
+      baseBranch: null,
+      reviewAgentType: null,
+      mediaDir: null,
+    };
+
+    beforeEach(() => {
+      // vi.clearAllMocks() clears calls, not implementations, so an earlier
+      // test's narrower offered-types list is still in place here.
+      vi.mocked(getOfferedAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+        "dispatch",
+      ] as never);
+      deps.agentManager.getAgent.mockResolvedValue(harnessParent);
+    });
+
+    it("a persona review runs on the parent's engine", async () => {
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review this PR",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "dispatch",
+          model: "codex/gpt-5.6-sol",
+        })
+      );
+    });
+
+    it("a launched child runs on the parent's engine", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "dispatch",
+          model: "codex/gpt-5.6-sol",
+        })
+      );
+    });
+
+    it("an explicit model still wins", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+        model: "gemini/default",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "gemini/default" })
       );
     });
   });
@@ -1382,7 +1461,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when agent type is disabled in settings", async () => {
-      vi.mocked(getEnabledAgentTypes).mockResolvedValueOnce(["codex"] as any);
+      vi.mocked(getOfferedAgentTypes).mockResolvedValueOnce(["codex"] as any);
       await expect(
         handlers.launchAgent("agt_test1", {
           name: "child",

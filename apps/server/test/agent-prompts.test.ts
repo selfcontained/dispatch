@@ -23,11 +23,15 @@ function build(opts: { tmux?: boolean; quietMs?: number } = {}) {
     maxWaitMs: 1_000,
   });
   const agentManager = {
-    getTerminalAccess: vi.fn(async () =>
+    getPromptTarget: vi.fn(async () =>
       opts.tmux === false
-        ? { mode: "inert" as const, message: "No pane." }
-        : { mode: "tmux" as const, sessionName: "sess" }
+        ? { kind: "inert" as const, message: "No pane." }
+        : { kind: "tmux" as const, sessionName: "sess" }
     ),
+    promptHarness: vi.fn(() => ({
+      started: Promise.resolve(),
+      settled: Promise.resolve(),
+    })),
   };
   const log = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
   const injector = createPromptInjector(
@@ -122,6 +126,83 @@ describe("injectAgentPrompt (wrapper)", () => {
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "agt_1" }),
       expect.stringContaining("Deferred tmux prompt delivery failed")
+    );
+  });
+});
+
+describe("enqueueAgentPrompt for harness agents", () => {
+  it("routes the prompt to the manager's harness turn instead of the pane", async () => {
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "harness" as const,
+      busy: false,
+    });
+    const { held, delivery } = await enqueueAgentPrompt(
+      "agt_d",
+      "hello harness"
+    );
+    expect(held).toBe(false);
+    await delivery;
+    expect(agentManager.promptHarness).toHaveBeenCalledWith(
+      "agt_d",
+      "hello harness"
+    );
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the manager's refusal when the harness is not running", async () => {
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getPromptTarget.mockRejectedValue(
+      new Error(
+        "The harness is not running for this agent; the prompt cannot be delivered."
+      )
+    );
+    await expect(enqueueAgentPrompt("agt_d", "x")).rejects.toThrow(
+      /harness is not running/
+    );
+  });
+
+  it("reports a prompt as held while a turn is already running", async () => {
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "harness" as const,
+      busy: true,
+    });
+    let start: () => void = () => {};
+    agentManager.promptHarness.mockReturnValue({
+      started: new Promise<void>((r) => {
+        start = r;
+      }),
+      settled: Promise.resolve(),
+    });
+    const { held, delivery } = await enqueueAgentPrompt("agt_d", "queued");
+    expect(held).toBe(true);
+    let delivered = false;
+    void delivery.then(() => {
+      delivered = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(delivered).toBe(false);
+    start();
+    await delivery;
+  });
+
+  it("logs a failed turn without rejecting the enqueue", async () => {
+    const { enqueueAgentPrompt, agentManager, log } = build();
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "harness" as const,
+      busy: false,
+    });
+    agentManager.promptHarness.mockReturnValue({
+      started: Promise.resolve(),
+      settled: Promise.reject(new Error("turn exploded")),
+    });
+    const { delivery } = await enqueueAgentPrompt("agt_d", "x");
+    await delivery;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agt_d" }),
+      "harness turn failed"
     );
   });
 });

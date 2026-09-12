@@ -74,6 +74,10 @@ export async function createAgentViaAPI(
     worktreeBranch?: string;
     /** Launch as a child of this agent (renders as a sub agent row). */
     parentAgentId?: string;
+    /** The first prompt: typed into a CLI, or a harness agent's first turn. */
+    initialPrompt?: string;
+    /** The engine and model for a dispatch agent, as engine/model. */
+    model?: string;
   } = {}
 ): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
@@ -85,6 +89,8 @@ export async function createAgentViaAPI(
       useWorktree: overrides.useWorktree ?? false,
       worktreeBranch: overrides.worktreeBranch,
       parentAgentId: overrides.parentAgentId,
+      initialPrompt: overrides.initialPrompt,
+      model: overrides.model,
     },
   });
   const body = (await res.json()) as { agent: AgentResult };
@@ -158,6 +164,27 @@ export async function setEnabledAgentTypesViaAPI(
 
   if (!res.ok()) {
     throw new Error(`Failed to update agent type settings: ${res.status()}`);
+  }
+}
+
+/**
+ * Turn the Dispatch Harness agent type on or off. This is the only way to
+ * make `dispatch` creatable: it is never a member of the enabled agent
+ * types, and `setEnabledAgentTypesViaAPI` answers 400 for a body naming it.
+ */
+export async function setDispatchHarnessViaAPI(
+  request: APIRequestContext,
+  enabled: boolean
+): Promise<void> {
+  const res = await request.post(`${API}/app/settings/dispatch-harness`, {
+    headers: authHeaders(),
+    data: { enabled },
+  });
+
+  if (!res.ok()) {
+    throw new Error(
+      `Failed to update the Dispatch Harness setting: ${res.status()}`
+    );
   }
 }
 
@@ -772,4 +799,115 @@ export async function loadApp(page: Page): Promise<void> {
   await page
     .getByTestId("terminal-pane")
     .waitFor({ state: "visible", timeout: 10_000 });
+}
+
+/**
+ * Seed one settled harness turn straight into `agent_stream_events`, plus
+ * the `agent_chat_messages` row it names as its prompt.
+ *
+ * The default E2E runtime is inert: no tmux pane, no ACP engine, so nothing
+ * ever writes a stream row and this has to write what the recorder would.
+ * Rows ascend by `seq` from whatever the agent already has, one at a time
+ * the way the recorder writes them, so calling it twice is safe.
+ *
+ * `startedSecondsAgo` anchors the turn in the past, which is how a caller
+ * gets rows it writes afterward (a status event, a pin write, a review) to
+ * land under the turn in the feed rather than racing it.
+ */
+export async function seedStreamTurnViaDB(turn: {
+  agentId: string;
+  /** The typed prompt; seeded as the chat row the turn claims. */
+  prompt: string;
+  /** The assistant's reply, which becomes the turn's result. */
+  result: string;
+  /** The tool step's title, shown on the activity rail. */
+  stepTitle?: string;
+  /** The task list the engine published during the turn, if any. */
+  plan?: { content: string; status: string; priority: string }[];
+  startedSecondsAgo?: number;
+}): Promise<{ promptMessageId: string }> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed harness turns.");
+  }
+  const promptMessageId = randomUUID();
+  const ago = turn.startedSecondsAgo ?? 10;
+  const endedAt = new Date(Date.now() - (ago - 1) * 1000).toISOString();
+  const rows: { kind: string; key: string | null; payload: unknown }[] = [
+    {
+      kind: "turn",
+      key: null,
+      payload: {
+        state: "settled",
+        prompt: { source: "chat", chatMessageId: promptMessageId },
+        stopReason: "end_turn",
+        endedAt,
+      },
+    },
+    {
+      kind: "tool_call",
+      key: `call_${promptMessageId}`,
+      payload: {
+        toolKind: "read",
+        title: turn.stepTitle ?? "Read README.md",
+        status: "completed",
+        locations: [],
+        diff: null,
+        terminalOutput: null,
+      },
+    },
+    ...(turn.plan
+      ? [{ kind: "plan", key: null, payload: { entries: turn.plan } }]
+      : []),
+    {
+      kind: "assistant",
+      key: null,
+      payload: { text: turn.result, streaming: false },
+    },
+  ];
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO agent_chat_messages
+           (id, agent_id, author_kind, kind, text, attachments, delivered)
+         VALUES ($1, $2, 'user', 'reply', $3, '[]'::jsonb, true)`,
+        [promptMessageId, turn.agentId, turn.prompt]
+      );
+      for (const [index, row] of rows.entries()) {
+        await client.query(
+          `INSERT INTO agent_stream_events
+             (agent_id, seq, kind, key, payload, created_at, updated_at)
+           SELECT $1,
+                  COALESCE(MAX(seq), 0) + 1,
+                  $3, $4, $5::jsonb,
+                  NOW() - ($6 * INTERVAL '1 second')
+                    + ($2 * INTERVAL '100 milliseconds'),
+                  NOW() - ($6 * INTERVAL '1 second')
+                    + ($2 * INTERVAL '100 milliseconds')
+             FROM agent_stream_events WHERE agent_id = $1`,
+          [
+            turn.agentId,
+            index,
+            row.kind,
+            row.key,
+            JSON.stringify(row.payload),
+            ago,
+          ]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+  return { promptMessageId };
 }

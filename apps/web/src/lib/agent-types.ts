@@ -4,11 +4,17 @@
  * apps/server/src/shared/agent-types.ts). Display labels and web-only
  * helpers live here.
  */
-import type { AgentType } from "../../../server/src/shared/agent-types";
+import type { AgentRecord } from "@dispatch/shared";
+
+import {
+  type AgentType,
+  isCliAgentType,
+} from "../../../server/src/shared/agent-types";
 
 export {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   isAgentType,
   isCliAgentType,
   sanitizeEnabledAgentTypes,
@@ -21,6 +27,7 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   codex: "Codex",
   cursor: "Cursor",
   opencode: "OpenCode",
+  dispatch: "Dispatch",
   terminal: "Terminal",
 };
 
@@ -30,4 +37,31 @@ export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
     if (b === "terminal") return -1;
     return AGENT_TYPE_LABELS[a].localeCompare(AGENT_TYPE_LABELS[b]);
   });
+}
+
+/** The reviewer runs as the agent's own kind unless a choice was saved. */
+export function defaultReviewAgentType(
+  agent: Partial<Pick<AgentRecord, "type" | "reviewAgentType">>
+): AgentType {
+  return (
+    agent.reviewAgentType ?? (isCliAgentType(agent.type) ? agent.type : "codex")
+  );
+}
+
+/**
+ * What may be created right now: the enabled types the server persists, plus
+ * `dispatch` when the Dispatch Harness flag is on. `dispatch` is never a
+ * member of the persisted list (the server drops it on read and on write), so
+ * the flag is the one place the harness enters, and every create dialog, job,
+ * template and reviewer picker reads the result.
+ *
+ * Returns `enabledAgentTypes` itself when the flag is off, so a `useMemo` over
+ * this keeps its identity.
+ */
+export function offeredAgentTypes(
+  enabledAgentTypes: AgentType[],
+  dispatchHarnessEnabled: boolean
+): AgentType[] {
+  if (!dispatchHarnessEnabled) return enabledAgentTypes;
+  return [...enabledAgentTypes, "dispatch"];
 }

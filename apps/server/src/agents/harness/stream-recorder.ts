@@ -1,0 +1,658 @@
+import path from "node:path";
+
+import type { DriverEvent, DriverUpdate } from "./driver.js";
+import { parsePromptSource } from "./prompt-source.js";
+import type {
+  PlanPayload,
+  StreamEventRow,
+  StreamStore,
+  ToolPayload,
+  TurnPayload,
+} from "./stream-store.js";
+
+type TextKind = "assistant" | "thought";
+
+type OpenText = {
+  row: StreamEventRow;
+  text: string;
+  truncated: boolean;
+  written: string;
+  flushTimer: NodeJS.Timeout | null;
+  writing: Promise<void>;
+};
+
+/** Model output is not trusted input: bound what one row can hold. */
+export const TEXT_MAX_BYTES = 64 * 1024;
+const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+const STATUS_MAX_BYTES = 8 * 1024;
+const PLAN_ENTRY_MAX_BYTES = 4 * 1024;
+const PLAN_MAX_ENTRIES = 200;
+const TITLE_MAX_CHARS = 1024;
+const LOCATIONS_MAX = 200;
+const AUTONOMOUS_IDLE_MS = 20_000;
+export const INTERRUPTED_BY_RESTART = "interrupted by restart";
+export const FLUSH_INTERVAL_MS = 100;
+
+/**
+ * The engine's ACP server sends tool calls without a `kind`; the title is
+ * the tool name, which is enough to pick the icon and color the Chat row gets.
+ */
+export function inferToolKind(
+  kind: string | null | undefined,
+  title: string
+): string {
+  // The engine sends "other" explicitly, which says nothing; treat it as missing.
+  if (kind && kind !== "other") return kind;
+  const name = title.toLowerCase();
+  if (/^mcp__/.test(name)) return "other";
+  if (/bash|shell|pwsh|exec|terminal|command/.test(name)) return "execute";
+  if (/edit|write|str_replace|patch|create_file/.test(name)) return "edit";
+  if (/^read|read_file|cat\b|view/.test(name)) return "read";
+  if (/grep|glob|search|find|list|^ls\b/.test(name)) return "search";
+  if (/fetch|web|http|browse/.test(name)) return "fetch";
+  if (/think|plan|todo/.test(name)) return "think";
+  return "other";
+}
+
+function textOf(content: { type: string; text?: string } | undefined): string {
+  return content && content.type === "text" && typeof content.text === "string"
+    ? content.text
+    : "";
+}
+
+export function boundOutput(
+  text: string,
+  maxBytes: number
+): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= maxBytes) return { text, truncated: false };
+  const half = Math.floor(maxBytes / 2);
+  const head = bytes.subarray(0, half).toString("utf8");
+  const tail = bytes.subarray(-half).toString("utf8");
+  return { text: `${head}\n… [truncated] …\n${tail}`, truncated: true };
+}
+
+const INPUT_MAX_BYTES = 8 * 1024;
+
+/** A tool title is one line in the rail; cut rather than head-and-tail it. */
+function boundTitle(title: string): string {
+  return title.length > TITLE_MAX_CHARS
+    ? `${title.slice(0, TITLE_MAX_CHARS)}…`
+    : title;
+}
+
+/**
+ * Keep a tool call's raw input as sent, unless serializing it is large:
+ * then a bounded string preview stands in, marked so the view can say so.
+ */
+export function boundInput(input: unknown): unknown {
+  if (input === undefined || input === null) return undefined;
+  let json: string;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    return undefined;
+  }
+  if (json === undefined) return undefined;
+  if (Buffer.byteLength(json, "utf8") <= INPUT_MAX_BYTES) return input;
+  return {
+    truncated: true,
+    preview: boundOutput(json, INPUT_MAX_BYTES).text,
+  };
+}
+
+function parentToolCallIdOf(meta: unknown): string | null {
+  if (typeof meta !== "object" || meta === null) return null;
+  const claude = (meta as { claudeCode?: unknown }).claudeCode;
+  if (typeof claude !== "object" || claude === null) return null;
+  const parent = (claude as { parentToolUseId?: unknown }).parentToolUseId;
+  return typeof parent === "string" && parent ? parent : null;
+}
+
+function projectToolContent(content: readonly unknown[] | null | undefined): {
+  diff: ToolPayload["diff"];
+  terminalOutput: string | null;
+  truncated: boolean;
+} {
+  let diff: ToolPayload["diff"] = null;
+  let terminalOutput: string | null = null;
+  for (const item of content ?? []) {
+    const c = item as {
+      type: string;
+      path?: string;
+      oldText?: string | null;
+      newText?: string;
+      content?: { type: string; text?: string };
+    };
+    if (c.type === "diff" && c.path && typeof c.newText === "string") {
+      diff = { path: c.path, oldText: c.oldText ?? null, newText: c.newText };
+    } else if (c.type === "content" && c.content?.type === "text") {
+      terminalOutput = (terminalOutput ?? "") + (c.content.text ?? "");
+    }
+  }
+  let truncated = false;
+  if (terminalOutput !== null) {
+    const bounded = boundOutput(terminalOutput, TERMINAL_OUTPUT_MAX_BYTES);
+    terminalOutput = bounded.text;
+    truncated = bounded.truncated;
+  }
+  if (diff) {
+    // Both halves, not just the new one: engines that write whole files
+    // (Gemini CLI's write_file, OpenCode's write tool) send the entire
+    // previous file as oldText, and the row is read back on every chat feed
+    // page, every turns read and every coalesced refetch.
+    const newBounded = boundOutput(diff.newText, TEXT_MAX_BYTES);
+    const oldBounded =
+      diff.oldText === null ? null : boundOutput(diff.oldText, TEXT_MAX_BYTES);
+    if (newBounded.truncated || oldBounded?.truncated) {
+      diff = {
+        ...diff,
+        newText: newBounded.text,
+        oldText: oldBounded ? oldBounded.text : null,
+      };
+      truncated = true;
+    }
+  }
+  return { diff, terminalOutput, truncated };
+}
+
+/**
+ * Folds driver events into `agent_stream_events` rows. Assistant and
+ * thought chunks accumulate into one open row each until something else
+ * interrupts them (a tool call, a settled turn, a process exit); the row is
+ * rewritten at most every {@link FLUSH_INTERVAL_MS} and on close. Tool calls
+ * are keyed by toolCallId and rewritten as they settle. One instance serves
+ * every agent; open-row state is per agent, and callers serialize events
+ * per agent (see HarnessSupervisor).
+ */
+export class StreamRecorder {
+  private readonly open = new Map<
+    string,
+    Partial<Record<TextKind, OpenText>>
+  >();
+  private readonly cwd = new Map<string, string>();
+  private readonly openTurn = new Map<string, StreamEventRow>();
+  /**
+   * ACP defines the prompt response as the turn boundary. An adapter can
+   * still flush transport notifications behind that response; retain them as
+   * trailing output of the closed prompt rather than inventing a second live
+   * turn that races the next prompt. The window is deliberately open until
+   * the next prompt, exit, or reconcile: no bridged engine starts work of its
+   * own after a response, so anything that arrives in between is a tail.
+   */
+  private readonly trailingPrompt = new Set<string>();
+  /**
+   * A turn the engine opened on its own (a goal round) has no prompt response
+   * to end it; it settles once the stream has been quiet for a while, or when
+   * something else starts.
+   */
+  private readonly autonomousIdle = new Map<string, NodeJS.Timeout>();
+
+  constructor(
+    private readonly store: StreamStore,
+    private readonly deps: {
+      autonomousIdleMs?: number;
+      onAutonomousSettled?: (agentId: string) => void;
+    } = {}
+  ) {}
+
+  setCwd(agentId: string, cwd: string): void {
+    this.cwd.set(agentId, cwd);
+  }
+
+  async handle(event: DriverEvent): Promise<void> {
+    switch (event.type) {
+      case "update":
+        return this.handleUpdate(event.agentId, event.update);
+      case "turn": {
+        if (event.state === "started") {
+          await this.settleAutonomous(event.agentId);
+          // A text tail that arrived after the previous prompt settled opened
+          // its own assistant row under that turn; close it so this turn's
+          // reply starts a row of its own.
+          await this.closeText(event.agentId);
+          this.trailingPrompt.delete(event.agentId);
+          const row = await this.store.append(event.agentId, "turn", {
+            state: "started",
+            prompt: parsePromptSource(event.text),
+          } satisfies TurnPayload);
+          this.openTurn.set(event.agentId, row);
+          return;
+        }
+        await this.closeText(event.agentId);
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+            ...(event.error ? { error: event.error } : {}),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+          if (!(prev as TurnPayload).autonomous) {
+            this.trailingPrompt.add(event.agentId);
+          }
+        }
+        if (event.error) await this.appendStatus(event.agentId, event.error);
+        return;
+      }
+      case "exit": {
+        await this.closeText(event.agentId);
+        this.cwd.delete(event.agentId);
+        this.trailingPrompt.delete(event.agentId);
+        // The child is gone, so the turn it was running can never settle
+        // through the prompt path; settle it here or the view spins forever.
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(event.expected
+              ? { stopReason: "cancelled" }
+              : { error: "the harness exited before the turn settled" }),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+        }
+        if (event.expected || event.code === 0) return;
+        const how =
+          event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
+        const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
+        await this.appendStatus(
+          event.agentId,
+          `the harness exited with ${how}${detail}`
+        );
+        return;
+      }
+    }
+  }
+
+  /** A status row's text comes from the engine (an RPC error, a stderr tail): bound it. */
+  private async appendStatus(agentId: string, message: string): Promise<void> {
+    await this.store.append(agentId, "status", {
+      message: boundOutput(message, STATUS_MAX_BYTES).text,
+    });
+  }
+
+  /**
+   * Before a session starts: settle rows a previous process left open (a
+   * turn interrupted by a server restart has no in-memory state here).
+   */
+  async reconcile(agentId: string): Promise<number> {
+    const timer = this.autonomousIdle.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.autonomousIdle.delete(agentId);
+    this.openTurn.delete(agentId);
+    this.trailingPrompt.delete(agentId);
+    return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+  }
+
+  /**
+   * When the agent's newest turn ended because Dispatch restarted, the
+   * time it was cut; null when it ended any other way.
+   */
+  async lastTurnInterruptedByRestartAt(agentId: string): Promise<Date | null> {
+    const last = await this.store.lastTurnSettlement(agentId);
+    if (!last || last.error !== INTERRUPTED_BY_RESTART) return null;
+    const at = last.endedAt ? Date.parse(last.endedAt) : NaN;
+    return Number.isFinite(at) ? new Date(at) : new Date(0);
+  }
+
+  /** Write any buffered text for the agent now (tests and shutdown). */
+  async flush(agentId: string): Promise<void> {
+    const state = this.open.get(agentId);
+    if (!state) return;
+    for (const kind of ["assistant", "thought"] as const) {
+      const current = state[kind];
+      if (current) await this.write(kind, current, true);
+    }
+  }
+
+  private projectLocations(
+    agentId: string,
+    locations:
+      | readonly { path: string; line?: number | null }[]
+      | null
+      | undefined
+  ): ToolPayload["locations"] {
+    const cwd = this.cwd.get(agentId);
+    return (locations ?? []).slice(0, LOCATIONS_MAX).map((l) => {
+      const relative =
+        cwd && (l.path === cwd || l.path.startsWith(`${cwd}${path.sep}`))
+          ? path.relative(cwd, l.path) || "."
+          : l.path;
+      return l.line != null
+        ? { path: relative, line: l.line }
+        : { path: relative };
+    });
+  }
+
+  /** Prompt text for a turn the engine opened by itself. */
+  static readonly GOAL_ROUND_PROMPT = [
+    "--- DISPATCH: GOAL ROUND ---",
+    "The agent continued on its own: a round of its standing goal.",
+    "--- END DISPATCH: GOAL ROUND ---",
+  ].join("\n");
+
+  private async openAutonomousIfNeeded(
+    agentId: string,
+    update: DriverUpdate
+  ): Promise<void> {
+    if (this.openTurn.has(agentId)) {
+      this.touchAutonomous(agentId);
+      return;
+    }
+    // ACP's prompt response closes a turn. Notifications that arrive after
+    // that response are a transport tail of the closed turn, not autonomous
+    // work, and must never make the composer advertise a phantom Stop state.
+    if (this.trailingPrompt.has(agentId)) return;
+    // Only content opens a turn; a config change is not the agent working.
+    if (
+      update.sessionUpdate !== "agent_message_chunk" &&
+      update.sessionUpdate !== "agent_thought_chunk" &&
+      update.sessionUpdate !== "tool_call"
+    ) {
+      return;
+    }
+    const row = await this.store.append(agentId, "turn", {
+      state: "started",
+      prompt: parsePromptSource(StreamRecorder.GOAL_ROUND_PROMPT),
+      autonomous: true,
+    } satisfies TurnPayload);
+    this.openTurn.set(agentId, row);
+    this.touchAutonomous(agentId);
+  }
+
+  private touchAutonomous(agentId: string): void {
+    const open = this.openTurn.get(agentId);
+    if (!open || !(open.payload as TurnPayload).autonomous) return;
+    const prior = this.autonomousIdle.get(agentId);
+    if (prior) clearTimeout(prior);
+    const timer = setTimeout(() => {
+      this.autonomousIdle.delete(agentId);
+      void this.settleAutonomous(agentId).catch(() => {});
+    }, this.deps.autonomousIdleMs ?? AUTONOMOUS_IDLE_MS);
+    timer.unref?.();
+    this.autonomousIdle.set(agentId, timer);
+  }
+
+  /** Close a turn the engine opened by itself; a no-op for a prompted turn. */
+  async settleAutonomous(agentId: string): Promise<void> {
+    await this.closeAutonomous(agentId, "end_turn");
+  }
+
+  /** Whether late stream activity has opened its own, promptless turn. */
+  hasAutonomousTurn(agentId: string): boolean {
+    const open = this.openTurn.get(agentId);
+    return Boolean(open && (open.payload as TurnPayload).autonomous);
+  }
+
+  /**
+   * Stop a promptless round explicitly. A few ACP adapters resolve the
+   * original prompt before their final tool activity has drained; that work
+   * is still visible and must remain cancellable from the harness chrome.
+   */
+  async interruptAutonomous(agentId: string): Promise<boolean> {
+    return this.closeAutonomous(agentId, "cancelled");
+  }
+
+  private async closeAutonomous(
+    agentId: string,
+    stopReason: "end_turn" | "cancelled"
+  ): Promise<boolean> {
+    const open = this.openTurn.get(agentId);
+    if (!open || !(open.payload as TurnPayload).autonomous) return false;
+    const timer = this.autonomousIdle.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.autonomousIdle.delete(agentId);
+    await this.closeText(agentId);
+    const prev = open.payload as TurnPayload;
+    await this.store.updatePayload(open.id, {
+      ...prev,
+      state: "settled",
+      stopReason,
+      endedAt: new Date().toISOString(),
+    } satisfies TurnPayload);
+    this.openTurn.delete(agentId);
+    this.deps.onAutonomousSettled?.(agentId);
+    return true;
+  }
+
+  private async handleUpdate(
+    agentId: string,
+    update: DriverUpdate
+  ): Promise<void> {
+    await this.openAutonomousIfNeeded(agentId, update);
+    switch (update.sessionUpdate) {
+      case "agent_message_chunk":
+        return this.appendText(agentId, "assistant", textOf(update.content));
+      case "agent_thought_chunk":
+        return this.appendText(agentId, "thought", textOf(update.content));
+      case "tool_call": {
+        await this.closeText(agentId);
+        const { diff, terminalOutput, truncated } = projectToolContent(
+          update.content
+        );
+        const input = boundInput(update.rawInput);
+        const parentToolCallId = parentToolCallIdOf(update._meta);
+        const payload: ToolPayload = {
+          toolKind: inferToolKind(update.kind, update.title),
+          title: boundTitle(update.title),
+          status: update.status ?? "pending",
+          locations: this.projectLocations(agentId, update.locations),
+          diff,
+          terminalOutput,
+          ...(truncated ? { truncated: true } : {}),
+          ...(input !== undefined ? { input } : {}),
+          ...(parentToolCallId ? { parentToolCallId } : {}),
+        };
+        await this.store.upsertByKey(
+          agentId,
+          "tool_call",
+          update.toolCallId,
+          payload
+        );
+        return;
+      }
+      case "tool_call_update": {
+        // An update for a call we never saw start still gets a row, so a
+        // late-joining feed shows the settled call.
+        const existing =
+          (await this.store.getByKey(
+            agentId,
+            "tool_call",
+            update.toolCallId
+          )) ??
+          (await this.store.append(
+            agentId,
+            "tool_call",
+            {},
+            update.toolCallId
+          ));
+        const prev = existing.payload as Partial<ToolPayload>;
+        const projected = update.content
+          ? projectToolContent(update.content)
+          : null;
+        const truncated =
+          (projected?.truncated ?? false) || prev.truncated === true;
+        const title = boundTitle(update.title ?? prev.title ?? "");
+        const next: ToolPayload = {
+          toolKind: inferToolKind(update.kind ?? prev.toolKind, title),
+          title,
+          status: update.status ?? prev.status ?? "pending",
+          locations: update.locations
+            ? this.projectLocations(agentId, update.locations)
+            : (prev.locations ?? []),
+          diff: projected?.diff ?? prev.diff ?? null,
+          terminalOutput:
+            projected?.terminalOutput ?? prev.terminalOutput ?? null,
+          ...(truncated ? { truncated: true } : {}),
+          ...(update.rawInput !== undefined
+            ? { input: boundInput(update.rawInput) }
+            : prev.input !== undefined
+              ? { input: prev.input }
+              : {}),
+          ...(prev.parentToolCallId
+            ? { parentToolCallId: prev.parentToolCallId }
+            : {}),
+        };
+        await this.store.updatePayload(existing.id, next);
+        return;
+      }
+      case "plan":
+        return this.writePlan(agentId, update.entries);
+      case "plan_update":
+        // Only an item list is a task list; a file or markdown plan is prose.
+        if (update.plan.type !== "items") return;
+        return this.writePlan(agentId, update.plan.entries);
+      case "plan_removed":
+        return this.writePlan(agentId, []);
+      case "usage_update":
+        return this.writeUsage(agentId, update);
+      default:
+        return;
+    }
+  }
+
+  /** One plan row per turn, keyed by the turn row, rewritten as the list changes. */
+  private async writePlan(
+    agentId: string,
+    entries: readonly {
+      content: string;
+      status: string;
+      priority: string;
+    }[]
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    const key = open ? `plan:${open.id}` : "plan:pre";
+    const payload: PlanPayload = {
+      entries: entries.slice(0, PLAN_MAX_ENTRIES).map((e) => ({
+        content: boundOutput(e.content, PLAN_ENTRY_MAX_BYTES).text,
+        status: e.status,
+        priority: e.priority,
+      })),
+    };
+    await this.store.upsertByKey(agentId, "plan", key, payload);
+  }
+
+  /** The live turn carries the engine's newest usage; nothing else stores it. */
+  private async writeUsage(
+    agentId: string,
+    update: {
+      used: number;
+      size: number;
+      cost?: { amount: number; currency: string } | null;
+    }
+  ): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    if (!open) return;
+    const prev = open.payload as TurnPayload;
+    const next: TurnPayload = {
+      ...prev,
+      usage: {
+        used: update.used,
+        size: update.size,
+        ...(update.cost
+          ? {
+              cost: {
+                amount: update.cost.amount,
+                currency: update.cost.currency,
+              },
+            }
+          : {}),
+      },
+    };
+    open.payload = next as Record<string, unknown>;
+    await this.store.updatePayload(open.id, next);
+  }
+
+  private payloadFor(kind: TextKind, current: OpenText, streaming: boolean) {
+    const truncated = current.truncated ? { truncated: true } : {};
+    return kind === "assistant"
+      ? { text: current.text, streaming, ...truncated }
+      : { text: current.text, ...truncated };
+  }
+
+  private async write(
+    kind: TextKind,
+    current: OpenText,
+    streaming: boolean
+  ): Promise<void> {
+    if (current.flushTimer) {
+      clearTimeout(current.flushTimer);
+      current.flushTimer = null;
+    }
+    if (current.written === current.text && streaming) return;
+    current.written = current.text;
+    const payload = this.payloadFor(kind, current, streaming);
+    current.writing = current.writing
+      .catch(() => {})
+      .then(() => this.store.updatePayload(current.row.id, payload));
+    await current.writing;
+  }
+
+  private async appendText(
+    agentId: string,
+    kind: TextKind,
+    delta: string
+  ): Promise<void> {
+    if (!delta) return;
+    const state = this.open.get(agentId) ?? {};
+    const other: TextKind = kind === "assistant" ? "thought" : "assistant";
+    if (state[other]) await this.closeText(agentId, other);
+    let current = state[kind];
+    if (!current) {
+      const row = await this.store.append(
+        agentId,
+        kind,
+        kind === "assistant"
+          ? { text: delta, streaming: true }
+          : { text: delta }
+      );
+      current = {
+        row,
+        text: delta,
+        truncated: false,
+        written: delta,
+        flushTimer: null,
+        writing: Promise.resolve(),
+      };
+      state[kind] = current;
+      this.open.set(agentId, state);
+      return;
+    }
+    if (current.truncated) return;
+    current.text += delta;
+    if (Buffer.byteLength(current.text, "utf8") > TEXT_MAX_BYTES) {
+      const bounded = boundOutput(current.text, TEXT_MAX_BYTES);
+      current.text = bounded.text;
+      current.truncated = true;
+      await this.write(kind, current, true);
+      return;
+    }
+    if (!current.flushTimer) {
+      const pending = current;
+      current.flushTimer = setTimeout(() => {
+        pending.flushTimer = null;
+        void this.write(kind, pending, true).catch(() => {});
+      }, FLUSH_INTERVAL_MS);
+      current.flushTimer.unref?.();
+    }
+  }
+
+  private async closeText(agentId: string, only?: TextKind): Promise<void> {
+    const state = this.open.get(agentId);
+    if (!state) return;
+    for (const kind of ["assistant", "thought"] as const) {
+      if (only && kind !== only) continue;
+      const current = state[kind];
+      if (!current) continue;
+      await this.write(kind, current, false);
+      delete state[kind];
+    }
+    if (!state.assistant && !state.thought) this.open.delete(agentId);
+  }
+}

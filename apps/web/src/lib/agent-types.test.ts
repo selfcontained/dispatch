@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  defaultReviewAgentType,
   isAgentType,
   isCliAgentType,
+  offeredAgentTypes,
   sanitizeEnabledAgentTypes,
   sortAgentTypes,
   type AgentType,
@@ -81,11 +83,15 @@ describe("sortAgentTypes", () => {
 });
 
 describe("sanitizeEnabledAgentTypes", () => {
-  it("returns all types for non-array input", () => {
-    expect(sanitizeEnabledAgentTypes(null)).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes(undefined)).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes("claude")).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes(42)).toEqual([...AGENT_TYPES]);
+  // The harness agent type is opt-in: it needs an engine installed and
+  // logged in on the server, so it stays out of the fallback list.
+  const defaults = AGENT_TYPES.filter((type) => type !== "dispatch");
+
+  it("returns the default types for non-array input", () => {
+    expect(sanitizeEnabledAgentTypes(null)).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes(undefined)).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes("claude")).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes(42)).toEqual(defaults);
   });
 
   it("filters valid agent types from mixed input", () => {
@@ -101,14 +107,21 @@ describe("sanitizeEnabledAgentTypes", () => {
     ).toEqual(["claude", "codex"]);
   });
 
-  it("returns all types when array is empty", () => {
-    expect(sanitizeEnabledAgentTypes([])).toEqual([...AGENT_TYPES]);
+  it("returns the default types when array is empty", () => {
+    expect(sanitizeEnabledAgentTypes([])).toEqual(defaults);
   });
 
-  it("returns all types when array has only invalid entries", () => {
-    expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual([
-      ...AGENT_TYPES,
+  it("returns the default types when array has only invalid entries", () => {
+    expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual(defaults);
+  });
+
+  // The Dispatch Harness has its own server setting, so it is never a member
+  // of this list.
+  it("drops the harness from a list that names it", () => {
+    expect(sanitizeEnabledAgentTypes(["dispatch", "claude"])).toEqual([
+      "claude",
     ]);
+    expect(sanitizeEnabledAgentTypes(["dispatch"])).toEqual(defaults);
   });
 
   it("filters out non-string entries", () => {
@@ -117,5 +130,48 @@ describe("sanitizeEnabledAgentTypes", () => {
 
   it("preserves a single valid type", () => {
     expect(sanitizeEnabledAgentTypes(["terminal"])).toEqual(["terminal"]);
+  });
+});
+
+describe("defaultReviewAgentType", () => {
+  it("runs the reviewer as the agent's own kind, the harness included", () => {
+    expect(defaultReviewAgentType({ type: "dispatch" })).toBe("dispatch");
+    expect(defaultReviewAgentType({ type: "cursor" })).toBe("cursor");
+    expect(defaultReviewAgentType({ type: "claude" })).toBe("claude");
+  });
+
+  it("prefers a saved choice, and falls back to codex for a terminal", () => {
+    expect(
+      defaultReviewAgentType({ type: "dispatch", reviewAgentType: "claude" })
+    ).toBe("claude");
+    expect(defaultReviewAgentType({ type: "terminal" })).toBe("codex");
+    expect(defaultReviewAgentType({})).toBe("codex");
+  });
+});
+
+describe("offeredAgentTypes", () => {
+  const enabled: AgentType[] = ["claude", "codex"];
+
+  it("is the enabled types with the harness flag off", () => {
+    expect(offeredAgentTypes(enabled, false)).toEqual(["claude", "codex"]);
+  });
+
+  it("adds the harness last with the flag on", () => {
+    expect(offeredAgentTypes(enabled, true)).toEqual([
+      "claude",
+      "codex",
+      "dispatch",
+    ]);
+  });
+
+  // Handed straight to a useMemo, so a no-op has to keep its identity or
+  // every picker below it re-renders on each parent render.
+  it("returns the same array with the flag off", () => {
+    expect(offeredAgentTypes(enabled, false)).toBe(enabled);
+  });
+
+  it("leaves the input alone", () => {
+    offeredAgentTypes(enabled, true);
+    expect(enabled).toEqual(["claude", "codex"]);
   });
 });

@@ -25,9 +25,13 @@ import {
 import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
+import { getOfferedAgentTypes } from "../agent-type-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { buildHarnessPersona } from "./harness/persona.js";
+import type { HarnessSupervisor } from "./harness/supervisor.js";
+import type { AgentPromptTarget } from "./types.js";
 import {
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
@@ -310,6 +314,7 @@ export class AgentManager {
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
+  private harnessSupervisor: HarnessSupervisor | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
@@ -333,6 +338,138 @@ export class AgentManager {
         this.setAgentStatus(id, status, lastError, tmuxSession),
       setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
     });
+  }
+
+  /**
+   * Inject the harness supervisor. Wired post-construction like the other
+   * collaborators; without it a harness agent fails setup loudly rather than
+   * sitting in a shell with no harness behind it.
+   */
+  attachHarnessSupervisor(supervisor: HarnessSupervisor): void {
+    this.harnessSupervisor = supervisor;
+  }
+
+  /**
+   * Where a prompt for this agent goes: the ACP child for a harness agent,
+   * the tmux pane for a CLI agent, or nowhere in inert mode. One agent read.
+   */
+  async getPromptTarget(id: string): Promise<AgentPromptTarget> {
+    const agent = await this.getRequiredAgent(id);
+    if (agent.type === "dispatch") {
+      if (!this.harnessSupervisor?.isRunning(id)) {
+        throw new AgentError(
+          "The harness is not running for this agent; the prompt cannot be delivered.",
+          409
+        );
+      }
+      return { kind: "harness", busy: this.harnessSupervisor.isBusy(id) };
+    }
+    const access = await this.terminalAccessFor(agent);
+    return access.mode === "tmux"
+      ? { kind: "tmux", sessionName: access.sessionName }
+      : { kind: "inert", message: access.message };
+  }
+
+  /**
+   * Queue one harness turn. `started` resolves when it begins (after any
+   * turn already running), `settled` when it ends. See
+   * HarnessSupervisor.enqueuePrompt.
+   */
+  promptHarness(
+    id: string,
+    text: string
+  ): { started: Promise<void>; settled: Promise<void> } {
+    if (!this.harnessSupervisor) {
+      throw new AgentError("The harness supervisor is not attached.", 500);
+    }
+    return this.harnessSupervisor.enqueuePrompt(id, text);
+  }
+
+  /** Harness agents the last process left running; the supervisor restores them at boot. */
+  async listRunningHarnessAgentIds(): Promise<string[]> {
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT id FROM agents
+        WHERE type = 'dispatch' AND status = 'running' AND deleted_at IS NULL
+        ORDER BY created_at`
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  /** The harness child died on its own: the agent cannot stay "running" over it. */
+  async markHarnessExited(id: string, message: string): Promise<void> {
+    await this.setAgentStatus(id, "error", message);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: message.slice(0, 200),
+      metadata: { source: "system", phase: "exit" },
+    });
+  }
+
+  async markHarnessStartFailed(id: string, message: string): Promise<void> {
+    await this.setAgentStatus(id, "error", message);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: `The harness did not come back after restart: ${message}`.slice(
+        0,
+        200
+      ),
+      metadata: { source: "system", phase: "start" },
+    });
+  }
+
+  async buildHarnessPersonaFor(
+    agent: AgentRecord,
+    jobRunId?: string
+  ): Promise<string> {
+    const inputs = await this.launchGuidanceInputsFor(agent, jobRunId);
+    return buildHarnessPersona({
+      agent,
+      personalityPrompt: inputs.personalityPrompt,
+      trimmedGuidance: inputs.trimmedGuidance,
+      suggestSessionRename: inputs.suggestSessionRename,
+      jobRunId: jobRunId ?? null,
+    });
+  }
+
+  /**
+   * The per-launch inputs every harness's guidance is built from: the active
+   * personality (never for persona or assisted-update agents), the guidance
+   * flags, and whether to suggest a session rename.
+   */
+  private async launchGuidanceInputsFor(
+    agent: Pick<AgentRecord, "id" | "name" | "persona" | "role">,
+    jobRunId?: string
+  ): Promise<{
+    personalityPrompt: string | null;
+    trimmedGuidance: boolean;
+    chatSurface: boolean;
+    suggestSessionRename: boolean;
+  }> {
+    // Same rule as the pane launch: a persona, a job run, or an assisted
+    // update gets no personality.
+    const personality =
+      agent.persona || jobRunId || agent.role === "assisted_update"
+        ? null
+        : await getActivePersonality(this.pool);
+    const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
+      this.pool
+    );
+    return {
+      personalityPrompt: personality?.prompt ?? null,
+      trimmedGuidance,
+      chatSurface,
+      suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
+        persona: agent.persona,
+        jobRunId,
+      }),
+    };
+  }
+
+  async setCliSessionId(id: string, cliSessionId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE agents SET cli_session_id = $2, updated_at = NOW() WHERE id = $1`,
+      [id, cliSessionId]
+    );
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -475,6 +612,19 @@ export class AgentManager {
   }
 
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
+    // Gated here rather than only at the routes: template launches and job
+    // runs take an agent type straight from their request body and reach
+    // this method without consulting the offered list, so `dispatch` was
+    // creatable through them with the Dispatch Harness flag off. This is the
+    // one place every creation path goes through.
+    // Before prepareCreateInputs, which makes the agent's media directory:
+    // a rejected create must not leave one behind. The default matches the
+    // one it applies.
+    const type: AgentType = input.type ?? "codex";
+    const offered = await getOfferedAgentTypes(this.pool);
+    if (!offered.includes(type)) {
+      throw new Error(`${type} agents are disabled in settings.`);
+    }
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
 
@@ -525,10 +675,15 @@ export class AgentManager {
           );
     // Terminal sessions have no CLI to chat with, so they get no post at all.
     const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
+    // A harness agent reads its launch prompt from the Chat post (it takes
+    // no launch argument), so the post is durable for it whatever the flag
+    // says. A job run keeps Chat quiet for CLI agents (the pane carries the
+    // job scaffolding), but a harness job still needs the post: it is the
+    // only way the job prompt becomes the agent's first turn.
     const wantsEnvelope =
       recorder !== null &&
-      launchGuidanceFlags.chatSurface &&
-      !input.jobRunId &&
+      (launchGuidanceFlags.chatSurface || p.type === "dispatch") &&
+      (!input.jobRunId || p.type === "dispatch") &&
       !inertRuntime;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
@@ -616,7 +771,21 @@ export class AgentManager {
     return {
       id: launchPostId,
       agentId: p.id,
-      text: input.launchContext?.prompt,
+      // A harness agent takes no launch argument: its first turn is the
+      // Chat post, so a launch that only carries `initialPrompt` (a persona
+      // kickoff, an MCP launch) still gets one. CLI agents type it in.
+      text:
+        input.launchContext?.prompt ??
+        (p.type === "dispatch" ? input.initialPrompt : undefined),
+      // The MCP launch header and a rendered template ride initialPrompt;
+      // a harness first turn must carry them even though Chat shows the raw
+      // prompt the launcher wrote.
+      ...(p.type === "dispatch" &&
+      input.initialPrompt &&
+      input.launchContext?.prompt &&
+      input.initialPrompt !== input.launchContext.prompt
+        ? { deliveryText: input.initialPrompt }
+        : {}),
       files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
       links: input.launchContext?.links ?? [],
       pins: p.initialPins.map((pin) => ({
@@ -743,7 +912,14 @@ export class AgentManager {
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
     const role: AgentRole = input.role ?? "standard";
-    const fullAccess = input.fullAccess ?? false;
+    // Every Dispatch Harness engine launches in its most permissive mode
+    // (skip-permissions, agent-full-access, yolo, auto-allow), so the stored
+    // flag has to say so however the agent was asked for. Left at the
+    // caller's word, the sidebar card read "Sandboxed" for the most
+    // permissive agent on the board. This is the one place every create path
+    // passes through: the HTTP route, dispatch_launch_agent, a persona
+    // review, a job and a template.
+    const fullAccess = type === "dispatch" || (input.fullAccess ?? false);
     const fullAccessArg =
       type === "claude"
         ? CLAUDE_FULL_ACCESS_ARG
@@ -1114,12 +1290,32 @@ export class AgentManager {
     // upsert) carries the populated context.
     await this.populateGitContext(id);
 
-    await this.setSystemLatestEvent(
-      id,
-      agent.type === "terminal"
-        ? { type: "idle", message: "Terminal session started." }
-        : { type: "idle", message: "Session started." }
-    );
+    if (agent.type === "dispatch") {
+      // The pane is only a shell; the harness is the ACP child the
+      // supervisor starts now that the worktree exists.
+      if (!this.harnessSupervisor) {
+        throw new AgentError("The harness supervisor is not attached.", 500);
+      }
+      try {
+        await this.harnessSupervisor.start(id);
+      } catch (error) {
+        const message = errorMessage(error);
+        await this.setAgentStatus(id, "error", message);
+        await this.setSystemLatestEvent(id, {
+          type: "blocked",
+          message: `The harness failed to start: ${message}`.slice(0, 200),
+          metadata: { source: "system", phase: "start" },
+        });
+        throw new AgentError(`The harness failed to start: ${message}`, 500);
+      }
+    } else {
+      await this.setSystemLatestEvent(
+        id,
+        agent.type === "terminal"
+          ? { type: "idle", message: "Terminal session started." }
+          : { type: "idle", message: "Session started." }
+      );
+    }
 
     // Clean up setup script
     const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
@@ -1188,6 +1384,28 @@ export class AgentManager {
     const hasSession = await this.runtime.hasSession(tmuxSession);
 
     if (hasSession) {
+      // A harness agent's pane is only a shell and outlives the harness
+      // child; an attached shell is not a running harness. Start (or
+      // restart) it.
+      if (agent.type === "dispatch" && !this.harnessSupervisor?.isRunning(id)) {
+        if (!this.harnessSupervisor) {
+          throw new AgentError("The harness supervisor is not attached.", 500);
+        }
+        try {
+          await this.setAgentStatus(id, "running", null, tmuxSession);
+          await this.harnessSupervisor.start(id);
+        } catch (error) {
+          const message = errorMessage(error);
+          await this.setAgentStatus(id, "error", message);
+          await this.setSystemLatestEvent(id, {
+            type: "blocked",
+            message: `The harness failed to start: ${message}`.slice(0, 200),
+            metadata: { source: "system", phase: "start" },
+          });
+          throw new AgentError(`The harness failed to start: ${message}`, 500);
+        }
+        return (await this.getAgent(id)) as AgentRecord;
+      }
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "idle",
@@ -1232,13 +1450,12 @@ export class AgentManager {
       // bash script. We do it once here so both runtimes are happy.)
       await mkdir(mediaDir, { recursive: true });
 
-      const personality =
-        agent.persona || agent.role === "assisted_update"
-          ? null
-          : await getActivePersonality(this.pool);
-      const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
-        this.pool
-      );
+      const {
+        personalityPrompt,
+        trimmedGuidance,
+        chatSurface,
+        suggestSessionRename,
+      } = await this.launchGuidanceInputsFor(agent);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -1251,13 +1468,11 @@ export class AgentManager {
         {
           cliSessionId: cliSessionId ?? undefined,
           resume: shouldResume,
-          suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
-            persona: agent.persona,
-          }),
+          suggestSessionRename,
           autoReview: !agent.persona && (agent.autoReview ?? false),
           trimmedGuidance,
           chatSurface,
-          personalityPrompt: personality?.prompt ?? null,
+          personalityPrompt,
           model: agent.model ?? undefined,
         }
       );
@@ -1274,6 +1489,14 @@ export class AgentManager {
       // predate inline-populate still get a fresh context (and any drift
       // from external git activity gets picked up at start time).
       await this.populateGitContext(id);
+      if (agent.type === "dispatch") {
+        if (!this.harnessSupervisor) {
+          throw new Error("The harness supervisor is not attached.");
+        }
+        // Resumes the stored session id; the supervisor sets the idle event.
+        await this.harnessSupervisor.start(id);
+        return (await this.getAgent(id)) as AgentRecord;
+      }
       await this.setSystemLatestEvent(
         id,
         agent.type === "terminal"
@@ -1304,8 +1527,20 @@ export class AgentManager {
   }
 
   async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
-    const agent = await this.getRequiredAgent(id);
-    if (agent.status !== "running" && agent.status !== "creating") {
+    return this.terminalAccessFor(await this.getRequiredAgent(id));
+  }
+
+  private async terminalAccessFor(
+    agent: AgentRecord
+  ): Promise<AgentTerminalAccess> {
+    const id = agent.id;
+    const harnessLoginShell =
+      agent.type === "dispatch" && agent.status === "error";
+    if (
+      agent.status !== "running" &&
+      agent.status !== "creating" &&
+      !harnessLoginShell
+    ) {
       throw new AgentError("Agent is not running.", 409);
     }
 
@@ -1361,6 +1596,7 @@ export class AgentManager {
     );
 
     try {
+      if (agent.type === "dispatch") await this.harnessSupervisor?.stop(id);
       if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
         await this.runtime.stopSession(tmuxSession, force);
       }
@@ -1851,6 +2087,10 @@ export class AgentManager {
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
+      stopHarness: async (agent) => {
+        if (agent.type === "dispatch")
+          await this.harnessSupervisor?.stop(agent.id);
+      },
       setAgentStatus: (id, status, lastError, tmuxSession) =>
         this.setAgentStatus(id, status, lastError, tmuxSession),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),

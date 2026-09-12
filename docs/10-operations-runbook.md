@@ -62,6 +62,58 @@ launchctl bootout    "gui/$(id -u)/com.dispatch.server"
 launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 ```
 
+### Read this first: a restart cuts a running Dispatch Harness turn
+
+A restart is not free for Dispatch Harness agents (type `dispatch`) the way
+it is for CLI agents. A Claude or Codex agent in a tmux pane runs in a
+session the service does not own, so `systemctl --user restart` leaves it
+working and the new process re-attaches. A Dispatch Harness agent's engine
+runs as a **child of the service over stdio** (the Agent Client Protocol
+needs a live pipe to its client), so every restart, deploys included, ends
+the turn it was running.
+
+What the service does about it:
+
+- At shutdown the running turn is marked `interrupted by restart`; the Chat
+  feed shows that turn as interrupted.
+- At boot the agent is resumed on its stored session id with `session/resume`.
+  If the cut was within the last hour and the agent had not already reported
+  done, blocked, or waiting, it receives a `--- DISPATCH: RESTART ---` notice
+  and picks the task up from its own history. Chat messages still queued at
+  shutdown are delivered again, in order.
+
+Before a restart, check the sidebar for a Dispatch Harness agent that is
+`Working` and either wait for the turn or accept the cut.
+
+### Dispatch Harness engines
+
+The engine is the first segment of the agent's model id. Each is a host
+install the service resolves with its own `PATH`, not a login shell's. Give
+each binary an absolute path, or a bare command name to leave it to that
+`PATH`; a leading `~` is expanded, the way it is for `MEDIA_ROOT`. Each
+engine uses the host CLI's own login; Dispatch holds no provider key.
+
+| Engine      | Model id prefix | Binary setting                | Install                                                                         | Login, as the service user  |
+| ----------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
+| Claude Code | `claude/`       | `DISPATCH_CLAUDE_HARNESS_BIN` | `npm install -g --prefix ~/.local @agentclientprotocol/claude-agent-acp@0.70.0` | `claude /login`             |
+| Codex       | `codex/`        | `DISPATCH_CODEX_HARNESS_BIN`  | `npm install -g --prefix ~/.local @agentclientprotocol/codex-acp@1.7.0`         | `codex login --device-auth` |
+| Gemini CLI  | `gemini/`       | `DISPATCH_GEMINI_BIN`         | `npm install -g --prefix ~/.local @google/gemini-cli@0.57.0`                    | `NO_BROWSER=true gemini`    |
+| OpenCode    | `opencode/`     | `DISPATCH_OPENCODE_BIN`       | `npm install -g --prefix ~/.local opencode-ai@1.18.29`                          | `opencode auth login`       |
+
+Upgrading a host that ran an earlier prerelease of this release: delete
+`DISPATCH_DSH_BIN` and `DISPATCH_DSH_HOME` from `~/.dispatch/server/.env`,
+which nothing reads any more, and delete any engine API key stored beside
+them. The service now withholds `OPENAI_API_KEY`, `CODEX_API_KEY` and
+`ANTHROPIC_API_KEY` from the engine it launches, so a key left in the file
+cannot bill an account behind the host login's back. `GEMINI_API_KEY` is the
+exception and still passes through: it is one of Gemini CLI's own logins.
+
+What each engine publishes over ACP differs, and the Chat feed says so where
+it matters: Gemini CLI publishes no plan, no usage, and no model option (its
+model is a launch flag, so `/model` is disabled); Codex reports tokens but
+no cost; OpenCode publishes no plan. Claude Code nests a subagent's steps;
+the others show a subagent as one step.
+
 ## Database
 
 Production uses Homebrew Postgres (native, no Docker overhead):
@@ -136,6 +188,43 @@ Rollback is just an `update` to an older tag. The currently deployed tag is what
 cat ~/.dispatch/release.json
 ```
 
+**A rollback past the Dispatch Harness needs two steps first.** A release
+that does not know the `dispatch` agent type cannot build a Restart command
+for one, and a harness agent left running keeps a tmux pane that is a plain
+login shell. That pane survives the service swap, the older process sees a
+live session and keeps the agent running, and every Chat message, agent
+message, review injection and job prompt is then typed into that shell as a
+command in the agent's working tree. So before the binary swap:
+
+1. Stop or archive every Dispatch Harness agent from the UI
+   (`SELECT id, name FROM agents WHERE type = 'dispatch'`). Then, for each
+   id, confirm `tmux ls | grep "_<id>"` prints nothing. A session is named
+   `<prefix>_<agentId>[_<slug>]` and every agent type shares the prefix, so
+   the agent id is the only part that identifies one.
+2. Retarget or disable every job and template that launches the type, which
+   the older release cannot launch at all:
+   `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'`, and the same
+   over `templates`.
+3. For v0.38.14 specifically, repair the migration bookkeeping. That release
+   numbers the reactions table `0051_agent-chat-reactions`, where this one
+   stores `0051_agent-stream-events`, and node-pg-migrate compares the two
+   lists position by position, so v0.38.14 refuses to boot until the rows
+   match its files. v0.38.13 needs nothing here. Re-upgrading afterwards
+   round-trips: boot forgets the row again and re-runs the guarded files.
+
+   ```sql
+   DELETE FROM pgmigrations WHERE name IN (
+     '0051_agent-stream-events','0052_agent-chat-messages-delivery-text',
+     '0053_agent-stream-events-kind','0054_agent-stream-events-turn-prompt',
+     '0055_dispatch-harness-carry-over','0056_agents-chat-read-at',
+     '0057_agent-chat-reactions');
+   INSERT INTO pgmigrations (name, run_on) VALUES ('0051_agent-chat-reactions', NOW());
+   ```
+
+This applies to any release without the harness, not only the one before it:
+the updater's version compare ignores the prerelease suffix, so a later
+official release will be offered to a `harness.N` install.
+
 **MCP tool renames do not roll back cleanly.** Agents hold the tool list they
 fetched at session start, so after rolling back past a release that renamed an
 MCP tool, already-running agents call a name the older server does not register.
@@ -204,16 +293,22 @@ PRs must pass CI before merge.
 
 Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
-| Variable                 | Default                                                | Description                                                                                              |
-| ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `DISPATCH_HOST`          | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
-| `DISPATCH_PORT`          | `6767`                                                 | HTTP port the server listens on                                                                          |
-| `DATABASE_URL`           | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
-| `MEDIA_ROOT`             | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                        |
-| `DISPATCH_AGENT_RUNTIME` | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                      |
-| `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
-| `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
-| `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
+| Variable                      | Default                                                | Description                                                                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISPATCH_HOST`               | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections.                                                                        |
+| `DISPATCH_PORT`               | `6767`                                                 | HTTP port the server listens on                                                                                                                                                 |
+| `DATABASE_URL`                | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                                                                                                      |
+| `MEDIA_ROOT`                  | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                                                                                               |
+| `DISPATCH_AGENT_RUNTIME`      | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                                                                                             |
+| `DISPATCH_COPY_DISPLAY`       | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                                                                                               |
+| `TLS_CERT`                    | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                                                                                                     |
+| `TLS_KEY`                     | —                                                      | Path to TLS private key file                                                                                                                                                    |
+| `DISPATCH_CLAUDE_HARNESS_BIN` | `claude-agent-acp`                                     | The Claude engine's ACP adapter. Absolute path.                                                                                                                                 |
+| `DISPATCH_CODEX_HARNESS_BIN`  | `codex-acp`                                            | The Codex engine's ACP adapter. Absolute path.                                                                                                                                  |
+| `DISPATCH_GEMINI_BIN`         | `gemini`                                               | Gemini CLI, which speaks ACP itself. Absolute path.                                                                                                                             |
+| `DISPATCH_OPENCODE_BIN`       | `opencode`                                             | OpenCode, which speaks ACP itself (`opencode acp`). Absolute path.                                                                                                              |
+| `DISPATCH_CLAUDE_BIN`         | `claude`                                               | Existing. Also handed to the Claude adapter as `CLAUDE_CODE_EXECUTABLE`.                                                                                                        |
+| `DISPATCH_CODEX_BIN`          | `codex`                                                | Existing (`CODEX_BIN` is the older spelling and still read). Handed to the Codex adapter as `CODEX_PATH` only when either is set; otherwise the adapter runs its bundled Codex. |
 
 Changes to `.env` require a service restart to take effect.
 

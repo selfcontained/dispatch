@@ -7,7 +7,8 @@ import {
   useState,
 } from "react";
 import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
-import { ArrowDown, MessageSquare } from "lucide-react";
+import { MotionConfig } from "framer-motion";
+import { ArrowDown, MessageSquare, Upload } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -18,8 +19,14 @@ import {
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
+  entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
+import {
+  newestTurnEntry,
+  useHarnessChrome,
+} from "@/components/app/chat/harness-chrome";
+import { TurnContextProvider } from "@/components/app/chat/turn/turn-context";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -51,10 +58,21 @@ export type ChatPaneProps = {
   openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded; from a review card. */
   onOpenReview?: (reviewId: number) => void;
+  /** Opens the selected agent's Console, used by provider login flows. */
+  onOpenConsole?: () => void;
   isMobile: boolean;
 };
 
-/** Remove both directions of the selected agent's child conversations. */
+/**
+ * Remove both directions of the selected agent's child conversations.
+ *
+ * Messages only, including for a dispatch agent. A turn a child's message
+ * drove is the parent's own work: its rail and its answer, and none of the
+ * child's words, which travel as the `agent_message` row this already
+ * hides. Filtering the turn as well would hide the agent's output, which no
+ * other type's filter does, and an agent driven entirely by its children
+ * would show an empty pane.
+ */
 export function filterChildAgentMessages(
   entries: readonly ChatFeedEntry[],
   childAgentIds: ReadonlySet<string>,
@@ -99,10 +117,8 @@ export type ChatScrollPosition = {
   following: boolean;
   /**
    * The rows on screen, top first. More than one because a row's id is not
-   * guaranteed to survive: a run of consecutive `working` events renders as
-   * a single status row carrying the newest event's id (see collapseFeed),
-   * so a reader parked on a live agent's status line comes back to an id
-   * that no longer exists. Whichever of these is still here wins.
+   * guaranteed to survive a reopen — a row can be archived, or rolled off by
+   * a page boundary — so whichever of these is still here wins.
    */
   anchors: ChatScrollAnchor[];
 };
@@ -214,6 +230,11 @@ function composerDisabledReason(
   if (feed.error) return "Chat couldn't load — retry above before sending.";
   if (feed.isLoading) return "Loading the chat…";
   if (agent.status === "creating") return "The agent is still starting up.";
+  // A harness agent has no CLI in its pane to look at, so the reason is also
+  // what its status line says; "Start" is the control that fixes it.
+  if (agent.status === "error" && agent.type === "dispatch") {
+    return "The harness is not running. Press Start to relaunch it.";
+  }
   if (agent.status !== "running") {
     return "The agent is not running. Start it to send messages.";
   }
@@ -230,6 +251,7 @@ export function ChatPane({
   onShowChildAgentsChange,
   openLightbox,
   onOpenReview,
+  onOpenConsole,
   isMobile,
 }: ChatPaneProps): JSX.Element {
   const feed = useChatFeed(agentId);
@@ -244,8 +266,17 @@ export function ChatPane({
     () => new Set(childAgentIds),
     [childAgentIds]
   );
+  // Status events never reach the feed: the presence line above the composer
+  // already shows the latest one, and a row for each said the same words
+  // while moving the reader's tail. Dropping them here also keeps the scroll
+  // follow below from treating a phase change as new content.
   const visibleEntries = useMemo(
-    () => filterChildAgentMessages(entries, childAgentIdSet, showChildAgents),
+    () =>
+      filterChildAgentMessages(
+        entries,
+        childAgentIdSet,
+        showChildAgents
+      ).filter((entry) => entry.type !== "status"),
     [childAgentIdSet, entries, showChildAgents]
   );
   const heldMessageId = useMemo(
@@ -254,11 +285,10 @@ export function ChatPane({
   );
   // Status events alone are not a conversation: real agents always have
   // some, so the empty state must key off the entries a person wrote.
-  const hasConversation = useMemo(
-    () => visibleEntries.some((entry) => entry.type !== "status"),
-    [visibleEntries]
-  );
-  const hasHiddenChildMessages = visibleEntries.length < entries.length;
+  const hasConversation = visibleEntries.length > 0;
+  const hasHiddenChildMessages =
+    visibleEntries.length <
+    entries.filter((entry) => entry.type !== "status").length;
 
   // A typed reply answers the newest open free-text question unless the
   // user has opted out of that question with the chip's ×.
@@ -276,12 +306,17 @@ export function ChatPane({
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
+  // A file dropped anywhere on the pane attaches to the composer.
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const savedPositionRef = useRef(readChatScrollPosition(agentId));
   const [following, setFollowing] = useState(
     () => savedPositionRef.current?.following ?? true
   );
   const [pendingBelow, setPendingBelow] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
+  /** Id plus version of the tail entry: a streaming row grows in place. */
+  const lastEntryKeyRef = useRef<string | null>(null);
   const seenEntryIdsRef = useRef<ReadonlySet<string>>(new Set());
   const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
@@ -294,6 +329,22 @@ export function ChatPane({
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
+
+  // While following, the bottom stays in view through every change in the
+  // content's height, not only the ones the layout effect below can name: a
+  // turn's body easing open over a few frames, a streamed line landing, an
+  // image sizing itself. The observer fires after each layout and before
+  // paint, so the reader never sees the bottom drift and then snap back;
+  // older rows glide upward instead. The content is what is watched, not
+  // the scroller, whose size only changes with the window.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!following || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => scrollToBottom());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [following, scrollToBottom]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -364,8 +415,19 @@ export function ChatPane({
       olderLoadRef.current = null;
       return;
     }
-    const lastId = visibleEntries[visibleEntries.length - 1]?.id ?? null;
-    // A live row is not always the last one: a status event can arrive
+    const last = visibleEntries[visibleEntries.length - 1];
+    const lastId = last?.id ?? null;
+    // A turn is anchored where it started and never moves, so a pin or a
+    // review card written mid-turn lands below it and becomes the tail.
+    // Reading growth off the tail alone would then stop following the turn
+    // itself, which is the thing still getting taller.
+    const liveTurn = newestTurnEntry(visibleEntries);
+    const growth = [
+      last ? entryGrowthKey(last) : null,
+      liveTurn && !liveTurn.settled ? entryGrowthKey(liveTurn) : null,
+    ].filter((key): key is string => key !== null);
+    const lastKey = growth.length > 0 ? growth.join("|") : null;
+    // A live row is not always the last one: a pin or media row can arrive
     // late and land by time below the newest row. Any unseen row sitting
     // under a seen one is an arrival; only "Load older" adds rows above.
     const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
@@ -377,12 +439,17 @@ export function ChatPane({
     // manufacture a “New messages” prompt or move the scroll position.
     if (filterChanged) {
       lastEntryIdRef.current = lastId;
+      lastEntryKeyRef.current = lastKey;
       setPendingBelow(false);
       return;
     }
     const appended = lastId !== lastEntryIdRef.current || arrived.length > 0;
+    // A streaming assistant row keeps its id while its text grows; that is
+    // still new content below the fold for a reader who is following.
+    const grew = !appended && lastKey !== lastEntryKeyRef.current;
     lastEntryIdRef.current = lastId;
-    if (!appended) return;
+    lastEntryKeyRef.current = lastKey;
+    if (!appended && !grew) return;
     // The feed's first rows: put the reader back where they left this
     // agent, or open at the newest when there is nowhere to go back to.
     if (!restoredRef.current) {
@@ -397,7 +464,7 @@ export function ChatPane({
     }
     if (following) {
       scrollToBottom();
-    } else {
+    } else if (appended) {
       setPendingBelow(true);
     }
   }, [following, scrollToBottom, showChildAgents, visibleEntries]);
@@ -414,6 +481,7 @@ export function ChatPane({
     setFollowing(savedPositionRef.current?.following ?? true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;
+    lastEntryKeyRef.current = null;
     seenEntryIdsRef.current = new Set();
     olderLoadRef.current = null;
   }, [agentId]);
@@ -534,6 +602,10 @@ export function ChatPane({
     onOpenReview,
     onToggleReaction,
   });
+  // The live agent record a turn entry's shortcut pins need. Separate from
+  // `ctx` on purpose: `ctx` is what every memoized feed row is keyed on and
+  // must not change every time the agent record does.
+  const turnContext = useMemo(() => ({ agent }), [agent]);
 
   const disabledReason = composerDisabledReason(agent, terminalMode, {
     isLoading: feed.isLoading,
@@ -543,160 +615,213 @@ export function ChatPane({
     ? (answer.variables?.messageId ?? null)
     : null;
 
+  // The harness chrome belongs to a Dispatch Harness agent and to no other
+  // type. Nulling the id is what keeps every /harness/* query disabled and
+  // the chrome unmounted for the rest.
+  const harnessAgentId = agent?.type === "dispatch" ? agentId : null;
+  const isHarnessAgent = harnessAgentId !== null;
+  const harness = useHarnessChrome({
+    agentId: harnessAgentId,
+    agent,
+    entries,
+    isMobile,
+    onError: setSendError,
+    onOpenConsole,
+  });
+
   return (
-    <div
-      className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
-      data-testid="chat-pane"
-    >
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scrollRef}
-          data-testid="chat-scroll"
-          onScroll={onScroll}
-          // Images in the feed size themselves after they load; keep the
-          // bottom pinned when that happens while following.
-          onLoadCapture={() => {
-            if (following) scrollToBottom();
-          }}
-          className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
-        >
-          {feed.hasOlder ? (
-            <div className="mb-1 flex justify-center px-4">
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                className="h-7 text-xs"
-                onClick={loadOlder}
-                disabled={feed.isFetchingOlder}
-              >
-                {feed.isFetchingOlder ? "Loading…" : "Load older"}
-              </Button>
+    <MotionConfig reducedMotion={isMobile ? "always" : "user"}>
+      <div
+        ref={dropRef}
+        className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
+        data-testid="chat-pane"
+        data-dragging={draggingFiles ? "true" : undefined}
+      >
+        {draggingFiles ? (
+          <div
+            data-testid="chat-drop-overlay"
+            className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
+          >
+            <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
+              <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
+              <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
+                <Upload className="h-8 w-8" />
+                <p className="text-sm font-medium">Drop files to attach</p>
+                <p className="text-xs text-muted-foreground">
+                  They go with your next message.
+                </p>
+              </div>
             </div>
-          ) : null}
-          {feed.error ? (
-            <div
-              role="alert"
-              className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              data-testid="chat-feed-error"
-            >
-              <span className="min-w-0 truncate">
-                Couldn&apos;t load the chat: {feed.error.message}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                className="h-6 shrink-0 px-2 text-xs"
-                onClick={feed.refetch}
-                data-testid="chat-feed-retry"
-              >
-                Retry
-              </Button>
-            </div>
-          ) : null}
-          {!feed.isLoading && !hasConversation && !feed.error ? (
-            <div
-              className={cn(
-                "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
-                visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
-              )}
-              data-testid="chat-empty"
-            >
-              <MessageSquare className="h-8 w-8" />
-              {hasHiddenChildMessages ? (
-                <>
-                  <div className="text-foreground">
-                    Child-agent messages are hidden.
-                  </div>
+          </div>
+        ) : null}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            data-testid="chat-scroll"
+            onScroll={onScroll}
+            // Images in the feed size themselves after they load; keep the
+            // bottom pinned when that happens while following.
+            onLoadCapture={() => {
+              if (following) scrollToBottom();
+            }}
+            className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
+          >
+            <div ref={contentRef} className="min-w-0 max-w-full">
+              {feed.hasOlder ? (
+                <div className="mb-1 flex justify-center px-4">
                   <Button
                     type="button"
                     size="sm"
                     variant="default"
                     className="h-7 text-xs"
-                    onClick={() => onShowChildAgentsChange(true)}
+                    onClick={loadOlder}
+                    disabled={feed.isFetchingOlder}
                   >
-                    Show child agents
+                    {feed.isFetchingOlder ? "Loading…" : "Load older"}
                   </Button>
-                </>
-              ) : agent ? (
-                <>
-                  <div className="text-foreground">
-                    No messages yet. Send the first one below and the agent
-                    replies here.
-                  </div>
-                  <div className="max-w-md text-xs">
-                    Agents launched before Chat was enabled won&apos;t have the
-                    Chat guidance until they are relaunched; until then their
-                    replies only show in the Console.
-                  </div>
-                </>
-              ) : (
-                <div>Select an agent to start chatting.</div>
-              )}
+                </div>
+              ) : null}
+              {feed.error ? (
+                <div
+                  role="alert"
+                  className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  data-testid="chat-feed-error"
+                >
+                  <span className="min-w-0 truncate">
+                    Couldn&apos;t load the chat: {feed.error.message}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={feed.refetch}
+                    data-testid="chat-feed-retry"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : null}
+              {!feed.isLoading && !hasConversation && !feed.error ? (
+                <div
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                    visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
+                  )}
+                  data-testid="chat-empty"
+                >
+                  <MessageSquare className="h-8 w-8" />
+                  {hasHiddenChildMessages ? (
+                    <>
+                      <div className="text-foreground">
+                        Child-agent messages are hidden.
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-xs"
+                        onClick={() => onShowChildAgentsChange(true)}
+                      >
+                        Show child agents
+                      </Button>
+                    </>
+                  ) : agent ? (
+                    <>
+                      <div className="text-foreground">
+                        No messages yet. Send the first one below and the agent
+                        replies here.
+                      </div>
+                      {/* Untrue for a dispatch agent: its Console is a plain
+                        shell it never writes to, and its persona always
+                        assumes Chat, so there is nowhere else to look. */}
+                      {agent.type === "dispatch" ? null : (
+                        <div className="max-w-md text-xs">
+                          Agents launched before Chat was enabled won&apos;t
+                          have the Chat guidance until they are relaunched;
+                          until then their replies only show in the Console.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div>Select an agent to start chatting.</div>
+                  )}
+                </div>
+              ) : null}
+              {visibleEntries.length > 0 ? (
+                <PinShortcutProvider value={pinShortcuts}>
+                  <TurnContextProvider value={turnContext}>
+                    <ChatFeed
+                      entries={visibleEntries}
+                      ctx={ctx}
+                      heldMessageId={heldMessageId}
+                      answeringMessageId={answeringMessageId}
+                      answersDisabled={disabledReason !== null}
+                      onAnswer={onAnswer}
+                    />
+                  </TurnContextProvider>
+                </PinShortcutProvider>
+              ) : null}
+            </div>
+          </div>
+          {pendingBelow && !following ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="pointer-events-auto h-7 gap-1 rounded-full text-xs shadow"
+                onClick={() => {
+                  setFollowing(true);
+                  setPendingBelow(false);
+                  scrollToBottom("smooth");
+                }}
+              >
+                <ArrowDown className="h-3 w-3" />
+                New messages
+              </Button>
             </div>
           ) : null}
-          {visibleEntries.length > 0 ? (
-            <PinShortcutProvider value={pinShortcuts}>
-              <ChatFeed
-                entries={visibleEntries}
-                ctx={ctx}
-                heldMessageId={heldMessageId}
-                answeringMessageId={answeringMessageId}
-                answersDisabled={disabledReason !== null}
-                onAnswer={onAnswer}
-              />
-            </PinShortcutProvider>
-          ) : null}
         </div>
-        {pendingBelow && !following ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              className="pointer-events-auto h-7 gap-1 rounded-full text-xs shadow"
-              onClick={() => {
-                setFollowing(true);
-                setPendingBelow(false);
-                scrollToBottom("smooth");
-              }}
-            >
-              <ArrowDown className="h-3 w-3" />
-              New messages
-            </Button>
-          </div>
-        ) : null}
-      </div>
 
-      <div
-        className={cn(
-          "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
-          isMobile ? "pb-2" : "pb-3"
-        )}
-      >
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <ChatPresenceStrip agentId={agentId} agent={agent} />
-          {sendError ? (
-            <span
-              role="alert"
-              className="truncate text-[11px] text-destructive"
-            >
-              {sendError}
-            </span>
-          ) : null}
+        <div
+          className={cn(
+            "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
+            isMobile ? "pb-2" : "pb-3"
+          )}
+        >
+          {/* The presence line leads the bar: what the agent is doing now
+              reads before the harness's chips and strips, which are controls
+              rather than news. */}
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <ChatPresenceStrip agentId={agentId} agent={agent} />
+            {sendError ? (
+              <span
+                role="alert"
+                className="truncate text-[11px] text-destructive"
+              >
+                {sendError}
+              </span>
+            ) : null}
+          </div>
+          {harness.chrome}
+          <ChatComposer
+            agentId={agentId}
+            onSend={onSend}
+            uploadFile={uploadFile}
+            disabledReason={disabledReason}
+            sending={send.isPending || answer.isPending}
+            autoFocus={active && !isMobile}
+            replyContext={replyContext}
+            // Pane-wide drops are parity with the pane this replaced; other
+            // agent types keep taking them on the composer alone.
+            dropTargetRef={isHarnessAgent ? dropRef : undefined}
+            onDropZoneDragging={isHarnessAgent ? setDraggingFiles : undefined}
+            {...harness.composer}
+          />
         </div>
-        <ChatComposer
-          agentId={agentId}
-          onSend={onSend}
-          uploadFile={uploadFile}
-          disabledReason={disabledReason}
-          sending={send.isPending || answer.isPending}
-          autoFocus={active && !isMobile}
-          replyContext={replyContext}
-        />
+        {shortcutDialog}
       </div>
-      {shortcutDialog}
-    </div>
+    </MotionConfig>
   );
 }

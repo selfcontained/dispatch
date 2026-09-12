@@ -1,0 +1,139 @@
+id: agent-stream-events
+title: Verify agent_stream_events migration and Dispatch Harness agent restart
+summary: >
+  Adds the `agent_stream_events` table that stores the Chat-tab stream of
+  the `dispatch` (Dispatch Harness) agent type: assistant messages, thoughts,
+  tool calls, status rows, and plans folded from an Agent Client Protocol
+  session, plus `agent_chat_messages.delivery_text` for a first turn that must
+  carry more than its display text, and replaces the stream table's `kind`
+  CHECK so it accepts `plan` on an install whose table was created by an
+  earlier prerelease of this branch, indexes the feed's prompt lookup, carries
+  a prerelease harness opt-in onto its new flag, and adds
+  `agents.chat_read_at` for the unread badge. Every statement is guarded and
+  runs automatically on server boot. The `dispatch` agent type
+  runs four engines over the Agent Client Protocol: Claude Code, Codex, Gemini
+  CLI, and OpenCode, each a host install using its own login. A running
+  Dispatch Harness agent does not survive a service restart; the new process
+  resumes it on its stored session id.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the local health endpoint
+    returns status=ok, and release.json reports the target tag. Server boot
+    runs every migration idempotently: the table, the column, the index and
+    the watermark are additive, and the rest only replace a guarded CHECK or
+    rewrite settings, so any healthy install at the target tag has already
+    taken them. A database that ran an earlier prerelease of this branch, or
+    v0.38.14, is handled at boot as well: the migration runner first deletes
+    the bookkeeping records those releases wrote for files this release no
+    longer ships (v0.38.14 numbered the reactions table 0051, which this
+    release ships as 0057), then re-applies the guarded migrations and
+    carries over the harness agent type rename.
+    Running Dispatch Harness agents, if any existed, were resumed or marked
+    errored at boot.
+
+instructions:
+  - |
+    Before deploying, you can confirm whether the target database ran an
+    earlier prerelease of this branch or v0.38.14. Any row returned means it
+    did, which needs no manual step: the migration runner deletes these
+    records at boot before the migrations run, so the service starts either
+    way.
+
+      SELECT name FROM pgmigrations
+       WHERE name IN ('0048_agent-stream-events','0049_agent-stream-events-turn',
+                      '0050_agent-chat-messages-delivery-text','0051_agent-type-dispatch',
+                      '0052_agent-stream-events-turn','0053_agent-chat-messages-delivery-text',
+                      '0054_agent-type-dispatch','0051_agent-chat-reactions');
+  - |
+    Before restarting the service, check whether a Dispatch Harness agent is
+    mid-turn. Either wait for the turn to settle, or accept the cut: the turn
+    is marked interrupted at shutdown and the agent is resumed on its stored
+    session id at boot, but the engine work in flight is lost and the agent
+    is re-prompted to continue.
+
+      SELECT id, name FROM agents
+       WHERE type = 'dispatch' AND status = 'running'
+         AND latest_event_type = 'working';
+  - Confirm the service has been restarted to the target release tag.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
+  - Confirm release.json under the install directory reports the target tag.
+  - Expect any Dispatch Harness agents that were running before the restart to
+    show either "Harness session resumed." or an error naming the engine's
+    login command; the latter means Start must be pressed again once the
+    engine has completed that login.
+  - Since alreadySatisfied is true on every healthy install at the target tag,
+    do not perform any change steps, proceed straight to the validate phase.
+
+validation:
+  requiredChecks:
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - >
+    Two rollback targets. v0.38.14, the previous official release, boots
+    only after the bookkeeping repair in step 3: it ships 51 migration files
+    ending in 0051_agent-chat-reactions, while this release leaves
+    pgmigrations holding 0051_agent-stream-events through
+    0057_agent-chat-reactions, and node-pg-migrate compares the two lists
+    position by position, so without the repair v0.38.14 refuses to start
+    with "Not run migration 0051_agent-chat-reactions is preceding already
+    run migration 0051_agent-stream-events". v0.38.13 boots with no
+    bookkeeping change: its 50 files are a prefix of the stored list. The
+    schema is safe to leave for either: the agent_stream_events table, the
+    agent_chat_messages.delivery_text column, the feed index and
+    agents.chat_read_at are additive, agent_chat_reactions exists through
+    0057, and leaving them in place is safer than dropping them. The
+    `dispatch` agent type is not safe to leave, so do the steps below before
+    the binary swap. They apply to any release that does not include the
+    harness, not only these two: the updater's version compare ignores the
+    prerelease suffix, so once a later official release exists the Updates
+    UI will offer it to a harness install.
+  - |
+    Step 1. Stop or archive every Dispatch Harness agent from the UI. Every
+    one of them, not only those mid-turn:
+
+      SELECT id, name FROM agents WHERE type = 'dispatch';
+
+    Then, for each id returned, confirm `tmux ls | grep "_<id>"` prints
+    nothing. A session is named `<prefix>_<agentId>[_<slug>]` and every agent
+    type shares the prefix, so the agent id is the only part of the name that
+    identifies one.
+
+    Why it matters: a release without the harness does not know the type, so
+    it cannot build a Restart command for such an agent, and a pane left
+    running is a plain login shell that survives the swap. The older process
+    sees a live session, keeps the agent running, and types every Chat
+    message, agent message, review injection and job prompt into that shell
+    as a command in the agent's working tree.
+  - >
+    Step 2. Retarget or disable every job and template that launches this
+    type, which the older release cannot launch at all:
+    `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'` and the same
+    over `templates`. Set each to an agent type that release does know.
+  - |
+    Step 3, for a rollback to v0.38.14 only. Repair the migration bookkeeping
+    so that release recognises the stored list. Re-upgrading to this release
+    afterwards round-trips: boot deletes the 0051_agent-chat-reactions row
+    again and re-runs the guarded files. Skip this step for v0.38.13.
+
+      DELETE FROM pgmigrations WHERE name IN (
+        '0051_agent-stream-events','0052_agent-chat-messages-delivery-text',
+        '0053_agent-stream-events-kind','0054_agent-stream-events-turn-prompt',
+        '0055_dispatch-harness-carry-over','0056_agents-chat-read-at',
+        '0057_agent-chat-reactions');
+      INSERT INTO pgmigrations (name, run_on)
+        VALUES ('0051_agent-chat-reactions', NOW());
+  - >
+    Step 4. Roll back using the normal release rollback path for this host.
+  - >
+    Rolling back to an earlier prerelease of this branch is not supported.
+    Boot on this release deletes the bookkeeping records those prereleases
+    wrote, and each of them compares the stored migration list against its
+    own files, so it no longer starts against a database this release has
+    booted. If one of those binaries has to run again, restore a database
+    backup taken before the upgrade.
+  - Restart the service and confirm $DISPATCH_API_URL/api/v1/health returns
+    status=ok and release.json reports the prior tag.

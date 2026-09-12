@@ -2,12 +2,14 @@ import { test, expect } from "@playwright/test";
 import {
   createAgentViaAPI,
   loadApp,
+  setDispatchHarnessViaAPI,
   setEnabledAgentTypesViaAPI,
 } from "./helpers";
 
 test.describe("Settings pane", () => {
   test.afterEach(async ({ request }) => {
     await setEnabledAgentTypesViaAPI(request, ["codex", "claude", "opencode"]);
+    await setDispatchHarnessViaAPI(request, false);
     await request.post("/api/v1/notifications/settings", {
       headers: {
         Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -329,6 +331,47 @@ test.describe("Settings pane", () => {
         return (await res.json()).enabled;
       })
       .toBe(true);
+  });
+
+  test("the Dispatch Harness has one switch of its own, not a type checkbox", async ({
+    page,
+    request,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Agents", { exact: true })
+      .click();
+
+    await expect(page.getByTestId("agent-type-toggle-claude")).toBeVisible();
+    await expect(page.getByTestId("agent-type-toggle-dispatch")).toHaveCount(0);
+
+    const toggle = page.getByTestId("dispatch-harness-toggle");
+    await toggle.scrollIntoViewIfNeeded();
+    await expect(toggle).not.toBeChecked();
+
+    await toggle.click();
+    await expect(toggle).toBeChecked();
+
+    await expect
+      .poll(async () => {
+        const res = await request.get("/api/v1/app/settings/dispatch-harness", {
+          headers: {
+            Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+          },
+        });
+        return (await res.json()).enabled;
+      })
+      .toBe(true);
+
+    await page.getByTestId("agents-button").click();
+    await page.getByTestId("create-agent-button").click();
+    const form = page.getByTestId("create-agent-form");
+    await expect(form).toBeVisible();
+    await form.getByRole("combobox").first().click();
+    await expect(page.getByRole("option", { name: "Dispatch" })).toBeVisible();
   });
 
   test("single enabled agent type removes split buttons", async ({

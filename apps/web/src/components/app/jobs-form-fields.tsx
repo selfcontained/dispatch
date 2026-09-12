@@ -1,4 +1,5 @@
 import { Check, Copy, GitBranch } from "lucide-react";
+import { AlwaysFullAccessNote } from "@/components/app/full-access-note";
 import { useCallback, useRef, useState } from "react";
 
 import { BranchSelect } from "@/components/app/branch-select";
@@ -246,10 +247,14 @@ export function JobKeepAgentOption({
 export function JobFullAccessOption({
   checked,
   onCheckedChange,
+  alwaysOn = false,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  /** The chosen agent type has no sandboxed mode; the note explains. */
+  alwaysOn?: boolean;
 }) {
+  if (alwaysOn) return <AlwaysFullAccessNote />;
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
       <Checkbox

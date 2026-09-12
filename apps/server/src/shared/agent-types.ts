@@ -11,11 +11,12 @@
 import {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   type AgentType,
   type CliAgentType,
 } from "@dispatch/shared";
 
-export { AGENT_TYPES, CLI_AGENT_TYPES };
+export { AGENT_TYPES, CLI_AGENT_TYPES, DEFAULT_ENABLED_AGENT_TYPES };
 export type { AgentType, CliAgentType };
 
 export function isCliAgentType(value: unknown): value is CliAgentType {
@@ -44,13 +45,22 @@ export function isPluginAgentType(value: unknown): value is PluginAgentType {
   );
 }
 
+/**
+ * `dispatch` is never a member. The Dispatch Harness has its own setting
+ * (`dispatch_harness_enabled`, see `dispatch-harness-settings.ts`) and
+ * `getOfferedAgentTypes` is what adds it back for the gates, so this list
+ * cannot be a second place the harness is turned on. A prerelease database
+ * can still hold it inside the stored JSON, which is why this drops it
+ * rather than trusting the writers.
+ */
 export function sanitizeEnabledAgentTypes(value: unknown): AgentType[] {
   if (!Array.isArray(value)) {
-    return [...AGENT_TYPES];
+    return [...DEFAULT_ENABLED_AGENT_TYPES];
   }
 
   const unique = value
     .filter(isAgentType)
+    .filter((type) => type !== "dispatch")
     .filter((type, index, types) => types.indexOf(type) === index);
-  return unique.length > 0 ? unique : [...AGENT_TYPES];
+  return unique.length > 0 ? unique : [...DEFAULT_ENABLED_AGENT_TYPES];
 }

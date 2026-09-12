@@ -1,0 +1,279 @@
+import { useEffect, useState } from "react";
+import type { HarnessConfigOption } from "@dispatch/shared";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import { ProviderIcon } from "./provider-icon";
+import { configChoices, isConfigGroup } from "./use-harness-config";
+
+/**
+ * Some engines' effort lists carry a default choice whose value is "",
+ * which the Select cannot hold (an empty value means "nothing selected").
+ * Values travel through the Select under this stand-in.
+ */
+const EMPTY_VALUE = "__empty__";
+export function encodeValue(value: string): string {
+  return value === "" ? EMPTY_VALUE : value;
+}
+export function decodeValue(value: string): string {
+  return value === EMPTY_VALUE ? "" : value;
+}
+
+export type ModelPickerProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  model: HarnessConfigOption | undefined;
+  effort: HarnessConfigOption | undefined;
+  /** False while the agent has no live session: the picker explains and disables. */
+  running: boolean;
+  saving: boolean;
+  error: string | null;
+  /** Set when the engine fixes its model at launch; explains and disables. */
+  fixedReason?: string | null;
+  /**
+   * The model half of the agent's launch id, for the engines that fix it at
+   * launch: without it the dialog is a sentence over an empty control that
+   * never says which model is in force.
+   */
+  launchModel?: string | null;
+  /** The engine's label, for the case where the fixed model is its own default. */
+  engineLabel?: string | null;
+  /** Apply the changed options, in order; resolves when the session took them. */
+  onApply: (changes: { configId: string; value: string }[]) => Promise<void>;
+};
+
+/**
+ * The model and reasoning-effort picker for a Dispatch Harness session,
+ * opened from the composer's chip or the /model command. Both selects are
+ * fed by the session's own config options, so what is listed is what the
+ * engine will accept.
+ */
+export function ModelPicker({
+  open,
+  onOpenChange,
+  model,
+  effort,
+  running,
+  saving,
+  error,
+  fixedReason,
+  launchModel,
+  engineLabel,
+  onApply,
+}: ModelPickerProps): JSX.Element {
+  // Held encoded (see EMPTY_VALUE); decoded at the edges.
+  const [modelValue, setModelValue] = useState(
+    model ? encodeValue(model.currentValue) : ""
+  );
+  const [effortValue, setEffortValue] = useState(
+    effort ? encodeValue(effort.currentValue) : ""
+  );
+  // Re-seed from the session each time the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    setModelValue(model ? encodeValue(model.currentValue) : "");
+    setEffortValue(effort ? encodeValue(effort.currentValue) : "");
+  }, [open, model, effort]);
+
+  const modelChanged =
+    !!model && decodeValue(modelValue) !== model.currentValue;
+  const effortChanged =
+    !!effort && decodeValue(effortValue) !== effort.currentValue;
+  const canApply =
+    running && !fixedReason && !saving && (modelChanged || effortChanged);
+  const selectedModel = configChoices(model).find(
+    (c) => c.value === decodeValue(modelValue)
+  );
+  const selectedEffort = configChoices(effort).find(
+    (c) => c.value === decodeValue(effortValue)
+  );
+
+  // What the launch fixed, for the engines that fix it. A bare "default"
+  // names nothing on its own, so the engine's label carries it, the way the
+  // composer's chip does with the same value.
+  const fixedModelText =
+    !launchModel || launchModel === "default"
+      ? `${engineLabel ?? "The provider"} default`
+      : launchModel;
+
+  const apply = async () => {
+    const changes: { configId: string; value: string }[] = [];
+    if (model && modelChanged) {
+      changes.push({ configId: model.id, value: decodeValue(modelValue) });
+    }
+    if (effort && effortChanged) {
+      changes.push({ configId: effort.id, value: decodeValue(effortValue) });
+    }
+    await onApply(changes);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" data-testid="harness-model-picker">
+        <DialogHeader>
+          <DialogTitle>Model and effort</DialogTitle>
+          <DialogDescription>
+            {fixedReason
+              ? fixedReason
+              : running
+                ? "Applies to the next turn of this session."
+                : "The agent has no live session; start it to change these."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label
+              className="text-xs text-muted-foreground"
+              htmlFor="harness-model"
+            >
+              Model
+            </label>
+            {fixedReason ? (
+              <p
+                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[12px] text-foreground"
+                data-testid="harness-model-fixed"
+              >
+                {fixedModelText} · set at launch
+              </p>
+            ) : (
+              <Select
+                value={modelValue}
+                onValueChange={setModelValue}
+                disabled={!running || saving || !model}
+              >
+                <SelectTrigger
+                  id="harness-model"
+                  data-testid="harness-model-select"
+                >
+                  <SelectValue
+                    placeholder={
+                      !running
+                        ? "Not running"
+                        : !model
+                          ? "No model option published"
+                          : "Choose a model"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {model?.options.map((entry) =>
+                    isConfigGroup(entry) ? (
+                      <SelectGroup
+                        key={entry.groupId ?? entry.group ?? entry.name}
+                      >
+                        <SelectLabel className="flex items-center gap-1.5">
+                          <ProviderIcon
+                            provider={
+                              entry.groupId ?? entry.group ?? entry.name
+                            }
+                          />
+                          {entry.name}
+                        </SelectLabel>
+                        {entry.options.map((c) => (
+                          <SelectItem
+                            key={c.value}
+                            value={encodeValue(c.value)}
+                          >
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : (
+                      <SelectItem
+                        key={entry.value}
+                        value={encodeValue(entry.value)}
+                      >
+                        {entry.name}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+            {selectedModel?.description ? (
+              <p className="text-[11px] text-muted-foreground">
+                {selectedModel.description}
+              </p>
+            ) : null}
+          </div>
+          {effort ? (
+            <div className="space-y-1.5">
+              <label
+                className="text-xs text-muted-foreground"
+                htmlFor="harness-effort"
+              >
+                {effort.name}
+              </label>
+              <Select
+                value={effortValue}
+                onValueChange={setEffortValue}
+                disabled={!running || !!fixedReason || saving || !effort}
+              >
+                <SelectTrigger
+                  id="harness-effort"
+                  data-testid="harness-effort-select"
+                >
+                  <SelectValue
+                    placeholder={!running ? "Not running" : "Choose an effort"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {configChoices(effort).map((c) => (
+                    <SelectItem key={c.value} value={encodeValue(c.value)}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedEffort?.description ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedEffort.description}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {error ? (
+            <p role="alert" className="text-[11px] text-destructive">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canApply}
+              onClick={() => void apply()}
+              data-testid="harness-model-apply"
+            >
+              {saving ? "Applying…" : "Apply"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

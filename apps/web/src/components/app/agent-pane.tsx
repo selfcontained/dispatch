@@ -60,6 +60,13 @@ function paneTransition(shown: boolean, instant: boolean) {
 export type AgentViewToggleProps = {
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
+  /**
+   * What the second segment is called. A dispatch agent never writes to that
+   * pane — it is a bare shell it was handed, not a log of its work — so for
+   * those it reads "Terminal" and "Console" would promise output that never
+   * arrives.
+   */
+  terminalLabel?: "Console" | "Terminal";
   /** Unread chat replies; shown on the Chat segment while Console is up. */
   chatUnreadCount?: number;
   showChildAgents?: boolean;
@@ -74,6 +81,7 @@ export type AgentViewToggleProps = {
 export function AgentViewToggle({
   view,
   onViewChange,
+  terminalLabel = "Console",
   chatUnreadCount = 0,
   showChildAgents = true,
   onShowChildAgentsChange,
@@ -131,12 +139,12 @@ export function AgentViewToggle({
         </ToggleGroupItem>
         <ToggleGroupItem
           value="console"
-          aria-label="Console"
+          aria-label={terminalLabel}
           data-testid="agent-view-console"
           className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
         >
           <TerminalSquare className="h-2.5 w-2.5 shrink-0" />
-          Console
+          {terminalLabel}
         </ToggleGroupItem>
       </ToggleGroup>
       <Popover>
@@ -273,7 +281,7 @@ export function AgentPane({
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
-  const chatShown = chatEnabled && view === "chat";
+  const feedShown = chatEnabled && view === "chat";
   const reduceMotion = useReducedMotion();
   // The chat-surface flag resolves after the first paint, so the pane can go
   // from "bare terminal" to "Chat over Console" a tick in. That is hydration
@@ -301,6 +309,7 @@ export function AgentPane({
           <AgentViewToggle
             view={view}
             onViewChange={onViewChange}
+            terminalLabel={agent?.type === "dispatch" ? "Terminal" : "Console"}
             chatUnreadCount={chatUnreadCount}
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}
@@ -318,13 +327,13 @@ export function AgentPane({
           <motion.div
             className={cn(
               "absolute inset-0 overflow-hidden",
-              !chatShown && "pointer-events-none"
+              !feedShown && "pointer-events-none"
             )}
             initial={false}
-            animate={paneFade(chatShown)}
-            transition={paneTransition(chatShown, instant)}
+            animate={paneFade(feedShown)}
+            transition={paneTransition(feedShown, instant)}
             data-testid="agent-pane-chat"
-            data-state={chatShown ? "shown" : "hidden"}
+            data-state={feedShown ? "shown" : "hidden"}
           >
             {/*
              * Keyed per agent: the pane's dismissed question, send error and
@@ -336,12 +345,13 @@ export function AgentPane({
               agentId={agentId}
               agent={agent}
               terminalMode={terminalMode}
-              active={active && chatShown}
+              active={active && feedShown}
               showChildAgents={showChildAgents}
               childAgentIds={childAgentIds}
               onShowChildAgentsChange={onShowChildAgentsChange}
               openLightbox={openLightbox}
               onOpenReview={onOpenReview}
+              onOpenConsole={() => onViewChange("console")}
               isMobile={isMobile}
             />
           </motion.div>
@@ -349,18 +359,18 @@ export function AgentPane({
         <motion.div
           className={cn(
             "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto]",
-            chatShown && "pointer-events-none"
+            feedShown && "pointer-events-none"
           )}
           initial={false}
           // Always a defined target, chat surface or not: handing framer
           // `undefined` leaves it with no baseline to animate from, and the
           // first flip after the flag resolves snaps instead of fading.
-          // With the surface off `chatShown` is always false, which is the
+          // With the surface off `feedShown` is always false, which is the
           // bare-terminal mode's "fully shown" anyway.
-          animate={paneFade(!chatShown)}
-          transition={paneTransition(!chatShown, instant)}
+          animate={paneFade(!feedShown)}
+          transition={paneTransition(!feedShown, instant)}
           data-testid="agent-pane-console"
-          data-state={chatShown ? "hidden" : "shown"}
+          data-state={feedShown ? "hidden" : "shown"}
         >
           {/*
            * `min-w-0 overflow-hidden` is load-bearing, not tidiness: the slot

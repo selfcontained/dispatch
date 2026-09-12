@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useMatches, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import "@xterm/xterm/css/xterm.css";
@@ -17,9 +17,11 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useTemporaryState } from "@/hooks/use-temporary-state";
+import { useDispatchHarnessEnabled } from "@/hooks/use-dispatch-harness-enabled";
 import {
-  AGENT_TYPES,
   type AgentType,
+  DEFAULT_ENABLED_AGENT_TYPES,
+  offeredAgentTypes,
   sanitizeEnabledAgentTypes,
 } from "@/lib/agent-types";
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
@@ -67,10 +69,18 @@ export function DashboardLayout(): JSX.Element {
   } = useLayout();
   const { apiState, dbState } = useHealth(true);
 
+  // The pre-fetch guess. `dispatch` is not in it: it never comes back from
+  // the agent-types endpoint, and offering it before the flag resolves would
+  // show a type that then vanishes.
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([
-    ...AGENT_TYPES,
+    ...DEFAULT_ENABLED_AGENT_TYPES,
   ]);
   const [enabledIdes, setEnabledIdes] = useState<IdeType[]>([]);
+  const { enabled: dispatchHarnessEnabled } = useDispatchHarnessEnabled();
+  const offered = useMemo(
+    () => offeredAgentTypes(enabledAgentTypes, dispatchHarnessEnabled),
+    [enabledAgentTypes, dispatchHarnessEnabled]
+  );
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: async () => {
@@ -173,6 +183,7 @@ export function DashboardLayout(): JSX.Element {
   const context: DashboardContextValue = {
     agents,
     enabledAgentTypes,
+    offeredAgentTypes: offered,
     setEnabledAgentTypes,
     enabledIdes,
     setEnabledIdes,
