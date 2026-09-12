@@ -277,6 +277,73 @@ test.describe("Chat surface", () => {
     await expect(page.getByTestId("chat-pane")).toBeVisible();
   });
 
+  test("folds a peer post's body until the reader opens it", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-${Date.now()}`,
+    });
+    const peer = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-peer-${Date.now()}`,
+      type: "claude",
+      parentAgentId: agent.id,
+    });
+    // The shape that started this: a peer writing several paragraphs into a
+    // feed the user is trying to hold a conversation in.
+    const long = [
+      "Plan context does not define those values, and the protocol leaves",
+      "the staleness deadline as TODO. Recommended boundary:",
+      "- Use singleton entity keys, one latest snapshot each.",
+      "- Keep the two subscriptions beside the worker connection.",
+      "- Mark data unknown until the first valid snapshot.",
+      "THE TAIL LINE",
+    ].join("\n");
+    await seedAgentMessageViaDB({
+      senderAgentId: peer.id,
+      recipientAgentId: agent.id,
+      senderName: peer.name,
+      recipientName: agent.name,
+      content: long,
+      delivered: true,
+    });
+
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+
+    const body = pane.getByTestId("chat-peer-body");
+    await expect(body).toBeVisible();
+    const toggle = pane.getByTestId("chat-peer-expand");
+    await expect(toggle).toHaveText("Show more");
+
+    // Folded, the post is bounded however long it is; the header above it
+    // still says who spoke to whom.
+    const foldedHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(foldedHeight).toBeLessThan(90);
+    await expect(pane.getByTestId("chat-side-header")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath("peer-folded.png"),
+      fullPage: true,
+    });
+
+    await toggle.click();
+    await expect(toggle).toHaveText("Show less");
+    const openHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(openHeight).toBeGreaterThan(foldedHeight);
+    await page.screenshot({
+      path: test.info().outputPath("peer-open.png"),
+      fullPage: true,
+    });
+  });
+
   test("renders a user post's attachments and a pending agent message", async ({
     page,
     request,
