@@ -378,16 +378,16 @@ function PeerLine({
                   }
                 : {})}
             >
+              <AgentRelationBadge
+                relation={author.relation ?? "agent"}
+                className="leading-[14px]"
+              />
               <span
                 className="max-w-full truncate font-semibold text-foreground"
                 data-testid="chat-post-author"
               >
                 {author.name}
               </span>
-              <AgentRelationBadge
-                relation={author.relation ?? "agent"}
-                className="leading-[14px]"
-              />
               {side ? (
                 <span
                   className="min-w-[8rem] max-w-full truncate text-muted-foreground"
