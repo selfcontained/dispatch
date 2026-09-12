@@ -1017,6 +1017,20 @@ test.describe("Chat surface", () => {
       path: test.info().outputPath("dispatch-one-feed.png"),
       fullPage: true,
     });
+
+    // The engine writes to Chat, never to that pane, so the segment names
+    // the bare shell it actually is, and flipping to it still works.
+    const terminalSegment = page.getByTestId("agent-view-console");
+    await expect(terminalSegment).toHaveText("Terminal");
+    await terminalSegment.click();
+    await expect(page.getByTestId("agent-pane-console")).toHaveAttribute(
+      "data-state",
+      "shown"
+    );
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-terminal-segment.png"),
+      fullPage: true,
+    });
   });
 
   test("dispatch agent: touch-sized pill segments and chip row on a phone", async ({
