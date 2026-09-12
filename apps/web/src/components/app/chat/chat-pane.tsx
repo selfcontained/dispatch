@@ -117,10 +117,8 @@ export type ChatScrollPosition = {
   following: boolean;
   /**
    * The rows on screen, top first. More than one because a row's id is not
-   * guaranteed to survive: a run of consecutive `working` events renders as
-   * a single status row carrying the newest event's id (see collapseFeed),
-   * so a reader parked on a live agent's status line comes back to an id
-   * that no longer exists. Whichever of these is still here wins.
+   * guaranteed to survive a reopen — a row can be archived, or rolled off by
+   * a page boundary — so whichever of these is still here wins.
    */
   anchors: ChatScrollAnchor[];
 };
@@ -268,8 +266,17 @@ export function ChatPane({
     () => new Set(childAgentIds),
     [childAgentIds]
   );
+  // Status events never reach the feed: the presence line above the composer
+  // already shows the latest one, and a row for each said the same words
+  // while moving the reader's tail. Dropping them here also keeps the scroll
+  // follow below from treating a phase change as new content.
   const visibleEntries = useMemo(
-    () => filterChildAgentMessages(entries, childAgentIdSet, showChildAgents),
+    () =>
+      filterChildAgentMessages(
+        entries,
+        childAgentIdSet,
+        showChildAgents
+      ).filter((entry) => entry.type !== "status"),
     [childAgentIdSet, entries, showChildAgents]
   );
   const heldMessageId = useMemo(
@@ -278,11 +285,10 @@ export function ChatPane({
   );
   // Status events alone are not a conversation: real agents always have
   // some, so the empty state must key off the entries a person wrote.
-  const hasConversation = useMemo(
-    () => visibleEntries.some((entry) => entry.type !== "status"),
-    [visibleEntries]
-  );
-  const hasHiddenChildMessages = visibleEntries.length < entries.length;
+  const hasConversation = visibleEntries.length > 0;
+  const hasHiddenChildMessages =
+    visibleEntries.length <
+    entries.filter((entry) => entry.type !== "status").length;
 
   // A typed reply answers the newest open free-text question unless the
   // user has opted out of that question with the chip's ×.
@@ -323,6 +329,22 @@ export function ChatPane({
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
+
+  // While following, the bottom stays in view through every change in the
+  // content's height, not only the ones the layout effect below can name: a
+  // turn's body easing open over a few frames, a streamed line landing, an
+  // image sizing itself. The observer fires after each layout and before
+  // paint, so the reader never sees the bottom drift and then snap back;
+  // older rows glide upward instead. The content is what is watched, not
+  // the scroller, whose size only changes with the window.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!following || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => scrollToBottom());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [following, scrollToBottom]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -395,18 +417,17 @@ export function ChatPane({
     }
     const last = visibleEntries[visibleEntries.length - 1];
     const lastId = last?.id ?? null;
-    // A turn is anchored where it started and never moves, so a status
-    // event, a pin or a review card written mid-turn lands below it and
-    // becomes the tail. Reading growth off the tail alone would then stop
-    // following the turn itself, which is the thing still getting taller,
-    // and CLAUDE.md has agents emit a status event at every phase change.
+    // A turn is anchored where it started and never moves, so a pin or a
+    // review card written mid-turn lands below it and becomes the tail.
+    // Reading growth off the tail alone would then stop following the turn
+    // itself, which is the thing still getting taller.
     const liveTurn = newestTurnEntry(visibleEntries);
     const growth = [
       last ? entryGrowthKey(last) : null,
       liveTurn && !liveTurn.settled ? entryGrowthKey(liveTurn) : null,
     ].filter((key): key is string => key !== null);
     const lastKey = growth.length > 0 ? growth.join("|") : null;
-    // A live row is not always the last one: a status event can arrive
+    // A live row is not always the last one: a pin or media row can arrive
     // late and land by time below the newest row. Any unseen row sitting
     // under a seen one is an arrival; only "Load older" adds rows above.
     const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
@@ -645,101 +666,103 @@ export function ChatPane({
             }}
             className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
           >
-            {feed.hasOlder ? (
-              <div className="mb-1 flex justify-center px-4">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="default"
-                  className="h-7 text-xs"
-                  onClick={loadOlder}
-                  disabled={feed.isFetchingOlder}
+            <div ref={contentRef} className="min-w-0 max-w-full">
+              {feed.hasOlder ? (
+                <div className="mb-1 flex justify-center px-4">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-xs"
+                    onClick={loadOlder}
+                    disabled={feed.isFetchingOlder}
+                  >
+                    {feed.isFetchingOlder ? "Loading…" : "Load older"}
+                  </Button>
+                </div>
+              ) : null}
+              {feed.error ? (
+                <div
+                  role="alert"
+                  className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  data-testid="chat-feed-error"
                 >
-                  {feed.isFetchingOlder ? "Loading…" : "Load older"}
-                </Button>
-              </div>
-            ) : null}
-            {feed.error ? (
-              <div
-                role="alert"
-                className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                data-testid="chat-feed-error"
-              >
-                <span className="min-w-0 truncate">
-                  Couldn&apos;t load the chat: {feed.error.message}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="default"
-                  className="h-6 shrink-0 px-2 text-xs"
-                  onClick={feed.refetch}
-                  data-testid="chat-feed-retry"
+                  <span className="min-w-0 truncate">
+                    Couldn&apos;t load the chat: {feed.error.message}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={feed.refetch}
+                    data-testid="chat-feed-retry"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : null}
+              {!feed.isLoading && !hasConversation && !feed.error ? (
+                <div
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                    visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
+                  )}
+                  data-testid="chat-empty"
                 >
-                  Retry
-                </Button>
-              </div>
-            ) : null}
-            {!feed.isLoading && !hasConversation && !feed.error ? (
-              <div
-                className={cn(
-                  "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
-                  visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
-                )}
-                data-testid="chat-empty"
-              >
-                <MessageSquare className="h-8 w-8" />
-                {hasHiddenChildMessages ? (
-                  <>
-                    <div className="text-foreground">
-                      Child-agent messages are hidden.
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="default"
-                      className="h-7 text-xs"
-                      onClick={() => onShowChildAgentsChange(true)}
-                    >
-                      Show child agents
-                    </Button>
-                  </>
-                ) : agent ? (
-                  <>
-                    <div className="text-foreground">
-                      No messages yet. Send the first one below and the agent
-                      replies here.
-                    </div>
-                    {/* Untrue for a dispatch agent: its Console is a plain
+                  <MessageSquare className="h-8 w-8" />
+                  {hasHiddenChildMessages ? (
+                    <>
+                      <div className="text-foreground">
+                        Child-agent messages are hidden.
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-xs"
+                        onClick={() => onShowChildAgentsChange(true)}
+                      >
+                        Show child agents
+                      </Button>
+                    </>
+                  ) : agent ? (
+                    <>
+                      <div className="text-foreground">
+                        No messages yet. Send the first one below and the agent
+                        replies here.
+                      </div>
+                      {/* Untrue for a dispatch agent: its Console is a plain
                         shell it never writes to, and its persona always
                         assumes Chat, so there is nowhere else to look. */}
-                    {agent.type === "dispatch" ? null : (
-                      <div className="max-w-md text-xs">
-                        Agents launched before Chat was enabled won&apos;t have
-                        the Chat guidance until they are relaunched; until then
-                        their replies only show in the Console.
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div>Select an agent to start chatting.</div>
-                )}
-              </div>
-            ) : null}
-            {visibleEntries.length > 0 ? (
-              <PinShortcutProvider value={pinShortcuts}>
-                <TurnContextProvider value={turnContext}>
-                  <ChatFeed
-                    entries={visibleEntries}
-                    ctx={ctx}
-                    heldMessageId={heldMessageId}
-                    answeringMessageId={answeringMessageId}
-                    answersDisabled={disabledReason !== null}
-                    onAnswer={onAnswer}
-                  />
-                </TurnContextProvider>
-              </PinShortcutProvider>
-            ) : null}
+                      {agent.type === "dispatch" ? null : (
+                        <div className="max-w-md text-xs">
+                          Agents launched before Chat was enabled won&apos;t
+                          have the Chat guidance until they are relaunched;
+                          until then their replies only show in the Console.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div>Select an agent to start chatting.</div>
+                  )}
+                </div>
+              ) : null}
+              {visibleEntries.length > 0 ? (
+                <PinShortcutProvider value={pinShortcuts}>
+                  <TurnContextProvider value={turnContext}>
+                    <ChatFeed
+                      entries={visibleEntries}
+                      ctx={ctx}
+                      heldMessageId={heldMessageId}
+                      answeringMessageId={answeringMessageId}
+                      answersDisabled={disabledReason !== null}
+                      onAnswer={onAnswer}
+                    />
+                  </TurnContextProvider>
+                </PinShortcutProvider>
+              ) : null}
+            </div>
           </div>
           {pendingBelow && !following ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
@@ -767,7 +790,9 @@ export function ChatPane({
             isMobile ? "pb-2" : "pb-3"
           )}
         >
-          {harness.chrome}
+          {/* The presence line leads the bar: what the agent is doing now
+              reads before the harness's chips and strips, which are controls
+              rather than news. */}
           <div className="mb-1.5 flex items-center justify-between gap-2">
             <ChatPresenceStrip agentId={agentId} agent={agent} />
             {sendError ? (
@@ -779,6 +804,7 @@ export function ChatPane({
               </span>
             ) : null}
           </div>
+          {harness.chrome}
           <ChatComposer
             agentId={agentId}
             onSend={onSend}

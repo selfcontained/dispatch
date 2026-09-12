@@ -6,7 +6,6 @@ import type {
   ChatPinEntry,
   ChatQuestionOption,
   ChatReviewEntry,
-  ChatStatusEntry,
 } from "@dispatch/shared";
 import {
   AlertTriangle,
@@ -20,10 +19,6 @@ import {
   UserRound,
 } from "lucide-react";
 
-import {
-  latestEventColor,
-  latestEventLabel,
-} from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { FeedImage } from "@/components/app/chat/feed-image";
@@ -53,20 +48,6 @@ import {
   ReactionBar,
   ReactionPickerButton,
 } from "./chat-reactions";
-
-type EventType = Parameters<typeof latestEventLabel>[0];
-
-const EVENT_TYPES: readonly string[] = [
-  "working",
-  "blocked",
-  "waiting_user",
-  "done",
-  "idle",
-];
-
-function asEventType(type: string): EventType {
-  return (EVENT_TYPES.includes(type) ? type : "idle") as EventType;
-}
 
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
 function clockTime(iso: string): string {
@@ -799,51 +780,8 @@ export const ChatMessageView = memo(function ChatMessageView({
 });
 
 // ---------------------------------------------------------------------------
-// Status, cross-agent messages, media
+// Cross-agent messages, media
 // ---------------------------------------------------------------------------
-
-/**
- * A quiet system line: smaller and dimmer than a post, its dot tucked into
- * the gutter and its text starting where the gutter ends, so a run of them
- * reads as a seam between posts rather than as posts of its own.
- */
-export const StatusLine = memo(function StatusLine({
-  entry,
-  collapsedCount = 1,
-}: {
-  entry: ChatStatusEntry;
-  collapsedCount?: number;
-}): JSX.Element {
-  const type = asEventType(entry.eventType);
-  return (
-    <div
-      className="flex items-center gap-2 px-4 py-px text-[10px] leading-4 text-muted-foreground/75"
-      data-testid="chat-status"
-      title={formatDateTime(entry.at)}
-    >
-      <div className="flex w-8 shrink-0 justify-end pr-0.5">
-        <span
-          className={cn(
-            "h-1 w-1 rounded-full bg-current",
-            latestEventColor(type)
-          )}
-        />
-      </div>
-      <span className="min-w-0 truncate">
-        <span className="font-medium">{latestEventLabel(type)}</span>
-        {entry.message ? ` · ${entry.message}` : null}
-      </span>
-      {collapsedCount > 1 ? (
-        <span
-          className="shrink-0 text-muted-foreground/70"
-          data-testid="chat-status-collapsed-count"
-        >
-          ×{collapsedCount}
-        </span>
-      ) : null}
-    </div>
-  );
-});
 
 /**
  * Who an agent-to-agent message reads as. Its group key names both ends of

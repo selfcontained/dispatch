@@ -33,7 +33,6 @@ import {
 } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
-  collapseFeed,
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
@@ -151,42 +150,23 @@ function renderFeed(
   return { onAnswer, onOpenMedia, rerenderWith };
 }
 
-describe("collapseFeed", () => {
-  it("folds consecutive working events into the latest one", () => {
-    const items = collapseFeed([
-      status("s1", "working", "Reading files"),
-      status("s2", "working", "Editing"),
-      status("s3", "working", "Running tests"),
-      status("s4", "done", "All green"),
-      status("s5", "working", "Again"),
-    ]);
-    expect(items).toHaveLength(3);
-    expect(items[0]).toMatchObject({
-      kind: "status",
-      collapsedCount: 3,
-      entry: { id: "s3", message: "Running tests" },
-    });
-    expect(items[1]).toMatchObject({ kind: "status", collapsedCount: 1 });
-    expect(items[2]).toMatchObject({
-      kind: "status",
-      collapsedCount: 1,
-      entry: { id: "s5" },
-    });
-  });
-
-  it("breaks a working run on any non-status entry", () => {
-    const items = collapseFeed([
-      status("s1", "working", "a"),
-      chat(message({ id: "m1" })),
-      status("s2", "working", "b"),
-    ]);
-    expect(items.map((i) => i.kind)).toEqual(["status", "entry", "status"]);
-  });
-});
-
 describe("layoutFeed", () => {
   const now = new Date("2026-09-03T12:00:00.000Z");
   const at = (hhmm: string, day = "02") => `2026-09-${day}T${hhmm}:00.000Z`;
+
+  it("lays out no row for a status event", () => {
+    // The presence line above the composer already shows the latest event.
+    const rows = layoutFeed(
+      [
+        status("s1", "working", "Reading files", at("10:00")),
+        chat(message({ id: "a1", createdAt: at("10:01") })),
+        status("s2", "working", "Editing", at("10:02")),
+      ],
+      makeCtx(),
+      now
+    );
+    expect(rows.map((r) => r.kind)).toEqual(["divider", "entry"]);
+  });
 
   it("groups same-author posts within five minutes and breaks on author change", () => {
     const rows = layoutFeed(
@@ -210,7 +190,7 @@ describe("layoutFeed", () => {
     ]);
   });
 
-  it("starts a new group after five minutes or a system line", () => {
+  it("starts a new group after five minutes, and a status event in between changes nothing", () => {
     const rows = layoutFeed(
       [
         chat(message({ id: "a1", createdAt: at("10:00") })),
@@ -223,13 +203,7 @@ describe("layoutFeed", () => {
     );
     expect(
       rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
-    ).toEqual([
-      "divider",
-      ["a1", false],
-      ["a2", false],
-      "status",
-      ["a3", false],
-    ]);
+    ).toEqual(["divider", ["a1", false], ["a2", false], ["a3", true]]);
   });
 
   it("draws a rule only where a new author group follows another post directly", () => {
@@ -263,8 +237,9 @@ describe("layoutFeed", () => {
       ["a2", false],
       // Author change straight after a post: hairline.
       ["u1", true],
-      // A status cluster sits between: no second separator.
-      ["a3", false],
+      // The status event between them lays out no row, so a3 follows u1
+      // directly and gets a hairline too.
+      ["a3", true],
       // Day rule again.
       ["a4", false],
       ["u2", true],
@@ -1294,29 +1269,16 @@ describe("ChatFeed", () => {
     ).toBeNull();
   });
 
-  it("renders status lines with a collapsed count", () => {
+  it("renders nothing for status events, only the posts around them", () => {
     renderFeed([
       status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "blocked", "Need a key"),
+      chat(message({ id: "m1", text: "a post" })),
+      status("s2", "blocked", "Need a key"),
     ]);
-    const lines = screen.getAllByTestId("chat-status");
-    expect(lines).toHaveLength(2);
-    // Consecutive lines sit in one cluster.
-    const clusters = screen.getAllByTestId("chat-status-cluster");
-    expect(clusters).toHaveLength(1);
-    expect(
-      clusters[0]!.querySelectorAll("[data-testid='chat-status']")
-    ).toHaveLength(2);
-    expect(lines[0]!.className).toContain("text-[10px]");
-    expect(lines[0]!.textContent).toContain("Working");
-    expect(lines[0]!.textContent).toContain("Testing");
-    expect(lines[0]!.textContent).not.toContain("Reading");
-    expect(screen.getByTestId("chat-status-collapsed-count").textContent).toBe(
-      "×2"
-    );
-    expect(lines[1]!.textContent).toContain("Blocked");
-    expect(lines[1]!.textContent).toContain("Need a key");
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+    expect(screen.queryByTestId("chat-status-cluster")).toBeNull();
+    expect(screen.getAllByTestId("chat-message")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Need a key");
   });
 
   it("renders cross-agent messages as posts by the other agent, or by this one addressed to it", () => {
@@ -1615,22 +1577,6 @@ describe("memoised rows still repaint when their data changes", () => {
     );
     expect(pin().textContent).toContain("http://b");
   });
-
-  it("updates a status line's label and collapsed count", () => {
-    const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
-    expect(screen.getByTestId("chat-status").textContent).toContain("Reading");
-    expect(screen.queryByTestId("chat-status-collapsed-count")).toBeNull();
-    rerenderWith([
-      status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "working", "Linting"),
-    ]);
-    const line = screen.getByTestId("chat-status");
-    expect(line.textContent).toContain("Linting");
-    expect(
-      screen.getByTestId("chat-status-collapsed-count").textContent
-    ).toContain("3");
-  });
 });
 
 describe("ChatFeed enter animation", () => {
@@ -1645,10 +1591,19 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first]);
     expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
 
-    // A new post and a new status line arrive.
+    // A new post and a new media row arrive.
+    const shot = {
+      type: "media" as const,
+      id: "md1",
+      mediaId: 1,
+      fileName: "shot.png",
+      sizeBytes: 10,
+      description: null,
+      at: at("10:01"),
+    };
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const [one, two] = screen.getAllByTestId("chat-message");
@@ -1656,12 +1611,12 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(two!)).not.toBeNull();
     expect(enterOf(two!)!.className).toContain("animate-chat-enter");
     expect(enterOf(two!)!.className).toContain("motion-reduce:animate-none");
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+    expect(enterOf(screen.getByTestId("chat-media"))).not.toBeNull();
 
     // Still fading when the same list renders again.
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     expect(enterOf(screen.getAllByTestId("chat-message")[1]!)).not.toBeNull();
@@ -1670,7 +1625,7 @@ describe("ChatFeed enter animation", () => {
     rerenderWith([
       chat(message({ id: "a0", text: "older", createdAt: at("09:00") })),
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const posts = screen.getAllByTestId("chat-message");
@@ -1681,8 +1636,8 @@ describe("ChatFeed enter animation", () => {
   });
 
   it("fades in a live row that lands below the newest by time", () => {
-    // A status event published late sorts under the newest post; it is
-    // still an arrival, not a page of older rows.
+    // A media row published late sorts under the newest post; it is still
+    // an arrival, not a page of older rows.
     const first = chat(
       message({ id: "a1", text: "first", createdAt: at("10:00") })
     );
@@ -1692,10 +1647,18 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first, last]);
     rerenderWith([
       first,
-      status("late", "working", "Late status", at("10:03")),
+      {
+        type: "media",
+        id: "late",
+        mediaId: 2,
+        fileName: "late.png",
+        sizeBytes: 10,
+        description: null,
+        at: at("10:03"),
+      },
       last,
     ]);
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+    expect(enterOf(screen.getByTestId("chat-media"))).not.toBeNull();
   });
 
   it("fades a post edited in place in again", () => {

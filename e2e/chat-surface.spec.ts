@@ -173,17 +173,10 @@ test.describe("Chat surface", () => {
     const pane = page.getByTestId("chat-pane");
     await expect(pane).toBeVisible();
 
-    // Every seeded entry renders.
-    // The server logs its own "Session started" event first; the two seeded
-    // working events collapse into the line after it.
-    const workingLine = pane
-      .getByTestId("chat-status")
-      .filter({ hasText: "Running tests" });
-    await expect(workingLine).toBeVisible();
-    await expect(workingLine).not.toContainText("Reading the plan");
-    await expect(pane.getByTestId("chat-status-collapsed-count")).toHaveText(
-      "×2"
-    );
+    // Every seeded post renders; the seeded status events do not. Those
+    // only show in the presence line above the composer.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
+    await expect(pane.getByTestId("chat-presence")).toBeVisible();
 
     const messages = pane.getByTestId("chat-message");
     await expect(messages).toHaveCount(3);
@@ -1006,9 +999,8 @@ test.describe("Chat surface", () => {
     );
     expect(order).toEqual(["chat-turn", "chat-pin-entry"]);
 
-    await expect(
-      pane.getByTestId("chat-status").filter({ hasText: "Wiring the feed" })
-    ).toBeVisible();
+    // The status event shows once, in the presence line, never as a row.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
     await expect(pane.getByTestId("chat-presence")).toContainText(
       "Wiring the feed"
     );

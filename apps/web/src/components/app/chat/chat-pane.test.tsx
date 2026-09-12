@@ -497,10 +497,12 @@ describe("ChatPane", () => {
     H.entries = [
       first,
       {
-        type: "status",
-        id: "event:late",
-        eventType: "working",
-        message: "Late status",
+        type: "media",
+        id: "media:late",
+        mediaId: 7,
+        fileName: "late.png",
+        sizeBytes: 10,
+        description: null,
         at: "2026-09-02T10:03:00.000Z",
       },
       last,
@@ -581,7 +583,7 @@ describe("ChatPane", () => {
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the empty state when there are no chat messages, keeping other entries", () => {
+  it("shows the empty state when the feed holds only status events", () => {
     H.entries = [
       {
         type: "status",
@@ -595,7 +597,83 @@ describe("ChatPane", () => {
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
     expect(empty.textContent).toContain("before Chat was enabled");
-    expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+  });
+
+  it("keeps status events out of the feed: the presence line already says it", () => {
+    // Every phase change used to land as a row in the feed and, at the same
+    // time, in the presence line above the composer. The row is the
+    // duplicate: it said the same words and moved the reader's tail.
+    H.entries = [
+      chat(message({ id: "a1", text: "hello" })),
+      {
+        type: "status",
+        id: "event:1",
+        eventType: "working",
+        message: "Reading files",
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    ];
+    renderPane({
+      agent: {
+        ...agent,
+        latestEvent: {
+          type: "working",
+          message: "Reading files",
+          updatedAt: "2026-09-02T10:00:01.000Z",
+          metadata: null,
+        },
+      },
+    });
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+    expect(screen.queryByTestId("chat-status-cluster")).toBeNull();
+    expect(screen.getByTestId("chat-presence").textContent).toContain(
+      "Reading files"
+    );
+  });
+
+  it("does not announce new messages for a status event that lands below the tail", () => {
+    const first = chat(
+      message({
+        id: "a1",
+        text: "first",
+        createdAt: "2026-09-02T10:00:00.000Z",
+      })
+    );
+    H.entries = [first];
+    const { rerender } = renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+
+    H.entries = [
+      first,
+      {
+        type: "status",
+        id: "event:late",
+        eventType: "working",
+        message: "Late status",
+        at: "2026-09-02T10:03:00.000Z",
+      },
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.queryByText("New messages")).toBeNull();
   });
 
   it("hides the empty state once a chat message exists", () => {
@@ -1141,7 +1219,90 @@ describe("harnessPromptHistory", () => {
   });
 });
 
+describe("ChatPane bottom-pinned follow", () => {
+  // jsdom has no ResizeObserver; the stub keeps every callback so a test can
+  // play a resize of the feed's content, the way a step row easing open or a
+  // streamed line landing does in a browser.
+  const observed: Array<{ callback: ResizeObserverCallback; target: Element }> =
+    [];
+  function resizeFeed(): void {
+    for (const { callback, target } of observed) {
+      callback(
+        [{ target, contentRect: { height: 900 } } as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
+    }
+  }
+  beforeEach(() => {
+    observed.length = 0;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+        observe(target: Element): void {
+          observed.push({ callback: this.callback, target });
+        }
+        unobserve(): void {}
+        // A disconnected observer fires no more, so the pane switching it
+        // off when the reader scrolls up has to be visible to `resizeFeed`.
+        disconnect(): void {
+          for (let i = observed.length - 1; i >= 0; i -= 1) {
+            if (observed[i]!.callback === this.callback) observed.splice(i, 1);
+          }
+        }
+      }
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the bottom in view whenever the feed's content changes height while following", () => {
+    H.entries = [chat(message({ id: "a1", text: "one" }))];
+    renderPane();
+    // The feed content is what grows, so that is what is watched — not the
+    // scroller, whose size only changes with the window.
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.target.contains(screen.getByTestId("chat-feed"))).toBe(
+      true
+    );
+    expect(observed[0]!.target).not.toBe(screen.getByTestId("chat-scroll"));
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+
+    resizeFeed();
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the reader alone once they have scrolled up", () => {
+    H.entries = [chat(message({ id: "a1", text: "one" }))];
+    renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+    vi.mocked(Element.prototype.scrollTo).mockClear();
+
+    resizeFeed();
+
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+});
+
 describe("ChatPane harness chrome", () => {
+  it("puts the presence line above the chrome, so the event reads before the chips", () => {
+    renderPane({ agent: dispatchAgent });
+    const presence = screen.getByTestId("chat-presence");
+    const chrome = screen.getByTestId("chat-harness-chrome");
+    expect(
+      presence.compareDocumentPosition(chrome) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it("mounts no chrome and no harness controls for an agent that is not a dispatch agent", () => {
     renderPane();
     expect(screen.queryByTestId("chat-harness-chrome")).toBeNull();

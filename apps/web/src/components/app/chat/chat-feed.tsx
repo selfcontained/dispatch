@@ -18,33 +18,24 @@ import {
   PinEntryView,
   reviewAuthor,
   ReviewEntryView,
-  StatusLine,
 } from "@/components/app/chat/chat-entries";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
 
 /**
- * A feed entry ready to render: status lines may stand in for a run of
- * consecutive `working` events, in which case `collapsedCount` says how many.
- */
-type ChatFeedItem =
-  | { kind: "entry"; entry: Exclude<ChatFeedEntry, ChatStatusEntry> }
-  | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number };
-
-/**
- * What the channel draws, top to bottom: day rules, system lines, and posts
- * that know whether they continue the post above them.
+ * What the channel draws, top to bottom: day rules and posts that know
+ * whether they continue the post above them. A status event draws nothing:
+ * the presence line above the composer already shows the latest one.
  */
 export type ChatFeedRow =
   | { kind: "divider"; key: string; label: string }
-  | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number }
   | {
       kind: "entry";
       entry: Exclude<ChatFeedEntry, ChatStatusEntry>;
       grouped: boolean;
       /**
        * A hairline above this post: it starts a new author group right after
-       * another post. Off when a day rule or a status cluster already sits
-       * between the two, so nothing is separated twice.
+       * another post. Off when a day rule already sits between the two, so
+       * nothing is separated twice.
        */
       rule: boolean;
     };
@@ -197,37 +188,6 @@ function Enter({
   );
 }
 
-/**
- * Agents emit a `working` event for every little step. Back-to-back ones say
- * nothing a single line can't, so a run collapses to its latest member; any
- * other entry in between breaks the run.
- */
-export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
-  const items: ChatFeedItem[] = [];
-  for (const entry of entries) {
-    if (entry.type !== "status") {
-      items.push({ kind: "entry", entry });
-      continue;
-    }
-    const last = items[items.length - 1];
-    if (
-      entry.eventType === "working" &&
-      last &&
-      last.kind === "status" &&
-      last.entry.eventType === "working"
-    ) {
-      items[items.length - 1] = {
-        kind: "status",
-        entry,
-        collapsedCount: last.collapsedCount + 1,
-      };
-      continue;
-    }
-    items.push({ kind: "status", entry, collapsedCount: 1 });
-  }
-  return items;
-}
-
 function authorKey(
   entry: Exclude<ChatFeedEntry, ChatStatusEntry>,
   ctx: FeedContext
@@ -256,9 +216,10 @@ function dayKey(iso: string): string {
 }
 
 /**
- * Lay the collapsed feed out as channel rows: a rule wherever the day
- * changes, and a post grouped under the previous one when the same author
- * posted it within {@link GROUP_WINDOW_MS} with nothing else in between.
+ * Lay the feed out as channel rows: a rule wherever the day changes, and a
+ * post grouped under the previous one when the same author posted it within
+ * {@link GROUP_WINDOW_MS} with nothing else in between. Status events are
+ * passed over as if they were not there.
  */
 export function layoutFeed(
   entries: ChatFeedEntry[],
@@ -268,45 +229,36 @@ export function layoutFeed(
   const rows: ChatFeedRow[] = [];
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
-  for (const item of collapseFeed(entries)) {
-    const day = dayKey(item.entry.at);
+  for (const entry of entries) {
+    if (entry.type === "status") continue;
+    const day = dayKey(entry.at);
     if (day !== lastDay) {
       rows.push({
         kind: "divider",
         key: `day:${day}`,
-        label: dayLabel(item.entry.at, now),
+        label: dayLabel(entry.at, now),
       });
       lastDay = day;
       lastPost = null;
-    }
-    if (item.kind === "status") {
-      rows.push(item);
-      lastPost = null;
-      continue;
     }
     // A turn carries a user post and an agent post inside one entry, so
     // nothing outside it can group with either half: it always starts a
     // fresh group, draws no hairline of its own, and ends the run behind
     // it so the post after it opens with a header.
-    if (item.entry.type === "turn") {
-      rows.push({
-        kind: "entry",
-        entry: item.entry,
-        grouped: false,
-        rule: false,
-      });
+    if (entry.type === "turn") {
+      rows.push({ kind: "entry", entry, grouped: false, rule: false });
       lastPost = null;
       continue;
     }
-    const key = authorKey(item.entry, ctx);
-    const at = new Date(item.entry.at).getTime();
+    const key = authorKey(entry, ctx);
+    const at = new Date(entry.at).getTime();
     const safeAt = Number.isFinite(at) ? at : 0;
     const within = (since: number) =>
       Number.isFinite(at) && at - since <= GROUP_WINDOW_MS;
     const grouped =
       lastPost !== null && lastPost.key === key && within(lastPost.at);
     const rule = !grouped && rows[rows.length - 1]?.kind === "entry";
-    rows.push({ kind: "entry", entry: item.entry, grouped, rule });
+    rows.push({ kind: "entry", entry, grouped, rule });
     lastPost = { key, at: safeAt };
   }
   return rows;
@@ -399,61 +351,15 @@ export function ChatFeed({
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries);
 
-  // Consecutive status lines sit as one quiet cluster between posts, so they
-  // read as a separator rather than as posts of their own.
-  const blocks = useMemo(() => {
-    const out: Array<
-      | { kind: "row"; row: ChatFeedRow }
-      | {
-          kind: "statuses";
-          key: string;
-          rows: Extract<ChatFeedRow, { kind: "status" }>[];
-        }
-    > = [];
-    for (const row of rows) {
-      if (row.kind !== "status") {
-        out.push({ kind: "row", row });
-        continue;
-      }
-      const last = out[out.length - 1];
-      if (last?.kind === "statuses") {
-        last.rows.push(row);
-      } else {
-        out.push({ kind: "statuses", key: row.entry.id, rows: [row] });
-      }
-    }
-    return out;
-  }, [rows]);
-
   return (
     <div
       className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
       data-testid="chat-feed"
     >
-      {blocks.map((block) => {
-        if (block.kind === "statuses") {
-          return (
-            <div
-              key={`statuses:${block.key}`}
-              className="my-1.5 flex flex-col"
-              data-testid="chat-status-cluster"
-            >
-              {block.rows.map((row) => (
-                <Enter key={row.entry.id} id={row.entry.id} entering={entering}>
-                  <StatusLine
-                    entry={row.entry}
-                    collapsedCount={row.collapsedCount}
-                  />
-                </Enter>
-              ))}
-            </div>
-          );
-        }
-        const row = block.row;
+      {rows.map((row) => {
         if (row.kind === "divider") {
           return <DayDivider key={row.key} label={row.label} />;
         }
-        if (row.kind === "status") return null;
         const entry = row.entry;
         const answeredOptionLabel = (() => {
           if (entry.type !== "chat" || !entry.message.replyTo) return null;
