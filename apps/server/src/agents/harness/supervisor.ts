@@ -328,7 +328,12 @@ export class HarnessSupervisor {
     this.streams = new StreamRecorder(this.store, {
       // A round the engine ran on its own settles by going quiet; the view
       // learns of it the same way it learns of every other stream write.
-      onAutonomousSettled: (agentId) => deps.publishHarness(agentId, true),
+      onAutonomousSettled: (agentId) => {
+        deps.publishHarness(agentId, true);
+        // A late adapter event can open a promptless round after the prompt
+        // promise resolved. Do not overlap the next queued prompt with it.
+        this.pump(agentId);
+      },
     });
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {
@@ -348,7 +353,11 @@ export class HarnessSupervisor {
   }
 
   isBusy(agentId: string): boolean {
-    return this.running.has(agentId) || this.pendingOf(agentId).length > 0;
+    return (
+      this.running.has(agentId) ||
+      this.streams.hasAutonomousTurn(agentId) ||
+      this.pendingOf(agentId).length > 0
+    );
   }
 
   private pendingOf(agentId: string): Pending[] {
@@ -396,10 +405,24 @@ export class HarnessSupervisor {
    * prompt starts. Nothing running: nothing happens.
    */
   async interrupt(agentId: string): Promise<boolean> {
-    if (!this.running.has(agentId) || !this.driver.isRunning(agentId)) {
-      return false;
+    if (!this.driver.isRunning(agentId)) return false;
+    if (this.running.has(agentId)) {
+      await this.driver.cancel(agentId);
+      return true;
     }
-    await this.driver.cancel(agentId);
+    if (!this.streams.hasAutonomousTurn(agentId)) return false;
+    // Keep the autonomous row open until the cancel RPC finishes. Its
+    // settlement callback pumps queued prompts, so closing first could start
+    // a new prompt and direct this cancel at that new work instead.
+    await this.driver.cancel(agentId).catch((err: unknown) => {
+      this.deps.logger.warn(
+        { err, agentId },
+        "could not cancel a late autonomous harness turn"
+      );
+    });
+    // Even if the adapter says it has no active prompt, close the visible
+    // stream turn and let its settlement callback safely resume the queue.
+    await this.streams.interruptAutonomous(agentId);
     return true;
   }
 
@@ -725,7 +748,12 @@ export class HarnessSupervisor {
     // keeps its undelivered row for the next boot to redeliver rather than
     // starting a turn the teardown is about to cut.
     if (this.shuttingDown) return;
-    if (this.running.has(agentId)) return;
+    // Some adapters emit tool activity after their prompt promise resolves.
+    // That becomes an autonomous stream turn, and ACP still permits only one
+    // active session turn, so defer queued prompts until it settles.
+    if (this.running.has(agentId) || this.streams.hasAutonomousTurn(agentId)) {
+      return;
+    }
     const list = this.pendingOf(agentId);
     const next = list.shift();
     if (list.length === 0) this.pending.delete(agentId);

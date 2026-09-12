@@ -648,6 +648,32 @@ describe("StreamRecorder autonomous turns", () => {
     await rec.reconcile(A);
   });
 
+  it("can interrupt a promptless round before its idle timer fires", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle(call("c1"));
+    expect(rec.hasAutonomousTurn(A)).toBe(true);
+    expect(await rec.interruptAutonomous(A)).toBe(true);
+    expect(rec.hasAutonomousTurn(A)).toBe(false);
+    expect((await turnRows())[0]).toMatchObject({
+      state: "settled",
+      stopReason: "cancelled",
+    });
+  });
+
+  it("does not reopen a settled prompt for a delayed transport tail", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle({ type: "turn", agentId: A, state: "settled" });
+    await rec.handle(call("late"));
+    expect(rec.hasAutonomousTurn(A)).toBe(false);
+    expect((await turnRows())[0]).toMatchObject({ state: "settled" });
+  });
+
   it("does not open a turn for a config change alone", async () => {
     const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
     await rec.handle({
