@@ -1106,12 +1106,11 @@ describe("listTurnEntries", () => {
   });
 
   it("never invents a pre-turn entry on a page below the first turn", async () => {
-    // Task 2's review raised this as Task 3's design question: a window that
-    // began mid-turn would group the tail of a turn whose anchor sits on the
-    // next page into a synthetic "Earlier activity" turn, and those steps
-    // would render twice. listTurnEntries cannot do that, because every
-    // window starts at an anchor and an anchor is either a turn row or the
-    // agent's oldest row. This walks every page to prove it.
+    // A window that began mid-turn would group the tail of a turn whose
+    // anchor sits on the next page into a synthetic "Earlier activity" turn,
+    // and those steps would render twice. listTurnEntries cannot do that,
+    // because every window starts at an anchor and an anchor is either a
+    // turn row or the agent's oldest row. This walks every page to prove it.
     await stream([
       {
         seq: 1,

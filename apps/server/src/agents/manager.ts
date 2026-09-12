@@ -424,7 +424,9 @@ export class AgentManager {
     const inputs = await this.launchGuidanceInputsFor(agent, jobRunId);
     return buildHarnessPersona({
       agent,
-      ...inputs,
+      personalityPrompt: inputs.personalityPrompt,
+      trimmedGuidance: inputs.trimmedGuidance,
+      suggestSessionRename: inputs.suggestSessionRename,
       jobRunId: jobRunId ?? null,
     });
   }

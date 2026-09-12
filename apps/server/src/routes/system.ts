@@ -67,9 +67,9 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  usageReport?: () => Promise<HarnessUsageReport>;
-  authReport?: () => Promise<HarnessAuthReport>;
-  providerUsageReport?: () => Promise<HarnessProviderUsageReport>;
+  usageReport: () => Promise<HarnessUsageReport>;
+  authReport: () => Promise<HarnessAuthReport>;
+  providerUsageReport: () => Promise<HarnessProviderUsageReport>;
 };
 
 export async function registerSystemRoutes(
@@ -469,29 +469,17 @@ export async function registerSystemRoutes(
     return { enabled: body.enabled };
   });
 
-  // Service-wide, not per agent: the keys are the service's. Cached a
-  // minute upstream.
-  app.get("/api/v1/harness/usage", async (_request, reply) => {
-    if (!deps.usageReport) {
-      return reply.code(503).send({ error: "Usage reporting is not wired." });
-    }
+  // Service-wide, not per agent: the engines are logged in on the host.
+  app.get("/api/v1/harness/usage", async () => {
     const response: HarnessUsageReport = await deps.usageReport();
     return response;
   });
 
-  app.get("/api/v1/harness/auth", async (_request, reply) => {
-    if (!deps.authReport) {
-      return reply.code(503).send({ error: "Auth reporting is not wired." });
-    }
+  app.get("/api/v1/harness/auth", async () => {
     return await deps.authReport();
   });
 
-  app.get("/api/v1/harness/provider-usage", async (_request, reply) => {
-    if (!deps.providerUsageReport) {
-      return reply
-        .code(503)
-        .send({ error: "Provider usage reporting is not wired." });
-    }
+  app.get("/api/v1/harness/provider-usage", async () => {
     return await deps.providerUsageReport();
   });
 

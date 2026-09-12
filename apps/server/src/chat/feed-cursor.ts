@@ -2,8 +2,8 @@ import type { ChatFeedEntry } from "@dispatch/shared";
 
 import { isChatMessageId } from "./store.js";
 
-export const CHAT_FEED_DEFAULT_LIMIT = 200;
-export const CHAT_FEED_MAX_LIMIT = 500;
+const CHAT_FEED_DEFAULT_LIMIT = 200;
+const CHAT_FEED_MAX_LIMIT = 500;
 
 /**
  * Feed ordering is (created_at desc, source rank desc, id desc): a total
@@ -19,7 +19,7 @@ export type FeedCursor = {
   id: string;
 };
 
-export const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
+const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
   // Turns come from agent_stream_events; the rank keeps the cursor's id
   // tie-break exact against every other source.
   turn: 6,

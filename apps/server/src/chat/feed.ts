@@ -13,8 +13,6 @@ import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
 
 import {
   AT_KEY_SQL,
-  CHAT_FEED_DEFAULT_LIMIT,
-  CHAT_FEED_MAX_LIMIT,
   clampFeedLimit,
   compareNewestFirst,
   cursorClause,
@@ -29,14 +27,7 @@ import { type ChatStore, type Queryable, toChatMessage } from "./store.js";
 
 // The feed's ordering primitives live in `feed-cursor.ts` so the turn
 // composer can use them without importing this module back.
-export {
-  CHAT_FEED_DEFAULT_LIMIT,
-  CHAT_FEED_MAX_LIMIT,
-  clampFeedLimit,
-  decodeFeedCursor,
-  encodeFeedCursor,
-};
-export type { FeedCursor };
+export { clampFeedLimit, decodeFeedCursor, encodeFeedCursor };
 
 export type ComposeChatFeedOptions = {
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */

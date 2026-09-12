@@ -163,7 +163,7 @@ export function buildChildEnv(input: {
   return env;
 }
 
-export function modelOptionOf(
+function modelOptionOf(
   options: readonly HarnessConfigOption[]
 ): HarnessConfigOption | undefined {
   return options.find((o) => o.id === "model" || o.category === "model");

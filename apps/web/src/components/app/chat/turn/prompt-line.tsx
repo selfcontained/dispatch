@@ -6,7 +6,7 @@ import { Bell, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { ExpandableBlock } from "@/components/app/harness/code-block";
-import type { Attachment, Turn } from "./contracts";
+import type { Turn } from "./contracts";
 
 const KEY_VALUE = /^([A-Za-z][A-Za-z ]{0,30}):\s*(.*)$/;
 
@@ -29,9 +29,6 @@ function KeyValueText({ line }: { line: string }): JSX.Element {
     </>
   );
 }
-
-const CHIP_CLASS =
-  "inline-flex max-w-[240px] items-center truncate rounded-[2px] border border-border bg-background px-1.5 py-0.5 text-[10.5px] text-foreground/80";
 
 const BLOCK_HEADER = /^---\s*DISPATCH:\s*([^-\n][^\n]*?)\s*---\s*\n?/i;
 const BLOCK_FOOTER = /\n?---\s*END\s+DISPATCH:[^\n]*---\s*$/i;
@@ -79,62 +76,15 @@ export function parseDispatchNotice(
   };
 }
 
-function PromptLineImpl({
-  turn,
-  onAttachmentClick,
-}: {
-  turn: Turn;
-  onAttachmentClick?: (a: Attachment) => void;
-}): JSX.Element {
+/**
+ * A Dispatch-injected prompt as a notice row. A typed prompt never reaches
+ * this component: the turn entry renders it as the user's own post.
+ */
+function PromptLineImpl({ turn }: { turn: Turn }): JSX.Element | null {
   const source =
     typeof turn.extra?.source === "string" ? turn.extra.source : undefined;
   const notice = parseDispatchNotice(turn.content, source);
-  if (notice) return <NoticeLine notice={notice} />;
-  const attachments = turn.attachments ?? [];
-  const contextChips = turn.contextChips ?? [];
-  return (
-    <div className="mb-3.5" data-testid="harness-prompt">
-      <div className="flex items-start gap-[9px]">
-        <span
-          aria-hidden="true"
-          className="select-none text-[13px] font-bold leading-[1.55] text-status-working"
-        >
-          ›
-        </span>
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-[12.5px] leading-[1.55] text-foreground">
-          {turn.content}
-        </p>
-      </div>
-      {contextChips.length > 0 ? (
-        <div className="mt-1.5 flex flex-wrap gap-[5px] pl-[21px]">
-          {contextChips.map((chip, i) => (
-            <span key={`${chip.label}:${i}`} className={CHIP_CLASS}>
-              {chip.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {attachments.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-2 pl-[21px]">
-          {attachments.map((a, i) =>
-            a.kind === "image" ? (
-              <img
-                key={`${a.url}:${i}`}
-                src={a.url}
-                alt={a.name ?? `Attached image ${i + 1}`}
-                className="h-16 w-16 cursor-pointer rounded-[2px] object-cover hover:ring-2 hover:ring-status-working/50"
-                onClick={() => onAttachmentClick?.(a)}
-              />
-            ) : (
-              <span key={`${a.url}:${i}`} className={CHIP_CLASS}>
-                {a.name ?? a.kind}
-              </span>
-            )
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
+  return notice ? <NoticeLine notice={notice} /> : null;
 }
 
 export const PromptLine = memo(PromptLineImpl);

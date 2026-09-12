@@ -3,9 +3,7 @@ import { DEFAULT_HARNESS_MODEL } from "@dispatch/shared";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -144,7 +142,7 @@ export function AgentModelSelect({
   return (
     <div className="space-y-1">
       <label className="text-sm text-muted-foreground" htmlFor={id}>
-        {grouped ? "Provider and model" : "Model"}
+        Model
       </label>
       <Select
         value={selectedValue}
@@ -164,24 +162,11 @@ export function AgentModelSelect({
             Default{" "}
             <span className="text-xs text-muted-foreground">(CLI setting)</span>
           </SelectItem>
-          {groupModelOptions(options).map((bucket) =>
-            bucket.group ? (
-              <SelectGroup key={bucket.group}>
-                <SelectLabel>{bucket.group}</SelectLabel>
-                {bucket.options.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ) : (
-              bucket.options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))
-            )
-          )}
+          {options.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>

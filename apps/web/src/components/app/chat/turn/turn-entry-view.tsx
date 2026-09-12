@@ -57,7 +57,7 @@ export function turnTrace(entry: ChatTurnEntry): Trace {
 }
 
 /**
- * The prompt as one of Brad's user posts. The attachments pass through
+ * The prompt as one of the user's posts. The attachments pass through
  * untouched, so the feed's own image and file rendering (and its lightbox)
  * handles them rather than a second renderer. `updatedAt` deliberately
  * mirrors `at`: the post does not change while the turn below it grows.

@@ -63,13 +63,9 @@ if (!PROFILE) {
   process.stderr.write(`fake-acp-agent: unknown engine ${ENGINE}\n`);
   process.exit(2);
 }
-process.stderr.write(
-  `fake-acp-agent engine=${ENGINE} argv=${JSON.stringify(process.argv.slice(2))}\n`
-);
 
 let conn;
 const cwdBySession = new Map();
-const modeBySession = new Map();
 const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
@@ -92,10 +88,7 @@ const configOptions = (sessionId) =>
     : [];
 
 const agent = {
-  async initialize(params) {
-    process.stderr.write(
-      `fake-acp-agent initialize meta=${JSON.stringify(params.clientCapabilities?._meta ?? null)}\n`
-    );
+  async initialize() {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
       agentInfo: { name: `fake-${ENGINE}`, version: "0.0.0" },
@@ -112,9 +105,6 @@ const agent = {
   async newSession(params) {
     const sessionId = `fake_${ENGINE}_${Date.now()}`;
     cwdBySession.set(sessionId, params.cwd);
-    process.stderr.write(
-      `fake-acp-agent newSession cwd=${params.cwd} meta=${JSON.stringify(params._meta ?? null)} mcp=${JSON.stringify((params.mcpServers ?? []).map((s) => s.name))}\n`
-    );
     setTimeout(() => {
       void conn.sessionUpdate({
         sessionId,
@@ -141,9 +131,7 @@ const agent = {
     cwdBySession.set(params.sessionId, params.cwd);
     return { configOptions: configOptions(params.sessionId) };
   },
-  async setSessionMode(params) {
-    modeBySession.set(params.sessionId, params.modeId);
-    process.stderr.write(`fake-acp-agent set_mode ${params.modeId}\n`);
+  async setSessionMode() {
     return {};
   },
   async setSessionConfigOption(params) {
@@ -192,7 +180,7 @@ const agent = {
       });
     }
     if (PROFILE.ask) {
-      const answer = await conn.requestPermission({
+      await conn.requestPermission({
         sessionId: params.sessionId,
         toolCall: { toolCallId: "c1", title: "Read README.md" },
         options: [
@@ -201,9 +189,6 @@ const agent = {
           { optionId: "no", name: "Reject", kind: "reject_once" },
         ],
       });
-      process.stderr.write(
-        `fake-acp-agent permission=${JSON.stringify(answer.outcome)}\n`
-      );
     }
     await emit({
       sessionUpdate: "tool_call",

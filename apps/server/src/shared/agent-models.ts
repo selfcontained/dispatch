@@ -179,7 +179,7 @@ export function describeAgentModelCatalog(
  * runtime; a stricter rule here rejected the supervisor's own stored value
  * the next time a job or template update path validated it.
  */
-export const HARNESS_MODEL_HALF = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+const HARNESS_MODEL_HALF = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 
 /**
  * Split a harness model id the way `splitModelId` does at start time, so a

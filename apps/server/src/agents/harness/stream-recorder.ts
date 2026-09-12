@@ -23,8 +23,8 @@ type OpenText = {
 
 /** Model output is not trusted input: bound what one row can hold. */
 export const TEXT_MAX_BYTES = 64 * 1024;
-export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
-export const AUTONOMOUS_IDLE_MS = 20_000;
+const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+const AUTONOMOUS_IDLE_MS = 20_000;
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 export const FLUSH_INTERVAL_MS = 100;
 

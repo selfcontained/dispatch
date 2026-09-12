@@ -26,11 +26,6 @@ function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
       {error && turn.content !== error.message ? (
         <ResultText content={error.message} error />
       ) : null}
-      {error?.hint ? (
-        <p className="pl-[21px] text-[11px] text-muted-foreground">
-          {error.hint}
-        </p>
-      ) : null}
       {interrupted ? (
         <p
           className="flex items-center gap-[9px] text-[11.5px] text-status-waiting"

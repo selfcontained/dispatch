@@ -26,8 +26,6 @@ export function buildHarnessPersona(input: {
   >;
   personalityPrompt: string | null;
   trimmedGuidance: boolean;
-  /** Accepted for parity with the CLI inputs; the harness always assumes Chat. */
-  chatSurface?: boolean;
   suggestSessionRename: boolean;
   /** A job run: the guidance names the job tools (job_complete, …). */
   jobRunId?: string | null;

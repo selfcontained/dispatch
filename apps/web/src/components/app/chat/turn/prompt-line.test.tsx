@@ -45,10 +45,9 @@ describe("PromptLine", () => {
     expect(notice.textContent).not.toContain("Call dispatch_event");
     fireEvent.click(notice.querySelector("button") as HTMLButtonElement);
     expect(notice.textContent).toContain("Call dispatch_event");
-    expect(screen.queryByTestId("harness-prompt")).toBeNull();
   });
 
-  it("renders a typed prompt as before", () => {
+  it("renders nothing for a typed prompt", () => {
     const turn: Turn = {
       id: "t",
       role: "user",
@@ -56,10 +55,8 @@ describe("PromptLine", () => {
       timestamp: 0,
       extra: { source: "chat" },
     };
-    render(<PromptLine turn={turn} />);
-    expect(screen.getByTestId("harness-prompt").textContent).toContain(
-      "ls apps"
-    );
+    const { container } = render(<PromptLine turn={turn} />);
+    expect(container.textContent).toBe("");
   });
 });
 

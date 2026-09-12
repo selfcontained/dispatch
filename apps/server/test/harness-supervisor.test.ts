@@ -910,7 +910,6 @@ describe("HarnessSupervisor message queue", () => {
   });
 
   it("shutdown leaves a queued chat message pending for the next boot", async () => {
-    const CHAT = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
     const { sup, fake } = await build({
       turn: async (_p, _emit, _ask, signal) => {
         await new Promise<void>((resolve) => {
@@ -922,10 +921,7 @@ describe("HarnessSupervisor message queue", () => {
     });
     await sup.start("agt_1");
     const first = sup.enqueuePrompt("agt_1", "one");
-    const chat = sup.enqueuePrompt(
-      "agt_1",
-      `--- DISPATCH CHAT (id: ${CHAT}) ---\nlater\n--- END DISPATCH CHAT ---`
-    );
+    const chat = sup.enqueuePrompt("agt_1", envelope("later"));
     const system = sup.enqueuePrompt("agt_1", "system note");
     await first.started;
     let chatSettled: "pending" | "started" | "failed" = "pending";

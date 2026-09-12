@@ -31,7 +31,6 @@ export type ToolPayload = {
   /** A nested call: the toolCallId of the step it runs under (a subagent's parent). */
   parentToolCallId?: string;
 };
-export type StatusPayload = { message: string };
 export type PlanPayload = {
   entries: { content: string; status: string; priority: string }[];
 };
@@ -52,14 +51,6 @@ export type TurnPayload = {
     size: number;
     cost?: { amount: number; currency: string };
   };
-};
-export type StreamPayloadByKind = {
-  assistant: AssistantPayload;
-  thought: ThoughtPayload;
-  tool_call: ToolPayload;
-  status: StatusPayload;
-  turn: TurnPayload;
-  plan: PlanPayload;
 };
 
 export type StreamEventRow = {

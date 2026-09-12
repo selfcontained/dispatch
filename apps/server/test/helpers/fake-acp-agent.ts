@@ -170,5 +170,5 @@ export function createFakeAcpAgent(
     Readable.toWeb(toAgent)
   );
   connection = new acp.AgentSideConnection(() => agent, stream);
-  return { child, seen, signals, stderr };
+  return { child, seen, signals };
 }

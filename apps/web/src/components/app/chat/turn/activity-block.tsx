@@ -40,7 +40,6 @@ function ActivityBlockImpl({
   const [stepOverrides, setStepOverrides] = useState<Record<string, boolean>>(
     {}
   );
-  // open = userOverride ?? !done  (open while running; collapsed when done)
   const open = blockOverride ?? !done;
   // Toggling the block swaps its toggle control between the header collapse
   // button and the CollapsedSummary button, two different DOM nodes, so a

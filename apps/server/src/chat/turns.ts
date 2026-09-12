@@ -121,7 +121,7 @@ const READ_PATH_TAG = /^<path>([^<]+)<\/path>/;
  * The engine sends no ACP `locations`; the paths live in the tool's raw
  * input (file_path, path, pattern) or, for read, in the output wrapper.
  */
-export function locationsFromInput(
+function locationsFromInput(
   input: unknown,
   terminalOutput: string | null | undefined
 ): { path: string; line?: number }[] {

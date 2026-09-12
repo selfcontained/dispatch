@@ -6,20 +6,17 @@
 // clarification, the transport port) and its stream-event reducer are left
 // out: the server assembles settled turns, so nothing folds events here.
 
-/** Step outcome. `retry` and `skipped` are kept for parity with PromptKit. */
-export type StepStatus = "running" | "ok" | "retry" | "error" | "skipped";
+export type StepStatus = "running" | "ok" | "error";
 
 /** One unit of work inside a turn's trace. `kind` is open: the registry maps it. */
 export interface Step {
   id: string;
   kind: string;
   label?: string;
-  attempt?: number;
   status: StepStatus;
   startedAt: number;
   endedAt?: number;
   durMs?: number;
-  reason?: string;
   detail?: unknown;
   /** Steps run under this one: a subagent's work, nested one level in the rail. */
   children?: Step[];
@@ -30,32 +27,12 @@ export interface Trace {
   startedAt: number;
   endedAt?: number;
   steps: Step[];
-  finalResult?: "ok" | "error" | "interrupted" | "clarification";
-  extra?: Record<string, unknown>;
-}
-
-export interface Attachment {
-  kind: string;
-  url: string;
-  /** The media row behind a shared file; the lightbox opens by this id. */
-  mediaId?: number;
-  name?: string;
-  mimeType?: string;
-  /** Bytes, when known (feeds the media lightbox). */
-  size?: number;
-  /** When the message carrying it was sent (ISO). */
-  at?: string;
-}
-
-export interface ContextChip {
-  label: string;
-  payload?: unknown;
+  finalResult?: "ok" | "error" | "interrupted";
 }
 
 export interface TurnError {
   code: string;
   message: string;
-  hint?: string;
 }
 
 /** One message in the stream, from the user or the assistant. */
@@ -63,8 +40,6 @@ export interface Turn {
   id: string;
   role: "user" | "assistant";
   content: string;
-  attachments?: Attachment[];
-  contextChips?: ContextChip[];
   trace?: Trace;
   error?: TurnError;
   timestamp: number;

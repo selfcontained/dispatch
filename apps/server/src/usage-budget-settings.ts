@@ -17,7 +17,7 @@ const USAGE_BUDGETS_KEY = "usage_budgets";
 const ENGINE_IDS = new Set<string>(HARNESS_BUDGET_ENGINE_IDS);
 
 /** A cost-reporting engine id: the only kind a dollar budget can name. */
-export function isUsageEngineId(id: unknown): id is HarnessEngineId {
+function isUsageEngineId(id: unknown): id is HarnessEngineId {
   return typeof id === "string" && ENGINE_IDS.has(id);
 }
 

@@ -1052,8 +1052,7 @@ test.describe("Chat surface", () => {
         await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
       ).toBe(true);
 
-      // A Chat segment rather than a harness one: the pill is Brad's for
-      // this type now, filter included.
+      // A Chat segment rather than a harness one, filter included.
       for (const id of [
         "agent-view-chat",
         "agent-view-console",

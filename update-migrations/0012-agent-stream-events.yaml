@@ -7,8 +7,10 @@ summary: >
   session, plus `agent_chat_messages.delivery_text` for a first turn that must
   carry more than its display text, and replaces the stream table's `kind`
   CHECK so it accepts `plan` on an install whose table was created by an
-  earlier prerelease of this branch. Three files, every statement guarded,
-  run automatically on server boot. The `dispatch` agent type
+  earlier prerelease of this branch, indexes the feed's prompt lookup, carries
+  a prerelease harness opt-in onto its new flag, and adds
+  `agents.chat_read_at` for the unread badge. Every statement is guarded and
+  runs automatically on server boot. The `dispatch` agent type
   runs four engines over the Agent Client Protocol: Claude Code, Codex, Gemini
   CLI, and OpenCode, each a host install using its own login. A running
   Dispatch Harness agent does not survive a service restart; the new process
@@ -18,28 +20,31 @@ alreadySatisfied:
   description: >
     The install is already on the target tag, the local health endpoint
     returns status=ok, and release.json reports the target tag. Server boot
-    runs all three migrations idempotently: the table and the column are
-    additive, and the third only replaces a CHECK constraint, so any healthy
-    install at the target tag has already taken them. A database that ran an
-    earlier prerelease of this branch is handled at boot as well: the
-    migration runner first deletes the bookkeeping records those prereleases
-    wrote for files this release no longer ships, then re-applies the three
-    guarded migrations and carries over the harness agent type rename.
+    runs every migration idempotently: the table, the column, the index and
+    the watermark are additive, and the rest only replace a guarded CHECK or
+    rewrite settings, so any healthy install at the target tag has already
+    taken them. A database that ran an earlier prerelease of this branch, or
+    v0.38.14, is handled at boot as well: the migration runner first deletes
+    the bookkeeping records those releases wrote for files this release no
+    longer ships (v0.38.14 numbered the reactions table 0051, which this
+    release ships as 0057), then re-applies the guarded migrations and
+    carries over the harness agent type rename.
     Running Dispatch Harness agents, if any existed, were resumed or marked
     errored at boot.
 
 instructions:
   - |
     Before deploying, you can confirm whether the target database ran an
-    earlier prerelease of this branch. Any row returned means it did, which
-    needs no manual step: the migration runner deletes these records at boot
-    before the migrations run, so the service starts either way.
+    earlier prerelease of this branch or v0.38.14. Any row returned means it
+    did, which needs no manual step: the migration runner deletes these
+    records at boot before the migrations run, so the service starts either
+    way.
 
       SELECT name FROM pgmigrations
        WHERE name IN ('0048_agent-stream-events','0049_agent-stream-events-turn',
                       '0050_agent-chat-messages-delivery-text','0051_agent-type-dispatch',
                       '0052_agent-stream-events-turn','0053_agent-chat-messages-delivery-text',
-                      '0054_agent-type-dispatch');
+                      '0054_agent-type-dispatch','0051_agent-chat-reactions');
   - |
     Before restarting the service, check whether a Dispatch Harness agent is
     mid-turn. Either wait for the turn to settle, or accept the cut: the turn

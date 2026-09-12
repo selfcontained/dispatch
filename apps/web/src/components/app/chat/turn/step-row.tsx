@@ -1,7 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { motion } from "framer-motion";
-import { Check, ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,9 +15,7 @@ import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
 const STATUS_ARIA: Record<StepStatus, string> = {
   running: "running",
   ok: "completed",
-  retry: "retrying",
   error: "failed",
-  skipped: "skipped",
 };
 
 const ROW_CLASS =
@@ -65,9 +63,6 @@ export function StepRow({
           <span className="ml-1 text-[10px] text-muted-foreground">
             {server}
           </span>
-        ) : null}
-        {step.attempt && step.attempt > 0 ? (
-          <span className="ml-1 text-muted-foreground">·{step.attempt}</span>
         ) : null}
       </span>
       {running ? (
@@ -170,12 +165,6 @@ export function StatusGlyph({
           <Check className="h-3 w-3" strokeWidth={2.5} />
         </motion.span>
       );
-    case "retry":
-      return (
-        <span className={cn(base, "text-status-waiting")} aria-hidden="true">
-          <RotateCcw className="h-3 w-3" />
-        </span>
-      );
     case "error":
       return (
         <span
@@ -183,15 +172,6 @@ export function StatusGlyph({
           aria-hidden="true"
         >
           <X className="h-3 w-3" strokeWidth={2.5} />
-        </span>
-      );
-    case "skipped":
-      return (
-        <span
-          className={cn(base, "text-muted-foreground/50")}
-          aria-hidden="true"
-        >
-          ·
         </span>
       );
     default:

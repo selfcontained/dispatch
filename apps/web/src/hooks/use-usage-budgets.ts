@@ -4,8 +4,8 @@ import type { UsageBudgets, UsageBudgetsResponse } from "@dispatch/shared";
 import { HARNESS_USAGE_QUERY_KEY } from "@/components/app/harness/use-harness-usage";
 import { api } from "@/lib/api";
 
-export const USAGE_BUDGETS_ENDPOINT = "/api/v1/app/settings/usage-budgets";
-export const USAGE_BUDGETS_QUERY_KEY = ["usage-budgets"] as const;
+const USAGE_BUDGETS_ENDPOINT = "/api/v1/app/settings/usage-budgets";
+const USAGE_BUDGETS_QUERY_KEY = ["usage-budgets"] as const;
 
 export function useUsageBudgets() {
   const queryClient = useQueryClient();

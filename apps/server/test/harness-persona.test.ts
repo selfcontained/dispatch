@@ -19,7 +19,6 @@ describe("buildHarnessPersona", () => {
       agent: base,
       personalityPrompt: null,
       trimmedGuidance: false,
-      chatSurface: false,
       suggestSessionRename: false,
     });
     expect(text).toContain("dispatch_event");
@@ -32,7 +31,6 @@ describe("buildHarnessPersona", () => {
       agent: base,
       personalityPrompt: "Be terse.",
       trimmedGuidance: false,
-      chatSurface: true,
       suggestSessionRename: false,
     });
     expect(text.endsWith("Be terse.")).toBe(true);
@@ -47,7 +45,6 @@ describe("buildHarnessPersona", () => {
       },
       personalityPrompt: "Be terse.",
       trimmedGuidance: false,
-      chatSurface: false,
       suggestSessionRename: false,
     });
     expect(text).toContain("You review for security.");

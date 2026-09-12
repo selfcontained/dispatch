@@ -69,7 +69,6 @@ type Live = {
   conn: acp.ClientSideConnection;
   sessionId: string;
   startedAt: string;
-  stderrTail: string[];
   exited: Promise<ExitInfo>;
   stopping: boolean;
   config: { options: acp.SessionConfigOption[] };
@@ -387,7 +386,6 @@ export class HarnessDriver {
       conn,
       sessionId: outcome.session.sessionId,
       startedAt: new Date().toISOString(),
-      stderrTail,
       exited,
       stopping: false,
       config,

@@ -89,8 +89,8 @@ afterAll(async () => {
 describe("harness migrations", () => {
   it("re-run their SQL against an existing schema without error (every statement is guarded)", async () => {
     // node-pg-migrate skips names already in pgmigrations, so a plain second
-    // run executes nothing. Forgetting the three rows makes it execute all
-    // three files again on a database that already has their objects: the
+    // run executes nothing. Forgetting the rows makes it execute every
+    // harness file again on a database that already has their objects: the
     // case an install upgraded from the earlier harness migrations is in.
     // They go together because the runner also checks that the stored names
     // are a prefix of the shipped ones, so a gap in the middle throws.

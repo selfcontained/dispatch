@@ -185,15 +185,6 @@ export function slashTokenAt(text: string, caret: number): SlashToken | null {
   return { query: text.slice(start + 1, end), start, end };
 }
 
-// The "@path" token rule lives with the highlight layer's, so the picker
-// and the paint agree: see composer-tokens.ts.
-export { atTokenAt } from "./composer-tokens";
-
-/** The "/query" the field holds while the menu should be open, else null. */
-export function slashQuery(text: string): string | null {
-  return slashTokenAt(text, text.length)?.query ?? null;
-}
-
 export function filterSlashItems(
   items: SlashItem[],
   query: string
