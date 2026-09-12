@@ -537,15 +537,20 @@ describe("ChatFeed", () => {
     // reader still gets the whole post.
     expect(body.textContent).toContain("line 11");
 
+    // The row is the toggle, the same shape as a Dispatch notice: no
+    // separate "Show more" control spending a line of its own.
     const toggle = screen.getByTestId("chat-peer-expand");
-    expect(toggle.textContent).toBe("Show more");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Folded, the who/whom/when cluster and the opening text share the row.
+    expect(toggle.textContent).toContain("sib");
+    expect(toggle.textContent).toContain("line 0");
     fireEvent.click(toggle);
     expect(screen.getByTestId("chat-peer-body").getAttribute("data-open")).toBe(
       "true"
     );
-    expect(screen.getByTestId("chat-peer-expand").textContent).toBe(
-      "Show less"
-    );
+    expect(
+      screen.getByTestId("chat-peer-expand").getAttribute("aria-expanded")
+    ).toBe("true");
   });
 
   it("shows a peer's own icon and its relation to this agent", () => {
@@ -1430,6 +1435,14 @@ describe("ChatFeed", () => {
       expect(post.className).toContain(SIDE_POST_INDENT);
       expect(post.className).not.toContain("px-4");
       expect(post.className).toContain(POST_TINT.peer);
+    }
+    // A peer's row folds like a notice, so its full body is only laid out
+    // once opened; the agent's own side post keeps the plain body column.
+    for (const post of posts) {
+      const toggle = post.querySelector<HTMLElement>(
+        "[data-testid='chat-peer-expand']"
+      );
+      if (toggle) fireEvent.click(toggle);
       const body = Array.from(post.querySelectorAll("div")).find((el) =>
         el.className.includes(POST_BODY_MEASURE)
       );
@@ -1468,7 +1481,9 @@ describe("ChatFeed", () => {
       first.querySelector("[data-testid='chat-post-author']")?.className
     ).toContain("max-w-full");
 
-    // The sender's icon with the arrows overlay, on header rows only.
+    // The sender's icon: the agent's own side post keeps its avatar with the
+    // arrows overlay; a peer's folded row carries the small type icon in its
+    // gutter instead, the same place a Dispatch notice puts its bell.
     expect(first.querySelector("[aria-label='Claude agent']")).not.toBeNull();
     expect(
       first.querySelector("[data-testid='chat-avatar-side-badge']")
@@ -1476,7 +1491,7 @@ describe("ChatFeed", () => {
     expect(third.querySelector("[aria-label='Codex agent']")).not.toBeNull();
     expect(
       third.querySelector("[data-testid='chat-avatar-side-badge']")
-    ).not.toBeNull();
+    ).toBeNull();
 
     // Same sender → same recipient groups; the reply from the other side
     // starts a new group, and the agent's post to the user right before

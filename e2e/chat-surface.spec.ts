@@ -318,22 +318,24 @@ test.describe("Chat surface", () => {
     const body = pane.getByTestId("chat-peer-body");
     await expect(body).toBeVisible();
     const toggle = pane.getByTestId("chat-peer-expand");
-    await expect(toggle).toHaveText("Show more");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    // Folded, the post is bounded however long it is; the header above it
-    // still says who spoke to whom.
+    // Folded, the post is one notice-shaped row however long it is, and the
+    // row itself says who spoke to whom.
     const foldedHeight = await body.evaluate(
       (node) => node.getBoundingClientRect().height
     );
-    expect(foldedHeight).toBeLessThan(90);
+    expect(foldedHeight).toBeLessThan(60);
     await expect(pane.getByTestId("chat-side-header")).toBeVisible();
+    await expect(toggle).toContainText("Plan context does not define");
     await page.screenshot({
       path: test.info().outputPath("peer-folded.png"),
       fullPage: true,
     });
 
     await toggle.click();
-    await expect(toggle).toHaveText("Show less");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(body).toContainText("THE TAIL LINE");
     const openHeight = await body.evaluate(
       (node) => node.getBoundingClientRect().height
     );

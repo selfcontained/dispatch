@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Hourglass,
   Loader2,
@@ -311,40 +313,139 @@ export function MessageCopyButton({ text }: { text: string }): JSX.Element {
  * recipient" and its avatar badged with arrows.
  */
 /**
- * A peer post's body, folded to its opening lines until asked.
+ * A peer post as one notice row, the same shape as a Dispatch-injected
+ * prompt in the turn stream (see NoticeLine in turn/prompt-line.tsx): a
+ * small gutter icon, the who/whom/when cluster where that row wears its
+ * chip, the opening of the text inline, and a chevron. Agents talk to each
+ * other in paragraphs, and a handful of those between two turns buried the
+ * conversation the user was in; the header was already the part worth
+ * scanning, so the body waits behind the chevron.
  *
- * Agents talk to each other in full paragraphs, and a handful of those
- * between two turns buries the conversation the user is actually in. The
- * header already says who spoke to whom and when, which is the part worth
- * scanning; the body is detail, so it waits behind a click.
- *
- * Bounded by height rather than `line-clamp`, because a post body is
- * arbitrary markdown: `-webkit-line-clamp` needs a `-webkit-box`, which
- * breaks lists and code blocks.
+ * `excerpt` is the raw text for the inline line; `children` is the full
+ * body, rendered only once open. Without an excerpt the children stand in,
+ * clipped by height, for a caller that has no plain text to offer.
  */
-function PeerBody({ children }: { children: ReactNode }): JSX.Element {
+function PeerLine({
+  author,
+  at,
+  side,
+  excerpt,
+  meta,
+  action,
+  children,
+}: {
+  author: PostAuthor;
+  at: string;
+  side?: { recipientName: string };
+  excerpt?: string;
+  meta?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}): JSX.Element {
   const [open, setOpen] = useState(false);
   return (
-    <div data-testid="chat-peer-body" data-open={open ? "true" : undefined}>
-      {/* Clipped visually, never hidden from assistive tech: the text is all
-          in the DOM either way, so a screen reader reads the whole post and
-          the fold costs it nothing. */}
-      <div className={cn("relative", !open && "max-h-12 overflow-hidden")}>
-        {children}
-        {open ? null : (
-          // The fade says "there is more" without spending a row on a label.
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-background" />
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        data-testid="chat-peer-expand"
-        className="mt-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground pointer-coarse:py-2"
+    <div
+      className="flex min-w-0 flex-1 items-start gap-[9px]"
+      data-testid="chat-peer-body"
+      data-open={open ? "true" : undefined}
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-[19px] w-[13px] shrink-0 items-center justify-center text-muted-foreground"
       >
-        {open ? "Show less" : "Show more"}
-      </button>
+        <AgentTypeIcon type={author.agentType} className="h-3 w-3" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-testid="chat-peer-expand"
+          className="flex w-full items-start gap-[9px] rounded-md text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
+        >
+          <span
+            className={cn(
+              "min-w-0 flex-1 text-[11.5px] leading-[1.55]",
+              !open && "line-clamp-2"
+            )}
+          >
+            <span
+              className="mr-1.5 inline-flex max-w-full flex-wrap items-baseline gap-x-1.5"
+              {...(side
+                ? {
+                    "aria-label": `${author.name} → ${side.recipientName}`,
+                    "data-testid": "chat-side-header",
+                  }
+                : {})}
+            >
+              <span
+                className="max-w-full truncate font-semibold text-foreground"
+                data-testid="chat-post-author"
+              >
+                {author.name}
+              </span>
+              <AgentRelationBadge
+                relation={author.relation ?? "agent"}
+                className="leading-[14px]"
+              />
+              {side ? (
+                <span
+                  className="min-w-[8rem] max-w-full truncate text-muted-foreground"
+                  data-testid="chat-side-recipient"
+                >
+                  <span aria-hidden="true">→ </span>
+                  {side.recipientName}
+                </span>
+              ) : null}
+              <span
+                className="shrink-0 text-[10.5px] text-muted-foreground"
+                title={formatDateTime(at)}
+              >
+                {clockTime(at)}
+              </span>
+              {meta}
+            </span>
+            {open || !excerpt ? null : (
+              <span
+                className={
+                  side ? "text-muted-foreground" : "text-foreground/75"
+                }
+              >
+                {excerpt}
+              </span>
+            )}
+          </span>
+          <span
+            aria-hidden="true"
+            className="shrink-0 pt-1 text-muted-foreground/70"
+          >
+            {open ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+          </span>
+        </button>
+        {/* Clipped by height, never hidden from assistive tech, when there
+            is no excerpt: the text is in the DOM either way. */}
+        {open || !excerpt ? (
+          <div
+            className={cn(
+              "mt-1 text-[12.5px]",
+              side ? "text-muted-foreground" : "text-foreground",
+              POST_BODY_MEASURE,
+              !open && "max-h-12 overflow-hidden"
+            )}
+          >
+            {children}
+          </div>
+        ) : null}
+      </div>
+      {action ? (
+        <div className="shrink-0" data-testid="chat-post-action">
+          {action}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -356,6 +457,8 @@ export function Post({
   rule = false,
   side,
   action,
+  excerpt,
+  meta,
   children,
   ...rest
 }: {
@@ -368,16 +471,21 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
+  /** Peers only: the raw text, for the folded row's inline opening. */
+  excerpt?: string;
+  /** Peers only: a status word that must read even while folded. */
+  meta?: ReactNode;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
+  const compact = author.kind === "peer";
   return (
     <div
       className={cn(
         "group relative flex min-w-0 max-w-full gap-3 transition-colors",
         side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
         side ? POST_TINT.peer : POST_TINT[author.kind],
-        grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
+        compact ? "py-1" : grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
       )}
       data-grouped={grouped ? "true" : undefined}
@@ -387,77 +495,93 @@ export function Post({
       data-side={side ? "true" : undefined}
       {...rest}
     >
-      <div className="flex w-8 shrink-0 justify-end">
-        {grouped ? (
-          <span
-            className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
-            title={formatDateTime(at)}
-            data-testid="chat-gutter-time"
-          >
-            {gutterTime(at)}
-          </span>
-        ) : (
-          <Avatar author={author} side={side !== undefined} />
-        )}
-      </div>
-      <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
-        {action ? (
-          <div
-            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
-            data-testid="chat-post-action"
-          >
-            {action}
-          </div>
-        ) : null}
-        {grouped ? null : (
-          <div
-            // Wrapping keeps the recipient readable on narrow screens: rather
-            // than squeezing "→ recipient" to nothing beside a long sender,
-            // it drops to its own line.
-            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight"
-            {...(side
-              ? {
-                  "aria-label": `${author.name} → ${side.recipientName}`,
-                  "data-testid": "chat-side-header",
-                }
-              : {})}
-          >
-            <span
-              className="max-w-full truncate text-sm font-semibold text-foreground"
-              data-testid="chat-post-author"
-            >
-              {author.name}
-            </span>
-            {author.kind === "peer" ? (
-              <AgentRelationBadge relation={author.relation ?? "agent"} />
-            ) : null}
-            {side ? (
-              <span
-                className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
-                data-testid="chat-side-recipient"
-              >
-                <span aria-hidden="true">→ </span>
-                {side.recipientName}
-              </span>
-            ) : null}
-            <span
-              className="shrink-0 text-[11px] text-muted-foreground"
-              title={formatDateTime(at)}
-            >
-              {clockTime(at)}
-            </span>
-          </div>
-        )}
-        <div
-          className={cn(
-            "min-w-0 max-w-full text-sm",
-            side ? "text-muted-foreground" : "text-foreground",
-            POST_BODY_MEASURE
-          )}
+      {compact ? (
+        <PeerLine
+          author={author}
+          at={at}
+          side={side}
+          excerpt={excerpt}
+          meta={meta}
+          action={action}
         >
-          {author.kind === "peer" ? <PeerBody>{children}</PeerBody> : children}
-        </div>
-      </div>
+          {children}
+        </PeerLine>
+      ) : (
+        <>
+          <div className="flex w-8 shrink-0 justify-end">
+            {grouped ? (
+              <span
+                className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
+                title={formatDateTime(at)}
+                data-testid="chat-gutter-time"
+              >
+                {gutterTime(at)}
+              </span>
+            ) : (
+              <Avatar author={author} side={side !== undefined} />
+            )}
+          </div>
+          <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
+            {action ? (
+              <div
+                className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
+                data-testid="chat-post-action"
+              >
+                {action}
+              </div>
+            ) : null}
+            {grouped ? null : (
+              <div
+                // Wrapping keeps the recipient readable on narrow screens: rather
+                // than squeezing "→ recipient" to nothing beside a long sender,
+                // it drops to its own line.
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight"
+                {...(side
+                  ? {
+                      "aria-label": `${author.name} → ${side.recipientName}`,
+                      "data-testid": "chat-side-header",
+                    }
+                  : {})}
+              >
+                <span
+                  className="max-w-full truncate text-sm font-semibold text-foreground"
+                  data-testid="chat-post-author"
+                >
+                  {author.name}
+                </span>
+                {author.kind === "peer" ? (
+                  <AgentRelationBadge relation={author.relation ?? "agent"} />
+                ) : null}
+                {side ? (
+                  <span
+                    className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
+                    data-testid="chat-side-recipient"
+                  >
+                    <span aria-hidden="true">→ </span>
+                    {side.recipientName}
+                  </span>
+                ) : null}
+                <span
+                  className="shrink-0 text-[11px] text-muted-foreground"
+                  title={formatDateTime(at)}
+                >
+                  {clockTime(at)}
+                </span>
+              </div>
+            )}
+            <div
+              className={cn(
+                "min-w-0 max-w-full text-sm",
+                side ? "text-muted-foreground" : "text-foreground",
+                POST_BODY_MEASURE
+              )}
+            >
+              {children}
+              {meta ? <div className="mt-1">{meta}</div> : null}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -864,26 +988,29 @@ export const AgentMessageView = memo(function AgentMessageView({
       data-testid="chat-agent-message"
       data-direction={entry.direction}
       action={<MessageCopyButton text={entry.content} />}
+      excerpt={entry.content}
+      meta={
+        delivered === null ? (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground"
+            title="Delivering to the recipient agent's terminal."
+            data-testid="chat-agent-message-pending"
+          >
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Sending
+          </span>
+        ) : delivered === false ? (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] text-destructive"
+            title="The recipient agent wasn't running, so it never received this message."
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Not delivered
+          </span>
+        ) : null
+      }
     >
       <div className="whitespace-pre-wrap break-words">{entry.content}</div>
-      {delivered === null ? (
-        <div
-          className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-          title="Delivering to the recipient agent's terminal."
-          data-testid="chat-agent-message-pending"
-        >
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Sending
-        </div>
-      ) : delivered === false ? (
-        <div
-          className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
-          title="The recipient agent wasn't running, so it never received this message."
-        >
-          <AlertTriangle className="h-3 w-3" />
-          Not delivered
-        </div>
-      ) : null}
     </Post>
   );
 });
