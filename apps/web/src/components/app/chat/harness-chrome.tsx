@@ -475,7 +475,7 @@ export function useHarnessChrome({
             data-testid="harness-login-action"
           >
             <LogIn className="mr-1.5 h-3.5 w-3.5" />
-            {loginStarting ? "Opening Console…" : `Log in to ${engine?.label}`}
+            {loginStarting ? "Opening Terminal…" : `Log in to ${engine?.label}`}
           </Button>
         ) : null}
         {/* Driven by `starting` rather than keyed on it, so the chips keep

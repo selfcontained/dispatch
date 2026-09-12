@@ -458,7 +458,7 @@ describe("AgentPane for a dispatch agent", () => {
     expect(screen.getByTestId("chat-harness-chrome")).toBeTruthy();
   });
 
-  it("keeps the Console segment and the chat filter, and shows unread under Console", () => {
+  it("keeps the terminal segment and the chat filter, and shows unread under it", () => {
     renderPane({
       agent: dispatchAgentNamed("agt_a"),
       view: "console",
@@ -471,5 +471,22 @@ describe("AgentPane for a dispatch agent", () => {
     expect(screen.getByTestId("agent-view-chat-unread").textContent).toBe("3");
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
     expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(false);
+  });
+
+  it("calls the second segment Terminal, since the engine never writes there", () => {
+    const { unmount } = renderPane({
+      agent: dispatchAgentNamed("agt_a"),
+      view: "chat",
+    });
+    const segment = screen.getByTestId("agent-view-console");
+    expect(segment.textContent).toContain("Terminal");
+    expect(segment.getAttribute("aria-label")).toBe("Terminal");
+    unmount();
+
+    // Every other type still writes to that pane, so it stays "Console".
+    renderPane({ agent: agentNamed("agt_b"), view: "chat" });
+    expect(screen.getByTestId("agent-view-console").textContent).toContain(
+      "Console"
+    );
   });
 });

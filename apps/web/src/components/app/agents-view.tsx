@@ -674,6 +674,9 @@ export function AgentsView({
       <AgentViewToggle
         view={agentView}
         onViewChange={setAgentView}
+        terminalLabel={
+          focusedAgent?.type === "dispatch" ? "Terminal" : "Console"
+        }
         chatUnreadCount={chatUnreadCount}
         showChildAgents={showChildAgents}
         onShowChildAgentsChange={setShowChildAgents}

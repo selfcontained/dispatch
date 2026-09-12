@@ -295,7 +295,7 @@ function UnknownBilling({
           data-testid="harness-usage-login"
         >
           <LogIn className="mr-1.5 h-3.5 w-3.5" />
-          {loginPending ? "Opening Console…" : "Log in"}
+          {loginPending ? "Opening Terminal…" : "Log in"}
         </Button>
       ) : null}
     </section>
