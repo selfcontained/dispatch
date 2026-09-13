@@ -163,6 +163,26 @@ describe("github pr services", () => {
     );
   });
 
+  it("rejects with a 404 GitHubPrError outside a git repository", async () => {
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      throw new Error(`fatal: not a git repository: ${args.join(" ")}`);
+    });
+
+    const createPromise = createPr({ cwd: "/tmp/not-a-repo" }, runner);
+    await expect(createPromise).rejects.toBeInstanceOf(GitHubPrError);
+    await expect(createPromise).rejects.toMatchObject({
+      message: "No git repository found for the provided working directory.",
+      statusCode: 404,
+    });
+
+    const statusPromise = getPrStatus({ cwd: "/tmp/not-a-repo" }, runner);
+    await expect(statusPromise).rejects.toBeInstanceOf(GitHubPrError);
+    await expect(statusPromise).rejects.toMatchObject({
+      message: "No git repository found for the provided working directory.",
+      statusCode: 404,
+    });
+  });
+
   it("reports PR status details", async () => {
     const repoRoot = "/tmp/repo";
     const runner = vi.fn(async (_command: string, args: string[]) => {

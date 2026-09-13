@@ -452,6 +452,28 @@ describe("git worktree services", () => {
     });
   });
 
+  it("rejects with a 404 GitWorktreeError outside a git repository", async () => {
+    const cwd = path.join(tempRoot, "not-a-repo");
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      throw new Error(`fatal: not a git repository: ${args.join(" ")}`);
+    });
+
+    const createPromise = createGitWorktree({ cwd, name: "feature" });
+    await expect(createPromise).rejects.toBeInstanceOf(GitWorktreeError);
+    await expect(createPromise).rejects.toMatchObject({
+      message: "No git repository found for the provided working directory.",
+      statusCode: 404,
+    });
+
+    const cleanupPromise = cleanupGitWorktree({ cwd });
+    await expect(cleanupPromise).rejects.toBeInstanceOf(GitWorktreeError);
+    await expect(cleanupPromise).rejects.toMatchObject({
+      message: "No git repository found for the provided working directory.",
+      statusCode: 404,
+    });
+  });
+
   it("rejects cleanup when called from the primary checkout", async () => {
     const repoRoot = path.join(tempRoot, "repo");
 
