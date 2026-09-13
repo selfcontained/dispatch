@@ -5,7 +5,7 @@ import { access } from "node:fs/promises";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 import {
   normalizePath,
-  resolveCheckoutRoot,
+  resolveCheckoutRootOrThrow,
   resolveCurrentBranch,
 } from "./git-context.js";
 
@@ -115,7 +115,11 @@ export async function createGitWorktree(
     throw new GitWorktreeError("name is required.", 400);
   }
 
-  const repoRoot = await resolveRepoRoot(cwd, commandRunner);
+  const repoRoot = await resolveCheckoutRootOrThrow(
+    cwd,
+    commandRunner,
+    GitWorktreeError
+  );
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
   const createNewBranch = input.createNewBranch ?? false;
   const branchName = createNewBranch
@@ -230,7 +234,11 @@ export async function cleanupGitWorktree(
     throw new GitWorktreeError("cwd is required.", 400);
   }
 
-  const worktreePath = await resolveCurrentCheckoutRoot(cwd, commandRunner);
+  const worktreePath = await resolveCheckoutRootOrThrow(
+    cwd,
+    commandRunner,
+    GitWorktreeError
+  );
   const repoRoot = await resolveCommonRepoRoot(worktreePath, commandRunner);
   const normalizedWorktreePath = normalizePath(worktreePath);
   const normalizedRepoRoot = normalizePath(repoRoot);
@@ -342,27 +350,6 @@ export async function cleanupGitWorktree(
     updatedBaseBranch,
     deletedBranch,
   };
-}
-
-async function resolveRepoRoot(
-  cwd: string,
-  commandRunner: CommandRunner
-): Promise<string> {
-  try {
-    return await resolveCheckoutRoot(cwd, commandRunner);
-  } catch {
-    throw new GitWorktreeError(
-      "No git repository found for the provided working directory.",
-      404
-    );
-  }
-}
-
-async function resolveCurrentCheckoutRoot(
-  cwd: string,
-  commandRunner: CommandRunner
-): Promise<string> {
-  return await resolveRepoRoot(cwd, commandRunner);
 }
 
 async function resolveCommonRepoRoot(

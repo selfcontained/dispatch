@@ -68,7 +68,8 @@ export async function resolveRepoRoot(
  * Root of the current checkout (`--show-toplevel`) — for a linked worktree
  * this is the worktree path, not the main repository root. No timeout is
  * applied unless one is passed. Throws when `cwd` is not inside a git
- * working tree; callers that need a domain-specific error should rewrap.
+ * working tree; callers that need a domain-specific error should use
+ * resolveCheckoutRootOrThrow.
  */
 export async function resolveCheckoutRoot(
   cwd: string,
@@ -83,6 +84,25 @@ export async function resolveCheckoutRoot(
       })
     ).stdout
   );
+}
+
+/**
+ * resolveCheckoutRoot, rewrapping any failure as a 404 of the caller's
+ * domain error class so HTTP/MCP error mapping keys off that class.
+ */
+export async function resolveCheckoutRootOrThrow(
+  cwd: string,
+  commandRunner: CommandRunner,
+  ErrorClass: new (message: string, statusCode: number) => Error
+): Promise<string> {
+  try {
+    return await resolveCheckoutRoot(cwd, commandRunner);
+  } catch {
+    throw new ErrorClass(
+      "No git repository found for the provided working directory.",
+      404
+    );
+  }
 }
 
 export async function resolveWorktreeRoot(

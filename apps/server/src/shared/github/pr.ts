@@ -1,5 +1,5 @@
 import {
-  resolveCheckoutRoot,
+  resolveCheckoutRootOrThrow,
   resolveCurrentBranch,
 } from "../git/git-context.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
@@ -62,7 +62,11 @@ export async function createPr(
   commandRunner: CommandRunner = runCommand
 ): Promise<CreatePrResult> {
   const cwd = requireString(input.cwd, "cwd");
-  const repoRoot = await resolveRepoRoot(cwd, commandRunner);
+  const repoRoot = await resolveCheckoutRootOrThrow(
+    cwd,
+    commandRunner,
+    GitHubPrError
+  );
   const baseBranch = input.baseBranch?.trim() || "main";
   const branchName = await resolveCurrentBranch(repoRoot, commandRunner);
 
@@ -132,7 +136,11 @@ export async function getPrStatus(
   commandRunner: CommandRunner = runCommand
 ): Promise<GetPrStatusResult> {
   const cwd = requireString(input.cwd, "cwd");
-  const repoRoot = await resolveRepoRoot(cwd, commandRunner);
+  const repoRoot = await resolveCheckoutRootOrThrow(
+    cwd,
+    commandRunner,
+    GitHubPrError
+  );
 
   const args = [
     "pr",
@@ -162,20 +170,6 @@ export async function getPrStatus(
     baseRefName: stringField(parsed.baseRefName, "baseRefName"),
     statusSummary: parseStatusCheckRollup(parsed.statusCheckRollup),
   };
-}
-
-async function resolveRepoRoot(
-  cwd: string,
-  commandRunner: CommandRunner
-): Promise<string> {
-  try {
-    return await resolveCheckoutRoot(cwd, commandRunner);
-  } catch {
-    throw new GitHubPrError(
-      "No git repository found for the provided working directory.",
-      404
-    );
-  }
 }
 
 async function ensureBaseBranchHasDiff(
