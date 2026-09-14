@@ -9,6 +9,7 @@ import type {
   JobRunRecord,
   JobRunStatus,
   JobWithLatestRun,
+  RunJobResult,
 } from "../../../server/src/jobs/store";
 
 export type { JobAgentType, JobNotifyConfig, JobReport, JobRunStatus };
@@ -18,14 +19,6 @@ export type Job = JobWithLatestRun & { nextRun: string | null };
 export type JobRun = JobRunRecord;
 
 export type AddJobConfig = AddJobInput;
-
-export type RunJobResult = {
-  jobId: string;
-  runId: string;
-  agentId: string;
-  status: JobRunStatus;
-  report: JobReport | null;
-};
 
 type JobIdentity = Pick<Job, "name" | "directory">;
 
