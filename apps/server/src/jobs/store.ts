@@ -13,9 +13,9 @@ import {
 } from "./report.js";
 
 // The job wire types below (JobNotifyConfig, JobRunStatus, JobAgentType,
-// JobRecord, JobRunRecord, JobWithLatestRun, AddJobInput) are imported
-// type-only by the web client (apps/web/src/hooks/use-jobs.ts) so both sides
-// of the API agree on one definition.
+// JobRecord, JobRunRecord, RunJobResult, JobWithLatestRun, AddJobInput) are
+// imported type-only by the web client (apps/web/src/hooks/use-jobs.ts) so
+// both sides of the API agree on one definition.
 export type JobNotifyConfig = {
   onComplete: string[];
   onError: string[];
@@ -82,6 +82,14 @@ export type JobRunRecord = {
   continuation: ContinuationStatus | null;
   continuationPending: boolean;
   continuationRetries: number;
+};
+
+export type RunJobResult = {
+  jobId: string;
+  runId: string;
+  agentId: string;
+  status: JobRunRecord["status"];
+  report: JobRunRecord["report"];
 };
 
 export type ContinuationStatus = {

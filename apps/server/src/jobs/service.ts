@@ -26,6 +26,7 @@ import {
   type JobRunConfig,
   type JobRunRecord,
   type JobWithLatestRun,
+  type RunJobResult,
 } from "./store.js";
 import {
   TemplateStore,
@@ -53,14 +54,6 @@ type RunJobInput = {
 };
 
 export type { AddJobInput } from "./store.js";
-
-export type RunJobResult = {
-  jobId: string;
-  runId: string;
-  agentId: string;
-  status: JobRunRecord["status"];
-  report: JobRunRecord["report"];
-};
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
