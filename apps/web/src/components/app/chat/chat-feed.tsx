@@ -1,4 +1,13 @@
-import { type ReactNode, useMemo, useRef } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  type Ref,
+  useMemo,
+  useRef,
+} from "react";
+import type { VirtualItem } from "@tanstack/react-virtual";
+import { VirtualChatRows, type VirtualChatHandle } from "./virtual-chat-rows";
+import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 import type {
   ChatFeedEntry,
   ChatMessage,
@@ -320,6 +329,10 @@ export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
 }
 
 export type ChatFeedProps = {
+  scrollRef?: RefObject<HTMLDivElement>;
+  virtualRef?: Ref<VirtualChatHandle>;
+  measurements?: VirtualItem[];
+  initialOffset?: number;
   entries: ChatFeedEntry[];
   ctx: FeedContext;
   /** Message currently waiting out the injection hold, if any. */
@@ -332,6 +345,10 @@ export type ChatFeedProps = {
 };
 
 export function ChatFeed({
+  scrollRef,
+  virtualRef,
+  measurements,
+  initialOffset,
   entries,
   ctx,
   heldMessageId,
@@ -350,97 +367,125 @@ export function ChatFeed({
   );
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries);
+  const rowStates = useRef(new Map<string, ChatRowState>());
+  const present = new Set(entries.map((entry) => entry.id));
+  for (const id of rowStates.current.keys()) {
+    if (!present.has(id)) rowStates.current.delete(id);
+  }
 
+  const renderRow = (row: ChatFeedRow) => {
+    if (row.kind === "divider") {
+      return <DayDivider key={row.key} label={row.label} />;
+    }
+    const entry = row.entry;
+    let state = rowStates.current.get(entry.id);
+    if (!state) {
+      state = new Map();
+      rowStates.current.set(entry.id, state);
+    }
+    const answeredOptionLabel = (() => {
+      if (entry.type !== "chat" || !entry.message.replyTo) return null;
+      const question = messageDirectory.get(entry.message.replyTo);
+      if (question?.answer?.replyMessageId !== entry.message.id) return null;
+      const option = question.question?.options.find(
+        (candidate) =>
+          (candidate.value ?? candidate.label) === question.answer?.value
+      );
+      return option?.label ?? null;
+    })();
+    const view = ((): JSX.Element | null => {
+      switch (entry.type) {
+        case "chat":
+          return (
+            <ChatMessageView
+              message={entry.message}
+              held={heldMessageId === entry.message.id}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+              answering={answeringMessageId === entry.message.id}
+              answersDisabled={answersDisabled}
+              answeredOptionLabel={answeredOptionLabel}
+              onAnswer={onAnswer}
+            />
+          );
+        case "agent_message":
+          return (
+            <AgentMessageView
+              entry={entry}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+            />
+          );
+        case "media":
+          return (
+            <MediaEntryView
+              entry={entry}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+            />
+          );
+        case "review":
+          return (
+            <ReviewEntryView
+              entry={entry}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+            />
+          );
+        case "turn":
+          return (
+            <TurnEntryView
+              entry={entry}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+            />
+          );
+        case "pin":
+          return (
+            <PinEntryView
+              entry={entry}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+            />
+          );
+      }
+    })();
+    return (
+      <Enter key={entry.id} id={entry.id} entering={entering}>
+        <ChatRowStateContext.Provider value={state}>
+          {view}
+        </ChatRowStateContext.Provider>
+      </Enter>
+    );
+  };
   return (
     <div
       className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
       data-testid="chat-feed"
     >
-      {rows.map((row) => {
-        if (row.kind === "divider") {
-          return <DayDivider key={row.key} label={row.label} />;
-        }
-        const entry = row.entry;
-        const answeredOptionLabel = (() => {
-          if (entry.type !== "chat" || !entry.message.replyTo) return null;
-          const question = messageDirectory.get(entry.message.replyTo);
-          if (question?.answer?.replyMessageId !== entry.message.id)
-            return null;
-          const option = question.question?.options.find(
-            (candidate) =>
-              (candidate.value ?? candidate.label) === question.answer?.value
-          );
-          return option?.label ?? null;
-        })();
-        const view = ((): JSX.Element | null => {
-          switch (entry.type) {
-            case "chat":
-              return (
-                <ChatMessageView
-                  message={entry.message}
-                  held={heldMessageId === entry.message.id}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                  answering={answeringMessageId === entry.message.id}
-                  answersDisabled={answersDisabled}
-                  answeredOptionLabel={answeredOptionLabel}
-                  onAnswer={onAnswer}
-                />
-              );
-            case "agent_message":
-              return (
-                <AgentMessageView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "media":
-              return (
-                <MediaEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "review":
-              return (
-                <ReviewEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "turn":
-              return (
-                <TurnEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "pin":
-              return (
-                <PinEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-          }
-        })();
-        return (
-          <Enter key={entry.id} id={entry.id} entering={entering}>
-            {view}
-          </Enter>
-        );
-      })}
+      {scrollRef && rows.length > 80 ? (
+        <VirtualChatRows
+          rows={rows}
+          rowKey={feedRowKey}
+          renderRow={renderRow}
+          scrollRef={scrollRef}
+          handleRef={virtualRef}
+          measurements={measurements}
+          initialOffset={initialOffset}
+        />
+      ) : (
+        rows.map(renderRow)
+      )}
     </div>
   );
+}
+
+function feedRowKey(row: ChatFeedRow): string {
+  return row.kind === "divider" ? row.key : row.entry.id;
 }

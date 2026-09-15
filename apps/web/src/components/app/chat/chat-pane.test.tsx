@@ -921,6 +921,7 @@ describe("ChatPane scroll memory", () => {
     // parked on the third, 50px of it scrolled past.
     expect(readChatScrollPosition("agt_1")).toEqual({
       following: false,
+      offset: 250,
       anchors: [{ entryId: "m3", offset: -50 }],
     });
   });

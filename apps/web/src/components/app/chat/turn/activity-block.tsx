@@ -13,6 +13,8 @@ import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
 import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "@/components/app/harness/use-stream-ticker";
+import { useChatRowState } from "../chat-row-state";
+import { VirtualChatRows } from "../virtual-chat-rows";
 
 /** Fill behind the rail; steps mask the guide line with the same color. */
 const BLOCK_FILL = "bg-muted";
@@ -36,10 +38,13 @@ function ActivityBlockImpl({
   label?: string;
 }): JSX.Element {
   const done = trace.endedAt != null;
-  const [blockOverride, setBlockOverride] = useState<boolean | null>(null);
-  const [stepOverrides, setStepOverrides] = useState<Record<string, boolean>>(
-    {}
+  const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
+    "activity-open",
+    null
   );
+  const [stepOverrides, setStepOverrides] = useChatRowState<
+    Record<string, boolean>
+  >("activity-steps", {});
   const open = blockOverride ?? !done;
   // Toggling the block swaps its toggle control between the header collapse
   // button and the CollapsedSummary button, two different DOM nodes, so a
@@ -68,6 +73,16 @@ function ActivityBlockImpl({
   const stepOpen = (step: Step): boolean => stepOverrides[step.id] ?? false;
   const toggleStep = (step: Step) =>
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
+  const renderStep = (step: Step) => (
+    <StepRow
+      key={step.id}
+      step={step}
+      index={0}
+      open={stepOpen(step)}
+      onToggle={() => toggleStep(step)}
+      maskClass={BLOCK_FILL}
+    />
+  );
 
   return (
     <motion.div
@@ -123,16 +138,25 @@ function ActivityBlockImpl({
                 className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border"
               />
               <div role="list" aria-label="activity steps" className="relative">
-                {trace.steps.map((step, i) => (
-                  <StepRow
-                    key={step.id}
-                    step={step}
-                    index={burstIndex(trace.steps, i)}
-                    open={stepOpen(step)}
-                    onToggle={() => toggleStep(step)}
-                    maskClass={BLOCK_FILL}
+                {trace.steps.length > 80 ? (
+                  <VirtualChatRows
+                    rows={trace.steps}
+                    rowKey={stepKey}
+                    renderRow={renderStep}
+                    estimate={36}
                   />
-                ))}
+                ) : (
+                  trace.steps.map((step, i) => (
+                    <StepRow
+                      key={step.id}
+                      step={step}
+                      index={burstIndex(trace.steps, i)}
+                      open={stepOpen(step)}
+                      onToggle={() => toggleStep(step)}
+                      maskClass={BLOCK_FILL}
+                    />
+                  ))
+                )}
                 {!done &&
                 trace.steps.length > 0 &&
                 !trace.steps.some((s) => s.status === "running") ? (
@@ -157,6 +181,10 @@ function ActivityBlockImpl({
 }
 
 export const ActivityBlock = memo(ActivityBlockImpl);
+
+function stepKey(step: Step): string {
+  return step.id;
+}
 
 function BlockHeader({
   trace,

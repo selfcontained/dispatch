@@ -477,6 +477,18 @@ Known limits:
 - Dispatch still cannot prove the killer if macOS did not log it or if the evidence aged out before inspection
 - If the host logged out, rebooted, or aggressively reaped processes, unified logs are still the source of truth
 
+## Long chat histories
+
+Chat fetches history in pages of 100. Once more than 80 display rows are loaded,
+the feed mounts only the viewport and six buffer rows on either side. Long
+top-level activity rails use the same windowing. Expanded activity disclosures
+are kept in feed-local state while rows are offscreen.
+
+This bounds mounted UI work, not the size of fetched history or an individual
+message/tool result. Loaded data stays in the query cache; nested subagent
+details and a single large markdown/code block are not individually virtualized.
+Browser Find and selection operate on mounted content, not the entire history.
+
 ## Bin Scripts
 
 | Script                         | Description                                                                                        |

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import type { ChatFeedEntry } from "@dispatch/shared";
 
 import {
   authHeaders,
@@ -62,6 +63,215 @@ async function callMcpTool(
 }
 
 test.describe("Chat surface", () => {
+  test("windows thousands of messages and preserves older-history anchors", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-window-${Date.now()}`,
+    });
+    const entries: ChatFeedEntry[] = Array.from(
+      { length: 5000 },
+      (_, index) => {
+        const at = new Date(Date.UTC(2026, 0, 1) + index * 1000).toISOString();
+        const id = `window-message-${index}`;
+        return {
+          type: "chat",
+          id,
+          at,
+          message: {
+            id,
+            agentId: agent.id,
+            authorKind: "agent",
+            kind: "reply",
+            text: `Window message ${index}\n\n${"Variable height content. ".repeat((index % 8) + 1)}`,
+            replyTo: null,
+            question: null,
+            answer: null,
+            attachments: [],
+            delivered: true,
+            readAt: at,
+            createdAt: at,
+            updatedAt: at,
+          },
+        };
+      }
+    );
+    await page.route(`**/api/v1/agents/${agent.id}/chat?*`, (route) => {
+      const older = new URL(route.request().url()).searchParams.has("cursor");
+      return route.fulfill({
+        json: {
+          entries: older ? entries.slice(0, 500) : entries.slice(500),
+          hasMore: !older,
+          nextCursor: older ? null : "older",
+          unreadCount: 0,
+        },
+      });
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const scroller = page.getByTestId("chat-scroll");
+    await expect(
+      page.getByText("Window message 4999", { exact: false })
+    ).toBeVisible();
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    console.log(
+      "Large history mounted rows:",
+      await page.locator("[data-chat-entry-id]").count()
+    );
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    const anchor = page.locator('[data-chat-entry-id="window-message-500"]');
+    await expect(anchor).toBeVisible();
+    const before = await anchor.evaluate(
+      (el) => el.getBoundingClientRect().top
+    );
+    await page.getByRole("button", { name: "Load older", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Load older", exact: true })
+    ).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await anchor.evaluate((el) => el.getBoundingClientRect().top)) -
+            before
+        )
+      )
+      .toBeLessThan(20);
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-history.png",
+      fullPage: true,
+    });
+    const other = await createAgentViaAPI(request, {
+      name: `e2e-chat-window-other-${Date.now()}`,
+    });
+    await clickAgentRow(page, other.id);
+    await clickAgentRow(page, agent.id);
+    await expect(anchor).toBeVisible();
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await anchor.evaluate((el) => el.getBoundingClientRect().top)) -
+            before
+        )
+      )
+      .toBeLessThan(20);
+    const latest = entries[entries.length - 1]!;
+    if (latest.type !== "chat") throw new Error("Expected chat fixture");
+    entries.push({
+      ...latest,
+      id: "new-window-message",
+      at: new Date().toISOString(),
+      message: {
+        ...latest.message,
+        id: "new-window-message",
+        text: "New window message",
+      },
+    });
+    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+      kind: "reply",
+      text: "Incoming message triggers feed refresh",
+    });
+    await expect(
+      page.getByRole("button", { name: "New messages", exact: true })
+    ).toBeVisible();
+    await expect(anchor).toBeVisible();
+    await page
+      .getByRole("button", { name: "New messages", exact: true })
+      .click();
+    await expect(
+      page.getByText("New window message", { exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByText("Window message 4999", { exact: false })
+    ).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(
+      page.getByText("New window message", { exact: true })
+    ).toBeVisible();
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-mobile.png",
+      fullPage: true,
+    });
+  });
+
+  test("windows tool steps inside a long active turn", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-steps-${Date.now()}`,
+    });
+    const at = new Date().toISOString();
+    const entry: ChatFeedEntry = {
+      type: "turn",
+      id: "large-turn",
+      agentId: agent.id,
+      at,
+      updatedAt: at,
+      prompt: { source: "chat", text: "Long running work", attachments: [] },
+      trace: {
+        startedAt: at,
+        steps: Array.from({ length: 1000 }, (_, index) => ({
+          id: `step-${index}`,
+          kind: "execute",
+          label: `Command ${index}`,
+          status: "ok",
+          startedAt: at,
+          endedAt: at,
+          detail: { terminalOutput: `Output ${index}` },
+        })),
+      },
+      result: { text: "Latest streamed output", streaming: true },
+      settled: false,
+      interrupted: false,
+    };
+    await page.route(`**/api/v1/agents/${agent.id}/chat?*`, (route) =>
+      route.fulfill({
+        json: {
+          entries: [entry],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      })
+    );
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    await expect(page.getByText("Latest streamed output")).toBeVisible();
+    await expect
+      .poll(() => page.getByTestId("harness-step").count())
+      .toBeLessThan(60);
+    console.log(
+      "Large activity mounted steps:",
+      await page.getByTestId("harness-step").count()
+    );
+    await expect(
+      page.getByRole("button", { name: "command 999, completed", exact: true })
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "command 999, completed", exact: true })
+      .click();
+    await expect(page.getByText("Output 999", { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-steps.png",
+      fullPage: true,
+    });
+  });
+
   test.afterEach(async ({ request }) => {
     await setChatSurface(request, false);
     // Server-wide and not per-test: two cases here turn it on, and

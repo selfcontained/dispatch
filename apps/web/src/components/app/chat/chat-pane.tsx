@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
+import type { VirtualItem } from "@tanstack/react-virtual";
+import type { VirtualChatHandle } from "./virtual-chat-rows";
 import { MotionConfig } from "framer-motion";
 import { ArrowDown, MessageSquare, Upload } from "lucide-react";
 
@@ -113,6 +115,8 @@ export type ChatScrollAnchor = {
 };
 
 export type ChatScrollPosition = {
+  offset?: number;
+  measurements?: VirtualItem[];
   /** At the bottom on the way out: reopen following the feed. */
   following: boolean;
   /**
@@ -306,6 +310,7 @@ export function ChatPane({
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualRef = useRef<VirtualChatHandle>(null);
   // A file dropped anywhere on the pane attaches to the composer.
   const dropRef = useRef<HTMLDivElement>(null);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -319,12 +324,21 @@ export function ChatPane({
   const lastEntryKeyRef = useRef<string | null>(null);
   const seenEntryIdsRef = useRef<ReadonlySet<string>>(new Set());
   const lastShowChildAgentsRef = useRef(showChildAgents);
-  const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
+  const olderLoadRef = useRef<{
+    height: number;
+    top: number;
+    firstId?: string;
+    anchors: ChatScrollAnchor[];
+  } | null>(null);
   const restoredRef = useRef(false);
   const rememberTimerRef = useRef<number | null>(null);
   const rememberedAtRef = useRef(0);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    if (virtualRef.current) {
+      virtualRef.current.bottom(behavior);
+      return;
+    }
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
@@ -356,6 +370,8 @@ export function ChatPane({
     rememberChatScrollPosition(agentId, {
       following: distance <= FOLLOW_THRESHOLD_PX,
       anchors: visibleAnchors(el),
+      measurements: virtualRef.current?.snapshot(),
+      offset: el.scrollTop,
     });
   }, [agentId]);
 
@@ -401,16 +417,30 @@ export function ChatPane({
   const loadOlder = useCallback(() => {
     const el = scrollRef.current;
     if (el)
-      olderLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      olderLoadRef.current = {
+        height: el.scrollHeight,
+        top: el.scrollTop,
+        firstId: visibleEntries[0]?.id,
+        anchors: visibleAnchors(el),
+      };
     fetchOlder();
-  }, [fetchOlder]);
+  }, [fetchOlder, visibleEntries]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     // Older page landed above: keep what the user was reading in place.
     const anchor = olderLoadRef.current;
-    if (anchor && el.scrollHeight > anchor.height) {
+    if (
+      anchor &&
+      virtualRef.current &&
+      anchor.firstId !== visibleEntries[0]?.id
+    ) {
+      virtualRef.current.restore(anchor.anchors);
+      olderLoadRef.current = null;
+      return;
+    }
+    if (anchor && !virtualRef.current && el.scrollHeight > anchor.height) {
       el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
       olderLoadRef.current = null;
       return;
@@ -456,7 +486,10 @@ export function ChatPane({
       restoredRef.current = true;
       const saved = savedPositionRef.current;
       const restored =
-        saved !== null && !saved.following && scrollToAnchor(el, saved.anchors);
+        saved !== null &&
+        !saved.following &&
+        (virtualRef.current?.restore(saved.anchors) ??
+          scrollToAnchor(el, saved.anchors));
       if (restored) return;
       setFollowing(true);
       scrollToBottom();
@@ -752,6 +785,10 @@ export function ChatPane({
                 <PinShortcutProvider value={pinShortcuts}>
                   <TurnContextProvider value={turnContext}>
                     <ChatFeed
+                      scrollRef={scrollRef}
+                      virtualRef={virtualRef}
+                      measurements={savedPositionRef.current?.measurements}
+                      initialOffset={savedPositionRef.current?.offset}
                       entries={visibleEntries}
                       ctx={ctx}
                       heldMessageId={heldMessageId}

@@ -23,6 +23,7 @@
 
 These changes also apply to existing CLI agents.
 
+- Long chat histories and long top-level activity rails now render a viewport-sized window instead of mounting every loaded row. Reading positions and activity disclosures are retained while scrolling through history.
 - **Launch guidance for every CLI agent type.** One rule is now added to the launch prompt of every `claude`, `codex`, `cursor` and `opencode` agent: once a task is accepted, do not end a turn after only announcing a plan or a status, continue into the work in the same turn, or report `waiting_user` or `blocked` when you genuinely cannot proceed. Existing agents pick it up the next time their session starts.
 - **A persona review runs as its parent's own kind.** Before, a parent whose type had no saved reviewer type fell back to Codex; now it falls back to the parent's own type, so a Cursor parent's review runs on Cursor. A Dispatch parent's review also inherits its engine, rather than defaulting to Claude Code.
 

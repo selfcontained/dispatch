@@ -1,6 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { useChatRowState } from "../chat-row-state";
 
 import { DiffBlock } from "./diff-block";
 import { Markdown } from "@/components/ui/markdown";
@@ -32,7 +33,10 @@ export function StepDetail({
   /** 0 at the rail's top level; children render one deeper. */
   depth?: number;
 }): JSX.Element | null {
-  const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
+  const [openIds, setOpenIds] = useChatRowState<Record<string, boolean>>(
+    `children:${step.id}`,
+    {}
+  );
   const d = stepDetailData(step);
   if (hasChildren(step)) {
     // The same pl-[21px] the plain body below uses, so the Task step's own
