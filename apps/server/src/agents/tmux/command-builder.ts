@@ -19,12 +19,18 @@ import { agentIdFromSessionName } from "./session-name.js";
 // directly) doesn't redeclare the mapping.
 export const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
-  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin">
+  keyof Pick<
+    AppConfig,
+    "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin" | "claudeHarnessBin"
+  >
 > = {
   codex: "codexBin",
   claude: "claudeBin",
   opencode: "opencodeBin",
   cursor: "cursorBin",
+  // Never read: the `dispatch` branch below returns before the lookup. The
+  // supervisor spawns the engine; the pane is the human's shell.
+  dispatch: "claudeHarnessBin",
 };
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
@@ -52,7 +58,19 @@ export function normalizeAgentArgsForType(
   if (type === "claude") {
     return { passthroughArgs: args, appendedSystemPrompt: null };
   }
+  return extractAppendedSystemPrompt(args);
+}
 
+/**
+ * Split a `--append-system-prompt <value>` pair out of an arg list. This is
+ * how a persona launch carries its brief; the CLI branches that take the
+ * prompt through their own flag call this, and so does the harness persona
+ * builder, which folds the brief into the harness's system prompt.
+ */
+export function extractAppendedSystemPrompt(args: string[]): {
+  passthroughArgs: string[];
+  appendedSystemPrompt: string | null;
+} {
   const passthroughArgs: string[] = [];
   let appendedSystemPrompt: string | null = null;
 
@@ -322,6 +340,9 @@ export function buildLaunchGuidance(
         ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
         : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
+    rules.push(
+      "Once you accept a task, do not end a turn after only announcing a plan or status. Continue into substantive work in the same turn, or explicitly report waiting_user or blocked when you genuinely cannot proceed."
+    );
     if (chatSurface) {
       rules.push(CHAT_SURFACE_GUIDANCE_RULE);
     }
@@ -533,12 +554,37 @@ export function buildAgentCommand(
 
   const envPrefix = envPrefixParts.join(" ");
 
-  // Terminal agents have no CLI to launch — drop the user into an
+  // Terminal agents have no CLI to launch: drop the user into an
   // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
   // non-interactive login shell that exits immediately under `bash -c`,
   // which tears down the tmux session before the browser can attach.
-  if (type === "terminal") {
-    return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
+  // Harness agents get the same shell: the ACP supervisor (agents/harness)
+  // owns the engine process, and the pane is the human's console into the
+  // worktree.
+  //
+  // The `-i` is also what makes the pane land in the wrong place. It sources
+  // the user's rc, and an rc that ends in `cd ~/some-repo` runs *after* the
+  // setup script's `cd "$EFFECTIVE_CWD"`, so the rc wins and the pane opens
+  // on that repo instead of this agent's worktree. CLI agents never see this
+  // because they exec a binary rather than an interactive shell.
+  //
+  // A hook on the first prompt is the only place later than the rc. It fires
+  // once and clears itself, so a cd the user makes afterwards sticks.
+  // $PWD is deliberately unexpanded here: the setup script cds to the
+  // worktree before `exec bash -c`, so it resolves at launch. Limitation: a
+  // user whose rc assigns PROMPT_COMMAND outright drops the hook, and zsh has
+  // no PROMPT_COMMAND at all, so both keep today's behavior.
+  if (type === "terminal" || type === "dispatch") {
+    const returnToCwd =
+      'if [ -n "$DISPATCH_AGENT_CWD" ]; then ' +
+      'cd "$DISPATCH_AGENT_CWD" 2>/dev/null; ' +
+      "unset DISPATCH_AGENT_CWD PROMPT_COMMAND; fi";
+    return [
+      envPrefix,
+      'DISPATCH_AGENT_CWD="$PWD"',
+      `PROMPT_COMMAND=${shellEscape(returnToCwd)}`,
+      '"${SHELL:-/bin/bash}" -il',
+    ].join(" ");
   }
 
   const cliBin = config[CLI_BY_AGENT_TYPE[type]];

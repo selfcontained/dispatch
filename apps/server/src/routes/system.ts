@@ -3,6 +3,11 @@ import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type {
+  HarnessAuthReport,
+  HarnessProviderUsageReport,
+  HarnessUsageReport,
+} from "@dispatch/shared";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
@@ -22,6 +27,15 @@ import {
   isChatSurfaceEnabled,
   setChatSurfaceEnabled,
 } from "../chat-surface-settings.js";
+import {
+  isDispatchHarnessEnabled,
+  setDispatchHarnessEnabled,
+} from "../dispatch-harness-settings.js";
+import {
+  getUsageBudgets,
+  parseUsageBudgets,
+  setUsageBudgets,
+} from "../usage-budget-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -53,6 +67,9 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
+  usageReport: () => Promise<HarnessUsageReport>;
+  authReport: () => Promise<HarnessAuthReport>;
+  providerUsageReport: () => Promise<HarnessProviderUsageReport>;
 };
 
 export async function registerSystemRoutes(
@@ -374,6 +391,16 @@ export async function registerSystemRoutes(
         .send({ error: "enabledAgentTypes must be an array." });
     }
 
+    // `dispatch` is a member of AGENT_TYPES, so without this the body would
+    // pass validation and then be sanitized away, answering 200 with a list
+    // that silently lacks what was asked for.
+    if (body.enabledAgentTypes.includes("dispatch")) {
+      return reply.code(400).send({
+        error:
+          "dispatch is not set here. Turn the Dispatch Harness on or off at POST /api/v1/app/settings/dispatch-harness.",
+      });
+    }
+
     const uniqueTypes = body.enabledAgentTypes
       .filter(
         (value): value is (typeof AGENT_TYPES)[number] =>
@@ -442,6 +469,31 @@ export async function registerSystemRoutes(
     return { enabled: body.enabled };
   });
 
+  // Service-wide, not per agent: the engines are logged in on the host.
+  app.get("/api/v1/harness/usage", async () => {
+    const response: HarnessUsageReport = await deps.usageReport();
+    return response;
+  });
+
+  app.get("/api/v1/harness/auth", async () => {
+    return await deps.authReport();
+  });
+
+  app.get("/api/v1/harness/provider-usage", async () => {
+    return await deps.providerUsageReport();
+  });
+
+  app.get("/api/v1/app/settings/usage-budgets", async () => {
+    return { budgets: await getUsageBudgets(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/usage-budgets", async (request, reply) => {
+    const body = request.body as { budgets?: unknown } | null;
+    const parsed = parseUsageBudgets(body?.budgets);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    return { budgets: await setUsageBudgets(deps.pool, parsed.budgets) };
+  });
+
   app.get("/api/v1/app/settings/chat-surface", async () => {
     return { enabled: await isChatSurfaceEnabled(deps.pool) };
   });
@@ -452,6 +504,21 @@ export async function registerSystemRoutes(
       return reply.code(400).send({ error: "enabled must be a boolean." });
     }
     await setChatSurfaceEnabled(deps.pool, body.enabled);
+    return { enabled: body.enabled };
+  });
+
+  // `dispatch` is never a member of `enabled_agent_types`; this is the
+  // only switch that turns the harness on.
+  app.get("/api/v1/app/settings/dispatch-harness", async () => {
+    return { enabled: await isDispatchHarnessEnabled(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/dispatch-harness", async (request, reply) => {
+    const body = request.body as { enabled?: unknown } | null;
+    if (typeof body?.enabled !== "boolean") {
+      return reply.code(400).send({ error: "enabled must be a boolean." });
+    }
+    await setDispatchHarnessEnabled(deps.pool, body.enabled);
     return { enabled: body.enabled };
   });
 

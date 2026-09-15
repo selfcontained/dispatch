@@ -228,12 +228,19 @@ export async function registerChatRoutes(
     if (!(await agentExists(id))) {
       return reply.code(404).send({ error: "Agent not found." });
     }
+    const before = await store.countUnread(id);
     const marked = await store.markRead(id, upTo ?? undefined);
+    // Turns carry no per-row read state, so every read also moves the
+    // agent's watermark, which is what they are counted against.
+    await store.markFeedRead(id);
     const unreadCount = await store.countUnread(id);
-    if (marked.updated > 0 && marked.readAt !== null) {
+    // The count can fall without a single chat row changing, on an agent
+    // whose output is turns, so the announcement follows the count rather
+    // than the rows.
+    if (marked.updated > 0 || unreadCount !== before) {
       chat.publishRead(id, {
         unreadCount,
-        readAt: marked.readAt,
+        readAt: marked.readAt ?? new Date().toISOString(),
         upToAt: marked.upToAt,
       });
     }

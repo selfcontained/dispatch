@@ -4,11 +4,13 @@ import type {
   ChatFeedEntry,
   ChatMessage,
   ChatStatusEntry,
+  ChatTurnEntry,
 } from "@dispatch/shared";
 import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   within,
   waitFor,
@@ -31,11 +33,13 @@ import {
 } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
-  collapseFeed,
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
   layoutFeed,
+  entryGrowthKey,
+  entryVersion,
+  useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
@@ -146,42 +150,23 @@ function renderFeed(
   return { onAnswer, onOpenMedia, rerenderWith };
 }
 
-describe("collapseFeed", () => {
-  it("folds consecutive working events into the latest one", () => {
-    const items = collapseFeed([
-      status("s1", "working", "Reading files"),
-      status("s2", "working", "Editing"),
-      status("s3", "working", "Running tests"),
-      status("s4", "done", "All green"),
-      status("s5", "working", "Again"),
-    ]);
-    expect(items).toHaveLength(3);
-    expect(items[0]).toMatchObject({
-      kind: "status",
-      collapsedCount: 3,
-      entry: { id: "s3", message: "Running tests" },
-    });
-    expect(items[1]).toMatchObject({ kind: "status", collapsedCount: 1 });
-    expect(items[2]).toMatchObject({
-      kind: "status",
-      collapsedCount: 1,
-      entry: { id: "s5" },
-    });
-  });
-
-  it("breaks a working run on any non-status entry", () => {
-    const items = collapseFeed([
-      status("s1", "working", "a"),
-      chat(message({ id: "m1" })),
-      status("s2", "working", "b"),
-    ]);
-    expect(items.map((i) => i.kind)).toEqual(["status", "entry", "status"]);
-  });
-});
-
 describe("layoutFeed", () => {
   const now = new Date("2026-09-03T12:00:00.000Z");
   const at = (hhmm: string, day = "02") => `2026-09-${day}T${hhmm}:00.000Z`;
+
+  it("lays out no row for a status event", () => {
+    // The presence line above the composer already shows the latest event.
+    const rows = layoutFeed(
+      [
+        status("s1", "working", "Reading files", at("10:00")),
+        chat(message({ id: "a1", createdAt: at("10:01") })),
+        status("s2", "working", "Editing", at("10:02")),
+      ],
+      makeCtx(),
+      now
+    );
+    expect(rows.map((r) => r.kind)).toEqual(["divider", "entry"]);
+  });
 
   it("groups same-author posts within five minutes and breaks on author change", () => {
     const rows = layoutFeed(
@@ -205,7 +190,7 @@ describe("layoutFeed", () => {
     ]);
   });
 
-  it("starts a new group after five minutes or a system line", () => {
+  it("starts a new group after five minutes, and a status event in between changes nothing", () => {
     const rows = layoutFeed(
       [
         chat(message({ id: "a1", createdAt: at("10:00") })),
@@ -218,13 +203,7 @@ describe("layoutFeed", () => {
     );
     expect(
       rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
-    ).toEqual([
-      "divider",
-      ["a1", false],
-      ["a2", false],
-      "status",
-      ["a3", false],
-    ]);
+    ).toEqual(["divider", ["a1", false], ["a2", false], ["a3", true]]);
   });
 
   it("draws a rule only where a new author group follows another post directly", () => {
@@ -258,8 +237,9 @@ describe("layoutFeed", () => {
       ["a2", false],
       // Author change straight after a post: hairline.
       ["u1", true],
-      // A status cluster sits between: no second separator.
-      ["a3", false],
+      // The status event between them lays out no row, so a3 follows u1
+      // directly and gets a hairline too.
+      ["a3", true],
       // Day rule again.
       ["a4", false],
       ["u2", true],
@@ -521,6 +501,56 @@ describe("ChatFeed", () => {
     expect(authors.map((a) => a.textContent)).toEqual(["builder", "You"]);
     expect(screen.getAllByTestId("chat-gutter-time")).toHaveLength(1);
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
+  });
+
+  it("folds a peer post's body until asked, and leaves the user's own alone", () => {
+    const long = Array.from({ length: 12 }, (_, i) => `line ${i}`).join(" ");
+    renderFeed([
+      {
+        type: "agent_message",
+        id: "p1",
+        direction: "in",
+        senderAgentId: "agt_sib",
+        senderName: "sib",
+        recipientAgentId: AGENT_ID,
+        recipientName: "builder",
+        content: long,
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          kind: "reply",
+          text: long,
+          createdAt: "2026-09-02T10:01:00.000Z",
+          updatedAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
+    ]);
+
+    // One fold, on the peer post: the user's own post is never folded.
+    const body = screen.getByTestId("chat-peer-body");
+    expect(body.getAttribute("data-open")).toBeNull();
+    // The text stays in the DOM while folded, so a reader using a screen
+    // reader still gets the whole post.
+    expect(body.textContent).toContain("line 11");
+
+    // The row is the toggle, the same shape as a Dispatch notice: no
+    // separate "Show more" control spending a line of its own.
+    const toggle = screen.getByTestId("chat-peer-expand");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Folded, the who/whom/when cluster and the opening text share the row.
+    expect(toggle.textContent).toContain("sib");
+    expect(toggle.textContent).toContain("line 0");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("chat-peer-body").getAttribute("data-open")).toBe(
+      "true"
+    );
+    expect(
+      screen.getByTestId("chat-peer-expand").getAttribute("aria-expanded")
+    ).toBe("true");
   });
 
   it("shows a peer's own icon and its relation to this agent", () => {
@@ -887,7 +917,7 @@ describe("ChatFeed", () => {
     expect(update!.textContent).toContain("Still going");
   });
 
-  it("renders an unanswered question with clickable options", () => {
+  it("renders an unanswered question with clickable Markdown options", () => {
     const { onAnswer } = renderFeed([
       chat(
         message({
@@ -895,7 +925,10 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
         })
@@ -906,6 +939,9 @@ describe("ChatFeed", () => {
     const options = screen.getAllByTestId("chat-question-option");
     expect(options).toHaveLength(2);
     expect(options.every((o) => !(o as HTMLButtonElement).disabled)).toBe(true);
+    expect(options[0]!.textContent).toBe("Alpha uses a");
+    expect(options[0]!.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(options[0]!.querySelector("code")?.textContent).toBe("a");
 
     fireEvent.click(options[1]!);
     expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
@@ -924,29 +960,79 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
           answer: {
             value: "a",
-            label: "Alpha",
+            label: "**Alpha** uses `a`",
             replyMessageId: "u9",
             answeredAt: "2026-09-02T10:01:00.000Z",
           },
         })
       ),
+      chat(
+        message({
+          id: "u9",
+          authorKind: "user",
+          text: "**Alpha** uses `a`",
+          replyTo: "q1",
+          delivered: true,
+          createdAt: "2026-09-02T10:01:00.000Z",
+          updatedAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
     ]);
     expect(screen.queryByTestId("chat-needs-reply")).toBeNull();
     expect(screen.queryByText("Or type a reply below.")).toBeNull();
-    expect(screen.getByTestId("chat-question-options").textContent).toContain(
-      "Answered"
-    );
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("Answered");
+    expect(card.textContent).not.toContain("**Alpha**");
+    expect(card.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(card.querySelector("code")?.textContent).toBe("a");
+    const userReply = screen
+      .getAllByTestId("chat-message")
+      .find((row) => row.getAttribute("data-message-id") === "u9")!;
+    expect(userReply.textContent).not.toContain("**Alpha**");
+    expect(userReply.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(userReply.querySelector("code")?.textContent).toBe("a");
     const options = screen.getAllByTestId("chat-question-option");
     expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
     expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
     expect(options[1]!.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(options[1]!);
     expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("keeps a freeform answer literal in the answered summary", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "q-freeform",
+          kind: "question",
+          text: "Other?",
+          question: {
+            options: [{ label: "Suggested" }],
+            allowFreeform: true,
+          },
+          answer: {
+            value: "__init__.py uses `literal` *marks*",
+            label: "__init__.py uses `literal` *marks*",
+            replyMessageId: "u10",
+            answeredAt: "2026-09-02T10:01:00.000Z",
+          },
+        })
+      ),
+    ]);
+
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("__init__.py uses `literal` *marks*");
+    expect(card.querySelector("strong")).toBeNull();
+    expect(card.querySelector("code")).toBeNull();
+    expect(card.querySelector("em")).toBeNull();
   });
 
   it("locks options and hides the freeform hint while answers are unavailable", () => {
@@ -985,6 +1071,69 @@ describe("ChatFeed", () => {
     );
     const [option] = screen.getAllByTestId("chat-question-option");
     expect((option as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("renders a question asked during a turn once, as its own card beside the turn", () => {
+    // The harness view drew its own card inside the turn, so a question was
+    // answered in one place and read in another. It is a chat row in time
+    // order now, and the turn only references it.
+    const turn: ChatTurnEntry = {
+      type: "turn",
+      id: "turn:12",
+      agentId: AGENT_ID,
+      at: "2026-09-04T10:00:00.000Z",
+      updatedAt: "2026-09-04T10:00:09.000Z",
+      prompt: { source: "chat", text: "pick one", attachments: [] },
+      trace: {
+        startedAt: "2026-09-04T10:00:00.000Z",
+        endedAt: "2026-09-04T10:00:09.000Z",
+        finalResult: "ok",
+        steps: [],
+      },
+      result: { text: "Waiting on you.", streaming: false },
+      settled: true,
+      interrupted: false,
+      questions: [{ messageId: "q1", answered: false }],
+    };
+    const { onAnswer } = renderFeed([
+      turn,
+      chat(
+        message({
+          id: "q1",
+          kind: "question",
+          text: "Fix the preview alone, or bundle it?",
+          question: {
+            options: [
+              { label: "Preview only" },
+              { label: "**Bundle**", value: "bundle" },
+            ],
+            allowFreeform: true,
+          },
+          createdAt: "2026-09-04T10:00:05.000Z",
+          updatedAt: "2026-09-04T10:00:05.000Z",
+        })
+      ),
+    ]);
+
+    const cards = screen.getAllByTestId("chat-question-options");
+    expect(cards).toHaveLength(1);
+    expect(screen.queryByTestId("harness-question")).toBeNull();
+    const turnRow = screen.getByTestId("chat-turn");
+    expect(
+      turnRow.compareDocumentPosition(cards[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(turnRow.contains(cards[0]!)).toBe(false);
+
+    const options = screen.getAllByTestId("chat-question-option");
+    expect(options).toHaveLength(2);
+    expect(options[1]!.textContent).toBe("Bundle");
+    expect(options[1]!.querySelector("strong")).not.toBeNull();
+    fireEvent.click(options[1]!);
+    expect(onAnswer).toHaveBeenCalledWith("q1", {
+      label: "**Bundle**",
+      value: "bundle",
+    });
   });
 
   it("renders a file attachment as an image by its MIME type when the name has no extension", () => {
@@ -1170,29 +1319,16 @@ describe("ChatFeed", () => {
     ).toBeNull();
   });
 
-  it("renders status lines with a collapsed count", () => {
+  it("renders nothing for status events, only the posts around them", () => {
     renderFeed([
       status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "blocked", "Need a key"),
+      chat(message({ id: "m1", text: "a post" })),
+      status("s2", "blocked", "Need a key"),
     ]);
-    const lines = screen.getAllByTestId("chat-status");
-    expect(lines).toHaveLength(2);
-    // Consecutive lines sit in one cluster.
-    const clusters = screen.getAllByTestId("chat-status-cluster");
-    expect(clusters).toHaveLength(1);
-    expect(
-      clusters[0]!.querySelectorAll("[data-testid='chat-status']")
-    ).toHaveLength(2);
-    expect(lines[0]!.className).toContain("text-[10px]");
-    expect(lines[0]!.textContent).toContain("Working");
-    expect(lines[0]!.textContent).toContain("Testing");
-    expect(lines[0]!.textContent).not.toContain("Reading");
-    expect(screen.getByTestId("chat-status-collapsed-count").textContent).toBe(
-      "×2"
-    );
-    expect(lines[1]!.textContent).toContain("Blocked");
-    expect(lines[1]!.textContent).toContain("Need a key");
+    expect(screen.queryByTestId("chat-status")).toBeNull();
+    expect(screen.queryByTestId("chat-status-cluster")).toBeNull();
+    expect(screen.getAllByTestId("chat-message")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Need a key");
   });
 
   it("renders cross-agent messages as posts by the other agent, or by this one addressed to it", () => {
@@ -1299,6 +1435,14 @@ describe("ChatFeed", () => {
       expect(post.className).toContain(SIDE_POST_INDENT);
       expect(post.className).not.toContain("px-4");
       expect(post.className).toContain(POST_TINT.peer);
+    }
+    // A peer's row folds like a notice, so its full body is only laid out
+    // once opened; the agent's own side post keeps the plain body column.
+    for (const post of posts) {
+      const toggle = post.querySelector<HTMLElement>(
+        "[data-testid='chat-peer-expand']"
+      );
+      if (toggle) fireEvent.click(toggle);
       const body = Array.from(post.querySelectorAll("div")).find((el) =>
         el.className.includes(POST_BODY_MEASURE)
       );
@@ -1337,7 +1481,9 @@ describe("ChatFeed", () => {
       first.querySelector("[data-testid='chat-post-author']")?.className
     ).toContain("max-w-full");
 
-    // The sender's icon with the arrows overlay, on header rows only.
+    // The sender's icon: the agent's own side post keeps its avatar with the
+    // arrows overlay; a peer's folded row carries the small type icon in its
+    // gutter instead, the same place a Dispatch notice puts its bell.
     expect(first.querySelector("[aria-label='Claude agent']")).not.toBeNull();
     expect(
       first.querySelector("[data-testid='chat-avatar-side-badge']")
@@ -1345,7 +1491,7 @@ describe("ChatFeed", () => {
     expect(third.querySelector("[aria-label='Codex agent']")).not.toBeNull();
     expect(
       third.querySelector("[data-testid='chat-avatar-side-badge']")
-    ).not.toBeNull();
+    ).toBeNull();
 
     // Same sender → same recipient groups; the reply from the other side
     // starts a new group, and the agent's post to the user right before
@@ -1491,22 +1637,6 @@ describe("memoised rows still repaint when their data changes", () => {
     );
     expect(pin().textContent).toContain("http://b");
   });
-
-  it("updates a status line's label and collapsed count", () => {
-    const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
-    expect(screen.getByTestId("chat-status").textContent).toContain("Reading");
-    expect(screen.queryByTestId("chat-status-collapsed-count")).toBeNull();
-    rerenderWith([
-      status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "working", "Linting"),
-    ]);
-    const line = screen.getByTestId("chat-status");
-    expect(line.textContent).toContain("Linting");
-    expect(
-      screen.getByTestId("chat-status-collapsed-count").textContent
-    ).toContain("3");
-  });
 });
 
 describe("ChatFeed enter animation", () => {
@@ -1521,10 +1651,19 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first]);
     expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
 
-    // A new post and a new status line arrive.
+    // A new post and a new media row arrive.
+    const shot = {
+      type: "media" as const,
+      id: "md1",
+      mediaId: 1,
+      fileName: "shot.png",
+      sizeBytes: 10,
+      description: null,
+      at: at("10:01"),
+    };
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const [one, two] = screen.getAllByTestId("chat-message");
@@ -1532,12 +1671,12 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(two!)).not.toBeNull();
     expect(enterOf(two!)!.className).toContain("animate-chat-enter");
     expect(enterOf(two!)!.className).toContain("motion-reduce:animate-none");
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+    expect(enterOf(screen.getByTestId("chat-media"))).not.toBeNull();
 
     // Still fading when the same list renders again.
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     expect(enterOf(screen.getAllByTestId("chat-message")[1]!)).not.toBeNull();
@@ -1546,7 +1685,7 @@ describe("ChatFeed enter animation", () => {
     rerenderWith([
       chat(message({ id: "a0", text: "older", createdAt: at("09:00") })),
       first,
-      status("s1", "working", "Running tests", at("10:01")),
+      shot,
       chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const posts = screen.getAllByTestId("chat-message");
@@ -1557,8 +1696,8 @@ describe("ChatFeed enter animation", () => {
   });
 
   it("fades in a live row that lands below the newest by time", () => {
-    // A status event published late sorts under the newest post; it is
-    // still an arrival, not a page of older rows.
+    // A media row published late sorts under the newest post; it is still
+    // an arrival, not a page of older rows.
     const first = chat(
       message({ id: "a1", text: "first", createdAt: at("10:00") })
     );
@@ -1568,10 +1707,18 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first, last]);
     rerenderWith([
       first,
-      status("late", "working", "Late status", at("10:03")),
+      {
+        type: "media",
+        id: "late",
+        mediaId: 2,
+        fileName: "late.png",
+        sizeBytes: 10,
+        description: null,
+        at: at("10:03"),
+      },
       last,
     ]);
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+    expect(enterOf(screen.getByTestId("chat-media"))).not.toBeNull();
   });
 
   it("fades a post edited in place in again", () => {
@@ -1593,6 +1740,174 @@ describe("ChatFeed enter animation", () => {
   });
 });
 
+describe("turn entries", () => {
+  function turnEntry(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
+    return {
+      type: "turn",
+      id: "turn:12",
+      agentId: AGENT_ID,
+      at: "2026-09-04T10:00:00.000Z",
+      updatedAt: "2026-09-04T10:00:09.000Z",
+      prompt: { source: "chat", text: "read the readme", attachments: [] },
+      trace: {
+        startedAt: "2026-09-04T10:00:00.000Z",
+        endedAt: "2026-09-04T10:00:09.000Z",
+        finalResult: "ok",
+        steps: [
+          {
+            id: "stream:13",
+            kind: "read",
+            label: "Read README.md",
+            status: "ok",
+            startedAt: "2026-09-04T10:00:01.000Z",
+            endedAt: "2026-09-04T10:00:02.000Z",
+            durMs: 1000,
+            detail: { toolKind: "read" },
+          },
+        ],
+      },
+      result: { text: "It documents the CLI.", streaming: false },
+      settled: true,
+      interrupted: false,
+      ...overrides,
+    };
+  }
+
+  it("renders the prompt with post styling and the result as an agent post", () => {
+    renderFeed([turnEntry()]);
+    const prompt = screen.getByTestId("chat-message");
+    expect(prompt.getAttribute("data-author")).toBe("user");
+    expect(prompt.textContent).toContain("read the readme");
+    const result = screen.getByTestId("chat-turn-result");
+    expect(result.getAttribute("data-author-kind")).toBe("agent");
+    expect(result.textContent).toContain("It documents the CLI.");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
+      "turn:12"
+    );
+  });
+
+  it("keeps a turn out of every author group and resets the run behind it", () => {
+    const rows = layoutFeed(
+      [
+        chat(
+          message({
+            id: "m1",
+            authorKind: "agent",
+            text: "before",
+            createdAt: "2026-09-04T09:59:00.000Z",
+            updatedAt: "2026-09-04T09:59:00.000Z",
+          })
+        ),
+        turnEntry(),
+        chat(
+          message({
+            id: "m2",
+            authorKind: "agent",
+            text: "after",
+            createdAt: "2026-09-04T10:00:10.000Z",
+            updatedAt: "2026-09-04T10:00:10.000Z",
+          })
+        ),
+      ],
+      makeCtx(),
+      new Date("2026-09-04T12:00:00.000Z")
+    );
+    const entries = rows.filter((r) => r.kind === "entry");
+    expect(entries.map((r) => [r.entry.id, r.grouped, r.rule])).toEqual([
+      ["m1", false, false],
+      ["turn:12", false, false],
+      // Two agent posts five minutes apart would group; the turn between
+      // them ends the run, so the second opens a fresh header.
+      ["m2", false, true],
+    ]);
+  });
+
+  it("keys a turn's growth on its newest row, steps, result and settled state", () => {
+    const base = turnEntry({
+      settled: false,
+      result: { text: "a", streaming: true },
+    });
+    const grown = turnEntry({
+      settled: false,
+      updatedAt: "2026-09-04T10:00:11.000Z",
+      result: { text: "ab", streaming: true },
+    });
+    expect(entryGrowthKey(base)).not.toBe(entryGrowthKey(grown));
+    expect(entryGrowthKey(grown)).not.toBe(
+      entryGrowthKey({ ...grown, settled: true })
+    );
+    // The fade-in version is the anchor time, which never moves, so growth
+    // does not remount the entry and collapse an expanded step.
+    expect(entryVersion(base)).toBe(entryVersion(grown));
+  });
+
+  it("does not re-enter a streaming turn as it grows", () => {
+    const { result, rerender } = renderHook(
+      ({ entries }: { entries: ChatFeedEntry[] }) =>
+        useEnteringEntries(entries),
+      {
+        initialProps: {
+          entries: [
+            turnEntry({
+              settled: false,
+              result: { text: "a", streaming: true },
+            }),
+          ] as ChatFeedEntry[],
+        },
+      }
+    );
+    const later = status("s9", "done", "finished", "2026-09-04T10:00:20.000Z");
+    rerender({
+      entries: [
+        turnEntry({ settled: false, result: { text: "a", streaming: true } }),
+        later,
+      ],
+    });
+    expect(result.current.has("s9")).toBe(true);
+    rerender({
+      entries: [
+        turnEntry({
+          settled: false,
+          updatedAt: "2026-09-04T10:00:15.000Z",
+          result: { text: "abc", streaming: true },
+        }),
+        later,
+      ],
+    });
+    expect(result.current.has("turn:12")).toBe(false);
+  });
+
+  it("takes a turn's word for a question its own chat row has not caught up on", () => {
+    const question = message({
+      id: "q1",
+      authorKind: "agent",
+      kind: "question",
+      text: "Scope choice?",
+      question: { options: [{ label: "Narrow" }], allowFreeform: true },
+      createdAt: "2026-09-04T10:00:05.000Z",
+      updatedAt: "2026-09-04T10:00:05.000Z",
+    });
+    // The card still says unanswered, and no turn contradicts it.
+    expect(
+      latestOpenFreeformQuestion([
+        turnEntry({ questions: [{ messageId: "q1", answered: false }] }),
+        chat(question),
+      ])?.id
+    ).toBe("q1");
+    // The turn is republished on every flush, so its answered state is the
+    // fresher one: the composer stops offering to answer a closed question.
+    expect(
+      latestOpenFreeformQuestion([
+        turnEntry({ questions: [{ messageId: "q1", answered: true }] }),
+        chat(question),
+      ])
+    ).toBeNull();
+    // A turn that names no question changes nothing.
+    expect(latestOpenFreeformQuestion([turnEntry(), chat(question)])?.id).toBe(
+      "q1"
+    );
+  });
+});
 describe("reactions", () => {
   const reaction = (
     emoji: string,

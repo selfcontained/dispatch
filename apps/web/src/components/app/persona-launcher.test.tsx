@@ -41,14 +41,20 @@ afterEach(() => {
   api.mockReset();
 });
 
-function renderLauncher() {
+function renderLauncher(
+  overrides: Partial<Agent> = {},
+  enabledAgentTypes: NonNullable<Agent["type"]>[] = ["claude"]
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <PersonaLauncher agent={agent} enabledAgentTypes={["claude"]} />
+        <PersonaLauncher
+          agent={{ ...agent, ...overrides }}
+          enabledAgentTypes={enabledAgentTypes}
+        />
       </TooltipProvider>
     </QueryClientProvider>
   );
@@ -151,6 +157,52 @@ describe("PersonaLauncher", () => {
       expect(JSON.parse(call![1].body)).toMatchObject({
         personas: ["ux-review"],
         note: "focus on the auth changes",
+      });
+    });
+  });
+
+  it("launches a harness reviewer on its parent's engine", async () => {
+    // The engine is the first segment of a harness model id, so an unset
+    // model would read "Default" and mean Claude Code whatever the parent
+    // runs on.
+    api.mockImplementation(async (path: string) => {
+      if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
+      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/review-agent-type")) return { agent };
+      return {
+        models: {
+          dispatch: [
+            { id: "claude/default", label: "Claude Code default" },
+            { id: "codex/gpt-5.6-sol", label: "GPT-5.6 Sol" },
+          ],
+        },
+      };
+    });
+    renderLauncher({ type: "dispatch", model: "codex/gpt-5.6-sol" }, [
+      "dispatch",
+    ]);
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    fireEvent.click(
+      await screen.findByTestId("launch-reviewer-persona-sec-review")
+    );
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("launch-reviewer-submit")).toHaveProperty(
+        "disabled",
+        false
+      )
+    );
+    fireEvent.click(screen.getByTestId("launch-reviewer-submit"));
+
+    await vi.waitFor(() => {
+      const call = api.mock.calls.find((args) =>
+        String(args[0]).includes("/launch-review")
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(call![1].body)).toMatchObject({
+        agentType: "dispatch",
+        model: "codex/gpt-5.6-sol",
       });
     });
   });

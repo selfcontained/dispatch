@@ -68,6 +68,8 @@ type McpRouteDeps = {
   ) => boolean;
   mcpSendNotify: unknown;
   mcpUpsertEvent: unknown;
+  mcpUpdateTasks?: unknown;
+  mcpBackgroundProcess?: unknown;
   mcpRenameSession: unknown;
   mcpShareMedia: unknown;
   mcpListMedia: unknown;
@@ -235,6 +237,8 @@ export async function registerMcpRoutes(
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
       upsertEvent: deps.mcpUpsertEvent,
+      updateTasks: deps.mcpUpdateTasks,
+      backgroundProcess: deps.mcpBackgroundProcess,
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
@@ -346,6 +350,8 @@ export async function registerMcpRoutes(
       chatSurface,
       sendNotify: deps.mcpSendNotify,
       upsertEvent: deps.mcpUpsertEvent,
+      updateTasks: deps.mcpUpdateTasks,
+      backgroundProcess: deps.mcpBackgroundProcess,
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,

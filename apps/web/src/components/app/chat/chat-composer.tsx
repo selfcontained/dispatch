@@ -3,16 +3,29 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type SyntheticEvent,
 } from "react";
-import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
+import {
+  CHAT_ATTACHMENTS_MAX,
+  CHAT_MESSAGE_MAX_CHARS,
+  type HarnessPath,
+} from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import { CornerDownRight, Paperclip, SendHorizontal, X } from "lucide-react";
+import {
+  CornerDownRight,
+  File,
+  Folder,
+  Paperclip,
+  SendHorizontal,
+  X,
+} from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -46,6 +59,11 @@ import { isImageFile } from "@/lib/media-accept";
 import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+import { ComposerHighlights, hasAtTokens } from "./composer-highlights";
+import { atTokenAt, COMPOSER_FIELD_BOX_CLASS } from "./composer-tokens";
+import { ComposerMenu } from "./composer-menu";
+import { useComposerHistory } from "./use-composer-history";
 
 export type ChatComposerProps = {
   /**
@@ -83,7 +101,102 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  /**
+   * Slash-menu entries. A "/" typed at a word boundary (the start of the
+   * message or after whitespace) opens a picker over them at the caret;
+   * picking one puts "/<name> " there. Nothing is sent on its own: the
+   * host decides what a "/name" message means.
+   */
+  slashItems?: SlashItem[];
+  /**
+   * Called when a command item (`command: true`) is picked, with its name.
+   * Return true to consume it: the field is cleared instead of filled.
+   */
+  onSlashCommand?: (name: string) => boolean;
+  /**
+   * An element beyond the composer that also takes file drops: the whole
+   * pane, so a file dropped anywhere on the conversation attaches here.
+   */
+  dropTargetRef?: RefObject<HTMLElement | null>;
+  onDropZoneDragging?: (dragging: boolean) => void;
+  /**
+   * Replaces the idle helper line ("Enter to send · …") with the host's word
+   * on what Enter does right now, such as queueing behind a running turn.
+   */
+  hint?: string;
+  /**
+   * Earlier prompts, oldest first. With the field empty, ArrowUp walks back
+   * through them and ArrowDown forward again to the empty draft.
+   */
+  history?: string[];
+  /**
+   * Stop the running turn. Bound to Ctrl+C in the field when nothing is
+   * selected (with a selection Ctrl+C still copies); absent when nothing
+   * runs, so the key keeps its meaning.
+   */
+  onInterrupt?: () => void;
+  /**
+   * Asked before the history on ArrowUp with an empty field: a queued
+   * message to take back for editing. Resolve to its text (the host has
+   * removed it from the queue) or null when nothing is queued.
+   */
+  recallQueued?: () => Promise<string | null>;
+  /**
+   * Completions for the "@" path picker, answering the query `onAtQuery`
+   * last reported. A composer given neither prop never opens the picker.
+   */
+  atItems?: HarnessPath[];
+  /** The text after an open "@" token, or null once no picker is open. */
+  onAtQuery?: (query: string | null) => void;
 };
+
+export type SlashItem = {
+  name: string;
+  description?: string;
+  /**
+   * Picking it runs `onSlashCommand` rather than filling "/name ". Only
+   * offered when the slash opens the message.
+   */
+  command?: boolean;
+};
+
+const SLASH_MENU_MAX = 8;
+const AT_MENU_MAX = 12;
+
+export type SlashToken = {
+  query: string;
+  start: number;
+  end: number;
+};
+
+/**
+ * The slash token under the caret, if the menu should be open: a "/" at
+ * the start of the text or after whitespace, then no whitespace or "/" up
+ * to the caret, and nothing glued on after the caret. A path segment
+ * ("apps/web/") or a caret inside a longer word does not count.
+ */
+export function slashTokenAt(text: string, caret: number): SlashToken | null {
+  const end = Math.max(0, Math.min(caret, text.length));
+  if (end < text.length && !/\s/.test(text[end])) return null;
+  let start = end - 1;
+  while (start >= 0 && !/[\s/]/.test(text[start])) start -= 1;
+  if (start < 0 || text[start] !== "/") return null;
+  if (start > 0 && !/\s/.test(text[start - 1])) return null;
+  return { query: text.slice(start + 1, end), start, end };
+}
+
+export function filterSlashItems(
+  items: SlashItem[],
+  query: string
+): SlashItem[] {
+  const q = query.toLowerCase();
+  const names = items.map((i) => [i, i.name.toLowerCase()] as const);
+  const starts = names.filter(([, n]) => n.startsWith(q)).map(([i]) => i);
+  const contains = names
+    .filter(([, n]) => !n.startsWith(q) && n.includes(q))
+    .map(([i]) => i);
+  return [...starts, ...contains].slice(0, SLASH_MENU_MAX);
+}
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
 function describeFile(file: File, pasted?: string): ChatDraftFile {
@@ -174,6 +287,16 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  slashItems,
+  onSlashCommand,
+  dropTargetRef,
+  onDropZoneDragging,
+  hint,
+  history,
+  recallQueued,
+  onInterrupt,
+  atItems,
+  onAtQuery,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -205,6 +328,126 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Token menus: the slash menu opens while the caret sits at the end of
+  // a "/<partial>" token, the path picker at the end of an "@<partial>"
+  // one; the two never open together, so one active index and one
+  // Escape dismissal (until the text changes again) serve both. The caret
+  // is tracked from the field on every change, key, click, and selection.
+  const [menuDismissed, setMenuDismissed] = useState<string | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [caret, setCaret] = useState<number | null>(null);
+  // The highlight mirror follows the field's scroll imperatively: a state
+  // hop here would re-render the whole composer per scrolled pixel.
+  const highlightsRef = useRef<HTMLDivElement>(null);
+  const painted = hasAtTokens(text);
+  // The mirror mounts at scroll 0 when the first token appears, and no
+  // scroll event fires for that; a draft already scrolled past max-h-48
+  // would show its top through a transparent field until the next scroll.
+  useLayoutEffect(() => {
+    if (!painted) return;
+    const field = textareaRef.current;
+    const mirror = highlightsRef.current;
+    if (field && mirror) mirror.scrollTop = field.scrollTop;
+  }, [painted]);
+  const syncCaret = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      setCaret(event.currentTarget.selectionStart);
+    },
+    []
+  );
+  const slashToken = slashItems?.length
+    ? slashTokenAt(text, caret ?? text.length)
+    : null;
+  const historyKeys = useComposerHistory({
+    text,
+    history,
+    recallQueued,
+    setText,
+    setCaret,
+  });
+  const slashOpen = slashToken !== null && menuDismissed !== text;
+  const slashMatches = useMemo(() => {
+    if (!slashOpen || !slashToken) return [];
+    // Commands (/model) act on the whole message: start-of-message only.
+    const pool =
+      slashToken.start === 0
+        ? (slashItems ?? [])
+        : (slashItems ?? []).filter((item) => !item.command);
+    return filterSlashItems(pool, slashToken.query);
+  }, [slashOpen, slashItems, slashToken]);
+  const slashActive =
+    slashMatches.length > 0 ? menuIndex % slashMatches.length : 0;
+  // Path picker: the same popup for an "@<partial path>" token, fed by the
+  // host through `onAtQuery` → `atItems`. Escape dismisses it the same way.
+  const atToken =
+    onAtQuery && slashToken === null
+      ? atTokenAt(text, caret ?? text.length)
+      : null;
+  const atOpen = atToken !== null && menuDismissed !== text;
+  const atQuery = atOpen && atToken ? atToken.query : null;
+  useEffect(() => {
+    onAtQuery?.(atQuery);
+  }, [atQuery, onAtQuery]);
+  // The host's list lags the field by its debounce, so an Enter mid-word
+  // must not pick from the previous query: only entries the live token
+  // still prefixes are offered.
+  const atMatches = useMemo(() => {
+    if (!atOpen || !atToken) return [];
+    const q = atToken.query.toLowerCase();
+    return (atItems ?? [])
+      .filter((item) => item.path.toLowerCase().startsWith(q))
+      .slice(0, AT_MENU_MAX);
+  }, [atOpen, atItems, atToken]);
+  const menuCount =
+    slashMatches.length > 0 ? slashMatches.length : atMatches.length;
+  const menuActive = menuCount > 0 ? menuIndex % menuCount : 0;
+  const pickAt = useCallback(
+    (item: HarnessPath) => {
+      const token = atToken ?? { start: 0, end: text.length };
+      const after = text.slice(token.end);
+      // A directory keeps the picker open one level down; a file ends the
+      // token with a space (reusing one already there mid-message).
+      const spaced = after.startsWith(" ");
+      const insert =
+        item.kind === "dir"
+          ? `@${item.path}/`
+          : `@${item.path}${spaced ? "" : " "}`;
+      const next =
+        token.start + insert.length + (item.kind === "file" && spaced ? 1 : 0);
+      setText(text.slice(0, token.start) + insert + after);
+      setCaret(next);
+      setMenuIndex(0);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        el?.focus();
+        el?.setSelectionRange(next, next);
+      });
+    },
+    [atToken, setText, text]
+  );
+  const pickSlash = useCallback(
+    (item: SlashItem) => {
+      if (item.command && onSlashCommand?.(item.name)) {
+        setText("");
+        setCaret(0);
+      } else {
+        const token = slashToken ?? { start: 0, end: text.length };
+        const after = text.slice(token.end);
+        // One space after the name; reuse the one already there mid-message.
+        const spaced = after.startsWith(" ");
+        const insert = `/${item.name}${spaced ? "" : " "}`;
+        const next = token.start + insert.length + (spaced ? 1 : 0);
+        setText(text.slice(0, token.start) + insert + after);
+        setCaret(next);
+        requestAnimationFrame(() => {
+          textareaRef.current?.setSelectionRange(next, next);
+        });
+      }
+      setMenuIndex(0);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [onSlashCommand, setText, slashToken, text]
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
@@ -500,6 +743,42 @@ export function ChatComposer({
     [addFiles, disabled]
   );
 
+  // The host's drop zone: native listeners on an element the composer does
+  // not render, feeding the same addFiles as a drop on the field itself.
+  useEffect(() => {
+    const el = dropTargetRef?.current;
+    if (!el) return;
+    const hasFiles = (event: globalThis.DragEvent) =>
+      !!event.dataTransfer?.types.includes("Files");
+    const over = (event: globalThis.DragEvent) => {
+      if (disabled || !hasFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDropZoneDragging?.(true);
+    };
+    const leave = (event: globalThis.DragEvent) => {
+      if (el.contains(event.relatedTarget as Node | null)) return;
+      onDropZoneDragging?.(false);
+    };
+    const drop = (event: globalThis.DragEvent) => {
+      onDropZoneDragging?.(false);
+      if (disabled) return;
+      const dropped = Array.from(event.dataTransfer?.files ?? []);
+      if (dropped.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      addFiles(dropped);
+    };
+    el.addEventListener("dragover", over);
+    el.addEventListener("dragleave", leave);
+    el.addEventListener("drop", drop);
+    return () => {
+      el.removeEventListener("dragover", over);
+      el.removeEventListener("dragleave", leave);
+      el.removeEventListener("drop", drop);
+    };
+  }, [addFiles, disabled, dropTargetRef, onDropZoneDragging]);
+
   const canSend =
     !disabled &&
     !sending &&
@@ -602,13 +881,77 @@ export function ChatComposer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // An IME composition owns Enter and the arrows until it commits.
+      if (event.nativeEvent.isComposing) return;
+      if (menuCount > 0) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setMenuIndex((i) => (i + 1) % menuCount);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setMenuIndex((i) => (i - 1 + menuCount) % menuCount);
+          return;
+        }
+        if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+          const at = slashMatches.length > 0 ? null : atMatches[menuActive];
+          // A file already typed out in full has nothing left to pick:
+          // Enter sends the message instead of re-inserting the path.
+          const typedOut =
+            at !== null &&
+            at.kind === "file" &&
+            atToken !== null &&
+            at.path === atToken.query;
+          if (!(typedOut && event.key === "Enter")) {
+            event.preventDefault();
+            if (slashMatches.length > 0) pickSlash(slashMatches[slashActive]);
+            else pickAt(at as HarnessPath);
+            return;
+          }
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setMenuDismissed(text);
+          return;
+        }
+      }
+      // Ctrl+C, terminal-style: stop the turn. A selection keeps the copy.
+      if (
+        onInterrupt &&
+        event.key === "c" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+      ) {
+        event.preventDefault();
+        onInterrupt();
+        return;
+      }
+      // History, shell-style; see useComposerHistory for when it takes over.
+      if (event.key === "ArrowUp" && historyKeys.onArrowUp(event)) return;
+      if (event.key === "ArrowDown" && historyKeys.onArrowDown(event)) return;
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
-      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
+      historyKeys.reset();
       submit();
     },
-    [submit]
+    [
+      atMatches,
+      atToken,
+      historyKeys,
+      menuActive,
+      menuCount,
+      onInterrupt,
+      pickAt,
+      pickSlash,
+      slashActive,
+      slashMatches,
+      submit,
+      text,
+    ]
   );
 
   const uploadingName = fileViews.find(
@@ -631,7 +974,7 @@ export function ChatComposer({
     >
       <div
         className={cn(
-          "rounded-lg border bg-card/70 transition-colors",
+          "relative rounded-lg border bg-card/70 transition-colors",
           disabled
             ? "border-border opacity-70"
             : draggingFiles
@@ -639,6 +982,65 @@ export function ChatComposer({
               : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
         )}
       >
+        {slashMatches.length > 0 ? (
+          <ComposerMenu
+            items={slashMatches}
+            activeIndex={slashActive}
+            onPick={pickSlash}
+            onHover={setMenuIndex}
+            keyOf={(item) => item.name}
+            ariaLabel="Slash commands"
+            testId="chat-composer-slash-menu"
+            itemTestId="chat-composer-slash-item"
+            renderItem={(item) => (
+              <>
+                <span className="shrink-0 font-terminal">/{item.name}</span>
+                {item.description ? (
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    {item.description}
+                  </span>
+                ) : null}
+              </>
+            )}
+          />
+        ) : atMatches.length > 0 ? (
+          <ComposerMenu
+            items={atMatches}
+            activeIndex={menuActive}
+            onPick={pickAt}
+            onHover={setMenuIndex}
+            keyOf={(item) => item.path}
+            ariaLabel="Paths"
+            testId="chat-composer-at-menu"
+            itemTestId="chat-composer-at-item"
+            itemData={(item) => ({ "data-kind": item.kind, title: item.path })}
+            scroll
+            renderItem={(item) => {
+              // The shared parent may truncate; the entry's own name never does.
+              const cut = item.path.lastIndexOf("/");
+              const parent = cut >= 0 ? item.path.slice(0, cut + 1) : "";
+              const name = item.path.slice(cut + 1);
+              return (
+                <span className="flex min-w-0 items-center gap-2 font-terminal">
+                  {item.kind === "dir" ? (
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  {parent ? (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {parent}
+                    </span>
+                  ) : null}
+                  <span className="shrink-0">
+                    {name}
+                    {item.kind === "dir" ? "/" : ""}
+                  </span>
+                </span>
+              );
+            }}
+          />
+        ) : null}
         {replyContext && !disabled ? (
           <div className="px-2 pt-2">
             <div
@@ -732,24 +1134,50 @@ export function ChatComposer({
               <Paperclip className="h-4 w-4" />
             </Button>
           </div>
-          <Textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            disabled={disabled}
-            rows={1}
-            maxLength={CHAT_MESSAGE_MAX_CHARS}
-            autoFocus={autoFocus}
-            placeholder={
-              disabled ? "" : replyContext ? "Type your answer…" : placeholder
-            }
-            aria-label="Message the agent"
-            // The box around it is the border; the field itself is bare.
-            className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
-            data-testid="chat-composer-input"
-          />
+          <div className="relative min-w-0 flex-1">
+            <Textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                setCaret(event.target.selectionStart);
+                // Typing turns a recalled entry into a fresh draft.
+                historyKeys.reset();
+              }}
+              onKeyDown={onKeyDown}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+              onSelect={syncCaret}
+              onPaste={onPaste}
+              onScroll={(event) => {
+                const mirror = highlightsRef.current;
+                if (mirror) mirror.scrollTop = event.currentTarget.scrollTop;
+              }}
+              disabled={disabled}
+              rows={1}
+              maxLength={CHAT_MESSAGE_MAX_CHARS}
+              autoFocus={autoFocus}
+              placeholder={
+                disabled ? "" : replyContext ? "Type your answer…" : placeholder
+              }
+              aria-label="Message the agent"
+              // The box around it is the border; the field itself is bare.
+              // With a token on screen the mirror draws every glyph and the
+              // field draws none, keeping only its caret and selection.
+              className={cn(
+                "w-full resize-none border-0 bg-transparent shadow-none backdrop-blur-none focus-visible:ring-0",
+                COMPOSER_FIELD_BOX_CLASS,
+                painted && "text-transparent caret-foreground"
+              )}
+              data-testid="chat-composer-input"
+            />
+            {/* Same box, same text: "@path" tokens painted in color over the field. */}
+            <ComposerHighlights
+              ref={highlightsRef}
+              text={text}
+              disabled={disabled}
+            />
+          </div>
           <Button
             type="submit"
             size="icon"
@@ -807,6 +1235,8 @@ export function ChatComposer({
           </span>
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
+        ) : hint ? (
+          <span data-testid="chat-composer-hint">{hint}</span>
         ) : (
           <span>
             Enter to send · Shift+Enter for a new line · paste or drop files

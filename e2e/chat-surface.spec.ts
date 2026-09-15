@@ -1,4 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import type { BackgroundProcess, ChatFeedEntry } from "@dispatch/shared";
+import { Pool } from "pg";
 
 import {
   authHeaders,
@@ -8,7 +10,10 @@ import {
   loadApp,
   seedAgentMessageViaDB,
   seedChatMessageViaDB,
+  seedReviewAgentFixtureViaDB,
+  seedStreamTurnViaDB,
   setAgentPinsViaDB,
+  setDispatchHarnessViaAPI,
 } from "./helpers";
 
 const SETTING = "/api/v1/app/settings/chat-surface";
@@ -59,8 +64,479 @@ async function callMcpTool(
 }
 
 test.describe("Chat surface", () => {
+  test("aligns compact background processes with tasks and keeps output controls usable", async ({
+    page,
+    request,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-compact-processes-${Date.now()}`,
+      type: "dispatch",
+      model: "claude/default",
+    });
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "Tidy the background process list",
+      result: "Checking the compact process and task lists together.",
+      plan: [
+        {
+          content: "Inspect existing styles",
+          status: "completed",
+          priority: "medium",
+        },
+        {
+          content: "Align background processes with tasks",
+          status: "in_progress",
+          priority: "medium",
+        },
+        {
+          content: "Validate the compact layout",
+          status: "pending",
+          priority: "medium",
+        },
+      ],
+    });
+    const processes: BackgroundProcess[] = Array.from(
+      { length: 7 },
+      (_, index) => ({
+        id: `compact-${index}`,
+        agentId: agent.id,
+        title:
+          index === 6
+            ? "Current type checks with a deliberately long descriptive title"
+            : `Previous check ${index + 1}`,
+        command: "pnpm run check",
+        cwd: "/tmp",
+        status: index === 6 ? "running" : index === 1 ? "failed" : "completed",
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        endedAt: index === 6 ? null : new Date().toISOString(),
+        exitCode: index === 6 ? null : index === 1 ? 1 : 0,
+        output: "Checking types…",
+        truncated: false,
+      })
+    );
+    const routeProcesses = async (target: typeof page) => {
+      await target.route(
+        `**/api/v1/agents/${agent.id}/harness/processes**`,
+        (route) => {
+          const url = route.request().url();
+          if (url.endsWith("/stop")) {
+            processes[6].status = "stopped";
+            processes[6].endedAt = new Date().toISOString();
+            return route.fulfill({ status: 204 });
+          }
+          return route.fulfill({
+            json: url.endsWith("/processes")
+              ? { processes }
+              : processes.find((process) => url.endsWith(process.id)),
+          });
+        }
+      );
+    };
+    await routeProcesses(page);
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const panel = page.getByTestId("background-processes");
+    const toggle = panel.getByTestId("background-processes-toggle");
+    await expect(toggle).toContainText("1 running");
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    const rows = panel.getByTestId("background-process-row");
+    await expect(rows).toHaveCount(4);
+    await expect(rows.first()).toContainText("Current type checks");
+    const tasksToggle = page.getByTestId("harness-tasks-toggle");
+    const sizes = await Promise.all(
+      [toggle, tasksToggle].map((element) =>
+        element
+          .locator("span")
+          .first()
+          .evaluate((node) => getComputedStyle(node).fontSize)
+      )
+    );
+    expect(sizes).toEqual(["11px", "11px"]);
+    expect((await rows.first().boundingBox())!.height).toBeLessThan(26);
+    await page.screenshot({
+      path: "/tmp/dispatch-compact-processes-desktop.png",
+      fullPage: true,
+    });
+    await panel.getByRole("button", { name: "+3 more" }).click();
+    await expect(rows).toHaveCount(7);
+    await panel.getByRole("button", { name: "Show fewer" }).click();
+    await toggle.click();
+    await expect(rows).toHaveCount(0);
+
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      baseURL: test.info().project.use.baseURL,
+    });
+    try {
+      const mobilePage = await mobile.newPage();
+      await routeProcesses(mobilePage);
+      await mobilePage.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await mobilePage.getByTestId("center-tab-agent").click();
+      const mobileToggle = mobilePage.getByTestId(
+        "background-processes-toggle"
+      );
+      await mobileToggle.click();
+      const mobileRows = mobilePage.getByTestId("background-process-row");
+      await expect(mobileRows).toHaveCount(4);
+      expect(
+        (await mobileRows.first().boundingBox())!.height
+      ).toBeGreaterThanOrEqual(44);
+      const mobileTasks = mobilePage.getByTestId("harness-tasks-toggle");
+      if ((await mobileTasks.getAttribute("aria-expanded")) !== "true")
+        await mobileTasks.click();
+      await expect(mobilePage.getByTestId("harness-todo-list")).toBeVisible();
+      expect(
+        await mobilePage
+          .getByTestId("chat-pane")
+          .evaluate((node) => node.scrollWidth <= node.clientWidth)
+      ).toBe(true);
+      await mobilePage.screenshot({
+        path: "/tmp/dispatch-compact-processes-mobile.png",
+        fullPage: true,
+      });
+      await mobileRows.first().click();
+      const detail = mobilePage.getByTestId("background-process-detail");
+      await expect(detail).toContainText("Checking types…");
+      await mobilePage.screenshot({
+        path: "/tmp/dispatch-compact-processes-detail.png",
+        fullPage: true,
+      });
+      await detail.getByRole("button", { name: "Stop process" }).click();
+      await expect(detail).toContainText("stopped");
+      await detail.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(detail).toBeHidden();
+      await expect(mobileToggle).toBeFocused();
+      await expect(mobileToggle).toContainText("7 finished");
+    } finally {
+      await mobile.close();
+    }
+  });
+
+  test("shows startup progress through setup, connection, failure and readiness", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-startup-${Date.now()}`,
+    });
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+    });
+    const update = async (
+      status: string,
+      setupPhase: string | null,
+      stage?: string
+    ) => {
+      await pool.query(
+        "UPDATE agents SET type = 'dispatch', model = 'claude/default', status = $2, setup_phase = $3 WHERE id = $1",
+        [agent.id, status, setupPhase]
+      );
+      const response = await request.post(
+        `/api/v1/agents/${agent.id}/latest-event`,
+        {
+          headers: authHeaders(),
+          data: {
+            type:
+              status === "error"
+                ? "blocked"
+                : stage || status === "creating"
+                  ? "working"
+                  : "idle",
+            message:
+              status === "error"
+                ? "Sign-in required. Run claude auth login."
+                : status === "creating"
+                  ? "Installing dependencies…"
+                  : stage
+                    ? "Connecting to Claude Code…"
+                    : "Session ready.",
+            ...(stage
+              ? { metadata: { source: "system", phase: "agent_start", stage } }
+              : {}),
+          },
+        }
+      );
+      expect(response.ok()).toBe(true);
+    };
+    try {
+      await update("creating", "deps");
+      await loadApp(page);
+      await clickAgentRow(page, agent.id);
+      await page.getByTestId("center-tab-agent").click();
+      const startup = page.getByTestId("chat-agent-startup");
+      const progress = startup.getByRole("progressbar");
+      const composer = page.getByTestId("chat-composer-input");
+      await expect(startup).toContainText("Installing dependencies");
+      await expect(progress).toHaveAttribute("aria-valuenow", "45");
+      await expect(composer).toBeDisabled();
+      await expect(page.getByTestId("chat-empty")).toHaveCount(0);
+      await expect(page.getByTestId("chat-presence")).toHaveCount(0);
+      await page.screenshot({
+        path: "/tmp/dispatch-chat-startup-desktop.png",
+        fullPage: true,
+      });
+
+      await update("running", null, "connect");
+      await expect(startup).toContainText("Connecting to Claude Code");
+      await expect(progress).toHaveAttribute("aria-valuenow", "80");
+      await expect(composer).toBeDisabled();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await expect(startup).toBeVisible();
+      const spinner = startup.locator("svg").last();
+      await expect(spinner).toHaveCSS("animation-name", "none");
+      await page.screenshot({
+        path: "/tmp/dispatch-chat-startup-mobile.png",
+        fullPage: true,
+      });
+      await update("running", null, "configure");
+      await expect(progress).toHaveAttribute("aria-valuenow", "95");
+      await update("error", null);
+      await expect(startup).toHaveCount(0);
+      await expect(page.getByTestId("harness-status-line")).toContainText(
+        "Sign-in required"
+      );
+      await expect(composer).toBeDisabled();
+      await update("running", null, "connect");
+      await expect(startup).toBeVisible();
+      await update("running", null);
+      await expect(startup).toHaveCount(0);
+      await expect(composer).toBeEnabled();
+      await composer.fill("Ready to chat");
+      await expect(composer).toHaveValue("Ready to chat");
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test("windows thousands of messages and preserves older-history anchors", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-window-${Date.now()}`,
+    });
+    const entries: ChatFeedEntry[] = Array.from(
+      { length: 5000 },
+      (_, index) => {
+        const at = new Date(Date.UTC(2026, 0, 1) + index * 1000).toISOString();
+        const id = `window-message-${index}`;
+        return {
+          type: "chat",
+          id,
+          at,
+          message: {
+            id,
+            agentId: agent.id,
+            authorKind: "agent",
+            kind: "reply",
+            text: `Window message ${index}\n\n${"Variable height content. ".repeat((index % 8) + 1)}`,
+            replyTo: null,
+            question: null,
+            answer: null,
+            attachments: [],
+            delivered: true,
+            readAt: at,
+            createdAt: at,
+            updatedAt: at,
+          },
+        };
+      }
+    );
+    await page.route(`**/api/v1/agents/${agent.id}/chat?*`, (route) => {
+      const older = new URL(route.request().url()).searchParams.has("cursor");
+      return route.fulfill({
+        json: {
+          entries: older ? entries.slice(0, 500) : entries.slice(500),
+          hasMore: !older,
+          nextCursor: older ? null : "older",
+          unreadCount: 0,
+        },
+      });
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const scroller = page.getByTestId("chat-scroll");
+    await expect(
+      page.getByText("Window message 4999", { exact: false })
+    ).toBeVisible();
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    console.log(
+      "Large history mounted rows:",
+      await page.locator("[data-chat-entry-id]").count()
+    );
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    const anchor = page.locator('[data-chat-entry-id="window-message-500"]');
+    await expect(anchor).toBeVisible();
+    const before = await anchor.evaluate(
+      (el) => el.getBoundingClientRect().top
+    );
+    await page.getByRole("button", { name: "Load older", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Load older", exact: true })
+    ).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await anchor.evaluate((el) => el.getBoundingClientRect().top)) -
+            before
+        )
+      )
+      .toBeLessThan(20);
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-history.png",
+      fullPage: true,
+    });
+    const other = await createAgentViaAPI(request, {
+      name: `e2e-chat-window-other-${Date.now()}`,
+    });
+    await clickAgentRow(page, other.id);
+    await clickAgentRow(page, agent.id);
+    await expect(anchor).toBeVisible();
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await anchor.evaluate((el) => el.getBoundingClientRect().top)) -
+            before
+        )
+      )
+      .toBeLessThan(20);
+    const latest = entries[entries.length - 1]!;
+    if (latest.type !== "chat") throw new Error("Expected chat fixture");
+    entries.push({
+      ...latest,
+      id: "new-window-message",
+      at: new Date().toISOString(),
+      message: {
+        ...latest.message,
+        id: "new-window-message",
+        text: "New window message",
+      },
+    });
+    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+      kind: "reply",
+      text: "Incoming message triggers feed refresh",
+    });
+    await expect(
+      page.getByRole("button", { name: "New messages", exact: true })
+    ).toBeVisible();
+    await expect(anchor).toBeVisible();
+    await page
+      .getByRole("button", { name: "New messages", exact: true })
+      .click();
+    await expect(
+      page.getByText("New window message", { exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByText("Window message 4999", { exact: false })
+    ).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(
+      page.getByText("New window message", { exact: true })
+    ).toBeVisible();
+    await expect
+      .poll(() => page.locator("[data-chat-entry-id]").count())
+      .toBeLessThan(60);
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-mobile.png",
+      fullPage: true,
+    });
+  });
+
+  test("windows tool steps inside a long active turn", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-steps-${Date.now()}`,
+    });
+    const at = new Date().toISOString();
+    const entry: ChatFeedEntry = {
+      type: "turn",
+      id: "large-turn",
+      agentId: agent.id,
+      at,
+      updatedAt: at,
+      prompt: { source: "chat", text: "Long running work", attachments: [] },
+      trace: {
+        startedAt: at,
+        steps: Array.from({ length: 1000 }, (_, index) => ({
+          id: `step-${index}`,
+          kind: "execute",
+          label: `Command ${index}`,
+          status: "ok",
+          startedAt: at,
+          endedAt: at,
+          detail: { terminalOutput: `Output ${index}` },
+        })),
+      },
+      result: { text: "Latest streamed output", streaming: true },
+      settled: false,
+      interrupted: false,
+    };
+    await page.route(`**/api/v1/agents/${agent.id}/chat?*`, (route) =>
+      route.fulfill({
+        json: {
+          entries: [entry],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      })
+    );
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    await expect(page.getByText("Latest streamed output")).toBeVisible();
+    await expect
+      .poll(() => page.getByTestId("harness-step").count())
+      .toBeLessThan(60);
+    console.log(
+      "Large activity mounted steps:",
+      await page.getByTestId("harness-step").count()
+    );
+    await expect(
+      page.getByRole("button", { name: "command 999, completed", exact: true })
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "command 999, completed", exact: true })
+      .click();
+    await expect(page.getByText("Output 999", { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-chat-windowed-steps.png",
+      fullPage: true,
+    });
+  });
+
   test.afterEach(async ({ request }) => {
     await setChatSurface(request, false);
+    // Server-wide and not per-test: two cases here turn it on, and
+    // settings.spec.ts asserts the toggle starts off.
+    await setDispatchHarnessViaAPI(request, false);
     await cleanupE2EAgents(request);
   });
 
@@ -167,17 +643,10 @@ test.describe("Chat surface", () => {
     const pane = page.getByTestId("chat-pane");
     await expect(pane).toBeVisible();
 
-    // Every seeded entry renders.
-    // The server logs its own "Session started" event first; the two seeded
-    // working events collapse into the line after it.
-    const workingLine = pane
-      .getByTestId("chat-status")
-      .filter({ hasText: "Running tests" });
-    await expect(workingLine).toBeVisible();
-    await expect(workingLine).not.toContainText("Reading the plan");
-    await expect(pane.getByTestId("chat-status-collapsed-count")).toHaveText(
-      "×2"
-    );
+    // Every seeded post renders; the seeded status events do not. Those
+    // only show in the presence line above the composer.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
+    await expect(pane.getByTestId("chat-presence")).toBeVisible();
 
     const messages = pane.getByTestId("chat-message");
     await expect(messages).toHaveCount(3);
@@ -276,6 +745,75 @@ test.describe("Chat surface", () => {
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await page.getByTestId("agent-view-chat").click();
     await expect(page.getByTestId("chat-pane")).toBeVisible();
+  });
+
+  test("folds a peer post's body until the reader opens it", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-${Date.now()}`,
+    });
+    const peer = await createAgentViaAPI(request, {
+      name: `e2e-chat-fold-peer-${Date.now()}`,
+      type: "claude",
+      parentAgentId: agent.id,
+    });
+    // The shape that started this: a peer writing several paragraphs into a
+    // feed the user is trying to hold a conversation in.
+    const long = [
+      "Plan context does not define those values, and the protocol leaves",
+      "the staleness deadline as TODO. Recommended boundary:",
+      "- Use singleton entity keys, one latest snapshot each.",
+      "- Keep the two subscriptions beside the worker connection.",
+      "- Mark data unknown until the first valid snapshot.",
+      "THE TAIL LINE",
+    ].join("\n");
+    await seedAgentMessageViaDB({
+      senderAgentId: peer.id,
+      recipientAgentId: agent.id,
+      senderName: peer.name,
+      recipientName: agent.name,
+      content: long,
+      delivered: true,
+    });
+
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+
+    const body = pane.getByTestId("chat-peer-body");
+    await expect(body).toBeVisible();
+    const toggle = pane.getByTestId("chat-peer-expand");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Folded, the post is one notice-shaped row however long it is, and the
+    // row itself says who spoke to whom.
+    const foldedHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(foldedHeight).toBeLessThan(60);
+    await expect(pane.getByTestId("chat-side-header")).toBeVisible();
+    await expect(toggle).toContainText("Plan context does not define");
+    await page.screenshot({
+      path: test.info().outputPath("peer-folded.png"),
+      fullPage: true,
+    });
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(body).toContainText("THE TAIL LINE");
+    const openHeight = await body.evaluate(
+      (node) => node.getBoundingClientRect().height
+    );
+    expect(openHeight).toBeGreaterThan(foldedHeight);
+    await page.screenshot({
+      path: test.info().outputPath("peer-open.png"),
+      fullPage: true,
+    });
   });
 
   test("renders a user post's attachments and a pending agent message", async ({
@@ -914,5 +1452,199 @@ test.describe("Chat surface", () => {
     await page.screenshot({
       path: test.info().outputPath("chat-surface-wide-table-390.png"),
     });
+  });
+
+  test("dispatch agent: a turn, a review, a pin write and presence in one feed", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-feed-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    // No ACP engine runs in the inert suite, so the turn is seeded. It is
+    // anchored ten seconds back, which is what puts the rows written below
+    // after it: a row created while a turn ran keeps its own timestamp and
+    // lands under the turn rather than inside it.
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "read the readme and plan the work",
+      result: "It documents the CLI. Plan is up.",
+      stepTitle: "Read README.md",
+      plan: [
+        { content: "Read the README", status: "completed", priority: "high" },
+        {
+          content: "Echo the prompt",
+          status: "in_progress",
+          priority: "medium",
+        },
+        { content: "Wrap up", status: "pending", priority: "low" },
+      ],
+    });
+    const fixture = await seedReviewAgentFixtureViaDB(agent.id);
+    await callMcpTool(request, agent.id, "dispatch_event", {
+      type: "working",
+      message: "Wiring the feed",
+    });
+    await callMcpTool(request, agent.id, "dispatch_pin", {
+      label: "Dev server",
+      value: "http://127.0.0.1:5173",
+      type: "url",
+    });
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+    await expect(page.getByTestId("harness-pane")).toHaveCount(0);
+
+    const turn = pane.getByTestId("chat-turn");
+    await expect(turn).toHaveCount(1, { timeout: 30_000 });
+    await expect(turn.getByTestId("chat-message").first()).toContainText(
+      "read the readme and plan the work"
+    );
+    await expect(turn.getByTestId("harness-result")).toContainText(
+      "It documents the CLI."
+    );
+    await expect(turn).toHaveAttribute("data-settled", "true");
+
+    // The fixture seeds two reviews, so the open one is addressed by id.
+    // The card is the notice rather than a copy of the summary, so its
+    // block is what it must carry.
+    const review = pane.locator(
+      `[data-testid="chat-review"][data-review-id="${fixture.openReviewId}"]`
+    );
+    await expect(review).toBeVisible();
+    await expect(review.getByTestId("chat-review-block")).toBeVisible();
+    // The review is a structured card: even a folded peer row must expose
+    // the entire card and its Open button, rather than clip it at 48px.
+    expect(
+      await review.getByTestId("chat-review-block").evaluate((node) => {
+        const card = node.getBoundingClientRect();
+        for (
+          let parent = node.parentElement;
+          parent;
+          parent = parent.parentElement
+        ) {
+          if (
+            getComputedStyle(parent).overflowY === "hidden" &&
+            parent.getBoundingClientRect().bottom < card.bottom - 1
+          )
+            return false;
+          if (parent.dataset.testid === "chat-review") break;
+        }
+        return true;
+      })
+    ).toBe(true);
+    const pin = pane.getByTestId("chat-pin-entry");
+    await expect(pin).toBeVisible();
+    await expect(pin).toContainText("Dev server");
+
+    // Rows written while the turn ran keep their own timestamps, so they
+    // land below the turn entry rather than inside it.
+    const order = await pane.evaluate((root) =>
+      [
+        ...root.querySelectorAll(
+          '[data-testid="chat-turn"],[data-testid="chat-pin-entry"]'
+        ),
+      ].map((node) => node.getAttribute("data-testid"))
+    );
+    expect(order).toEqual(["chat-turn", "chat-pin-entry"]);
+
+    // The status event shows once, in the presence line, never as a row.
+    await expect(pane.getByTestId("chat-status")).toHaveCount(0);
+    await expect(pane.getByTestId("chat-presence")).toContainText(
+      "Wiring the feed"
+    );
+
+    // The strip is the plan the seeded turn published, which is the chrome
+    // reading the same entries the feed renders.
+    await expect(pane.getByTestId("harness-tasks")).toContainText(
+      "1 of 3 done"
+    );
+    await expect(pane.getByTestId("harness-model-chip")).toBeVisible();
+    await expect(pane.getByTestId("harness-usage-chip")).toBeVisible();
+
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-one-feed.png"),
+      fullPage: true,
+    });
+
+    // The engine writes to Chat, never to that pane, so the segment names
+    // the bare shell it actually is, and flipping to it still works.
+    const terminalSegment = page.getByTestId("agent-view-console");
+    await expect(terminalSegment).toHaveText("Terminal");
+    await terminalSegment.click();
+    await expect(page.getByTestId("agent-pane-console")).toHaveAttribute(
+      "data-state",
+      "shown"
+    );
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-terminal-segment.png"),
+      fullPage: true,
+    });
+  });
+
+  test("dispatch agent: touch-sized pill segments and chip row on a phone", async ({
+    browser,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-touch-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    const protocol = process.env.TLS_CERT ? "https" : "http";
+    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
+    const context = await browser.newContext({
+      baseURL,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 390, height: 844 },
+    });
+    const touchPage = await context.newPage();
+    try {
+      await touchPage.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await touchPage
+        .getByTestId("agent-view-toggle")
+        .waitFor({ state: "visible" });
+      expect(
+        await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
+      ).toBe(true);
+
+      // A Chat segment rather than a harness one, filter included.
+      for (const id of [
+        "agent-view-chat",
+        "agent-view-console",
+        "chat-filters-trigger",
+        "harness-model-chip",
+        "harness-usage-chip",
+      ]) {
+        await expect
+          .poll(() =>
+            touchPage
+              .getByTestId(id)
+              .evaluate((node) => node.getBoundingClientRect().height)
+          )
+          .toBeGreaterThanOrEqual(44);
+      }
+      await expect(touchPage.getByTestId("agent-view-harness")).toHaveCount(0);
+    } finally {
+      await touchPage.close();
+      await context.close();
+    }
   });
 });

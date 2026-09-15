@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentModelSelect } from "./agent-model-select";
@@ -35,6 +35,31 @@ describe("AgentModelSelect", () => {
     }
   );
 
+  it("splits the harness engine from its model", () => {
+    const grouped = [
+      {
+        id: "claude/default",
+        label: "Claude Code default",
+        group: "Claude Code",
+      },
+      { id: "codex/default", label: "Codex default", group: "Codex" },
+    ];
+    const onChange = vi.fn();
+    render(
+      <AgentModelSelect value={null} options={grouped} onChange={onChange} />
+    );
+    expect(screen.getByText("Provider")).toBeTruthy();
+    expect(
+      screen.getByTestId("create-agent-model-engine").textContent
+    ).toContain("Claude Code");
+    expect(screen.getByTestId("create-agent-model").textContent).toContain(
+      "Claude Code default"
+    );
+    fireEvent.click(screen.getByTestId("create-agent-model-engine"));
+    fireEvent.click(screen.getByRole("option", { name: "Codex" }));
+    expect(onChange).toHaveBeenLastCalledWith("codex/default");
+  });
+
   it("keeps the trigger labelled while the catalog loads", () => {
     render(
       <AgentModelSelect value={null} options={[]} onChange={vi.fn()} loading />
@@ -42,5 +67,32 @@ describe("AgentModelSelect", () => {
     const trigger = screen.getByTestId("create-agent-model");
     expect(trigger.textContent).toContain("Loading models…");
     expect(trigger).toHaveProperty("disabled", true);
+  });
+});
+
+describe("groupModelOptions", () => {
+  it("buckets by group in first-seen order, ungrouped under none", async () => {
+    const { groupModelOptions } = await import("./agent-model-select");
+    expect(
+      groupModelOptions([
+        { id: "a", label: "A", group: "Codex" },
+        { id: "b", label: "B" },
+        { id: "c", label: "C", group: "Gemini CLI" },
+        { id: "d", label: "D", group: "Codex" },
+      ])
+    ).toEqual([
+      {
+        group: "Codex",
+        options: [
+          { id: "a", label: "A", group: "Codex" },
+          { id: "d", label: "D", group: "Codex" },
+        ],
+      },
+      { group: null, options: [{ id: "b", label: "B" }] },
+      {
+        group: "Gemini CLI",
+        options: [{ id: "c", label: "C", group: "Gemini CLI" }],
+      },
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import {
   AGENT_MODEL_OPTIONS,
   applyAgentConfigDefaults,
   describeAgentModelCatalog,
+  inheritedHarnessModel,
   resolveAgentModelForUpdate,
   validateAgentModel,
 } from "../src/shared/agent-models.js";
@@ -23,6 +24,59 @@ describe("validateAgentModel", () => {
     expect(() => validateAgentModel("claude", "not-a-real-model")).toThrow(
       "not supported for claude"
     );
+  });
+
+  it("accepts a harness id whose model half carries slashes", () => {
+    // OpenCode model ids are provider/model, and setConfigOption stores
+    // exactly that shape, so a value the supervisor persists has to pass the
+    // validation the job and template update paths run over it.
+    expect(
+      validateAgentModel("dispatch", "opencode/anthropic/claude-sonnet-5")
+    ).toBe("opencode/anthropic/claude-sonnet-5");
+    expect(validateAgentModel("dispatch", "codex/gpt-5.6-sol")).toBe(
+      "codex/gpt-5.6-sol"
+    );
+  });
+
+  it("rejects a harness id whose engine is not one of the four", () => {
+    // Otherwise create returns 201 and the agent dies in setup with
+    // 'unknown engine', which is a worse place to learn about a typo.
+    for (const model of ["foo/bar", "claud/default", "default", "/default"]) {
+      expect(() => validateAgentModel("dispatch", model)).toThrow(
+        /claude, codex, gemini, opencode/
+      );
+    }
+  });
+});
+
+describe("inheritedHarnessModel", () => {
+  it("carries the parent's engine to a harness child that named no model", () => {
+    expect(
+      inheritedHarnessModel("dispatch", {
+        type: "dispatch",
+        model: "codex/gpt-5.6-sol",
+      })
+    ).toBe("codex/gpt-5.6-sol");
+    // No stored model still names an engine: the default one.
+    expect(
+      inheritedHarnessModel("dispatch", { type: "dispatch", model: null })
+    ).toBe("claude/default");
+  });
+
+  it("inherits nothing from a parent of another kind, or for a child of another kind", () => {
+    expect(
+      inheritedHarnessModel("claude", {
+        type: "dispatch",
+        model: "codex/default",
+      })
+    ).toBeUndefined();
+    expect(
+      inheritedHarnessModel("dispatch", { type: "claude", model: "opus" })
+    ).toBeUndefined();
+    // A parent whose stored id names no engine has nothing to pass on.
+    expect(
+      inheritedHarnessModel("dispatch", { type: "dispatch", model: "/oops" })
+    ).toBeUndefined();
   });
 });
 
@@ -174,5 +228,15 @@ describe("resolveAgentModelForUpdate", () => {
         existingModel: "opus",
       })
     ).toBe("opus");
+  });
+});
+
+describe("dispatch catalog", () => {
+  it("lists engine-qualified ids for dispatch", () => {
+    const ids = (AGENT_MODEL_OPTIONS.dispatch ?? []).map((o) => o.id);
+    expect(ids).toContain("claude/claude-opus-5");
+    expect(ids).toContain("codex/gpt-5.6-sol");
+    expect(ids).not.toContain("openai/gpt-5.6-sol");
+    for (const id of ids) expect(id).toMatch(/^[a-z0-9-]+\/[a-z0-9.-]+$/);
   });
 });

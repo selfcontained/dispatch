@@ -8,6 +8,13 @@ set -euo pipefail
 # logs/url can find the running stack later.
 #
 # No tmux or agent-session dependency — just background processes + PID files.
+#
+# The Dispatch MCP repo_dev_* tools (repo_dev_up, repo_dev_restart, etc.) run
+# the copy of this script that lives in the calling agent's own working
+# directory (its install), passing the repo under test with --cwd. A change
+# made here is not exercised by those tools until it is installed there, so
+# validate script changes directly: run ./bin/dispatch-dev from this worktree
+# with --suffix so it does not collide with any stack already running.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -132,23 +139,228 @@ kill_tree() {
   kill -"$sig" "$pid" 2>/dev/null || true
 }
 
-# Tree-kill a service PID, wait for exit, then force-kill if needed.
+# The PID holding the listening socket on a TCP port, or empty.
+#
+# The recorded PID for each dev service is a `pnpm` wrapper, not the server:
+# `pnpm run dev` execs node, which spawns a shell, which spawns pnpm again,
+# which finally spawns `bun --watch src/main.ts` (the process that binds the
+# port and parents the harness engine children). pnpm does not forward
+# SIGTERM, so the kernel's own answer to "who owns the port" is the only
+# reliable way to reach the server.
+port_listener_pid() {
+  local port="${1:-}"
+  local expect_owner="${2:-0}"
+  [ -z "$port" ] && return 0
+  local pid=""
+  if command -v ss &>/dev/null; then
+    pid="$(ss -ltnpH "sport = :${port}" 2>/dev/null |
+      grep -oE 'pid=[0-9]+' | head -n 1 | cut -d= -f2 || true)"
+  fi
+  if [ -z "$pid" ] && command -v lsof &>/dev/null; then
+    pid="$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+  fi
+  # Empty is a legitimate answer most of the time: nothing is listening yet
+  # (an early poll before the process has bound), or the recorded wrapper is
+  # already dead and there is genuinely nothing to find. Only explain an
+  # empty result when the caller actually expected an owner (pass
+  # expect_owner=1); otherwise this fires on every ordinary early poll and
+  # clean teardown, drowning out the case it exists to explain: a missing
+  # tool or a permission-denied lookup that looks the same as "port is free."
+  if [ -z "$pid" ] && [ "$expect_owner" = "1" ]; then
+    echo "port_listener_pid: no owner found for port ${port}; raw lookups follow" >&2
+    if command -v ss &>/dev/null; then
+      echo "  ss:   $(ss -ltnpH "sport = :${port}" 2>&1 || true)" >&2
+    else
+      echo "  ss:   not installed" >&2
+    fi
+    if command -v lsof &>/dev/null; then
+      echo "  lsof: $(lsof -iTCP:"$port" -sTCP:LISTEN 2>&1 || true)" >&2
+    else
+      echo "  lsof: not installed" >&2
+    fi
+  fi
+  echo "$pid"
+}
+
+# True when `needle` is `root` or one of its descendants.
+#
+# root == "1" (init/the subreaper) can never match here: the loop condition
+# stops the walk as soon as p reaches "1", before the `[ "$p" = "$root" ]`
+# comparison runs for that value. That's fine because no caller passes 1:
+# it would mean "anything reparented to init counts," which is not a check
+# any caller wants, so this is a dead branch by design, not a bug to fix.
+pid_in_tree() {
+  local needle="${1:-}"
+  local root="${2:-}"
+  [ -z "$needle" ] && return 1
+  [ -z "$root" ] && return 1
+  local p="$needle"
+  local hops=0
+  while [ -n "$p" ] && [ "$p" != "1" ] && [ $hops -lt 20 ]; do
+    [ "$p" = "$root" ] && return 0
+    p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+# The cwd of a running process, or empty. /proc exists on Linux; macOS has
+# no /proc, so fall back to lsof's cwd file descriptor there.
+listener_cwd() {
+  local target="${1:-}"
+  [ -z "$target" ] && return 0
+  if [ -d "/proc/${target}" ]; then
+    readlink "/proc/${target}/cwd" 2>/dev/null || true
+    return 0
+  fi
+  if command -v lsof &>/dev/null; then
+    lsof -a -p "$target" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true
+  fi
+}
+
+# Whether a running process was launched by this stack, by the per-stack
+# marker the launch exports into its environment: the API gets
+# DISPATCH_RELEASE_STORE_PATH and Vite gets DISPATCH_VITE_CACHE_DIR, and both
+# are under $(log_dir), which is unique per suffix. Only Linux answers: macOS
+# has no /proc and no way to read another process's environment without
+# elevation, so there the caller falls back to the cwd comparison.
+#
+# Returns 0 when the marker is there, 1 when the environment could be read
+# and it is not, 2 when it could not be read at all.
+listener_has_stack_marker() {
+  local target="${1:-}"
+  [ -z "$target" ] && return 2
+  [ -r "/proc/${target}/environ" ] || return 2
+  local api_marker="DISPATCH_RELEASE_STORE_PATH=$(log_dir)/release.json"
+  local vite_marker="DISPATCH_VITE_CACHE_DIR=$(log_dir)/vite-cache"
+  local environ
+  environ="$(tr '\0' '\n' < "/proc/${target}/environ" 2>/dev/null)" || return 2
+  if printf '%s\n' "$environ" | grep -qxF "$api_marker"; then
+    return 0
+  fi
+  if printf '%s\n' "$environ" | grep -qxF "$vite_marker"; then
+    return 0
+  fi
+  return 1
+}
+
+# Stop a dev service: the process that owns the port first, then its
+# wrappers, then force.
+#
+# The server is signaled directly, which is what the production unit does
+# (KillMode=process): its own shutdown handler runs, and a harness agent's
+# engine child gets the close-session teardown that marks the running turn
+# as cut by the restart. Its children are never signaled from here, because
+# killing an engine out from under the server leaves the agent needing a
+# manual Start. The wrapper chain goes next so no pnpm or shell lingers,
+# and the depth-first SIGKILL sweep stays the escape hatch for anything
+# that ignores all of it.
+#
+# The fourth argument is how long the server may take over that shutdown.
+# It has to cover what `cleanupAppResources` waits for before the engine
+# children are even reached: active archives (10 s), in-flight chat
+# deliveries (5 s, and a queued message counts), then the supervisor's
+# reconcile (2 s) and stop (5 s) bounds, inside which each child walks a
+# 3 x 1.5 s teardown ladder. A window shorter than that hands a live turn
+# to the SIGKILL sweep mid-shutdown, which is the very thing signaling the
+# server first is meant to avoid, so the API gets 30 s. Vite has no such
+# shutdown and keeps 5.
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
-  if ! pid_alive "$pid"; then
+  local port="${3:-}"
+  local grace="${4:-5}"
+  local wrapper_alive=0
+  pid_alive "$pid" && wrapper_alive=1
+  local listener
+  # An owner is expected here whenever the wrapper we recorded is still
+  # alive. If it's dead and nothing answers, that's the ordinary
+  # already-stopped case below, not something to explain.
+  listener="$(port_listener_pid "$port" "$wrapper_alive")"
+  if [ -n "$listener" ] && ! pid_alive "$listener"; then
+    listener=""
+  fi
+  if [ "$wrapper_alive" != "1" ] && [ -z "$listener" ]; then
     return 0
   fi
-  kill_tree "$pid"
-  local i=0
-  while [ $i -lt 10 ] && pid_alive "$pid"; do
-    sleep 0.5
-    i=$((i + 1))
-  done
+
+  # Confirm the port's owner is actually this stack before touching it. A
+  # stale state file whose port has since been recycled would otherwise get
+  # another agent's dev server signaled here, since every agent runs its own
+  # stack and ports are auto-selected from the same range.
+  if [ -n "$listener" ]; then
+    local listener_belongs=0
+    if [ "$wrapper_alive" = "1" ]; then
+      # The wrapper is alive, so the tree walk is meaningful: the listener
+      # must be the wrapper itself or one of its descendants.
+      if pid_in_tree "$listener" "$pid"; then
+        listener_belongs=1
+      fi
+    else
+      # The wrapper is already gone, so there is no tree left to walk. The
+      # per-stack environment marker answers this exactly, which the cwd
+      # cannot: two stacks started from the same worktree (which the header
+      # above recommends) have the same cwd, so a stale state file whose
+      # port has since been recycled to the sibling stack would pass a cwd
+      # check and get the sibling's server signaled.
+      local marker_state=0
+      listener_has_stack_marker "$listener" || marker_state=$?
+      if [ "$marker_state" = "0" ]; then
+        listener_belongs=1
+      elif [ "$marker_state" = "2" ]; then
+        # The environment could not be read (no /proc: macOS). Fall back to
+        # comparing the listener's cwd against this stack's directory. A
+        # prefix match, not equality: pnpm runs the workspace script from the
+        # package directory (apps/server), not the repo root DEV_CWD records,
+        # so the listener's cwd is a subdirectory of it, not equal.
+        local listener_cwd_path stack_cwd
+        listener_cwd_path="$(listener_cwd "$listener")"
+        stack_cwd="$(readlink -f "${DEV_CWD:-}" 2>/dev/null || true)"
+        if [ -n "$listener_cwd_path" ] && [ -n "$stack_cwd" ]; then
+          case "$listener_cwd_path/" in
+            "$stack_cwd"/*) listener_belongs=1 ;;
+          esac
+        fi
+      fi
+    fi
+    if [ "$listener_belongs" != "1" ]; then
+      echo "port ${port} is held by PID ${listener}, which is not part of this stack; refusing to stop it" >&2
+      return 1
+    fi
+  fi
+
+  if [ -n "$listener" ]; then
+    kill -TERM "$listener" 2>/dev/null || true
+    local ticks=$((grace * 2))
+    local waited=0
+    local noted=0
+    while [ $waited -lt $ticks ] && pid_alive "$listener"; do
+      sleep 0.5
+      waited=$((waited + 1))
+      # Past five seconds this looks like a hang; say what it is waiting on.
+      if [ $noted -eq 0 ] && [ $waited -ge 10 ]; then
+        noted=1
+        echo "Waiting for the ${name} to finish its shutdown (up to ${grace}s)..."
+      fi
+    done
+  fi
+
+  if pid_alive "$pid"; then
+    kill_tree "$pid"
+    local i=0
+    while [ $i -lt 10 ] && pid_alive "$pid"; do
+      sleep 0.5
+      i=$((i + 1))
+    done
+  fi
+
   if pid_alive "$pid"; then
     kill_tree "$pid" 9
   fi
-  echo "Stopped ${name} (PID ${pid})"
+  if [ -n "$listener" ] && pid_alive "$listener"; then
+    kill -KILL "$listener" 2>/dev/null || true
+  fi
+  echo "Stopped ${name} (PID ${pid}${listener:+, server ${listener}})"
 }
 
 # Detect docker compose command
@@ -272,10 +484,29 @@ cmd_up() {
   DEV_API_PID="$(cat "$(log_dir)/api.pid")"
   echo "API server starting on port ${DEV_API_PORT} (PID ${DEV_API_PID})"
 
-  # Liveness check — wait up to 10s for the port, then verify /health
+  # Liveness check: wait for the port, then verify /health. This host is
+  # IO-starved enough that a cold start (52 migrations, plus whatever else
+  # main.ts does before it binds) can run well past a 10s window without
+  # anything being wrong, so the window is sized for a slow disk, not a
+  # typical local boot, and a progress line partway through says what it's
+  # waiting on instead of looking hung.
+  #
+  # --no-db is the exception, and gets the shorter window. There is no
+  # database for the server to reach, so it is expected not to bind at all,
+  # and waiting a minute to say so is a minute of nothing. A stack in that
+  # shape is still worth recording (below): `status`, `url` and `down` all
+  # read the state file, and a stack you cannot tear down is worse than one
+  # whose API never came up.
   local attempts=0
+  local attempts_max=120
+  local port_wait_label="60s"
+  if [ "$OPT_NO_DB" = "1" ]; then
+    attempts_max=20
+    port_wait_label="10s"
+  fi
   local port_open=0
-  while [ $attempts -lt 20 ]; do
+  local port_noted=0
+  while [ $attempts -lt $attempts_max ]; do
     if ! pid_alive "$DEV_API_PID"; then
       echo "Error: API server exited immediately. Last log lines:" >&2
       tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
@@ -286,8 +517,49 @@ cmd_up() {
       break
     fi
     attempts=$((attempts + 1))
+    if [ $port_noted -eq 0 ] && [ $attempts -ge 20 ]; then
+      port_noted=1
+      echo "Still waiting for the API server to open port ${DEV_API_PORT} (up to ${port_wait_label})..."
+    fi
     sleep 0.5
   done
+
+  # The wrapper stayed alive for the whole wait but the port never opened.
+  # With a database of its own that is a broken stack: don't fall through to
+  # seeding, Vite and save_state as if it worked. Under --no-db it is the
+  # expected outcome, so warn and carry on to save_state, which is what
+  # keeps status, url and down working.
+  if [ "$port_open" != "1" ]; then
+    if [ "$OPT_NO_DB" != "1" ]; then
+      echo "Error: API server did not open port ${DEV_API_PORT} within ${port_wait_label}. Last log lines:" >&2
+      tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+      exit 1
+    fi
+    echo "Warning: API server did not open port ${DEV_API_PORT} within ${port_wait_label}; --no-db leaves it no database to reach. Last log lines:" >&2
+    tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+  fi
+
+  # An open port is not proof the server we just started owns it. A restart
+  # reuses the port, so a listener from outside this tree means the old
+  # server never died: the health check below would pass against stale code
+  # and the restart would report success. Fail loudly instead.
+  #
+  # A listener reparented to a subreaper also fails this check: if the
+  # middle wrapper in the pnpm chain dies right after launch, the kernel
+  # re-parents the surviving bun process, and pid_in_tree can no longer walk
+  # from it back up to DEV_API_PID. That misnames the culprit, blaming a
+  # nonexistent "earlier dev server" when the process is actually the one
+  # just started, but it still fails loudly and a retry (`up` again) fixes
+  # it, which is the direction this check should err in.
+  if [ "$port_open" = "1" ]; then
+    local api_listener
+    api_listener="$(port_listener_pid "$DEV_API_PORT" 1)"
+    if [ -n "$api_listener" ] && ! pid_in_tree "$api_listener" "$DEV_API_PID"; then
+      echo "Error: port ${DEV_API_PORT} is held by PID ${api_listener}, which is not part of the API server just started (PID ${DEV_API_PID})." >&2
+      echo "An earlier dev server still owns the port, so this stack would serve stale code. Stop it and retry: kill ${api_listener}" >&2
+      exit 1
+    fi
+  fi
 
   # Verify the API is actually healthy, not just listening
   if [ "$port_open" = "1" ]; then
@@ -356,6 +628,37 @@ cmd_up() {
     echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
   fi
 
+  # What this rules out: a listener from outside this tree, which on a
+  # restart is the previous Vite still owning the reused port while the new
+  # one silently moved to the next port number.
+  #
+  # It does not confirm that our own Vite came up, and no longer implies it.
+  # Run straight after the fixed one-second wait above, this found nothing
+  # listening on this host and the emptiness passed as if it had checked
+  # something; an empty result now says so instead.
+  #
+  # The wait is short on purpose. The owner this check is looking for was
+  # bound before Vite was even launched, so it answers on the first probe;
+  # everything past that only waits on our own Vite, which a longer wait
+  # would charge to every `up` for nothing.
+  local vite_listener=""
+  local vite_waited=0
+  while [ $vite_waited -lt 6 ]; do
+    vite_listener="$(port_listener_pid "$DEV_VITE_PORT")"
+    [ -n "$vite_listener" ] && break
+    pid_alive "$DEV_VITE_PID" || break
+    vite_waited=$((vite_waited + 1))
+    sleep 0.5
+  done
+  if [ -z "$vite_listener" ]; then
+    echo "Note: nothing was listening on port ${DEV_VITE_PORT} yet, so no foreign owner was found; Vite is still starting. See $(log_dir)/vite.log" >&2
+  fi
+  if [ -n "$vite_listener" ] && ! pid_in_tree "$vite_listener" "$DEV_VITE_PID"; then
+    echo "Error: port ${DEV_VITE_PORT} is held by PID ${vite_listener}, which is not part of the Vite server just started (PID ${DEV_VITE_PID})." >&2
+    echo "An earlier dev server still owns the port. Stop it and retry: kill ${vite_listener}" >&2
+    exit 1
+  fi
+
   save_state
 
   echo ""
@@ -376,8 +679,12 @@ cmd_down() {
     return 0
   fi
 
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  # Collect a refusal instead of letting set -e abort here: a foreign
+  # listener on one port must not skip stopping the other service, removing
+  # the DB container, or clearing the state file, or the container leaks.
+  local refused=0
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30 || refused=1
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5 || refused=1
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
@@ -392,6 +699,11 @@ cmd_down() {
   # Clean up state and logs
   rm -f "$(state_file)"
   rm -rf "$(log_dir)"
+
+  if [ "$refused" = "1" ]; then
+    echo "Dev environment for '${SUFFIX}' torn down, but a refused listener above was left running (see the message before this)." >&2
+    return 1
+  fi
 
   echo "Dev environment torn down (suffix: ${SUFFIX})."
 }
@@ -422,9 +734,17 @@ cmd_restart() {
     return
   fi
 
-  # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  # Stop the app processes only; DB stays up. Collect a refusal from
+  # either instead of letting set -e abort mid-way: attempt both stops,
+  # then bail before touching the state file or relaunching, since
+  # relaunching on top of a port we couldn't verify is unsafe.
+  local refused=0
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}" 30 || refused=1
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}" 5 || refused=1
+  if [ "$refused" = "1" ]; then
+    echo "Restart aborted: a refused listener above was left running; the state file is unchanged." >&2
+    return 1
+  fi
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble

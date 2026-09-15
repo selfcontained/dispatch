@@ -181,6 +181,22 @@ describe("the phase walk", () => {
 });
 
 describe("the operation log", () => {
+  it("says what the restart does to a harness turn in progress", () => {
+    // The restart cuts every running harness turn; the dialog said nothing,
+    // and the user learned about it afterwards from an "interrupted" row.
+    renderTakeover({
+      job: makeJob({ phase: "restarting" }),
+      isRestarting: true,
+    });
+    expect(
+      screen.getByTestId("release-harness-restart-note").textContent
+    ).toContain("interrupted and resumed after the restart");
+
+    cleanup();
+    renderTakeover({ job: makeJob({ phase: "deploying" }) });
+    expect(screen.queryByTestId("release-harness-restart-note")).toBeNull();
+  });
+
   it("hides the restart sentinel and renders the surrounding lines", () => {
     renderTakeover({
       job: makeJob({

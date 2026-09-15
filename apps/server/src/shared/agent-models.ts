@@ -1,6 +1,13 @@
+import { HARNESS_ENGINE_IDS, harnessEngineOf } from "@dispatch/shared";
+
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = {
+  id: string;
+  label: string;
+  /** Section header in grouped pickers (the provider), when known. */
+  group?: string;
+};
 
 /**
  * Source-controlled model catalog for the launchers Dispatch supports.
@@ -41,6 +48,67 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "sonnet", label: "Sonnet" },
     { id: "haiku", label: "Haiku" },
     { id: "fable", label: "Fable" },
+  ],
+  // Dispatch Harness ids are `engine/model`. The engine picks the ACP agent;
+  // the model half is what that engine calls it, or `default` for the
+  // engine's own default. The picker inside a running session reads the
+  // engine's live options; this list is for the create dialog.
+  dispatch: [
+    {
+      id: "claude/default",
+      label: "Claude Code default",
+      group: "Claude Code",
+    },
+    { id: "claude/claude-fable-5-1", label: "Fable 5.1", group: "Claude Code" },
+    { id: "claude/claude-opus-5", label: "Opus 5", group: "Claude Code" },
+    { id: "claude/claude-sonnet-5", label: "Sonnet 5", group: "Claude Code" },
+    {
+      id: "claude/claude-haiku-4-5-20251001",
+      label: "Haiku 4.5",
+      group: "Claude Code",
+    },
+    { id: "codex/default", label: "Codex default", group: "Codex" },
+    { id: "codex/gpt-6-astra", label: "GPT-6 Astra", group: "Codex" },
+    { id: "codex/gpt-5.6-sol", label: "GPT-5.6 Sol", group: "Codex" },
+    { id: "codex/gpt-5.6-terra", label: "GPT-5.6 Terra", group: "Codex" },
+    { id: "codex/gpt-5.6-luna", label: "GPT-5.6 Luna", group: "Codex" },
+    { id: "codex/gpt-5.5", label: "GPT-5.5", group: "Codex" },
+    {
+      id: "codex/gpt-5.3-codex-spark",
+      label: "GPT-5.3 Codex Spark (preview)",
+      group: "Codex",
+    },
+    {
+      id: "gemini/default",
+      label: "Gemini CLI default (gemini-2.5-pro)",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-3-pro-preview",
+      label: "Gemini 3 Pro (preview)",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-3-flash-preview",
+      label: "Gemini 3 Flash (preview)",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-3.5-flash",
+      label: "Gemini 3.5 Flash",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-2.5-pro",
+      label: "Gemini 2.5 Pro",
+      group: "Gemini CLI",
+    },
+    {
+      id: "gemini/gemini-2.5-flash",
+      label: "Gemini 2.5 Flash",
+      group: "Gemini CLI",
+    },
+    { id: "opencode/default", label: "OpenCode default", group: "OpenCode" },
   ],
 };
 
@@ -104,12 +172,41 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
+/**
+ * The model half of a harness id. Slashes are allowed after the first one
+ * because OpenCode ids are `provider/model`, which is also the shape
+ * `HarnessSupervisor.setConfigOption` persists when a model is switched at
+ * runtime; a stricter rule here rejected the supervisor's own stored value
+ * the next time a job or template update path validated it.
+ */
+const HARNESS_MODEL_HALF = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+
+/**
+ * Split a harness model id the way `splitModelId` does at start time, so a
+ * typo is a 400 at create rather than "unknown engine" in the sidebar once
+ * the agent is already there. The engine catalog itself is the engine's, so
+ * the model half is only shape-checked.
+ */
+function validateHarnessModel(model: string): string {
+  const slash = model.indexOf("/");
+  const engine = slash > 0 ? model.slice(0, slash) : "";
+  const rest = slash > 0 ? model.slice(slash + 1) : "";
+  const known = (HARNESS_ENGINE_IDS as readonly string[]).includes(engine);
+  if (!known || !HARNESS_MODEL_HALF.test(rest)) {
+    throw new Error(
+      `Model "${model}" is not a harness model id. Use engine/model, where engine is one of ${HARNESS_ENGINE_IDS.join(", ")}, for example codex/gpt-5.6-sol.`
+    );
+  }
+  return model;
+}
+
 export function validateAgentModel(
   agentType: AgentType,
   model: string | undefined
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
+  if (agentType === "dispatch") return validateHarnessModel(normalizedModel);
   if (
     getAgentModelOptions(agentType).some(
       (option) => option.id === normalizedModel
@@ -120,6 +217,27 @@ export function validateAgentModel(
   throw new Error(
     `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
   );
+}
+
+/**
+ * The model a child or persona of type `dispatch` runs with when the caller
+ * named none.
+ *
+ * A harness agent's engine is the first segment of its model id, so a child
+ * that runs as its parent's own kind has to carry the parent's engine as
+ * well: left to the supervisor's own default, a Codex- or Gemini-harness
+ * parent's reviewer runs on Claude Code, which is both the wrong reasoning
+ * and the wrong account to bill. Returns undefined for anything else, which
+ * leaves the CLI default in place.
+ */
+export function inheritedHarnessModel(
+  agentType: AgentType,
+  parent: { type?: string | null; model?: string | null }
+): string | undefined {
+  if (agentType !== "dispatch" || parent.type !== "dispatch") return undefined;
+  const engine = harnessEngineOf(parent.model);
+  if (!engine) return undefined;
+  return parent.model || `${engine.id}/default`;
 }
 
 /** The agent-config fields every job/template create path defaults the same way. */

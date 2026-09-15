@@ -64,6 +64,9 @@ vi.mock("../src/agent-type-settings.js", () => ({
   getEnabledAgentTypes: vi
     .fn()
     .mockResolvedValue(["claude", "codex", "opencode"]),
+  getOfferedAgentTypes: vi
+    .fn()
+    .mockResolvedValue(["claude", "codex", "opencode"]),
   isCliAgentType: vi.fn((t: string) =>
     ["claude", "codex", "opencode"].includes(t)
   ),
