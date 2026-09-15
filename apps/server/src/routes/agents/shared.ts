@@ -24,6 +24,10 @@ export type AgentRouteDeps = {
   pool: Pool;
   /** Session config (model, effort) for Dispatch Harness agents. */
   harness: {
+    listProcesses?: (
+      agentId: string
+    ) => Promise<import("@dispatch/shared").BackgroundProcess[]>;
+    stopProcess?: (agentId: string, id: string) => Promise<boolean>;
     getConfigOptions: (agentId: string) => HarnessConfigOption[] | null;
     getSessionStartedAt: (agentId: string) => string | null;
     setConfigOption: (

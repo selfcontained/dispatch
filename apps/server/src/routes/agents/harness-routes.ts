@@ -38,6 +38,50 @@ export async function registerAgentHarnessRoutes(
     return response;
   });
 
+  app.get("/api/v1/agents/:id/harness/processes", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!(await exists(id)))
+      return reply.code(404).send({ error: "Agent not found." });
+    return {
+      processes: ((await deps.harness.listProcesses?.(id)) ?? []).map(
+        (process) => ({ ...process, output: "" })
+      ),
+    };
+  });
+
+  app.get(
+    "/api/v1/agents/:id/harness/processes/:processId",
+    async (request, reply) => {
+      const { id, processId } = request.params as {
+        id: string;
+        processId: string;
+      };
+      if (!(await exists(id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      const process = (await deps.harness.listProcesses?.(id))?.find(
+        (p) => p.id === processId
+      );
+      if (!process)
+        return reply.code(404).send({ error: "Process not found." });
+      return process;
+    }
+  );
+
+  app.post(
+    "/api/v1/agents/:id/harness/processes/:processId/stop",
+    async (request, reply) => {
+      const { id, processId } = request.params as {
+        id: string;
+        processId: string;
+      };
+      if (!(await exists(id)))
+        return reply.code(404).send({ error: "Agent not found." });
+      if (!(await deps.harness.stopProcess?.(id, processId)))
+        return reply.code(404).send({ error: "Process is no longer running." });
+      return reply.code(204).send();
+    }
+  );
+
   app.put("/api/v1/agents/:id/harness/config", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     const body = (request.body ?? {}) as Partial<HarnessConfigUpdateRequest>;

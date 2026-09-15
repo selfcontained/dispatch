@@ -134,6 +134,75 @@ test.describe("harness agent", () => {
     await expect(pane.getByTestId("harness-tasks")).toHaveCount(0);
   });
 
+  test("manages background processes separately from the active turn", async ({
+    page,
+    request,
+  }) => {
+    await setDispatchHarnessViaAPI(request, true);
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-background-${Date.now()}`,
+      type: "dispatch",
+      model: "claude/default",
+      cwd: makeRepo(),
+      useWorktree: true,
+      initialPrompt: "sleep:120000 independent work",
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    await expect(page.getByTestId("chat-composer-input")).toBeEnabled({
+      timeout: 30000,
+    });
+    const start = async (title: string, command: string) => {
+      const response = await request.post(`/api/mcp/${agent.id}`, {
+        headers: { Accept: "application/json, text/event-stream" },
+        data: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "dispatch_background_process",
+            arguments: { action: "start", title, command },
+          },
+        },
+      });
+      expect(response.ok()).toBe(true);
+      expect(await response.text()).not.toContain('"isError":true');
+    };
+    await start("Type checks", "printf 'Checking types\\n'; sleep 60");
+    await start("Watching output", "printf 'Monitor ready\\n'; sleep 60");
+    const panel = page.getByTestId("background-processes");
+    await expect(panel).toContainText("2 running");
+    const toggle = panel.getByTestId("background-processes-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await panel.getByText("Type checks", { exact: true }).click();
+    const detail = page.getByTestId("background-process-detail");
+    await expect(detail).toContainText("Checking types");
+    await page.screenshot({ path: "/tmp/dispatch-background-detail.png" });
+    await detail
+      .getByRole("button", { name: "Stop process", exact: true })
+      .click();
+    await expect(detail).toContainText("stopped");
+    await page.keyboard.press("Escape");
+    await expect(panel).toContainText("1 running");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(panel).toContainText("1 running");
+    await panel.getByTestId("background-processes-toggle").click();
+    await expect(panel).toContainText("stopped");
+    await page.screenshot({ path: "/tmp/dispatch-background-list.png" });
+    await expect
+      .poll(async () => {
+        const response = await request.get(
+          `/api/v1/agents/${agent.id}/harness/queue`,
+          { headers: authHeaders() }
+        );
+        return response.text();
+      })
+      .toContain("Background process");
+  });
+
   const ENGINES = [
     {
       model: "claude/default",

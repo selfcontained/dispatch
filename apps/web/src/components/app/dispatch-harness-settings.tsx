@@ -20,9 +20,9 @@ export function DispatchHarnessSettings(): JSX.Element {
       eyebrow="Dispatch agent"
       description={
         <>
-          Dispatch&apos;s own view over Claude Code, Codex, Gemini CLI, or
-          OpenCode. Needs the engine&apos;s CLI installed and logged in on the
-          server (see the runbook for setup instructions).
+          Dispatch&apos;s own view over Claude Code, Codex, or OpenCode. Needs
+          the engine&apos;s CLI installed and logged in on the server (see the
+          runbook for setup instructions).
         </>
       }
       label="Dispatch agent (beta)"

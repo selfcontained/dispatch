@@ -73,6 +73,7 @@ const HARNESS_MIGRATION_NAMES = [
   "0055_dispatch-harness-carry-over",
   "0056_agents-chat-read-at",
   "0057_agent-chat-reactions",
+  "0058_agent-background-processes",
 ];
 
 let pool: Pool;

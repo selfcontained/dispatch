@@ -730,6 +730,46 @@ async function registerRoutes() {
       agentId: string,
       entries: Parameters<typeof harnessSupervisor.updateTasks>[1]
     ) => harnessSupervisor.updateTasks(agentId, entries),
+    mcpBackgroundProcess: async (
+      agentId: string,
+      input: {
+        action: string;
+        processId?: string;
+        command?: string;
+        title?: string;
+        timeoutSeconds?: number;
+      }
+    ) => {
+      if (input.action === "start") {
+        if (!input.command || !input.title)
+          throw new Error("Start requires command and title.");
+        return harnessSupervisor.startBackgroundProcess(agentId, {
+          command: input.command,
+          title: input.title,
+          timeoutSeconds: input.timeoutSeconds,
+        });
+      }
+      if (input.action === "stop") {
+        if (
+          !input.processId ||
+          !(await harnessSupervisor.backgroundProcesses.stop(
+            agentId,
+            input.processId
+          ))
+        )
+          throw new Error(
+            "Process is not running or does not belong to this session."
+          );
+        return { stopped: true };
+      }
+      const processes =
+        await harnessSupervisor.backgroundProcesses.list(agentId);
+      if (input.action === "list")
+        return processes.map(({ output: _output, ...process }) => process);
+      const process = processes.find((p) => p.id === input.processId);
+      if (!process) throw new Error("Process not found in this session.");
+      return process;
+    },
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
@@ -890,6 +930,10 @@ async function registerRoutes() {
   await registerAgentRoutes(app, {
     pool,
     harness: {
+      listProcesses: (agentId) =>
+        harnessSupervisor.backgroundProcesses.list(agentId),
+      stopProcess: (agentId, id) =>
+        harnessSupervisor.backgroundProcesses.stop(agentId, id),
       getConfigOptions: (agentId) =>
         harnessSupervisor.getConfigOptions(agentId),
       getSessionStartedAt: (agentId) =>
@@ -1064,6 +1108,7 @@ export async function start() {
   await initializeApp();
 
   const protocol = config.tls ? "https" : "http";
+  await harnessSupervisor.backgroundProcesses.reconcile();
   await app.listen({
     host: config.host,
     port: config.port,

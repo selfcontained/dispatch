@@ -372,6 +372,18 @@ test.describe("Settings pane", () => {
     await expect(form).toBeVisible();
     await form.getByRole("combobox").first().click();
     await expect(page.getByRole("option", { name: "Dispatch" })).toBeVisible();
+    await page.getByRole("option", { name: "Dispatch", exact: true }).click();
+    await page.getByTestId("create-agent-model-engine").click();
+    await expect(
+      page.getByRole("option", { name: "Claude Code", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "Codex", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "OpenCode", exact: true })
+    ).toBeVisible();
+    await expect(page.getByRole("option", { name: /Gemini/i })).toHaveCount(0);
   });
 
   test("single enabled agent type removes split buttons", async ({

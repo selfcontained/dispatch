@@ -120,6 +120,31 @@ the calling agent's active-turn list with the supplied tasks (`pending`,
 `in_progress`, or `completed`); an empty list clears it. Launch guidance asks
 agents to use it for multi-step work.
 
+Gemini's implementation remains available to existing sessions and API callers,
+but new UI provider choices hide it pending an in-chat sign-in flow, clear
+API-key versus account/subscription status, and management confirmation of account access.
+
+### Background processes
+
+Dispatch agents use `dispatch_background_process` for non-interactive builds,
+tests, and bounded monitoring commands. `start` takes a title and shell command,
+returns immediately, and queues a completion message when the command exits.
+`list`, `inspect`, and `stop` only operate on the calling agent's processes.
+Commands run in the session's working directory. Use foreground tools when a
+command needs interactive input; this feature does not provide a PTY.
+
+The Chat composer shows a collapsed running count. Expand it to select a
+process, inspect its output and exit status, or stop it. Output is a bounded
+tail; the latest 20 records are retained along with running processes. Limits
+are four concurrent processes per session and 16 across the server. Commands
+time out after one hour unless overridden (maximum 24 hours). Session stop and
+graceful server shutdown terminate their process groups. Restart recovery marks
+unfinished records interrupted; it never automatically re-executes commands.
+
+This tracks commands launched through Dispatch's background-process tool, not
+arbitrary processes started by a provider's native shell tool. Existing tool-call
+rows are provider-reported activity and are not retroactively adopted.
+
 The usage dialog distinguishes the last provider report from the time Dispatch
 checked for it. Codex reports are selected by their event timestamps. Claude's
 interactive `.claude.json` cache can remain unchanged during ACP sessions, so

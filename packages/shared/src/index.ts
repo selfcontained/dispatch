@@ -159,3 +159,7 @@ export type {
   TerminalCopyMode,
   TerminalUiState,
 } from "./ui-event-types.js";
+export type {
+  BackgroundProcess,
+  BackgroundProcessInput,
+} from "./background-process-types.js";

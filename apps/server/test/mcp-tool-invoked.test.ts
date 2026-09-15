@@ -54,6 +54,35 @@ async function connect(context: Partial<McpRequestContext>) {
 }
 
 describe("agent.tool_invoked", () => {
+  it("scopes background process tools to the calling Dispatch agent", async () => {
+    const backgroundProcess = vi.fn(async () => ({ id: "process" }));
+    const client = await connect({
+      agent: { ...AGENT, type: "dispatch" },
+      backgroundProcess,
+    });
+    const result = await client.callTool({
+      name: "dispatch_background_process",
+      arguments: { action: "start", title: "Tests", command: "pnpm test" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(backgroundProcess).toHaveBeenCalledWith(AGENT.id, {
+      action: "start",
+      title: "Tests",
+      command: "pnpm test",
+    });
+    const invalid = await client.callTool({
+      name: "dispatch_background_process",
+      arguments: { action: "stop", processId: "not-a-uuid" },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(backgroundProcess).toHaveBeenCalledTimes(1);
+    const other = await connect({ backgroundProcess });
+    expect(
+      (await other.listTools()).tools.some(
+        (tool) => tool.name === "dispatch_background_process"
+      )
+    ).toBe(false);
+  });
   it("exposes scoped task updates only to Dispatch agents", async () => {
     const updateTasks = vi.fn(async () => {});
     const client = await connect({

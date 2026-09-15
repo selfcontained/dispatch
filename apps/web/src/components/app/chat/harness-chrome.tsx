@@ -18,6 +18,7 @@ import {
 } from "@/components/app/chat/turn/motion";
 import type { TodoItem } from "@/components/app/chat/turn/registry";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
+import { BackgroundProcesses } from "@/components/app/harness/background-processes";
 import { useHarnessCommands } from "@/components/app/harness/use-harness-commands";
 import { useHarnessPathPicker } from "@/components/app/harness/use-harness-paths";
 import { ModelPicker } from "@/components/app/harness/model-picker";
@@ -494,6 +495,9 @@ export function useHarnessChrome({
             onSendNow={onSendNow}
             onRemove={onRemoveQueued}
           />
+          {agentId ? (
+            <BackgroundProcesses key={agentId} agentId={agentId} />
+          ) : null}
           <AnimatePresence initial={false}>
             {tasksOpen ? (
               <motion.div

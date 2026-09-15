@@ -366,6 +366,16 @@ export type McpRequestContext = {
       status: "pending" | "in_progress" | "completed";
     }[]
   ) => Promise<void>;
+  backgroundProcess?: (
+    agentId: string,
+    input: {
+      action: "start" | "list" | "inspect" | "stop";
+      processId?: string;
+      command?: string;
+      title?: string;
+      timeoutSeconds?: number;
+    }
+  ) => Promise<unknown>;
   renameSession?: (
     agentId: string,
     name: string
@@ -745,6 +755,39 @@ export async function createDispatchMcpServer(
         ? "job"
         : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
+
+  if (context.agent?.type === "dispatch" && context.backgroundProcess) {
+    const agentId = context.agent.id;
+    const run = context.backgroundProcess;
+    server.registerTool(
+      "dispatch_background_process",
+      {
+        description:
+          "Run a non-interactive shell command in the background, visible to the user with live output and Stop controls. Start returns immediately; a completion message is queued automatically, so do not poll or block waiting. Use for tests, builds, and bounded monitoring commands. Do not add nohup or a trailing &: Dispatch handles backgrounding. Keep stdout/stderr attached instead of redirecting to a log file. Processes use your session working directory, have a default one-hour time limit, and stop when the session stops or the server restarts. Only your own processes can be inspected or stopped.",
+        inputSchema: {
+          action: z.enum(["start", "list", "inspect", "stop"]),
+          processId: z.string().uuid().optional(),
+          command: z.string().trim().min(1).max(8000).optional(),
+          title: z.string().trim().min(1).max(120).optional(),
+          timeoutSeconds: z.number().int().min(1).max(86400).optional(),
+        },
+      },
+      async (input) => {
+        try {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(await run(agentId, input)),
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   if (context.agent?.type === "dispatch" && context.updateTasks) {
     const agentId = context.agent.id;
