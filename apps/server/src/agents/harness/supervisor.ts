@@ -54,7 +54,11 @@ export type SupervisorDeps = {
   setCliSessionId: (id: string, sessionId: string) => Promise<void>;
   setLatestEvent: (
     id: string,
-    input: { type: AgentLatestEventType; message: string }
+    input: {
+      type: AgentLatestEventType;
+      message: string;
+      metadata?: Record<string, unknown>;
+    }
   ) => Promise<void>;
   /**
    * ChatService.publishHarnessChanged: the queue is re-read after each
@@ -558,6 +562,11 @@ export class HarnessSupervisor {
     const { engine, model } = splitModelId(
       agent.model ?? DEFAULT_HARNESS_MODEL
     );
+    await this.deps.setLatestEvent(agentId, {
+      type: "working",
+      message: "Preparing agent session…",
+      metadata: { source: "system", phase: "agent_start", stage: "prepare" },
+    });
     // Rows a previous process left open (restart mid-turn) settle first,
     // so the view never shows a turn that can no longer finish.
     await this.streams.reconcile(agentId);
@@ -582,6 +591,7 @@ export class HarnessSupervisor {
     await this.deps.setLatestEvent(agentId, {
       type: "working",
       message: `Connecting to ${engineLabel}…`,
+      metadata: { source: "system", phase: "agent_start", stage: "connect" },
     });
     try {
       session = await this.driver.start({
@@ -607,6 +617,11 @@ export class HarnessSupervisor {
       throw login ? new Error(login) : err;
     }
     const { sessionId, resumed } = session;
+    await this.deps.setLatestEvent(agentId, {
+      type: "working",
+      message: "Applying session settings…",
+      metadata: { source: "system", phase: "agent_start", stage: "configure" },
+    });
     this.context.set(agentId, { sessionId, engine, model });
     // An engine that takes the persona in its first prompt gets it once: on a
     // fresh session, or on a resumed session that never ran a turn (the

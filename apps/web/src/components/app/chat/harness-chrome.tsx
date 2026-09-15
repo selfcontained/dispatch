@@ -42,6 +42,7 @@ import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { agentStartupStage } from "./agent-startup";
 
 /**
  * What Enter and the arrows do right now, in the composer's helper line.
@@ -330,9 +331,14 @@ export function useHarnessChrome({
 
   // The pane is up before the harness is: setup (worktree, dependencies)
   // runs first, and a prompt sent then has nowhere to go.
-  const starting = agent?.status === "creating";
-  const errored = agent?.status === "error";
-  const statusMessage = agent?.latestEvent?.message?.trim() || null;
+  const starting = agentStartupStage(agent) !== null;
+  const errored =
+    agent?.status === "error" ||
+    (agent?.status === "stopped" && Boolean(agent.lastError));
+  const statusMessage =
+    (errored ? agent?.lastError?.trim() : null) ||
+    agent?.latestEvent?.message?.trim() ||
+    null;
   const engine = harnessEngineOf(agent?.model);
   const engineAuth = auth.data?.engines.find(
     (item) => item.engineId === engine?.id
@@ -368,15 +374,7 @@ export function useHarnessChrome({
    * that lapsed after the agent had already run were all invisible to an
    * agent with history.
    */
-  const statusLine = starting
-    ? (statusMessage ?? `Connecting to ${engine?.label ?? "the agent"}…`)
-    : errored
-      ? // Not `?? disabledReason`: that is the sentence the composer already
-        // prints under the field, and both were showing at once with only
-        // the presence row between them. What this line adds in the error
-        // case is the login hint below, which keys off statusMessage anyway.
-        statusMessage
-      : null;
+  const statusLine = errored ? statusMessage : null;
   const loginCommand = loginRequired ? engine?.loginCommand : null;
   const startLogin = useCallback(async () => {
     if (!agentId || !engine || !onOpenConsole) return;
@@ -431,9 +429,6 @@ export function useHarnessChrome({
         {statusLine ? (
           <div className="mb-1.5 text-[11px]" data-testid="harness-status-line">
             <div className="flex items-start gap-2">
-              {starting ? (
-                <ActivityBars size={10} className="mt-px shrink-0" />
-              ) : null}
               <span
                 className={cn(
                   "min-w-0 break-words",

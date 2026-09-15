@@ -203,6 +203,27 @@ describe("HarnessSupervisor", () => {
     const { sup, deps, fake, events } = await build();
     await sup.start("agt_1");
     expect(deps.setCliSessionId).toHaveBeenCalledWith("agt_1", "sess_1");
+    expect(events.slice(0, 3)).toEqual([
+      {
+        type: "working",
+        message: "Preparing agent session…",
+        metadata: { source: "system", phase: "agent_start", stage: "prepare" },
+      },
+      {
+        type: "working",
+        message: "Connecting to Claude Code…",
+        metadata: { source: "system", phase: "agent_start", stage: "connect" },
+      },
+      {
+        type: "working",
+        message: "Applying session settings…",
+        metadata: {
+          source: "system",
+          phase: "agent_start",
+          stage: "configure",
+        },
+      },
+    ]);
     expect(fake.seen.newSession[0].cwd).toBe("/tmp/w");
     expect(fake.seen.newSession[0].mcpServers?.[0]).toMatchObject({
       type: "http",
@@ -255,6 +276,8 @@ describe("HarnessSupervisor", () => {
     await sup.start("agt_1");
     await sup.prompt("agt_1", "go");
     expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "working",
       "working",
       "idle",
       "working",
@@ -413,6 +436,8 @@ describe("HarnessSupervisor", () => {
     await second.settled;
     expect(fake.seen.prompts).toEqual(["one", "two"]);
     expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "working",
       "working",
       "idle",
       "working",
@@ -639,6 +664,8 @@ describe("HarnessSupervisor launch prompt", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(fake.seen.prompts).toEqual(["do the thing"]);
     expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "working",
       "working",
       "idle",
       "working",
@@ -921,6 +948,8 @@ describe("HarnessSupervisor message queue", () => {
     expect(fake.seen.prompts).toEqual(["one"]);
     // With nothing left behind it, the first turn settles the agent idle.
     expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "working",
       "working",
       "idle",
       "working",

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import type { ChatFeedEntry } from "@dispatch/shared";
+import { Pool } from "pg";
 
 import {
   authHeaders,
@@ -63,6 +64,107 @@ async function callMcpTool(
 }
 
 test.describe("Chat surface", () => {
+  test("shows startup progress through setup, connection, failure and readiness", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-startup-${Date.now()}`,
+    });
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+    });
+    const update = async (
+      status: string,
+      setupPhase: string | null,
+      stage?: string
+    ) => {
+      await pool.query(
+        "UPDATE agents SET type = 'dispatch', model = 'claude/default', status = $2, setup_phase = $3 WHERE id = $1",
+        [agent.id, status, setupPhase]
+      );
+      const response = await request.post(
+        `/api/v1/agents/${agent.id}/latest-event`,
+        {
+          headers: authHeaders(),
+          data: {
+            type:
+              status === "error"
+                ? "blocked"
+                : stage || status === "creating"
+                  ? "working"
+                  : "idle",
+            message:
+              status === "error"
+                ? "Sign-in required. Run claude auth login."
+                : status === "creating"
+                  ? "Installing dependencies…"
+                  : stage
+                    ? "Connecting to Claude Code…"
+                    : "Session ready.",
+            ...(stage
+              ? { metadata: { source: "system", phase: "agent_start", stage } }
+              : {}),
+          },
+        }
+      );
+      expect(response.ok()).toBe(true);
+    };
+    try {
+      await update("creating", "deps");
+      await loadApp(page);
+      await clickAgentRow(page, agent.id);
+      await page.getByTestId("center-tab-agent").click();
+      const startup = page.getByTestId("chat-agent-startup");
+      const progress = startup.getByRole("progressbar");
+      const composer = page.getByTestId("chat-composer-input");
+      await expect(startup).toContainText("Installing dependencies");
+      await expect(progress).toHaveAttribute("aria-valuenow", "45");
+      await expect(composer).toBeDisabled();
+      await expect(page.getByTestId("chat-empty")).toHaveCount(0);
+      await expect(page.getByTestId("chat-presence")).toHaveCount(0);
+      await page.screenshot({
+        path: "/tmp/dispatch-chat-startup-desktop.png",
+        fullPage: true,
+      });
+
+      await update("running", null, "connect");
+      await expect(startup).toContainText("Connecting to Claude Code");
+      await expect(progress).toHaveAttribute("aria-valuenow", "80");
+      await expect(composer).toBeDisabled();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await expect(startup).toBeVisible();
+      const spinner = startup.locator("svg").last();
+      await expect(spinner).toHaveCSS("animation-name", "none");
+      await page.screenshot({
+        path: "/tmp/dispatch-chat-startup-mobile.png",
+        fullPage: true,
+      });
+      await update("running", null, "configure");
+      await expect(progress).toHaveAttribute("aria-valuenow", "95");
+      await update("error", null);
+      await expect(startup).toHaveCount(0);
+      await expect(page.getByTestId("harness-status-line")).toContainText(
+        "Sign-in required"
+      );
+      await expect(composer).toBeDisabled();
+      await update("running", null, "connect");
+      await expect(startup).toBeVisible();
+      await update("running", null);
+      await expect(startup).toHaveCount(0);
+      await expect(composer).toBeEnabled();
+      await composer.fill("Ready to chat");
+      await expect(composer).toHaveValue("Ready to chat");
+    } finally {
+      await pool.end();
+    }
+  });
+
   test("windows thousands of messages and preserves older-history anchors", async ({
     page,
     request,

@@ -1433,6 +1433,7 @@ describe("ChatPane harness chrome", () => {
       agent: {
         ...dispatchAgent,
         status: "creating",
+        setupPhase: "deps",
         latestEvent: {
           type: "working",
           message: "Installing dependencies…",
@@ -1441,8 +1442,8 @@ describe("ChatPane harness chrome", () => {
         },
       },
     });
-    const line = screen.getByTestId("harness-status-line");
-    expect(line.textContent).toContain("Installing dependencies…");
+    const line = screen.getByTestId("chat-agent-startup");
+    expect(line.textContent).toContain("Installing dependencies");
     expect(line.querySelector('[role="status"]')).not.toBeNull();
     const chip = screen.getByTestId("harness-model-chip");
     expect(chip.getAttribute("tabindex")).toBe("-1");
@@ -1456,11 +1457,28 @@ describe("ChatPane harness chrome", () => {
     ).toBe(true);
   });
 
+  it("shows a setup failure instead of a loading card when setup stopped", () => {
+    renderPane({
+      agent: {
+        ...dispatchAgent,
+        status: "stopped",
+        setupPhase: "deps",
+        lastError: "Dependency installation failed.",
+      },
+    });
+    expect(screen.queryByTestId("chat-agent-startup")).toBeNull();
+    expect(screen.getByTestId("harness-status-line").textContent).toContain(
+      "Dependency installation failed."
+    );
+  });
+
   it("keeps the composer mounted across the starting handoff", () => {
     const { rerender } = renderPane({
       agent: { ...dispatchAgent, status: "creating" },
     });
     const input = screen.getByTestId("chat-composer-input");
+    expect(screen.getByTestId("chat-agent-startup")).toBeTruthy();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
     rerender(
       <ChatPane
         agentId="agt_1"
@@ -1475,6 +1493,7 @@ describe("ChatPane harness chrome", () => {
       />
     );
     expect(screen.getByTestId("chat-composer-input")).toBe(input);
+    expect(screen.queryByTestId("chat-agent-startup")).toBeNull();
   });
 
   it("pins the current task list above the composer and folds it", () => {

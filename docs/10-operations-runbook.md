@@ -124,6 +124,16 @@ Gemini's implementation remains available to existing sessions and API callers,
 but new UI provider choices hide it pending an in-chat sign-in flow, clear
 API-key versus account/subscription status, and management confirmation of account access.
 
+### Startup progress
+
+New Dispatch sessions show a startup card in Chat while the workspace is prepared
+and the provider connects. The progress bar is a stage-based estimate, not a
+download percentage or time remaining: slow stages hold their position until
+the server reports the next step. It never advances to completion on a timer.
+Chat becomes available when the session is ready; any opening message is sent
+automatically. Startup failures replace the card with the existing error and
+sign-in guidance. Reduced-motion preferences disable the animation.
+
 ### Background processes
 
 Dispatch agents use `dispatch_background_process` for non-interactive builds,

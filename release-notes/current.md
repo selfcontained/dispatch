@@ -12,7 +12,7 @@
 - Task lists are available to every Dispatch agent through `dispatch_update_tasks`, including Claude Code sessions without a native todo tool. The list shows current work and progress above the composer. Native ACP plan updates continue to work.
 - **Background processes**: agents can start non-interactive commands without blocking a turn and receive a completion message automatically. Expand the running count above the composer to inspect output, exit status, and stop controls. Process history survives reloads; restarting the server interrupts, rather than reruns, unfinished commands.
 - Usage shows when the provider last reported it. Claude refreshes subscription usage through the signed-in CLI's credentials when available, with a dated fallback if refreshing fails. Codex selects the newest report by its timestamp, even if an older log was recently modified.
-- Startup messages name the connection step and provider. Review cards remain fully visible in compact peer messages.
+- New Dispatch sessions show an animated startup card in Chat, with estimated progress tied to workspace setup, dependency installation, provider connection, and session settings. Reduced-motion preferences are respected. Review cards remain fully visible in compact peer messages.
 - Where an engine publishes nothing over ACP the feed says so: Gemini CLI reports no usage and sets its model at launch; Codex reports tokens without cost.
 - Restart resilience: a turn a service restart cut short is marked interrupted, the agent resumes on `session/resume` at boot, queued chat is redelivered, and the agent is told to continue.
 - Motion: every transition inside a turn moves on one set of tokens and collapses under reduced motion.

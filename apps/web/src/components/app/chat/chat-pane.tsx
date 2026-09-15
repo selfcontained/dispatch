@@ -14,6 +14,7 @@ import { ArrowDown, MessageSquare, Upload } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
+import { AgentStartup, agentStartupStage } from "./agent-startup";
 import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
 import {
   arrivedEntryIds,
@@ -233,7 +234,8 @@ function composerDisabledReason(
   if (!agent) return "Select an agent to chat with.";
   if (feed.error) return "Chat couldn't load — retry above before sending.";
   if (feed.isLoading) return "Loading the chat…";
-  if (agent.status === "creating") return "The agent is still starting up.";
+  if (agent.status === "creating" || agentStartupStage(agent))
+    return "The agent is still starting up.";
   // A harness agent has no CLI in its pane to look at, so the reason is also
   // what its status line says; "Start" is the control that fixes it.
   if (agent.status === "error" && agent.type === "dispatch") {
@@ -653,6 +655,7 @@ export function ChatPane({
   // the chrome unmounted for the rest.
   const harnessAgentId = agent?.type === "dispatch" ? agentId : null;
   const isHarnessAgent = harnessAgentId !== null;
+  const starting = agentStartupStage(agent) !== null;
   const harness = useHarnessChrome({
     agentId: harnessAgentId,
     agent,
@@ -735,7 +738,10 @@ export function ChatPane({
                   </Button>
                 </div>
               ) : null}
-              {!feed.isLoading && !hasConversation && !feed.error ? (
+              {!starting &&
+              !feed.isLoading &&
+              !hasConversation &&
+              !feed.error ? (
                 <div
                   className={cn(
                     "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
@@ -799,6 +805,13 @@ export function ChatPane({
                   </TurnContextProvider>
                 </PinShortcutProvider>
               ) : null}
+              {starting && agent ? (
+                <AgentStartup
+                  key={agent.id}
+                  agent={agent}
+                  compact={visibleEntries.length > 0}
+                />
+              ) : null}
             </div>
           </div>
           {pendingBelow && !following ? (
@@ -831,7 +844,9 @@ export function ChatPane({
               reads before the agent's chips and strips, which are controls
               rather than news. */}
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <ChatPresenceStrip agentId={agentId} agent={agent} />
+            {!starting ? (
+              <ChatPresenceStrip agentId={agentId} agent={agent} />
+            ) : null}
             {sendError ? (
               <span
                 role="alert"
