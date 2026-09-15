@@ -1,12 +1,122 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   loadHarnessProviderUsage,
+  createHarnessProviderUsageReporter,
   parseClaudeProviderUsage,
   parseCodexProviderUsage,
 } from "../src/agents/harness/provider-usage.js";
 
 describe("harness provider usage", () => {
+  it("keeps the last live Claude report if a later request fails", async () => {
+    const fetchUsage = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ five_hour: { utilization: 42 } }))
+      )
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+    const reporter = createHarnessProviderUsageReporter(
+      {
+        env: {},
+        homeDir: "/test",
+        codexFiles: async () => [],
+        fetchUsage,
+        read: async (file) =>
+          file.endsWith(".credentials.json")
+            ? JSON.stringify({ claudeAiOauth: { accessToken: "test-secret" } })
+            : "{}",
+      },
+      0
+    );
+    const first = await reporter();
+    const second = await reporter();
+    expect(second.providers[0]).toMatchObject({
+      observedAt: first.providers[0].observedAt,
+      windows: [{ usedPercent: 42 }],
+      unavailableReason: expect.stringContaining("Could not refresh"),
+    });
+  });
+
+  it("refreshes Claude usage instead of rereading an old interactive cache", async () => {
+    const fetchUsage = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            five_hour: { utilization: 42, resets_at: "2026-09-11T08:00:00Z" },
+          })
+        )
+    ) as unknown as typeof fetch;
+    const report = await loadHarnessProviderUsage({
+      now: new Date("2026-09-11T03:00:00Z"),
+      homeDir: "/test",
+      env: {},
+      codexFiles: async () => [],
+      fetchUsage,
+      read: async (file) =>
+        file.endsWith(".credentials.json")
+          ? JSON.stringify({ claudeAiOauth: { accessToken: "test-secret" } })
+          : "{}",
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+    expect(report.providers[0]).toMatchObject({
+      observedAt: "2026-09-11T03:00:00.000Z",
+      windows: [{ usedPercent: 42 }],
+    });
+    expect(JSON.stringify(report)).not.toContain("test-secret");
+  });
+
+  it("keeps the original report time when refreshing Claude fails", async () => {
+    const report = await loadHarnessProviderUsage({
+      now: new Date("2026-09-11T03:00:00Z"),
+      homeDir: "/test",
+      env: {},
+      codexFiles: async () => [],
+      fetchUsage: vi.fn(
+        async () => new Response("private error", { status: 429 })
+      ) as unknown as typeof fetch,
+      read: async (file) =>
+        JSON.stringify(
+          file.endsWith(".credentials.json")
+            ? { claudeAiOauth: { accessToken: "test-secret" } }
+            : {
+                cachedUsageUtilization: {
+                  fetchedAtMs: Date.parse("2026-09-10T03:00:00Z"),
+                  utilization: { five_hour: { utilization: 10 } },
+                },
+              }
+        ),
+    });
+    expect(report.providers[0]).toMatchObject({
+      observedAt: "2026-09-10T03:00:00.000Z",
+      windows: [{ usedPercent: 10 }],
+      unavailableReason: expect.stringContaining("Could not refresh"),
+    });
+    expect(JSON.stringify(report)).not.toContain("private error");
+  });
+
+  it("compares Codex report timestamps even when an old log was touched recently", async () => {
+    const report = await loadHarnessProviderUsage({
+      env: {},
+      codexFiles: async () => ["old", "new"],
+      modifiedAt: async (file) => (file === "old" ? 20 : 10),
+      read: async (file) => {
+        if (!["old", "new"].includes(file)) throw new Error("missing");
+        return JSON.stringify({
+          type: "event_msg",
+          timestamp:
+            file === "old" ? "2026-09-10T00:00:00Z" : "2026-09-11T00:00:00Z",
+          payload: {
+            type: "token_count",
+            rate_limits: {
+              primary: { used_percent: file === "old" ? 90 : 15 },
+            },
+          },
+        });
+      },
+    });
+    expect(report.providers[1].windows[0].usedPercent).toBe(15);
+  });
+
   it("reads Claude plan windows and extra usage without account metadata", () => {
     const result = parseClaudeProviderUsage(
       JSON.stringify({

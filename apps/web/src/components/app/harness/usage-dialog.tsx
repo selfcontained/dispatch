@@ -133,6 +133,22 @@ function ProviderPlan({ plan }: { plan?: HarnessProviderPlan }): JSX.Element {
             "Provider plan usage is not available yet."}
         </p>
       )}
+      {plan?.observedAt ? (
+        <p
+          className="text-[11px] text-muted-foreground"
+          data-testid="provider-usage-observed"
+        >
+          Last reported {new Date(plan.observedAt).toLocaleString()}.
+          {Date.now() - Date.parse(plan.observedAt) > 5 * 60_000
+            ? " This report may be out of date."
+            : " Updates at most once a minute."}
+        </p>
+      ) : null}
+      {plan?.windows.length && plan.unavailableReason ? (
+        <p className="text-[11px] text-muted-foreground">
+          {plan.unavailableReason}
+        </p>
+      ) : null}
     </section>
   );
 }

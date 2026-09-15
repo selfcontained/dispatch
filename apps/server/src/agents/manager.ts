@@ -341,7 +341,7 @@ export class AgentManager {
   }
 
   /**
-   * Inject the harness supervisor. Wired post-construction like the other
+   * Inject the agent supervisor. Wired post-construction like the other
    * collaborators; without it a harness agent fails setup loudly rather than
    * sitting in a shell with no harness behind it.
    */
@@ -358,7 +358,7 @@ export class AgentManager {
     if (agent.type === "dispatch") {
       if (!this.harnessSupervisor?.isRunning(id)) {
         throw new AgentError(
-          "The harness is not running for this agent; the prompt cannot be delivered.",
+          "The agent is not running for this agent; the prompt cannot be delivered.",
           409
         );
       }
@@ -380,7 +380,7 @@ export class AgentManager {
     text: string
   ): { started: Promise<void>; settled: Promise<void> } {
     if (!this.harnessSupervisor) {
-      throw new AgentError("The harness supervisor is not attached.", 500);
+      throw new AgentError("The agent supervisor is not attached.", 500);
     }
     return this.harnessSupervisor.enqueuePrompt(id, text);
   }
@@ -395,7 +395,7 @@ export class AgentManager {
     return result.rows.map((row) => row.id);
   }
 
-  /** The harness child died on its own: the agent cannot stay "running" over it. */
+  /** The agent child died on its own: the agent cannot stay "running" over it. */
   async markHarnessExited(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
@@ -409,7 +409,7 @@ export class AgentManager {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
       type: "blocked",
-      message: `The harness did not come back after restart: ${message}`.slice(
+      message: `The agent did not come back after restart: ${message}`.slice(
         0,
         200
       ),
@@ -1291,10 +1291,10 @@ export class AgentManager {
     await this.populateGitContext(id);
 
     if (agent.type === "dispatch") {
-      // The pane is only a shell; the harness is the ACP child the
+      // The pane is only a shell; the agent is the ACP child the
       // supervisor starts now that the worktree exists.
       if (!this.harnessSupervisor) {
-        throw new AgentError("The harness supervisor is not attached.", 500);
+        throw new AgentError("The agent supervisor is not attached.", 500);
       }
       try {
         await this.harnessSupervisor.start(id);
@@ -1303,10 +1303,10 @@ export class AgentManager {
         await this.setAgentStatus(id, "error", message);
         await this.setSystemLatestEvent(id, {
           type: "blocked",
-          message: `The harness failed to start: ${message}`.slice(0, 200),
+          message: `The agent failed to start: ${message}`.slice(0, 200),
           metadata: { source: "system", phase: "start" },
         });
-        throw new AgentError(`The harness failed to start: ${message}`, 500);
+        throw new AgentError(`The agent failed to start: ${message}`, 500);
       }
     } else {
       await this.setSystemLatestEvent(
@@ -1384,12 +1384,12 @@ export class AgentManager {
     const hasSession = await this.runtime.hasSession(tmuxSession);
 
     if (hasSession) {
-      // A harness agent's pane is only a shell and outlives the harness
+      // A harness agent's pane is only a shell and outlives the agent
       // child; an attached shell is not a running harness. Start (or
       // restart) it.
       if (agent.type === "dispatch" && !this.harnessSupervisor?.isRunning(id)) {
         if (!this.harnessSupervisor) {
-          throw new AgentError("The harness supervisor is not attached.", 500);
+          throw new AgentError("The agent supervisor is not attached.", 500);
         }
         try {
           await this.setAgentStatus(id, "running", null, tmuxSession);
@@ -1399,10 +1399,10 @@ export class AgentManager {
           await this.setAgentStatus(id, "error", message);
           await this.setSystemLatestEvent(id, {
             type: "blocked",
-            message: `The harness failed to start: ${message}`.slice(0, 200),
+            message: `The agent failed to start: ${message}`.slice(0, 200),
             metadata: { source: "system", phase: "start" },
           });
-          throw new AgentError(`The harness failed to start: ${message}`, 500);
+          throw new AgentError(`The agent failed to start: ${message}`, 500);
         }
         return (await this.getAgent(id)) as AgentRecord;
       }
@@ -1491,7 +1491,7 @@ export class AgentManager {
       await this.populateGitContext(id);
       if (agent.type === "dispatch") {
         if (!this.harnessSupervisor) {
-          throw new Error("The harness supervisor is not attached.");
+          throw new Error("The agent supervisor is not attached.");
         }
         // Resumes the stored session id; the supervisor sets the idle event.
         await this.harnessSupervisor.start(id);

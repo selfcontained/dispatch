@@ -103,7 +103,7 @@ describe("useDispatchHarnessSetting", () => {
 
     await waitFor(() =>
       expect(result.current.setting.error).toBe(
-        "Failed to save Dispatch Harness setting."
+        "Failed to save Dispatch agent setting."
       )
     );
     expect(result.current.flag.enabled).toBe(false);

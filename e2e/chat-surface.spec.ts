@@ -1053,6 +1053,26 @@ test.describe("Chat surface", () => {
     );
     await expect(review).toBeVisible();
     await expect(review.getByTestId("chat-review-block")).toBeVisible();
+    // The review is a structured card: even a folded peer row must expose
+    // the entire card and its Open button, rather than clip it at 48px.
+    expect(
+      await review.getByTestId("chat-review-block").evaluate((node) => {
+        const card = node.getBoundingClientRect();
+        for (
+          let parent = node.parentElement;
+          parent;
+          parent = parent.parentElement
+        ) {
+          if (
+            getComputedStyle(parent).overflowY === "hidden" &&
+            parent.getBoundingClientRect().bottom < card.bottom - 1
+          )
+            return false;
+          if (parent.dataset.testid === "chat-review") break;
+        }
+        return true;
+      })
+    ).toBe(true);
     const pin = pane.getByTestId("chat-pin-entry");
     await expect(pin).toBeVisible();
     await expect(pin).toContainText("Dev server");

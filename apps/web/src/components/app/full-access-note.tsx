@@ -19,7 +19,7 @@ export function AlwaysFullAccessNote(): JSX.Element {
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="space-y-1">
         <span className="block text-sm font-medium">
-          Dispatch Harness agents always run with full access
+          Dispatch agents always run with full access
         </span>
         <span className="block text-xs opacity-90">
           Each engine launches in its most permissive mode, so there is nothing

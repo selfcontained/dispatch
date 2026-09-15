@@ -67,6 +67,73 @@ test.describe("harness agent", () => {
     await cleanupE2EAgents(request);
   });
 
+  test("publishes MCP tasks during a Claude turn without a native plan", async ({
+    page,
+    request,
+  }) => {
+    await setDispatchHarnessViaAPI(request, true);
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-tasks-${Date.now()}`,
+      type: "dispatch",
+      model: "claude/default",
+      cwd: makeRepo(),
+      useWorktree: true,
+      initialPrompt: "sleep:120000 task progress",
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const pane = page.getByTestId("chat-pane");
+    await expect(
+      pane.locator('[data-testid="chat-turn"]:not([data-settled])')
+    ).toBeVisible({ timeout: 30_000 });
+    const update = async (tasks: { content: string; status: string }[]) => {
+      const response = await request.post(`/api/mcp/${agent.id}`, {
+        headers: { Accept: "application/json, text/event-stream" },
+        data: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "dispatch_update_tasks", arguments: { tasks } },
+        },
+      });
+      expect(response.ok()).toBe(true);
+      const body = await response.text();
+      expect(body).not.toContain('"isError":true');
+      expect(body).toContain(`Updated ${tasks.length} tasks.`);
+    };
+    await update([
+      { content: "Inspect the change", status: "completed" },
+      { content: "Validate task progress", status: "in_progress" },
+    ]);
+    await expect(pane.getByTestId("harness-tasks")).toContainText(
+      "1 of 2 done"
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(pane.getByTestId("harness-tasks")).toContainText(
+      "Validate task progress"
+    );
+    await pane.getByTestId("harness-tasks-toggle").click();
+    await expect(pane.getByTestId("harness-tasks-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    if (process.env.E2E_SCREENSHOT_DIR) {
+      await page.screenshot({
+        path: path.join(
+          process.env.E2E_SCREENSHOT_DIR,
+          "dispatch-mcp-tasks.png"
+        ),
+      });
+    }
+    await update([
+      { content: "Inspect the change", status: "completed" },
+      { content: "Validate task progress", status: "completed" },
+    ]);
+    await expect(pane.getByTestId("harness-tasks")).toHaveCount(0);
+  });
+
   const ENGINES = [
     {
       model: "claude/default",

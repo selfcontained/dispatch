@@ -39,8 +39,8 @@ export function useDispatchHarnessSetting(): ServerFlagSetting {
     DISPATCH_HARNESS_ENDPOINT,
     dispatchHarnessEnabledHintAtom,
     {
-      save: "Failed to save Dispatch Harness setting.",
-      load: "Failed to load Dispatch Harness setting.",
+      save: "Failed to save Dispatch agent setting.",
+      load: "Failed to load Dispatch agent setting.",
     }
   );
 }

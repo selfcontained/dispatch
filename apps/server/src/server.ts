@@ -726,6 +726,10 @@ async function registerRoutes() {
     validateAgentMcpToken,
     mcpSendNotify: mcpHandlers.sendNotify,
     mcpUpsertEvent: mcpHandlers.upsertEvent,
+    mcpUpdateTasks: (
+      agentId: string,
+      entries: Parameters<typeof harnessSupervisor.updateTasks>[1]
+    ) => harnessSupervisor.updateTasks(agentId, entries),
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,

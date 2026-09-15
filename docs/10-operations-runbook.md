@@ -62,12 +62,12 @@ launchctl bootout    "gui/$(id -u)/com.dispatch.server"
 launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 ```
 
-### Read this first: a restart cuts a running Dispatch Harness turn
+### Read this first: a restart cuts a running Dispatch agent turn
 
-A restart is not free for Dispatch Harness agents (type `dispatch`) the way
+A restart is not free for Dispatch agents (type `dispatch`) the way
 it is for CLI agents. A Claude or Codex agent in a tmux pane runs in a
 session the service does not own, so `systemctl --user restart` leaves it
-working and the new process re-attaches. A Dispatch Harness agent's engine
+working and the new process re-attaches. A Dispatch agent's engine
 runs as a **child of the service over stdio** (the Agent Client Protocol
 needs a live pipe to its client), so every restart, deploys included, ends
 the turn it was running.
@@ -82,10 +82,10 @@ What the service does about it:
   and picks the task up from its own history. Chat messages still queued at
   shutdown are delivered again, in order.
 
-Before a restart, check the sidebar for a Dispatch Harness agent that is
+Before a restart, check the sidebar for a Dispatch agent that is
 `Working` and either wait for the turn or accept the cut.
 
-### Dispatch Harness engines
+### Dispatch agent engines
 
 The engine is the first segment of the agent's model id. Each is a host
 install the service resolves with its own `PATH`, not a login shell's. Give
@@ -113,6 +113,22 @@ it matters: Gemini CLI publishes no plan, no usage, and no model option (its
 model is a launch flag, so `/model` is disabled); Codex reports tokens but
 no cost; OpenCode publishes no plan. Claude Code nests a subagent's steps;
 the others show a subagent as one step.
+
+All Dispatch agents can maintain the task list above the composer with
+`dispatch_update_tasks`, regardless of native ACP plan support. The tool replaces
+the calling agent's active-turn list with the supplied tasks (`pending`,
+`in_progress`, or `completed`); an empty list clears it. Launch guidance asks
+agents to use it for multi-step work.
+
+The usage dialog distinguishes the last provider report from the time Dispatch
+checked for it. Codex reports are selected by their event timestamps. Claude's
+interactive `.claude.json` cache can remain unchanged during ACP sessions, so
+Dispatch attempts a read-only subscription usage request using the CLI's existing
+`.claude/.credentials.json` (under `CLAUDE_CONFIG_DIR` when configured). It never
+returns or saves credentials. If that credential is unavailable or the provider
+request fails, the dialog keeps the last report and identifies it as potentially
+out of date. Open `/usage` in Claude Code to refresh the local fallback. Refresh
+requests are shared and cached for one minute across sessions.
 
 ## Database
 
@@ -188,7 +204,7 @@ Rollback is just an `update` to an older tag. The currently deployed tag is what
 cat ~/.dispatch/release.json
 ```
 
-**A rollback past the Dispatch Harness needs two steps first.** A release
+**A rollback past the Dispatch agent needs two steps first.** A release
 that does not know the `dispatch` agent type cannot build a Restart command
 for one, and a harness agent left running keeps a tmux pane that is a plain
 login shell. That pane survives the service swap, the older process sees a
@@ -196,7 +212,7 @@ live session and keeps the agent running, and every Chat message, agent
 message, review injection and job prompt is then typed into that shell as a
 command in the agent's working tree. So before the binary swap:
 
-1. Stop or archive every Dispatch Harness agent from the UI
+1. Stop or archive every Dispatch agent from the UI
    (`SELECT id, name FROM agents WHERE type = 'dispatch'`). Then, for each
    id, confirm `tmux ls | grep "_<id>"` prints nothing. A session is named
    `<prefix>_<agentId>[_<slug>]` and every agent type shares the prefix, so

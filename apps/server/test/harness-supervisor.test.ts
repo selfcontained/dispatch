@@ -163,6 +163,42 @@ async function build(
 }
 
 describe("HarnessSupervisor", () => {
+  it("persists task updates on the active turn and rejects idle updates", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { sup, query, deps } = await build({
+      turn: async () => {
+        await pending;
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    await expect(sup.updateTasks("agt_1", [])).rejects.toThrow(
+      "active agent turn"
+    );
+    const turn = sup.enqueuePrompt("agt_1", "work");
+    await turn.started;
+    await sup.updateTasks("agt_1", [
+      { content: "Implement", status: "in_progress" },
+    ]);
+    const planWrite = query.mock.calls.find(
+      ([sql, params]) =>
+        /INSERT INTO agent_stream_events/.test(sql) && params?.[1] === "plan"
+    );
+    expect(planWrite?.[1]?.[2]).toMatch(/^plan:\d+$/);
+    expect(JSON.parse(String(planWrite?.[1]?.[3]))).toEqual({
+      entries: [
+        { content: "Implement", status: "in_progress", priority: "medium" },
+      ],
+    });
+    expect(deps.publishHarness).toHaveBeenCalledWith("agt_1");
+    release();
+    await turn.settled;
+    await sup.stop("agt_1");
+  });
+
   it("start records the session id, delivers the persona via _meta, and marks idle", async () => {
     const { sup, deps, fake, events } = await build();
     await sup.start("agt_1");
@@ -178,7 +214,7 @@ describe("HarnessSupervisor", () => {
     });
     expect(events.at(-1)).toEqual({
       type: "idle",
-      message: "Harness session started.",
+      message: "Session ready.",
     });
     expect(sup.isRunning("agt_1")).toBe(true);
     await sup.stop("agt_1");
@@ -188,7 +224,7 @@ describe("HarnessSupervisor", () => {
     const { sup, fake, events } = await build({ cliSessionId: "sess_old" });
     await sup.start("agt_1");
     expect(fake.seen.resumeSession[0]?.sessionId).toBe("sess_old");
-    expect(events.at(-1)?.message).toBe("Harness session resumed.");
+    expect(events.at(-1)?.message).toBe("Session resumed.");
     await sup.stop("agt_1");
   });
 
@@ -218,7 +254,12 @@ describe("HarnessSupervisor", () => {
     });
     await sup.start("agt_1");
     await sup.prompt("agt_1", "go");
-    expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "idle",
+      "working",
+      "idle",
+    ]);
     expect(deps.publishHarness).toHaveBeenCalledWith("agt_1", true);
     // The stream recorder wrote through the pool.
     expect(query).toHaveBeenCalled();
@@ -285,7 +326,7 @@ describe("HarnessSupervisor", () => {
     await sup.stop("agt_1");
   });
 
-  it("refuses to start a non-Dispatch Harness agent", async () => {
+  it("refuses to start a non-Dispatch agent", async () => {
     const { sup, deps } = await build();
     deps.getAgent.mockResolvedValueOnce({
       id: "agt_c",
@@ -294,9 +335,7 @@ describe("HarnessSupervisor", () => {
       model: null,
       cliSessionId: null,
     } as never);
-    await expect(sup.start("agt_c")).rejects.toThrow(
-      /not a Dispatch Harness agent/
-    );
+    await expect(sup.start("agt_c")).rejects.toThrow(/not a Dispatch agent/);
   });
 
   it("handles a burst of stream events in order, one writer per agent", async () => {
@@ -374,6 +413,7 @@ describe("HarnessSupervisor", () => {
     await second.settled;
     expect(fake.seen.prompts).toEqual(["one", "two"]);
     expect(events.map((e) => e.type)).toEqual([
+      "working",
       "idle",
       "working",
       "working",
@@ -409,7 +449,7 @@ describe("HarnessSupervisor", () => {
     expect(result).toEqual({ restored: ["agt_1"], failed: ["agt_2"] });
     expect(deps.markStartFailed).toHaveBeenCalledWith(
       "agt_2",
-      expect.stringContaining("not a Dispatch Harness agent")
+      expect.stringContaining("not a Dispatch agent")
     );
     expect(fake.seen.newSession).toHaveLength(1);
     await sup.stopAll();
@@ -598,7 +638,12 @@ describe("HarnessSupervisor launch prompt", () => {
     await sup.start("agt_1");
     await new Promise((r) => setTimeout(r, 20));
     expect(fake.seen.prompts).toEqual(["do the thing"]);
-    expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "idle",
+      "working",
+      "idle",
+    ]);
     await sup.stop("agt_1");
   });
 
@@ -875,7 +920,12 @@ describe("HarnessSupervisor message queue", () => {
     await first.settled;
     expect(fake.seen.prompts).toEqual(["one"]);
     // With nothing left behind it, the first turn settles the agent idle.
-    expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "working",
+      "idle",
+      "working",
+      "idle",
+    ]);
     expect(sup.isBusy("agt_1")).toBe(false);
     await sup.stop("agt_1");
   });

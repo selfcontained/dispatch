@@ -54,6 +54,33 @@ async function connect(context: Partial<McpRequestContext>) {
 }
 
 describe("agent.tool_invoked", () => {
+  it("exposes scoped task updates only to Dispatch agents", async () => {
+    const updateTasks = vi.fn(async () => {});
+    const client = await connect({
+      agent: { ...AGENT, type: "dispatch" },
+      updateTasks,
+    });
+    const tasks = [{ content: "Implement change", status: "in_progress" }];
+    const result = await client.callTool({
+      name: "dispatch_update_tasks",
+      arguments: { tasks },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(updateTasks).toHaveBeenCalledWith(AGENT.id, tasks);
+    const invalid = await client.callTool({
+      name: "dispatch_update_tasks",
+      arguments: { tasks: [{ content: "", status: "done" }] },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(updateTasks).toHaveBeenCalledTimes(1);
+    const other = await connect({ updateTasks });
+    expect(
+      (await other.listTools()).tools.some(
+        (tool) => tool.name === "dispatch_update_tasks"
+      )
+    ).toBe(false);
+  });
+
   it("publishes one event per tool call, before the tool runs", async () => {
     vi.useFakeTimers({ now: new Date("2026-09-03T12:00:00.000Z") });
     const publishUiEvent = vi.fn();

@@ -10,7 +10,7 @@ import {
 } from "@/lib/agent-types";
 
 /**
- * Every type this card can toggle. The Dispatch Harness is not one: it has
+ * Every type this card can toggle. The Dispatch agent is not one: it has
  * its own setting (`DispatchHarnessSettings`), and the server answers 400 to
  * an agent-types POST that names it, so a checkbox here would be a switch
  * that cannot be saved.
@@ -174,8 +174,8 @@ export function AgentTypeSettings({
         </div>
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
           Choose which agent runtimes can be created from the app. Disabled
-          types are removed from the create-agent dialog. The Dispatch Harness
-          has its own switch below.
+          types are removed from the create-agent dialog. The Dispatch agent has
+          its own switch below.
         </p>
       </div>
 

@@ -17,9 +17,15 @@ type ProviderUsageOptions = {
   read?: (file: string) => Promise<string>;
   codexFiles?: () => Promise<string[]>;
   modifiedAt?: (file: string) => Promise<number>;
+  fetchUsage?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
 };
 
 type JsonObject = Record<string, unknown>;
+type RolloutCache = Map<
+  string,
+  { modifiedAt: number; report: HarnessProviderPlan }
+>;
 
 function object(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -187,7 +193,13 @@ export function parseCodexProviderUsage(raw: string): HarnessProviderPlan {
       const payload = object(entry.payload);
       const limits = object(payload?.rate_limits);
       if (payload?.type === "token_count" && limits) {
-        latest = { timestamp: text(entry.timestamp), value: limits };
+        const timestamp = text(entry.timestamp);
+        if (
+          !latest ||
+          observationTime(timestamp) >= observationTime(latest.timestamp)
+        ) {
+          latest = { timestamp, value: limits };
+        }
       }
     } catch {
       continue;
@@ -260,12 +272,16 @@ export function claudeConfigPath(
 }
 
 export async function loadHarnessProviderUsage(
-  options: ProviderUsageOptions = {}
+  options: ProviderUsageOptions = {},
+  rollouts: RolloutCache = new Map()
 ): Promise<HarnessProviderUsageReport> {
   const read = options.read ?? ((file: string) => readFile(file, "utf8"));
   const modifiedAt =
     options.modifiedAt ?? (async (file: string) => (await stat(file)).mtimeMs);
   const files = await (options.codexFiles ?? discoverCodexRolloutFiles)();
+  const present = new Set(files);
+  for (const file of rollouts.keys())
+    if (!present.has(file)) rollouts.delete(file);
   const candidates = await Promise.all(
     files.map(async (file) => {
       try {
@@ -281,23 +297,85 @@ export async function loadHarnessProviderUsage(
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
-      codex = parseCodexProviderUsage(await read(candidate.file));
-      if (codex.windows.length > 0) break;
+      const cached = rollouts.get(candidate.file);
+      const report =
+        cached?.modifiedAt === candidate.modifiedAt
+          ? cached.report
+          : parseCodexProviderUsage(await read(candidate.file));
+      rollouts.set(candidate.file, {
+        modifiedAt: candidate.modifiedAt,
+        report,
+      });
+      if (
+        report.windows.length > 0 &&
+        (codex.windows.length === 0 ||
+          observationTime(report.observedAt) >
+            observationTime(codex.observedAt))
+      ) {
+        codex = report;
+      }
     } catch {
       continue;
     }
   }
 
   let claude: HarnessProviderPlan;
+  const now = options.now ?? new Date();
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? os.homedir();
   try {
     claude = parseClaudeProviderUsage(
-      await read(claudeConfigPath(options.homeDir ?? os.homedir()))
+      await read(claudeConfigPath(homeDir, env))
     );
   } catch {
     claude = parseClaudeProviderUsage("");
   }
 
-  const now = options.now ?? new Date();
+  // ACP sessions do not refresh Claude Code's interactive /usage cache.
+  // Read the signed-in CLI's token only for this fixed provider endpoint;
+  // never return credentials or provider error bodies to the browser.
+  if (now.valueOf() - observationTime(claude.observedAt) > 60_000) {
+    try {
+      const credentials = object(
+        JSON.parse(
+          await read(
+            path.join(
+              env.CLAUDE_CONFIG_DIR?.trim() || path.join(homeDir, ".claude"),
+              ".credentials.json"
+            )
+          )
+        )
+      );
+      const token = text(object(credentials?.claudeAiOauth)?.accessToken);
+      if (!token) throw new Error("no subscription token");
+      const response = await (options.fetchUsage ?? fetch)(
+        "https://api.anthropic.com/api/oauth/usage",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "anthropic-beta": "oauth-2025-04-20",
+          },
+          signal: AbortSignal.timeout(5_000),
+          redirect: "error",
+        }
+      );
+      if (!response.ok) throw new Error("usage request failed");
+      const live = parseClaudeProviderUsage(
+        JSON.stringify({
+          cachedUsageUtilization: {
+            fetchedAtMs: now.valueOf(),
+            utilization: await response.json(),
+          },
+        })
+      );
+      if (!live.windows.length && !live.spend)
+        throw new Error("no usage reported");
+      claude = live;
+    } catch {
+      claude.unavailableReason =
+        "Could not refresh Claude plan usage. Open /usage in Claude Code to refresh its local report.";
+    }
+  }
   return {
     checkedAt: now.toISOString(),
     providers: [
@@ -315,17 +393,48 @@ export async function loadHarnessProviderUsage(
   };
 }
 
+function observationTime(value: string | null): number {
+  const timestamp = value ? Date.parse(value) : NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 export function createHarnessProviderUsageReporter(
   options: Omit<ProviderUsageOptions, "now"> = {},
   cacheMs = 60_000
 ): () => Promise<HarnessProviderUsageReport> {
   let cached: { expiresAt: number; report: HarnessProviderUsageReport } | null =
     null;
+  let pending: Promise<HarnessProviderUsageReport> | null = null;
+  const rollouts: RolloutCache = new Map();
   return async () => {
     const now = Date.now();
     if (cached && cached.expiresAt > now) return cached.report;
-    const report = await loadHarnessProviderUsage(options);
-    cached = { expiresAt: now + cacheMs, report };
-    return report;
+    if (pending) return pending;
+    pending = loadHarnessProviderUsage(options, rollouts)
+      .then((report) => {
+        // A transient provider failure must not replace a successfully fetched
+        // report with the older interactive cache on disk.
+        const previous = cached?.report.providers.find(
+          (item) => item.engineId === "claude"
+        );
+        const claude = report.providers[0];
+        if (
+          previous &&
+          claude.unavailableReason &&
+          observationTime(previous.observedAt) >
+            observationTime(claude.observedAt)
+        ) {
+          report.providers[0] = {
+            ...previous,
+            unavailableReason: claude.unavailableReason,
+          };
+        }
+        cached = { expiresAt: Date.now() + cacheMs, report };
+        return report;
+      })
+      .finally(() => {
+        pending = null;
+      });
+    return pending;
   };
 }

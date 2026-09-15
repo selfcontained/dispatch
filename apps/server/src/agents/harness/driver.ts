@@ -88,7 +88,7 @@ const HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /**
  * The ACP SDK reports an agent-side exception as JSON-RPC "Internal error"
- * and keeps the real message in `data.details` (the harness itself does the
+ * and keeps the real message in `data.details` (the agent itself does the
  * same for a failed turn), so surface that detail instead of the bare code.
  */
 function describeRpcError(err: unknown): string {
@@ -178,12 +178,12 @@ function describeExit(exit: ExitInfo): string {
   if (exit.error) {
     const code = (exit.error as NodeJS.ErrnoException).code;
     return code === "ENOENT"
-      ? `the harness could not be spawned (${exit.error.message})`
+      ? `the agent could not be spawned (${exit.error.message})`
       : exit.error.message;
   }
   return exit.code === null
-    ? `the harness exited on signal ${exit.signal}`
-    : `the harness exited with code ${exit.code}`;
+    ? `the agent exited on signal ${exit.signal}`
+    : `the agent exited with code ${exit.code}`;
 }
 
 export class HarnessDriver {
@@ -226,7 +226,7 @@ export class HarnessDriver {
     launch: DriverLaunch
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (this.live.has(launch.agentId)) {
-      throw new Error(`the harness is already running for ${launch.agentId}`);
+      throw new Error(`the agent is already running for ${launch.agentId}`);
     }
     const { engine } = launch;
     const env: NodeJS.ProcessEnv = { ...launch.env, ...engine.env };
@@ -308,7 +308,7 @@ export class HarnessDriver {
     };
     if (!child.stdin || !child.stdout) {
       signalChild(child, "SIGKILL");
-      throw new Error("harness start failed: child has no stdio pipes");
+      throw new Error("Agent connection failed: child has no stdio pipes");
     }
     const stream = acp.ndJsonStream(
       Writable.toWeb(child.stdin),
@@ -419,7 +419,7 @@ export class HarnessDriver {
         ? `${describeExit(settledExit)} during startup`
         : outcome.reason;
       const tail = stderrTail.length ? `\n${stderrTail.join("\n")}` : "";
-      throw new Error(`harness start failed: ${reason}${tail}`);
+      throw new Error(`Agent connection failed: ${reason}${tail}`);
     }
 
     const entry: Live = {
@@ -508,7 +508,7 @@ export class HarnessDriver {
     let exited = false;
     const gone = entry.exited.then(() => {
       exited = true;
-      throw new Error("the harness exited before the turn settled");
+      throw new Error("the agent exited before the turn settled");
     });
     try {
       const dispatched = entry.conn.prompt({
@@ -607,7 +607,7 @@ export class HarnessDriver {
 
   private require(agentId: string): Live {
     const entry = this.live.get(agentId);
-    if (!entry) throw new Error(`the harness is not running for ${agentId}`);
+    if (!entry) throw new Error(`the agent is not running for ${agentId}`);
     return entry;
   }
 }

@@ -17,15 +17,15 @@ export function DispatchHarnessSettings(): JSX.Element {
 
   return (
     <ToggleSettingCard
-      eyebrow="Dispatch Harness"
+      eyebrow="Dispatch agent"
       description={
         <>
           Dispatch&apos;s own view over Claude Code, Codex, Gemini CLI, or
           OpenCode. Needs the engine&apos;s CLI installed and logged in on the
-          server (see the runbook&apos;s Dispatch Harness engines table).
+          server (see the runbook for setup instructions).
         </>
       }
-      label="Dispatch Harness (beta)"
+      label="Dispatch agent (beta)"
       hint="Turning this off stops new dispatch agents from being created and leaves the ones already running alone."
       testId="dispatch-harness-toggle"
       checked={enabled}

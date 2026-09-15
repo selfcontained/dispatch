@@ -47,7 +47,12 @@ export function buildHarnessPersona(input: {
   const { appendedSystemPrompt } = extractAppendedSystemPrompt(
     agent.agentArgs ?? []
   );
-  const sections = [guidance.trim(), HARNESS_CHAT_RULE, HARNESS_SLASH_RULE];
+  const sections = [
+    guidance.trim(),
+    HARNESS_CHAT_RULE,
+    HARNESS_SLASH_RULE,
+    "For work with multiple steps, use dispatch_update_tasks to publish a short task list before starting. Send the full updated list as work progresses, marking tasks in_progress or completed. Keep it current when the user changes scope. Skip the task list for simple questions or one-step actions. This list is shown above the chat composer.",
+  ];
   if (appendedSystemPrompt?.trim()) sections.push(appendedSystemPrompt.trim());
   else if (input.personalityPrompt?.trim()) {
     sections.push(input.personalityPrompt.trim());

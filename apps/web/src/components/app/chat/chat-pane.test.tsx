@@ -1411,7 +1411,7 @@ describe("ChatPane harness chrome", () => {
     });
   });
 
-  it("says the harness is not running once, under the field, not twice", () => {
+  it("says the agent is not running once, under the field, not twice", () => {
     // The composer prints the disabled reason itself. The status line used
     // to fall back to the same sentence, so an agent that errored without a
     // message of its own showed it top and bottom of the same 60px.
@@ -1421,10 +1421,10 @@ describe("ChatPane harness chrome", () => {
     expect(screen.queryByTestId("harness-status-line")).toBeNull();
     expect(
       screen.getByTestId("chat-composer-disabled-reason").textContent
-    ).toContain("The harness is not running. Press Start to relaunch it.");
+    ).toContain("The agent is not running. Press Start to relaunch it.");
   });
 
-  it("names what the harness is doing while it starts and opens nothing from the faded chips", () => {
+  it("names what the agent is doing while it starts and opens nothing from the faded chips", () => {
     // The chrome animates to opacity 0 but stays mounted, so without the
     // pointer-events and tabindex guards a click on blank space opened the
     // portaled Model dialog.

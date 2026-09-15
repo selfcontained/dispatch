@@ -205,7 +205,7 @@ describe("StreamRecorder", () => {
     const rows = (await store.list(A, 10)).reverse();
     expect(rows.map((r) => r.payload.message)).toEqual([
       "no API key",
-      "the harness exited with code 1: boom",
+      "the agent exited with code 1: boom",
     ]);
   });
 
@@ -529,7 +529,7 @@ describe("StreamRecorder interrupted turns", () => {
     expect(rows[0].kind).toBe("turn");
     expect(rows[0].payload).toMatchObject({
       state: "settled",
-      error: "the harness exited before the turn settled",
+      error: "the agent exited before the turn settled",
     });
     expect(typeof rows[0].payload.endedAt).toBe("string");
     expect(rows[1].payload).toMatchObject({

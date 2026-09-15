@@ -14,5 +14,6 @@ export function useHarnessProviderUsage(enabled: boolean) {
       api<HarnessProviderUsageReport>("/api/v1/harness/provider-usage"),
     enabled,
     staleTime: 60_000,
+    refetchInterval: enabled ? 60_000 : false,
   });
 }

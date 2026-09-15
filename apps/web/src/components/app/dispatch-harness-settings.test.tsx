@@ -54,7 +54,7 @@ describe("DispatchHarnessSettings", () => {
     await waitFor(() =>
       expect(screen.getByTestId("dispatch-harness-toggle")).not.toBeNull()
     );
-    expect(screen.getByText("Dispatch Harness (beta)")).not.toBeNull();
+    expect(screen.getByText("Dispatch agent (beta)")).not.toBeNull();
     expect(
       screen.getByText(
         "Turning this off stops new dispatch agents from being created and leaves the ones already running alone."

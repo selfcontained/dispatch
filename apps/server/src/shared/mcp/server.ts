@@ -359,6 +359,13 @@ export type McpRequestContext = {
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
   ) => Promise<void>;
+  updateTasks?: (
+    agentId: string,
+    entries: {
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    }[]
+  ) => Promise<void>;
   renameSession?: (
     agentId: string,
     name: string
@@ -738,6 +745,40 @@ export async function createDispatchMcpServer(
         ? "job"
         : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
+
+  if (context.agent?.type === "dispatch" && context.updateTasks) {
+    const agentId = context.agent.id;
+    const updateTasks = context.updateTasks;
+    server.registerTool(
+      "dispatch_update_tasks",
+      {
+        description:
+          "Show your task list above the chat composer. Send the complete list before multi-step work and update it as each task starts or finishes. Use an empty list to clear it. Only updates your own active turn.",
+        inputSchema: {
+          tasks: z
+            .array(
+              z.object({
+                content: z.string().trim().min(1).max(1000),
+                status: z.enum(["pending", "in_progress", "completed"]),
+              })
+            )
+            .max(200),
+        },
+      },
+      async ({ tasks }) => {
+        try {
+          await updateTasks(agentId, tasks);
+          return {
+            content: [
+              { type: "text" as const, text: `Updated ${tasks.length} tasks.` },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   // ── Agent browser login link ─────────────────────────────────────
   registerLoginLinkTools(server, allowed, {

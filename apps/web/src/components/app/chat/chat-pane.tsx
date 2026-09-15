@@ -233,7 +233,7 @@ function composerDisabledReason(
   // A harness agent has no CLI in its pane to look at, so the reason is also
   // what its status line says; "Start" is the control that fixes it.
   if (agent.status === "error" && agent.type === "dispatch") {
-    return "The harness is not running. Press Start to relaunch it.";
+    return "The agent is not running. Press Start to relaunch it.";
   }
   if (agent.status !== "running") {
     return "The agent is not running. Start it to send messages.";
@@ -615,7 +615,7 @@ export function ChatPane({
     ? (answer.variables?.messageId ?? null)
     : null;
 
-  // The harness chrome belongs to a Dispatch Harness agent and to no other
+  // The agent chrome belongs to a Dispatch agent and to no other
   // type. Nulling the id is what keeps every /harness/* query disabled and
   // the chrome unmounted for the rest.
   const harnessAgentId = agent?.type === "dispatch" ? agentId : null;
@@ -791,7 +791,7 @@ export function ChatPane({
           )}
         >
           {/* The presence line leads the bar: what the agent is doing now
-              reads before the harness's chips and strips, which are controls
+              reads before the agent's chips and strips, which are controls
               rather than news. */}
           <div className="mb-1.5 flex items-center justify-between gap-2">
             <ChatPresenceStrip agentId={agentId} agent={agent} />

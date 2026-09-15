@@ -426,15 +426,14 @@ function PeerLine({
             )}
           </span>
         </button>
-        {/* Clipped by height, never hidden from assistive tech, when there
-            is no excerpt: the text is in the DOM either way. */}
+        {/* Structured content (reviews, questions) has no prose excerpt and
+            must remain fully visible, including its action buttons. */}
         {open || !excerpt ? (
           <div
             className={cn(
               "mt-1 text-[12.5px]",
               side ? "text-muted-foreground" : "text-foreground",
-              POST_BODY_MEASURE,
-              !open && "max-h-12 overflow-hidden"
+              POST_BODY_MEASURE
             )}
           >
             {children}

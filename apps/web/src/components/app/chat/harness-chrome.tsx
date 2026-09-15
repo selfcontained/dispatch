@@ -368,7 +368,7 @@ export function useHarnessChrome({
    * agent with history.
    */
   const statusLine = starting
-    ? (statusMessage ?? "Starting the harness…")
+    ? (statusMessage ?? `Connecting to ${engine?.label ?? "the agent"}…`)
     : errored
       ? // Not `?? disabledReason`: that is the sentence the composer already
         // prints under the field, and both were showing at once with only

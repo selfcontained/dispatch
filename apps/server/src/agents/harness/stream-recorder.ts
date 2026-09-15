@@ -252,7 +252,7 @@ export class StreamRecorder {
             state: "settled",
             ...(event.expected
               ? { stopReason: "cancelled" }
-              : { error: "the harness exited before the turn settled" }),
+              : { error: "the agent exited before the turn settled" }),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
@@ -263,7 +263,7 @@ export class StreamRecorder {
         const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
         await this.appendStatus(
           event.agentId,
-          `the harness exited with ${how}${detail}`
+          `the agent exited with ${how}${detail}`
         );
         return;
       }
@@ -393,7 +393,7 @@ export class StreamRecorder {
   /**
    * Stop a promptless round explicitly. A few ACP adapters resolve the
    * original prompt before their final tool activity has drained; that work
-   * is still visible and must remain cancellable from the harness chrome.
+   * is still visible and must remain cancellable from the agent chrome.
    */
   async interruptAutonomous(agentId: string): Promise<boolean> {
     return this.closeAutonomous(agentId, "cancelled");
@@ -518,7 +518,7 @@ export class StreamRecorder {
   }
 
   /** One plan row per turn, keyed by the turn row, rewritten as the list changes. */
-  private async writePlan(
+  async writePlan(
     agentId: string,
     entries: readonly {
       content: string;

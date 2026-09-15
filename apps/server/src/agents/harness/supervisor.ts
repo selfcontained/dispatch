@@ -501,10 +501,29 @@ export class HarnessSupervisor {
   /** How long after a restart cut a turn the agent is still told to resume it. */
   static readonly RESTART_RESUME_WINDOW_MS = 60 * 60_000;
 
+  async updateTasks(
+    agentId: string,
+    entries: {
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    }[]
+  ): Promise<void> {
+    await this.chain(agentId, async () => {
+      if (!this.isRunning(agentId) || !this.isBusy(agentId)) {
+        throw new Error("Task updates require an active agent turn.");
+      }
+      await this.streams.writePlan(
+        agentId,
+        entries.map((entry) => ({ ...entry, priority: "medium" }))
+      );
+      this.deps.publishHarness(agentId);
+    });
+  }
+
   async start(agentId: string): Promise<{ resumed: boolean }> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent || agent.type !== "dispatch") {
-      throw new Error(`${agentId} is not a Dispatch Harness agent`);
+      throw new Error(`${agentId} is not a Dispatch agent`);
     }
     const { engine, model } = splitModelId(
       agent.model ?? DEFAULT_HARNESS_MODEL
@@ -528,6 +547,12 @@ export class HarnessSupervisor {
     const spec = engineSpecFor(engine, model, await this.binsFor(engine, env));
     this.streams.setCwd(agentId, agent.cwd);
     let session: { sessionId: string; resumed: boolean };
+    const engineLabel =
+      HARNESS_ENGINES.find((item) => item.id === engine)?.label ?? engine;
+    await this.deps.setLatestEvent(agentId, {
+      type: "working",
+      message: `Connecting to ${engineLabel}…`,
+    });
     try {
       session = await this.driver.start({
         agentId,
@@ -578,10 +603,10 @@ export class HarnessSupervisor {
       // resume with "method not found"), so its own history is gone even
       // though Dispatch still has every turn.
       message: resumed
-        ? "Harness session resumed."
+        ? "Session resumed."
         : agent.cliSessionId
           ? "Session restarted; this engine cannot resume, so Dispatch keeps the turns."
-          : "Harness session started.",
+          : "Session ready.",
     });
     // The session's options exist from here: the picker can read them.
     this.deps.publishHarness(agentId, true);

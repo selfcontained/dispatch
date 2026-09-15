@@ -266,7 +266,9 @@ describe("HarnessDriver", () => {
           },
         })
       )
-    ).rejects.toThrow(/harness start failed: the harness could not be spawned/);
+    ).rejects.toThrow(
+      /Agent connection failed: the agent could not be spawned/
+    );
     expect(driver.isRunning("agt_1")).toBe(false);
   });
 
