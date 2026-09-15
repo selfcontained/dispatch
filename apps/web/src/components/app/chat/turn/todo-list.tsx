@@ -2,6 +2,12 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
+import {
+  STRIP_ITEM_CLASS,
+  STRIP_LIST_CLASS,
+  STRIP_ROW_CLASS,
+  STRIP_STATUS_CLASS,
+} from "../composer-strip-styles";
 
 import { arrive, DURATION, fadeVariants } from "./motion";
 import type { TodoItem } from "./registry";
@@ -32,7 +38,7 @@ export function TodoList({
   });
   return (
     <ul
-      className={cn("space-y-1 font-terminal text-[11.5px]", className)}
+      className={cn(STRIP_LIST_CLASS, className)}
       data-testid="harness-todo-list"
     >
       {keyed.map(({ item, key }) => {
@@ -43,14 +49,14 @@ export function TodoList({
             key={key}
             layout
             transition={arrive()}
-            className="flex items-start gap-2"
+            className={STRIP_ROW_CLASS}
             data-testid="harness-todo-item"
             data-status={item.status}
           >
             <span
               aria-hidden="true"
               className={cn(
-                "flex h-[17px] w-3 shrink-0 items-center justify-center text-[11px] leading-none",
+                STRIP_STATUS_CLASS,
                 done
                   ? "font-bold text-status-done"
                   : active
@@ -77,7 +83,7 @@ export function TodoList({
             </span>
             <span
               className={cn(
-                "min-w-0 flex-1 leading-[1.5]",
+                STRIP_ITEM_CLASS,
                 done
                   ? "text-muted-foreground line-through decoration-muted-foreground/40"
                   : active

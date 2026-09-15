@@ -1,8 +1,18 @@
-import { useId, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BackgroundProcess } from "@dispatch/shared";
-import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
+import { Check, CircleAlert, Square, SquareStack } from "lucide-react";
 
+import { ComposerStrip } from "@/components/app/chat/composer-strip";
+import {
+  STRIP_ITEM_CLASS,
+  STRIP_LIST_CLASS,
+  STRIP_META_CLASS,
+  STRIP_MORE_CLASS,
+  STRIP_ROW_CLASS,
+  STRIP_STATUS_CLASS,
+} from "@/components/app/chat/composer-strip-styles";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +22,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+const PREVIEW_COUNT = 4;
 
 export function BackgroundProcesses({
   agentId,
@@ -19,8 +32,10 @@ export function BackgroundProcesses({
   agentId: string;
 }): JSX.Element | null {
   const [open, setOpen] = useState(false);
-  const listId = useId();
+  const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const rowRef = useRef<HTMLButtonElement | null>(null);
   const client = useQueryClient();
   const key = ["background-processes", agentId];
   const query = useQuery<{ processes: BackgroundProcess[] }>({
@@ -53,6 +68,11 @@ export function BackgroundProcesses({
   ).length;
   const detail = detailQuery.data ?? processes.find((p) => p.id === selected);
   const now = query.dataUpdatedAt || Date.now();
+  const ordered = [...processes].sort(
+    (a, b) => Number(b.status === "running") - Number(a.status === "running")
+  );
+  const shown = showAll ? ordered : ordered.slice(0, PREVIEW_COUNT);
+  const hidden = Math.max(0, ordered.length - PREVIEW_COUNT);
   if (!processes.length && !query.isError) return null;
   const elapsed = (process: BackgroundProcess) => {
     const seconds = Math.max(
@@ -68,66 +88,100 @@ export function BackgroundProcesses({
       : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   };
   return (
-    <section
-      className="mb-2 min-w-0 rounded-md border border-border/60 text-xs"
-      data-testid="background-processes"
-    >
-      <div>
-        <Button
-          variant="ghost"
-          type="button"
-          aria-expanded={open}
-          aria-controls={listId}
-          onClick={() => setOpen((value) => !value)}
-          className="flex min-h-9 w-full items-center gap-2 px-3 py-2 text-left"
-          data-testid="background-processes-toggle"
-        >
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Terminal size={14} />
-          <span>Background processes</span>
-          <span className="ml-auto text-muted-foreground" aria-live="polite">
+    <>
+      <ComposerStrip
+        title="Background processes"
+        icon={SquareStack}
+        open={open}
+        onOpenChange={setOpen}
+        testId="background-processes"
+        toggleRef={toggleRef}
+        summary={
+          <>
             {query.isError
               ? "Status unavailable"
               : active
                 ? `${active} running`
                 : `${processes.length} finished`}
             {!query.isError && failed > 0 ? ` · ${failed} need attention` : ""}
-          </span>
-        </Button>
-        <div id={listId} hidden={!open}>
-          <div className="max-h-48 overflow-y-auto border-t border-border/60">
-            {processes.map((process) => (
+          </>
+        }
+        footer={
+          query.isError ? (
+            <p role="alert" className="mt-1 text-[10.5px] text-destructive">
+              Could not refresh process status.{" "}
               <button
-                key={process.id}
                 type="button"
-                className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                onClick={() => {
+                className="underline pointer-coarse:min-h-11"
+                onClick={() => void query.refetch()}
+              >
+                Retry
+              </button>
+            </p>
+          ) : null
+        }
+      >
+        <ul className={cn(STRIP_LIST_CLASS, "mt-1.5 pl-5")}>
+          {shown.map((process) => (
+            <li key={process.id}>
+              <button
+                type="button"
+                title={`View output: ${process.title}`}
+                data-testid="background-process-row"
+                className={cn(
+                  STRIP_ROW_CLASS,
+                  "w-full rounded-sm text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 pointer-coarse:min-h-11 pointer-coarse:items-center"
+                )}
+                onClick={(event) => {
+                  rowRef.current = event.currentTarget;
                   stop.reset();
                   setSelected(process.id);
                 }}
               >
-                <span className="min-w-0 flex-1 truncate">{process.title}</span>
-                <span className="shrink-0 text-muted-foreground">
+                <span aria-hidden="true" className={STRIP_STATUS_CLASS}>
+                  {process.status === "running" ? (
+                    <ActivityBars size={9} />
+                  ) : process.status === "completed" ? (
+                    <Check size={11} className="text-status-done" />
+                  ) : process.status === "failed" ||
+                    process.status === "interrupted" ? (
+                    <CircleAlert size={11} className="text-destructive" />
+                  ) : (
+                    <Square size={8} className="text-muted-foreground/60" />
+                  )}
+                </span>
+                <span className="sr-only">View output: </span>
+                <span
+                  className={cn(
+                    STRIP_ITEM_CLASS,
+                    "truncate",
+                    process.status === "running"
+                      ? "font-medium text-foreground"
+                      : "text-foreground/80"
+                  )}
+                >
+                  {process.title}
+                </span>
+                <span
+                  className={cn(STRIP_META_CLASS, "shrink-0 leading-[17px]")}
+                >
                   {process.status} · {elapsed(process)}
                 </span>
-                <ChevronRight size={14} />
               </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      {query.isError ? (
-        <p role="alert" className="px-3 pb-2 text-destructive">
-          Could not refresh process status.{" "}
+            </li>
+          ))}
+        </ul>
+        {hidden > 0 ? (
           <button
             type="button"
-            className="underline"
-            onClick={() => void query.refetch()}
+            className={STRIP_MORE_CLASS}
+            data-testid="background-processes-more"
+            onClick={() => setShowAll((value) => !value)}
           >
-            Retry
+            {showAll ? "Show fewer" : `+${hidden} more`}
           </button>
-        </p>
-      ) : null}
+        ) : null}
+      </ComposerStrip>
       <Dialog
         open={!!detail}
         onOpenChange={(value) => {
@@ -137,6 +191,13 @@ export function BackgroundProcesses({
         <DialogContent
           className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl"
           data-testid="background-process-detail"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            (rowRef.current?.isConnected
+              ? rowRef.current
+              : toggleRef.current
+            )?.focus();
+          }}
         >
           <DialogHeader>
             <DialogTitle className="break-words">{detail?.title}</DialogTitle>
@@ -193,6 +254,6 @@ export function BackgroundProcesses({
           </div>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }

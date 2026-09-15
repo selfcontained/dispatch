@@ -143,9 +143,11 @@ returns immediately, and queues a completion message when the command exits.
 Commands run in the session's working directory. Use foreground tools when a
 command needs interactive input; this feature does not provide a PTY.
 
-The Chat composer shows a collapsed running count. Expand it to select a
-process, inspect its output and exit status, or stop it. Output is a bounded
-tail; the latest 20 records are retained along with running processes. Limits
+The Chat composer shows a collapsed running count styled like the task list.
+Expand it for a compact four-row preview with running work first; use the more
+control to reveal history. Select a process to inspect its output and exit status,
+or stop it. Output is a bounded tail; the latest 20 records are retained along
+with running processes. Limits
 are four concurrent processes per session and 16 across the server. Commands
 time out after one hour unless overridden (maximum 24 hours). Session stop and
 graceful server shutdown terminate their process groups. Restart recovery marks

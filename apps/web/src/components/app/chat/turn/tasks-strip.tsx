@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, ListChecks } from "lucide-react";
+import { ListChecks } from "lucide-react";
+
+import { ComposerStrip } from "../composer-strip";
+import { STRIP_MORE_CLASS } from "../composer-strip-styles";
 
 import type { TodoItem } from "./registry";
 import { TodoList, todoProgress } from "./todo-list";
@@ -30,59 +33,34 @@ export function TasksStrip({
   const shown = showAll ? items : preview;
   const hidden = items.length - preview.length;
   return (
-    <div
-      className="mb-1.5 rounded-md border border-border/60 bg-muted/50 px-2.5 py-1.5"
-      data-testid="harness-tasks"
+    <ComposerStrip
+      title="Tasks"
+      icon={ListChecks}
+      summary={`${done} of ${total} done`}
+      preview={
+        active ? (
+          <>
+            <span className="sr-only">in progress: </span>
+            {active.content}
+          </>
+        ) : undefined
+      }
+      open={open}
+      onOpenChange={onOpenChange}
+      testId="harness-tasks"
     >
-      <button
-        type="button"
-        onClick={() => onOpenChange(!open)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 pointer-coarse:min-h-11"
-        data-testid="harness-tasks-toggle"
-      >
-        <ListChecks
-          className="h-3 w-3 shrink-0 text-status-working"
-          aria-hidden="true"
-        />
-        <span className="text-[11px] font-medium text-foreground">Tasks</span>
-        <span className="text-[10.5px] tabular-nums text-muted-foreground">
-          {done} of {total} done
-        </span>
-        {!open && active ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
-            <span className="sr-only">in progress: </span>· {active.content}
-          </span>
-        ) : (
-          <span className="flex-1" />
-        )}
-        <span
-          aria-hidden="true"
-          className="text-[9px] text-muted-foreground/70"
+      <TodoList items={shown} className="mt-1.5 pl-5" />
+      {hidden > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className={STRIP_MORE_CLASS}
+          data-testid="harness-tasks-more"
         >
-          {open ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-        </span>
-      </button>
-      {open ? (
-        <>
-          <TodoList items={shown} className="mt-1.5 pl-5" />
-          {hidden > 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowAll((v) => !v)}
-              className="mt-1 pl-5 text-[10.5px] text-muted-foreground hover:text-foreground pointer-coarse:min-h-11"
-              data-testid="harness-tasks-more"
-            >
-              {showAll ? "Show fewer" : `+${hidden} more`}
-            </button>
-          ) : null}
-        </>
+          {showAll ? "Show fewer" : `+${hidden} more`}
+        </button>
       ) : null}
-    </div>
+    </ComposerStrip>
   );
 }
 

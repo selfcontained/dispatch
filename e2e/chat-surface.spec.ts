@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import type { ChatFeedEntry } from "@dispatch/shared";
+import type { BackgroundProcess, ChatFeedEntry } from "@dispatch/shared";
 import { Pool } from "pg";
 
 import {
@@ -64,6 +64,164 @@ async function callMcpTool(
 }
 
 test.describe("Chat surface", () => {
+  test("aligns compact background processes with tasks and keeps output controls usable", async ({
+    page,
+    request,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-compact-processes-${Date.now()}`,
+      type: "dispatch",
+      model: "claude/default",
+    });
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "Tidy the background process list",
+      result: "Checking the compact process and task lists together.",
+      plan: [
+        {
+          content: "Inspect existing styles",
+          status: "completed",
+          priority: "medium",
+        },
+        {
+          content: "Align background processes with tasks",
+          status: "in_progress",
+          priority: "medium",
+        },
+        {
+          content: "Validate the compact layout",
+          status: "pending",
+          priority: "medium",
+        },
+      ],
+    });
+    const processes: BackgroundProcess[] = Array.from(
+      { length: 7 },
+      (_, index) => ({
+        id: `compact-${index}`,
+        agentId: agent.id,
+        title:
+          index === 6
+            ? "Current type checks with a deliberately long descriptive title"
+            : `Previous check ${index + 1}`,
+        command: "pnpm run check",
+        cwd: "/tmp",
+        status: index === 6 ? "running" : index === 1 ? "failed" : "completed",
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        endedAt: index === 6 ? null : new Date().toISOString(),
+        exitCode: index === 6 ? null : index === 1 ? 1 : 0,
+        output: "Checking types…",
+        truncated: false,
+      })
+    );
+    const routeProcesses = async (target: typeof page) => {
+      await target.route(
+        `**/api/v1/agents/${agent.id}/harness/processes**`,
+        (route) => {
+          const url = route.request().url();
+          if (url.endsWith("/stop")) {
+            processes[6].status = "stopped";
+            processes[6].endedAt = new Date().toISOString();
+            return route.fulfill({ status: 204 });
+          }
+          return route.fulfill({
+            json: url.endsWith("/processes")
+              ? { processes }
+              : processes.find((process) => url.endsWith(process.id)),
+          });
+        }
+      );
+    };
+    await routeProcesses(page);
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const panel = page.getByTestId("background-processes");
+    const toggle = panel.getByTestId("background-processes-toggle");
+    await expect(toggle).toContainText("1 running");
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    const rows = panel.getByTestId("background-process-row");
+    await expect(rows).toHaveCount(4);
+    await expect(rows.first()).toContainText("Current type checks");
+    const tasksToggle = page.getByTestId("harness-tasks-toggle");
+    const sizes = await Promise.all(
+      [toggle, tasksToggle].map((element) =>
+        element
+          .locator("span")
+          .first()
+          .evaluate((node) => getComputedStyle(node).fontSize)
+      )
+    );
+    expect(sizes).toEqual(["11px", "11px"]);
+    expect((await rows.first().boundingBox())!.height).toBeLessThan(26);
+    await page.screenshot({
+      path: "/tmp/dispatch-compact-processes-desktop.png",
+      fullPage: true,
+    });
+    await panel.getByRole("button", { name: "+3 more" }).click();
+    await expect(rows).toHaveCount(7);
+    await panel.getByRole("button", { name: "Show fewer" }).click();
+    await toggle.click();
+    await expect(rows).toHaveCount(0);
+
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      baseURL: test.info().project.use.baseURL,
+    });
+    try {
+      const mobilePage = await mobile.newPage();
+      await routeProcesses(mobilePage);
+      await mobilePage.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await mobilePage.getByTestId("center-tab-agent").click();
+      const mobileToggle = mobilePage.getByTestId(
+        "background-processes-toggle"
+      );
+      await mobileToggle.click();
+      const mobileRows = mobilePage.getByTestId("background-process-row");
+      await expect(mobileRows).toHaveCount(4);
+      expect(
+        (await mobileRows.first().boundingBox())!.height
+      ).toBeGreaterThanOrEqual(44);
+      const mobileTasks = mobilePage.getByTestId("harness-tasks-toggle");
+      if ((await mobileTasks.getAttribute("aria-expanded")) !== "true")
+        await mobileTasks.click();
+      await expect(mobilePage.getByTestId("harness-todo-list")).toBeVisible();
+      expect(
+        await mobilePage
+          .getByTestId("chat-pane")
+          .evaluate((node) => node.scrollWidth <= node.clientWidth)
+      ).toBe(true);
+      await mobilePage.screenshot({
+        path: "/tmp/dispatch-compact-processes-mobile.png",
+        fullPage: true,
+      });
+      await mobileRows.first().click();
+      const detail = mobilePage.getByTestId("background-process-detail");
+      await expect(detail).toContainText("Checking types…");
+      await mobilePage.screenshot({
+        path: "/tmp/dispatch-compact-processes-detail.png",
+        fullPage: true,
+      });
+      await detail.getByRole("button", { name: "Stop process" }).click();
+      await expect(detail).toContainText("stopped");
+      await detail.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(detail).toBeHidden();
+      await expect(mobileToggle).toBeFocused();
+      await expect(mobileToggle).toContainText("7 finished");
+    } finally {
+      await mobile.close();
+    }
+  });
+
   test("shows startup progress through setup, connection, failure and readiness", async ({
     page,
     request,
