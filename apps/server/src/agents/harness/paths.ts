@@ -6,23 +6,14 @@ import type { HarnessPath } from "@dispatch/shared";
 
 import { shouldSkipAutomaticMacPathProbe } from "../../shared/mac-path-privacy.js";
 
-/**
- * Completions for the Harness composer's "@" path picker: the entries of
- * the directory the typed prefix names, filtered by its last segment. The
- * reply keeps the spelling the user typed (relative, "~/…", or absolute)
- * so the picked path reads the same way in the prompt.
- */
-
 const MAX_QUERY_LENGTH = 1024;
 const MAX_ENTRIES = 50;
 
-/** Whether a directory is the agent's working tree or something inside it. */
 function isInsideTree(dir: string, cwd: string): boolean {
   const rel = path.relative(cwd, dir);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
-/** The same test on the real locations; a directory that cannot be resolved is outside. */
 async function isInsideRealTree(dir: string, cwd: string): Promise<boolean> {
   let realDir: string;
   let realCwd: string;
@@ -34,7 +25,6 @@ async function isInsideRealTree(dir: string, cwd: string): Promise<boolean> {
   return isInsideTree(realDir, realCwd);
 }
 
-/** Where a typed prefix points: the directory to list, and the segment to match. */
 export function resolvePathQuery(
   query: string,
   input: { cwd: string; home?: string }
@@ -54,9 +44,8 @@ export function resolvePathQuery(
 }
 
 /**
- * Entries matching the typed prefix: directories first, then files, by
- * name. Each kind is capped on its own, so a directory whose files sort
- * ahead of its subdirectories still lists those subdirectories.
+ * Preserve the typed path spelling. Cap files and directories separately
+ * so files cannot crowd directories out of the suggestions.
  */
 export async function listHarnessPaths(
   query: string,

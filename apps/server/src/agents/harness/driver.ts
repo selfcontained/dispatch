@@ -79,9 +79,7 @@ const STDERR_TAIL_LINES = 20;
 const STDERR_LINE_MAX_CHARS = 1024;
 const STDERR_TAIL_MAX_CHARS = 8 * 1024;
 /**
- * One rung of the teardown ladder in {@link HarnessDriver.stop}. Exported so
- * the supervisor's own shutdown bound is derived from it rather than guessed
- * alongside it.
+ * Shared with the supervisor so its shutdown deadline covers every stop phase.
  */
 export const TEARDOWN_STEP_MS = 1_500;
 const HANDSHAKE_TIMEOUT_MS = 30_000;
@@ -107,10 +105,8 @@ function describeRpcError(err: unknown): string {
 }
 
 /**
- * Find the engine's executable before spawning, so a missing binary is a
- * clear message on the agent instead of a spawn error. The server resolves
- * it with its own PATH (launchd/systemd), not the user's login shell, so
- * the message points at the setting to fix.
+ * Resolve against the service PATH, not the login shell, and report the
+ * relevant setting when the executable is missing.
  */
 export async function resolveExecutable(
   bin: string,

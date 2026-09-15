@@ -43,17 +43,8 @@ export async function setEnabledAgentTypes(
 }
 
 /**
- * What the app may create right now: the persisted enabled types plus
- * `dispatch` when and only when the Dispatch Harness flag is on.
- *
- * Every creation and discovery gate reads this, not `getEnabledAgentTypes`:
- * the create route, the reviewer-type route, `dispatch_launch_agent`, persona
- * launches, the plugin routes and the assisted-update driver picker. That is
- * what makes the harness's one switch reach all of them at once.
- *
- * No duplicate is possible: `sanitizeEnabledAgentTypes` drops `dispatch` from
- * the persisted list on every branch, so the append below is the only place
- * it can enter.
+ * Creation gates use this list; settings use the persisted list, which
+ * excludes `dispatch`. Its separate opt-in flag is the only way to offer it.
  */
 export async function getOfferedAgentTypes(pool: Pool): Promise<AgentType[]> {
   const [enabled, harnessEnabled] = await Promise.all([

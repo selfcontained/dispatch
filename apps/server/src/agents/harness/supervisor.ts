@@ -118,9 +118,7 @@ const ENV_DENY_EXACT = new Set([
 const ENV_DENY_PREFIX = "DISPATCH_";
 
 /**
- * The PATH every harness lookup uses: Dispatch's own bin/, then ~/.local/bin,
- * then the service's. One helper so the engine spawn, `resolveBinary`, and
- * the login probes on the settings page all agree on where an engine is.
+ * Keep engine spawning, binary resolution, and login probes on the same PATH.
  */
 export function harnessSearchPath(
   config: Pick<AppConfig, "dispatchBinDir">,
@@ -190,9 +188,7 @@ function isModelOption(
 }
 
 /**
- * How much of a Claude turn's reply is kept to test the logged-out answer
- * against. The phrase has to open the reply, so a few hundred characters is
- * already more than the check can use.
+ * Login detection only examines the reply prefix; do not retain the full turn.
  */
 const LOGIN_REPLY_MAX_CHARS = 300;
 
@@ -260,11 +256,7 @@ type Pending = QueuedPrompt & {
 };
 
 /**
- * Glue between the agent lifecycle and the ACP driver: picks the engine
- * from the agent's model id, starts it when an agent's setup completes,
- * delivers the persona the way the engine takes it, turns prompts into
- * turns with working/idle status around them, folds the stream into the
- * store and the usage table, and stops the child when the agent stops.
+ * Owns each ACP session's lifecycle, prompt queue, and stream persistence.
  */
 export class HarnessSupervisor {
   private readonly driver: HarnessDriver;
