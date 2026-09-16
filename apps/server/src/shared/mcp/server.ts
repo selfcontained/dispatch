@@ -535,7 +535,13 @@ export type McpRequestContext = {
   getReviewFeedbackItem?: (
     agentId: string,
     itemId: number
-  ) => Promise<Record<string, unknown> | null>;
+  ) => Promise<
+    | (ReviewFeedbackItemRecord & {
+        reviewId: number;
+        messages: ReviewThreadMessageRecord[];
+      })
+    | null
+  >;
   upsertPin?: (
     agentId: string,
     pin: McpPinInput
