@@ -60,18 +60,14 @@ export function useAgentActions({
     navigate("/agents");
   }, [navigate]);
 
-  const stopAgent = useCallback(
-    async (agent: Agent) => {
-      if (routeAgentId === agent.id) {
-        detachAndClearSelection();
-      }
-      await api(`/api/v1/agents/${agent.id}/stop`, {
-        method: "POST",
-        body: JSON.stringify({ force: false }),
-      });
-    },
-    [detachAndClearSelection, routeAgentId]
-  );
+  // A stopped agent's Chat stays readable, so stopping never leaves the
+  // route; that navigation was a tmux-era detach.
+  const stopAgent = useCallback(async (agent: Agent) => {
+    await api(`/api/v1/agents/${agent.id}/stop`, {
+      method: "POST",
+      body: JSON.stringify({ force: false }),
+    });
+  }, []);
 
   const deleteAgent = useCallback(
     async (agent: Agent, cleanupWorktree?: string) => {

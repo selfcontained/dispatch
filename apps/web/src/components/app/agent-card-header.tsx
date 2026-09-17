@@ -93,15 +93,12 @@ export function AgentCardHeader({
 
   return (
     <div
-      className={cn(
-        "flex items-center gap-1.5",
-        !isStopped && "cursor-pointer"
-      )}
+      className="flex items-center gap-1.5 cursor-pointer"
       data-testid={`agent-row-${agent.id}`}
       onClick={(event) => {
         const target = event.target as HTMLElement;
         if (target.closest("[data-agent-control='true']")) return;
-        if (isStopped) return;
+        // A stopped agent's Chat history stays readable.
         if (connectedAgentId === agent.id) {
           detachTerminal();
           if (isExpanded) toggleAgentDetails(agent.id);

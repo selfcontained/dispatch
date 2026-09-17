@@ -234,13 +234,14 @@ describe("AgentCard state and selection", () => {
     expect(card().className).toContain("bg-muted/60");
   });
 
-  it("dims stopped cards and offers resume instead of attaching on row click", () => {
+  it("dims stopped cards, still opens their Chat on row click, and offers resume", () => {
     const { props } = renderCard({ agent: makeAgent({ status: "stopped" }) });
 
     expect(card().className).toContain("opacity-60");
 
+    // A stopped agent's Chat history stays readable.
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.attachToAgent).not.toHaveBeenCalled();
+    expect(props.attachToAgent).toHaveBeenCalledWith(props.agent);
 
     fireEvent.click(screen.getByRole("button", { name: "Resume session" }));
     expect(props.startAgent).toHaveBeenCalledWith(props.agent);
