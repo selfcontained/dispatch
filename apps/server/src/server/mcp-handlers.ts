@@ -55,6 +55,10 @@ import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
 import type {
+  LaunchAgentInput,
+  LaunchAgentResult,
+} from "../shared/mcp/agent-launch-tools.js";
+import type {
   EnqueueAgentPrompt,
   PublishUiEvent,
   SendAgentPrompt,
@@ -520,22 +524,8 @@ async function handleJobLog(
 async function handleLaunchAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  input: {
-    name: string;
-    prompt: string;
-    type?: string;
-    model?: string;
-    useWorktree?: boolean;
-    createNewBranch?: boolean;
-    baseBranch?: string;
-    worktreeBranch?: string;
-    fullAccess?: boolean;
-    templateId?: string;
-    templateArgs?: Record<string, string>;
-    cwd?: string;
-    child?: boolean;
-  }
-): Promise<{ agentId: string; name: string; note?: string }> {
+  input: LaunchAgentInput
+): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
   const child = input.child !== false;
@@ -1348,24 +1338,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
     ) => handleJobLog(deps, agentId, input),
 
-    launchAgent: (
-      agentId: string,
-      input: {
-        name: string;
-        prompt: string;
-        type?: string;
-        model?: string;
-        useWorktree?: boolean;
-        createNewBranch?: boolean;
-        baseBranch?: string;
-        worktreeBranch?: string;
-        fullAccess?: boolean;
-        templateId?: string;
-        templateArgs?: Record<string, string>;
-        cwd?: string;
-        child?: boolean;
-      }
-    ) => handleLaunchAgent(deps, agentId, input),
+    launchAgent: (agentId: string, input: LaunchAgentInput) =>
+      handleLaunchAgent(deps, agentId, input),
 
     archiveAgent: (
       agentId: string,
