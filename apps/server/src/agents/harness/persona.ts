@@ -22,6 +22,7 @@ export function buildHarnessPersona(input: {
   >;
   personalityPrompt: string | null;
   trimmedGuidance: boolean;
+  subtaskDownshift: boolean;
   suggestSessionRename: boolean;
   /** A job run: the guidance names the job tools (job_complete, …). */
   jobRunId?: string | null;
@@ -34,6 +35,7 @@ export function buildHarnessPersona(input: {
     suggestSessionRename: input.suggestSessionRename,
     autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,
+    subtaskDownshift: input.subtaskDownshift,
     chatSurface: false,
   });
   const { appendedSystemPrompt } = extractAppendedSystemPrompt(

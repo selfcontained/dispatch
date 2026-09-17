@@ -240,6 +240,38 @@ export function inheritedHarnessModel(
   return parent.model || `${engine.id}/default`;
 }
 
+/**
+ * Parent model id to the model its unasked-for subtasks run on instead.
+ *
+ * Deliberately only the top tier. `docs/agent-model-catalog.md` sets an
+ * evidence bar for model slugs, and the same bar applies to claiming one model
+ * is cheaper than another: Opus above Sonnet is documented, while the relative
+ * cost of the Codex and Gemini slugs is not, so those families are left alone
+ * rather than guessed at. `claude/default` is left alone for the same reason —
+ * Dispatch does not know what the CLI resolves it to.
+ */
+const SUBTASK_DOWNSHIFT: Readonly<Record<string, string>> = {
+  opus: "sonnet",
+  "claude/claude-opus-5": "claude/claude-sonnet-5",
+};
+
+/**
+ * The model a persona or subagent runs with when the caller named none and the
+ * downshift setting is on. Falls through to `inheritedHarnessModel`, so a
+ * family with no known cheaper tier behaves exactly as it did before.
+ */
+export function downshiftedSubtaskModel(
+  agentType: AgentType,
+  parent: { type?: string | null; model?: string | null }
+): string | undefined {
+  const inherited = inheritedHarnessModel(agentType, parent);
+  // A same-kind child is the only case with a parent model to step down from.
+  const candidate =
+    inherited ?? (agentType === parent.type ? parent.model : null);
+  if (!candidate) return inherited;
+  return SUBTASK_DOWNSHIFT[candidate] ?? inherited;
+}
+
 /** The agent-config fields every job/template create path defaults the same way. */
 export type AgentConfigInput<T extends AgentType = AgentType> = {
   agentType?: T;

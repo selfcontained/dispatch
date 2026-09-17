@@ -4,6 +4,7 @@ import {
   AGENT_MODEL_OPTIONS,
   applyAgentConfigDefaults,
   describeAgentModelCatalog,
+  downshiftedSubtaskModel,
   inheritedHarnessModel,
   resolveAgentModelForUpdate,
   validateAgentModel,
@@ -238,5 +239,54 @@ describe("dispatch catalog", () => {
     expect(ids).toContain("codex/gpt-5.6-sol");
     expect(ids).not.toContain("openai/gpt-5.6-sol");
     for (const id of ids) expect(id).toMatch(/^[a-z0-9-]+\/[a-z0-9.-]+$/);
+  });
+});
+
+describe("subtask model downshift", () => {
+  it("drops a top-tier parent a tier for a same-kind child", () => {
+    expect(
+      downshiftedSubtaskModel("claude", { type: "claude", model: "opus" })
+    ).toBe("sonnet");
+    expect(
+      downshiftedSubtaskModel("dispatch", {
+        type: "dispatch",
+        model: "claude/claude-opus-5",
+      })
+    ).toBe("claude/claude-sonnet-5");
+  });
+
+  it("never upshifts a parent that is already below the top tier", () => {
+    expect(
+      downshiftedSubtaskModel("claude", { type: "claude", model: "haiku" })
+    ).toBeUndefined();
+    expect(
+      downshiftedSubtaskModel("dispatch", {
+        type: "dispatch",
+        model: "claude/claude-sonnet-5",
+      })
+    ).toBe("claude/claude-sonnet-5");
+  });
+
+  it("leaves a family with no evidenced cost order alone, engine intact", () => {
+    // Codex and Gemini slugs have no documented cheaper tier, so the harness
+    // inheritance still applies and nothing is invented on top of it.
+    expect(
+      downshiftedSubtaskModel("dispatch", {
+        type: "dispatch",
+        model: "codex/gpt-6-astra",
+      })
+    ).toBe("codex/gpt-6-astra");
+    expect(
+      downshiftedSubtaskModel("dispatch", {
+        type: "dispatch",
+        model: "claude/default",
+      })
+    ).toBe("claude/default");
+  });
+
+  it("leaves a cross-kind child to the CLI default", () => {
+    expect(
+      downshiftedSubtaskModel("codex", { type: "claude", model: "opus" })
+    ).toBeUndefined();
   });
 });

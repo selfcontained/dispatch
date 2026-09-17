@@ -24,6 +24,10 @@ import {
   setTrimmedLaunchGuidanceEnabled,
 } from "../launch-guidance-settings.js";
 import {
+  isSubtaskModelDownshiftEnabled,
+  setSubtaskModelDownshiftEnabled,
+} from "../subtask-model-settings.js";
+import {
   isChatSurfaceEnabled,
   setChatSurfaceEnabled,
 } from "../chat-surface-settings.js";
@@ -534,6 +538,22 @@ export async function registerSystemRoutes(
         return reply.code(400).send({ error: "enabled must be a boolean." });
       }
       await setTrimmedLaunchGuidanceEnabled(deps.pool, body.enabled);
+      return { enabled: body.enabled };
+    }
+  );
+
+  app.get("/api/v1/app/settings/subtask-model-downshift", async () => {
+    return { enabled: await isSubtaskModelDownshiftEnabled(deps.pool) };
+  });
+
+  app.post(
+    "/api/v1/app/settings/subtask-model-downshift",
+    async (request, reply) => {
+      const body = request.body as { enabled?: unknown } | null;
+      if (typeof body?.enabled !== "boolean") {
+        return reply.code(400).send({ error: "enabled must be a boolean." });
+      }
+      await setSubtaskModelDownshiftEnabled(deps.pool, body.enabled);
       return { enabled: body.enabled };
     }
   );

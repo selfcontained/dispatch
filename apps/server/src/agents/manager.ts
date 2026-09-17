@@ -23,6 +23,7 @@ import {
   probeGitContext,
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
+import { isSubtaskModelDownshiftEnabled } from "../subtask-model-settings.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { getOfferedAgentTypes } from "../agent-type-settings.js";
@@ -269,12 +270,17 @@ export type LaunchContextRecorder = {
 /** The two settings-backed switches the launch guidance is built from. */
 async function readLaunchGuidanceFlags(
   pool: Pool
-): Promise<{ trimmedGuidance: boolean; chatSurface: boolean }> {
-  const [trimmedGuidance, chatSurface] = await Promise.all([
+): Promise<{
+  trimmedGuidance: boolean;
+  chatSurface: boolean;
+  subtaskDownshift: boolean;
+}> {
+  const [trimmedGuidance, chatSurface, subtaskDownshift] = await Promise.all([
     isTrimmedLaunchGuidanceEnabled(pool),
     isChatSurfaceEnabled(pool),
+    isSubtaskModelDownshiftEnabled(pool),
   ]);
-  return { trimmedGuidance, chatSurface };
+  return { trimmedGuidance, chatSurface, subtaskDownshift };
 }
 
 /** Upper bound on how long a launch waits for its Chat launch post. */
@@ -426,6 +432,7 @@ export class AgentManager {
       agent,
       personalityPrompt: inputs.personalityPrompt,
       trimmedGuidance: inputs.trimmedGuidance,
+      subtaskDownshift: inputs.subtaskDownshift,
       suggestSessionRename: inputs.suggestSessionRename,
       jobRunId: jobRunId ?? null,
     });
@@ -443,6 +450,7 @@ export class AgentManager {
     personalityPrompt: string | null;
     trimmedGuidance: boolean;
     chatSurface: boolean;
+    subtaskDownshift: boolean;
     suggestSessionRename: boolean;
   }> {
     // Same rule as the pane launch: a persona, a job run, or an assisted
@@ -451,13 +459,13 @@ export class AgentManager {
       agent.persona || jobRunId || agent.role === "assisted_update"
         ? null
         : await getActivePersonality(this.pool);
-    const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
-      this.pool
-    );
+    const { trimmedGuidance, chatSurface, subtaskDownshift } =
+      await readLaunchGuidanceFlags(this.pool);
     return {
       personalityPrompt: personality?.prompt ?? null,
       trimmedGuidance,
       chatSurface,
+      subtaskDownshift,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
         jobRunId,
@@ -669,7 +677,7 @@ export class AgentManager {
     // `creating`. Route it through the same failure handling the launch uses.
     const launchGuidanceFlags =
       input.jobRunId || inertRuntime
-        ? { trimmedGuidance: false, chatSurface: false }
+        ? { trimmedGuidance: false, chatSurface: false, subtaskDownshift: false }
         : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
             this.failCreate(p.id, error)
           );
@@ -1148,7 +1156,11 @@ export class AgentManager {
      * launch waits for its Chat post — so the settings are not queried twice
      * per launch and the two decisions can never disagree.
      */
-    launchGuidanceFlags: { trimmedGuidance: boolean; chatSurface: boolean };
+    launchGuidanceFlags: {
+      trimmedGuidance: boolean;
+      chatSurface: boolean;
+      subtaskDownshift: boolean;
+    };
     persona: string | undefined;
     jobRunId: string | undefined;
     templateId: string | undefined;
@@ -1181,7 +1193,8 @@ export class AgentManager {
         opts.persona || opts.jobRunId || role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
-      const { trimmedGuidance, chatSurface } = opts.launchGuidanceFlags;
+      const { trimmedGuidance, chatSurface, subtaskDownshift } =
+        opts.launchGuidanceFlags;
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -1201,6 +1214,7 @@ export class AgentManager {
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
           trimmedGuidance,
           chatSurface,
+          subtaskDownshift,
           initialPrompt,
           initialPins,
           initialMedia,
@@ -1454,6 +1468,7 @@ export class AgentManager {
         personalityPrompt,
         trimmedGuidance,
         chatSurface,
+        subtaskDownshift,
         suggestSessionRename,
       } = await this.launchGuidanceInputsFor(agent);
 
@@ -1472,6 +1487,7 @@ export class AgentManager {
           autoReview: !agent.persona && (agent.autoReview ?? false),
           trimmedGuidance,
           chatSurface,
+          subtaskDownshift,
           personalityPrompt,
           model: agent.model ?? undefined,
         }

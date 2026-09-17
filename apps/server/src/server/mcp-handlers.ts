@@ -15,9 +15,11 @@ import {
   getOfferedAgentTypes,
 } from "../agent-type-settings.js";
 import {
+  downshiftedSubtaskModel,
   inheritedHarnessModel,
   validateAgentModel,
 } from "../shared/agent-models.js";
+import { isSubtaskModelDownshiftEnabled } from "../subtask-model-settings.js";
 import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
@@ -618,15 +620,14 @@ async function handleLaunchAgent(
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
   // A harness child inherits its parent's engine when the caller named no
   // model, for the same reason a persona does: the engine is half the id.
+  // With the downshift on, that inheritance also drops a tier where one is
+  // known; an explicit model still wins over both.
+  const childType = agentType as (typeof CLI_AGENT_TYPES)[number];
   const model =
-    validateAgentModel(
-      agentType as (typeof CLI_AGENT_TYPES)[number],
-      input.model
-    ) ??
-    inheritedHarnessModel(
-      agentType as (typeof CLI_AGENT_TYPES)[number],
-      parent
-    );
+    validateAgentModel(childType, input.model) ??
+    ((await isSubtaskModelDownshiftEnabled(deps.pool))
+      ? downshiftedSubtaskModel(childType, parent)
+      : inheritedHarnessModel(childType, parent));
 
   // Launching a template is a request for the template's own instructions —
   // without this the caller's short prompt was the agent's entire prompt and

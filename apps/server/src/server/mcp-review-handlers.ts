@@ -32,9 +32,11 @@ import {
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import {
+  downshiftedSubtaskModel,
   inheritedHarnessModel,
   validateAgentModel,
 } from "../shared/agent-models.js";
+import { isSubtaskModelDownshiftEnabled } from "../subtask-model-settings.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
@@ -511,10 +513,13 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
 
       // A harness persona inherits its parent's engine along with its kind:
       // the engine is half the model id, so "no model" would otherwise mean
-      // Claude Code no matter what the parent runs on.
+      // Claude Code no matter what the parent runs on. With the downshift on,
+      // it also drops a tier — a reviewer reads a diff that already exists.
       const personaModel =
         validateAgentModel(personaAgentType, opts.model) ??
-        inheritedHarnessModel(personaAgentType, parent);
+        ((await isSubtaskModelDownshiftEnabled(pool))
+          ? downshiftedSubtaskModel(personaAgentType, parent)
+          : inheritedHarnessModel(personaAgentType, parent));
 
       const parentCwd = parent.worktreePath ?? parent.cwd;
       let personaRoot: string;

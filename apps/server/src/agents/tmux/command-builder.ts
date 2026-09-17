@@ -288,6 +288,13 @@ export function buildLaunchGuidance(
      * carries the schema.
      */
     chatSurface?: boolean;
+    /**
+     * The `subtask_model_downshift` flag. The resolver behind the same flag
+     * catches launches from agents that never read this rule; the rule catches
+     * the launches the resolver cannot classify. Same text trimmed or not —
+     * it is one sentence either way.
+     */
+    subtaskDownshift?: boolean;
   }
 ): string {
   const {
@@ -297,6 +304,7 @@ export function buildLaunchGuidance(
     autoReview,
     trimmedGuidance,
     chatSurface,
+    subtaskDownshift,
   } = opts;
   const trimmed =
     trimmedGuidance === true &&
@@ -370,6 +378,11 @@ export function buildLaunchGuidance(
         "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
       );
     }
+    if (subtaskDownshift) {
+      rules.push(
+        "For a bounded subtask — a review, a search, one file's worth of work — launch it on a lower model tier unless it genuinely needs the top one. Pass model explicitly when it does."
+      );
+    }
     if (autoReview) {
       rules.push(
         "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved — if a review prompt never arrived, check with dispatch_review_list_feedback."
@@ -412,6 +425,7 @@ type BuildAgentCommandOptions = {
   autoReview?: boolean;
   trimmedGuidance?: boolean;
   chatSurface?: boolean;
+  subtaskDownshift?: boolean;
   /**
    * Raw first-turn inputs; `buildStartupTurn` composes them (envelope or
    * plain startup prompt) using `chatSurface` and `jobRunId`.
@@ -440,6 +454,7 @@ export function buildAgentCommand(
     autoReview,
     trimmedGuidance,
     chatSurface,
+    subtaskDownshift,
     initialPrompt: rawInitialPrompt,
     initialPins,
     initialMedia,
@@ -465,6 +480,7 @@ export function buildAgentCommand(
     autoReview,
     trimmedGuidance,
     chatSurface,
+    subtaskDownshift,
   });
 
   const userLocalBin = process.env.HOME
