@@ -214,6 +214,7 @@ function authorKey(
       return agentMessageAuthor(entry, ctx).key;
     case "media":
     case "pin":
+    case "turn":
       return "agent";
     case "review":
       return reviewAuthor(entry, ctx).key;
