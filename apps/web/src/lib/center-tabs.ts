@@ -5,27 +5,22 @@ import {
 } from "@/lib/agent-routes";
 
 /**
- * With the chat surface on, the terminal's tab becomes the **Agent** pane:
- * one tab hosting both the Chat feed and the Console (the terminal), flipped
- * with a toggle in the pane header rather than a route. With it off, the tab
- * is the plain **Terminal** it always was. Both live at `/agents/:id`; only
- * one of the two ids is ever offered at a time.
+ * The center-pane tabs. **Agent** is the Chat feed at `/agents/:id`;
+ * Changes and Whiteboard have routes of their own.
  */
-export type CenterTab = "agent" | "terminal" | "changes" | "whiteboard";
+export type CenterTab = "agent" | "changes" | "whiteboard";
 
 /**
- * Round 1/2 persisted a "chat" tab id (its own route at the time). It is no
- * longer a tab; stored values are folded into the Agent pane by
- * `normalizeSplitPaneState`.
+ * Ids older builds persisted: round 1/2's "chat" tab and the "terminal" tab
+ * that hosted the Console. Stored values carrying them are folded into the
+ * Agent pane by `normalizeSplitPaneState`.
  */
-export type LegacyCenterTab = CenterTab | "chat";
+export type LegacyCenterTab = CenterTab | "chat" | "terminal";
 
 export type CenterTabDef = {
   id: CenterTab;
   label: string;
   route: (agentId: string) => string;
-  /** Whether the tab is offered at all under this flag value. */
-  available: (chatEnabled: boolean) => boolean;
 };
 
 /**
@@ -34,30 +29,9 @@ export type CenterTabDef = {
  * agree on which tabs exist and what they are called.
  */
 export const CENTER_TABS: readonly CenterTabDef[] = [
-  {
-    id: "agent",
-    label: "Agent",
-    route: agentRoute,
-    available: (chatEnabled) => chatEnabled,
-  },
-  {
-    id: "terminal",
-    label: "Terminal",
-    route: agentRoute,
-    available: (chatEnabled) => !chatEnabled,
-  },
-  {
-    id: "changes",
-    label: "Changes",
-    route: agentChangesRoute,
-    available: () => true,
-  },
-  {
-    id: "whiteboard",
-    label: "Whiteboard",
-    route: agentWhiteboardRoute,
-    available: () => true,
-  },
+  { id: "agent", label: "Agent", route: agentRoute },
+  { id: "changes", label: "Changes", route: agentChangesRoute },
+  { id: "whiteboard", label: "Whiteboard", route: agentWhiteboardRoute },
 ];
 
 const BY_ID: ReadonlyMap<CenterTab, CenterTabDef> = new Map(
@@ -74,29 +48,8 @@ export function centerTabLabel(tab: CenterTab): string {
   return centerTabDef(tab).label;
 }
 
-/** The tabs offered under this flag value, in display order. */
-export function centerTabs(chatEnabled: boolean): CenterTabDef[] {
-  return CENTER_TABS.filter((tab) => tab.available(chatEnabled));
-}
-
 export function centerTabRoute(agentId: string, tab: CenterTab): string {
   return centerTabDef(tab).route(agentId);
-}
-
-/**
- * Whether an agent can be chatted with at all. A terminal session is a
- * shell, not a CLI agent: there is nothing to post to the feed and nothing
- * to read it, so it keeps the plain Terminal tab whatever the flag says.
- */
-export function agentSupportsChat(
-  agentType: string | null | undefined
-): boolean {
-  return agentType !== "terminal";
-}
-
-/** The id the terminal-hosting tab goes by under this flag value. */
-export function terminalHostTab(chatEnabled: boolean): CenterTab {
-  return chatEnabled ? "agent" : "terminal";
 }
 
 /** Stored values are user-editable localStorage; anything unknown reads as unset. */
@@ -104,7 +57,7 @@ export function isCenterTab(value: unknown): value is CenterTab {
   return typeof value === "string" && BY_ID.has(value as CenterTab);
 }
 
-/** `isCenterTab`, plus the round-1/2 "chat" id that stored state may still carry. */
+/** `isCenterTab`, plus the retired ids stored state may still carry. */
 export function isLegacyCenterTab(value: unknown): value is LegacyCenterTab {
-  return value === "chat" || isCenterTab(value);
+  return value === "chat" || value === "terminal" || isCenterTab(value);
 }

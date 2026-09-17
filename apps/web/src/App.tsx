@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useMatches, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import "@xterm/xterm/css/xterm.css";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent } from "@/components/app/types";

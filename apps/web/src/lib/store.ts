@@ -138,17 +138,6 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "vscode"
 );
 
-/**
- * Last value of the `chat_surface_enabled` flag this browser saw. The server
- * owns the flag (see `useChatSurfaceEnabled`); this only lets the first paint
- * of the agent view pick the right tab before the fetch resolves, so the
- * Console never flashes under the Chat tab. `null` until the first fetch.
- */
-export const chatSurfaceEnabledHintAtom = atomWithLocalStorage<boolean | null>(
-  "dispatch:chatSurfaceEnabledHint",
-  null
-);
-
 // Cached view of the server-wide cross-repo messaging gate (lets agents
 // message/list agents in OTHER repositories). The server enforces and owns the
 // value; CrossRepoMessagingSettings hydrates this atom from the GET endpoint on
@@ -441,8 +430,8 @@ export type SplitPaneState = {
 };
 
 /**
- * What storage holds. Sides may still carry the round-1/2 "chat" id (and
- * "terminal"/"agent" from under the other flag value);
+ * What storage holds. Sides may still carry the retired "chat" and
+ * "terminal" ids;
  * `normalizeSplitPaneState` in use-split-pane.ts turns one of these into a
  * `SplitPaneState` before anything renders it.
  */
@@ -455,7 +444,7 @@ export type PersistedSplitPaneState = {
 
 export const defaultSplitPaneState: SplitPaneState = {
   mode: "single",
-  left: "terminal",
+  left: "agent",
   right: "changes",
   sizes: [50, 50],
 };
@@ -510,42 +499,17 @@ export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
 );
 
 /**
- * Round 1/2 remembered a last-picked center tab under this prefix so the bare
- * agent route could land on Chat. The Agent pane replaced that with a view
- * toggle (`agentPaneViewAtomFamily`); the prefix is only kept so the
- * reconciler still sweeps the old keys.
+ * Retired per-agent keys: round 1/2's last-picked center tab and the old
+ * Chat | Console toggle. Only kept so the reconciler still sweeps them.
  */
 export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
-
-// ---------------------------------------------------------------------------
-// Agent pane view — which of Chat / Console the Agent tab shows, per agent.
-// Not in the URL on purpose: it is a preference, not a place, and the /chat
-// route of round 1 only survives as a redirect that flips it to "chat".
-// ---------------------------------------------------------------------------
-
-export type AgentPaneView = "chat" | "console";
-
-export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
-
-export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<AgentPaneView>(
-    `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
-    "chat"
-  )
-);
-
-export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
-
-export function isAgentPaneView(value: unknown): value is AgentPaneView {
-  return value === "chat" || value === "console";
-}
+export const LEGACY_AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
 
 // ---------------------------------------------------------------------------
 // Chat child-agent filter — whether Chat shows the messages exchanged with an
-// agent's children. One global preference, unlike the Chat|Console toggle
-// beside it: which view a session needs really does differ session to
-// session, but wanting child chatter out of the way is a standing taste, and
-// scoping it per agent would leave every new session starting noisy again.
+// agent's children. One global preference: wanting child chatter out of the
+// way is a standing taste, and scoping it per agent would leave every new
+// session starting noisy again.
 // ---------------------------------------------------------------------------
 
 export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
@@ -675,7 +639,7 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
   { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
-  { prefix: AGENT_PANE_VIEW_STORAGE_PREFIX },
+  { prefix: LEGACY_AGENT_PANE_VIEW_STORAGE_PREFIX },
   { prefix: CHAT_DRAFT_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
@@ -695,21 +659,9 @@ export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
 }
 
 // ---------------------------------------------------------------------------
-// Live terminal signals for the chat presence strip — ephemeral, per agent,
-// never persisted. Written by the terminal socket (output) and the SSE
-// stream (tool invocations); readable while the pane is hidden under Chat.
+// Live tool signals for the chat presence strip — ephemeral, per agent,
+// never persisted. Written by the SSE stream (tool invocations).
 // ---------------------------------------------------------------------------
-
-export type TerminalOutputActivity = {
-  /** `Date.now()` of the last output flush; 0 until any output is seen. */
-  lastOutputAt: number;
-  /** Throughput over the window that ended at `lastOutputAt`. */
-  bytesPerSecond: number;
-};
-
-export const terminalOutputActivityAtomFamily = atomFamily((_agentId: string) =>
-  atom<TerminalOutputActivity>({ lastOutputAt: 0, bytesPerSecond: 0 })
-);
 
 export type AgentToolBlip = {
   /** MCP tool name as the server reported it, e.g. `dispatch_share_file`. */

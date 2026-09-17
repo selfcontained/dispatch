@@ -8,30 +8,20 @@ import { api } from "@/lib/api";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 
 type UseAgentActionsParams = {
-  connectedAgentId: string | null;
   routeAgentId: string | undefined;
   setExpandedAgentId: React.Dispatch<React.SetStateAction<string | null>>;
   setCreateOpen: (open: boolean) => void;
   setRequestedCreateType: (type: AgentType | null) => void;
   setLastUsedAgentType: (type: AgentType) => void;
-  ensureTerminalConnected: (
-    autoAttach: boolean,
-    force: boolean,
-    agentId: string
-  ) => Promise<void>;
-  detachTerminal: () => void;
   refreshMedia: (agentId: string) => void;
 };
 
 export function useAgentActions({
-  connectedAgentId,
   routeAgentId,
   setExpandedAgentId,
   setCreateOpen,
   setRequestedCreateType,
   setLastUsedAgentType,
-  ensureTerminalConnected,
-  detachTerminal,
   refreshMedia,
 }: UseAgentActionsParams) {
   const navigate = useNavigate();
@@ -49,9 +39,8 @@ export function useAgentActions({
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [ensureAuxExpanded, navigate, refreshMedia]
   );
 
   const startAgent = useCallback(
@@ -63,19 +52,17 @@ export function useAgentActions({
         body: JSON.stringify({}),
       });
       refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [ensureAuxExpanded, navigate, refreshMedia]
   );
 
   const detachAndClearSelection = useCallback(() => {
-    detachTerminal();
     navigate("/agents");
-  }, [detachTerminal, navigate]);
+  }, [navigate]);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
-      if (connectedAgentId === agent.id) {
+      if (routeAgentId === agent.id) {
         detachAndClearSelection();
       }
       await api(`/api/v1/agents/${agent.id}/stop`, {
@@ -83,14 +70,11 @@ export function useAgentActions({
         body: JSON.stringify({ force: false }),
       });
     },
-    [connectedAgentId, detachAndClearSelection]
+    [detachAndClearSelection, routeAgentId]
   );
 
   const deleteAgent = useCallback(
     async (agent: Agent, cleanupWorktree?: string) => {
-      if (connectedAgentId === agent.id) {
-        detachTerminal();
-      }
       setExpandedAgentId((current) => (current === agent.id ? null : current));
       if (routeAgentId === agent.id) {
         navigate("/agents", { replace: true });
@@ -104,13 +88,7 @@ export function useAgentActions({
         method: "DELETE",
       });
     },
-    [
-      connectedAgentId,
-      detachTerminal,
-      navigate,
-      routeAgentId,
-      setExpandedAgentId,
-    ]
+    [navigate, routeAgentId, setExpandedAgentId]
   );
 
   const handleAgentCreated = useCallback(
@@ -131,11 +109,9 @@ export function useAgentActions({
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.id);
       refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
     },
     [
       ensureAuxExpanded,
-      ensureTerminalConnected,
       navigate,
       queryClient,
       refreshMedia,

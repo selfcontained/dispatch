@@ -74,7 +74,7 @@ function serveGet(phrases: QuickPhrase[]): void {
 }
 
 function renderPicker(agentId: string | null = "agt_1") {
-  const focusTerminal = vi.fn();
+  const onInjected = vi.fn();
   render(
     <QueryClientProvider
       client={
@@ -82,11 +82,11 @@ function renderPicker(agentId: string | null = "agt_1") {
       }
     >
       <MemoryRouter>
-        <QuickPhrasesButton agentId={agentId} focusTerminal={focusTerminal} />
+        <QuickPhrasesButton agentId={agentId} onInjected={onInjected} />
       </MemoryRouter>
     </QueryClientProvider>
   );
-  return { focusTerminal };
+  return { onInjected };
 }
 
 async function openPicker(): Promise<HTMLInputElement> {
@@ -98,7 +98,7 @@ async function openPicker(): Promise<HTMLInputElement> {
 
 function injectCalls(): Array<Record<string, unknown>> {
   return apiMock.mock.calls
-    .filter(([path]) => String(path).endsWith("/terminal/inject-phrase"))
+    .filter(([path]) => String(path).endsWith("/prompts/phrase"))
     .map(
       ([, init]) =>
         JSON.parse((init as { body: string }).body) as Record<string, unknown>
@@ -208,9 +208,9 @@ describe("list rendering and search", () => {
 });
 
 describe("inject wire payloads", () => {
-  it("selecting a no-arg phrase injects it with submit, then closes and focuses the terminal", async () => {
+  it("selecting a no-arg phrase injects it with submit, then closes and reports it injected", async () => {
     serveGet(TWO_PHRASES);
-    const { focusTerminal } = renderPicker();
+    const { onInjected } = renderPicker();
     await openPicker();
     await screen.findByText("Deploy");
 
@@ -218,16 +218,16 @@ describe("inject wire payloads", () => {
 
     await waitFor(() => expect(injectCalls()).toHaveLength(1));
     const [path, init] = apiMock.mock.calls.find(([p]) =>
-      String(p).endsWith("/terminal/inject-phrase")
+      String(p).endsWith("/prompts/phrase")
     )!;
-    expect(path).toBe("/api/v1/agents/agt_1/terminal/inject-phrase");
+    expect(path).toBe("/api/v1/agents/agt_1/prompts/phrase");
     expect((init as { method: string }).method).toBe("POST");
     expect(injectCalls()[0]).toEqual({ phraseId: "qp_1", submit: true });
 
     await waitFor(() =>
       expect(screen.queryByPlaceholderText("Search phrases...")).toBeNull()
     );
-    expect(focusTerminal).toHaveBeenCalledTimes(1);
+    expect(onInjected).toHaveBeenCalledTimes(1);
   });
 
   it("ArrowDown + Enter selects the second phrase via the keyboard", async () => {
@@ -332,7 +332,7 @@ describe("inject wire payloads", () => {
       }
       return Promise.reject(new Error("boom"));
     });
-    const { focusTerminal } = renderPicker();
+    const { onInjected } = renderPicker();
     await openPicker();
     await screen.findByText("Deploy");
 
@@ -342,7 +342,7 @@ describe("inject wire payloads", () => {
       expect(toastErrorMock).toHaveBeenCalledWith("Failed to send phrase")
     );
     expect(screen.getByPlaceholderText("Search phrases...")).toBeTruthy();
-    expect(focusTerminal).not.toHaveBeenCalled();
+    expect(onInjected).not.toHaveBeenCalled();
   });
 });
 
@@ -427,7 +427,7 @@ describe("fill variables flow", () => {
 
   it("submits filled args with submit=true and closes everything on success", async () => {
     serveGet([ARGS_PHRASE]);
-    const { focusTerminal } = renderPicker();
+    const { onInjected } = renderPicker();
     await openPicker();
     await screen.findByText("Greet");
     fireEvent.click(screen.getByText("Greet"));
@@ -447,7 +447,7 @@ describe("fill variables flow", () => {
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Greet" })).toBeNull()
     );
-    expect(focusTerminal).toHaveBeenCalledTimes(1);
+    expect(onInjected).toHaveBeenCalledTimes(1);
   });
 });
 

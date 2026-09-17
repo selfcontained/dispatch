@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TAB_DRAG_MIME } from "@/components/app/center-pane-tab-bar";
 import { type CenterTab } from "@/lib/center-tabs";
@@ -15,50 +9,24 @@ type UseCenterPaneLayoutArgs = {
   isMobile: boolean;
   /** The tab currently shown full-width; the drop target for a dragged tab. */
   activeTab: CenterTab;
-  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
-  chatEnabled: boolean;
 };
 
 /**
- * Owns the center-pane split layout mechanics: the split-pane state, the
- * tab drag-and-drop plumbing, and the stable terminal container that gets
- * reparented between the single-pane slot and the split-pane slot so the
- * terminal DOM (and its tmux connection) survives layout changes.
+ * Owns the center-pane split layout mechanics: the split-pane state and the
+ * tab drag-and-drop plumbing.
  */
 export function useCenterPaneLayout({
   focusedAgentId,
   isMobile,
   activeTab,
-  chatEnabled,
 }: UseCenterPaneLayoutArgs) {
   const [isDraggingTab, setIsDraggingTab] = useState(false);
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile, chatEnabled);
+    useSplitPane(focusedAgentId, isMobile);
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);
-  const defaultTerminalSlotRef = useRef<HTMLDivElement>(null);
-  const splitTerminalSlotRef = useRef<HTMLDivElement>(null);
-  const stableTerminalContainerRef = useRef<HTMLDivElement | null>(null);
-  if (!stableTerminalContainerRef.current) {
-    stableTerminalContainerRef.current = document.createElement("div");
-    stableTerminalContainerRef.current.className = "h-full";
-  }
-
-  useLayoutEffect(() => {
-    const container = stableTerminalContainerRef.current;
-    if (!container) return;
-    const target = isSplit
-      ? splitTerminalSlotRef.current
-      : defaultTerminalSlotRef.current;
-    if (target && container.parentElement !== target) {
-      target.appendChild(container);
-    }
-    return () => {
-      container.remove();
-    };
-  }, [isSplit, splitState.left, splitState.right]);
 
   useEffect(() => {
     if (!isSplit) return;
@@ -118,9 +86,6 @@ export function useCenterPaneLayout({
     isDraggingTab,
     splitLeftRef,
     splitButtonRef,
-    defaultTerminalSlotRef,
-    splitTerminalSlotRef,
-    stableTerminalContainer: stableTerminalContainerRef.current,
     handleContentDragOver,
     handleContentDragLeave,
     handleContentDrop,

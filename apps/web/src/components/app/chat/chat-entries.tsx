@@ -579,7 +579,7 @@ function DeliveryMeta({
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-        title="Dispatch is holding this message until you pause typing in the Console."
+        title="Waiting for the agent's running turn to finish."
         data-testid="chat-held-hint"
       >
         <Hourglass className="h-3 w-3" />

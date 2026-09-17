@@ -6,9 +6,7 @@ import {
   type Agent,
   type AuthState,
   type DiffStats,
-  type InjectionHoldState,
   type MediaFile,
-  type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
@@ -243,10 +241,6 @@ export function useSSE(authState: AuthState): void {
           // missing whatever landed while the stream was down. Prefix match:
           // one key per agent.
           void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
-          // Injection-hold state is event-sourced with no fetch endpoint; a
-          // release event missed during an SSE gap would leave the hold badge
-          // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
-          queryClient.removeQueries({ queryKey: ["injection-hold"] });
           return;
         }
 
@@ -315,22 +309,6 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
-          return;
-        }
-
-        if (payload.type === "agent.terminal_state_changed") {
-          queryClient.setQueryData<TerminalUiState>(
-            ["terminal-state", payload.agentId],
-            payload.terminalState
-          );
-          return;
-        }
-
-        if (payload.type === "agent.injection_hold_changed") {
-          queryClient.setQueryData<InjectionHoldState>(
-            ["injection-hold", payload.agentId],
-            payload.holdState
-          );
           return;
         }
 

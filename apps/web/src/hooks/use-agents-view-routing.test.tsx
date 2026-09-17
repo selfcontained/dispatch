@@ -2,26 +2,14 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { Location, NavigateFunction } from "react-router-dom";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
-import { getDefaultStore } from "jotai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { agentPaneViewAtomFamily } from "@/lib/store";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { useAgentsViewRouting } from "./use-agents-view-routing";
-
-// The chat surface flag is server state behind a React Query hook; the
-// routing decisions it drives are what this file is about, so it is a plain
-// switch here.
-const chatFlag = vi.hoisted(() => ({ enabled: false, loaded: true }));
-vi.mock("@/hooks/use-chat-surface-enabled", () => ({
-  useChatSurfaceEnabled: () => ({ ...chatFlag }),
-}));
 
 type RoutingProps = {
   routeAgentId: string | undefined;
   agentsLoaded: boolean;
   validatedSelectedAgentId: string | null;
-  routeAgentType?: string | null;
 };
 
 // The hook is exercised against a real MemoryRouter so the useMatch patterns
@@ -69,10 +57,7 @@ function renderRouting(initialPath: string, initialProps: RoutingProps) {
 }
 
 beforeEach(() => {
-  chatFlag.enabled = false;
-  chatFlag.loaded = true;
   window.localStorage.clear();
-  agentPaneViewAtomFamily.remove("agt_1");
 });
 
 afterEach(() => {
@@ -183,7 +168,7 @@ describe("useAgentsViewRouting", () => {
       expect(result.current.whiteboardMatch).toBe(true);
     });
 
-    it("reports the terminal tab as neither match", () => {
+    it("reports the Agent tab as neither match", () => {
       const { result } = renderRouting("/agents/agt_1", {
         routeAgentId: "agt_1",
         agentsLoaded: true,
@@ -194,33 +179,26 @@ describe("useAgentsViewRouting", () => {
     });
   });
 
-  describe("chat surface", () => {
+  describe("legacy /chat route", () => {
     const loaded = {
       routeAgentId: "agt_1",
       agentsLoaded: true,
       validatedSelectedAgentId: "agt_1",
     };
-    const viewOf = (agentId: string) =>
-      getDefaultStore().get(agentPaneViewAtomFamily(agentId));
 
-    it("keeps the bare agent route as the Agent tab when the flag is on", () => {
-      chatFlag.enabled = true;
+    it("keeps the bare agent route as the Agent tab", () => {
       const { result, pathname } = renderRouting("/agents/agt_1", loaded);
       expect(pathname()).toBe("/agents/agt_1");
       expect(result.current.centerTabResolved).toBe(true);
     });
 
-    it("redirects an old /chat link to the Agent tab with the Chat view", () => {
-      chatFlag.enabled = true;
-      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
+    it("redirects an old /chat link to the Agent tab", () => {
       const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
       expect(pathname()).toBe("/agents/agt_1");
-      expect(viewOf("agt_1")).toBe("chat");
       expect(result.current.centerTabResolved).toBe(true);
     });
 
     it("keeps the query string across the /chat redirect", () => {
-      chatFlag.enabled = true;
       const { pathname, search } = renderRouting(
         "/agents/agt_1/chat?expandReview=4",
         loaded
@@ -229,71 +207,18 @@ describe("useAgentsViewRouting", () => {
       expect(search()).toBe("?expandReview=4");
     });
 
-    it("falls a /chat route back to the terminal without touching the view when the flag is off", () => {
-      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
-      const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
-      expect(pathname()).toBe("/agents/agt_1");
-      expect(viewOf("agt_1")).toBe("console");
-      expect(result.current.centerTabResolved).toBe(true);
-    });
-
-    it("sends an old /chat link for a terminal session to its Console", () => {
-      // A terminal session has no CLI to chat with: the route still
-      // collapses onto the agent, but the view is left as it was.
-      chatFlag.enabled = true;
-      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
-      const { pathname } = renderRouting("/agents/agt_1/chat", {
-        ...loaded,
-        routeAgentType: "terminal",
-      });
-      expect(pathname()).toBe("/agents/agt_1");
-      expect(viewOf("agt_1")).toBe("console");
-    });
-
-    it("waits for the flag to load before redirecting", () => {
-      chatFlag.enabled = false;
-      chatFlag.loaded = false;
-      const { pathname } = renderRouting("/agents/agt_1/chat", loaded);
-      expect(pathname()).toBe("/agents/agt_1/chat");
-    });
-
-    // The Console must not paint under the Chat view: while the flag is
-    // unknown the center tab is reported unresolved, and it becomes resolved
-    // in the same render the flag arrives *and* any redirect has landed.
-    it("reports the center tab unresolved until the flag loads and the redirect lands", () => {
-      chatFlag.enabled = false;
-      chatFlag.loaded = false;
+    it("reports the center tab unresolved until the redirect lands", () => {
       const { result, rerender, pathname } = renderRouting(
         "/agents/agt_1/chat",
-        loaded
+        { ...loaded, agentsLoaded: false, validatedSelectedAgentId: null }
       );
       expect(result.current.centerTabResolved).toBe(false);
-
-      chatFlag.enabled = true;
-      chatFlag.loaded = true;
       rerender(loaded);
       expect(pathname()).toBe("/agents/agt_1");
-      expect(viewOf("agt_1")).toBe("chat");
-      expect(result.current.centerTabResolved).toBe(true);
-    });
-
-    it("stays unresolved on the bare route only while the flag is unknown", () => {
-      chatFlag.loaded = false;
-      const { result, rerender } = renderRouting("/agents/agt_1", loaded);
-      expect(result.current.centerTabResolved).toBe(false);
-      chatFlag.enabled = true;
-      chatFlag.loaded = true;
-      rerender(loaded);
-      expect(result.current.centerTabResolved).toBe(true);
-    });
-
-    it("resolves the terminal immediately with the flag off", () => {
-      const { result } = renderRouting("/agents/agt_1", loaded);
       expect(result.current.centerTabResolved).toBe(true);
     });
 
     it("resolves deep links to changes without a redirect", () => {
-      chatFlag.enabled = true;
       const changes = renderRouting("/agents/agt_1/changes", loaded);
       expect(changes.pathname()).toBe("/agents/agt_1/changes");
       expect(changes.result.current.centerTabResolved).toBe(true);
@@ -309,7 +234,6 @@ describe("useAgentsViewRouting", () => {
     });
 
     it("does not redirect an unvalidated agent", () => {
-      chatFlag.enabled = true;
       const { pathname } = renderRouting("/agents/agt_gone/chat", {
         routeAgentId: "agt_gone",
         agentsLoaded: false,
@@ -319,7 +243,6 @@ describe("useAgentsViewRouting", () => {
     });
 
     it("routes the Agent tab to the bare agent route", () => {
-      chatFlag.enabled = true;
       const { result, pathname } = renderRouting(
         "/agents/agt_1/changes",
         loaded
@@ -345,7 +268,7 @@ describe("useAgentsViewRouting", () => {
       expect(pathname()).toBe("/agents/agt_1/whiteboard");
       expect(result.current.whiteboardMatch).toBe(true);
 
-      act(() => result.current.onTabChange("terminal"));
+      act(() => result.current.onTabChange("agent"));
       expect(pathname()).toBe("/agents/agt_1");
       expect(result.current.changesMatch).toBe(false);
       expect(result.current.whiteboardMatch).toBe(false);

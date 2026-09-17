@@ -111,15 +111,7 @@ export const tips: Tip[] = [
   {
     id: "keyboard-shortcuts",
     title: "Keyboard Shortcuts",
-    body: "Press Mod+K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
-    docsSection: "shortcuts",
-    since: "0.24.0",
-    surfaces: ["ambient"],
-  },
-  {
-    id: "terminal-focus-shortcut",
-    title: "Terminal Focus Shortcut",
-    body: "Press Mod+Shift+Space to jump back to the terminal input from anywhere in Dispatch.",
+    body: "Press Mod+K to open the command palette. Navigate agents and toggle sidebars without touching the mouse.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
@@ -242,14 +234,6 @@ export const tips: Tip[] = [
     body: "Jobs and templates can refine their own prompts: turn on 'Self improve after each run' and the agent conservatively updates the saved prompt when it finds a durable improvement.",
     docsSection: "automations",
     since: "0.33.0",
-    surfaces: ["ambient"],
-  },
-  {
-    id: "prompt-delivery-hold",
-    title: "Hold Prompts While You Type",
-    body: "Tired of review feedback and agent messages landing mid-sentence? Settings → Agents can hold automated prompts until you pause typing — a badge over the terminal lets you send them early.",
-    docsSection: "agents#prompt-delivery",
-    since: "0.33.4",
     surfaces: ["ambient"],
   },
   {

@@ -17,8 +17,6 @@ type UseAgentHotkeysArgs = {
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
-  canFocusTerminal: boolean;
-  focusTerminal: () => void;
   mediaOpen: boolean;
   setMediaOpen: (open: boolean) => void;
   leftPanelOpen: boolean;
@@ -45,8 +43,6 @@ export function useAgentHotkeys({
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
-  canFocusTerminal,
-  focusTerminal,
   mediaOpen,
   setMediaOpen,
   leftPanelOpen,
@@ -59,14 +55,6 @@ export function useAgentHotkeys({
   const { data: templates = [] } = useTemplates();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
-  useHotkey(
-    "focus-terminal-input",
-    () => {
-      if (!canFocusTerminal) return;
-      focusTerminal();
-    },
-    { enabled: !isMobile && canFocusTerminal }
-  );
 
   useHotkey("toggle-media-sidebar", () => {
     if (!isMobile && !sidebarAgentId) return;
@@ -120,14 +108,7 @@ export function useAgentHotkeys({
       {
         id: "keyboard-shortcuts",
         title: "Keyboard shortcuts",
-        keywords: [
-          "shortcut",
-          "hotkey",
-          "terminal",
-          "sidebar",
-          "focus",
-          "help",
-        ],
+        keywords: ["shortcut", "hotkey", "sidebar", "focus", "help"],
         icon: Keyboard,
         run: () => navigate("/settings/help/shortcuts"),
       },

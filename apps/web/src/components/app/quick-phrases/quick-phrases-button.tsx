@@ -31,10 +31,11 @@ import { PhraseRow } from "./phrase-row";
 
 export function QuickPhrasesButton({
   agentId,
-  focusTerminal,
+  onInjected,
 }: {
   agentId: string | null;
-  focusTerminal: () => void;
+  /** Called after a phrase is delivered, e.g. to return focus somewhere. */
+  onInjected?: () => void;
 }) {
   const canInject = agentId !== null;
   const [open, setOpen] = useState(false);
@@ -64,7 +65,7 @@ export function QuickPhrasesButton({
     onInjected: () => {
       setOpen(false);
       setFilling(null);
-      focusTerminal();
+      onInjected?.();
     },
   });
 

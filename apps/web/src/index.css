@@ -737,7 +737,7 @@ html[data-theme="matrix"] body::after {
 }
 
 /* iPad-class touch devices: lock the document to the viewport so touch-
-   scroll inside the terminal doesn't pull the whole page up and reveal
+   scroll inside a pane doesn't pull the whole page up and reveal
    browser chrome. Skips phones (min-width gate) so they keep keyboard-
    push behavior. Uses overflow: hidden (more reliably no-scroll on iOS
    Safari than overflow: clip) plus explicit edge anchors. */
@@ -771,20 +771,8 @@ html[data-theme="matrix"] body::after {
   }
 }
 
-@media (pointer: coarse) {
-  .xterm .xterm-accessibility {
-    pointer-events: auto !important;
-  }
-}
-
 .terminal-font {
   font-family: var(--font-terminal);
-}
-
-html[data-theme="matrix"] .xterm {
-  box-shadow:
-    inset 0 0 0 1px hsl(var(--primary) / 0.12),
-    0 0 28px hsl(var(--primary) / 0.08);
 }
 
 html[data-theme="matrix"] aside,

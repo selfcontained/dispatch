@@ -100,14 +100,6 @@ export type ServiceState = "ok" | "down" | "checking";
 export type AgentVisualState = "stopped" | "idle" | "active";
 export type AuthState = "loading" | "needs-login" | "authenticated" | "error";
 
-// Wire payloads shared with the server — re-exported from here so the
-// components that already import them from this module keep resolving.
-export type {
-  InjectionHoldState,
-  TerminalCopyMode,
-  TerminalUiState,
-} from "@dispatch/shared";
-
 /**
  * Wire shape of the server's diff stats. Derived from the shared contract
  * rather than restated so a field can't be added on one side and missed — the

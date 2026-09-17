@@ -46,16 +46,8 @@ vi.mock(
   stubModule("BrowserExtensionSettings")
 );
 vi.mock(
-  "@/components/app/chat-surface-settings",
-  stubModule("ChatSurfaceSettings")
-);
-vi.mock(
   "@/components/app/cross-repo-messaging-settings",
   stubModule("CrossRepoMessagingSettings")
-);
-vi.mock(
-  "@/components/app/injection-hold-settings",
-  stubModule("InjectionHoldSettings")
 );
 vi.mock(
   "@/components/app/launch-guidance-settings",
@@ -283,9 +275,7 @@ describe("SettingsContent", () => {
         "IdeSettings",
         "LaunchGuidanceSettings",
         "PluginUpdateSettings",
-        "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
-        "ChatSurfaceSettings",
         "WorktreeLocationSettings",
       ],
     ],

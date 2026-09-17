@@ -366,7 +366,7 @@ export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
 export type ChatFeedProps = {
   entries: ChatFeedEntry[];
   ctx: FeedContext;
-  /** Message currently waiting out the injection hold, if any. */
+  /** Message currently waiting to be delivered, if any. */
   heldMessageId?: string | null;
   /** Question whose answer is in flight, if any. */
   answeringMessageId: string | null;
