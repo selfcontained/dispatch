@@ -13,6 +13,7 @@ import {
   seedPinEventViaDB,
   seedReviewAgentFixtureViaDB,
   seedStreamTurnViaDB,
+  setAgentLatestEventViaAPI,
   setAgentPinsViaDB,
   setDispatchHarnessViaAPI,
 } from "./helpers";
@@ -1666,6 +1667,54 @@ test.describe("Chat surface", () => {
 
     await page.screenshot({
       path: test.info().outputPath("dispatch-turn-pin-order.png"),
+      fullPage: true,
+    });
+  });
+
+  test("dispatch agent: presence reads the turn, not the tmux pane", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-presence-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    // An open turn that last moved two minutes ago, with a pane that has
+    // produced nothing. A dispatch agent's engine writes to the feed rather
+    // than the tmux pane, so pane output cannot be what decides whether it is
+    // alive: judged that way this agent has no activity at all and the line
+    // falls back to the phase text, saying nothing about the two-minute gap.
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "work on the feed",
+      result: "Reading the ordering code",
+      startedSecondsAgo: 120,
+      open: true,
+    });
+    await setAgentLatestEventViaAPI(request, agent.id, {
+      type: "working",
+      message: "Reading the ordering code",
+    });
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const presence = page.getByTestId("chat-presence");
+    await expect(presence).toContainText("Working");
+    // The turn's own age is what the stall is measured from, so the line
+    // names the real gap rather than resetting to zero when the pane mounts.
+    await expect(presence).toHaveAttribute("data-presence", "quiet");
+    await expect(page.getByTestId("chat-presence-quiet")).toContainText(
+      "quiet for 2m"
+    );
+
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-presence-turn-age.png"),
       fullPage: true,
     });
   });

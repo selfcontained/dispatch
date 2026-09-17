@@ -845,7 +845,11 @@ export function ChatPane({
               rather than news. */}
           <div className="mb-1.5 flex items-center justify-between gap-2">
             {!starting ? (
-              <ChatPresenceStrip agentId={agentId} agent={agent} />
+              <ChatPresenceStrip
+                agentId={agentId}
+                agent={agent}
+                entries={entries}
+              />
             ) : null}
             {sendError ? (
               <span

@@ -859,6 +859,8 @@ export async function seedStreamTurnViaDB(turn: {
   /** The task list the engine published during the turn, if any. */
   plan?: { content: string; status: string; priority: string }[];
   startedSecondsAgo?: number;
+  /** Leave the turn open, the way a streaming turn looks. Default settled. */
+  open?: boolean;
 }): Promise<{ promptMessageId: string }> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -871,12 +873,17 @@ export async function seedStreamTurnViaDB(turn: {
     {
       kind: "turn",
       key: null,
-      payload: {
-        state: "settled",
-        prompt: { source: "chat", chatMessageId: promptMessageId },
-        stopReason: "end_turn",
-        endedAt,
-      },
+      payload: turn.open
+        ? {
+            state: "started",
+            prompt: { source: "chat", chatMessageId: promptMessageId },
+          }
+        : {
+            state: "settled",
+            prompt: { source: "chat", chatMessageId: promptMessageId },
+            stopReason: "end_turn",
+            endedAt,
+          },
     },
     {
       kind: "tool_call",
