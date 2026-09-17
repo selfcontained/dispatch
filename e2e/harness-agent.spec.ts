@@ -440,6 +440,19 @@ test.describe("harness agent", () => {
     await expect(
       pane.getByTestId("chat-scroll").getByTestId("harness-queued")
     ).toHaveCount(0);
+    // And the feed holds no row for them either. A queued message used to
+    // appear twice: here, marked "Sending", and in the queued row above the
+    // composer that can actually act on it. It arrives once it is delivered.
+    await expect(
+      pane.getByTestId("chat-scroll").getByTestId("chat-delivery-pending")
+    ).toHaveCount(0);
+    await expect(
+      pane.getByTestId("chat-scroll").getByTestId("chat-message")
+    ).not.toContainText("second");
+    await page.screenshot({
+      path: test.info().outputPath("harness-queued-not-in-feed.png"),
+      fullPage: true,
+    });
 
     await queued.nth(0).getByTestId("harness-queued-remove").click();
     await expect(queued).toHaveCount(1, { timeout: 30_000 });

@@ -24,6 +24,7 @@ import {
   ChatPane,
   clearChatScrollMemory,
   filterChildAgentMessages,
+  withoutQueuedMessages,
   questionExcerpt,
   readChatScrollPosition,
   REMEMBER_THROTTLE_MS,
@@ -1945,5 +1946,37 @@ describe("ChatPane harness composer", () => {
     expect(pane.getAttribute("data-dragging")).toBe("true");
     fireEvent.drop(pane, { dataTransfer: { types: ["Files"], files: [] } });
     expect(screen.queryByTestId("chat-drop-overlay")).toBeNull();
+  });
+});
+
+describe("withoutQueuedMessages", () => {
+  const entries = [
+    chat(message({ id: "delivered", authorKind: "user", delivered: true })),
+    chat(message({ id: "waiting", authorKind: "user", delivered: null })),
+    turnEntry(),
+  ];
+
+  it("returns the same array when the queue is empty", () => {
+    expect(withoutQueuedMessages(entries, new Set())).toBe(entries);
+  });
+
+  it("hides only the rows the queue is still holding", () => {
+    expect(
+      withoutQueuedMessages(entries, new Set(["waiting"])).map((e) => e.id)
+    ).toEqual(["delivered", "turn:1"]);
+  });
+
+  it("keeps a row the queue has released, however it was delivered", () => {
+    // The queue empties when the prompt runs; the row is the same one, so it
+    // has to come back rather than stay hidden.
+    expect(
+      withoutQueuedMessages(entries, new Set(["gone"])).map((e) => e.id)
+    ).toEqual(["delivered", "waiting", "turn:1"]);
+  });
+
+  it("never hides a non-chat entry that shares an id", () => {
+    expect(
+      withoutQueuedMessages(entries, new Set(["turn:1"])).map((e) => e.id)
+    ).toEqual(["delivered", "waiting", "turn:1"]);
   });
 });

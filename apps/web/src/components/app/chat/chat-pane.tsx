@@ -40,6 +40,7 @@ import {
   useSendChatMessage,
   useToggleChatReaction,
 } from "@/hooks/use-chat";
+import { useQueuedPrompts } from "@/components/app/harness/use-harness-queue";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
@@ -88,6 +89,29 @@ export function filterChildAgentMessages(
       (!entry.involvesChildAgent &&
         !childAgentIds.has(entry.senderAgentId) &&
         !childAgentIds.has(entry.recipientAgentId))
+  );
+}
+
+/**
+ * Drop the chat rows for messages the harness queue is still holding.
+ *
+ * A message typed at a working agent is written to chat immediately and
+ * queued behind the running turn, so it appeared twice: as a feed row marked
+ * "Sending", and as the queued row above the composer. The queued row owns it
+ * until it runs — that is the one carrying Send now and Remove — so the feed
+ * waits for delivery.
+ *
+ * Keyed on the queue rather than on `delivered`, which is null for any
+ * undelivered message: a CLI agent has no queue, and hiding its pending rows
+ * would hide them with nothing else showing them.
+ */
+export function withoutQueuedMessages(
+  entries: readonly ChatFeedEntry[],
+  queuedMessageIds: ReadonlySet<string>
+): ChatFeedEntry[] {
+  if (queuedMessageIds.size === 0) return entries as ChatFeedEntry[];
+  return entries.filter(
+    (entry) => entry.type !== "chat" || !queuedMessageIds.has(entry.id)
   );
 }
 
@@ -268,6 +292,20 @@ export function ChatPane({
   const holdState = useInjectionHoldState(agentId);
 
   const entries = feed.entries;
+  // Same query key the chrome's queued row uses, so this is that cache read
+  // again rather than a second request.
+  const { queued } = useQueuedPrompts(
+    agent?.type === "dispatch" ? agentId : null
+  );
+  const queuedMessageIds = useMemo(
+    () =>
+      new Set(
+        queued
+          .map((prompt) => prompt.chatMessageId)
+          .filter((id): id is string => id !== undefined)
+      ),
+    [queued]
+  );
   const childAgentIdSet = useMemo(
     () => new Set(childAgentIds),
     [childAgentIds]
@@ -278,12 +316,15 @@ export function ChatPane({
   // follow below from treating a phase change as new content.
   const visibleEntries = useMemo(
     () =>
-      filterChildAgentMessages(
-        entries,
-        childAgentIdSet,
-        showChildAgents
-      ).filter((entry) => entry.type !== "status"),
-    [childAgentIdSet, entries, showChildAgents]
+      withoutQueuedMessages(
+        filterChildAgentMessages(
+          entries,
+          childAgentIdSet,
+          showChildAgents
+        ).filter((entry) => entry.type !== "status"),
+        queuedMessageIds
+      ),
+    [childAgentIdSet, entries, queuedMessageIds, showChildAgents]
   );
   const heldMessageId = useMemo(
     () => (holdState?.held ? latestUserMessageId(entries) : null),
