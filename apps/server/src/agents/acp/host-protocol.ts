@@ -14,6 +14,8 @@ export type HostLaunch = {
   cwd: string;
   engine: AcpEngineId;
   bins: EngineBins;
+  /** The model to select through the engine's model config option; null keeps its default. */
+  model: string | null;
   /** Delivered as `_meta.systemPrompt.append` for engines that take one. */
   systemPrompt: string | null;
   mcp: { url: string; token: string };

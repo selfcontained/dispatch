@@ -286,6 +286,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         cwd: input.cwd,
         engine: input.engine,
         bins: input.bins,
+        model: input.model,
         systemPrompt: input.systemPrompt,
         mcp: input.mcp,
         env: input.env,

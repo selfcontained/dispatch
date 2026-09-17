@@ -306,6 +306,26 @@ async function main(): Promise<void> {
     sessionId = session.sessionId;
     resumed = session.resumed;
     running = true;
+    // A chosen model is applied through the engine's own model option; an
+    // engine that publishes none, or refuses the value, keeps its default.
+    if (launch.model) {
+      const options = driver.getConfigOptions(agentId) ?? [];
+      const option = options.find(
+        (o) => o.id === "model" || o.category === "model"
+      );
+      if (!option) {
+        logger.warn({ agentId, model: launch.model }, "host: engine publishes no model option");
+      } else {
+        await driver
+          .setConfigOption(agentId, option.id, launch.model)
+          .catch((err) => {
+            logger.warn(
+              { agentId, model: launch.model, err: String(err) },
+              "host: engine refused the model; keeping its default"
+            );
+          });
+      }
+    }
     await writeFile(
       hostFile(stateDir, "session"),
       JSON.stringify({ sessionId, resumed: session.resumed }),

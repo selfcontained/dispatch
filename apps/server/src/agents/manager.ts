@@ -1175,6 +1175,7 @@ export class AgentManager {
       cwd: agent.cwd,
       engine: agent.type,
       bins,
+      model: agent.model ?? null,
       systemPrompt,
       mcp: {
         url: dispatchMcpUrl(this.config, agent.id, opts.jobRunId),

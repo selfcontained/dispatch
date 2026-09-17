@@ -599,7 +599,6 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-  const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],
     input.model
@@ -635,7 +634,6 @@ async function handleLaunchAgent(
     worktreeLocation,
     ...(child ? { parentAgentId: agentId } : {}),
     launchedByAgentId: agentId,
-    cliSessionId,
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     // The feed shows the prompt as the launcher wrote it, not the rendered
     // template instructions or the launch header.

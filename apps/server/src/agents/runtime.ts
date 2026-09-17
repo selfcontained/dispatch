@@ -15,6 +15,8 @@ export type RuntimeLaunch = {
   cwd: string;
   engine: AcpEngineId;
   bins: EngineBins;
+  /** The model to select after the session opens; null keeps the engine's default. */
+  model: string | null;
   systemPrompt: string | null;
   mcp: { url: string; token: string };
   /** Environment additions for the engine child (DISPATCH_*, media dir). */

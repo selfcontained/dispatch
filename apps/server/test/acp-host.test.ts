@@ -59,6 +59,7 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
     agentId,
     cwd,
     engine: "claude",
+    model: null,
     bins: {
       claudeAdapterBin: fakeAgent,
       claudeBin: "claude",

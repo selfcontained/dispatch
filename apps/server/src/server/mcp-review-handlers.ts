@@ -586,9 +586,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         }
       }
 
-      const cliSessionId =
-        personaAgentType === "claude" ? randomUUID() : undefined;
-
       const agent = await agentManager.createAgent({
         name: `${opts.persona}-${agentId.slice(-6)}`,
         type: personaAgentType,
@@ -602,7 +599,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         parentAgentId: agentId,
         launchedByAgentId: agentId,
         personaContext: opts.context,
-        cliSessionId,
         initialPrompt: buildPersonaKickoffPrompt(),
       });
 
