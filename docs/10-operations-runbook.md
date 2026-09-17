@@ -213,7 +213,7 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DISPATCH_AGENT_RUNTIME` | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                     |
 | `DISPATCH_AGENT_STATE_ROOT` | `$HOME/.dispatch/agents`                            | Per-agent host state directories                                                                         |
 | `DISPATCH_CLAUDE_ADAPTER_BIN` | `claude-agent-acp`                                | The Claude engine's ACP adapter (`npm i -g @agentclientprotocol/claude-agent-acp`)                    |
-| `DISPATCH_CODEX_ADAPTER_BIN` | `codex-acp`                                        | The Codex engine's ACP adapter                                                                           |
+| `DISPATCH_CODEX_ADAPTER_BIN` | `codex-acp`                                        | The Codex engine's ACP adapter (`npm i -g @agentclientprotocol/codex-acp`; uses the host `codex` login)          |
 | `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
 | `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
 | `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
