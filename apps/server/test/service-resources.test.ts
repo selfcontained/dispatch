@@ -38,15 +38,11 @@ function workloads(): WorkloadSnapshot {
     sseClients: 0,
     streams: 0,
     streamViewers: 0,
-    terminalObservers: 0,
-    terminalViewers: 0,
     scheduledJobs: 0,
     jobMonitors: 0,
     gitRefreshesInFlight: 0,
     uiEventsPublished: 0,
     uiWriteFailures: 0,
-    terminalPolls: 0,
-    terminalPollFailures: 0,
   };
 }
 
@@ -71,7 +67,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(query),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -128,7 +124,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool,
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -157,10 +153,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [
-        { tmuxSession: "agent-one" },
-        { tmuxSession: "agent-two" },
-      ],
+      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -181,7 +174,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -210,15 +203,12 @@ describe("ServiceResources", () => {
 
   it("keeps a fresh running-agent count when process probing fails", async () => {
     const runProcessCommand = vi.fn(async () => {
-      throw new Error("tmux unavailable");
+      throw new Error("ps unavailable");
     });
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [
-        { tmuxSession: "agent-one" },
-        { tmuxSession: "agent-two" },
-      ],
+      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: true,
@@ -235,11 +225,72 @@ describe("ServiceResources", () => {
     resources.stop();
   });
 
+  it("sums each live host's process tree from ps", async () => {
+    const runProcessCommand = vi.fn(async () => ({
+      stdout: [
+        "  1     0  50.0  9000", // unrelated
+        "101     1   1.5  1000", // host of agent one
+        "102   101   2.0  2000", // its adapter
+        "103   102   0.5   500", // the engine under the adapter
+        "201     1   9.0  9000", // not a host
+      ].join("\n"),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      listAgentProcesses: async () => [{ hostPid: 101 }, { hostPid: null }],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: true,
+      runProcessCommand: runProcessCommand as never,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runProcessCommand).toHaveBeenCalledWith(
+      "ps",
+      ["-axo", "pid=,ppid=,%cpu=,rss="],
+      expect.anything()
+    );
+    expect(resources.getSnapshot()).toMatchObject({
+      capabilities: { processTreeMetrics: "available" },
+      current: {
+        workloads: { runningAgents: 2 },
+        agents: { processCount: 3, cpuPercent: 4, rssBytes: 3_500 * 1024 },
+      },
+    });
+    resources.stop();
+  });
+
+  it("skips ps entirely when no agent has a live host", async () => {
+    const runProcessCommand = vi.fn();
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      listAgentProcesses: async () => [{ hostPid: null }],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: true,
+      runProcessCommand: runProcessCommand as never,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runProcessCommand).not.toHaveBeenCalled();
+    expect(resources.getSnapshot().current.agents).toMatchObject({
+      processCount: 0,
+      rssBytes: 0,
+    });
+    resources.stop();
+  });
+
   it("bounds request timing storage and finalizes requests exactly once", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -265,7 +316,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -315,7 +366,7 @@ describe("ServiceResources", () => {
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(query as never),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -352,11 +403,10 @@ describe("ServiceResources", () => {
   it("degrades owner subsystems when recent writes or polls fail", async () => {
     const current = workloads();
     current.sseClients = 1;
-    current.terminalObservers = 1;
     const resources = new ServiceResources({
       pool: createPool(),
       probePool: createProbePool(),
-      listAgentSessions: async () => [],
+      listAgentProcesses: async () => [],
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
       processTreeSupported: false,
@@ -366,15 +416,13 @@ describe("ServiceResources", () => {
     await vi.advanceTimersByTimeAsync(0);
     current.uiEventsPublished += 1;
     current.uiWriteFailures += 1;
-    current.terminalPolls += 1;
-    current.terminalPollFailures += 1;
     await vi.advanceTimersByTimeAsync(5_000);
 
     const byId = new Map(
       resources.getSnapshot().subsystems.map((item) => [item.id, item])
     );
     expect(byId.get("ui-event-stream")?.state).toBe("degraded");
-    expect(byId.get("terminal-observers")?.state).toBe("degraded");
+    expect(byId.has("terminal-observers")).toBe(false);
     resources.stop();
   });
 });

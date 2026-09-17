@@ -20,7 +20,6 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       info: vi.fn(),
     },
     reconcileIntervalMs: 60_000,
-    activityMonitor: (overrides.activityMonitor as never) ?? undefined,
     onAgentsArchived: (overrides.onAgentsArchived as never) ?? undefined,
     withStreamFlag: vi.fn(
       (agent: Record<string, unknown>) =>
@@ -513,34 +512,6 @@ describe("createAgentLifecycleRuntime", () => {
         expect.objectContaining({ err: expect.any(Error) }),
         "Agent status reconciliation failed."
       );
-    });
-
-    it("calls activityMonitor.check() when provided", async () => {
-      const mockCheck = vi.fn().mockResolvedValue(undefined);
-      const deps = makeDeps({ activityMonitor: { check: mockCheck } });
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-
-      expect(mockCheck).toHaveBeenCalledTimes(1);
-    });
-
-    it("catches activityMonitor errors and logs a warning", async () => {
-      const mockCheck = vi.fn().mockRejectedValue(new Error("tmux fail"));
-      const deps = makeDeps({ activityMonitor: { check: mockCheck } });
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-
-      expect(deps.appLog.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error) }),
-        "Activity monitor check failed."
-      );
-    });
-
-    it("skips activityMonitor when not provided", async () => {
-      const deps = makeDeps();
-      const rt = createAgentLifecycleRuntime(deps as never);
-      await rt.runAgentStatusReconciliation();
-      // No error means the undefined activityMonitor path is handled
     });
   });
 

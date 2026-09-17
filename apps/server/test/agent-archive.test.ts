@@ -7,7 +7,10 @@ import {
 } from "../src/agents/archive.js";
 import type { ArchiveDeps } from "../src/agents/archive.js";
 import { AgentError } from "../src/agents/errors.js";
-import type { AgentRuntime } from "../src/agents/runtime.js";
+import {
+  createInertRuntime,
+  type AgentRuntime,
+} from "../src/agents/runtime.js";
 import type {
   AgentRecord,
   ArchivePhase,
@@ -98,16 +101,8 @@ const makeAgent = (
 });
 
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
-  tracksSessions: () => true,
-  launch: vi.fn(),
-  ensureNoExistingSession: vi.fn(),
-  stopSession: vi.fn(),
-  hasSession: vi.fn().mockResolvedValue(false),
-  getCurrentCwd: vi.fn().mockResolvedValue(null),
-  listSessions: vi.fn().mockResolvedValue([]),
-  killSession: vi.fn().mockResolvedValue(undefined),
-  readExitInfo: vi.fn().mockResolvedValue(null),
-  readSetupLogTail: vi.fn().mockResolvedValue(""),
+  ...createInertRuntime(),
+  stop: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -136,8 +131,8 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     diffStatsRefresher: { clear: vi.fn() },
     getAgent: vi.fn().mockResolvedValue(null),
     getRequiredAgent: vi.fn(),
-    harvestAgentTokens: vi.fn().mockResolvedValue(undefined),
     setAgentStatus: vi.fn().mockResolvedValue(undefined),
+    settleStream: vi.fn().mockResolvedValue(0),
     setArchivePhase: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -535,51 +530,33 @@ describe("executeArchive", () => {
     });
   });
 
-  describe("tmux session teardown", () => {
-    it("stops the tmux session if it exists", async () => {
-      const runtime = makeRuntime({
-        hasSession: vi.fn().mockResolvedValue(true),
-        stopSession: vi.fn().mockResolvedValue(undefined),
-      });
-      const agent = makeAgent("a1", { tmuxSession: "session-a1" });
-      const pool = makePool();
-      const deps = makeDeps({
-        pool: pool as never,
-        runtime,
-        getRequiredAgent: vi.fn().mockResolvedValue(agent),
-        getAgent: vi.fn().mockResolvedValue(agent),
-      });
-
-      await executeArchive(deps, "a1", makeCallbacks());
-
-      expect(runtime.hasSession).toHaveBeenCalledWith("session-a1");
-      expect(runtime.stopSession).toHaveBeenCalledWith("session-a1", true);
-    });
-
-    it("skips session stop when tmuxSession is null", async () => {
+  describe("host teardown", () => {
+    it("force-stops the host and settles the stream", async () => {
       const runtime = makeRuntime();
-      const agent = makeAgent("a1", { tmuxSession: null });
+      const agent = makeAgent("a1", { status: "running" });
       const pool = makePool();
+      const settleStream = vi.fn().mockResolvedValue(1);
       const deps = makeDeps({
         pool: pool as never,
         runtime,
+        settleStream,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
         getAgent: vi.fn().mockResolvedValue(agent),
       });
 
       await executeArchive(deps, "a1", makeCallbacks());
 
-      expect(runtime.hasSession).not.toHaveBeenCalled();
-      expect(runtime.stopSession).not.toHaveBeenCalled();
+      expect(runtime.stop).toHaveBeenCalledWith("a1", true);
+      expect(settleStream).toHaveBeenCalledWith("a1");
     });
 
-    it("skips session stop when runtime says session does not exist", async () => {
+    it("continues the archive when stopping the host fails", async () => {
       const runtime = makeRuntime({
-        hasSession: vi.fn().mockResolvedValue(false),
-        stopSession: vi.fn(),
+        stop: vi.fn().mockRejectedValue(new Error("socket gone")),
       });
-      const agent = makeAgent("a1", { tmuxSession: "session-a1" });
+      const agent = makeAgent("a1");
       const pool = makePool();
+      const callbacks = makeCallbacks();
       const deps = makeDeps({
         pool: pool as never,
         runtime,
@@ -587,10 +564,10 @@ describe("executeArchive", () => {
         getAgent: vi.fn().mockResolvedValue(agent),
       });
 
-      await executeArchive(deps, "a1", makeCallbacks());
+      await executeArchive(deps, "a1", callbacks);
 
-      expect(runtime.hasSession).toHaveBeenCalledWith("session-a1");
-      expect(runtime.stopSession).not.toHaveBeenCalled();
+      expect(callbacks.onError).not.toHaveBeenCalled();
+      expect(callbacks.onComplete).toHaveBeenCalled();
     });
   });
 
@@ -1101,7 +1078,7 @@ describe("deleteAgentDirect", () => {
     vi.clearAllMocks();
   });
 
-  it("deletes a stopped agent without tearing down a session", async () => {
+  it("deletes a stopped agent without tearing down a host", async () => {
     const agent = makeAgent("a1", { status: "stopped" });
     const pool = makePool();
     const runtime = makeRuntime();
@@ -1113,7 +1090,7 @@ describe("deleteAgentDirect", () => {
 
     await deleteAgentDirect(deps, "a1");
 
-    expect(runtime.stopSession).not.toHaveBeenCalled();
+    expect(runtime.stop).not.toHaveBeenCalled();
     expect(runLifecycleHook).not.toHaveBeenCalled();
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
@@ -1121,11 +1098,9 @@ describe("deleteAgentDirect", () => {
     );
   });
 
-  it("kills the session directly rather than through stopAgent", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(true),
-    });
+  it("stops the host directly rather than through stopAgent", async () => {
+    const agent = makeAgent("a1", { status: "running" });
+    const runtime = makeRuntime();
     const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
@@ -1136,7 +1111,8 @@ describe("deleteAgentDirect", () => {
     await deleteAgentDirect(deps, "a1");
 
     // stopAgent would write `stopping`/`stopped` and release the claim.
-    expect(runtime.stopSession).toHaveBeenCalledWith("s1", true);
+    expect(runtime.stop).toHaveBeenCalledWith("a1", true);
+    expect(deps.settleStream).toHaveBeenCalledWith("a1");
     expect(runLifecycleHook).toHaveBeenCalled();
     const statuses = pool.query.mock.calls
       .map(([sql]: [string]) => sql)
@@ -1146,44 +1122,10 @@ describe("deleteAgentDirect", () => {
     );
   });
 
-  it("deletes a running agent that has no session", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: null });
-    const pool = makePool();
-    const runtime = makeRuntime();
-    const deps = makeDeps({
-      pool: pool as never,
-      runtime,
-      getRequiredAgent: vi.fn().mockResolvedValue(agent),
-    });
-
-    await deleteAgentDirect(deps, "a1");
-
-    expect(runtime.stopSession).not.toHaveBeenCalled();
-    expect(runLifecycleHook).toHaveBeenCalled();
-  });
-
-  it("allows deleting a running agent whose session no longer exists", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
+  it("continues deletion even if the host teardown fails", async () => {
+    const agent = makeAgent("a1", { status: "running" });
     const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-    });
-    const pool = makePool();
-    const deps = makeDeps({
-      pool: pool as never,
-      runtime,
-      getRequiredAgent: vi.fn().mockResolvedValue(agent),
-    });
-
-    await deleteAgentDirect(deps, "a1");
-
-    expect(runtime.stopSession).not.toHaveBeenCalled();
-  });
-
-  it("continues deletion even if the session teardown fails", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(true),
-      stopSession: vi.fn().mockRejectedValue(new Error("stop failed")),
+      stop: vi.fn().mockRejectedValue(new Error("stop failed")),
     });
     const pool = makePool();
     const deps = makeDeps({
@@ -1255,7 +1197,7 @@ describe("deleteAgentDirect", () => {
   });
 
   it("claims the agent before stopping it", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
+    const agent = makeAgent("a1", { status: "running" });
     const pool = makePool();
     const order: string[] = [];
     pool.query.mockImplementation(async (sql: unknown) => {
@@ -1263,8 +1205,7 @@ describe("deleteAgentDirect", () => {
       return defaultQueryImpl(sql);
     });
     const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(true),
-      stopSession: vi.fn().mockImplementation(async () => {
+      stop: vi.fn().mockImplementation(async () => {
         order.push("stop");
       }),
     });
