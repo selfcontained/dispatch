@@ -633,9 +633,7 @@ describe("ChatService user workflows", () => {
           : null,
       mediaRoot: "/media-root",
       delivery: {
-        access:
-          opts.access ??
-          (async () => ({ mode: "live" as const })),
+        access: opts.access ?? (async () => ({ mode: "live" as const })),
         inject: async (agentId, sessionName, text) => {
           if (opts.gate) await opts.gate;
           injected.push({ agentId, sessionName, text });
@@ -1049,9 +1047,7 @@ describe("ChatService reactions", () => {
         id === A ? { id, mediaDir: null, pins: PINS as never } : null,
       mediaRoot: "/media-root",
       delivery: {
-        access:
-          opts.access ??
-          (async () => ({ mode: "live" as const })),
+        access: opts.access ?? (async () => ({ mode: "live" as const })),
         inject: async (agentId, _sessionName, text) => {
           if (opts.gate) await opts.gate;
           injected.push({ agentId, text });

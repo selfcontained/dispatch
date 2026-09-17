@@ -71,7 +71,6 @@ const makeAgent = (
   parentAgentId: null,
   personaContext: null,
   reviewAgentType: null,
-  review: null,
   baseBranch: null,
   autoReview: false,
   cliSessionId: null,

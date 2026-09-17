@@ -103,6 +103,7 @@ const makeAgent = (
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
   stop: vi.fn().mockResolvedValue(undefined),
+  discard: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -531,7 +532,7 @@ describe("executeArchive", () => {
   });
 
   describe("host teardown", () => {
-    it("force-stops the host and settles the stream", async () => {
+    it("force-stops the host, settles the stream and discards its state", async () => {
       const runtime = makeRuntime();
       const agent = makeAgent("a1", { status: "running" });
       const pool = makePool();
@@ -548,6 +549,7 @@ describe("executeArchive", () => {
 
       expect(runtime.stop).toHaveBeenCalledWith("a1", true);
       expect(settleStream).toHaveBeenCalledWith("a1");
+      expect(runtime.discard).toHaveBeenCalledWith("a1");
     });
 
     it("continues the archive when stopping the host fails", async () => {
@@ -1113,6 +1115,7 @@ describe("deleteAgentDirect", () => {
     // stopAgent would write `stopping`/`stopped` and release the claim.
     expect(runtime.stop).toHaveBeenCalledWith("a1", true);
     expect(deps.settleStream).toHaveBeenCalledWith("a1");
+    expect(runtime.discard).toHaveBeenCalledWith("a1");
     expect(runLifecycleHook).toHaveBeenCalled();
     const statuses = pool.query.mock.calls
       .map(([sql]: [string]) => sql)

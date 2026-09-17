@@ -1,15 +1,6 @@
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 import {
   describe,
@@ -17,27 +8,36 @@ import {
   expect,
   beforeAll,
   afterAll,
-  afterEach,
   beforeEach,
   vi,
 } from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
-import { buildPersonaKickoffPrompt } from "../../src/reviews/injection-prompts.js";
+import type {
+  AgentRuntime,
+  RuntimeEventListener,
+  RuntimeLaunch,
+} from "../../src/agents/runtime.js";
 
-// Mock runCommand so AgentManager never touches tmux
+// Git context and lifecycle hooks shell out; keep them off the host.
 vi.mock("../../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(async (_cmd: string, args: string[]) => {
-    // "has-session" check: pretend session exists after creation
-    if (args[0] === "has-session") {
-      return { exitCode: 0, stdout: "", stderr: "" };
-    }
-    return { exitCode: 0, stdout: "", stderr: "" };
-  }),
+  runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
-// We need to dynamically import AgentManager AFTER the mock is in place
+// Worktree creation is mocked per test; the rest of the module is real.
+vi.mock("../../src/shared/git/worktree.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/shared/git/worktree.js")
+  >("../../src/shared/git/worktree.js");
+  return { ...actual, createGitWorktree: vi.fn() };
+});
+
+vi.mock("../../src/agents/workspace-prep.js", () => ({
+  setupAgentWorkspace: vi.fn(async () => {}),
+}));
+
+// We need to dynamically import AgentManager AFTER the mocks are in place
 const {
   AgentManager,
   AgentError,
@@ -46,7 +46,9 @@ const {
 } = await import("../../src/agents/manager.js");
 const { ChatService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
-const execFileAsync = promisify(execFile);
+const { createInertRuntime } = await import("../../src/agents/runtime.js");
+const { createGitWorktree, GitWorktreeError } =
+  await import("../../src/shared/git/worktree.js");
 
 let pool: Pool;
 
@@ -69,12 +71,14 @@ const testConfig = {
   databaseUrl: "",
   authToken: "test-token",
   mediaRoot: "/tmp/dispatch-test-media",
-  dispatchBinDir: "/tmp",
-  codexBin: "echo",
-  claudeBin: "echo",
-  opencodeBin: "echo",
-  cursorBin: "echo",
-  agentRuntime: "tmux",
+  dispatchBinDir: "/tmp/dispatch-test-bin",
+  codexBin: "/bin/codex",
+  claudeBin: "/bin/claude",
+  opencodeBin: "/bin/opencode",
+  claudeAdapterBin: "/bin/claude-agent-acp",
+  codexAdapterBin: "/bin/codex-acp",
+  agentStateRoot: "/tmp/dispatch-test-agents",
+  agentRuntime: "acp",
   sessionPrefix: "dispatch",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
@@ -84,14 +88,116 @@ const inertTestConfig = {
   agentRuntime: "inert",
 } satisfies import("../../src/config.js").AppConfig;
 
+/**
+ * A runtime that records what the manager asks of it. It tracks processes
+ * (so liveness matters), every host is alive, and a launch mints a session
+ * id, the way AcpRuntime reports a fresh ACP session.
+ */
+type SpyRuntime = AgentRuntime & {
+  launch: ReturnType<typeof vi.fn<AgentRuntime["launch"]>>;
+  attach: ReturnType<typeof vi.fn<AgentRuntime["attach"]>>;
+  isAlive: ReturnType<typeof vi.fn<AgentRuntime["isAlive"]>>;
+  prompt: ReturnType<typeof vi.fn<AgentRuntime["prompt"]>>;
+  isBusy: ReturnType<typeof vi.fn<AgentRuntime["isBusy"]>>;
+  cancel: ReturnType<typeof vi.fn<AgentRuntime["cancel"]>>;
+  stop: ReturnType<typeof vi.fn<AgentRuntime["stop"]>>;
+  listHosted: ReturnType<typeof vi.fn<AgentRuntime["listHosted"]>>;
+  readLogTail: ReturnType<typeof vi.fn<AgentRuntime["readLogTail"]>>;
+  /** Deliver an event as the host would. */
+  emit: RuntimeEventListener;
+};
+
+function createSpyRuntime(): SpyRuntime {
+  const listeners: RuntimeEventListener[] = [];
+  let sessions = 0;
+  return {
+    ...createInertRuntime(),
+    tracksProcesses: () => true,
+    launch: vi.fn(async (input: RuntimeLaunch) => ({
+      sessionId: input.resumeSessionId ?? `sess_${++sessions}`,
+      resumed: input.resumeSessionId !== null,
+    })),
+    attach: vi.fn(async () => false),
+    isAlive: vi.fn(async () => true),
+    prompt: vi.fn(() => ({
+      accepted: Promise.resolve(),
+      settled: Promise.resolve(),
+    })),
+    isBusy: vi.fn(() => false),
+    cancel: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+    listHosted: vi.fn(async () => []),
+    readLogTail: vi.fn(async () => ""),
+    onEvent(listener) {
+      listeners.push(listener);
+      return () => {};
+    },
+    async emit(agentId, event, seq) {
+      for (const listener of listeners) await listener(agentId, event, seq);
+    },
+  };
+}
+
+let runtime: SpyRuntime;
 let manager: InstanceType<typeof AgentManager>;
 
 let chatEvents: unknown[] = [];
 
+/** A manager on its own spy runtime, for tests that need a logger or recorder of their own. */
+function managerWith(
+  opts: {
+    warn?: ReturnType<typeof vi.fn>;
+    runtime?: AgentRuntime;
+  } = {}
+) {
+  const logger = opts.warn
+    ? ({ ...noopLogger, warn: opts.warn, child: () => noopLogger } as never)
+    : noopLogger;
+  return new AgentManager(pool, logger, testConfig, {
+    runtime: opts.runtime ?? createSpyRuntime(),
+  });
+}
+
+/** The single launch the runtime was handed. */
+function lastLaunch(spy: SpyRuntime = runtime): RuntimeLaunch {
+  const calls = spy.launch.mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[calls.length - 1]![0];
+}
+
+/** Every prompt the runtime was handed for one agent. */
+function promptsFor(agentId: string, spy: SpyRuntime = runtime): string[] {
+  return spy.prompt.mock.calls
+    .filter(([id]) => id === agentId)
+    .map(([, text]) => text);
+}
+
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  manager = new AgentManager(pool, noopLogger, testConfig);
+});
+
+afterAll(async () => {
+  await teardownTestDb();
+});
+
+beforeEach(async () => {
+  chatEvents = [];
+  await pool.query("DELETE FROM agent_chat_messages");
+  await pool.query("DELETE FROM media_seen");
+  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM agents");
+  vi.mocked(createGitWorktree).mockReset();
+  vi.mocked(createGitWorktree).mockImplementation(
+    async (input) =>
+      ({
+        worktreePath: "/tmp",
+        branchName: input.branchName ?? input.baseBranch ?? "main",
+      }) as never
+  );
+
+  runtime = createSpyRuntime();
+  manager = new AgentManager(pool, noopLogger, testConfig, { runtime });
   // The Chat feed's launch-context recorder, wired the way server.ts does.
   manager.attachLaunchContextRecorder(
     new ChatService({
@@ -103,47 +209,178 @@ beforeAll(async () => {
   );
 });
 
-afterAll(async () => {
-  await teardownTestDb();
-});
-
-beforeEach(async () => {
-  // Clean up agents between tests
-  chatEvents = [];
-  await pool.query("DELETE FROM agent_chat_messages");
-  await pool.query("DELETE FROM agent_token_usage");
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
-  await pool.query("DELETE FROM agents");
-
-  const { runCommand } = await import("../../src/shared/lib/run-command.js");
-  vi.mocked(runCommand).mockImplementation(
-    async (_cmd: string, args: string[]) => {
-      if (args[0] === "has-session") {
-        return { exitCode: 0, stdout: "", stderr: "" };
-      }
-      return { exitCode: 0, stdout: "", stderr: "" };
-    }
-  );
-});
-
 describe("AgentManager", () => {
   describe("createAgent", () => {
-    it("should create an agent and return it", async () => {
+    it("should launch the host, go running, and record the ACP session id", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
 
       expect(agent.id).toMatch(/^agt_/);
-      expect(agent.status).toBe("creating");
-      expect(agent.setupPhase).toBe("session");
+      expect(agent.status).toBe("running");
+      expect(agent.setupPhase).toBeNull();
       expect(agent.cwd).toBe("/tmp");
       expect(agent.type).toBe("codex");
       expect(agent.role).toBe("standard");
-      expect(agent.tmuxSession).toMatch(/^dispatch_agt_/);
+      expect(agent.cliSessionId).toBe("sess_1");
       expect(agent.mediaDir).toBeTruthy();
       expect(agent.createdAt).toBeTruthy();
+      expect(agent.latestEvent?.message).toBe("Session started.");
+      expect(runtime.launch).toHaveBeenCalledTimes(1);
+    });
+
+    it("should hand the runtime the engine, cwd, bins and an agent-scoped MCP endpoint", async () => {
+      const agent = await manager.createAgent({
+        type: "claude",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const launch = lastLaunch();
+      expect(launch).toMatchObject({
+        agentId: agent.id,
+        cwd: "/tmp",
+        engine: "claude",
+        bins: {
+          claudeAdapterBin: "/bin/claude-agent-acp",
+          claudeBin: "/bin/claude",
+          codexAdapterBin: "/bin/codex-acp",
+          codexBin: "/bin/codex",
+        },
+        mcp: {
+          url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
+          token: createAgentMcpToken("test-token", agent.id),
+        },
+        resumeSessionId: null,
+      });
+      expect(launch.env).toMatchObject({
+        DISPATCH_AGENT_ID: agent.id,
+        DISPATCH_MEDIA_DIR: path.join(testConfig.mediaRoot, agent.id),
+        DISPATCH_PORT: "6767",
+        DISPATCH_SCHEME: "http",
+      });
+      expect(launch.pathPrefix[0]).toBe(testConfig.dispatchBinDir);
+      expect(launch.systemPrompt).toContain(agent.id);
+    });
+
+    it("should use the job MCP route and token for job runs", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        jobRunId: "run_1",
+      });
+      expect(lastLaunch().mcp.url).toBe(
+        `http://127.0.0.1:6767/api/mcp/jobs/run_1/${agent.id}`
+      );
+      expect(lastLaunch().mcp.token).not.toBe(
+        createAgentMcpToken("test-token", agent.id)
+      );
+    });
+
+    it("should hand the first prompt to runtime.prompt after the agent is running", async () => {
+      let statusAtPrompt: string | undefined;
+      runtime.prompt.mockImplementation((id) => {
+        void manager.getAgent(id).then((a) => {
+          statusAtPrompt = a?.status;
+        });
+        return { accepted: Promise.resolve(), settled: Promise.resolve() };
+      });
+
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        initialPrompt: "  Fix the flaky test  ",
+      });
+
+      expect(promptsFor(agent.id)).toEqual(["Fix the flaky test"]);
+      await vi.waitFor(() => expect(statusAtPrompt).toBe("running"));
+    });
+
+    it("should not prompt when there is nothing to say", async () => {
+      await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      expect(runtime.prompt).not.toHaveBeenCalled();
+    });
+
+    it("should keep the agent running when the first prompt is refused", async () => {
+      runtime.prompt.mockImplementation(() => ({
+        accepted: Promise.reject(new Error("busy")),
+        settled: Promise.reject(new Error("busy")),
+      }));
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        initialPrompt: "Go",
+      });
+      expect(agent.status).toBe("running");
+    });
+
+    it("should mark the agent error and rethrow when the launch fails", async () => {
+      runtime.launch.mockRejectedValueOnce(new Error("adapter not found"));
+
+      await expect(
+        manager.createAgent({ cwd: "/tmp", useWorktree: false })
+      ).rejects.toThrow("Failed to create agent: adapter not found");
+
+      const [failed] = await manager.listAgents();
+      expect(failed!.status).toBe("error");
+      expect(failed!.lastError).toBe("adapter not found");
+      expect(failed!.setupPhase).toBeNull();
+      expect(failed!.latestEvent).toMatchObject({
+        type: "blocked",
+        message: "Failed to create agent: adapter not found",
+      });
+    });
+
+    it("should reject engines the ACP runtime cannot drive without launching", async () => {
+      await expect(
+        manager.createAgent({ cwd: "/tmp", type: "cursor", useWorktree: false })
+      ).rejects.toThrow(/not supported by the ACP runtime/);
+      expect(runtime.launch).not.toHaveBeenCalled();
+      const [failed] = await manager.listAgents();
+      expect(failed!.status).toBe("error");
+    });
+
+    it("should create a worktree and launch the host inside it", async () => {
+      vi.mocked(createGitWorktree).mockResolvedValueOnce({
+        worktreePath: "/tmp",
+        branchName: "agt_x/work",
+      } as never);
+
+      const agent = await manager.createAgent({
+        name: "Work",
+        cwd: "/tmp",
+        baseBranch: "develop",
+      });
+
+      expect(createGitWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: "/tmp",
+          baseBranch: "develop",
+          createNewBranch: true,
+          branchName: expect.stringMatching(/^agt_[a-z0-9]+\/work$/),
+        })
+      );
+      expect(agent.status).toBe("running");
+      expect(agent.worktreePath).toBe("/tmp");
+      expect(agent.worktreeBranch).toBe("agt_x/work");
+      expect(lastLaunch().cwd).toBe("/tmp");
+    });
+
+    it("should stop the agent without launching when the worktree cannot be created", async () => {
+      vi.mocked(createGitWorktree).mockRejectedValueOnce(
+        new GitWorktreeError("branch is already checked out", 409)
+      );
+
+      await expect(
+        manager.createAgent({ cwd: "/tmp", worktreeBranch: "feat/x" })
+      ).rejects.toMatchObject({ statusCode: 409 });
+
+      expect(runtime.launch).not.toHaveBeenCalled();
+      const [failed] = await manager.listAgents();
+      expect(failed!.status).toBe("stopped");
+      expect(failed!.lastError).toContain("Worktree creation failed");
+      expect(failed!.latestEvent?.type).toBe("blocked");
     });
 
     it("should use a custom name when provided", async () => {
@@ -172,15 +409,6 @@ describe("AgentManager", () => {
       expect(agent.type).toBe("claude");
     });
 
-    it("should support opencode agent type", async () => {
-      const agent = await manager.createAgent({
-        type: "opencode",
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-      expect(agent.type).toBe("opencode");
-    });
-
     it("should persist assisted update role when provided", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -190,31 +418,26 @@ describe("AgentManager", () => {
       expect(agent.role).toBe("assisted_update");
     });
 
-    it("should inject explicit update API auth and instructions for assisted update agents", async () => {
+    it("should give assisted update agents the update API URL and a release token", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         role: "assisted_update",
         type: "codex",
         useWorktree: false,
-        initialPrompt: [
-          "You are running an assisted Dispatch update on the host machine.",
-          "Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token.",
-          `curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{\"tag\":\"v9.9.9\"}'`,
-        ].join("\n"),
       });
 
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
+      const { env } = lastLaunch();
+      expect(env.DISPATCH_API_URL).toBe("http://127.0.0.1:6767");
+      expect(env.DISPATCH_RELEASE_UPDATE_TOKEN).toBeTruthy();
+      expect(env.DISPATCH_RELEASE_UPDATE_TOKEN).not.toBe(
+        createAgentMcpToken("test-token", agent.id)
       );
-      expect(setupScript).toContain("DISPATCH_API_URL=");
-      expect(setupScript).toContain("DISPATCH_RELEASE_UPDATE_TOKEN=");
-      expect(setupScript).toContain(
-        'curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update"'
-      );
-      expect(setupScript).toContain(
-        "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN"
-      );
+    });
+
+    it("should not hand a release token to standard agents", async () => {
+      await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      expect(lastLaunch().env.DISPATCH_RELEASE_UPDATE_TOKEN).toBeUndefined();
+      expect(lastLaunch().env.DISPATCH_API_URL).toBeUndefined();
     });
 
     it("should persist reviewAgentType when provided", async () => {
@@ -318,19 +541,12 @@ describe("AgentManager", () => {
         ]);
       });
 
-      it("records nothing for a bare launch or a terminal agent", async () => {
+      it("records nothing for a bare launch", async () => {
         const bare = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
         });
         expect(await launchPosts(bare.id)).toEqual([]);
-        const terminal = await manager.createAgent({
-          cwd: "/tmp",
-          type: "terminal",
-          useWorktree: false,
-          initialPrompt: "ignored",
-        });
-        expect(await launchPosts(terminal.id)).toEqual([]);
         expect(chatEvents).toEqual([]);
       });
 
@@ -393,260 +609,120 @@ describe("AgentManager", () => {
         });
       });
 
-      /** A manager whose warnings this test can read. */
-      function chatEnabledManager(warn: ReturnType<typeof vi.fn>) {
-        return new AgentManager(
-          pool,
-          { ...noopLogger, warn, child: () => noopLogger } as never,
-          testConfig
-        );
-      }
-
-      /** Run `fn` with the chat surface flag on, then clear it. */
-      async function withChatSurface(fn: () => Promise<void>): Promise<void> {
-        await pool.query(
-          `INSERT INTO settings (key, value, updated_at)
-           VALUES ('chat_surface_enabled', 'true', NOW())
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
-        );
-        try {
-          await fn();
-        } finally {
-          await pool.query(
-            `DELETE FROM settings WHERE key = 'chat_surface_enabled'`
-          );
-        }
-      }
-
-      /**
-       * Launch with a recorder that never settles and report how long the
-       * runtime took to start. The setup script is written by the launch
-       * itself, so its appearance is the launch, not the Chat write.
-       */
-      async function hungRecorderLaunch(
-        input: Record<string, unknown>
-      ): Promise<{ setupScript: string; elapsedMs: number }> {
-        const stuck = new AgentManager(pool, noopLogger, testConfig);
-        let recordedAgentId: string | null = null;
-        stuck.attachLaunchContextRecorder({
-          prepareLaunchContext: (recorded) => {
-            recordedAgentId = recorded.agentId;
-            return new Promise(() => {});
-          },
-        });
-        const startedAt = Date.now();
-        const pending = stuck.createAgent({
-          cwd: "/tmp",
-          type: "claude",
-          useWorktree: false,
-          ...input,
-        });
-        const setupScript = await vi.waitFor(
-          async () => {
-            expect(recordedAgentId).not.toBeNull();
-            return await readFile(
-              `/tmp/dispatch_setup_${recordedAgentId}.sh`,
-              "utf-8"
-            );
-          },
-          { timeout: 4000, interval: 50 }
-        );
-        const elapsedMs = Date.now() - startedAt;
-        await pending;
-        return { setupScript, elapsedMs };
-      }
-
-      it("hands the CLI the same post id and attachment lines when the chat surface is on", async () => {
-        await pool.query(
-          `INSERT INTO settings (key, value, updated_at)
-           VALUES ('chat_surface_enabled', 'true', NOW())
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
-        );
-        try {
-          const agent = await manager.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Build the widget",
-            launchContext: {
-              prompt: "Build the widget",
-              links: ["https://example.com/spec"],
-            },
-            initialFiles: [
-              {
-                fileName: "brief.md",
-                originalName: "brief.md",
-                buffer: Buffer.from("# brief"),
-                source: "text",
-              },
-            ],
-          });
-          const posts = await launchPosts(agent.id);
-          expect(posts).toHaveLength(1);
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          // The envelope the CLI receives names the post that was written,
-          // so the agent's reply threads onto the launch post in the feed.
-          expect(setupScript).toContain(
-            `--- DISPATCH CHAT (id: ${posts[0].id}) ---`
-          );
-          expect(setupScript).toContain(`replyTo: "${posts[0].id}"`);
-          expect(setupScript).toContain("Build the widget");
-          // Attachment lines come from the recorder, so pane and post agree.
-          const media = await pool.query<{ file_name: string }>(
-            `SELECT file_name FROM media WHERE agent_id = $1`,
-            [agent.id]
-          );
-          expect(setupScript).toContain(
-            `- file: ${path.join(testConfig.mediaRoot, agent.id, media.rows[0].file_name)} (text/markdown, 7 B)`
-          );
-          expect(setupScript).toContain("- link: https://example.com/spec");
-        } finally {
-          await pool.query(
-            `DELETE FROM settings WHERE key = 'chat_surface_enabled'`
-          );
-        }
-      });
-
-      it("leaves the first turn unwrapped when the chat surface is off", async () => {
+      it("hands the engine the same post id and attachment lines as its first turn", async () => {
         const agent = await manager.createAgent({
           cwd: "/tmp",
           type: "claude",
           useWorktree: false,
           initialPrompt: "Build the widget",
-          launchContext: { prompt: "Build the widget" },
-        });
-        expect(await launchPosts(agent.id)).toHaveLength(1);
-        const setupScript = await readFile(
-          `/tmp/dispatch_setup_${agent.id}.sh`,
-          "utf-8"
-        );
-        expect(setupScript).not.toContain("DISPATCH CHAT");
-        expect(setupScript).toContain("Build the widget");
-      });
-
-      it("keeps generated startup prompts out of Chat while retaining Chat guidance", async () => {
-        await withChatSurface(async () => {
-          const agent = await manager.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Internal launch instructions",
-          });
-          expect(await launchPosts(agent.id)).toEqual([]);
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          expect(setupScript).toContain("Internal launch instructions");
-          expect(setupScript).toContain(
-            "The user is reading Chat, not Console."
-          );
-          expect(setupScript).not.toContain("--- DISPATCH CHAT");
-        });
-      });
-
-      it("starts the runtime without waiting on a write that never resolves", async () => {
-        const warn = vi.fn();
-        const stuckManager = new AgentManager(
-          pool,
-          { ...noopLogger, warn, child: () => noopLogger } as never,
-          inertTestConfig
-        );
-        // The recorder is handed the new agent's id; capture it so the poll
-        // below addresses that row directly instead of guessing by clock
-        // (DB now() vs Date.now() skew made the old created_at filter flaky).
-        let recordedAgentId: string | null = null;
-        stuckManager.attachLaunchContextRecorder({
-          prepareLaunchContext: async (input) => {
-            recordedAgentId = input.agentId;
-            return {
-              attachmentLines: [],
-              record: () => new Promise(() => {}),
-            };
+          launchContext: {
+            prompt: "Build the widget",
+            links: ["https://example.com/spec"],
           },
+          initialFiles: [
+            {
+              fileName: "brief.md",
+              originalName: "brief.md",
+              buffer: Buffer.from("# brief"),
+              source: "text",
+            },
+          ],
         });
+        const posts = await launchPosts(agent.id);
+        expect(posts).toHaveLength(1);
+        const [firstTurn] = promptsFor(agent.id);
+        // The envelope names the post that was written, so the agent's reply
+        // threads onto the launch post in the feed.
+        expect(firstTurn).toContain(
+          `--- DISPATCH CHAT (id: ${posts[0].id}) ---`
+        );
+        expect(firstTurn).toContain(`replyTo: "${posts[0].id}"`);
+        expect(firstTurn).toContain("Build the widget");
+        // Attachment lines come from the recorder, so turn and post agree.
+        const media = await pool.query<{ file_name: string }>(
+          `SELECT file_name FROM media WHERE agent_id = $1`,
+          [agent.id]
+        );
+        expect(firstTurn).toContain(
+          `- file: ${path.join(testConfig.mediaRoot, agent.id, media.rows[0].file_name)} (text/markdown, 7 B)`
+        );
+        expect(firstTurn).toContain("- link: https://example.com/spec");
+      });
 
+      it("keeps generated startup prompts out of Chat and unwrapped", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Internal launch instructions",
+        });
+        expect(await launchPosts(agent.id)).toEqual([]);
+        expect(promptsFor(agent.id)).toEqual(["Internal launch instructions"]);
+        // The Chat rule rides in the system prompt instead.
+        expect(lastLaunch().systemPrompt).toContain(
+          "The user is reading the Chat tab."
+        );
+      });
+
+      it("never wraps a job run's first turn, and does not wait on its Chat write", async () => {
+        const spy = createSpyRuntime();
+        const stuck = managerWith({ runtime: spy });
+        stuck.attachLaunchContextRecorder({
+          prepareLaunchContext: () => new Promise(() => {}),
+        });
         const startedAt = Date.now();
-        const pending = stuckManager.createAgent({
+        const agent = await stuck.createAgent({
           cwd: "/tmp",
           useWorktree: false,
           initialPrompt: "Go",
+          launchContext: { prompt: "Go" },
+          jobRunId: "run_latency",
         });
-        // The runtime launch runs alongside the stuck write: the agent row
-        // reaches "running" long before the write's bounded wait expires.
-        const running = await vi.waitFor(
-          async () => {
-            expect(recordedAgentId).not.toBeNull();
-            const result = await pool.query<{ status: string }>(
-              `SELECT status FROM agents WHERE id = $1 AND status = 'running'`,
-              [recordedAgentId]
-            );
-            expect(result.rows).toHaveLength(1);
-            return result.rows[0];
-          },
-          { timeout: 4000, interval: 50 }
-        );
-        expect(running.status).toBe("running");
-        expect(Date.now() - startedAt).toBeLessThan(
-          LAUNCH_CONTEXT_WRITE_TIMEOUT_MS
-        );
-
-        // createAgent itself returns once the bounded wait expires, and says so.
-        const agent = await pending;
-        expect(agent.status).toBe("running");
-        expect(warn).toHaveBeenCalledWith(
-          expect.objectContaining({
-            agentId: agent.id,
-            timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
-          }),
-          expect.stringContaining("launch context write still pending")
-        );
+        expect(spy.launch).toHaveBeenCalledTimes(1);
+        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
         expect(await launchPosts(agent.id)).toEqual([]);
-      }, 15_000);
+        // createAgent waits out the bounded detached write, never longer.
+        expect(Date.now() - startedAt).toBeLessThan(
+          LAUNCH_CONTEXT_WRITE_TIMEOUT_MS + 2_000
+        );
+      }, 20_000);
 
       it("launches unwrapped when the post never resolves", async () => {
         // Resolving the post is on the critical path (the first turn needs
         // its id), so a hung read gives up: no post, no envelope, and the
         // launch still happens.
         const warn = vi.fn();
-        const stuckManager = chatEnabledManager(warn);
-        stuckManager.attachLaunchContextRecorder({
+        const spy = createSpyRuntime();
+        const stuck = managerWith({ warn, runtime: spy });
+        stuck.attachLaunchContextRecorder({
           prepareLaunchContext: () => new Promise(() => {}),
         });
 
-        await withChatSurface(async () => {
-          const agent = await stuckManager.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Go",
-            launchContext: { prompt: "Go" },
-          });
-          expect(warn).toHaveBeenCalledWith(
-            expect.objectContaining({
-              agentId: agent.id,
-              timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
-            }),
-            expect.stringContaining("did not resolve in time")
-          );
-          expect(await launchPosts(agent.id)).toEqual([]);
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          expect(setupScript).not.toContain("DISPATCH CHAT");
-          expect(setupScript).toContain("Go");
+        const agent = await stuck.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Go",
+          launchContext: { prompt: "Go" },
         });
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: agent.id,
+            timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
+          }),
+          expect.stringContaining("did not resolve in time")
+        );
+        expect(await launchPosts(agent.id)).toEqual([]);
+        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
+        expect(agent.status).toBe("running");
       }, 15_000);
 
       it("launches unwrapped when the post's write is rejected", async () => {
         // The envelope names a row; a rejected write means there is no row,
         // so naming it would point the agent's replies at nothing.
         const warn = vi.fn();
-        const failing = chatEnabledManager(warn);
+        const spy = createSpyRuntime();
+        const failing = managerWith({ warn, runtime: spy });
         failing.attachLaunchContextRecorder({
           prepareLaunchContext: async () => ({
             attachmentLines: [],
@@ -656,29 +732,23 @@ describe("AgentManager", () => {
           }),
         });
 
-        await withChatSurface(async () => {
-          const agent = await failing.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Go",
-          });
-          expect(warn).toHaveBeenCalledWith(
-            expect.objectContaining({ agentId: agent.id }),
-            expect.stringContaining("launching without the Chat envelope")
-          );
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          expect(setupScript).not.toContain("DISPATCH CHAT");
-          expect(setupScript).toContain("Go");
+        const agent = await failing.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Go",
         });
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({ agentId: agent.id }),
+          expect.stringContaining("launching without the Chat envelope")
+        );
+        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
       }, 15_000);
 
       it("launches unwrapped when the post's write never settles", async () => {
         const warn = vi.fn();
-        const hung = chatEnabledManager(warn);
+        const spy = createSpyRuntime();
+        const hung = managerWith({ warn, runtime: spy });
         hung.attachLaunchContextRecorder({
           prepareLaunchContext: async () => ({
             attachmentLines: [],
@@ -686,28 +756,21 @@ describe("AgentManager", () => {
           }),
         });
 
-        await withChatSurface(async () => {
-          const agent = await hung.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Go",
-          });
-          expect(warn).toHaveBeenCalledWith(
-            expect.objectContaining({
-              agentId: agent.id,
-              timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
-            }),
-            expect.stringContaining("was not written in time")
-          );
-          expect(await launchPosts(agent.id)).toEqual([]);
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          expect(setupScript).not.toContain("DISPATCH CHAT");
-          expect(setupScript).toContain("Go");
+        const agent = await hung.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Go",
         });
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: agent.id,
+            timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+          }),
+          expect.stringContaining("was not written in time")
+        );
+        expect(await launchPosts(agent.id)).toEqual([]);
+        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
       }, 15_000);
 
       it("launches unwrapped when the post's id is already taken", async () => {
@@ -716,7 +779,8 @@ describe("AgentManager", () => {
         // failure and the envelope is dropped rather than naming a row this
         // launch does not own.
         const warn = vi.fn();
-        const racing = chatEnabledManager(warn);
+        const spy = createSpyRuntime();
+        const racing = managerWith({ warn, runtime: spy });
         const chat = new ChatService({
           pool,
           publishUiEvent: (event) => chatEvents.push(event),
@@ -735,53 +799,25 @@ describe("AgentManager", () => {
           },
         });
 
-        await withChatSurface(async () => {
-          const agent = await racing.createAgent({
-            cwd: "/tmp",
-            type: "claude",
-            useWorktree: false,
-            initialPrompt: "Go",
-            launchContext: { prompt: "Go" },
-          });
-          expect(warn).toHaveBeenCalledWith(
-            expect.objectContaining({ agentId: agent.id }),
-            expect.stringContaining("launching without the Chat envelope")
-          );
-          const setupScript = await readFile(
-            `/tmp/dispatch_setup_${agent.id}.sh`,
-            "utf-8"
-          );
-          expect(setupScript).not.toContain("DISPATCH CHAT");
-          // The squatter row is untouched: the launch wrote nothing.
-          const rows = await pool.query<{ text: string }>(
-            `SELECT text FROM agent_chat_messages WHERE agent_id = $1`,
-            [agent.id]
-          );
-          expect(rows.rows).toEqual([{ text: "squatter" }]);
+        const agent = await racing.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Go",
+          launchContext: { prompt: "Go" },
         });
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({ agentId: agent.id }),
+          expect.stringContaining("launching without the Chat envelope")
+        );
+        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
+        // The squatter row is untouched: the launch wrote nothing.
+        const rows = await pool.query<{ text: string }>(
+          `SELECT text FROM agent_chat_messages WHERE agent_id = $1`,
+          [agent.id]
+        );
+        expect(rows.rows).toEqual([{ text: "squatter" }]);
       }, 15_000);
-
-      it("does not hold a flag-off launch on a recorder that never settles", async () => {
-        // With no envelope to build, nothing about the Chat write belongs on
-        // the launch's critical path — the round-4 shape.
-        const idle = await hungRecorderLaunch({ initialPrompt: "Go" });
-        expect(idle.setupScript).toContain("Go");
-        expect(idle.setupScript).not.toContain("DISPATCH CHAT");
-        expect(idle.elapsedMs).toBeLessThan(LAUNCH_CONTEXT_WRITE_TIMEOUT_MS);
-      }, 20_000);
-
-      it("does not hold a job launch on a recorder that never settles", async () => {
-        // A job run never wraps its prompt (it is a system-prompt append), so
-        // it must not pay for the Chat write either — even with the flag on.
-        await withChatSurface(async () => {
-          const job = await hungRecorderLaunch({
-            initialPrompt: "Go",
-            jobRunId: "run_latency",
-          });
-          expect(job.setupScript).not.toContain("DISPATCH CHAT");
-          expect(job.elapsedMs).toBeLessThan(LAUNCH_CONTEXT_WRITE_TIMEOUT_MS);
-        });
-      }, 20_000);
     });
 
     it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {
@@ -912,472 +948,110 @@ describe("AgentManager", () => {
       ).rejects.toThrow("does not exist");
     });
 
-    it("should create inert agents without invoking tmux", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      vi.mocked(runCommand).mockClear();
+    describe("system prompt", () => {
+      const RENAME = "Name the session. Once the topic of work is clear";
 
-      const agent = await inertManager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
+      it("suggests a session name only for default-named agents", async () => {
+        await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+        expect(lastLaunch().systemPrompt).toContain(RENAME);
+
+        for (const input of [
+          { name: "bug bash" },
+          // Custom names that merely resemble the default pattern count too.
+          { name: "agent-foobar" },
+          { name: "security-review-123456", persona: "security-review" },
+        ]) {
+          await manager.createAgent({
+            cwd: "/tmp",
+            type: "codex",
+            useWorktree: false,
+            ...input,
+          });
+          expect(lastLaunch().systemPrompt).not.toContain(RENAME);
+        }
       });
 
-      expect(agent.status).toBe("running");
-      // Inert mode skips the tmux runtime, but the inline git-context
-      // probe still runs against the agent's cwd. Assert specifically
-      // that no `tmux` subprocess was launched.
-      const tmuxCalls = vi
-        .mocked(runCommand)
-        .mock.calls.filter(([cmd]) => cmd === "tmux");
-      expect(tmuxCalls).toHaveLength(0);
-    });
-
-    it("should inject an agent-scoped MCP URL into Codex launches", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        useWorktree: false,
-      });
-
-      // The setup script should contain the MCP configuration
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("mcp_servers.dispatch.url=");
-      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
-      expect(setupScript).toContain(
-        "mcp_servers.dispatch.bearer_token_env_var="
-      );
-      expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
-      expect(setupScript).toMatch(/Dispatch startup rules:\n1\. /);
-      expect(setupScript).not.toContain("dispatch-<tool_name>");
-      expect(setupScript).toContain(
-        "infer a task from branch/worktree context alone"
-      );
-      expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain(
-        "short name for that topic, task, or feature"
-      );
-      expect(setupScript).toContain(
-        "stable label describing what the session is about"
-      );
-    });
-
-    it("should include Cursor-specific Dispatch tool guidance for Cursor launches", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "cursor",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("dispatch-<tool_name>");
-      expect(setupScript).toContain("report the exact tool error");
-    });
-
-    it("should skip rename guidance when the user provided a custom name", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        name: "bug bash",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain(
-        "Name the session. Once the topic of work is clear"
-      );
-    });
-
-    it("should skip rename guidance for custom names that resemble the default pattern", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        name: "agent-foobar",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain(
-        "Name the session. Once the topic of work is clear"
-      );
-    });
-
-    it("should skip rename guidance for persona agents", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        name: "security-review-123456",
-        persona: "security-review",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain(
-        "Name the session. Once the topic of work is clear"
-      );
-    });
-
-    it("should translate appended system prompts into a single Codex startup prompt", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        useWorktree: false,
-        agentArgs: [
-          "--append-system-prompt",
-          "Persona review instructions",
-          "--model",
-          "gpt-5",
-        ],
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("Persona review instructions");
-      expect(setupScript).toContain("--model");
-      expect(setupScript).not.toContain("--append-system-prompt");
-    });
-
-    it.each(["claude", "codex", "opencode"] as const)(
-      "should deliver the persona kickoff prompt to %s launches",
-      async (type) => {
-        const personaPrompt = "Persona review instructions";
-        const agent = await manager.createAgent({
+      it("includes autonomous review guidance only for non-persona, non-job autoReview agents", async () => {
+        await manager.createAgent({
           cwd: "/tmp",
-          type,
-          useWorktree: false,
-          agentArgs: ["--append-system-prompt", personaPrompt],
-          initialPrompt: buildPersonaKickoffPrompt(),
-        });
-
-        const setupScript = await readFile(
-          `/tmp/dispatch_setup_${agent.id}.sh`,
-          "utf-8"
-        );
-        const kickoffMatches = setupScript.match(/Begin your review now\./g);
-
-        expect(kickoffMatches).toHaveLength(1);
-        expect(setupScript).toContain(personaPrompt);
-        expect(setupScript).toContain("loaded into your context");
-      }
-    );
-
-    it("should inject an agent-scoped MCP URL into Claude launches", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        useWorktree: false,
-      });
-
-      // The setup script should contain the MCP configuration
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("--mcp-config");
-      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
-    });
-
-    it("should inject an agent-scoped MCP config into OpenCode launches without inline JSON quoting bugs", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "opencode",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain(`MCP_ENTRY='{"type":"remote"`);
-      expect(setupScript).toContain(`node --input-type=module -e`);
-      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
-      expect(setupScript).not.toContain(`python3 -c`);
-    });
-
-    it("should execute the generated OpenCode MCP config merge script", async () => {
-      const tempDir = await mkdtemp(
-        path.join(os.tmpdir(), "dispatch-opencode-config-")
-      );
-      try {
-        await writeFile(
-          path.join(tempDir, "opencode.json"),
-          JSON.stringify({
-            theme: "system",
-            mcp: {
-              existing: { type: "local", command: ["echo", "ok"] },
-            },
-          })
-        );
-
-        const agent = await manager.createAgent({
-          cwd: "/tmp",
-          type: "opencode",
+          type: "claude",
+          autoReview: true,
           useWorktree: false,
         });
-        const setupScript = await readFile(
-          `/tmp/dispatch_setup_${agent.id}.sh`,
-          "utf-8"
+        expect(lastLaunch().systemPrompt).toContain(
+          "Autonomous Review is enabled"
         );
-        const configBlock = setupScript.match(
-          /# --- Configure opencode MCP ---\n(?<block>[\s\S]*?)\n# exec replaces this shell/
-        )?.groups?.block;
-        expect(configBlock).toBeTruthy();
 
-        await execFileAsync("bash", [
-          "-c",
-          `set -euo pipefail\nok() { :; }\nEFFECTIVE_CWD=${JSON.stringify(tempDir)}\n${configBlock}`,
-        ]);
-
-        const config = JSON.parse(
-          await readFile(path.join(tempDir, "opencode.json"), "utf-8")
+        await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          autoReview: false,
+          useWorktree: false,
+        });
+        expect(lastLaunch().systemPrompt).not.toContain(
+          "Autonomous Review is enabled"
         );
-        expect(config.theme).toBe("system");
-        expect(config.mcp.existing).toEqual({
-          type: "local",
-          command: ["echo", "ok"],
+
+        await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          autoReview: true,
+          persona: "security-review",
+          useWorktree: false,
         });
-        expect(config.mcp.dispatch).toEqual({
-          type: "remote",
-          url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
-          headers: {
-            Authorization: `Bearer ${createAgentMcpToken("test-token", agent.id)}`,
-          },
+        expect(lastLaunch().systemPrompt).not.toContain(
+          "Autonomous Review is enabled"
+        );
+
+        await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          autoReview: true,
+          jobRunId: "run_abc123",
+          useWorktree: false,
         });
-      } finally {
-        await rm(tempDir, { recursive: true, force: true });
-      }
-    });
-
-    it("should include autonomous review guidance when autoReview is true", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        autoReview: true,
-        useWorktree: false,
+        expect(lastLaunch().systemPrompt).not.toContain(
+          "Autonomous Review is enabled"
+        );
+        expect(lastLaunch().systemPrompt).toContain(
+          "Dispatch job startup rules"
+        );
       });
 
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      // The proactive gates: nothing can inject these at the right moment,
-      // because the moment is the agent deciding it's done.
-      expect(setupScript).toContain("Autonomous Review is enabled");
-      expect(setupScript).toContain("list_personas");
-      expect(setupScript).toContain("dispatch_launch_persona");
-      // No apostrophes: the guidance is shell-escaped into this script.
-      expect(setupScript).toContain("until all submitted reviews are resolved");
-      // Injection is best-effort and dropped when the agent has no session,
-      // so the recovery pointer stays durable.
-      expect(setupScript).toContain("dispatch_review_list_feedback");
-      // The rest of the reactive half is delivered by injection when it
-      // applies (buildLaunchPersonaResponseText /
-      // reviews/injection-prompts.ts), so it no longer rides along.
-      expect(setupScript).not.toContain("structured REVIEW SUBMITTED prompt");
-      expect(setupScript).not.toContain("ask the reviewer to verify it");
-      expect(setupScript).not.toContain("zero-item approval");
-      expect(setupScript).not.toContain(
-        "set each outcome with dispatch_review_resolve"
-      );
-      expect(setupScript).not.toContain("dispatch_get_feedback");
-      expect(setupScript).not.toContain("Only launch additional reviewers");
-    });
+      it("folds an appended system prompt in, ahead of the active personality", async () => {
+        await pool.query(
+          `INSERT INTO personalities (id, name, prompt) VALUES ('p-formal', 'Formal', 'You are very formal.')
+           ON CONFLICT (id) DO UPDATE SET prompt = EXCLUDED.prompt`
+        );
+        await pool.query(
+          `INSERT INTO settings (key, value) VALUES ('active_personality_id', 'p-formal')
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+        );
+        try {
+          await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+          expect(lastLaunch().systemPrompt).toContain("You are very formal.");
 
-    it("should include draft PR guidance in autonomous review", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        autoReview: true,
-        useWorktree: false,
+          await manager.createAgent({
+            cwd: "/tmp",
+            type: "codex",
+            useWorktree: false,
+            agentArgs: [
+              "--append-system-prompt",
+              "Persona review instructions",
+            ],
+          });
+          expect(lastLaunch().systemPrompt).toContain(
+            "Persona review instructions"
+          );
+          expect(lastLaunch().systemPrompt).not.toContain(
+            "You are very formal."
+          );
+        } finally {
+          await pool.query(
+            `DELETE FROM settings WHERE key = 'active_personality_id'`
+          );
+        }
       });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("open a draft PR via create_pr");
-      expect(setupScript).toContain("override baseBranch");
-    });
-
-    it("should not include autonomous review guidance when autoReview is false", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        autoReview: false,
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain("Autonomous Review is enabled");
-    });
-
-    it("should not include autonomous review guidance for persona agents even if autoReview is true", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        autoReview: true,
-        persona: "security-review",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain("Autonomous Review is enabled");
-    });
-
-    it("should include autonomous review guidance for Codex agents", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        autoReview: true,
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("Autonomous Review is enabled");
-      expect(setupScript).toContain("list_personas");
-    });
-
-    it("should not include autonomous review guidance for job agents", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        autoReview: true,
-        jobRunId: "run_abc123",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain("Autonomous Review is enabled");
-      expect(setupScript).toContain("Dispatch job startup rules");
-    });
-
-    it("should include rename guidance for job agents with default names", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "codex",
-        name: "job-rename-test-run_abc1",
-        jobRunId: "run_abc123",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
-      expect(setupScript).not.toContain("dispatch-<tool_name>");
-      expect(setupScript).toContain(
-        "Report status with dispatch_event to keep the UI current"
-      );
-      expect(setupScript).toContain("Log task-level progress with job_log");
-      expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain(
-        "short name for that topic, task, or feature"
-      );
-    });
-
-    it("should include Cursor-specific Dispatch tool guidance for Cursor job agents", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "cursor",
-        name: "job-cursor-test-run_abc1",
-        jobRunId: "run_abc123",
-        useWorktree: false,
-      });
-
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
-      expect(setupScript).toContain("dispatch-<tool_name>");
-      expect(setupScript).toContain("Log task-level progress with job_log");
-    });
-
-    it("should generate a setup script with worktree steps when useWorktree is true", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        useWorktree: true,
-      });
-
-      expect(agent.setupPhase).toBe("worktree");
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).toContain("Creating git worktree");
-      expect(setupScript).toContain("Copying environment files");
-      expect(setupScript).toContain("Installing dependencies");
-      expect(setupScript).toContain("Starting agent session");
-      expect(setupScript).toContain("setup/complete");
-      expect(setupScript).toContain("exec bash");
-    });
-
-    it("should skip worktree steps in setup script when useWorktree is false", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        type: "claude",
-        useWorktree: false,
-      });
-
-      expect(agent.setupPhase).toBe("session");
-      const setupScript = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
-      expect(setupScript).not.toContain("Creating git worktree");
-      expect(setupScript).toContain("Starting agent session");
-      expect(setupScript).toContain("exec bash");
-    });
-
-    it("should complete setup and transition to running", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-      expect(agent.status).toBe("creating");
-
-      const updated = await manager.completeSetup(agent.id, {
-        effectiveCwd: "/tmp/worktree",
-        worktreePath: "/tmp/worktree",
-        worktreeBranch: "test-branch",
-      });
-
-      expect(updated.status).toBe("running");
-      expect(updated.cwd).toBe("/tmp/worktree");
-      expect(updated.worktreePath).toBe("/tmp/worktree");
-      expect(updated.worktreeBranch).toBe("test-branch");
-      expect(updated.setupPhase).toBeNull();
     });
   });
 
@@ -1508,42 +1182,190 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      await manager.updateReviewAgentType(agent.id, "opencode");
+      await manager.updateReviewAgentType(agent.id, "claude");
       const updated = await manager.getAgent(agent.id);
 
-      expect(updated?.reviewAgentType).toBe("opencode");
+      expect(updated?.reviewAgentType).toBe("claude");
     });
   });
 
   describe("getTerminalAccess", () => {
-    it("should return inert terminal metadata for inert runtime agents", async () => {
-      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({
+    it("should report live access while the host is alive", async () => {
+      const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-
-      const access = await inertManager.getTerminalAccess(agent.id);
-
-      expect(access.mode).toBe("inert");
-      expect(access.message).toContain("inert mode");
+      await expect(manager.getTerminalAccess(agent.id)).resolves.toEqual({
+        mode: "live",
+      });
+      expect(runtime.isAlive).toHaveBeenCalledWith(agent.id);
     });
 
-    it("should return inert terminal metadata even without tmux session metadata", async () => {
+    it("should return inert metadata when the runtime has no processes", async () => {
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       const agent = await inertManager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
 
-      await pool.query("UPDATE agents SET tmux_session = NULL WHERE id = $1", [
-        agent.id,
-      ]);
-
       const access = await inertManager.getTerminalAccess(agent.id);
 
       expect(access.mode).toBe("inert");
-      expect(access.message).toContain("inert mode");
+      expect(access.mode === "inert" && access.message).toContain("inert mode");
+    });
+
+    it("should mark a running agent stopped when its host is gone", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      runtime.isAlive.mockResolvedValue(false);
+
+      await expect(manager.getTerminalAccess(agent.id)).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      const fetched = await manager.getAgent(agent.id);
+      expect(fetched!.status).toBe("stopped");
+      expect(fetched!.lastError).toContain("no longer running");
+    });
+
+    it("should refuse, without stopping it, an agent still starting", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await pool.query(`UPDATE agents SET status = 'creating' WHERE id = $1`, [
+        agent.id,
+      ]);
+      runtime.isAlive.mockResolvedValue(false);
+
+      await expect(manager.getTerminalAccess(agent.id)).rejects.toThrow(
+        "Agent is still starting."
+      );
+      expect((await manager.getAgent(agent.id))!.status).toBe("creating");
+    });
+
+    it("should refuse a stopped agent without asking the runtime", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.stopAgent(agent.id);
+      runtime.isAlive.mockClear();
+
+      await expect(manager.getTerminalAccess(agent.id)).rejects.toThrow(
+        "Agent is not running."
+      );
+      expect(runtime.isAlive).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("prompting", () => {
+    it("should pass prompts, the busy state and cancel through to the runtime", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const turn = {
+        accepted: Promise.resolve(),
+        settled: Promise.resolve(),
+      };
+      runtime.prompt.mockReturnValueOnce(turn);
+      runtime.isBusy.mockReturnValueOnce(true);
+
+      expect(manager.promptAgent(agent.id, "next")).toBe(turn);
+      expect(runtime.prompt).toHaveBeenLastCalledWith(agent.id, "next");
+      expect(manager.isPromptHeld(agent.id)).toBe(true);
+      await manager.cancelTurn(agent.id);
+      expect(runtime.cancel).toHaveBeenCalledWith(agent.id);
+    });
+  });
+
+  describe("runtime events", () => {
+    it("should advance host_seq and fold turns into stream rows", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "hello" },
+        7
+      );
+
+      const seq = await pool.query<{ host_seq: number }>(
+        `SELECT host_seq FROM agents WHERE id = $1`,
+        [agent.id]
+      );
+      expect(Number(seq.rows[0]!.host_seq)).toBe(7);
+      const turns = await pool.query<{ payload: { state: string } }>(
+        `SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'`,
+        [agent.id]
+      );
+      expect(turns.rows.map((row) => row.payload.state)).toEqual(["started"]);
+
+      // seq 0 is synthesized for a vanished host and never moves the watermark.
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        0
+      );
+      const after = await pool.query<{ host_seq: number }>(
+        `SELECT host_seq FROM agents WHERE id = $1`,
+        [agent.id]
+      );
+      expect(Number(after.rows[0]!.host_seq)).toBe(7);
+    });
+
+    it("should put a running agent into error when its engine exits unexpectedly", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const upserts: string[] = [];
+      manager.onLatestEvent((record) => upserts.push(record.status));
+
+      await runtime.emit(
+        agent.id,
+        {
+          type: "exit",
+          agentId: agent.id,
+          code: 1,
+          signal: null,
+          stderrTail: "panic: boom",
+          expected: false,
+        },
+        3
+      );
+
+      const fetched = await manager.getAgent(agent.id);
+      expect(fetched!.status).toBe("error");
+      expect(fetched!.lastError).toBe(
+        "The agent exited with code 1: panic: boom"
+      );
+      expect(fetched!.latestEvent).toMatchObject({ type: "blocked" });
+      expect(upserts).toContain("error");
+    });
+
+    it("should leave the agent alone for an expected exit", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await runtime.emit(
+        agent.id,
+        {
+          type: "exit",
+          agentId: agent.id,
+          code: 0,
+          signal: null,
+          stderrTail: "",
+          expected: true,
+        },
+        4
+      );
+      expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
   });
 
@@ -1710,6 +1532,20 @@ describe("AgentManager", () => {
       expect(seen.rowCount).toBe(1);
     });
 
+    it("should force-stop the host and discard its state when archiving", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const discard = vi.spyOn(runtime, "discard");
+
+      await archiveAgent(agent.id);
+
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
+      expect(discard).toHaveBeenCalledWith(agent.id);
+      expect(await manager.getAgent(agent.id)).toBeNull();
+    });
+
     it("should throw 404 for non-existent agent", async () => {
       try {
         await manager.beginArchive("agt_nonexistent");
@@ -1749,17 +1585,42 @@ describe("AgentManager", () => {
       }
     });
   });
-
   describe("stopAgent", () => {
-    it("should stop an agent", async () => {
+    it("should stop the host and settle open turns", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      expect(agent.status).toBe("creating");
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "go" },
+        1
+      );
 
       const stopped = await manager.stopAgent(agent.id, { force: true });
+
       expect(stopped.status).toBe("stopped");
+      expect(stopped.latestEvent?.message).toBe("Session stopped.");
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
+      const turns = await pool.query<{
+        payload: { state: string; error?: string };
+      }>(
+        `SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'`,
+        [agent.id]
+      );
+      expect(turns.rows[0]!.payload).toMatchObject({
+        state: "settled",
+        error: "stopped",
+      });
+    });
+
+    it("should pass a graceful stop through by default", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.stopAgent(agent.id);
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, false);
     });
 
     it("should be a no-op for already stopped agent", async () => {
@@ -1768,225 +1629,131 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       await manager.stopAgent(agent.id, { force: true });
+      runtime.stop.mockClear();
 
       const result = await manager.stopAgent(agent.id);
       expect(result.status).toBe("stopped");
+      expect(runtime.stop).not.toHaveBeenCalled();
     });
 
-    it("should stop inert agents without invoking tmux", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({
+    it("should put the agent into error when the host will not stop", async () => {
+      const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      vi.mocked(runCommand).mockClear();
+      runtime.stop.mockRejectedValueOnce(new Error("socket hung"));
 
-      const stopped = await inertManager.stopAgent(agent.id, { force: true });
-
-      expect(stopped.status).toBe("stopped");
-      expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
+      await expect(manager.stopAgent(agent.id)).rejects.toThrow(
+        "Failed to stop agent: socket hung"
+      );
+      const failed = await manager.getAgent(agent.id);
+      expect(failed!.status).toBe("error");
+      expect(failed!.lastError).toBe("socket hung");
+      expect(failed!.latestEvent?.type).toBe("blocked");
     });
   });
 
   describe("startAgent", () => {
     async function createStoppedAgent(
-      opts: { type?: string; cliSessionId?: string; persona?: string } = {}
+      opts: { type?: "claude" | "codex"; persona?: string } = {}
     ) {
       const agent = await manager.createAgent({
         cwd: "/tmp",
-        type: (opts.type as "claude" | "codex" | "terminal") ?? "claude",
+        type: opts.type ?? "claude",
         useWorktree: false,
-        cliSessionId: opts.cliSessionId,
         persona: opts.persona,
       });
       await manager.stopAgent(agent.id, { force: true });
-      return agent;
+      runtime.launch.mockClear();
+      return (await manager.getAgent(agent.id))!;
     }
 
-    function mockNoSessionThenExists() {
-      let launched = false;
-      return async (_cmd: string, args: string[]) => {
-        if (args[0] === "has-session") {
-          if (!launched) return { exitCode: 1, stdout: "", stderr: "" };
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (args.includes("new-session")) launched = true;
-        return { exitCode: 0, stdout: "", stderr: "" };
-      };
-    }
-
-    it("should attach to an existing tmux session", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
+    it("should reattach to a host that is still running without relaunching", async () => {
       const agent = await createStoppedAgent();
-
-      vi.mocked(runCommand).mockImplementation(
-        async (_cmd: string, args: string[]) => {
-          if (args[0] === "has-session") {
-            return { exitCode: 0, stdout: "", stderr: "" };
-          }
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-      );
+      runtime.attach.mockResolvedValueOnce(true);
 
       const started = await manager.startAgent(agent.id);
 
+      expect(runtime.attach).toHaveBeenCalledWith(agent.id);
+      expect(runtime.launch).not.toHaveBeenCalled();
       expect(started.status).toBe("running");
       expect(started.latestEvent?.message).toBe(
-        "Session attached to existing tmux session."
+        "Reattached to the running agent."
       );
-      expect(
-        vi
-          .mocked(runCommand)
-          .mock.calls.some(([, args]) => args?.[0] === "new-session")
-      ).toBe(false);
     });
 
-    it("should assign a fresh cliSessionId for legacy claude agents without one", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
-
-      // Simulate a legacy agent that was created before cliSessionId auto-assignment
-      await pool.query(
-        "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
-        [agent.id]
-      );
-
-      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+    it("should relaunch resuming the stored ACP session", async () => {
+      const agent = await createStoppedAgent();
+      expect(agent.cliSessionId).toBe("sess_1");
 
       const started = await manager.startAgent(agent.id);
 
-      expect(started.status).toBe("running");
-      expect(started.cliSessionId).toBeTruthy();
-      expect(started.latestEvent?.message).toBe("Session started.");
-    });
-
-    it("should resume an existing CLI session when cliSessionId is set", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const sessionId = "11111111-2222-3333-4444-555555555555";
-      const agent = await createStoppedAgent({
-        type: "claude",
-        cliSessionId: sessionId,
+      expect(lastLaunch()).toMatchObject({
+        agentId: agent.id,
+        resumeSessionId: "sess_1",
       });
-
-      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
-
-      const started = await manager.startAgent(agent.id);
-
       expect(started.status).toBe("running");
-      expect(started.cliSessionId).toBe(sessionId);
+      expect(started.cliSessionId).toBe("sess_1");
+      expect(started.lastError).toBeNull();
       expect(started.latestEvent?.message).toBe("Session resumed.");
     });
 
-    it("should handle race condition on cliSessionId assignment", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
+    it("should record the fresh session when the engine could not resume", async () => {
+      const agent = await createStoppedAgent();
+      runtime.launch.mockResolvedValueOnce({
+        sessionId: "sess_fresh",
+        resumed: false,
+      });
 
-      // Clear cliSessionId to simulate a legacy agent
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.cliSessionId).toBe("sess_fresh");
+      expect(started.latestEvent?.message).toBe("Session started.");
+    });
+
+    it("should launch fresh when the agent has no session to resume", async () => {
+      const agent = await createStoppedAgent({ type: "codex" });
       await pool.query(
         "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
         [agent.id]
       );
 
-      // Simulate a concurrent request assigning a cliSessionId between
-      // getRequiredAgent (reads null) and the conditional UPDATE
-      const raceWinner = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-      let injected = false;
-      let launched = false;
-      vi.mocked(runCommand).mockImplementation(
-        async (_cmd: string, args: string[]) => {
-          if (args[0] === "has-session") {
-            if (!launched) {
-              // Before launch: inject the concurrent write
-              if (!injected) {
-                await pool.query(
-                  "UPDATE agents SET cli_session_id = $2 WHERE id = $1",
-                  [agent.id, raceWinner]
-                );
-                injected = true;
-              }
-              return { exitCode: 1, stdout: "", stderr: "" };
-            }
-            return { exitCode: 0, stdout: "", stderr: "" };
-          }
-          if (args.includes("new-session")) launched = true;
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-      );
-
       const started = await manager.startAgent(agent.id);
 
-      expect(started.status).toBe("running");
-      // The conditional UPDATE returns rowCount=0, so it re-fetches
-      // and uses the race winner's session ID
-      expect(started.cliSessionId).toBe(raceWinner);
-    });
-
-    it("should not assign cliSessionId for non-claude agents", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "codex" });
-
-      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
-
-      const started = await manager.startAgent(agent.id);
-
-      expect(started.status).toBe("running");
-      expect(started.cliSessionId).toBeNull();
+      expect(lastLaunch().resumeSessionId).toBeNull();
+      expect(started.cliSessionId).toMatch(/^sess_/);
       expect(started.latestEvent?.message).toBe("Session started.");
     });
 
-    it("should use terminal-specific event message for terminal agents", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "terminal" });
+    it("should transition through creating state during launch", async () => {
+      const agent = await createStoppedAgent();
+      let statusDuringLaunch: string | undefined;
+      runtime.launch.mockImplementationOnce(async () => {
+        statusDuringLaunch = (await manager.getAgent(agent.id))?.status;
+        return { sessionId: "sess_1", resumed: true };
+      });
 
-      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+      await manager.startAgent(agent.id);
 
-      const started = await manager.startAgent(agent.id);
-
-      expect(started.status).toBe("running");
-      expect(started.latestEvent?.message).toBe("Terminal session resumed.");
+      expect(statusDuringLaunch).toBe("creating");
     });
 
     it("should set error status when launch fails", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
-
-      vi.mocked(runCommand).mockImplementation(
-        async (_cmd: string, args: string[]) => {
-          if (args[0] === "has-session") {
-            return { exitCode: 1, stdout: "", stderr: "" };
-          }
-          if (args.includes("new-session")) {
-            throw new Error("tmux not available");
-          }
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-      );
+      const agent = await createStoppedAgent();
+      runtime.launch.mockRejectedValueOnce(new Error("host exited"));
 
       await expect(manager.startAgent(agent.id)).rejects.toThrow(
-        "Failed to start agent: tmux not available"
+        "Failed to start agent: host exited"
       );
 
       const failed = await manager.getAgent(agent.id);
       expect(failed!.status).toBe("error");
-      expect(failed!.lastError).toBe("tmux not available");
+      expect(failed!.lastError).toBe("host exited");
       expect(failed!.latestEvent?.type).toBe("blocked");
       expect(failed!.latestEvent?.message).toContain("Failed to start agent");
     });
 
     it("should skip personality for persona agents even when one is active", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-
-      // Set an active personality in the DB
       await pool.query(
         `INSERT INTO settings (key, value) VALUES ('active_personality_id', 'test-personality')
          ON CONFLICT (key) DO UPDATE SET value = 'test-personality'`
@@ -1995,384 +1762,130 @@ describe("AgentManager", () => {
         `INSERT INTO personalities (id, name, prompt) VALUES ('test-personality', 'Test', 'You are very formal.')
          ON CONFLICT (id) DO UPDATE SET prompt = 'You are very formal.'`
       );
-
-      const agent = await createStoppedAgent({
-        type: "claude",
-        persona: "security-review",
-      });
-
-      const launchCalls: string[][] = [];
-      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          if (launchCalls.length === 0)
-            return { exitCode: 1, stdout: "", stderr: "" };
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (args.includes("new-session")) launchCalls.push(args);
-        return { exitCode: 0, stdout: "", stderr: "" };
-      });
-
-      const started = await manager.startAgent(agent.id);
-
-      expect(started.status).toBe("running");
-      expect(launchCalls.length).toBe(1);
-      const launchCommand = launchCalls[0]!.join(" ");
-      expect(launchCommand).not.toContain("You are very formal.");
-    });
-
-    it("should transition through creating state during launch", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
-
-      const statusesDuringLaunch: string[] = [];
-      let launched = false;
-      vi.mocked(runCommand).mockImplementation(
-        async (_cmd: string, args: string[]) => {
-          if (args[0] === "has-session") {
-            if (!launched) return { exitCode: 1, stdout: "", stderr: "" };
-            return { exitCode: 0, stdout: "", stderr: "" };
-          }
-          if (args.includes("new-session")) {
-            const mid = await manager.getAgent(agent.id);
-            statusesDuringLaunch.push(mid!.status);
-            launched = true;
-          }
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-      );
-
-      await manager.startAgent(agent.id);
-
-      expect(statusesDuringLaunch).toContain("creating");
-    });
-
-    it("should include --resume flag in command for resumed sessions", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const sessionId = "22222222-3333-4444-5555-666666666666";
-      const agent = await createStoppedAgent({
-        type: "claude",
-        cliSessionId: sessionId,
-      });
-
-      const newSessionArgs: string[][] = [];
-      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          if (newSessionArgs.length === 0)
-            return { exitCode: 1, stdout: "", stderr: "" };
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (args.includes("new-session")) newSessionArgs.push(args);
-        return { exitCode: 0, stdout: "", stderr: "" };
-      });
-
-      await manager.startAgent(agent.id);
-
-      expect(newSessionArgs.length).toBe(1);
-      const launchCommand = newSessionArgs[0]!.join(" ");
-      expect(launchCommand).toContain("--resume");
-      expect(launchCommand).toContain(sessionId);
-    });
-
-    it("should resolve a legacy home-relative media_dir before restarting", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
-      const fakeHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-home-"));
-      const legacyMediaDir = `~/.dispatch/legacy-media-${agent.id}`;
-      const expectedMediaDir = path.join(
-        fakeHome,
-        ".dispatch",
-        `legacy-media-${agent.id}`
-      );
-      const newSessionArgs: string[][] = [];
-      const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
-
       try {
-        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
-          agent.id,
-          legacyMediaDir,
-        ]);
-        vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-          if (args[0] === "has-session") {
-            if (newSessionArgs.length === 0)
-              return { exitCode: 1, stdout: "", stderr: "" };
-            return { exitCode: 0, stdout: "", stderr: "" };
-          }
-          if (args.includes("new-session")) newSessionArgs.push(args);
-          return { exitCode: 0, stdout: "", stderr: "" };
-        });
+        const agent = await createStoppedAgent({ persona: "security-review" });
 
         await manager.startAgent(agent.id);
 
-        expect(newSessionArgs).toHaveLength(1);
-        expect(newSessionArgs[0]!.join(" ")).toContain(expectedMediaDir);
+        expect(lastLaunch().systemPrompt).not.toContain("You are very formal.");
+      } finally {
+        await pool.query(
+          `DELETE FROM settings WHERE key = 'active_personality_id'`
+        );
+      }
+    });
+
+    it("should resolve a legacy home-relative media_dir before restarting", async () => {
+      const agent = await createStoppedAgent();
+      const fakeHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-home-"));
+      const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+      try {
+        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
+          agent.id,
+          `~/.dispatch/legacy-media-${agent.id}`,
+        ]);
+
+        await manager.startAgent(agent.id);
+
+        expect(lastLaunch().env.DISPATCH_MEDIA_DIR).toBe(
+          path.join(fakeHome, ".dispatch", `legacy-media-${agent.id}`)
+        );
       } finally {
         homedirSpy.mockRestore();
         await rm(fakeHome, { recursive: true, force: true });
       }
     });
+  });
 
-    it("should not include --resume flag for fresh sessions", async () => {
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const agent = await createStoppedAgent({ type: "claude" });
-
-      // Clear cliSessionId to simulate legacy agent that never had one
-      await pool.query(
-        "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
-        [agent.id]
-      );
-
-      const newSessionArgs: string[][] = [];
-      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          if (newSessionArgs.length === 0)
-            return { exitCode: 1, stdout: "", stderr: "" };
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (args.includes("new-session")) newSessionArgs.push(args);
-        return { exitCode: 0, stdout: "", stderr: "" };
+  describe("restoreRunningAgents", () => {
+    it("should reattach live hosts and stop agents whose host is gone", async () => {
+      const alive = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
       });
+      const gone = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const stopped = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.stopAgent(stopped.id);
+      runtime.attach.mockImplementation(async (id) => id === alive.id);
 
-      await manager.startAgent(agent.id);
+      const result = await manager.restoreRunningAgents();
 
-      expect(newSessionArgs.length).toBe(1);
-      const launchCommand = newSessionArgs[0]!.join(" ");
-      expect(launchCommand).not.toContain("--resume");
+      expect(result).toEqual({ attached: [alive.id], lost: [gone.id] });
+      expect(runtime.attach).not.toHaveBeenCalledWith(stopped.id);
+      expect((await manager.getAgent(alive.id))!.status).toBe("running");
+      const lost = await manager.getAgent(gone.id);
+      expect(lost!.status).toBe("stopped");
+      expect(lost!.lastError).toContain("not running when Dispatch restarted");
+      expect(lost!.latestEvent?.message).toBe(
+        "Session ended while Dispatch was down."
+      );
     });
   });
 
   describe("reconcileAgents", () => {
-    it("should mark agents as stopped when tmux session is gone", async () => {
+    it("should mark a running agent stopped when its host is gone", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await manager.completeSetup(agent.id, {
-        effectiveCwd: "/tmp",
-        worktreePath: null,
-        worktreeBranch: null,
-      });
-
-      // Now make tmux report no session
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const mockRunCommand = vi.mocked(runCommand);
-      mockRunCommand.mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          return { exitCode: 1, stdout: "", stderr: "" };
-        }
-        if (args[0] === "list-sessions" || args[0] === "list-panes") {
-          return { exitCode: 1, stdout: "", stderr: "no server running" };
-        }
-        if (_cmd === "ps") {
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (_cmd === "launchctl") {
-          return { exitCode: 113, stdout: "", stderr: "service not found" };
-        }
-        return { exitCode: 0, stdout: "", stderr: "" };
-      });
+      runtime.isAlive.mockResolvedValue(false);
+      runtime.readLogTail.mockResolvedValue("adapter crashed");
 
       await manager.reconcileAgents();
 
       const reconciled = await manager.getAgent(agent.id);
       expect(reconciled!.status).toBe("stopped");
+      expect(reconciled!.lastError).toBe("adapter crashed");
+      expect(reconciled!.latestEvent?.message).toContain(
+        "The agent is no longer running."
+      );
     });
 
-    it("should surface startup crashes as blocked errors with setup details", async () => {
+    it("should leave agents with a live host alone", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:2");
-      await writeFile(
-        `/tmp/dispatch_setup_${agent.id}.log`,
-        "error: unexpected argument '--append-system-prompt' found\n"
-      );
 
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const mockRunCommand = vi.mocked(runCommand);
-      mockRunCommand.mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          return { exitCode: 1, stdout: "", stderr: "" };
-        }
-        if (args[0] === "list-sessions" || args[0] === "list-panes") {
-          return { exitCode: 1, stdout: "", stderr: "no server running" };
-        }
-        if (_cmd === "ps") {
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (_cmd === "launchctl") {
-          return { exitCode: 113, stdout: "", stderr: "service not found" };
-        }
-        return { exitCode: 0, stdout: "", stderr: "" };
-      });
-
-      await manager.reconcileAgents();
-
-      const reconciled = await manager.getAgent(agent.id);
-      expect(reconciled!.status).toBe("error");
-      expect(reconciled!.latestEvent?.type).toBe("blocked");
-      expect(reconciled!.latestEvent?.message).toContain("Launch failed");
-      expect(reconciled!.latestEvent?.message).toContain(
-        "unexpected argument '--append-system-prompt'"
-      );
-      expect(reconciled!.lastError).toContain(
-        "unexpected argument '--append-system-prompt'"
-      );
+      expect(await manager.reconcileAgentStatuses()).toEqual([]);
+      expect((await manager.getAgent(agent.id))!.status).toBe("running");
     });
 
-    it("should not classify a clean exit as an error from generic stderr text", async () => {
+    it("should stop hosts left behind by stopped agents", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await manager.completeSetup(agent.id, {
-        effectiveCwd: "/tmp",
-        worktreePath: null,
-        worktreeBranch: null,
-      });
-      await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:0");
-      await writeFile(
-        `/tmp/dispatch_setup_${agent.id}.log`,
-        "warning: previous command printed an error banner\n"
-      );
-
-      const { runCommand } =
-        await import("../../src/shared/lib/run-command.js");
-      const mockRunCommand = vi.mocked(runCommand);
-      mockRunCommand.mockImplementation(async (_cmd, args) => {
-        if (args[0] === "has-session") {
-          return { exitCode: 1, stdout: "", stderr: "" };
-        }
-        if (args[0] === "list-sessions" || args[0] === "list-panes") {
-          return { exitCode: 1, stdout: "", stderr: "no server running" };
-        }
-        if (_cmd === "ps") {
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (_cmd === "launchctl") {
-          return { exitCode: 113, stdout: "", stderr: "service not found" };
-        }
-        return { exitCode: 0, stdout: "", stderr: "" };
-      });
+      await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
+        agent.id,
+      ]);
+      runtime.listHosted.mockResolvedValue([agent.id]);
 
       await manager.reconcileAgents();
 
-      const reconciled = await manager.getAgent(agent.id);
-      expect(reconciled!.status).toBe("stopped");
-      expect(reconciled!.latestEvent?.type).toBe("idle");
-      expect(reconciled!.latestEvent?.message).toContain(
-        "Session ended normally."
-      );
-      expect(reconciled!.latestEvent?.message).toContain("error banner");
-    });
-
-    it("should capture a missing-session diagnostic snapshot", async () => {
-      const tempHome = await mkdtemp(
-        path.join(os.tmpdir(), "dispatch-agent-manager-home-")
-      );
-      const previousHome = process.env.HOME;
-      process.env.HOME = tempHome;
-
-      try {
-        const agent = await manager.createAgent({
-          cwd: "/tmp",
-          useWorktree: false,
-        });
-
-        const { runCommand } =
-          await import("../../src/shared/lib/run-command.js");
-        const mockRunCommand = vi.mocked(runCommand);
-        mockRunCommand.mockClear();
-        mockRunCommand.mockImplementation(async (_cmd, args) => {
-          if (args[0] === "has-session") {
-            return { exitCode: 1, stdout: "", stderr: "" };
-          }
-          if (args[0] === "list-sessions") {
-            return { exitCode: 1, stdout: "", stderr: "no server running" };
-          }
-          if (args[0] === "list-panes") {
-            return { exitCode: 1, stdout: "", stderr: "no server running" };
-          }
-          if (_cmd === "ps" && args[1] === "pid=,comm=") {
-            return { exitCode: 0, stdout: "", stderr: "" };
-          }
-          if (_cmd === "ps") {
-            return {
-              exitCode: 0,
-              stdout: "  PID  PPID  PGID USER COMMAND\n",
-              stderr: "",
-            };
-          }
-          if (_cmd === "launchctl") {
-            return { exitCode: 0, stdout: "launchctl snapshot", stderr: "" };
-          }
-          return { exitCode: 0, stdout: "", stderr: "" };
-        });
-
-        await manager.reconcileAgentStatuses();
-
-        const diagnosticsDir = path.join(tempHome, ".dispatch", "diagnostics");
-        const files = await readdir(diagnosticsDir);
-        const incidentFile = files.find((file) =>
-          file.includes(`missing-session-${agent.id}.json`)
-        );
-        expect(incidentFile).toBeTruthy();
-
-        const incidentRaw = await readFile(
-          path.join(diagnosticsDir, incidentFile!),
-          "utf-8"
-        );
-        const incident = JSON.parse(incidentRaw) as {
-          incident: string;
-          agent: {
-            agentId: string;
-            tmuxSession: string;
-            exitInfo: number | null;
-          };
-          tmux: { sessions: { exitCode: number; stderr: string } };
-          launchctl: { stdout: string };
-        };
-
-        expect(incident.incident).toBe("missing_tmux_session");
-        expect(incident.agent.agentId).toBe(agent.id);
-        expect(incident.agent.tmuxSession).toBe(agent.tmuxSession);
-        expect(incident.agent.exitInfo).toBeNull();
-        expect(incident.tmux.sessions.exitCode).toBe(1);
-        expect(incident.launchctl.stdout).toContain("launchctl snapshot");
-      } finally {
-        process.env.HOME = previousHome;
-        await rm(tempHome, { recursive: true, force: true });
-      }
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
     });
   });
 
   describe("cliSessionId", () => {
-    it("should store cliSessionId when provided at creation", async () => {
+    it("should record the session id the runtime reports, not a caller-supplied one", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
         cliSessionId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       });
 
-      expect(agent.cliSessionId).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+      expect(lastLaunch().resumeSessionId).toBeNull();
+      expect(agent.cliSessionId).toBe("sess_1");
     });
 
-    it("should default cliSessionId to null", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      expect(agent.cliSessionId).toBeNull();
-    });
-
-    it("should persist cliSessionId for persona agents", async () => {
+    it("should persist the session id for persona agents", async () => {
       const parent = await manager.createAgent({
         name: "parent",
         cwd: "/tmp",
@@ -2384,421 +1897,11 @@ describe("AgentManager", () => {
         useWorktree: false,
         persona: "security-review",
         parentAgentId: parent.id,
-        cliSessionId: "11111111-2222-3333-4444-555555555555",
       });
 
-      // Re-fetch to verify persistence
       const fetched = await manager.getAgent(persona.id);
-      expect(fetched!.cliSessionId).toBe(
-        "11111111-2222-3333-4444-555555555555"
-      );
+      expect(fetched!.cliSessionId).toBe("sess_2");
       expect(fetched!.parentAgentId).toBe(parent.id);
-    });
-  });
-
-  describe("harvestAgentTokens", () => {
-    let tmpDir: string;
-
-    beforeEach(async () => {
-      tmpDir = await mkdtemp(path.join(os.tmpdir(), "harvest-mgr-test-"));
-    });
-
-    afterEach(async () => {
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
-    it("should skip harvesting only when the runtime is inert", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({
-        name: "inert-agent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-      await writeFile(
-        path.join(projectDir, `${agent.cliSessionId}.jsonl`),
-        `${JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: 500, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        })}\n`
-      );
-
-      await inertManager.harvestAgentTokens(agent);
-
-      const usage = await pool.query(
-        `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
-        [agent.id]
-      );
-      expect(usage.rows[0].count).toBe(0);
-
-      await manager.harvestAgentTokens(agent);
-
-      const trackedRuntimeUsage = await pool.query(
-        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
-        [agent.id]
-      );
-      expect(trackedRuntimeUsage.rows[0].total).toBe(500);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should harvest only the persona's session for a persona agent", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const parentSessionId = "parent-sess-aaa";
-      const personaSessionId = "persona-sess-bbb";
-
-      const makeEntry = (tokens: number) =>
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: tokens, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        });
-
-      await writeFile(
-        path.join(projectDir, `${parentSessionId}.jsonl`),
-        makeEntry(1000) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, `${personaSessionId}.jsonl`),
-        makeEntry(200) + "\n"
-      );
-
-      // Create parent + persona agents sharing the same cwd
-      const parent = await manager.createAgent({
-        name: "parent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-      const persona = await manager.createAgent({
-        name: "sec-persona",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-        persona: "security-review",
-        parentAgentId: parent.id,
-        cliSessionId: personaSessionId,
-      });
-
-      // Harvest for persona — should only get its own 200 tokens
-      await manager.harvestAgentTokens(persona);
-
-      const personaUsage = await pool.query(
-        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
-        [persona.id]
-      );
-      expect(personaUsage.rows[0].total).toBe(200);
-
-      // Verify parent's session was NOT harvested under persona
-      const personaSessions = await pool.query(
-        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
-        [persona.id]
-      );
-      expect(personaSessions.rows).toHaveLength(1);
-      expect(personaSessions.rows[0].session_id).toBe(personaSessionId);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should exclude persona sessions when harvesting the parent agent", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const personaSessionId = "persona-sess-ddd";
-
-      const makeEntry = (tokens: number) =>
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: tokens, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        });
-
-      // Create parent — it auto-generates a cliSessionId
-      const parent = await manager.createAgent({
-        name: "parent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-
-      // Create session files using the parent's auto-generated session ID
-      await writeFile(
-        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
-        makeEntry(800) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, `${personaSessionId}.jsonl`),
-        makeEntry(150) + "\n"
-      );
-
-      await manager.createAgent({
-        name: "persona-child",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-        persona: "security-review",
-        parentAgentId: parent.id,
-        cliSessionId: personaSessionId,
-      });
-
-      // Harvest for parent — should only get its own 800 tokens
-      await manager.harvestAgentTokens(parent);
-
-      const parentUsage = await pool.query(
-        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
-        [parent.id]
-      );
-      expect(parentUsage.rows[0].total).toBe(800);
-
-      const parentSessions = await pool.query(
-        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
-        [parent.id]
-      );
-      expect(parentSessions.rows).toHaveLength(1);
-      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should handle parent with multiple personas — each only gets its own session", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const persona1SessionId = "persona1-sess-fff";
-      const persona2SessionId = "persona2-sess-ggg";
-
-      const makeEntry = (tokens: number) =>
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: tokens, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        });
-
-      const parent = await manager.createAgent({
-        name: "parent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-
-      await writeFile(
-        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
-        makeEntry(500) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, `${persona1SessionId}.jsonl`),
-        makeEntry(100) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, `${persona2SessionId}.jsonl`),
-        makeEntry(75) + "\n"
-      );
-
-      await manager.createAgent({
-        name: "sec-persona",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-        persona: "security-review",
-        parentAgentId: parent.id,
-        cliSessionId: persona1SessionId,
-      });
-      await manager.createAgent({
-        name: "ux-persona",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-        persona: "ux-review",
-        parentAgentId: parent.id,
-        cliSessionId: persona2SessionId,
-      });
-
-      // Parent only gets its own session
-      await manager.harvestAgentTokens(parent);
-
-      const parentSessions = await pool.query(
-        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
-        [parent.id]
-      );
-      expect(parentSessions.rows).toHaveLength(1);
-      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should harvest only the agent's own session file", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const makeEntry = (tokens: number) =>
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: tokens, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        });
-
-      const agent = await manager.createAgent({
-        name: "solo-agent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-
-      // Create the agent's session file and an unrelated one
-      await writeFile(
-        path.join(projectDir, `${agent.cliSessionId}.jsonl`),
-        makeEntry(300) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, "unrelated-session.jsonl"),
-        makeEntry(400) + "\n"
-      );
-
-      await manager.harvestAgentTokens(agent);
-
-      const usage = await pool.query(
-        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
-        [agent.id]
-      );
-      expect(usage.rows[0].total).toBe(300); // Only the agent's own session
-
-      const sessions = await pool.query(
-        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
-        [agent.id]
-      );
-      expect(sessions.rows).toHaveLength(1);
-      expect(sessions.rows[0].session_id).toBe(agent.cliSessionId);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should ignore unrelated and persona sessions in the same project dir", async () => {
-      const { cwdToClaudeProjectDir } =
-        await import("../../src/agents/token-harvester.js");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-
-      const projectDir = cwdToClaudeProjectDir(tmpDir);
-      await mkdir(projectDir, { recursive: true });
-
-      const personaSessionId = "persona-sess-hhh";
-
-      const makeEntry = (tokens: number) =>
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            model: "claude-opus-4-6",
-            usage: { input_tokens: tokens, output_tokens: 10 },
-          },
-          timestamp: "2026-04-01T10:00:00.000Z",
-        });
-
-      const parent = await manager.createAgent({
-        name: "parent",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-      });
-
-      // Create parent's session, a persona session, and an unrelated old session
-      await writeFile(
-        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
-        makeEntry(300) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, `${personaSessionId}.jsonl`),
-        makeEntry(50) + "\n"
-      );
-      await writeFile(
-        path.join(projectDir, "old-unrelated.jsonl"),
-        makeEntry(999) + "\n"
-      );
-
-      await manager.createAgent({
-        name: "persona",
-        type: "claude",
-        cwd: tmpDir,
-        useWorktree: false,
-        persona: "security-review",
-        parentAgentId: parent.id,
-        cliSessionId: personaSessionId,
-      });
-
-      // Parent should only get its own session — not persona's, not unrelated
-      await manager.harvestAgentTokens(parent);
-
-      const parentUsage = await pool.query(
-        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
-        [parent.id]
-      );
-      expect(parentUsage.rows[0].total).toBe(300);
-
-      const parentSessions = await pool.query(
-        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
-        [parent.id]
-      );
-      expect(parentSessions.rows).toHaveLength(1);
-      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
-
-      await rm(projectDir, { recursive: true, force: true });
-    });
-
-    it("should skip session ownership logic for non-claude agents", async () => {
-      const agent = await manager.createAgent({
-        name: "codex-agent",
-        type: "codex",
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      // Should not throw — codex agents don't use session ownership
-      await manager.harvestAgentTokens(agent);
-
-      // vitest.config.ts points CODEX_HOME at an empty directory for the whole
-      // suite, so no rollout files exist and nothing is harvested.
-      const usage = await pool.query(
-        `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
-        [agent.id]
-      );
-      expect(usage.rows[0].count).toBe(0);
     });
   });
 
@@ -3118,71 +2221,6 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("markSetupFailed", () => {
-    it("should mark agent as stopped with the error message", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const failed = await manager.markSetupFailed(
-        agent.id,
-        "git worktree add failed"
-      );
-
-      expect(failed.status).toBe("stopped");
-      expect(failed.lastError).toBe("git worktree add failed");
-    });
-
-    it("should trim whitespace from the message", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const failed = await manager.markSetupFailed(
-        agent.id,
-        "  spaced message  "
-      );
-
-      expect(failed.lastError).toBe("spaced message");
-    });
-
-    it("should truncate messages longer than 1000 characters", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const longMsg = "x".repeat(2000);
-      const failed = await manager.markSetupFailed(agent.id, longMsg);
-
-      expect(failed.lastError!.length).toBe(1000);
-    });
-
-    it("should default to 'Setup failed.' for empty messages", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const failed = await manager.markSetupFailed(agent.id, "   ");
-      expect(failed.lastError).toBe("Setup failed.");
-    });
-
-    it("should set the latest event to blocked", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.markSetupFailed(agent.id, "boom");
-      const fetched = await manager.getAgent(agent.id);
-      expect(fetched!.latestEvent?.type).toBe("blocked");
-      expect(fetched!.latestEvent?.message).toBe("boom");
-    });
-  });
-
   describe("updateSetupPhase", () => {
     it("should update the setup phase on a creating agent", async () => {
       const agent = await manager.createAgent({
@@ -3203,10 +2241,10 @@ describe("AgentManager", () => {
       });
 
       await manager.updateSetupPhase(agent.id, "worktree");
-      await manager.updateSetupPhase(agent.id, "workspace");
+      await manager.updateSetupPhase(agent.id, "deps");
 
       const fetched = await manager.getAgent(agent.id);
-      expect(fetched!.setupPhase).toBe("workspace");
+      expect(fetched!.setupPhase).toBe("deps");
     });
   });
 
@@ -3278,11 +2316,6 @@ describe("AgentManager", () => {
         cwd: "/tmp",
         useWorktree: false,
       });
-      await manager.completeSetup(agent.id, {
-        effectiveCwd: "/tmp",
-        worktreePath: null,
-        worktreeBranch: null,
-      });
 
       const status = await manager.checkWorktreeStatus(agent.id);
       expect(status.hasWorktree).toBe(false);
@@ -3300,33 +2333,18 @@ describe("AgentManager", () => {
   });
 
   describe("resolveRuntimeCwd", () => {
-    it("should return agent cwd for stopped agents without probing runtime", async () => {
+    it("should return the agent's working directory", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      await manager.completeSetup(agent.id, {
-        effectiveCwd: "/tmp/workspace",
-        worktreePath: null,
-        worktreeBranch: null,
-      });
-      await manager.stopAgent(agent.id);
+      await pool.query(
+        `UPDATE agents SET cwd = '/tmp/workspace' WHERE id = $1`,
+        [agent.id]
+      );
 
-      const stopped = (await manager.getAgent(agent.id))!;
-      const cwd = await manager.resolveRuntimeCwd(stopped);
-      expect(cwd).toBe("/tmp/workspace");
-    });
-
-    it("should return agent cwd when tmuxSession is absent", async () => {
-      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const fetched = (await inertManager.getAgent(agent.id))!;
-      const cwd = await inertManager.resolveRuntimeCwd(fetched);
-      expect(cwd).toBe("/tmp");
+      const fetched = (await manager.getAgent(agent.id))!;
+      expect(await manager.resolveRuntimeCwd(fetched)).toBe("/tmp/workspace");
     });
   });
 });

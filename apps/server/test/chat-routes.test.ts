@@ -586,9 +586,7 @@ describe("chat routes with a deliverable session", () => {
       }),
       mediaRoot: "/media-root",
       delivery: {
-        access:
-          opts.access ??
-          (async () => ({ mode: "live" as const })),
+        access: opts.access ?? (async () => ({ mode: "live" as const })),
         inject: async (id: string, _sessionName: string, prompt: string) => {
           if (opts.gate) await opts.gate;
           prompts.push({ agentId: id, prompt });
