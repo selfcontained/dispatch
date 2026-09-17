@@ -148,8 +148,8 @@ async function handleHarvestTokens(
   if (!agent) {
     return reply.code(404).send({ error: "Agent not found" });
   }
-  await deps.agentManager.harvestAgentTokens(agent);
-  return { ok: true };
+  // Token usage arrives with the ACP stream; there is nothing to harvest.
+  return { ok: true, agentId: agent.id };
 }
 
 export async function registerActivityTokenRoutes(

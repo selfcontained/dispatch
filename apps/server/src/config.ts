@@ -1,10 +1,12 @@
 import "dotenv/config";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
+import {
+  resolveConfiguredPath,
+  resolveTilde,
+} from "./shared/lib/resolve-tilde.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,8 +25,13 @@ export type AppConfig = {
   codexBin: string;
   claudeBin: string;
   opencodeBin: string;
-  cursorBin: string;
-  agentRuntime: "tmux" | "inert";
+  /** The Claude engine's ACP adapter (`claude-agent-acp`). */
+  claudeAdapterBin: string;
+  /** The Codex engine's ACP adapter (`codex-acp`). */
+  codexAdapterBin: string;
+  /** Per-agent host state (launch file, socket, journal, log). */
+  agentStateRoot: string;
+  agentRuntime: "acp" | "inert";
   sessionPrefix: string;
   tls: TlsConfig | null;
 };
@@ -52,26 +59,22 @@ function loadTls(): TlsConfig | null {
   };
 }
 
-function resolveAgentRuntime(): "tmux" | "inert" {
+function resolveAgentRuntime(): "acp" | "inert" {
   const env = process.env.DISPATCH_AGENT_RUNTIME;
-  if (env === "tmux") return "tmux";
   if (env === "inert") return "inert";
-  if (env) {
-    console.warn(
-      `Unknown DISPATCH_AGENT_RUNTIME="${env}", falling back to auto-detection`
-    );
+  if (env && env !== "acp" && env !== "tmux") {
+    console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", using acp`);
   }
-  // No explicit setting — default to tmux if it's available on PATH
-  try {
-    execSync("command -v tmux", { stdio: "ignore" });
-    console.log("Agent runtime auto-detected: tmux");
-    return "tmux";
-  } catch {
-    console.warn(
-      "tmux not found on PATH — agent runtime set to inert (agents will not execute)"
-    );
-    return "inert";
-  }
+  return "acp";
+}
+
+/**
+ * An executable read from configuration. A bare command name is left as
+ * written (the host looks it up on PATH); anything naming a path gets its
+ * leading `~` expanded, the way every other configured path does.
+ */
+function resolveConfiguredBin(value: string): string {
+  return value.includes("/") ? resolveTilde(value) : value;
 }
 
 export function loadConfig(): AppConfig {
@@ -92,8 +95,24 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
-    cursorBin:
-      process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
+    claudeAdapterBin: resolveConfiguredBin(
+      process.env.DISPATCH_CLAUDE_ADAPTER_BIN ?? "claude-agent-acp"
+    ),
+    codexAdapterBin: resolveConfiguredBin(
+      process.env.DISPATCH_CODEX_ADAPTER_BIN ?? "codex-acp"
+    ),
+    agentStateRoot: resolveConfiguredPath(
+      process.env.DISPATCH_AGENT_STATE_ROOT ??
+        path.join(
+          path.dirname(
+            resolveConfiguredPath(
+              process.env.MEDIA_ROOT ??
+                path.join(os.homedir(), ".dispatch", "media")
+            )
+          ),
+          "agents"
+        )
+    ),
     agentRuntime: resolveAgentRuntime(),
     sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),

@@ -24,13 +24,13 @@ export type ArchiveDeps = {
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
-  harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
     status: AgentStatus,
-    lastError: string | null,
-    tmuxSession?: string
+    lastError: string | null
   ) => Promise<void>;
+  /** Settle stream rows the stopped host left open. */
+  settleStream: (id: string) => Promise<number>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
 };
 
@@ -261,17 +261,8 @@ export async function executeArchive(
           "Stop hook failed during archive; continuing"
         )
       );
-      if (agent.tmuxSession && (await runtime.hasSession(agent.tmuxSession))) {
-        await runtime.stopSession(agent.tmuxSession, true);
-      }
-      deps
-        .harvestAgentTokens(agent)
-        .catch((err) =>
-          logger.warn(
-            { err, agentId: id },
-            "Token harvest failed during archive"
-          )
-        );
+      await runtime.stop(id, true);
+      await deps.settleStream(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -391,9 +382,6 @@ export async function deleteAgentDirect(
   const deleteStart = Date.now();
   const durations: Record<string, number> = {};
   const agent = await deps.getRequiredAgent(id);
-  const sessionExists = agent.tmuxSession
-    ? await runtime.hasSession(agent.tmuxSession)
-    : false;
 
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
@@ -423,17 +411,8 @@ export async function deleteAgentDirect(
           "Stop hook failed during delete; continuing"
         )
       );
-      if (agent.tmuxSession && sessionExists) {
-        await runtime.stopSession(agent.tmuxSession, true);
-      }
-      deps
-        .harvestAgentTokens(agent)
-        .catch((err) =>
-          logger.warn(
-            { err, agentId: id },
-            "Token harvest failed during delete"
-          )
-        );
+      await runtime.stop(id, true);
+      await deps.settleStream(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },

@@ -1,6 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
 
-import type { ActivityMonitor } from "../agents/activity-monitor.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { StreamManager } from "../stream-manager.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
@@ -12,13 +11,11 @@ type CreateAgentLifecycleRuntimeDeps = {
   streamManager: StreamManager;
   appLog: FastifyBaseLogger;
   reconcileIntervalMs: number;
-  activityMonitor?: ActivityMonitor;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
   ) => T & { hasStream: boolean };
   publishUiEvent: PublishUiEvent;
   reconciliationTracker?: SubsystemTracker;
-  activityTracker?: SubsystemTracker;
   onAgentsArchived?: (agentIds: string[]) => Promise<void>;
 };
 
@@ -30,7 +27,6 @@ export function createAgentLifecycleRuntime(
     streamManager,
     appLog,
     reconcileIntervalMs,
-    activityMonitor,
     withStreamFlag,
     publishUiEvent,
   } = deps;
@@ -201,19 +197,6 @@ export function createAgentLifecycleRuntime(
       } catch (error) {
         reconciliationRun?.fail(error);
         appLog.warn({ err: error }, "Agent status reconciliation failed.");
-      }
-
-      // Activity monitor: compare self-reported status against tmux pane
-      // activity and auto-correct mismatches (runs on the same cadence).
-      if (activityMonitor) {
-        const activityRun = deps.activityTracker?.start();
-        try {
-          const result = await activityMonitor.check();
-          activityRun?.succeed(result);
-        } catch (error) {
-          activityRun?.fail(error);
-          appLog.warn({ err: error }, "Activity monitor check failed.");
-        }
       }
     },
 

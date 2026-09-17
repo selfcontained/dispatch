@@ -2,7 +2,6 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
-import { CLI_BY_AGENT_TYPE } from "../agents/tmux/command-builder.js";
 import type { AppConfig } from "../config.js";
 import {
   createPluginStatusChecker,
@@ -22,7 +21,8 @@ export async function registerPluginRoutes(
   deps: PluginRouteDeps
 ): Promise<void> {
   const checker: PluginStatusChecker = createPluginStatusChecker({
-    binFor: (agentType) => deps.config[CLI_BY_AGENT_TYPE[agentType]],
+    binFor: (agentType) =>
+      agentType === "claude" ? deps.config.claudeBin : deps.config.codexBin,
     logger: deps.appLog,
   });
 

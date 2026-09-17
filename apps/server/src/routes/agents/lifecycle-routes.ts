@@ -9,7 +9,7 @@ import {
   isAgentLatestEventType,
 } from "../../agents/latest-event.js";
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
-import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
+import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
@@ -111,25 +111,6 @@ export async function registerAgentLifecycleRoutes(
     return { agent };
   });
 
-  app.post("/api/v1/agents/:id/setup/error", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as { message?: unknown };
-    const id = params.id ?? "";
-    const message =
-      typeof body?.message === "string" ? body.message : "Setup failed.";
-
-    try {
-      const agent = await deps.agentManager.markSetupFailed(id, message);
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(agent),
-      });
-      return { ok: true };
-    } catch (error) {
-      return deps.handleAgentError(reply, error);
-    }
-  });
-
   app.post("/api/v1/agents/:id/setup/phase", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as { phase?: unknown };
@@ -160,31 +141,12 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
-  app.post("/api/v1/agents/:id/setup/complete", async (request, reply) => {
+  app.post("/api/v1/agents/:id/runtime/cancel", async (request, reply) => {
     const params = request.params as { id?: string };
-    const body = request.body as {
-      effectiveCwd?: unknown;
-      worktreePath?: unknown;
-      worktreeBranch?: unknown;
-    };
     const id = params.id ?? "";
-
-    if (typeof body?.effectiveCwd !== "string") {
-      return reply.code(400).send({ error: "effectiveCwd must be a string." });
-    }
-
     try {
-      const agent = await deps.agentManager.completeSetup(id, {
-        effectiveCwd: body.effectiveCwd,
-        worktreePath:
-          typeof body.worktreePath === "string" ? body.worktreePath : null,
-        worktreeBranch:
-          typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
-      });
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(agent),
-      });
+      await deps.agentManager.getTerminalAccess(id);
+      await deps.agentManager.cancelTurn(id);
       return { ok: true };
     } catch (error) {
       return deps.handleAgentError(reply, error);

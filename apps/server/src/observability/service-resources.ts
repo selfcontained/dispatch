@@ -66,15 +66,11 @@ export type WorkloadSnapshot = {
   sseClients: number;
   streams: number;
   streamViewers: number;
-  terminalObservers: number;
-  terminalViewers: number;
   scheduledJobs: number;
   jobMonitors: number;
   gitRefreshesInFlight: number;
   uiEventsPublished: number;
   uiWriteFailures: number;
-  terminalPolls: number;
-  terminalPollFailures: number;
 };
 
 export type ServiceResourcesDeps = {
@@ -235,15 +231,9 @@ export class ServiceResources {
   private previousOwnerCounters: {
     uiEventsPublished: number;
     uiWriteFailures: number;
-    terminalPolls: number;
-    terminalPollFailures: number;
-  } | null = null;
+      } | null = null;
   private ownerHealth = {
     uiEvents: {
-      lastSucceededAt: null as number | null,
-      lastFailedAt: null as number | null,
-    },
-    terminalObservers: {
       lastSucceededAt: null as number | null,
       lastFailedAt: null as number | null,
     },
@@ -530,23 +520,6 @@ export class ServiceResources {
           clients: workloads.sseClients,
           eventsPublished: workloads.uiEventsPublished,
           writeFailures: workloads.uiWriteFailures,
-        },
-      }),
-      operationalSubsystem({
-        id: "terminal-observers",
-        label: "Terminal observers",
-        description: "Viewer-driven terminal copy-mode observation.",
-        state: ownerSubsystemState({
-          active: workloads.terminalObservers,
-          ...this.ownerHealth.terminalObservers,
-        }),
-        runs: workloads.terminalPolls,
-        failures: workloads.terminalPollFailures,
-        metadata: {
-          observers: workloads.terminalObservers,
-          viewers: workloads.terminalViewers,
-          polls: workloads.terminalPolls,
-          pollFailures: workloads.terminalPollFailures,
         },
       }),
     ];
@@ -937,25 +910,10 @@ export class ServiceResources {
         this.ownerHealth.uiEvents.lastSucceededAt = now;
       }
 
-      const polls = Math.max(
-        0,
-        workloads.terminalPolls - previous.terminalPolls
-      );
-      const pollFailures = Math.max(
-        0,
-        workloads.terminalPollFailures - previous.terminalPollFailures
-      );
-      if (pollFailures > 0) {
-        this.ownerHealth.terminalObservers.lastFailedAt = now;
-      } else if (polls > 0) {
-        this.ownerHealth.terminalObservers.lastSucceededAt = now;
-      }
     }
     this.previousOwnerCounters = {
       uiEventsPublished: workloads.uiEventsPublished,
       uiWriteFailures: workloads.uiWriteFailures,
-      terminalPolls: workloads.terminalPolls,
-      terminalPollFailures: workloads.terminalPollFailures,
     };
   }
 

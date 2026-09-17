@@ -21,8 +21,6 @@ import {
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../shared/media.js";
-import type { InjectionCoordinator } from "../terminal/injection-coordinator.js";
-import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
 import { writeImageToClipboard } from "../shared/lib/clipboard-write.js";
 import { runCommand } from "../shared/lib/run-command.js";
@@ -97,7 +95,6 @@ type MediaRouteDeps = {
   agentManager: AgentManager;
   appLog: FastifyBaseLogger;
   publishUiEvent: PublishUiEvent;
-  injectionCoordinator: InjectionCoordinator;
 };
 
 export async function registerMediaRoutes(
@@ -363,72 +360,9 @@ export async function registerMediaRoutes(
 
     deps.publishUiEvent({ type: "media.changed", agentId: id });
 
-    const injectField = (data.fields.inject as { value?: string } | undefined)
-      ?.value;
-    const shouldInject = injectField === "true";
-    let delivery: "none" | "clipboard" | "path" = "none";
-
-    if (shouldInject) {
-      const mediaPath = path.join(mediaDir, timestampedFileName);
-      const isImage = /\.(png|jpe?g|gif|webp)$/i.test(timestampedFileName);
-      let clipboardOk = false;
-
-      // For images, try the native clipboard path first
-      if (isImage && hostClipboardImageCapable()) {
-        try {
-          const access = await deps.agentManager.getTerminalAccess(id);
-          if (access.mode === "tmux") {
-            // User-initiated: serialize against active pane writes but skip
-            // the quiet gate — the upload is the user acting. The clipboard
-            // write happens inside the queued task so the host clipboard and
-            // the C-v paste stay adjacent (no window for another writer to
-            // replace the clipboard between them).
-            await deps.injectionCoordinator.inject(
-              id,
-              async () => {
-                await writeImageToClipboard(buffer, data.mimetype);
-                await runCommand("tmux", [
-                  "send-keys",
-                  "-t",
-                  access.sessionName,
-                  "C-v",
-                ]);
-              },
-              { gate: false }
-            );
-            clipboardOk = true;
-            delivery = "clipboard";
-          }
-        } catch (err) {
-          deps.appLog.warn(
-            { err, agentId: id },
-            "Clipboard paste failed; falling back to path injection"
-          );
-        }
-      }
-
-      // Path-based injection: type [File #N] <path> into tmux
-      if (!clipboardOk) {
-        try {
-          const access = await deps.agentManager.getTerminalAccess(id);
-          if (access.mode === "tmux") {
-            const seq = nextFileSeq(id);
-            const terminal = new TmuxTerminal(access.sessionName);
-            await deps.injectionCoordinator.inject(
-              id,
-              () => terminal.pasteText(`[File #${seq}] ${mediaPath} `),
-              { gate: false }
-            );
-            delivery = "path";
-          }
-        } catch (err) {
-          deps.appLog.warn(
-            { err, agentId: id },
-            "Terminal path injection failed"
-          );
-        }
-      }
-    }
+    // Uploads no longer type into a pane; the agent reads shared media
+    // through its tools, and Chat attachments carry the reference.
+    const delivery: "none" = "none";
 
     return reply.code(201).send({
       ok: true,

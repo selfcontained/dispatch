@@ -4,12 +4,6 @@ import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
-import type {
-  CopyModeObserverManager,
-  TerminalUiState,
-} from "../../terminal/copy-mode-observer.js";
-import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
-import type { InjectionCoordinator } from "../../terminal/injection-coordinator.js";
 import type { ChatService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
 
@@ -42,11 +36,6 @@ export type AgentRouteDeps = {
     agentId: string,
     stream: NodeJS.WritableStream
   ) => () => void;
-  issueTerminalToken: (agentId: string) => string;
-  consumeTerminalToken: (agentId: string, token: string) => boolean;
-  copyModeObserverManager: CopyModeObserverManager;
-  copyModeAssistManager: CopyModeAssistManager;
-  injectionCoordinator: InjectionCoordinator;
   diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;

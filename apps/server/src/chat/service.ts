@@ -32,6 +32,7 @@ import {
   formatAttachmentSize,
 } from "./envelope.js";
 import { loadChatMessageEntry } from "./feed.js";
+import { loadLatestTurnEntry } from "./turns.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -100,6 +101,13 @@ export type ChatServiceDeps = {
    * resolution `GET /media/:file` serves from.
    */
   mediaRoot: string;
+  /**
+   * Whether any browser is listening. Composing a turn entry reads the whole
+   * open turn and the recorder asks for one about ten times a second, so an
+   * unattended agent would pay for an announcement nobody receives. Absent
+   * means assume someone is listening.
+   */
+  hasUiClient?: () => boolean;
   /** Required for the user-side workflows (send, answer). */
   delivery?: ChatDeliveryAdapter;
   log?: {
@@ -270,10 +278,14 @@ export function validateChatContent(input: {
   }
 }
 
+/** One agent's in-flight turn compose, and whether another is owed after it. */
+type TurnPublish = { done: Promise<void>; again: boolean };
+
 export class ChatService {
   readonly store: ChatStore;
   /** Detached pane deliveries that have not recorded their outcome yet. */
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
+  private readonly turnPublishes = new Map<string, TurnPublish>();
   private readonly log: NonNullable<ChatServiceDeps["log"]>;
 
   constructor(private readonly deps: ChatServiceDeps) {
@@ -627,7 +639,7 @@ export class ChatService {
     allowInert: boolean
   ): Promise<string | null> {
     const access = await this.delivery().access(agentId);
-    if (access.mode === "tmux") return access.sessionName;
+    if (access.mode === "live") return "live";
     if (!allowInert) throw new ChatConflictError(access.message);
     return null;
   }
@@ -815,6 +827,51 @@ export class ChatService {
    */
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /**
+   * The agent's newest turn as the feed row it now is, so a mounted feed
+   * replaces that one row instead of refetching every page it holds. The
+   * newest turn is always the affected one: the recorder only ever writes
+   * into the turn it opened last. Never rejects: a stream write must not
+   * fail because its announcement did. One compose per agent at a time,
+   * with a single trailing re-run, so an older read can never land over a
+   * newer one.
+   */
+  async publishTurnEntry(agentId: string): Promise<void> {
+    if (this.deps.hasUiClient && !this.deps.hasUiClient()) return;
+    const running = this.turnPublishes.get(agentId);
+    if (running) {
+      running.again = true;
+      return running.done;
+    }
+    const state: TurnPublish = { done: Promise.resolve(), again: false };
+    this.turnPublishes.set(agentId, state);
+    state.done = (async () => {
+      try {
+        do {
+          state.again = false;
+          await this.composeTurnEntry(agentId);
+        } while (state.again);
+      } finally {
+        this.turnPublishes.delete(agentId);
+      }
+    })();
+    return state.done;
+  }
+
+  private async composeTurnEntry(agentId: string): Promise<void> {
+    try {
+      const entry = await loadLatestTurnEntry(this.store.db, agentId);
+      if (entry) {
+        this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+      }
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId },
+        "chat: could not compose the turn for its feed event"
+      );
+    }
   }
 
   /** A mark-read landed: the count, and which rows it stamped. */

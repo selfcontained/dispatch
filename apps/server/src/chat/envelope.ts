@@ -81,7 +81,7 @@ export function buildChatEnvelope(
     `--- DISPATCH CHAT (id: ${messageId}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
     "--- END DISPATCH CHAT ---",
-    `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
+    `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${messageId}").`,
   ].join("\n");
 }
 

@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 
-import { shouldSuggestSessionRename } from "./tmux/session-name.js";
+import { shouldSuggestSessionRename } from "./launch-guidance.js";
 import type { AgentRecord } from "./types.js";
 
 /**

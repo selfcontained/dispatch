@@ -25,8 +25,6 @@ import {
 import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
-import { findCodexSessionId } from "./codex-sessions.js";
-import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   beginArchive as beginArchiveImpl,
@@ -62,17 +60,19 @@ import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
+  buildStartupTurn,
   type ChatLaunchPost,
-  buildAgentCommand,
-  buildLaunchGuidance,
-} from "./tmux/command-builder.js";
-import {
-  agentIdFromSessionName,
   shouldSuggestSessionRename,
-  toSessionName,
-} from "./tmux/session-name.js";
-import { generateSetupScript } from "./tmux/setup-script.js";
-import { setupAgentWorkspace } from "./workspace-prep.js";
+} from "./launch-guidance.js";
+import { prepareWorkspace } from "./workspace.js";
+import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
+import type { DriverEvent } from "./acp/driver.js";
+import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { buildLaunchEnv } from "./acp/launch-env.js";
+import { dispatchMcpUrl } from "./acp/mcp-url.js";
+import { StreamRecorder } from "./acp/stream-recorder.js";
+import { StreamStore } from "./acp/stream-store.js";
+import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
   AgentLatestEventInput,
@@ -206,7 +206,6 @@ type PreparedCreateInputs = {
   role: AgentRole;
   name: string;
   originalCwd: string;
-  tmuxSession: string;
   mediaDir: string;
   agentArgs: string[];
   model: string | undefined;
@@ -309,6 +308,11 @@ export class AgentManager {
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
+  private readonly streamStore: StreamStore;
+  private readonly streamRecorder: StreamRecorder;
+  /** Listeners told after the stream changed for an agent (coalesced). */
+  private readonly streamWriteListeners: Array<(agentId: string) => void> = [];
+  private readonly streamPublishTimers = new Map<string, NodeJS.Timeout>();
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
@@ -321,18 +325,201 @@ export class AgentManager {
     this.config = config;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
-    this.runtime = createAgentRuntime(config, logger);
+    this.streamStore = new StreamStore(pool);
+    this.streamRecorder = new StreamRecorder(this.streamStore);
+    this.runtime = createAgentRuntime(config, logger, {
+      hostSeq: async (agentId) => {
+        const result = await pool.query<{ host_seq: number }>(
+          "SELECT host_seq FROM agents WHERE id = $1",
+          [agentId]
+        );
+        return result.rows[0]?.host_seq ?? 0;
+      },
+    });
+    this.runtime.onEvent((agentId, event, seq) =>
+      this.handleRuntimeEvent(agentId, event, seq)
+    );
     this.reconciler = createReconciler({
       pool,
       logger,
       runtime: this.runtime,
       diagnostics: this.diagnostics,
-      sessionPrefix: config.sessionPrefix,
       getAgent: (id) => this.getAgent(id),
-      setAgentStatus: (id, status, lastError, tmuxSession) =>
-        this.setAgentStatus(id, status, lastError, tmuxSession),
+      setAgentStatus: (id, status, lastError) =>
+        this.setAgentStatus(id, status, lastError),
       setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
+      settleStream: (id, reason) => this.streamStore.settleInterrupted(id, reason),
     });
+  }
+
+  /** Register a callback told, coalesced, whenever an agent's stream changed. */
+  onStreamWrite(listener: (agentId: string) => void): void {
+    this.streamWriteListeners.push(listener);
+  }
+
+  private notifyStreamWrite(agentId: string, immediate: boolean): void {
+    const fire = () => {
+      this.streamPublishTimers.delete(agentId);
+      for (const listener of this.streamWriteListeners) {
+        try {
+          listener(agentId);
+        } catch (err) {
+          this.logger.warn({ err, agentId }, "stream write listener failed");
+        }
+      }
+    };
+    const pending = this.streamPublishTimers.get(agentId);
+    if (immediate) {
+      if (pending) clearTimeout(pending);
+      fire();
+      return;
+    }
+    if (pending) return;
+    const timer = setTimeout(fire, 100);
+    timer.unref?.();
+    this.streamPublishTimers.set(agentId, timer);
+  }
+
+  /**
+   * One event from an agent's host, in seq order. Folded into the stream
+   * rows, then the replay watermark moves; seq 0 is an event the runtime
+   * made up for a host that vanished and never moves the watermark.
+   */
+  private async handleRuntimeEvent(
+    agentId: string,
+    event: DriverEvent,
+    seq: number
+  ): Promise<void> {
+    await this.streamRecorder.handle(event);
+    if (seq > 0) {
+      await this.pool.query(
+        "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
+        [agentId, seq]
+      );
+    }
+    if (event.type === "exit" && !event.expected) {
+      const how =
+        event.code === null
+          ? event.signal
+            ? `on signal ${event.signal}`
+            : "unexpectedly"
+          : `with code ${event.code}`;
+      const tail = event.stderrTail ? `: ${event.stderrTail}` : "";
+      await this.markHostExited(agentId, `The agent exited ${how}${tail}`);
+    }
+    this.notifyStreamWrite(
+      agentId,
+      event.type === "turn" || event.type === "exit"
+    );
+  }
+
+  /** The engine or its host died on its own: the agent cannot stay running. */
+  private async markHostExited(agentId: string, message: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent || agent.status !== "running") return;
+    await this.setAgentStatus(agentId, "error", message.slice(0, 1000));
+    await this.setSystemLatestEvent(agentId, {
+      type: "blocked",
+      message: message.slice(0, 200),
+      metadata: { source: "system", phase: "exit" },
+    });
+    this.eventBus.publish(await this.getRequiredAgent(agentId));
+  }
+
+  /**
+   * Where a prompt for this agent goes. `live` when its host is up; `inert`
+   * when the runtime has no processes at all (e2e), which callers treat as
+   * "record it, nothing to deliver to".
+   */
+  async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
+    const agent = await this.getRequiredAgent(id);
+    if (agent.status !== "running" && agent.status !== "creating") {
+      throw new AgentError("Agent is not running.", 409);
+    }
+    if (!this.runtime.tracksProcesses()) {
+      return {
+        mode: "inert",
+        message:
+          "Agent is running in inert mode. No engine process is attached in this environment.",
+      };
+    }
+    if (!(await this.runtime.isAlive(id))) {
+      await this.setAgentStatus(id, "stopped", "The agent host is no longer running.");
+      throw new AgentError(
+        "Agent session is not available. Start the agent again.",
+        409
+      );
+    }
+    return { mode: "live" };
+  }
+
+  /** Queue one turn; see AgentRuntime.prompt. */
+  promptAgent(
+    id: string,
+    text: string
+  ): { accepted: Promise<void>; settled: Promise<void> } {
+    return this.runtime.prompt(id, text);
+  }
+
+  /** A turn is running or prompts are waiting behind one. */
+  isPromptHeld(id: string): boolean {
+    return this.runtime.isBusy(id);
+  }
+
+  /** Cancel the running turn (Stop). */
+  async cancelTurn(id: string): Promise<void> {
+    await this.runtime.cancel(id);
+  }
+
+  private sendPromptDetached(id: string, text: string, what: string): void {
+    const { accepted, settled } = this.runtime.prompt(id, text);
+    accepted.catch((err: unknown) =>
+      this.logger.warn({ err, agentId: id }, `${what} was not accepted`)
+    );
+    settled.catch((err: unknown) =>
+      this.logger.warn({ err, agentId: id }, `${what} failed`)
+    );
+  }
+
+  /**
+   * At boot: reconnect to every host that outlived the last server process.
+   * An agent whose host is gone is marked stopped rather than left "running"
+   * with nothing behind it.
+   */
+  async restoreRunningAgents(): Promise<{ attached: string[]; lost: string[] }> {
+    const attached: string[] = [];
+    const lost: string[] = [];
+    const result = await this.pool.query<{ id: string; cwd: string }>(
+      `SELECT id, cwd FROM agents
+        WHERE status IN ('running', 'creating') AND deleted_at IS NULL
+        ORDER BY created_at`
+    );
+    for (const row of result.rows) {
+      this.streamRecorder.setCwd(row.id, row.cwd);
+      if (await this.runtime.attach(row.id)) {
+        attached.push(row.id);
+        continue;
+      }
+      lost.push(row.id);
+      await this.streamStore.settleInterrupted(
+        row.id,
+        "the agent was not running when Dispatch restarted"
+      );
+      await this.setAgentStatus(
+        row.id,
+        "stopped",
+        "The agent host was not running when Dispatch restarted."
+      );
+      await this.setSystemLatestEvent(row.id, {
+        type: "idle",
+        message: "Session ended while Dispatch was down.",
+        metadata: { source: "system" },
+      });
+    }
+    if (attached.length || lost.length) {
+      this.logger.info({ attached, lost }, "Restored running agents");
+    }
+    return { attached, lost };
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -454,26 +641,6 @@ export class AgentManager {
     );
   }
 
-  /** Harvest token usage for an agent, scoped to its CLI session if known. */
-  async harvestAgentTokens(agent: AgentRecord): Promise<void> {
-    // Inert runtimes never launch CLI sessions, so there cannot be new token
-    // usage to collect. Skipping also keeps inert dev/test servers from
-    // scanning session history that belongs to the host environment.
-    if (!this.runtime.tracksSessions()) return;
-
-    await harvestTokenUsage(
-      this.pool,
-      {
-        id: agent.id,
-        type: agent.type,
-        cwd: agent.cwd,
-        worktreePath: agent.worktreePath,
-        cliSessionId: agent.cliSessionId ?? undefined,
-      },
-      this.logger
-    );
-  }
-
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
@@ -506,30 +673,19 @@ export class AgentManager {
         throw error;
       }
     }
-    // Whether the CLI's first turn will be wrapped decides how much of the
-    // Chat work is on the launch's critical path. Only a launch that will
-    // actually carry an envelope waits for the post — a launch with the flag
-    // off, a job run, a terminal agent or an inert runtime keeps the round-4
-    // shape, where the whole thing runs alongside the runtime start and is
-    // waited on (bounded) only after it. The flags are read once here and
-    // handed to the command builder, so the unwrapped paths add no query.
-    const inertRuntime = this.config.agentRuntime === "inert";
-    // This read is on the create path ahead of the launch's own try/catch, so
-    // a rejecting settings query would otherwise leave the row stuck in
+    // The settings read is on the create path ahead of the launch's own
+    // try/catch, so a rejecting query would otherwise leave the row stuck in
     // `creating`. Route it through the same failure handling the launch uses.
-    const launchGuidanceFlags =
-      input.jobRunId || inertRuntime
-        ? { trimmedGuidance: false, chatSurface: false }
-        : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
-            this.failCreate(p.id, error)
-          );
-    // Terminal sessions have no CLI to chat with, so they get no post at all.
-    const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
-    const wantsEnvelope =
-      recorder !== null &&
-      launchGuidanceFlags.chatSurface &&
-      !input.jobRunId &&
-      !inertRuntime;
+    const launchGuidanceFlags = input.jobRunId
+      ? { trimmedGuidance: false, chatSurface: false }
+      : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
+          this.failCreate(p.id, error)
+        );
+    // The launch post is the first turn's envelope, so a launch that carries
+    // a prompt waits for the post to be durable before the engine starts.
+    // Job runs keep Chat quiet; their prompt goes as the first turn as-is.
+    const recorder = this.launchContextRecorder;
+    const wantsEnvelope = recorder !== null && !input.jobRunId;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
       ? this.launchContextInput(p, input, initialMedia, launchPostId)
@@ -553,47 +709,22 @@ export class AgentManager {
       }
     }
 
-    if (inertRuntime) {
-      await this.launchInertAgent({
-        id: p.id,
-        type: p.type,
-        name: p.name,
-        originalCwd: p.originalCwd,
-        useWorktree: p.useWorktree,
-        createNewBranch: p.createNewBranch,
-        worktreeBranchName: p.worktreeBranchName,
-        normalizedBaseBranch: p.normalizedBaseBranch,
-        worktreePathOverride: p.worktreePathOverride,
-      });
-    } else {
-      await this.launchWithSetupScript({
-        id: p.id,
-        type: p.type,
-        role: p.role,
-        name: p.name,
-        originalCwd: p.originalCwd,
-        tmuxSession: p.tmuxSession,
-        mediaDir: p.mediaDir,
-        agentArgs: p.agentArgs,
-        model: p.model,
-        fullAccess: p.fullAccess,
-        useWorktree: p.useWorktree,
-        createNewBranch: p.createNewBranch,
-        worktreeBranchName: p.worktreeBranchName,
-        normalizedBaseBranch: p.normalizedBaseBranch,
-        worktreePathOverride: p.worktreePathOverride,
-        cliSessionId: p.cliSessionId,
-        initialPrompt: input.initialPrompt,
-        initialPins: p.initialPins,
-        initialMedia,
-        chatLaunchPost,
-        launchGuidanceFlags,
-        persona: input.persona,
-        jobRunId: input.jobRunId,
-        templateId: input.templateId,
-        autoReview: input.autoReview ?? false,
-      });
-    }
+    await this.launchAgent({
+      id: p.id,
+      name: p.name,
+      originalCwd: p.originalCwd,
+      useWorktree: p.useWorktree,
+      createNewBranch: p.createNewBranch,
+      worktreeBranchName: p.worktreeBranchName,
+      normalizedBaseBranch: p.normalizedBaseBranch,
+      worktreePathOverride: p.worktreePathOverride,
+      initialPrompt: input.initialPrompt,
+      initialPins: p.initialPins,
+      initialMedia,
+      chatLaunchPost,
+      launchGuidanceFlags,
+      jobRunId: input.jobRunId,
+    });
 
     await launchContextWrite;
     return (await this.getAgent(p.id)) as AgentRecord;
@@ -755,7 +886,6 @@ export class AgentManager {
         ? Array.from(new Set([...(input.agentArgs ?? []), fullAccessArg]))
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
-    const tmuxSession = toSessionName(this.config.sessionPrefix, id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
     // Cap + de-dup pins so the create endpoint can't bypass the upsertPin
@@ -819,8 +949,9 @@ export class AgentManager {
       }
     }
 
-    const cliSessionId =
-      input.cliSessionId ?? (type === "claude" ? randomUUID() : null);
+    // The engine mints the ACP session id at launch; a caller-supplied one
+    // is a session to resume.
+    const cliSessionId = input.cliSessionId ?? null;
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
 
     return {
@@ -829,7 +960,6 @@ export class AgentManager {
       role,
       name,
       originalCwd,
-      tmuxSession,
       mediaDir,
       agentArgs,
       model: input.model,
@@ -851,8 +981,8 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW())
       `,
       [
         p.id,
@@ -860,7 +990,6 @@ export class AgentManager {
         p.type,
         p.role,
         p.originalCwd,
-        p.tmuxSession,
         p.mediaDir,
         JSON.stringify(p.agentArgs),
         p.model ?? null,
@@ -880,9 +1009,12 @@ export class AgentManager {
     );
   }
 
-  private async launchInertAgent(opts: {
+  /**
+   * Create the workspace, start the host, and send the first turn. Every
+   * rejection lands in `failCreate` so the row never sticks in `creating`.
+   */
+  private async launchAgent(opts: {
     id: string;
-    type: AgentType;
     name: string;
     originalCwd: string;
     useWorktree: boolean;
@@ -890,173 +1022,148 @@ export class AgentManager {
     worktreeBranchName: string | undefined;
     normalizedBaseBranch: string | undefined;
     worktreePathOverride: string | undefined;
-  }): Promise<void> {
-    const { id, type, name, originalCwd, useWorktree, createNewBranch } = opts;
-    let effectiveCwd = originalCwd;
-    let worktreePath: string | null = null;
-    let worktreeBranch: string | null = null;
-
-    if (useWorktree && opts.worktreeBranchName) {
-      try {
-        const result = await createGitWorktree({
-          cwd: originalCwd,
-          name,
-          branchName: createNewBranch ? opts.worktreeBranchName : undefined,
-          baseBranch: opts.normalizedBaseBranch,
-          worktreePath: opts.worktreePathOverride,
-          createNewBranch,
-        });
-        worktreePath = result.worktreePath;
-        worktreeBranch = result.branchName;
-        effectiveCwd = result.worktreePath;
-        this.logger.info(
-          { agentId: id, worktreePath, worktreeBranch },
-          "Created worktree for inert agent."
-        );
-        await setupAgentWorkspace(originalCwd, worktreePath, this.logger);
-      } catch (error) {
-        const message = errorMessage(error);
-        const lastError = `Worktree creation failed: ${message}`;
-        this.logger.warn(
-          { err: error, agentId: id },
-          "Worktree creation failed for inert agent."
-        );
-        await this.setAgentStatus(id, "stopped", lastError);
-        await this.setSystemLatestEvent(id, {
-          type: "blocked",
-          message: lastError,
-        });
-        if (error instanceof GitWorktreeError) {
-          throw new AgentError(lastError, error.statusCode);
-        }
-        throw new AgentError(lastError, 500);
-      }
-    }
-
-    await this.pool.query(
-      `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
-      [id, effectiveCwd, worktreePath, worktreeBranch]
-    );
-    await this.populateGitContext(id);
-    await this.setSystemLatestEvent(
-      id,
-      type === "terminal"
-        ? { type: "idle", message: "Terminal session started." }
-        : { type: "idle", message: "Session started." }
-    );
-  }
-
-  private async launchWithSetupScript(opts: {
-    id: string;
-    type: AgentType;
-    role: AgentRole;
-    name: string;
-    originalCwd: string;
-    tmuxSession: string;
-    mediaDir: string;
-    agentArgs: string[];
-    model: string | undefined;
-    fullAccess: boolean;
-    useWorktree: boolean;
-    createNewBranch: boolean;
-    worktreeBranchName: string | undefined;
-    normalizedBaseBranch: string | undefined;
-    worktreePathOverride: string | undefined;
-    cliSessionId: string | null;
     initialPrompt: string | undefined;
     initialPins: AgentPin[];
     initialMedia: SeededMedia[];
     chatLaunchPost: ChatLaunchPost | null;
-    /**
-     * Read once in `createAgent` — the same read that decided whether this
-     * launch waits for its Chat post — so the settings are not queried twice
-     * per launch and the two decisions can never disagree.
-     */
     launchGuidanceFlags: { trimmedGuidance: boolean; chatSurface: boolean };
-    persona: string | undefined;
     jobRunId: string | undefined;
-    templateId: string | undefined;
-    autoReview: boolean;
   }): Promise<void> {
-    const {
-      id,
-      type,
-      role,
-      name,
-      originalCwd,
-      tmuxSession,
-      mediaDir,
-      agentArgs,
-      model,
-      fullAccess,
-      useWorktree,
-      createNewBranch,
-      cliSessionId,
-      initialPrompt,
-      initialPins,
-      initialMedia,
-      chatLaunchPost,
-    } = opts;
-
+    const { id } = opts;
     try {
-      await this.runtime.ensureNoExistingSession(tmuxSession);
-
-      const personality =
-        opts.persona || opts.jobRunId || role === "assisted_update"
-          ? null
-          : await getActivePersonality(this.pool);
-      const { trimmedGuidance, chatSurface } = opts.launchGuidanceFlags;
-
-      const agentCommand = buildAgentCommand(
-        this.config,
-        type,
-        role,
-        agentArgs,
-        mediaDir,
-        tmuxSession,
-        fullAccess,
+      const workspace = await prepareWorkspace(
         {
-          cliSessionId: cliSessionId ?? undefined,
-          jobRunId: opts.jobRunId,
-          suggestSessionRename: shouldSuggestSessionRename(name, id, {
-            persona: opts.persona,
-            jobRunId: opts.jobRunId,
-          }),
-          autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
-          trimmedGuidance,
-          chatSurface,
-          initialPrompt,
-          initialPins,
-          initialMedia,
-          chatLaunchPost,
-          personalityPrompt: personality?.prompt ?? null,
-          model,
-        }
+          agentName: opts.name,
+          originalCwd: opts.originalCwd,
+          useWorktree: opts.useWorktree,
+          createNewBranch: opts.createNewBranch,
+          worktreeBranchName: opts.worktreeBranchName,
+          baseBranch: opts.normalizedBaseBranch,
+          worktreePathOverride: opts.worktreePathOverride,
+          onPhase: (phase) => this.setSetupPhase(id, phase),
+        },
+        this.logger
       );
-
-      const setupScript = generateSetupScript(this.config, {
-        agentId: id,
-        agentType: type,
-        originalCwd,
-        useWorktree,
-        createNewBranch,
-        worktreeBranchName: opts.worktreeBranchName,
-        baseBranch: opts.normalizedBaseBranch,
-        worktreePathOverride: opts.worktreePathOverride,
-        agentName: name,
-        agentCommand,
+      await this.pool.query(
+        `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4, updated_at = NOW() WHERE id = $1`,
+        [
+          id,
+          workspace.effectiveCwd,
+          workspace.worktreePath,
+          workspace.worktreeBranch,
+        ]
+      );
+      const agent = await this.getRequiredAgent(id);
+      const { sessionId } = await this.startHost(agent, {
+        resumeSessionId: null,
         jobRunId: opts.jobRunId,
+        trimmedGuidance: opts.launchGuidanceFlags.trimmedGuidance,
       });
-
-      await this.runtime.launch({
-        sessionName: tmuxSession,
-        cwd: originalCwd,
-        agentId: id,
-        payload: { kind: "setup-script", scriptContent: setupScript },
+      await this.pool.query(
+        `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
+        [id, sessionId]
+      );
+      await this.populateGitContext(id);
+      await this.setSystemLatestEvent(id, {
+        type: "idle",
+        message: "Session started.",
       });
+      const firstTurn = buildStartupTurn(
+        {
+          initialPrompt: opts.initialPrompt,
+          initialPins: opts.initialPins,
+          initialMedia: opts.initialMedia,
+          chatLaunchPost: opts.chatLaunchPost,
+        },
+        { chatSurface: true, jobRunId: opts.jobRunId }
+      );
+      if (firstTurn) this.sendPromptDetached(id, firstTurn, "first turn");
     } catch (error) {
+      if (error instanceof GitWorktreeError) {
+        const lastError = `Worktree creation failed: ${error.message}`;
+        await this.setAgentStatus(id, "stopped", lastError);
+        await this.setSetupPhase(id, null);
+        await this.setSystemLatestEvent(id, { type: "blocked", message: lastError });
+        throw new AgentError(lastError, error.statusCode);
+      }
       await this.failCreate(id, error);
     }
+  }
+
+  /**
+   * Start (or resume) the agent's host. Builds everything the engine needs
+   * (system prompt, MCP credentials, environment) from the agent record and
+   * the settings, and hands it to the runtime.
+   */
+  private async startHost(
+    agent: AgentRecord,
+    opts: {
+      resumeSessionId: string | null;
+      jobRunId: string | undefined;
+      trimmedGuidance?: boolean;
+    }
+  ): Promise<{ sessionId: string; resumed: boolean }> {
+    if (!isAcpEngine(agent.type)) {
+      throw new AgentError(
+        `Agent type "${agent.type}" is not supported by the ACP runtime.`,
+        400
+      );
+    }
+    const mediaDir = resolveMediaDir(
+      agent.id,
+      agent.mediaDir,
+      this.config.mediaRoot
+    );
+    await mkdir(mediaDir, { recursive: true });
+    const personality =
+      agent.persona || opts.jobRunId || agent.role === "assisted_update"
+        ? null
+        : await getActivePersonality(this.pool);
+    const trimmedGuidance =
+      opts.trimmedGuidance ?? (await isTrimmedLaunchGuidanceEnabled(this.pool));
+    const systemPrompt = buildSystemPrompt({
+      agent,
+      personalityPrompt: personality?.prompt ?? null,
+      trimmedGuidance,
+      suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
+        persona: agent.persona,
+        jobRunId: opts.jobRunId,
+      }),
+      jobRunId: opts.jobRunId ?? null,
+    });
+    const { env, pathPrefix } = buildLaunchEnv({
+      agentId: agent.id,
+      mediaDir,
+      engine: agent.type,
+      config: this.config,
+    });
+    const bins: EngineBins = {
+      claudeAdapterBin: this.config.claudeAdapterBin,
+      claudeBin: this.config.claudeBin,
+      codexAdapterBin: this.config.codexAdapterBin,
+      codexBin: this.config.codexBin,
+    };
+    this.streamRecorder.setCwd(agent.id, agent.cwd);
+    // Rows a previous host left open (a crash mid-turn) settle first, so the
+    // feed never shows a turn that can no longer finish.
+    await this.streamRecorder.reconcile(agent.id);
+    const token = opts.jobRunId
+      ? createJobMcpToken(this.config.authToken, opts.jobRunId, agent.id)
+      : createAgentMcpToken(this.config.authToken, agent.id);
+    return this.runtime.launch({
+      agentId: agent.id,
+      cwd: agent.cwd,
+      engine: agent.type,
+      bins,
+      systemPrompt,
+      mcp: {
+        url: dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
+        token,
+      },
+      env,
+      pathPrefix,
+      resumeSessionId: opts.resumeSessionId,
+    });
   }
 
   /**
@@ -1078,74 +1185,8 @@ export class AgentManager {
     throw new AgentError(`Failed to create agent: ${message}`, 500);
   }
 
-  /**
-   * Called by the setup script (via API) to report phase transitions and completion.
-   * Updates worktree info and transitions the agent to 'running' when setup is done.
-   */
-  async completeSetup(
-    id: string,
-    result: {
-      effectiveCwd: string;
-      worktreePath: string | null;
-      worktreeBranch: string | null;
-    }
-  ): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
-    if (agent.status !== "creating") {
-      throw new AgentError("Agent is not in creating state.", 409);
-    }
-
-    await this.pool.query(
-      `
-      UPDATE agents
-      SET status = 'running',
-          cwd = $2,
-          worktree_path = $3,
-          worktree_branch = $4,
-          setup_phase = NULL,
-          updated_at = NOW()
-      WHERE id = $1
-      `,
-      [id, result.effectiveCwd, result.worktreePath, result.worktreeBranch]
-    );
-
-    // Populate gitContext now that worktree info is final, so the SSE
-    // upsert that follows setSystemLatestEvent (and the route's own
-    // upsert) carries the populated context.
-    await this.populateGitContext(id);
-
-    await this.setSystemLatestEvent(
-      id,
-      agent.type === "terminal"
-        ? { type: "idle", message: "Terminal session started." }
-        : { type: "idle", message: "Session started." }
-    );
-
-    // Clean up setup script
-    const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
-    await unlink(setupScriptPath).catch(() => {});
-
-    return (await this.getAgent(id)) as AgentRecord;
-  }
-
   async updateSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.setSetupPhase(id, phase);
-  }
-
-  /**
-   * Called by the tmux setup script when an unrecoverable failure happens
-   * during setup (e.g. `git worktree add` failed). Marks the agent as
-   * stopped with the supplied message in `last_error` so the UI surfaces a
-   * clear reason instead of the agent silently disappearing.
-   */
-  async markSetupFailed(id: string, message: string): Promise<AgentRecord> {
-    const trimmed = message.trim().slice(0, 1000) || "Setup failed.";
-    await this.setAgentStatus(id, "stopped", trimmed);
-    await this.setSystemLatestEvent(id, {
-      type: "blocked",
-      message: trimmed,
-    });
-    return (await this.getAgent(id)) as AgentRecord;
   }
 
   async updateReviewAgentType(
@@ -1161,137 +1202,38 @@ export class AgentManager {
     }
   }
 
-  /**
-   * Persist a CLI session id, tolerating a concurrent start request that got
-   * there first. Returns whichever id ended up stored.
-   */
-  private async claimCliSessionId(
-    id: string,
-    cliSessionId: string
-  ): Promise<string | null> {
-    const { rowCount } = await this.pool.query(
-      `UPDATE agents SET cli_session_id = $2 WHERE id = $1 AND cli_session_id IS NULL`,
-      [id, cliSessionId]
-    );
-    if (rowCount === 0) {
-      const fresh = await this.getRequiredAgent(id);
-      return fresh.cliSessionId;
-    }
-    return cliSessionId;
-  }
-
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
-    const tmuxSession =
-      agent.tmuxSession ??
-      toSessionName(this.config.sessionPrefix, agent.id, agent.name);
-    const hasSession = await this.runtime.hasSession(tmuxSession);
-
-    if (hasSession) {
-      await this.setAgentStatus(id, "running", null, tmuxSession);
+    if (await this.runtime.attach(id)) {
+      this.streamRecorder.setCwd(id, agent.cwd);
+      await this.setAgentStatus(id, "running", null);
       await this.setSystemLatestEvent(id, {
         type: "idle",
-        message: "Session attached to existing tmux session.",
+        message: "Reattached to the running agent.",
       });
       return (await this.getAgent(id)) as AgentRecord;
     }
 
     await this.setAgentStatus(id, "creating", null);
-
-    // If the agent has a stored CLI session ID, resume that session.
-    // If not (legacy agent), assign one now so future restarts can resume.
-    // Use a conditional UPDATE to avoid races from concurrent start requests.
-    let cliSessionId = agent.cliSessionId;
-    let shouldResume = !!cliSessionId;
-    if (!cliSessionId && agent.type === "claude") {
-      cliSessionId = randomUUID();
-      cliSessionId = await this.claimCliSessionId(id, cliSessionId);
-    }
-    // Codex mints its own session id at launch, so it can't be pre-assigned the
-    // way Claude's is — recover it from the rollout logs instead. Without this,
-    // every Codex restart silently started a brand-new session.
-    if (!cliSessionId && agent.type === "codex") {
-      const discovered = await findCodexSessionId(id, {
-        notBefore: agent.createdAt ? new Date(agent.createdAt) : null,
-      });
-      if (discovered) {
-        cliSessionId = await this.claimCliSessionId(id, discovered);
-        shouldResume = !!cliSessionId;
-      }
-    }
-
     try {
-      const mediaDir = resolveMediaDir(
-        id,
-        agent.mediaDir,
-        this.config.mediaRoot
-      );
-      // mediaDir must exist before launch — both runtimes assume the
-      // directory is present. (The original inert path created it
-      // explicitly; the tmux setup-script path created it via the
-      // bash script. We do it once here so both runtimes are happy.)
-      await mkdir(mediaDir, { recursive: true });
-
-      const personality =
-        agent.persona || agent.role === "assisted_update"
-          ? null
-          : await getActivePersonality(this.pool);
-      const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
-        this.pool
-      );
-
-      const agentCommand = buildAgentCommand(
-        this.config,
-        agent.type,
-        agent.role,
-        agent.agentArgs ?? [],
-        mediaDir,
-        tmuxSession,
-        agent.fullAccess ?? false,
-        {
-          cliSessionId: cliSessionId ?? undefined,
-          resume: shouldResume,
-          suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
-            persona: agent.persona,
-          }),
-          autoReview: !agent.persona && (agent.autoReview ?? false),
-          trimmedGuidance,
-          chatSurface,
-          personalityPrompt: personality?.prompt ?? null,
-          model: agent.model ?? undefined,
-        }
-      );
-
-      await this.runtime.launch({
-        sessionName: tmuxSession,
-        cwd: agent.cwd,
-        agentId: id,
-        payload: { kind: "agent-command", command: agentCommand },
+      const { sessionId, resumed } = await this.startHost(agent, {
+        resumeSessionId: agent.cliSessionId ?? null,
+        jobRunId: undefined,
       });
-
-      await this.setAgentStatus(id, "running", null, tmuxSession);
-      // Re-populate gitContext on every restart so existing agents that
-      // predate inline-populate still get a fresh context (and any drift
-      // from external git activity gets picked up at start time).
-      await this.populateGitContext(id);
-      await this.setSystemLatestEvent(
-        id,
-        agent.type === "terminal"
-          ? {
-              type: "idle",
-              // Terminal agents don't track a CLI session id, so `shouldResume`
-              // is always false here — but reaching startAgent means the agent
-              // was previously stopped, which is definitionally a resume.
-              message: "Terminal session resumed.",
-            }
-          : {
-              type: "idle",
-              message: shouldResume ? "Session resumed." : "Session started.",
-            }
+      await this.pool.query(
+        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, updated_at = NOW() WHERE id = $1`,
+        [id, sessionId]
       );
+      // Re-populate gitContext on every restart so drift from external git
+      // activity gets picked up at start time.
+      await this.populateGitContext(id);
+      await this.setSystemLatestEvent(id, {
+        type: "idle",
+        message: resumed ? "Session resumed." : "Session started.",
+      });
     } catch (error) {
       const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message, tmuxSession);
+      await this.setAgentStatus(id, "error", message);
       await this.setSystemLatestEvent(id, {
         type: "blocked",
         message: `Failed to start agent: ${message}`,
@@ -1303,54 +1245,18 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
-  async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
-    const agent = await this.getRequiredAgent(id);
-    if (agent.status !== "running" && agent.status !== "creating") {
-      throw new AgentError("Agent is not running.", 409);
-    }
-
-    if (this.config.agentRuntime === "inert") {
-      return {
-        mode: "inert",
-        message:
-          "Agent is running in inert mode. No tmux session or CLI process is attached in this environment.",
-      };
-    }
-
-    if (!agent.tmuxSession) {
-      throw new AgentError("Agent is missing tmux session metadata.", 500);
-    }
-
-    const hasSession = await this.runtime.hasSession(agent.tmuxSession);
-    if (!hasSession) {
-      await this.setAgentStatus(
-        id,
-        "stopped",
-        "Agent tmux session is no longer running.",
-        agent.tmuxSession
-      );
-      throw new AgentError(
-        "Agent session is not available. Start the agent again.",
-        409
-      );
-    }
-
-    return { mode: "tmux", sessionName: agent.tmuxSession };
-  }
-
   async stopAgent(
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
-    const tmuxSession = agent.tmuxSession;
     const force = input.force ?? false;
 
     if (agent.status === "stopped") {
       return agent;
     }
 
-    await this.setAgentStatus(id, "stopping", null, tmuxSession ?? undefined);
+    await this.setAgentStatus(id, "stopping", null);
 
     // Run repo-defined stop hook (best-effort, non-blocking)
     await runLifecycleHook("stop", agent, this.logger).catch((err) =>
@@ -1361,23 +1267,17 @@ export class AgentManager {
     );
 
     try {
-      if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
-        await this.runtime.stopSession(tmuxSession, force);
-      }
-
-      await this.setAgentStatus(id, "stopped", null, tmuxSession ?? undefined);
+      await this.runtime.stop(id, force);
+      await this.streamStore.settleInterrupted(id, "stopped");
+      await this.setAgentStatus(id, "stopped", null);
       await this.setSystemLatestEvent(id, {
         type: "idle",
         message: "Session stopped.",
       });
-
-      // Harvest token usage from session logs (fire-and-forget)
-      this.harvestAgentTokens(agent).catch((err) =>
-        this.logger.warn({ err, agentId: id }, "Token harvest failed on stop")
-      );
+      this.notifyStreamWrite(id, true);
     } catch (error) {
       const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message, tmuxSession ?? undefined);
+      await this.setAgentStatus(id, "error", message);
       await this.setSystemLatestEvent(id, {
         type: "blocked",
         message: `Failed to stop agent: ${message}`,
@@ -1615,7 +1515,7 @@ export class AgentManager {
     // SSE broadcaster doesn't need the changed-record list at this
     // entry point, so we drop the return value.
     await this.reconciler.reconcileAgentStatuses();
-    await this.reconciler.cleanupOrphanedSessions();
+    await this.reconciler.cleanupOrphanedHosts();
   }
 
   /**
@@ -1627,26 +1527,9 @@ export class AgentManager {
     return this.reconciler.reconcileAgentStatuses();
   }
 
+  /** The agent's working directory: the worktree when it has one. */
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
-    const fallback = agent.cwd;
-    const session = agent.tmuxSession?.trim();
-    if (!session) return fallback;
-
-    // Don't probe stopped/archived agents — their session may be gone
-    // and the probe would just fall back to the agent's recorded cwd
-    // anyway. Skip the runtime call to avoid the ~30ms ps/lsof chain.
-    if (agent.status !== "running" && agent.status !== "creating") {
-      return fallback;
-    }
-
-    // Runtime returns null when it can't determine the cwd; manager
-    // applies the fallback policy here rather than letting the runtime
-    // bake it into its return type.
-    const cwd = await this.runtime.getCurrentCwd({
-      sessionName: session,
-      agentId: agent.id,
-    });
-    return cwd ?? fallback;
+    return agent.cwd;
   }
 
   private async validateWorkingDirectory(rawCwd: string): Promise<string> {
@@ -1850,9 +1733,9 @@ export class AgentManager {
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
-      harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
-      setAgentStatus: (id, status, lastError, tmuxSession) =>
-        this.setAgentStatus(id, status, lastError, tmuxSession),
+      setAgentStatus: (id, status, lastError) =>
+        this.setAgentStatus(id, status, lastError),
+      settleStream: (id) => this.streamStore.settleInterrupted(id, "stopped"),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
     };
   }

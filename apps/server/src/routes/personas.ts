@@ -172,10 +172,10 @@ export async function registerPersonaRoutes(
 
     try {
       const access = await deps.agentManager.getTerminalAccess(agentId);
-      if (access.mode !== "tmux") {
+      if (access.mode !== "live") {
         return reply
           .code(409)
-          .send({ error: "Agent does not have an active tmux session." });
+          .send({ error: "Agent does not have a live session." });
       }
 
       const prompt = buildLaunchReviewPrompt({

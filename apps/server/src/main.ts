@@ -1,5 +1,15 @@
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
+// `dispatch agent-host --state <dir>` runs one agent's ACP host instead of
+// the server. Checked before anything else so the host never touches the
+// server's environment restoration, database, or config.
+if (process.argv[2] === "agent-host") {
+  await import("./agents/acp/host/main.js");
+} else {
+  await serve();
+}
+
+async function serve(): Promise<void> {
 const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
 const { app, shutdown, start } = await import("./server.js");
@@ -31,3 +41,4 @@ process.on("SIGINT", async () => {
 process.on("SIGTERM", async () => {
   await shutdown(0);
 });
+}

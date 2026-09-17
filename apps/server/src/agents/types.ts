@@ -35,7 +35,7 @@ export type { PinShortcutVariant, PinType } from "../pins.js";
 export type { WorktreeStatus } from "../shared/git/worktree-status.js";
 
 export type AgentTerminalAccess =
-  | { mode: "tmux"; sessionName: string }
+  | { mode: "live" }
   | { mode: "inert"; message: string };
 
 export type AgentLatestEventInput = {

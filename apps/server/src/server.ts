@@ -87,9 +87,6 @@ import {
 } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
-import { CopyModeObserverManager } from "./terminal/copy-mode-observer.js";
-import { CopyModeAssistManager } from "./terminal/copy-mode-assist-manager.js";
-import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
@@ -136,12 +133,7 @@ import {
 import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
-import { InjectionCoordinator } from "./terminal/injection-coordinator.js";
 import { MessageStore } from "./messages/store.js";
-import {
-  injectionHoldEnabled,
-  loadInjectionHoldEnabled,
-} from "./injection-hold-settings.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
@@ -159,7 +151,6 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
-import { createActivityMonitor } from "./agents/activity-monitor.js";
 import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 import { SubsystemTracker } from "./observability/subsystem-tracker.js";
@@ -189,12 +180,6 @@ const reconciliationTracker = new SubsystemTracker({
     "Checks running agent sessions and corrects stale lifecycle state.",
   expectedCadenceMs: 30_000,
 });
-const activityTracker = new SubsystemTracker({
-  id: "activity-monitor",
-  label: "Activity monitor",
-  description: "Compares agent-reported state with recent terminal activity.",
-  expectedCadenceMs: 30_000,
-});
 const gitRefreshTracker = new SubsystemTracker({
   id: "git-diff-refreshes",
   label: "Git diff refreshes",
@@ -222,12 +207,7 @@ const diffStatsRefresher = new DiffStatsRefresher({
   tracker: gitRefreshTracker,
 });
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
-const terminalTokenStore = new TerminalTokenStore(60_000);
 const loginLinkStore = new LoginLinkStore();
-const copyModeObserverManager = new CopyModeObserverManager((event) =>
-  uiEventBroker.publish(event)
-);
-const copyModeAssistManager = new CopyModeAssistManager();
 const jobService = new JobService(pool, agentManager, app.log, config);
 const templateService = new TemplateService(pool, agentManager, app.log);
 const jobNotifier = new JobNotifier(pool, app.log);
@@ -321,31 +301,14 @@ const autoCheckRuntime = createAutoCheckRuntime({
   tracker: updateCheckTracker,
 });
 
-const activityMonitor = createActivityMonitor({
-  pool,
-  logger: app.log,
-  correctLatestEvent: async (id, expectedUpdatedAt, input) => {
-    const agent = await agentManager.upsertLatestEventIfCurrent(
-      id,
-      expectedUpdatedAt,
-      {
-        ...input,
-        metadata: { ...(input.metadata ?? {}), source: "activity-monitor" },
-      }
-    );
-    return agent !== null;
-  },
-});
 const agentLifecycleRuntime = createAgentLifecycleRuntime({
   agentManager,
   streamManager,
   appLog: app.log,
   reconcileIntervalMs: AGENT_STATUS_RECONCILE_INTERVAL_MS,
-  activityMonitor,
   withStreamFlag,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   reconciliationTracker,
-  activityTracker,
   onAgentsArchived: async (agentIds) => {
     for (const agentId of agentIds) {
       const run = await jobService.getLatestRunForAgent(agentId);
@@ -368,7 +331,6 @@ const serviceResources = new ServiceResources({
   },
   getWorkloads: () => {
     const streamMetrics = streamManager.getMetrics();
-    const observerMetrics = copyModeObserverManager.getMetrics();
     const jobMetrics = jobService.getRuntimeMetrics();
     const gitMetrics = diffStatsRefresher.getMetrics();
     const uiMetrics = uiEventBroker.getMetrics();
@@ -377,20 +339,15 @@ const serviceResources = new ServiceResources({
       sseClients: uiMetrics.clients,
       streams: streamMetrics.streams,
       streamViewers: streamMetrics.viewers,
-      terminalObservers: observerMetrics.observers,
-      terminalViewers: observerMetrics.viewers,
       scheduledJobs: jobMetrics.scheduledJobs,
       jobMonitors: jobMetrics.activeMonitors,
       gitRefreshesInFlight: gitMetrics.inFlight,
       uiEventsPublished: uiMetrics.eventsPublished,
       uiWriteFailures: uiMetrics.writeFailures,
-      terminalPolls: observerMetrics.pollCount,
-      terminalPollFailures: observerMetrics.pollFailures,
     };
   },
   subsystemTrackers: [
     reconciliationTracker,
-    activityTracker,
     gitRefreshTracker,
     updateCheckTracker,
   ],
@@ -406,23 +363,9 @@ const notificationRuntime = createNotificationRuntime({
   autoArchiveJobAgent: (agentId) =>
     agentLifecycleRuntime.autoArchiveJobAgent(agentId),
 });
-void loadInjectionHoldEnabled(pool).catch((err) => {
-  app.log.warn({ err }, "Failed to load injection-hold setting; default off");
-});
-const injectionCoordinator = new InjectionCoordinator({
-  log: app.log,
-  gateEnabled: injectionHoldEnabled,
-  onHoldChange: (agentId, holdState) =>
-    uiEventBroker.publish({
-      type: "agent.injection_hold_changed",
-      agentId,
-      holdState,
-    }),
-});
 const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
   agentManager,
-  app.log,
-  injectionCoordinator
+  app.log
 );
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
@@ -454,6 +397,7 @@ const surfaceService = new SurfaceService(pool, {
 const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
+  hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   mediaRoot: config.mediaRoot,
   delivery: {
@@ -463,11 +407,15 @@ const chatService = new ChatService({
     // failed delivery rather than a stale session name.
     inject: async (agentId, _sessionName, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
-    held: (agentId) => injectionCoordinator.holdState(agentId).held,
+    held: (agentId) => agentManager.isPromptHeld(agentId),
   },
   log: app.log,
 });
 agentManager.attachLaunchContextRecorder(chatService);
+// Every stream write re-publishes the agent's newest turn as one feed row.
+agentManager.onStreamWrite((agentId) => {
+  void chatService.publishTurnEntry(agentId);
+});
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -578,7 +526,6 @@ async function registerRoutes() {
     const url = request.url.split("?")[0];
 
     // Static files, auth endpoints, health check, and WebSocket endpoints are always open.
-    // (WebSocket terminal uses its own short-lived token for auth.)
     if (!url.startsWith("/api/")) return;
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
@@ -589,7 +536,6 @@ async function registerRoutes() {
     // bearer shortcut so the server auth token is never accepted as an
     // extension credential.
     if (request.routeOptions.config.browserExtensionBearer) return;
-    if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
     // The assisted-update phase endpoint authenticates via a per-job nonce
     // embedded in the launched agent's prompt — see assisted-update.ts. The
     // agent runs as a separate process and does not share the server's
@@ -799,7 +745,6 @@ async function registerRoutes() {
     agentManager,
     appLog: app.log,
     publishUiEvent: (event) => uiEventBroker.publish(event),
-    injectionCoordinator,
   });
 
   await registerMessagesRoutes(app, {
@@ -838,12 +783,6 @@ async function registerRoutes() {
     hasStream: (agentId) => streamManager.hasStream(agentId),
     addStreamViewer: (agentId, stream) =>
       streamManager.addViewer(agentId, stream),
-    issueTerminalToken: (agentId) => terminalTokenStore.issue(agentId),
-    consumeTerminalToken: (agentId, token) =>
-      terminalTokenStore.consume(agentId, token),
-    copyModeObserverManager,
-    copyModeAssistManager,
-    injectionCoordinator,
     diffStatsRefresher,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
@@ -920,6 +859,9 @@ export async function initializeApp(options?: {
   );
   const shouldReconcileState = options?.reconcileState ?? true;
   if (shouldReconcileState) {
+    // Hosts outlive the server: reconnect to the ones still running before
+    // the reconciler decides anything about them.
+    await agentManager.restoreRunningAgents();
     await agentManager.reconcileAgents();
     // Chat deliveries queued in the previous process died with it; flip their
     // rows from pending to not-delivered so the UI offers a resend.
