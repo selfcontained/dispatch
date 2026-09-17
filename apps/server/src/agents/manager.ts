@@ -891,7 +891,7 @@ export class AgentManager {
   ): Promise<PreparedCreateInputs> {
     const originalCwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
-    const type: AgentType = input.type ?? "codex";
+    const type: AgentType = input.type ?? "claude";
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = input.fullAccess ?? false;
     const fullAccessArg =

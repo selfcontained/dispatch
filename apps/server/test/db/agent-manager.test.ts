@@ -221,7 +221,7 @@ describe("AgentManager", () => {
       expect(agent.status).toBe("running");
       expect(agent.setupPhase).toBeNull();
       expect(agent.cwd).toBe("/tmp");
-      expect(agent.type).toBe("codex");
+      expect(agent.type).toBe("claude");
       expect(agent.role).toBe("standard");
       expect(agent.cliSessionId).toBe("sess_1");
       expect(agent.mediaDir).toBeTruthy();
@@ -879,7 +879,7 @@ describe("AgentManager", () => {
       });
       expect(agent.fullAccess).toBe(true);
       expect(agent.agentArgs).toContain(
-        "--dangerously-bypass-approvals-and-sandbox"
+        "--dangerously-skip-permissions"
       );
     });
 

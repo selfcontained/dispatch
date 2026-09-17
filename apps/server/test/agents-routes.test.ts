@@ -93,7 +93,7 @@ describe("POST /api/v1/agents (create)", () => {
     const agent = await createAgent();
     expect(agent.id).toBeTruthy();
     expect(agent.cwd).toBe("/tmp");
-    expect(agent.type).toBe("codex");
+    expect(agent.type).toBe("claude");
   });
 
   it("creates an agent with a name and type", async () => {
@@ -192,9 +192,9 @@ describe("POST /api/v1/agents (create)", () => {
     expect(res.json().error).toContain("disabled");
   });
 
-  it("defaults type to codex when omitted", async () => {
+  it("defaults type to claude when omitted", async () => {
     const agent = await createAgent({});
-    expect(agent.type).toBe("codex");
+    expect(agent.type).toBe("claude");
   });
 
   it("applies fullAccess arg for codex type", async () => {

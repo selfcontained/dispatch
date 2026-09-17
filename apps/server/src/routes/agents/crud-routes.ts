@@ -252,7 +252,7 @@ export async function registerAgentCrudRoutes(
     const agentType: AgentType =
       body.type && AGENT_TYPES.includes(body.type as AgentType)
         ? (body.type as AgentType)
-        : "codex";
+        : "claude";
     const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
     if (!enabledAgentTypes.includes(agentType)) {
       return reply

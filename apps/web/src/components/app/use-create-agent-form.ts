@@ -141,7 +141,7 @@ export function useCreateAgentForm({
 
   useEffect(() => {
     if (enabledAgentTypes.includes(createType)) return;
-    setCreateType(enabledAgentTypes[0] ?? "codex");
+    setCreateType(enabledAgentTypes[0] ?? "claude");
   }, [createType, enabledAgentTypes]);
 
   useEffect(() => {
