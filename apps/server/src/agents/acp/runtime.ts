@@ -163,6 +163,8 @@ export type AcpRuntimeDeps = {
  */
 export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   const { config, logger } = deps;
+  // Assigned below; launch() refers back to it to tear down a failed host.
+  let runtime: AgentRuntime;
   const live = new Map<string, Live>();
   const listeners = new Set<RuntimeEventListener>();
 
@@ -206,7 +208,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   async function connect(
     agentId: string,
-    timeoutMs: number
+    timeoutMs: number,
+    abandoned: () => boolean = () => false
   ): Promise<Live> {
     const existing = live.get(agentId);
     if (existing) return existing;
@@ -253,7 +256,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     });
     live.set(agentId, entry);
     try {
-      await entry.client.connect(timeoutMs);
+      await entry.client.connect(timeoutMs, abandoned);
     } catch (err) {
       live.delete(agentId);
       entry.client.close();
@@ -272,7 +275,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
-  return {
+  runtime = {
     tracksProcesses: () => true,
 
     async launch(input) {
@@ -307,7 +310,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         detached: true,
         stdio: ["ignore", logFd, logFd],
       });
+      // The shell execs the host, so this is the host's own exit; a host
+      // that dies during startup fails the launch at once instead of after
+      // the whole connect timeout.
+      let exited = false;
+      child.on("exit", () => {
+        exited = true;
+      });
       child.on("error", (err) => {
+        exited = true;
         logger.error({ err, agentId: input.agentId }, "agent host spawn failed");
       });
       child.unref();
@@ -316,13 +327,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         "agent host spawned"
       );
       try {
-        const entry = await connect(input.agentId, LAUNCH_TIMEOUT_MS);
+        const entry = await connect(
+          input.agentId,
+          LAUNCH_TIMEOUT_MS,
+          () => exited
+        );
         const welcome = entry.client.welcome;
         if (!welcome) throw new Error("no welcome from the agent host");
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const tail = await readLogTail(input.agentId);
+        // A host whose engine never came up has nothing to serve.
+        await runtime.stop(input.agentId, true).catch(() => {});
         throw new Error(`${message}${tail}`);
       }
     },
@@ -477,4 +494,5 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       await rm(stateDir(agentId), { recursive: true, force: true });
     },
   };
+  return runtime;
 }

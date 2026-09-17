@@ -150,6 +150,8 @@ async function main(): Promise<void> {
   let sessionId = "";
   let resumed = false;
   let shuttingDown = false;
+  /** Set when the engine failed to start; told to every client that asks. */
+  let startupError: string | null = null;
 
   const send = (socket: net.Socket | null, message: HostMessage) => {
     if (!socket || socket.destroyed) return;
@@ -225,6 +227,7 @@ async function main(): Promise<void> {
         for (const entry of journal.after(message.fromSeq)) {
           send(socket, { type: "event", ...entry });
         }
+        if (startupError) send(socket, { type: "error", message: startupError });
         return;
       }
       case "ping":
@@ -322,6 +325,7 @@ async function main(): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ agentId, err: message }, "host: engine failed to start");
+    startupError = message;
     send(client, { type: "error", message });
     setTimeout(() => process.exit(1), EXIT_LINGER_MS);
   }

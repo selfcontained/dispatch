@@ -60,10 +60,17 @@ export class HostClient {
    * engine is running; rejects if the host answers with an error, or after
    * `timeoutMs` without a running engine.
    */
-  async connect(timeoutMs: number): Promise<HostWelcome> {
+  async connect(
+    timeoutMs: number,
+    /** Stop waiting early: the host process is known to be gone. */
+    abandoned: () => boolean = () => false
+  ): Promise<HostWelcome> {
     const deadline = Date.now() + timeoutMs;
     let lastError = "";
     while (Date.now() < deadline && !this.closed) {
+      if (abandoned()) {
+        throw new Error(lastError || "the agent host exited before it answered");
+      }
       try {
         await this.dial();
         return await this.awaitRunningWelcome(deadline - Date.now());
