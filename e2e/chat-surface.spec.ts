@@ -10,6 +10,7 @@ import {
   loadApp,
   seedAgentMessageViaDB,
   seedChatMessageViaDB,
+  seedPinEventViaDB,
   seedReviewAgentFixtureViaDB,
   seedStreamTurnViaDB,
   setAgentPinsViaDB,
@@ -1478,9 +1479,11 @@ test.describe("Chat surface", () => {
     });
 
     // No ACP engine runs in the inert suite, so the turn is seeded. It is
-    // anchored ten seconds back, which is what puts the rows written below
-    // after it: a row created while a turn ran keeps its own timestamp and
-    // lands under the turn rather than inside it.
+    // anchored ten seconds back and ends a second later, which is what puts
+    // the rows written below after it: they are created now, past the turn's
+    // end, so they keep their own timestamps and land under it. A pin written
+    // *inside* the span is hoisted above the turn instead — the case the test
+    // below this one covers.
     await seedStreamTurnViaDB({
       agentId: agent.id,
       prompt: "read the readme and plan the work",
@@ -1598,6 +1601,71 @@ test.describe("Chat surface", () => {
     );
     await page.screenshot({
       path: test.info().outputPath("dispatch-terminal-segment.png"),
+      fullPage: true,
+    });
+  });
+
+  test("dispatch agent: pins written during a turn render above it", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    await setDispatchHarnessViaAPI(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dispatch-pin-order-${Date.now()}`,
+      type: "dispatch",
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    // The turn spans [60s ago, 59s ago]: seedStreamTurnViaDB ends it one
+    // second after it starts.
+    await seedStreamTurnViaDB({
+      agentId: agent.id,
+      prompt: "stand the dev server up",
+      result: "Up on 4173.",
+      startedSecondsAgo: 60,
+    });
+    // Inside the span: the agent pinned this while it was working, which is
+    // the case that used to push the turn off the top of the screen.
+    await seedPinEventViaDB({
+      agentId: agent.id,
+      pinId: "pin_mid",
+      label: "Mid turn pin",
+      secondsAgo: 59.5,
+    });
+    // Past the span: still belongs below the turn, so the hoist is scoped and
+    // not just "all pins to the top".
+    await seedPinEventViaDB({
+      agentId: agent.id,
+      pinId: "pin_after",
+      label: "After turn pin",
+      secondsAgo: 5,
+    });
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const pane = page.getByTestId("chat-scroll");
+    await expect(pane.getByTestId("chat-turn")).toBeVisible();
+
+    const order = await pane.evaluate((root) =>
+      [
+        ...root.querySelectorAll(
+          '[data-testid="chat-turn"],[data-testid="chat-pin-entry"]'
+        ),
+      ].map((node) =>
+        node.getAttribute("data-testid") === "chat-turn"
+          ? "turn"
+          : (node.textContent ?? "").includes("Mid turn pin")
+            ? "mid"
+            : "after"
+      )
+    );
+    expect(order).toEqual(["mid", "turn", "after"]);
+
+    await page.screenshot({
+      path: test.info().outputPath("dispatch-turn-pin-order.png"),
       fullPage: true,
     });
   });

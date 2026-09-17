@@ -243,6 +243,40 @@ export async function uploadTextMediaViaAPI(
   }
 }
 
+/**
+ * Write one `pin_events` row at a chosen age, which is how a test places a
+ * pin inside or outside a seeded turn's span. The MCP pin tools always stamp
+ * `now()`, so they cannot express "written while that turn was running".
+ */
+export async function seedPinEventViaDB(event: {
+  agentId: string;
+  pinId: string;
+  label: string;
+  secondsAgo: number;
+  action?: "created" | "updated" | "deleted";
+}): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed pin events.");
+  }
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    await pool.query(
+      `INSERT INTO pin_events (agent_id, pin_id, label, action, created_at)
+       VALUES ($1, $2, $3, $4, NOW() - ($5 * INTERVAL '1 second'))`,
+      [
+        event.agentId,
+        event.pinId,
+        event.label,
+        event.action ?? "created",
+        event.secondsAgo,
+      ]
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function setAgentPinsViaDB(
   agentId: string,
   pins: AgentPinRecord[]

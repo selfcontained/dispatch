@@ -70,6 +70,58 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   return out;
 }
 
+/**
+ * Move the pins an agent wrote mid-turn above the turn that wrote them.
+ *
+ * The feed is chronological and a turn is anchored at its start for its whole
+ * life, so a pin written during a turn sorts below it. A working agent that
+ * pins as it goes therefore pushes its own live turn off the top of the
+ * screen. This is presentation only — the server's order still backs the
+ * cursors.
+ *
+ * A pin is claimed by the turn whose span contains it, and the span comes
+ * from the turn's own trace rather than from whether it is still open, so a
+ * pin sits in the same place before and after the turn settles.
+ */
+export function hoistTurnPins(entries: ChatFeedEntry[]): ChatFeedEntry[] {
+  const claimed = new Map<string, ChatFeedEntry[]>();
+  const moved = new Set<string>();
+  // Ascending by time, so the most recent turn is the only span a pin can
+  // fall in — one pass, rather than a scan of the turns per pin.
+  let span: { id: string; start: number; end: number } | null = null;
+  for (const entry of entries) {
+    if (entry.type === "turn") {
+      span = {
+        id: entry.id,
+        start: Date.parse(entry.trace.startedAt),
+        end: entry.trace.endedAt
+          ? Date.parse(entry.trace.endedAt)
+          : Number.POSITIVE_INFINITY,
+      };
+      continue;
+    }
+    if (entry.type !== "pin" || !span) continue;
+    const at = Date.parse(entry.at);
+    if (at < span.start || at > span.end) continue;
+    const bucket = claimed.get(span.id);
+    if (bucket) bucket.push(entry);
+    else claimed.set(span.id, [entry]);
+    moved.add(entry.id);
+  }
+  if (moved.size === 0) return entries;
+
+  const out: ChatFeedEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "pin" && moved.has(entry.id)) continue;
+    if (entry.type === "turn") {
+      const pins = claimed.get(entry.id);
+      if (pins) out.push(...pins);
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
 function withoutEntries(
   page: ChatFeedResponse
 ): Omit<ChatFeedResponse, "entries"> {
@@ -187,7 +239,7 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
   });
 
   const entries = useMemo(
-    () => (query.data ? flattenFeedPages(query.data.pages) : []),
+    () => (query.data ? hoistTurnPins(flattenFeedPages(query.data.pages)) : []),
     [query.data]
   );
 

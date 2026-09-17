@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   appendToNewestPage,
+  hoistTurnPins,
   applyChatRead,
   chatFeedQueryKey,
   type FeedCache,
@@ -1078,5 +1079,86 @@ describe("useToggleChatReaction", () => {
       queryKey: chatFeedQueryKey("agt_1"),
       exact: true,
     });
+  });
+});
+
+describe("hoistTurnPins", () => {
+  const turn = (
+    id: string,
+    startedAt: string,
+    endedAt?: string
+  ): ChatFeedEntry =>
+    ({
+      type: "turn",
+      id,
+      agentId: "agt_1",
+      at: startedAt,
+      updatedAt: endedAt ?? startedAt,
+      prompt: { text: "go" },
+      trace: { startedAt, ...(endedAt ? { endedAt } : {}), steps: [] },
+      result: null,
+      settled: endedAt !== undefined,
+      interrupted: false,
+    }) as unknown as ChatTurnEntry;
+
+  const pin = (id: string, at: string): ChatFeedEntry => ({
+    type: "pin",
+    id,
+    action: "created",
+    pins: [{ id: `p${id}`, label: `Pin ${id}` }],
+    at,
+  });
+
+  const ids = (entries: ChatFeedEntry[]) => entries.map((e) => e.id);
+
+  it("lifts a pin written during a live turn above that turn", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+      pin("b", "2026-09-17T10:01:00.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a", "b", "t1"]);
+  });
+
+  it("does not move when the turn settles, so nothing jumps", () => {
+    const live = [
+      turn("t1", "2026-09-17T10:00:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+    ];
+    const settled = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:02:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+    ];
+    expect(ids(hoistTurnPins(live))).toEqual(ids(hoistTurnPins(settled)));
+  });
+
+  it("leaves a pin written between turns where it is", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:01:00.000Z"),
+      pin("a", "2026-09-17T10:05:00.000Z"),
+      turn("t2", "2026-09-17T10:06:00.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["t1", "a", "t2"]);
+  });
+
+  it("keeps each turn's pins with their own turn, in order", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:01:00.000Z"),
+      pin("a", "2026-09-17T10:00:10.000Z"),
+      pin("b", "2026-09-17T10:00:20.000Z"),
+      turn("t2", "2026-09-17T10:02:00.000Z"),
+      pin("c", "2026-09-17T10:02:30.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a", "b", "t1", "c", "t2"]);
+  });
+
+  it("leaves a pin alone when its turn is not in the loaded window", () => {
+    const entries = [pin("a", "2026-09-17T10:00:30.000Z")];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a"]);
+  });
+
+  it("returns the same array when nothing moves", () => {
+    const entries = [turn("t1", "2026-09-17T10:00:00.000Z")];
+    expect(hoistTurnPins(entries)).toBe(entries);
   });
 });
