@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createReconciler } from "../src/agents/reconciler.js";
-import type { AgentRuntime } from "../src/agents/runtime.js";
+import {
+  createInertRuntime,
+  type AgentRuntime,
+} from "../src/agents/runtime.js";
 import type { AgentRecord, AgentStatus } from "../src/agents/types.js";
 import type { DiagnosticsRecorder } from "../src/diagnostics.js";
 
 // ── Test scaffolding ────────────────────────────────────────────────────
 //
-// The reconciler is a factory taking 8 explicit deps. We mock all of them
+// The reconciler is a factory taking explicit deps. We mock all of them
 // rather than standing up a real pg Pool — these tests are about the
 // branching logic (which agents get flipped to which status under what
 // conditions), not about the DB or runtime in isolation.
@@ -29,7 +32,6 @@ const noopLogger = (() => {
 
 type ActiveRow = {
   id: string;
-  tmuxSession: string | null;
   status: string;
   updatedAt: string;
 };
@@ -79,25 +81,19 @@ const makeAgent = (
 });
 
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
-  tracksSessions: () => true,
-  launch: vi.fn(),
-  ensureNoExistingSession: vi.fn(),
-  stopSession: vi.fn(),
-  hasSession: vi.fn().mockResolvedValue(true),
-  getCurrentCwd: vi.fn().mockResolvedValue(null),
-  listSessions: vi.fn().mockResolvedValue([]),
-  killSession: vi.fn().mockResolvedValue(undefined),
-  readExitInfo: vi.fn().mockResolvedValue(null),
-  readSetupLogTail: vi.fn().mockResolvedValue(""),
+  ...createInertRuntime(),
+  tracksProcesses: () => true,
+  isAlive: vi.fn().mockResolvedValue(true),
+  listHosted: vi.fn().mockResolvedValue([]),
+  stop: vi.fn().mockResolvedValue(undefined),
+  readLogTail: vi.fn().mockResolvedValue(""),
   ...overrides,
 });
 
 const makeDiagnostics = (
   overrides: Partial<DiagnosticsRecorder> = {}
 ): DiagnosticsRecorder => ({
-  maybeCaptureTmuxInventory: vi.fn().mockResolvedValue(undefined),
   maybeMaintenanceLogs: vi.fn().mockResolvedValue(undefined),
-  captureMissingSessionIncident: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -107,33 +103,34 @@ const makeDiagnostics = (
  */
 const setup = (args: {
   activeRows: ActiveRow[];
-  runtime?: Partial<AgentRuntime>;
+  runtime?: AgentRuntime;
   diagnostics?: Partial<DiagnosticsRecorder>;
   /** Used to seed mocked agent rows that getAgent returns post-mutation. */
   agentsById?: Record<string, AgentRecord>;
-  /** Rows returned by the cleanupOrphanedSessions DB query. */
+  /** Rows returned by the cleanupOrphanedHosts DB query. */
   cleanupAgentRows?: Array<{ id: string; status: string }>;
 }) => {
-  const setAgentStatus = vi.fn().mockResolvedValue(undefined);
+  const setAgentStatus = vi.fn<
+    (id: string, status: AgentStatus, lastError: string | null) => Promise<void>
+  >(async () => {});
   const setSystemLatestEvent = vi.fn().mockResolvedValue(undefined);
+  const settleStream = vi.fn().mockResolvedValue(0);
   const getAgent = vi.fn(async (id: string) => args.agentsById?.[id] ?? null);
 
-  // Dispatch by SQL fragment so each pass gets its own response —
-  // calling the two reconciler methods independently (or in either
-  // order) returns the right data without re-wiring the mock.
+  // Dispatch by SQL fragment so each pass gets its own response.
   const pool = {
     query: vi.fn(async (text: string) => {
       if (text.includes("status IN ('running'")) {
         return { rows: args.activeRows };
       }
-      if (text.includes("id IN (")) {
+      if (text.includes("id = ANY(")) {
         return { rows: args.cleanupAgentRows ?? [] };
       }
       throw new Error(`Unexpected pool.query SQL: ${text.slice(0, 80)}`);
     }),
   } as unknown as import("pg").Pool;
 
-  const runtime = makeRuntime(args.runtime);
+  const runtime = args.runtime ?? makeRuntime();
   const diagnostics = makeDiagnostics(args.diagnostics);
 
   const reconciler = createReconciler({
@@ -141,10 +138,10 @@ const setup = (args: {
     logger: noopLogger,
     runtime,
     diagnostics,
-    sessionPrefix: "dispatch",
     getAgent,
     setAgentStatus,
     setSystemLatestEvent,
+    settleStream,
   });
 
   return {
@@ -154,6 +151,7 @@ const setup = (args: {
     diagnostics,
     setAgentStatus,
     setSystemLatestEvent,
+    settleStream,
     getAgent,
   };
 };
@@ -166,12 +164,7 @@ describe("reconcileAgentStatuses — archiving rescue", () => {
   it("flags an archiving row that's been stuck > 30s", async () => {
     const { reconciler, getAgent } = setup({
       activeRows: [
-        {
-          id: "agt_stuck",
-          tmuxSession: "dispatch_agt_stuck",
-          status: "archiving",
-          updatedAt: secondsAgo(45),
-        },
+        { id: "agt_stuck", status: "archiving", updatedAt: secondsAgo(45) },
       ],
       agentsById: {
         agt_stuck: makeAgent("agt_stuck", { status: "archiving" }),
@@ -188,12 +181,7 @@ describe("reconcileAgentStatuses — archiving rescue", () => {
   it("ignores an archiving row that's still within the 30s grace", async () => {
     const { reconciler, setAgentStatus } = setup({
       activeRows: [
-        {
-          id: "agt_archiving",
-          tmuxSession: "dispatch_agt_archiving",
-          status: "archiving",
-          updatedAt: secondsAgo(15),
-        },
+        { id: "agt_archiving", status: "archiving", updatedAt: secondsAgo(15) },
       ],
     });
 
@@ -204,21 +192,17 @@ describe("reconcileAgentStatuses — archiving rescue", () => {
 });
 
 describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
-  it("skips the missing-session branch entirely when tracksSessions=false", async () => {
-    const runtime = makeRuntime({ tracksSessions: () => false });
-    // Even if hasSession would say "missing", the reconciler must not
-    // act on that information when the runtime can't reliably track
-    // session state.
-    runtime.hasSession = vi.fn().mockResolvedValue(false);
+  it("skips the missing-host branch entirely when tracksProcesses=false", async () => {
+    // Even if isAlive would say "gone", the reconciler must not act on it
+    // when the runtime has no real processes.
+    const runtime = makeRuntime({
+      tracksProcesses: () => false,
+      isAlive: vi.fn().mockResolvedValue(false),
+    });
 
     const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
       activeRows: [
-        {
-          id: "agt_inert",
-          tmuxSession: "dispatch_agt_inert",
-          status: "running",
-          updatedAt: minutesAgo(5),
-        },
+        { id: "agt_inert", status: "running", updatedAt: minutesAgo(5) },
       ],
       runtime,
     });
@@ -226,91 +210,44 @@ describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
     const reconciled = await reconciler.reconcileAgentStatuses();
 
     expect(reconciled).toEqual([]);
-    expect(runtime.hasSession).not.toHaveBeenCalled();
+    expect(runtime.isAlive).not.toHaveBeenCalled();
     expect(setAgentStatus).not.toHaveBeenCalled();
     expect(setSystemLatestEvent).not.toHaveBeenCalled();
   });
 });
 
-describe("reconcileAgentStatuses — missing-session detection", () => {
-  it("running agent with vanished session + clean exit → flips to stopped", async () => {
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-      readExitInfo: vi.fn().mockResolvedValue(0),
-    });
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
-      activeRows: [
-        {
-          id: "agt_died",
-          tmuxSession: "dispatch_agt_died",
-          status: "running",
-          updatedAt: minutesAgo(2),
-        },
-      ],
-      runtime,
-      agentsById: { agt_died: makeAgent("agt_died", { status: "stopped" }) },
-    });
+describe("reconcileAgentStatuses — missing-host detection", () => {
+  it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
+    const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
+    const { reconciler, setAgentStatus, setSystemLatestEvent, settleStream } =
+      setup({
+        activeRows: [
+          { id: "agt_died", status: "running", updatedAt: minutesAgo(2) },
+        ],
+        runtime,
+        agentsById: { agt_died: makeAgent("agt_died", { status: "stopped" }) },
+      });
 
-    await reconciler.reconcileAgentStatuses();
+    const reconciled = await reconciler.reconcileAgentStatuses();
 
-    expect(setAgentStatus).toHaveBeenCalledWith(
-      "agt_died",
-      "stopped",
-      null,
-      "dispatch_agt_died"
-    );
+    expect(runtime.isAlive).toHaveBeenCalledWith("agt_died");
+    expect(settleStream).toHaveBeenCalledWith("agt_died", "the agent stopped");
+    expect(setAgentStatus).toHaveBeenCalledWith("agt_died", "stopped", null);
     const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
     expect(eventArg?.type).toBe("idle");
-    expect(eventArg?.message).toContain("Session ended normally");
+    expect(eventArg?.message).toBe("The agent is no longer running.");
+    expect(eventArg?.metadata).toMatchObject({ launchFailed: false });
+    expect(reconciled.map((a) => a.id)).toEqual(["agt_died"]);
   });
 
-  it("running agent with vanished session + non-zero exit → flips to error", async () => {
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-      readExitInfo: vi.fn().mockResolvedValue(127),
-    });
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
-      activeRows: [
-        {
-          id: "agt_crashed",
-          tmuxSession: "dispatch_agt_crashed",
-          status: "running",
-          updatedAt: minutesAgo(2),
-        },
-      ],
-      runtime,
-    });
-
-    await reconciler.reconcileAgentStatuses();
-
-    expect(setAgentStatus).toHaveBeenCalledWith(
-      "agt_crashed",
-      "error",
-      null,
-      "dispatch_agt_crashed"
-    );
-    const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
-    expect(eventArg?.type).toBe("blocked");
-    expect(eventArg?.message).toContain("exited with code 127");
-    expect(eventArg?.metadata?.exitCode).toBe(127);
-    expect(eventArg?.metadata?.launchFailed).toBe(true);
-  });
-
-  it("creating agent with vanished session → flips to error (launchFailed branch)", async () => {
-    // status='creating' is a launch in progress. If the session vanishes
-    // before reaching 'running', that's a launch failure regardless of
-    // exit code (covers the "exited before becoming ready" path too).
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-      readExitInfo: vi.fn().mockResolvedValue(null),
-    });
+  it("creating agent past the launch grace with no host → flips to error", async () => {
+    const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
     const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
       activeRows: [
         {
           id: "agt_neverstarted",
-          tmuxSession: "dispatch_agt_neverstarted",
           status: "creating",
-          updatedAt: secondsAgo(15),
+          updatedAt: minutesAgo(16),
         },
       ],
       runtime,
@@ -321,74 +258,53 @@ describe("reconcileAgentStatuses — missing-session detection", () => {
     expect(setAgentStatus).toHaveBeenCalledWith(
       "agt_neverstarted",
       "error",
-      null,
-      "dispatch_agt_neverstarted"
+      null
     );
     const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
     expect(eventArg?.type).toBe("blocked");
     expect(eventArg?.message).toContain(
-      "Launch failed before the session became ready"
+      "Launch failed before the agent became ready"
     );
+    expect(eventArg?.metadata?.launchFailed).toBe(true);
   });
 
-  it("captures a missing-session diagnostic incident", async () => {
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-      readExitInfo: vi.fn().mockResolvedValue(7),
-    });
-    const captureMissingSessionIncident = vi.fn().mockResolvedValue(undefined);
-    const { reconciler } = setup({
+  it("leaves a creating agent alone inside the launch grace", async () => {
+    // Worktree + dependency install run before the host exists.
+    const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
+    const { reconciler, setAgentStatus } = setup({
       activeRows: [
-        {
-          id: "agt_died",
-          tmuxSession: "dispatch_agt_died",
-          status: "running",
-          updatedAt: minutesAgo(2),
-        },
+        { id: "agt_installing", status: "creating", updatedAt: minutesAgo(5) },
       ],
       runtime,
-      diagnostics: { captureMissingSessionIncident },
     });
 
-    await reconciler.reconcileAgentStatuses();
-
-    expect(captureMissingSessionIncident).toHaveBeenCalledTimes(1);
-    expect(captureMissingSessionIncident.mock.calls[0]?.[0]).toMatchObject({
-      agentId: "agt_died",
-      tmuxSession: "dispatch_agt_died",
-      status: "running",
-      exitInfo: 7,
-    });
+    expect(await reconciler.reconcileAgentStatuses()).toEqual([]);
+    expect(runtime.isAlive).not.toHaveBeenCalled();
+    expect(setAgentStatus).not.toHaveBeenCalled();
   });
 
-  it("includes the setup-log tail in the system event message when one exists", async () => {
+  it("includes the host log tail in lastError and the system event", async () => {
     const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(false),
-      readExitInfo: vi.fn().mockResolvedValue(1),
-      readSetupLogTail: vi
-        .fn()
-        .mockResolvedValue("\n\nSetup log (last 20 lines):\nfatal: boom"),
+      isAlive: vi.fn().mockResolvedValue(false),
+      readLogTail: vi.fn().mockResolvedValue("fatal: boom"),
     });
     const { reconciler, setSystemLatestEvent, setAgentStatus } = setup({
       activeRows: [
-        {
-          id: "agt_died",
-          tmuxSession: "dispatch_agt_died",
-          status: "running",
-          updatedAt: minutesAgo(2),
-        },
+        { id: "agt_died", status: "running", updatedAt: minutesAgo(2) },
       ],
       runtime,
     });
 
     await reconciler.reconcileAgentStatuses();
 
-    // The tail is passed as `lastError` to setAgentStatus AND woven into
-    // the user-facing event message.
-    expect(setAgentStatus.mock.calls[0]?.[1]).toBe("error");
-    expect(setAgentStatus.mock.calls[0]?.[2]).toContain("fatal: boom");
-    expect(setSystemLatestEvent.mock.calls[0]?.[1]?.message).toContain(
+    expect(runtime.readLogTail).toHaveBeenCalledWith("agt_died");
+    expect(setAgentStatus).toHaveBeenCalledWith(
+      "agt_died",
+      "stopped",
       "fatal: boom"
+    );
+    expect(setSystemLatestEvent.mock.calls[0]?.[1]?.message).toBe(
+      "The agent is no longer running.\nfatal: boom"
     );
   });
 });
@@ -397,15 +313,9 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
   it("reverts an agent stuck in stopping > 60s back to running", async () => {
     const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
       activeRows: [
-        {
-          id: "agt_stuck_stop",
-          tmuxSession: "dispatch_agt_stuck_stop",
-          status: "stopping",
-          updatedAt: minutesAgo(2),
-        },
+        { id: "agt_stuck_stop", status: "stopping", updatedAt: minutesAgo(2) },
       ],
-      // hasSession returns true (default) — so the missing-session branch
-      // doesn't fire and we fall through to the stuck-stopping check.
+      // isAlive defaults to true, so we fall through to the stuck check.
     });
 
     await reconciler.reconcileAgentStatuses();
@@ -413,8 +323,7 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
     expect(setAgentStatus).toHaveBeenCalledWith(
       "agt_stuck_stop",
       "running",
-      null,
-      "dispatch_agt_stuck_stop"
+      null
     );
     const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
     expect(eventArg?.type).toBe("working");
@@ -424,12 +333,7 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
   it("leaves an agent stopping for < 60s alone (still within grace)", async () => {
     const { reconciler, setAgentStatus } = setup({
       activeRows: [
-        {
-          id: "agt_stopping",
-          tmuxSession: "dispatch_agt_stopping",
-          status: "stopping",
-          updatedAt: secondsAgo(30),
-        },
+        { id: "agt_stopping", status: "stopping", updatedAt: secondsAgo(30) },
       ],
     });
 
@@ -440,75 +344,54 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
 });
 
 describe("reconcileAgentStatuses — happy path", () => {
-  it("doesn't touch a running agent whose session is still alive", async () => {
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
-      activeRows: [
-        {
-          id: "agt_running",
-          tmuxSession: "dispatch_agt_running",
-          status: "running",
-          updatedAt: minutesAgo(5),
-        },
-      ],
-      // hasSession default is true
-    });
+  it("doesn't touch a running agent whose host is still alive", async () => {
+    const { reconciler, setAgentStatus, setSystemLatestEvent, settleStream } =
+      setup({
+        activeRows: [
+          { id: "agt_running", status: "running", updatedAt: minutesAgo(5) },
+        ],
+      });
 
     const reconciled = await reconciler.reconcileAgentStatuses();
     expect(reconciled).toEqual([]);
     expect(setAgentStatus).not.toHaveBeenCalled();
     expect(setSystemLatestEvent).not.toHaveBeenCalled();
+    expect(settleStream).not.toHaveBeenCalled();
   });
 
-  it("runs diagnostics tickers regardless of whether anything needs reconciling", async () => {
-    // The maybe* tickers are throttled internally; they should still be
-    // *called* every reconcile pass so they can decide whether to fire.
-    const maybeCaptureTmuxInventory = vi.fn().mockResolvedValue(undefined);
+  it("runs the maintenance-log ticker regardless of whether anything needs reconciling", async () => {
+    // The ticker is throttled internally; it should still be *called*
+    // every reconcile pass so it can decide whether to fire.
     const maybeMaintenanceLogs = vi.fn().mockResolvedValue(undefined);
 
     const { reconciler } = setup({
       activeRows: [],
-      diagnostics: { maybeCaptureTmuxInventory, maybeMaintenanceLogs },
+      diagnostics: { maybeMaintenanceLogs },
     });
 
     await reconciler.reconcileAgentStatuses();
 
-    expect(maybeCaptureTmuxInventory).toHaveBeenCalledTimes(1);
     expect(maybeMaintenanceLogs).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("cleanupOrphanedSessions", () => {
-  it("returns early when listSessions yields nothing — no DB query", async () => {
-    const runtime = makeRuntime({
-      listSessions: vi.fn().mockResolvedValue([]),
-    });
-    const {
-      reconciler,
-      runtime: _r,
-      pool,
-    } = setup({
-      activeRows: [],
-      runtime,
-    });
-    void _r;
+describe("cleanupOrphanedHosts", () => {
+  it("returns early when no host is running — no DB query", async () => {
+    const { reconciler, runtime, pool } = setup({ activeRows: [] });
 
-    await reconciler.cleanupOrphanedSessions();
+    await reconciler.cleanupOrphanedHosts();
 
-    // The status-pass SELECT happens once on construction-of-the-mock-
-    // sequence, but no second cleanup-pass SELECT should run.
-    const queryCalls = vi.mocked(pool.query).mock.calls;
-    expect(queryCalls.length).toBeLessThanOrEqual(1);
-    expect(runtime.killSession).not.toHaveBeenCalled();
+    expect(pool.query).not.toHaveBeenCalled();
+    expect(runtime.stop).not.toHaveBeenCalled();
   });
 
-  it("kills sessions whose agents are in a terminal DB status (stopped/error)", async () => {
+  it("force-stops hosts whose agents are in a terminal DB status (stopped/error)", async () => {
     const runtime = makeRuntime({
-      listSessions: vi.fn().mockResolvedValue([
-        { name: "dispatch_agt_aaa111aaaaaa", createdAt: 1700000000 },
-        { name: "dispatch_agt_bbb111bbbbbb", createdAt: 1700000100 },
-      ]),
+      listHosted: vi
+        .fn()
+        .mockResolvedValue(["agt_aaa111aaaaaa", "agt_bbb111bbbbbb"]),
     });
-    const { reconciler } = setup({
+    const { reconciler, pool } = setup({
       activeRows: [],
       runtime,
       cleanupAgentRows: [
@@ -517,24 +400,40 @@ describe("cleanupOrphanedSessions", () => {
       ],
     });
 
-    await reconciler.cleanupOrphanedSessions();
+    await reconciler.cleanupOrphanedHosts();
 
-    expect(runtime.killSession).toHaveBeenCalledWith(
-      "dispatch_agt_aaa111aaaaaa"
-    );
-    expect(runtime.killSession).toHaveBeenCalledWith(
-      "dispatch_agt_bbb111bbbbbb"
-    );
-    expect(runtime.killSession).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(pool.query).mock.calls[0]?.[1]).toEqual([
+      ["agt_aaa111aaaaaa", "agt_bbb111bbbbbb"],
+    ]);
+    expect(runtime.stop).toHaveBeenCalledWith("agt_aaa111aaaaaa", true);
+    expect(runtime.stop).toHaveBeenCalledWith("agt_bbb111bbbbbb", true);
+    expect(runtime.stop).toHaveBeenCalledTimes(2);
   });
 
-  it("leaves sessions whose agents are still active alone", async () => {
+  it("keeps going when one stop fails", async () => {
     const runtime = makeRuntime({
-      listSessions: vi
+      listHosted: vi.fn().mockResolvedValue(["agt_a", "agt_b"]),
+      stop: vi
         .fn()
-        .mockResolvedValue([
-          { name: "dispatch_agt_alive1aliv1a", createdAt: 1700000000 },
-        ]),
+        .mockRejectedValueOnce(new Error("socket gone"))
+        .mockResolvedValue(undefined),
+    });
+    const { reconciler } = setup({
+      activeRows: [],
+      runtime,
+      cleanupAgentRows: [
+        { id: "agt_a", status: "stopped" },
+        { id: "agt_b", status: "stopped" },
+      ],
+    });
+
+    await expect(reconciler.cleanupOrphanedHosts()).resolves.toBeUndefined();
+    expect(runtime.stop).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves hosts whose agents are still active alone", async () => {
+    const runtime = makeRuntime({
+      listHosted: vi.fn().mockResolvedValue(["agt_alive1aliv1a"]),
     });
     const { reconciler } = setup({
       activeRows: [],
@@ -542,27 +441,23 @@ describe("cleanupOrphanedSessions", () => {
       cleanupAgentRows: [{ id: "agt_alive1aliv1a", status: "running" }],
     });
 
-    await reconciler.cleanupOrphanedSessions();
-    expect(runtime.killSession).not.toHaveBeenCalled();
+    await reconciler.cleanupOrphanedHosts();
+    expect(runtime.stop).not.toHaveBeenCalled();
   });
 
-  it("leaves sessions with no DB record alone (foreign tmux server safety)", async () => {
-    // Could be another dev's tmux session in the same namespace; only
-    // sessions THIS DB knows about are eligible for cleanup.
+  it("leaves hosts with no DB record alone (shared state root safety)", async () => {
+    // Could belong to another server instance sharing the state root; only
+    // agents THIS DB knows about are eligible for cleanup.
     const runtime = makeRuntime({
-      listSessions: vi
-        .fn()
-        .mockResolvedValue([
-          { name: "dispatch_agt_unknwnunknwn", createdAt: 1700000000 },
-        ]),
+      listHosted: vi.fn().mockResolvedValue(["agt_unknwnunknwn"]),
     });
     const { reconciler } = setup({
       activeRows: [],
       runtime,
-      cleanupAgentRows: [], // DB has no row for this id
+      cleanupAgentRows: [],
     });
 
-    await reconciler.cleanupOrphanedSessions();
-    expect(runtime.killSession).not.toHaveBeenCalled();
+    await reconciler.cleanupOrphanedHosts();
+    expect(runtime.stop).not.toHaveBeenCalled();
   });
 });
