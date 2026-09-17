@@ -319,7 +319,13 @@ export class AgentManager {
     [];
   private readonly eventRecordedListeners: AgentEventHistoryListener[] = [];
 
-  constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
+  constructor(
+    pool: Pool,
+    logger: FastifyBaseLogger,
+    config: AppConfig,
+    /** Tests inject a fake runtime; the server takes the configured one. */
+    options: { runtime?: AgentRuntime } = {}
+  ) {
     this.pool = pool;
     this.logger = logger;
     this.config = config;
@@ -327,15 +333,17 @@ export class AgentManager {
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
     this.streamRecorder = new StreamRecorder(this.streamStore);
-    this.runtime = createAgentRuntime(config, logger, {
-      hostSeq: async (agentId) => {
-        const result = await pool.query<{ host_seq: number }>(
-          "SELECT host_seq FROM agents WHERE id = $1",
-          [agentId]
-        );
-        return result.rows[0]?.host_seq ?? 0;
-      },
-    });
+    this.runtime =
+      options.runtime ??
+      createAgentRuntime(config, logger, {
+        hostSeq: async (agentId) => {
+          const result = await pool.query<{ host_seq: number }>(
+            "SELECT host_seq FROM agents WHERE id = $1",
+            [agentId]
+          );
+          return result.rows[0]?.host_seq ?? 0;
+        },
+      });
     this.runtime.onEvent((agentId, event, seq) =>
       this.handleRuntimeEvent(agentId, event, seq)
     );
