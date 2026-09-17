@@ -11,20 +11,6 @@ import {
   setAgentPinsViaDB,
 } from "./helpers";
 
-const SETTING = "/api/v1/app/settings/chat-surface";
-const IS_LIVE = process.env.DISPATCH_AGENT_RUNTIME === "tmux";
-
-async function setChatSurface(
-  request: APIRequestContext,
-  enabled: boolean
-): Promise<void> {
-  const res = await request.post(SETTING, {
-    headers: authHeaders(),
-    data: { enabled },
-  });
-  expect(res.ok()).toBe(true);
-}
-
 /** Calls an MCP tool the way an agent would, through its per-agent endpoint. */
 async function callMcpTool(
   request: APIRequestContext,
@@ -60,61 +46,14 @@ async function callMcpTool(
 
 test.describe("Chat surface", () => {
   test.afterEach(async ({ request }) => {
-    await setChatSurface(request, false);
     await cleanupE2EAgents(request);
   });
 
-  test("flag off: no Agent tab or toggle, terminal keeps its label, /chat falls back", async ({
-    page,
-    request,
-  }) => {
-    await setChatSurface(request, false);
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-chat-off-${Date.now()}`,
-    });
-
-    await page.goto(`/agents/${agent.id}/chat`, {
-      waitUntil: "domcontentloaded",
-    });
-    await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
-    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
-
-    await expect(page.getByTestId("center-tab-terminal")).toHaveText(
-      "Terminal"
-    );
-    await expect(page.getByTestId("center-tab-chat")).toHaveCount(0);
-    await expect(page.getByTestId("center-tab-agent")).toHaveCount(0);
-    await expect(page.getByTestId("agent-view-toggle")).toHaveCount(0);
-    await expect(page.getByTestId("chat-pane")).toHaveCount(0);
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-  });
-
-  test("flag on: settings toggle, Agent tab, seeded feed, Chat | Console toggle", async ({
-    page,
-    request,
-  }) => {
+  test("Agent tab renders a seeded feed", async ({ page, request }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-on-${Date.now()}`,
     });
-
-    // Enable through the UI, the way a user would.
     await loadApp(page);
-    await page.getByTestId("settings-button").click();
-    await page
-      .getByTestId("sidebar-shell")
-      .getByText("Agents", { exact: true })
-      .click();
-    const toggle = page.getByTestId("chat-surface-toggle");
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveAttribute("data-state", "unchecked");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("data-state", "checked");
-    await expect
-      .poll(async () => {
-        const res = await request.get(SETTING, { headers: authHeaders() });
-        return ((await res.json()) as { enabled: boolean }).enabled;
-      })
-      .toBe(true);
 
     // Seed a feed the way an agent would: status events plus chat posts.
     await callMcpTool(request, agent.id, "dispatch_event", {
@@ -151,18 +90,14 @@ test.describe("Chat surface", () => {
       kind: "summary",
     });
 
-    // Opening the agent lands on the Agent tab, showing Chat by default.
-    await page.getByTestId("agents-button").click();
+    // Opening the agent lands on the Agent tab, which is the Chat.
     await clickAgentRow(page, agent.id);
     await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
 
     const agentTab = page.getByTestId("center-tab-agent");
     await expect(agentTab).toHaveAttribute("aria-selected", "true");
     await expect(agentTab).toHaveText("Agent");
-    await expect(page.getByTestId("center-tab-terminal")).toHaveCount(0);
     await expect(page.getByTestId("center-tab-chat")).toHaveCount(0);
-    const viewToggle = page.getByTestId("agent-view-toggle");
-    await expect(viewToggle).toHaveAttribute("data-view", "chat");
 
     const pane = page.getByTestId("chat-pane");
     await expect(pane).toBeVisible();
@@ -212,19 +147,17 @@ test.describe("Chat surface", () => {
       "Running tests"
     );
 
-    if (!IS_LIVE) {
-      // Inert agents still accept posts for UI/demo inspection; the stream
-      // marks them not delivered instead of pretending a pane received them.
-      await expect(pane.getByTestId("chat-composer-input")).toBeEnabled();
-      await expect(
-        pane.getByTestId("chat-composer-disabled-reason")
-      ).toHaveCount(0);
+    // Inert agents still accept posts for UI/demo inspection; the stream
+    // marks them not delivered instead of pretending an engine received them.
+    await expect(pane.getByTestId("chat-composer-input")).toBeEnabled();
+    await expect(pane.getByTestId("chat-composer-disabled-reason")).toHaveCount(
+      0
+    );
 
-      // Answers use the same stream-only behavior in inert mode.
-      const options = pane.getByTestId("chat-question-option");
-      await expect(options.nth(0)).toBeEnabled();
-      await expect(options.nth(1)).toBeEnabled();
-    }
+    // Answers use the same stream-only behavior in inert mode.
+    const options = pane.getByTestId("chat-question-option");
+    await expect(options.nth(0)).toBeEnabled();
+    await expect(options.nth(1)).toBeEnabled();
 
     await page.screenshot({
       path: test.info().outputPath("chat-surface.png"),
@@ -241,40 +174,15 @@ test.describe("Chat surface", () => {
       })
       .toBe(0);
 
-    // The toggle flips to the Console in place: same URL, same tab, the
-    // terminal shows and the chat hides.
-    await viewToggle.getByTestId("agent-view-console").click();
-    await expect(viewToggle).toHaveAttribute("data-view", "console");
-    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
-    await expect(agentTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await expect(pane).toBeHidden();
-
-    // The choice is remembered per agent across a reload.
-    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await page.getByTestId("agent-view-toggle").waitFor({ state: "visible" });
-    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
-      "data-view",
-      "console"
-    );
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await expect(page.getByTestId("chat-pane")).toBeHidden();
-
     // An old /chat link lands on the Agent tab with Chat showing.
     await page.goto(`/agents/${agent.id}/chat`, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
-    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
-      "data-view",
-      "chat"
+    await expect(page.getByTestId("center-tab-agent")).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
-    await expect(page.getByTestId("chat-pane")).toBeVisible();
-
-    // And back to the Console through the toggle, then Chat again.
-    await page.getByTestId("agent-view-console").click();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await page.getByTestId("agent-view-chat").click();
     await expect(page.getByTestId("chat-pane")).toBeVisible();
   });
 
@@ -282,7 +190,6 @@ test.describe("Chat surface", () => {
     page,
     request,
   }) => {
-    await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-attach-${Date.now()}`,
     });
@@ -400,10 +307,8 @@ test.describe("Chat surface", () => {
     page,
     request,
   }) => {
-    await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-send-${Date.now()}`,
-      type: IS_LIVE ? "terminal" : "codex",
     });
     await expect
       .poll(async () => {
@@ -421,10 +326,10 @@ test.describe("Chat surface", () => {
     await expect(input).toBeEnabled();
     await input.fill("Please read this");
 
-    // The draft survives a Chat → Console → Chat flip and a reload.
-    await page.getByTestId("agent-view-console").click();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await page.getByTestId("agent-view-chat").click();
+    // The draft survives a trip to the Changes tab and a reload.
+    await page.getByTestId("center-tab-changes").click();
+    await page.waitForURL(new RegExp(`/agents/${agent.id}/changes$`));
+    await page.getByTestId("center-tab-agent").click();
     await expect(input).toHaveValue("Please read this");
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("chat-composer-input")).toHaveValue(
@@ -458,9 +363,7 @@ test.describe("Chat surface", () => {
     await expect(
       post.getByRole("link", { name: "https://example.com/design" })
     ).toHaveAttribute("href", "https://example.com/design");
-    if (!IS_LIVE) {
-      await expect(post.getByTestId("chat-delivery-failed")).toBeVisible();
-    }
+    await expect(post.getByTestId("chat-delivery-failed")).toBeVisible();
 
     // The server stored the attachment on the message.
     await expect
@@ -482,11 +385,10 @@ test.describe("Chat surface", () => {
       .toEqual(["link:https://example.com/design"]);
   });
 
-  test("unread count shows on the Agent tab, then on the Chat segment under Console", async ({
+  test("unread count shows on the Agent tab while another tab is up", async ({
     page,
     request,
   }) => {
-    await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-unread-${Date.now()}`,
     });
@@ -507,379 +409,14 @@ test.describe("Chat surface", () => {
     await agentTab.click();
     await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
     await expect(page.getByTestId("chat-pane")).toBeVisible();
+    // ...and clears once the Agent tab is up.
     await expect(page.getByTestId("chat-unread-count")).toHaveCount(0);
-    await expect(page.getByTestId("agent-view-chat-unread")).toHaveCount(0);
-
-    // ...and on the Chat segment of the toggle while the Console is up.
-    await page.getByTestId("agent-view-console").click();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
-      text: "And another.",
-    });
-    await expect(page.getByTestId("agent-view-chat-unread")).toHaveText("1");
-    await expect(page.getByTestId("chat-unread-count")).toHaveCount(0);
-
-    await page.getByTestId("agent-view-chat").click();
-    await expect(page.getByTestId("chat-pane")).toBeVisible();
-    await expect(page.getByTestId("agent-view-chat-unread")).toHaveCount(0);
-  });
-
-  test("keeps the split Agent header's toggle clear of the unsplit button at 820px", async ({
-    page,
-    request,
-  }) => {
-    await setChatSurface(request, true);
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-chat-split-820-${Date.now()}`,
-    });
-
-    await page.setViewportSize({ width: 820, height: 1180 });
-    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await page.getByTestId("agent-view-toggle").waitFor({ state: "visible" });
-    await page.evaluate((id) => {
-      window.localStorage.setItem(
-        `dispatch:splitPaneV2:${id}`,
-        JSON.stringify({
-          mode: "split",
-          left: "agent",
-          right: "changes",
-          sizes: [50, 50],
-        })
-      );
-    }, agent.id);
-    await page.reload({ waitUntil: "domcontentloaded" });
-
-    const unsplit = page.getByTestId("unsplit-button");
-    await expect(unsplit).toBeVisible({ timeout: 10_000 });
-    const toggle = page.getByTestId("agent-view-toggle");
-    await expect(toggle).toBeVisible();
-    const consoleSegment = page.getByTestId("agent-view-console");
-    await expect(consoleSegment).toBeVisible();
-
-    // The toggle sits wholly left of the button: no overlap, nothing cut off.
-    const button = (await unsplit.boundingBox())!;
-    const toggleBox = (await toggle.boundingBox())!;
-    const segmentBox = (await consoleSegment.boundingBox())!;
-    expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(button.x);
-    expect(segmentBox.x + segmentBox.width).toBeLessThanOrEqual(button.x);
-    expect(await consoleSegment.evaluate((el) => el.scrollWidth)).toBe(
-      Math.round(segmentBox.width)
-    );
-    await page.screenshot({
-      path: test.info().outputPath("chat-surface-split-820.png"),
-    });
-
-    // Both segments still take a click.
-    await consoleSegment.click();
-    await expect(toggle).toHaveAttribute("data-view", "console");
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await page.getByTestId("agent-view-chat").click();
-    await expect(toggle).toHaveAttribute("data-view", "chat");
-    await expect(page.getByTestId("chat-pane")).toBeVisible();
-  });
-
-  test("gives the Chat | Console toggle touch-sized segments on a phone", async ({
-    browser,
-    request,
-  }) => {
-    await setChatSurface(request, true);
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-chat-touch-with-a-realistically-long-agent-task-name-${Date.now()}`,
-    });
-
-    const protocol = process.env.TLS_CERT ? "https" : "http";
-    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
-    const context = await browser.newContext({
-      baseURL,
-      hasTouch: true,
-      ignoreHTTPSErrors: true,
-      viewport: { width: 390, height: 844 },
-    });
-    const touchPage = await context.newPage();
-    try {
-      await touchPage.goto(`/agents/${agent.id}`, {
-        waitUntil: "domcontentloaded",
-      });
-      const toggle = touchPage.getByTestId("agent-view-toggle");
-      await toggle.waitFor({ state: "visible" });
-      expect(
-        await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
-      ).toBe(true);
-
-      for (const id of [
-        "agent-view-chat",
-        "agent-view-console",
-        "chat-filters-trigger",
-      ]) {
-        await expect
-          .poll(() =>
-            touchPage
-              .getByTestId(id)
-              .evaluate((node) => node.getBoundingClientRect().height)
-          )
-          .toBeGreaterThanOrEqual(44);
-      }
-      const track = touchPage.getByTestId("agent-view-track");
-      const filterSurface = touchPage.getByTestId("chat-filters-surface");
-      const filterIcon = touchPage.getByTestId("chat-filters-icon");
-      await expect
-        .poll(async () => {
-          const trackBox = (await track.boundingBox())!;
-          const surfaceBox = (await filterSurface.boundingBox())!;
-          const iconBox = (await filterIcon.boundingBox())!;
-          return {
-            trackHeight: Math.round(trackBox.height),
-            surfaceWidth: Math.round(surfaceBox.width),
-            surfaceHeight: Math.round(surfaceBox.height),
-            centerDelta: Math.round(
-              surfaceBox.y +
-                surfaceBox.height / 2 -
-                (trackBox.y + trackBox.height / 2)
-            ),
-            iconWidth: Math.round(iconBox.width),
-            iconHeight: Math.round(iconBox.height),
-          };
-        })
-        .toEqual({
-          trackHeight: 24,
-          surfaceWidth: 24,
-          surfaceHeight: 24,
-          centerDelta: 0,
-          iconWidth: 14,
-          iconHeight: 14,
-        });
-      // The header grew to hold it rather than clipping it.
-      const controls = toggle.locator("xpath=..");
-      const header = controls.locator("xpath=..");
-      const headerBox = (await header.boundingBox())!;
-      const toggleBox = (await toggle.boundingBox())!;
-      expect(toggleBox.y).toBeGreaterThanOrEqual(headerBox.y);
-      expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(
-        headerBox.y + headerBox.height
-      );
-      await expect(touchPage.getByTestId("chat-pane")).toBeVisible();
-
-      const indicator = touchPage.getByTestId("agent-view-indicator");
-      const indicatorInsets = async () => {
-        const trackBox = (await track.boundingBox())!;
-        const indicatorBox = (await indicator.boundingBox())!;
-        const segmentStart =
-          (await toggle.getAttribute("data-view")) === "console"
-            ? trackBox.x + trackBox.width / 2
-            : trackBox.x;
-        const segmentEnd = segmentStart + trackBox.width / 2;
-        return {
-          left: Math.round(indicatorBox.x - segmentStart),
-          right: Math.round(segmentEnd - (indicatorBox.x + indicatorBox.width)),
-          top: Math.round(indicatorBox.y - trackBox.y),
-          bottom: Math.round(
-            trackBox.y +
-              trackBox.height -
-              (indicatorBox.y + indicatorBox.height)
-          ),
-        };
-      };
-      await expect.poll(indicatorInsets).toEqual({
-        left: 2,
-        right: 2,
-        top: 2,
-        bottom: 2,
-      });
-      await touchPage.screenshot({
-        path: test.info().outputPath("chat-surface-touch-390.png"),
-      });
-
-      await touchPage.getByTestId("agent-view-console").tap();
-      await expect(toggle).toHaveAttribute("data-view", "console");
-      await expect(touchPage.getByTestId("terminal-pane")).toBeVisible();
-      await expect.poll(indicatorInsets).toEqual({
-        left: 2,
-        right: 2,
-        top: 2,
-        bottom: 2,
-      });
-
-      await touchPage.getByTestId("agent-view-chat").tap();
-      await expect(toggle).toHaveAttribute("data-view", "chat");
-      await expect(touchPage.getByTestId("chat-pane")).toBeVisible();
-      await expect.poll(indicatorInsets).toEqual({
-        left: 2,
-        right: 2,
-        top: 2,
-        bottom: 2,
-      });
-
-      await touchPage.setViewportSize({ width: 320, height: 844 });
-      await expect
-        .poll(async () => {
-          const toggleBox = (await toggle.boundingBox())!;
-          const triggerBox = (await touchPage
-            .getByTestId("chat-filters-trigger")
-            .boundingBox())!;
-          return {
-            railWidth: Math.round(
-              (await touchPage.getByTestId("agent-view-track").boundingBox())!
-                .width
-            ),
-            controlsOverlap: Math.max(
-              0,
-              Math.round(toggleBox.x + toggleBox.width - triggerBox.x)
-            ),
-            pageOverflow: await touchPage.evaluate(
-              () => document.documentElement.scrollWidth - innerWidth
-            ),
-          };
-        })
-        .toEqual({ railWidth: 152, controlsOverlap: 0, pageOverflow: 0 });
-      await touchPage.screenshot({
-        path: test.info().outputPath("chat-surface-touch-long-name-320.png"),
-      });
-    } finally {
-      await context.close();
-    }
-  });
-
-  test("cross-fades Chat and Console on a phone without moving anything", async ({
-    browser,
-    request,
-  }) => {
-    await setChatSurface(request, true);
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-chat-crossfade-${Date.now()}`,
-    });
-
-    const protocol = process.env.TLS_CERT ? "https" : "http";
-    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
-    const context = await browser.newContext({
-      baseURL,
-      hasTouch: true,
-      ignoreHTTPSErrors: true,
-      viewport: { width: 390, height: 844 },
-    });
-    const phone = await context.newPage();
-    try {
-      await phone.goto(`/agents/${agent.id}`, {
-        waitUntil: "domcontentloaded",
-      });
-      const toggle = phone.getByTestId("agent-view-toggle");
-      await toggle.waitFor({ state: "visible" });
-
-      const layers = () =>
-        phone.evaluate(() => {
-          const box = (sel: string) => {
-            const el = document.querySelector(sel);
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            const cs = getComputedStyle(el);
-            return {
-              x: Math.round(r.x),
-              y: Math.round(r.y),
-              w: Math.round(r.width),
-              h: Math.round(r.height),
-              opacity: Math.round(Number(cs.opacity) * 100) / 100,
-              visibility: cs.visibility,
-            };
-          };
-          return {
-            chat: box('[data-testid="agent-pane-chat"]'),
-            console: box('[data-testid="agent-pane-console"]'),
-            slot: box('[data-testid="agent-pane-terminal-slot"]'),
-            viewport: innerWidth,
-          };
-        });
-
-      // The chat-surface flag resolves after the first paint. Whichever view
-      // the toggle lands on must be the one actually painted — the Console
-      // layer sits on top and is opaque, so an unmanaged one hides the Chat
-      // while the toggle still reads Chat.
-      await expect(toggle).toHaveAttribute("data-view", "chat");
-      await expect
-        .poll(async () => (await layers()).console?.visibility)
-        .toBe("hidden");
-
-      // Nothing in the Console layer may be wider than the layer itself. The
-      // terminal is portaled in and its rows are routinely wider than a phone
-      // — an unconstrained grid track sizes to that content and drags the
-      // layer, and the toolbar under it, off the side of the screen. A stand
-      // -in for those rows, since a headless agent has no output of its own:
-      const overflowWidths = await phone.evaluate(() => {
-        const slot = document.querySelector(
-          '[data-testid="agent-pane-terminal-slot"]'
-        ) as HTMLElement;
-        const probe = document.createElement("div");
-        probe.style.cssText = "width:2000px;height:1px";
-        slot.appendChild(probe);
-        const layer = document.querySelector(
-          '[data-testid="agent-pane-console"]'
-        ) as HTMLElement;
-        // The toolbar shares the layer's column, so a stretched track takes
-        // it off-screen too — that is what clipped the Enter key.
-        const toolbar = layer.lastElementChild as HTMLElement;
-        const widths = {
-          slot: Math.round(slot.getBoundingClientRect().width),
-          layer: Math.round(layer.getBoundingClientRect().width),
-          toolbar: Math.round(toolbar.getBoundingClientRect().width),
-          viewport: innerWidth,
-        };
-        probe.remove();
-        return widths;
-      });
-      expect(overflowWidths.slot).toBeLessThanOrEqual(overflowWidths.viewport);
-      expect(overflowWidths.layer).toBe(overflowWidths.viewport);
-      expect(overflowWidths.toolbar).toBeLessThanOrEqual(
-        overflowWidths.viewport
-      );
-
-      const settled = await layers();
-      expect(settled.console!.w).toBe(settled.viewport);
-      expect(settled.slot!.w).toBeLessThanOrEqual(settled.console!.w);
-
-      // The flip is opacity only: every box keeps its geometry, so the header
-      // above and the surfaces themselves never resize mid-transition.
-      const geometry = (l: Awaited<ReturnType<typeof layers>>) => ({
-        chat: [l.chat!.x, l.chat!.y, l.chat!.w, l.chat!.h],
-        console: [l.console!.x, l.console!.y, l.console!.w, l.console!.h],
-        slot: [l.slot!.x, l.slot!.y, l.slot!.w, l.slot!.h],
-      });
-      const before = geometry(settled);
-
-      // The views hand over rather than dissolve into each other, so "settled"
-      // is the end of both halves: the outgoing layer down and unpainted, the
-      // incoming one all the way up.
-      const settledOn = async (view: "chat" | "console") => {
-        const l = await layers();
-        const up = view === "chat" ? l.chat! : l.console!;
-        const down = view === "chat" ? l.console! : l.chat!;
-        return { upOpacity: up.opacity, downVisibility: down.visibility };
-      };
-
-      await phone.getByTestId("agent-view-console").tap();
-      await expect(toggle).toHaveAttribute("data-view", "console");
-      await expect
-        .poll(() => settledOn("console"))
-        .toEqual({ upOpacity: 1, downVisibility: "hidden" });
-      expect(geometry(await layers())).toEqual(before);
-
-      await phone.getByTestId("agent-view-chat").tap();
-      await expect(toggle).toHaveAttribute("data-view", "chat");
-      await expect
-        .poll(() => settledOn("chat"))
-        .toEqual({ upOpacity: 1, downVisibility: "hidden" });
-      expect(geometry(await layers())).toEqual(before);
-
-      await phone.screenshot({
-        path: test.info().outputPath("chat-surface-crossfade-390.png"),
-      });
-    } finally {
-      await context.close();
-    }
   });
 
   test("keeps wide markdown tables reachable without page overflow", async ({
     page,
     request,
   }) => {
-    await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-table-${Date.now()}`,
     });

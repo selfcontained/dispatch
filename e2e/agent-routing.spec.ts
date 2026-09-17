@@ -6,7 +6,7 @@ async function waitForAppShell(
   agentName?: string
 ): Promise<void> {
   await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
-  await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
+  await page.getByTestId("chat-pane").waitFor({ state: "visible" });
   if (agentName) {
     await page
       .getByTestId("agent-sidebar")
@@ -36,7 +36,9 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "No messages yet"
+    );
   });
 
   test("browser back returns to the same agent session after visiting settings", async ({
@@ -49,7 +51,9 @@ test.describe("Agent routing", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page, agent.name);
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "No messages yet"
+    );
 
     await page.getByTestId("settings-button").click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -59,7 +63,9 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "No messages yet"
+    );
   });
 
   test("legacy feedback and review routes normalize back to the agent route", async ({
@@ -96,6 +102,8 @@ test.describe("Agent routing", () => {
     await waitForAppShell(page);
 
     await expect(page).toHaveURL(/\/agents$/);
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
+    );
   });
 });

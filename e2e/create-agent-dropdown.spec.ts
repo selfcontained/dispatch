@@ -33,9 +33,6 @@ test.describe("Create agent dialog", () => {
     // The dropdown options should be visible
     const codexOption = page.getByRole("option", { name: "Codex" });
     await expect(codexOption).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible({
-      timeout: 3_000,
-    });
 
     // Select "Codex"
     await codexOption.click();

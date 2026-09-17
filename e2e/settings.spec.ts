@@ -7,7 +7,7 @@ import {
 
 test.describe("Settings pane", () => {
   test.afterEach(async ({ request }) => {
-    await setEnabledAgentTypesViaAPI(request, ["codex", "claude", "opencode"]);
+    await setEnabledAgentTypesViaAPI(request, ["codex", "claude"]);
     await request.post("/api/v1/notifications/settings", {
       headers: {
         Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -217,7 +217,7 @@ test.describe("Settings pane", () => {
     ).toHaveCount(0);
     await expect(dashboard.getByText(/load \/ \d+ CPUs/)).toBeVisible();
     await expect(dashboard.getByText("Connected browsers")).toBeVisible();
-    await expect(dashboard.getByText("Active terminal views")).toBeVisible();
+    await expect(dashboard.getByText("Running agents")).toBeVisible();
     await expect(dashboard.getByText("Git refreshes active")).toBeVisible();
     await expect(
       dashboard.getByText(/host load uses the right load axis/i)
@@ -290,7 +290,6 @@ test.describe("Settings pane", () => {
     await typeTrigger.click();
 
     await expect(page.getByRole("option", { name: "Codex" })).toBeVisible();
-    await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible();
     await expect(
       page.getByRole("option", { name: "Claude" })
     ).not.toBeVisible();

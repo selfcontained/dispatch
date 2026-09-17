@@ -21,7 +21,7 @@ test.describe("Chrome overflow", () => {
       name: `e2e-agent-${Date.now()}`,
     });
     const longMessage =
-      "This is a deliberately long agent description used to verify that status text no longer reserves a dedicated header row or pushes the terminal layout beyond the viewport width while a session is attached and actively reporting status updates.";
+      "This is a deliberately long agent description used to verify that status text no longer reserves a dedicated header row or pushes the agent layout beyond the viewport width while a session is attached and actively reporting status updates.";
 
     await setAgentLatestEventViaAPI(request, agent.id, {
       type: "working",
