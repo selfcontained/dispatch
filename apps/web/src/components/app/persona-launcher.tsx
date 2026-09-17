@@ -36,14 +36,7 @@ type PersonaSummary = {
 };
 
 function defaultReviewAgentType(agent: Agent): AgentType {
-  return (
-    agent.reviewAgentType ??
-    (agent.type === "claude" ||
-    agent.type === "opencode" ||
-    agent.type === "cursor"
-      ? agent.type
-      : "codex")
-  );
+  return agent.reviewAgentType ?? agent.type ?? "codex";
 }
 
 export function PersonaLauncher({

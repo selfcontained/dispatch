@@ -148,7 +148,6 @@ function AgentHistoryList({
               <SelectItem value="__all__">All types</SelectItem>
               <SelectItem value="claude">Claude</SelectItem>
               <SelectItem value="codex">Codex</SelectItem>
-              <SelectItem value="opencode">OpenCode</SelectItem>
             </SelectContent>
           </Select>
 

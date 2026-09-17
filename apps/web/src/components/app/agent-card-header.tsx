@@ -24,7 +24,6 @@ import { cn } from "@/lib/utils";
 
 function hasDefaultSessionName(agent: Agent): boolean {
   if (agent.persona) return false;
-  if (agent.type === "terminal") return false;
   if (agent.name.startsWith("job-")) return false;
   return agent.name.trim() === `agent-${agent.id.slice(-6)}`;
 }
@@ -34,7 +33,6 @@ export type AgentCardHeaderProps = {
   childAgents: Agent[];
   isExpanded: boolean;
   isStopped: boolean;
-  isTerminalAgent: boolean;
   connectedAgentId?: string | null;
   closeOnSessionAction: boolean;
   onRequestClose?: () => void;
@@ -53,7 +51,6 @@ export function AgentCardHeader({
   childAgents,
   isExpanded,
   isStopped,
-  isTerminalAgent,
   connectedAgentId,
   closeOnSessionAction,
   onRequestClose,
@@ -122,11 +119,7 @@ export function AgentCardHeader({
                 <AgentTypeIcon
                   type={agent.type}
                   eventType={
-                    isTerminalAgent
-                      ? null
-                      : agent.status === "running"
-                        ? agent.latestEvent?.type
-                        : null
+                    agent.status === "running" ? agent.latestEvent?.type : null
                   }
                 />
               </span>

@@ -113,7 +113,6 @@ export function AgentCard({
   // Owned here rather than in AgentCardDetails so the copy confirmation is not
   // lost when the details panel unmounts on collapse.
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
-  const isTerminalAgent = agent.type === "terminal";
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
     isExpanded
@@ -157,7 +156,6 @@ export function AgentCard({
           childAgents={childAgents}
           isExpanded={isExpanded}
           isStopped={isStopped}
-          isTerminalAgent={isTerminalAgent}
           connectedAgentId={connectedAgentId}
           closeOnSessionAction={closeOnSessionAction}
           onRequestClose={onRequestClose}
@@ -169,9 +167,7 @@ export function AgentCard({
 
         <AgentCardPhaseStatus agent={agent} />
 
-        {isTerminalAgent ? null : (
-          <AgentCardLatestEvent agent={agent} isExpanded={isExpanded} />
-        )}
+        <AgentCardLatestEvent agent={agent} isExpanded={isExpanded} />
 
         <AnimatePresence initial={false}>
           {isExpanded ? (
@@ -189,7 +185,6 @@ export function AgentCard({
                     diffStats={diffStats}
                     refreshDiffStats={refreshDiffStats}
                     fullAccessEnabled={fullAccessEnabled}
-                    isTerminalAgent={isTerminalAgent}
                     enabledIdes={enabledIdes}
                     worktreePathCopied={worktreePathCopied}
                     copyWorktreePath={copyWorktreePath}
@@ -261,7 +256,6 @@ export function AgentCard({
                 <AgentCardActions
                   agent={agent}
                   isStopped={isStopped}
-                  isTerminalAgent={isTerminalAgent}
                   enabledAgentTypes={enabledAgentTypes}
                   closeOnSessionAction={closeOnSessionAction}
                   onRequestClose={onRequestClose}

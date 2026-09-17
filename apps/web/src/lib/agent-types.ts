@@ -19,15 +19,10 @@ export {
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   claude: "Claude",
   codex: "Codex",
-  cursor: "Cursor",
-  opencode: "OpenCode",
-  terminal: "Terminal",
 };
 
 export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
-  return [...types].sort((a, b) => {
-    if (a === "terminal") return 1;
-    if (b === "terminal") return -1;
-    return AGENT_TYPE_LABELS[a].localeCompare(AGENT_TYPE_LABELS[b]);
-  });
+  return [...types].sort((a, b) =>
+    AGENT_TYPE_LABELS[a].localeCompare(AGENT_TYPE_LABELS[b])
+  );
 }

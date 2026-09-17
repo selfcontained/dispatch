@@ -81,22 +81,17 @@ export function templateConfigFromDraft(
     | "selfImprove"
   >
 > {
-  const isTerminal = draft.agentType === "terminal";
   return {
     description: draft.description.trim() || null,
-    prompt: isTerminal ? null : draft.prompt || null,
+    prompt: draft.prompt || null,
     agentType: draft.agentType,
-    useWorktree: isTerminal ? false : draft.useWorktree,
-    baseBranch: isTerminal ? null : draft.useWorktree ? draft.baseBranch : null,
-    branchName: isTerminal
-      ? null
-      : draft.useWorktree
-        ? draft.branchName || null
-        : null,
-    fullAccess: isTerminal ? false : draft.fullAccess,
+    useWorktree: draft.useWorktree,
+    baseBranch: draft.useWorktree ? draft.baseBranch : null,
+    branchName: draft.useWorktree ? draft.branchName || null : null,
+    fullAccess: draft.fullAccess,
     callable: draft.callable,
-    allowMedia: isTerminal ? false : draft.allowMedia,
-    selfImprove: isTerminal ? false : draft.selfImprove,
+    allowMedia: draft.allowMedia,
+    selfImprove: draft.selfImprove,
   };
 }
 

@@ -80,7 +80,7 @@ function baseProps(): Props {
     paletteGroups: [],
     launchTemplate: null,
     setLaunchTemplateId: vi.fn(),
-    enabledAgentTypes: ["claude", "codex", "terminal"],
+    enabledAgentTypes: ["claude", "codex"],
     createOpen: false,
     initialAgentType: null,
     onCreateOpenChange: vi.fn(),
@@ -188,22 +188,17 @@ describe("AgentsViewDialogs", () => {
     expect(props.setLaunchTemplateId).toHaveBeenCalledWith(null);
   });
 
-  it("offers only CLI agent types in the launch dialog", async () => {
+  it("offers the enabled agent types in the launch dialog", async () => {
     renderDialogs({
       launchTemplate: makeTemplate(),
-      enabledAgentTypes: ["claude", "codex", "cursor", "opencode", "terminal"],
+      enabledAgentTypes: ["claude", "codex"],
     });
 
     fireEvent.click(screen.getByRole("combobox", { name: /agent type/i }));
 
     const options = await screen.findAllByRole("option");
     const labels = options.map((option) => option.textContent);
-    expect(labels).toContain("Claude");
-    expect(labels).toContain("Codex");
-    expect(labels).toContain("Cursor");
-    expect(labels).toContain("OpenCode");
-    // Terminal agents have no CLI to drive — the wrapper must filter them out.
-    expect(labels).not.toContain("Terminal");
+    expect(labels).toEqual(["Claude", "Codex"]);
   });
 
   it("wires media IDs into the lightbox so navigation lands correctly", () => {

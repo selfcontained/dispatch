@@ -155,7 +155,6 @@ export function TemplateConfigFields({
   onPromptChange,
   autoFocusName,
 }: TemplateConfigFieldsProps): JSX.Element {
-  const isTerminal = agentType === "terminal";
   const { options: modelOptions, loading: modelCatalogLoading } =
     useAgentModelCatalog(agentType);
   const {
@@ -229,24 +228,22 @@ export function TemplateConfigFields({
         />
       </div>
 
-      {!isTerminal ? (
-        <>
-          <TemplateWorktreeOption
-            checked={useWorktree}
-            cwd={directory}
-            baseBranch={baseBranch}
-            branchName={branchName}
-            onCheckedChange={onUseWorktreeChange}
-            onBaseBranchChange={onBaseBranchChange}
-            onBranchNameChange={onBranchNameChange}
-          />
+      <>
+        <TemplateWorktreeOption
+          checked={useWorktree}
+          cwd={directory}
+          baseBranch={baseBranch}
+          branchName={branchName}
+          onCheckedChange={onUseWorktreeChange}
+          onBaseBranchChange={onBaseBranchChange}
+          onBranchNameChange={onBranchNameChange}
+        />
 
-          <TemplateFullAccessOption
-            checked={fullAccess}
-            onCheckedChange={onFullAccessChange}
-          />
-        </>
-      ) : null}
+        <TemplateFullAccessOption
+          checked={fullAccess}
+          onCheckedChange={onFullAccessChange}
+        />
+      </>
 
       <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
         <Checkbox
@@ -264,73 +261,71 @@ export function TemplateConfigFields({
         </span>
       </label>
 
-      {!isTerminal ? (
-        <>
-          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-            <Checkbox
-              checked={allowMedia}
-              onCheckedChange={() => onAllowMediaChange(!allowMedia)}
-              className="mt-0.5"
-            />
-            <span className="space-y-1">
-              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                <Paperclip className="h-3.5 w-3.5" />
-                Allow media attachments on launch
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Show a context area for files and links when launching this
-                template.
-              </span>
+      <>
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+          <Checkbox
+            checked={allowMedia}
+            onCheckedChange={() => onAllowMediaChange(!allowMedia)}
+            className="mt-0.5"
+          />
+          <span className="space-y-1">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <Paperclip className="h-3.5 w-3.5" />
+              Allow media attachments on launch
             </span>
-          </label>
-
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Prompt</label>
-            <Textarea
-              value={prompt}
-              onChange={(e) => onPromptChange(e.target.value)}
-              placeholder="Describe what the agent should do..."
-              className={cn(
-                "min-h-64 resize-y",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              )}
-            />
-            {detectedArgs.length > 0 ? (
-              <div className="mt-1.5 text-xs text-muted-foreground">
-                Detected arguments:{" "}
-                {detectedArgs.map((a) => (
-                  <span
-                    key={a.key}
-                    className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
-                  >
-                    {a.name}
-                    {a.required ? " *" : ""}
-                    {a.multiline ? " (multiline)" : ""}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-            <Checkbox
-              checked={selfImprove}
-              onCheckedChange={() => onSelfImproveChange(!selfImprove)}
-              className="mt-0.5"
-            />
-            <span className="space-y-1">
-              <span className="block text-sm font-medium text-foreground">
-                Self improve after each run
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Ask the agent to make a conservative saved-prompt improvement
-                when it finds one.
-              </span>
+            <span className="block text-xs text-muted-foreground">
+              Show a context area for files and links when launching this
+              template.
             </span>
-          </label>
-        </>
-      ) : null}
+          </span>
+        </label>
+
+        <div className="space-y-1">
+          <label className="text-sm text-muted-foreground">Prompt</label>
+          <Textarea
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            placeholder="Describe what the agent should do..."
+            className={cn(
+              "min-h-64 resize-y",
+              "ring-offset-background placeholder:text-muted-foreground",
+              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            )}
+          />
+          {detectedArgs.length > 0 ? (
+            <div className="mt-1.5 text-xs text-muted-foreground">
+              Detected arguments:{" "}
+              {detectedArgs.map((a) => (
+                <span
+                  key={a.key}
+                  className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                >
+                  {a.name}
+                  {a.required ? " *" : ""}
+                  {a.multiline ? " (multiline)" : ""}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+          <Checkbox
+            checked={selfImprove}
+            onCheckedChange={() => onSelfImproveChange(!selfImprove)}
+            className="mt-0.5"
+          />
+          <span className="space-y-1">
+            <span className="block text-sm font-medium text-foreground">
+              Self improve after each run
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Ask the agent to make a conservative saved-prompt improvement when
+              it finds one.
+            </span>
+          </span>
+        </label>
+      </>
     </div>
   );
 }

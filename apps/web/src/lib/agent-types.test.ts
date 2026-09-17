@@ -10,18 +10,24 @@ import {
   type AgentType,
 } from "./agent-types";
 
+describe("agent type tables", () => {
+  it("lists only the ACP engines", () => {
+    expect([...AGENT_TYPES]).toEqual(["claude", "codex"]);
+    expect([...CLI_AGENT_TYPES]).toEqual(["claude", "codex"]);
+  });
+});
+
 describe("isAgentType", () => {
   it.each([...AGENT_TYPES])("returns true for %s", (type) => {
     expect(isAgentType(type)).toBe(true);
   });
 
-  it("returns false for unknown string", () => {
-    expect(isAgentType("vim")).toBe(false);
-  });
-
-  it("returns false for empty string", () => {
-    expect(isAgentType("")).toBe(false);
-  });
+  it.each(["terminal", "cursor", "opencode", "vim", ""])(
+    "returns false for %s",
+    (type) => {
+      expect(isAgentType(type)).toBe(false);
+    }
+  );
 });
 
 describe("isCliAgentType", () => {
@@ -29,40 +35,18 @@ describe("isCliAgentType", () => {
     expect(isCliAgentType(type)).toBe(true);
   });
 
-  it("returns false for terminal", () => {
+  it("returns false for a retired type", () => {
     expect(isCliAgentType("terminal")).toBe(false);
-  });
-
-  it("returns false for unknown string", () => {
-    expect(isCliAgentType("vim")).toBe(false);
   });
 });
 
 describe("sortAgentTypes", () => {
-  it("sorts alphabetically by label with terminal last", () => {
-    const input: AgentType[] = [
-      "terminal",
-      "opencode",
-      "claude",
-      "codex",
-      "cursor",
-    ];
-    const sorted = sortAgentTypes(input);
-    expect(sorted).toEqual([
-      "claude",
-      "codex",
-      "cursor",
-      "opencode",
-      "terminal",
-    ]);
-  });
-
-  it("keeps terminal last even when it is the only element", () => {
-    expect(sortAgentTypes(["terminal"])).toEqual(["terminal"]);
+  it("sorts alphabetically by label", () => {
+    expect(sortAgentTypes(["codex", "claude"])).toEqual(["claude", "codex"]);
   });
 
   it("does not mutate the input array", () => {
-    const input: AgentType[] = ["cursor", "claude"];
+    const input: AgentType[] = ["codex", "claude"];
     const copy = [...input];
     sortAgentTypes(input);
     expect(input).toEqual(copy);
@@ -70,13 +54,6 @@ describe("sortAgentTypes", () => {
 
   it("handles an empty array", () => {
     expect(sortAgentTypes([])).toEqual([]);
-  });
-
-  it("handles two-element array with terminal first", () => {
-    expect(sortAgentTypes(["terminal", "claude"])).toEqual([
-      "claude",
-      "terminal",
-    ]);
   });
 });
 
@@ -88,11 +65,10 @@ describe("sanitizeEnabledAgentTypes", () => {
     expect(sanitizeEnabledAgentTypes(42)).toEqual([...AGENT_TYPES]);
   });
 
-  it("filters valid agent types from mixed input", () => {
-    expect(sanitizeEnabledAgentTypes(["claude", "invalid", "cursor"])).toEqual([
-      "claude",
-      "cursor",
-    ]);
+  it("drops retired and invalid types from mixed input", () => {
+    expect(
+      sanitizeEnabledAgentTypes(["claude", "invalid", "cursor", "terminal"])
+    ).toEqual(["claude"]);
   });
 
   it("deduplicates entries", () => {
@@ -101,21 +77,14 @@ describe("sanitizeEnabledAgentTypes", () => {
     ).toEqual(["claude", "codex"]);
   });
 
-  it("returns all types when array is empty", () => {
+  it("returns all types when nothing valid is left", () => {
     expect(sanitizeEnabledAgentTypes([])).toEqual([...AGENT_TYPES]);
-  });
-
-  it("returns all types when array has only invalid entries", () => {
-    expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual([
+    expect(sanitizeEnabledAgentTypes(["vim", 123, null, "terminal"])).toEqual([
       ...AGENT_TYPES,
     ]);
   });
 
-  it("filters out non-string entries", () => {
-    expect(sanitizeEnabledAgentTypes([42, true, "claude"])).toEqual(["claude"]);
-  });
-
   it("preserves a single valid type", () => {
-    expect(sanitizeEnabledAgentTypes(["terminal"])).toEqual(["terminal"]);
+    expect(sanitizeEnabledAgentTypes(["codex"])).toEqual(["codex"]);
   });
 });

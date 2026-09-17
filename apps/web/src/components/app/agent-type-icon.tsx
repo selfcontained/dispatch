@@ -1,5 +1,5 @@
-import { Bot, Terminal as TerminalIcon } from "lucide-react";
-import { siClaude, siCursor } from "simple-icons";
+import { Bot } from "lucide-react";
+import { siClaude } from "simple-icons";
 
 import { cn } from "@/lib/utils";
 
@@ -25,25 +25,8 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "cursor" | "terminal" | "unknown" {
-  if (type === "claude") {
-    return "claude";
-  }
-  if (type === "opencode") {
-    return "opencode";
-  }
-  if (type === "cursor") {
-    return "cursor";
-  }
-  if (type === "terminal") {
-    return "terminal";
-  }
-  if (type === "codex") {
-    return "codex";
-  }
-  if (!type) {
-    return "unknown";
-  }
+): "codex" | "claude" | "unknown" {
+  if (type === "claude" || type === "codex") return type;
   return "unknown";
 }
 
@@ -56,48 +39,13 @@ export function AgentTypeIcon({
   const label =
     normalizedType === "claude"
       ? "Claude"
-      : normalizedType === "opencode"
-        ? "OpenCode"
-        : normalizedType === "cursor"
-          ? "Cursor"
-          : normalizedType === "terminal"
-            ? "Terminal"
-            : normalizedType === "codex"
-              ? "Codex"
-              : "Agent";
+      : normalizedType === "codex"
+        ? "Codex"
+        : "Agent";
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
     : "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground transition-colors duration-300";
-
-  if (normalizedType === "opencode") {
-    return (
-      <span
-        className={cn(
-          baseClass,
-          statusClass,
-          "text-[9px] font-semibold tracking-[0.08em]",
-          className
-        )}
-        title={`${label} agent`}
-        aria-label={`${label} agent`}
-      >
-        OC
-      </span>
-    );
-  }
-
-  if (normalizedType === "terminal") {
-    return (
-      <span
-        className={cn(baseClass, statusClass, className)}
-        title={`${label} agent`}
-        aria-label={`${label} agent`}
-      >
-        <TerminalIcon className="h-3.5 w-3.5" aria-hidden="true" />
-      </span>
-    );
-  }
 
   if (normalizedType === "unknown") {
     return (
@@ -112,15 +60,9 @@ export function AgentTypeIcon({
   }
 
   const logoPath =
-    normalizedType === "claude"
-      ? siClaude.path
-      : normalizedType === "cursor"
-        ? siCursor.path
-        : CODEX_LOGO_PATH;
+    normalizedType === "claude" ? siClaude.path : CODEX_LOGO_PATH;
   const viewBox =
-    normalizedType === "claude" || normalizedType === "cursor"
-      ? "0 0 24 24"
-      : "0 0 158.7128 157.296";
+    normalizedType === "claude" ? "0 0 24 24" : "0 0 158.7128 157.296";
 
   return (
     <span

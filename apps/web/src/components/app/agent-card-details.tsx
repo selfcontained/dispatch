@@ -69,7 +69,6 @@ export type AgentCardDetailsProps = {
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;
-  isTerminalAgent: boolean;
   enabledIdes: IdeType[];
   /**
    * Copy state is owned by the card itself so the "copied" confirmation
@@ -88,7 +87,6 @@ export function AgentCardDetails({
   diffStats,
   refreshDiffStats,
   fullAccessEnabled,
-  isTerminalAgent,
   enabledIdes,
   worktreePathCopied,
   copyWorktreePath,
@@ -192,21 +190,17 @@ export function AgentCardDetails({
             </Tooltip>
           ) : null}
         </div>
-        {isTerminalAgent ? (
-          <span />
-        ) : (
-          <div
-            className={cn(
-              "inline-flex min-h-6 items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-              fullAccessEnabled
-                ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
-                : "border border-border bg-muted/40 text-muted-foreground"
-            )}
-          >
-            {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
-            <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
-          </div>
-        )}
+        <div
+          className={cn(
+            "inline-flex min-h-6 items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
+            fullAccessEnabled
+              ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
+              : "border border-border bg-muted/40 text-muted-foreground"
+          )}
+        >
+          {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
+          <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
+        </div>
       </div>
     </div>
   );

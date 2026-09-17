@@ -541,10 +541,10 @@ describe("ChatFeed", () => {
       {
         id: "agt_sib",
         name: "sib",
-        type: "opencode",
+        type: "codex",
         parentAgentId: "agt_root",
       },
-      { id: "agt_far", name: "far", type: "terminal", parentAgentId: null },
+      { id: "agt_far", name: "far", type: "claude", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const peerPost = (
@@ -589,8 +589,8 @@ describe("ChatFeed", () => {
     ).toEqual([
       "Codex agent",
       "Claude agent",
-      "OpenCode agent",
-      "Terminal agent",
+      "Codex agent",
+      "Claude agent",
       // Not in the list any more: the generic agent icon.
       "Agent agent",
     ]);

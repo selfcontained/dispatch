@@ -16,9 +16,6 @@ type AgentTypeSettingsResponse = {
 const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
   claude: "Claude Code CLI by Anthropic.",
   codex: "Codex CLI by OpenAI.",
-  cursor: "Cursor Agent CLI by Anysphere.",
-  opencode: "OpenCode CLI — open-source terminal agent.",
-  terminal: "Raw shell session with no AI agent.",
 };
 
 type AgentTypeSettingsProps = {
@@ -171,21 +168,6 @@ export function AgentTypeSettings({
             />
           );
         })}
-      </div>
-
-      <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Other
-        </div>
-      </div>
-
-      <div className="max-w-lg space-y-2">
-        <AgentTypeRow
-          agentType="terminal"
-          checked={agentTypes.includes("terminal")}
-          disabled={agentTypes.includes("terminal") && agentTypes.length === 1}
-          onToggle={() => void toggleAgentType("terminal")}
-        />
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

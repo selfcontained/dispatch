@@ -11,10 +11,8 @@ export function AgentsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Type</strong> — pick a CLI assistant (<Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>) or{" "}
-            <Code>terminal</Code> for a plain tmux shell with no CLI attached.
-            Disabled types can be enabled in Settings.
+            <strong>Type</strong> — <Code>claude</Code> (the default) or{" "}
+            <Code>codex</Code>. Disabled types can be enabled in Settings.
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model

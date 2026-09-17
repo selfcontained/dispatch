@@ -83,7 +83,7 @@ function renderFlow(
         <AddJobFlow
           onAddJob={onAddJob}
           isAdding={options.isAdding ?? false}
-          enabledAgentTypes={["claude", "codex", "terminal"]}
+          enabledAgentTypes={["claude", "codex"]}
         />
       </AddJobDialog>
     </QueryClientProvider>
