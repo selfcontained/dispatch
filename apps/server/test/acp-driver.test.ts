@@ -17,23 +17,20 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 const resolveBinary = async (bin: string) => bin;
 
 const bins: EngineBins = {
-  claudeHarnessBin: "/bin/claude-agent-acp",
-  codexHarnessBin: "/bin/codex-acp",
-  geminiBin: "/bin/gemini",
-  opencodeBin: "/bin/opencode",
+  claudeAdapterBin: "/bin/claude-agent-acp",
   claudeBin: "/home/u/.local/bin/claude",
+  codexAdapterBin: "/bin/codex-acp",
   codexBin: null,
 };
 
 function launch(
   overrides: Partial<DriverLaunch> = {},
-  engine: Parameters<typeof engineSpecFor>[0] = "claude",
-  model = "default"
+  engine: Parameters<typeof engineSpecFor>[0] = "claude"
 ): DriverLaunch {
   return {
     agentId: "agt_1",
     cwd: "/tmp/w",
-    engine: engineSpecFor(engine, model, bins),
+    engine: engineSpecFor(engine, bins),
     systemPromptAppend: engine === "claude" ? "Be brief." : null,
     mcp: { url: "http://127.0.0.1:1/api/mcp/agt_1", token: "tok" },
     sessionId: null,
@@ -86,7 +83,7 @@ describe("AcpDriver", () => {
   it("codex: no _meta persona, no subagent capability, full access by env", async () => {
     const fake = createFakeAcpAgent();
     const { spawn, driver } = driverWith(fake);
-    await driver.start(launch({}, "codex", "gpt-5.6-sol"));
+    await driver.start(launch({}, "codex"));
     expect(spawn).toHaveBeenCalledWith(
       "/bin/codex-acp",
       [],
@@ -102,29 +99,6 @@ describe("AcpDriver", () => {
     await driver.stop("agt_1");
   });
 
-  it("gemini: sets the yolo mode right after the session opens, on new and on resume", async () => {
-    const fake = createFakeAcpAgent();
-    const { spawn, driver } = driverWith(fake);
-    await driver.start(launch({}, "gemini", "gemini-2.5-pro"));
-    expect(spawn.mock.calls[0][1]).toEqual([
-      "--experimental-acp",
-      "--model",
-      "gemini-2.5-pro",
-    ]);
-    expect(fake.seen.setMode).toEqual([
-      { sessionId: "sess_1", modeId: "yolo" },
-    ]);
-    await driver.stop("agt_1");
-    const again = createFakeAcpAgent();
-    const second = driverWith(again).driver;
-    await second.start(launch({ sessionId: "sess_1" }, "gemini"));
-    expect(again.seen.resumeSession).toHaveLength(1);
-    expect(again.seen.setMode).toEqual([
-      { sessionId: "sess_1", modeId: "yolo" },
-    ]);
-    await second.stop("agt_1");
-  });
-
   it("keeps the commands the engine advertises", async () => {
     const fake = createFakeAcpAgent({
       commands: [
@@ -133,7 +107,7 @@ describe("AcpDriver", () => {
       ],
     });
     const { driver } = driverWith(fake);
-    await driver.start(launch({}, "opencode"));
+    await driver.start(launch({}, "codex"));
     await new Promise((r) => setTimeout(r, 10));
     expect(driver.getCommands("agt_1")?.map((c) => c.name)).toEqual([
       "review",
@@ -261,7 +235,7 @@ describe("AcpDriver", () => {
       driver.start(
         launch({
           engine: {
-            ...engineSpecFor("claude", "default", bins),
+            ...engineSpecFor("claude", bins),
             bin: "definitely-not-a-real-binary-xyz",
           },
         })
@@ -278,7 +252,7 @@ describe("AcpDriver", () => {
       driver.start(
         launch({
           engine: {
-            ...engineSpecFor("claude", "default", bins),
+            ...engineSpecFor("claude", bins),
             bin: "definitely-not-a-real-binary-xyz",
           },
         })

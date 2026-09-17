@@ -4,7 +4,6 @@ import type { ChatMessage } from "@dispatch/shared";
 import {
   assembleTurns,
   groupTurnRows,
-  loadQueued,
   toTurnEntry,
   type TurnSourceRow,
 } from "../src/chat/turns.js";
@@ -604,117 +603,6 @@ describe("assembleTurns labels", () => {
       ),
     ];
     expect(assembleTurns(none, new Map())[0].label).toBeUndefined();
-  });
-});
-
-describe("loadQueued", () => {
-  it("joins chat text onto queued chat prompts and passes the rest through", async () => {
-    // A real chat id: the read casts these to uuid, so an ill-formed one is
-    // dropped before the query rather than handed to Postgres.
-    const CHAT_ID = "fae1f052-5d66-4039-9bde-35ac8166695d";
-    const message = chatMsg(CHAT_ID, "second thoughts");
-    const db = {
-      query: async (_sql: string, params?: unknown[]) => {
-        // Scoped to the agent: a chat id parsed out of embedded text must
-        // not join another agent's message.
-        expect(params).toEqual(["a", [CHAT_ID]]);
-        return {
-          rows: [
-            {
-              id: message.id,
-              agent_id: "a",
-              author_kind: "user",
-              kind: "reply",
-              text: message.text,
-              reply_to: null,
-              question: null,
-              answer: null,
-              attachments: [],
-              delivered: null,
-              delivery_text: null,
-              read_at: null,
-              origin: null,
-              created_at: at(0),
-              updated_at: at(0),
-            },
-          ],
-          rowCount: 1,
-        };
-      },
-    };
-    const queued = await loadQueued(db as never, "a", [
-      {
-        id: CHAT_ID,
-        source: { source: "chat", chatMessageId: CHAT_ID },
-        createdAt: at(1).toISOString(),
-      },
-      {
-        id: "q_1",
-        source: {
-          source: "agent",
-          senderId: "agt_r",
-          senderName: "Reviewer",
-          text: "also this",
-        },
-        createdAt: at(2).toISOString(),
-      },
-    ]);
-    expect(queued).toEqual([
-      {
-        id: CHAT_ID,
-        source: "chat",
-        text: "second thoughts",
-        chatMessageId: CHAT_ID,
-        attachments: [],
-        createdAt: at(1).toISOString(),
-      },
-      {
-        id: "q_1",
-        source: "agent",
-        text: "also this",
-        senderAgentId: "agt_r",
-        senderName: "Reviewer",
-        attachments: [],
-        createdAt: at(2).toISOString(),
-      },
-    ]);
-  });
-
-  it("skips the chat read when every queued chat id is ill-formed", async () => {
-    // Otherwise the `::uuid[]` cast throws and this agent's turns read 500
-    // from then on, because the offending prompt row is persisted.
-    const db = {
-      query: async () => {
-        throw new Error("should not query");
-      },
-    };
-    expect(
-      await loadQueued(db as never, "a", [
-        {
-          id: "0".repeat(36),
-          source: { source: "chat", chatMessageId: "0".repeat(36) },
-          createdAt: at(1).toISOString(),
-        },
-      ])
-    ).toEqual([
-      {
-        id: "0".repeat(36),
-        source: "chat",
-        text: "",
-        chatMessageId: "0".repeat(36),
-        attachments: [],
-        createdAt: at(1).toISOString(),
-      },
-    ]);
-  });
-
-  it("skips the chat read when nothing queued came from chat", async () => {
-    const db = {
-      query: async () => {
-        throw new Error("should not query");
-      },
-    };
-    expect(await loadQueued(db as never, "a", [])).toEqual([]);
   });
 });
 

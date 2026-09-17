@@ -571,8 +571,7 @@ describe("browser extension scoped API", () => {
     );
     expect(stored.rows[0]).toMatchObject({
       delivery_status: "failed",
-      delivery_error:
-        "Agent has no active terminal session — prompt cannot be delivered.",
+      delivery_error: "Agent has no live session — prompt cannot be delivered.",
       comment: "The spacing collapses here.",
       page_context: { url: "http://localhost:3000/checkout" },
       element_context: {

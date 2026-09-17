@@ -93,7 +93,6 @@ describe("GET /api/v1/system/resources", () => {
         "api-server",
         "database",
         "agent-reconciliation",
-        "activity-monitor",
         "git-diff-refreshes",
       ])
     );

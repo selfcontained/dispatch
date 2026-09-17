@@ -61,7 +61,8 @@ beforeEach(() => {
     cwd: "/tmp",
   });
   deps.agentManager.getTerminalAccess.mockResolvedValue({
-    mode: "none" as const,
+    mode: "inert" as const,
+    message: "Agent is stopped.",
   });
 });
 
@@ -110,7 +111,7 @@ describe("POST /api/v1/agents/:id/launch-review", () => {
     }
   });
 
-  it("requires a tmux session", async () => {
+  it("requires a live session", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/agents/agt_parent/launch-review",
@@ -122,8 +123,7 @@ describe("POST /api/v1/agents/:id/launch-review", () => {
   it("prompts the parent for every supported agent type", async () => {
     for (const agentType of CLI_AGENT_TYPES) {
       deps.agentManager.getTerminalAccess.mockResolvedValueOnce({
-        mode: "tmux" as const,
-        session: "test-session",
+        mode: "live" as const,
       });
       const response = await app.inject({
         method: "POST",

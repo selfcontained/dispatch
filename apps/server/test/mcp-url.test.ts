@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { dispatchMcpUrl } from "../src/agents/tmux/mcp-url.js";
+import { dispatchMcpUrl } from "../src/agents/acp/mcp-url.js";
 import type { AppConfig } from "../src/config.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {

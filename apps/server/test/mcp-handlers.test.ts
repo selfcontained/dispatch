@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildStartupTurn } from "../src/agents/tmux/command-builder.js";
+import { buildStartupTurn } from "../src/agents/launch-guidance.js";
 
 vi.mock("../src/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123def456"),
@@ -1316,7 +1316,7 @@ describe("createMcpHandlers", () => {
           "--- DISPATCH CHAT (id: post-1) ---",
           created.initialPrompt,
           "--- END DISPATCH CHAT ---",
-          'The user only sees Chat — reply with dispatch_chat_post (replyTo: "post-1").',
+          'The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "post-1").',
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');
