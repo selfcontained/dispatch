@@ -170,11 +170,6 @@ describe("POST /api/v1/agents (create)", () => {
     expect(res.json().error).toContain("baseBranch");
   });
 
-  it("creates a terminal agent", async () => {
-    const agent = await createAgent({ type: "terminal" });
-    expect(agent.type).toBe("terminal");
-  });
-
   it("applies fullAccess arg for claude type", async () => {
     const agent = await createAgent({
       type: "claude",
@@ -195,15 +190,6 @@ describe("POST /api/v1/agents (create)", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("disabled");
-  });
-
-  it("does not apply fullAccess for terminal agents", async () => {
-    const agent = await createAgent({
-      type: "terminal",
-      fullAccess: true,
-    });
-    expect(agent.type).toBe("terminal");
-    expect(agent.fullAccess).toBe(false);
   });
 
   it("defaults type to codex when omitted", async () => {
@@ -403,45 +389,6 @@ describe("POST /api/v1/notifications/ack", () => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/error
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/error", () => {
-  it("marks agent setup as failed", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      { message: "npm install failed" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-
-    const getRes = await authedInject("GET", `/api/v1/agents/${agent.id}`);
-    expect(getRes.json().agent.status).toBe("stopped");
-  });
-
-  it("uses default message when none provided", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      {}
-    );
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/setup/error",
-      { message: "fail" }
-    );
-    // markSetupFailed does not guard against missing agents before updating
-    expect(res.statusCode).toBe(500);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // POST /api/v1/agents/:id/setup/phase
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/setup/phase", () => {
@@ -475,58 +422,6 @@ describe("POST /api/v1/agents/:id/setup/phase", () => {
       {}
     );
     expect(res.statusCode).toBe(400);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/complete
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/complete", () => {
-  it("completes setup for an agent in creating state", async () => {
-    const agent = await createAgent();
-    // Inert runtime puts agents in running; reset to creating for this test
-    await ctx.pool.query(
-      `UPDATE agents SET status = 'creating', setup_phase = 'session' WHERE id = $1`,
-      [agent.id]
-    );
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/worktree" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-  });
-
-  it("rejects when agent is already running", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/worktree" }
-    );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toContain("creating");
-  });
-
-  it("rejects missing effectiveCwd", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      {}
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("effectiveCwd");
-  });
-
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/setup/complete",
-      { effectiveCwd: "/tmp" }
-    );
-    expect(res.statusCode).toBe(404);
   });
 });
 
@@ -786,30 +681,5 @@ describe("POST /api/v1/agents/:id/prompt-rename", () => {
     );
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toContain("running");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/terminal/token (inert mode)
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/terminal/token", () => {
-  it("returns inert mode for agents in inert runtime", async () => {
-    const agent = await createAgent();
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/terminal/token`,
-      {}
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().mode).toBe("inert");
-  });
-
-  it("returns error for non-existent agent", async () => {
-    const res = await authedInject(
-      "POST",
-      "/api/v1/agents/agt_nonexistent/terminal/token",
-      {}
-    );
-    expect(res.statusCode).toBe(404);
   });
 });

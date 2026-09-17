@@ -561,16 +561,16 @@ describe("agent MCP route exposes the chat tools", () => {
   });
 });
 
-// Delivery semantics need a live-looking terminal, which the inert runtime
+// Delivery semantics need a live-looking session, which the inert runtime
 // never provides — so drive the route module directly with a fake access
-// check, coordinator, and terminal against the same database.
-describe("chat routes with a deliverable terminal", () => {
+// check and prompt sender against the same database.
+describe("chat routes with a deliverable session", () => {
   type Sent = { agentId: string; prompt: string };
 
   function buildApp(opts: {
     sendCommand?: (prompt: string) => Promise<void>;
     held?: boolean;
-    access?: () => Promise<{ mode: "tmux"; sessionName: string }>;
+    access?: () => Promise<{ mode: "live" }>;
     /** Resolve to release a delivery that should stay pending for a while. */
     gate?: Promise<void>;
   }) {
@@ -588,7 +588,7 @@ describe("chat routes with a deliverable terminal", () => {
       delivery: {
         access:
           opts.access ??
-          (async () => ({ mode: "tmux" as const, sessionName: "s" })),
+          (async () => ({ mode: "live" as const })),
         inject: async (id: string, _sessionName: string, prompt: string) => {
           if (opts.gate) await opts.gate;
           prompts.push({ agentId: id, prompt });
@@ -758,7 +758,7 @@ describe("chat routes with a deliverable terminal", () => {
         `--- DISPATCH CHAT (id: ${body.message.id}) ---`,
         "please do X",
         "--- END DISPATCH CHAT ---",
-        `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${body.message.id}").`,
+        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${body.message.id}").`,
       ].join("\n")
     );
     // Pending first, then the same row once delivery settled it.

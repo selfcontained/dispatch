@@ -635,7 +635,7 @@ describe("ChatService user workflows", () => {
       delivery: {
         access:
           opts.access ??
-          (async () => ({ mode: "tmux" as const, sessionName: "sess" })),
+          (async () => ({ mode: "live" as const })),
         inject: async (agentId, sessionName, text) => {
           if (opts.gate) await opts.gate;
           injected.push({ agentId, sessionName, text });
@@ -683,7 +683,7 @@ describe("ChatService user workflows", () => {
     release();
     const row = await settled(svc, res.message.id);
     expect(row.delivered).toBe(true);
-    expect(injected[0]).toMatchObject({ agentId: A, sessionName: "sess" });
+    expect(injected[0]).toMatchObject({ agentId: A, sessionName: "live" });
     expect(injected[0].text).toContain(`(id: ${res.message.id})`);
     expect(injected[0].text).toContain("\ndo the thing\n");
     expect(events).toHaveLength(2);
@@ -760,7 +760,7 @@ describe("ChatService user workflows", () => {
         "- pin: URL — http://x",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH CHAT ---",
-        `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${res.message.id}").`,
+        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${res.message.id}").`,
       ].join("\n")
     );
   });
@@ -1051,7 +1051,7 @@ describe("ChatService reactions", () => {
       delivery: {
         access:
           opts.access ??
-          (async () => ({ mode: "tmux" as const, sessionName: "sess" })),
+          (async () => ({ mode: "live" as const })),
         inject: async (agentId, _sessionName, text) => {
           if (opts.gate) await opts.gate;
           injected.push({ agentId, text });

@@ -418,33 +418,6 @@ describe("POST /api/v1/agents/:id/setup/phase", () => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/complete
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/complete", () => {
-  it("returns 400 when effectiveCwd is missing", async () => {
-    const agent = await createAgent({ name: "no-cwd" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      {}
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/effectiveCwd/i);
-  });
-
-  it("returns 409 when agent is not in creating state", async () => {
-    const agent = await createAgent({ name: "setup-not-creating" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/complete`,
-      { effectiveCwd: "/tmp/test" }
-    );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toMatch(/not in creating state/i);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // POST /api/v1/agents/:id/latest-event
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/latest-event", () => {
@@ -545,33 +518,6 @@ describe("POST /api/v1/agents/:id/latest-event", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.agent.latestEvent.message).toBe("padded message");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/v1/agents/:id/setup/error
-// ---------------------------------------------------------------------------
-describe("POST /api/v1/agents/:id/setup/error", () => {
-  it("marks agent setup as failed and returns ok", async () => {
-    const agent = await createAgent({ name: "err-report" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      { message: "git worktree add failed" }
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-  });
-
-  it("defaults message when not provided", async () => {
-    const agent = await createAgent({ name: "err-default" });
-    const res = await authedInject(
-      "POST",
-      `/api/v1/agents/${agent.id}/setup/error`,
-      {}
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
   });
 });
 
