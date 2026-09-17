@@ -960,11 +960,14 @@ describe("AgentManager", () => {
         "infer a task from branch/worktree context alone"
       );
       expect(setupScript).toContain("dispatch_rename_session");
+      // Codex is plugin-capable and the trim now defaults on, so this launch
+      // carries the short rename rule rather than the full one. The job-run
+      // case below still asserts the full text: that branch is never trimmed.
       expect(setupScript).toContain(
-        "short name for that topic, task, or feature"
+        "a short label for what the session is about, not a live status"
       );
-      expect(setupScript).toContain(
-        "stable label describing what the session is about"
+      expect(setupScript).not.toContain(
+        "short name for that topic, task, or feature"
       );
     });
 
