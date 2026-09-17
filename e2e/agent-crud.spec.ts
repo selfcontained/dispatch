@@ -11,10 +11,6 @@ const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
 
-function pathnameTerminalTokenMatch(pathname: string): boolean {
-  return /\/api\/v1\/agents\/[^/]+\/terminal\/token$/u.test(pathname);
-}
-
 test.describe("Agent CRUD", () => {
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
@@ -89,23 +85,13 @@ test.describe("Agent CRUD", () => {
       timeout: 5_000,
     });
 
-    // Wait for lifecycle network work up front: the sidebar can show the agent
-    // before React Query validates the `/agents/:id` route against the cached
-    // list — that briefly redirects to `/agents` and leaves the terminal
-    // disconnected unless we synchronize on the attach handshake.
+    // Wait for the create response up front so the test knows the new id.
     const createResponsePromise = page.waitForResponse(
       (resp) =>
         resp.request().method() === "POST" &&
         new URL(resp.url()).pathname === "/api/v1/agents" &&
         resp.status() === 201,
       { timeout: 15_000 }
-    );
-    const terminalTokenPromise = page.waitForResponse(
-      (resp) =>
-        resp.request().method() === "POST" &&
-        pathnameTerminalTokenMatch(new URL(resp.url()).pathname) &&
-        resp.ok(),
-      { timeout: 30_000 }
     );
 
     await page.getByTestId("create-agent-submit").click();
@@ -114,7 +100,6 @@ test.describe("Agent CRUD", () => {
     const { agent: createdAgent } = (await createResponse.json()) as {
       agent: { id: string };
     };
-    await terminalTokenPromise;
 
     // Dialog should close
     await expect(form).not.toBeVisible({ timeout: 5_000 });
@@ -131,12 +116,13 @@ test.describe("Agent CRUD", () => {
       timeout: 15_000,
     });
 
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible({
+    await expect(page.getByTestId("current-session-name")).toContainText(
+      agentName,
+      { timeout: 10_000 }
+    );
+    await expect(page.getByTestId("chat-composer-input")).toBeEditable({
       timeout: 10_000,
     });
-    await expect(page.getByTestId("terminal-inert-state")).toContainText(
-      "Agent running in inert mode"
-    );
   });
 
   test("create dialog shows autonomous review checkbox that can be toggled", async ({
@@ -281,7 +267,9 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
 
     await expect(agentCard.getByText("/tmp")).toBeVisible();
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
+    );
   });
 
   test("attached agent stays expanded while another agent is toggled open", async ({
@@ -382,7 +370,7 @@ test.describe("Agent CRUD", () => {
     });
   });
 
-  test("archiving the selected attached agent resets the terminal to empty state", async ({
+  test("archiving the selected attached agent resets Chat to empty state", async ({
     page,
     request,
   }) => {
@@ -401,12 +389,10 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId("delete-agent-confirm").click();
 
     await expect(agentCard).not.toBeVisible({ timeout: 5_000 });
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible({
-      timeout: 5_000,
-    });
-    await expect(page.getByTestId("terminal-empty-state")).toContainText(
-      "Tap an agent row to focus it."
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting.",
+      { timeout: 5_000 }
     );
-    await expect(page.getByTestId("terminal-inert-state")).not.toBeVisible();
+    await expect(page.getByTestId("current-session-name")).toHaveCount(0);
   });
 });

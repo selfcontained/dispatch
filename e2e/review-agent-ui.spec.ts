@@ -10,7 +10,7 @@ async function waitForAppShell(
   page: import("@playwright/test").Page
 ): Promise<void> {
   await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
-  await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
+  await page.getByTestId("agent-pane").waitFor({ state: "visible" });
 }
 
 test.describe("Review agent UI", () => {
@@ -69,7 +69,7 @@ test.describe("Review agent UI", () => {
     ).toHaveAttribute("data-review-ready", "false");
 
     // "Open review" lives in the row's overflow menu now, decoupled from
-    // connecting to the agent's terminal.
+    // focusing the agent.
     await page
       .getByTestId(`child-agent-menu-${fixture.openReviewAgentId}`)
       .click();

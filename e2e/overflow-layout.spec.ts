@@ -122,7 +122,7 @@ test.describe("Overflow layout", () => {
     await rm(overflowCwd, { recursive: true, force: true });
   });
 
-  test("agents workspace keeps sidebar, media, and terminal overflow isolated", async ({
+  test("agents workspace keeps sidebar, media, and agent pane overflow isolated", async ({
     page,
     request,
   }) => {
@@ -155,22 +155,22 @@ test.describe("Overflow layout", () => {
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
     const pinsPanelScroll = page.getByTestId("pins-panel-scroll");
-    const terminalPane = page.getByTestId("terminal-pane");
+    const agentPane = page.getByTestId("agent-pane");
     const mediaSidebar = page.getByTestId("media-sidebar");
 
     await mediaSidebar.getByRole("button", { name: "Pins" }).click();
 
     await expect(agentSidebarScroll).toBeVisible();
     await expect(pinsPanelScroll).toBeVisible();
-    await expect(terminalPane).toBeVisible();
+    await expect(agentPane).toBeVisible();
     await expect(page.getByTestId("automations-button")).toBeVisible();
 
     await expectOverflow(agentSidebarScroll);
     await expectOverflow(pinsPanelScroll);
 
-    const terminalBoxBefore = await terminalPane.boundingBox();
-    expect(terminalBoxBefore).not.toBeNull();
-    expect(terminalBoxBefore!.height).toBeGreaterThan(280);
+    const agentBoxBefore = await agentPane.boundingBox();
+    expect(agentBoxBefore).not.toBeNull();
+    expect(agentBoxBefore!.height).toBeGreaterThan(280);
 
     await scrollToBottom(agentSidebarScroll);
     await scrollToBottom(pinsPanelScroll);
@@ -183,12 +183,10 @@ test.describe("Overflow layout", () => {
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 
-    const terminalBoxAfterSidebarScroll = await terminalPane.boundingBox();
-    expect(terminalBoxAfterSidebarScroll).not.toBeNull();
+    const agentBoxAfterSidebarScroll = await agentPane.boundingBox();
+    expect(agentBoxAfterSidebarScroll).not.toBeNull();
     expect(
-      Math.abs(
-        terminalBoxAfterSidebarScroll!.height - terminalBoxBefore!.height
-      )
+      Math.abs(agentBoxAfterSidebarScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
 
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
@@ -204,10 +202,10 @@ test.describe("Overflow layout", () => {
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 
-    const terminalBoxAfterMediaScroll = await terminalPane.boundingBox();
-    expect(terminalBoxAfterMediaScroll).not.toBeNull();
+    const agentBoxAfterMediaScroll = await agentPane.boundingBox();
+    expect(agentBoxAfterMediaScroll).not.toBeNull();
     expect(
-      Math.abs(terminalBoxAfterMediaScroll!.height - terminalBoxBefore!.height)
+      Math.abs(agentBoxAfterMediaScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
   });
 

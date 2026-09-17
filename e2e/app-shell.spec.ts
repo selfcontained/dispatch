@@ -12,7 +12,7 @@ test.describe("App shell", () => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
     await expect(page.getByTestId("status-footer")).toHaveCount(0);
     await expect(page.getByTestId("app-header")).toHaveCount(0);
   });
@@ -22,9 +22,9 @@ test.describe("App shell", () => {
   }) => {
     await loadApp(page);
 
-    await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
-    await expect(page.getByTestId("terminal-empty-state")).toContainText(
-      "Tap an agent row to focus it."
+    await expect(page.getByTestId("chat-empty")).toBeVisible();
+    await expect(page.getByTestId("chat-empty")).toContainText(
+      "Select an agent to start chatting."
     );
   });
 

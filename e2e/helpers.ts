@@ -91,7 +91,7 @@ export async function createAgentViaAPI(
   let agent = body.agent;
   trackedAgentIds.add(agent.id);
 
-  // When using worktrees, the setup runs asynchronously in tmux.
+  // When using worktrees, workspace preparation runs asynchronously.
   // Poll until the agent transitions to 'running' (setup complete).
   if (overrides.useWorktree && agent.status === "creating") {
     const deadline = Date.now() + 60_000;
@@ -258,8 +258,8 @@ export async function setAgentRoleViaDB(
 
 /**
  * Seed a row directly into `agent_messages`, bypassing the real
- * dispatch_send_message path (which requires two running tmux agents and
- * cannot run in the inert-runtime E2E stack). `agent_messages` has no FK
+ * dispatch_send_message path (which requires two running agents and cannot
+ * run in the inert-runtime E2E stack). `agent_messages` has no FK
  * constraints, so the "other" participant id can be any string.
  */
 export async function seedAgentMessageViaDB(message: {
@@ -581,7 +581,7 @@ function buildDemoActivitySeed(now = new Date()): DemoSeedRow[] {
   const projects = [
     { dir: "/tmp/dispatch-demo", agentType: "codex" },
     { dir: "/tmp/ios-client-demo", agentType: "claude" },
-    { dir: "/tmp/marketing-site-demo", agentType: "opencode" },
+    { dir: "/tmp/marketing-site-demo", agentType: "codex" },
   ];
   const dayCount = 420;
   const rows: DemoSeedRow[] = [];
@@ -770,6 +770,6 @@ export async function loadApp(page: Page): Promise<void> {
 
   await sidebar.waitFor({ state: "visible", timeout: 15_000 });
   await page
-    .getByTestId("terminal-pane")
+    .getByTestId("chat-pane")
     .waitFor({ state: "visible", timeout: 10_000 });
 }
