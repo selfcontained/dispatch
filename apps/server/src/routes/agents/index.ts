@@ -4,6 +4,7 @@ import type { AgentRouteDeps } from "./shared.js";
 import { registerAgentCrudRoutes } from "./crud-routes.js";
 import { registerAgentEventRoutes } from "./events-routes.js";
 import { registerAgentLifecycleRoutes } from "./lifecycle-routes.js";
+import { registerAgentPromptRoutes } from "./prompt-routes.js";
 import { registerAgentStreamingRoutes } from "./streaming-routes.js";
 
 export type { AgentRouteDeps } from "./shared.js";
@@ -16,4 +17,5 @@ export async function registerAgentRoutes(
   await registerAgentCrudRoutes(app, deps);
   await registerAgentLifecycleRoutes(app, deps);
   await registerAgentStreamingRoutes(app, deps);
+  await registerAgentPromptRoutes(app, deps);
 }

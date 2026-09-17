@@ -11,7 +11,7 @@ dispatch/
 │   ├── browser-extension/     # Chrome extension for browser feedback (dev preview)
 │   ├── server/                # Fastify API server (@dispatch/server)
 │   │   ├── src/               # backend source
-│   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
+│   │   │   ├── agents/        # agent manager, lifecycle; acp/ holds the host, driver and runtime
 │   │   │   ├── brain/         # repo-scoped shared memory (objects + event log)
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
@@ -25,7 +25,6 @@ dispatch/
 │   │   │   ├── server/        # server runtime helpers (lifecycle, auth, prompts)
 │   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/, terminal/
 │   │   │   ├── templates/     # template service and storage
-│   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   ├── site/                  # public website (Astro, deployed to Cloudflare)
 │   └── web/                   # Vite React frontend (@dispatch/web)

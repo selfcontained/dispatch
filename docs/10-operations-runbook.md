@@ -26,7 +26,7 @@ The server runs as a **compiled Bun binary** at its fixed runtime path (normally
 - `applied-migrations.json` — install-update migration ids that have been applied locally (CRU-146)
 - `cache/release-<tag>.tar.gz` — cached pre-built release artifacts (override dir with `DISPATCH_RELEASE_CACHE_DIR`)
 - `logs/dispatch.log` — service stdout/stderr (rotated by the server, see Diagnostics)
-- `diagnostics/` — periodic tmux inventory + missing-session incident bundles
+- `agents/<agentId>/` — per-agent host state: launch file, socket, pid, journal, log (see Diagnostics)
 
 ## Service Management
 
@@ -210,7 +210,10 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DISPATCH_PORT`          | `6767`                                                 | HTTP port the server listens on                                                                          |
 | `DATABASE_URL`           | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
 | `MEDIA_ROOT`             | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                        |
-| `DISPATCH_AGENT_RUNTIME` | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                      |
+| `DISPATCH_AGENT_RUNTIME` | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                     |
+| `DISPATCH_AGENT_STATE_ROOT` | `$HOME/.dispatch/agents`                            | Per-agent host state directories                                                                         |
+| `DISPATCH_CLAUDE_ADAPTER_BIN` | `claude-agent-acp`                                | The Claude engine's ACP adapter (`npm i -g @agentclientprotocol/claude-agent-acp`)                    |
+| `DISPATCH_CODEX_ADAPTER_BIN` | `codex-acp`                                        | The Codex engine's ACP adapter                                                                           |
 | `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
 | `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
 | `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
@@ -239,23 +242,18 @@ What to look for:
 - `git_context IS NULL` for a worktree-backed agent: a probe error happened before any successful probe, or the agent predates inline-populate and has not been restarted since the upgrade
 - `git_context_updated_at` far older than `updated_at`: the agent has not gone through a lifecycle event that re-probes — restart the agent to refresh
 
-### Sessions Disappeared
+### Agents Stopped Unexpectedly
 
-If agents were `running` and then suddenly reconcile changed them to `stopped`, start here.
+If agents were `running` and then reconcile changed them to `stopped`, or an agent went to `error` with "The agent exited", start here.
 
-Dispatch now writes host-side tmux diagnostics to:
+Each agent's host keeps its own state under `~/.dispatch/agents/<agentId>/`:
 
-```bash
-~/.dispatch/diagnostics/tmux-inventory.jsonl
-~/.dispatch/diagnostics/*-missing-session-<agentId>.json
-```
+- `host.log` — stderr of the host and of the engine adapter; the first place to look
+- `journal.jsonl` — every ACP event the host saw, with a sequence number
+- `host.pid`, `host.sock` — present while the host is alive
+- `session.json` — the ACP session id the host opened or resumed
 
-What these files mean:
-
-- `tmux-inventory.jsonl`: periodic snapshots taken during reconcile
-- `*-missing-session-<agentId>.json`: incident bundle written when reconcile expects a tmux session but `tmux has-session` fails
-
-Recommended incident workflow:
+Recommended workflow:
 
 1. Confirm what Dispatch observed.
 
@@ -263,83 +261,31 @@ Recommended incident workflow:
 tail -n 200 ~/.dispatch/logs/dispatch.log
 ```
 
-Look for lines like:
+Look for `Restored running agents` (with `attached` and `lost` lists) after a restart, `agent host is gone`, and `The agent exited`.
 
-- `status corrected to stopped`
-- `Agent process exited with code ...`
-- repeated reconcile corrections across multiple agents in the same minute
-
-2. Inspect the most recent missing-session incident bundle.
+2. Read the host log for the affected agent.
 
 ```bash
-ls -1t ~/.dispatch/diagnostics/*-missing-session-*.json | head
-jq . ~/.dispatch/diagnostics/<timestamp>-missing-session-<agentId>.json
+tail -n 50 ~/.dispatch/agents/<agentId>/host.log
 ```
 
-Important fields:
+An engine that could not start says so here (a missing adapter, a login that expired: run `claude /login` as the service user). A crash mid-turn shows the adapter's last stderr lines.
 
-- `agent`: which agent was affected, what status it had, and whether an exit code file existed
-- `tmux.serverPid`: whether Dispatch could still find a tmux server process
-- `tmux.sessions` and `tmux.panes`: whether `tmux list-sessions` / `list-panes` still worked at incident time
-- `processes.stdout`: point-in-time process list
-- `launchctl.stdout`: current `com.dispatch.server` launchd state
-
-3. Check whether the tmux server disappeared entirely or just Dispatch sessions.
+3. Check whether the host is still alive.
 
 ```bash
-tail -n 20 ~/.dispatch/diagnostics/tmux-inventory.jsonl | jq .
+kill -0 "$(cat ~/.dispatch/agents/<agentId>/host.pid)" && echo alive
 ```
 
-What to look for:
+A host that is alive while the agent reads `stopped` means the server could not reach its socket; a Dispatch restart reattaches. A dead host with a live agent row is what reconcile corrects on its next tick.
 
-- `serverPid` changed or became `null`: tmux server likely exited or was killed
-- `sessions.exitCode` changed from `0` to `1`: tmux had no reachable server/socket
-- non-Dispatch sessions still present but Dispatch sessions gone: cleanup bug or targeted session removal
-- all sessions gone at once: host/session-level event is more likely than app logic
-
-4. Check launchd state for the server itself.
+4. Pull macOS unified logs around the incident window if the host itself was killed.
 
 ```bash
-launchctl print gui/$(id -u)/com.dispatch.server
+log show --style compact --start "<start>" --end "<end>" --predicate '(process == "launchd") || (eventMessage CONTAINS[c] "com.dispatch.server") || (eventMessage CONTAINS[c] "SIGKILL") || (eventMessage CONTAINS[c] "logout")'
 ```
 
-What to look for:
-
-- `last exit code`
-- `last terminating signal`
-- recent restart timing that lines up with the incident
-
-5. Pull macOS unified logs around the incident window.
-
-Use a tight window around when the sessions disappeared.
-
-```bash
-log show --style compact --start "2026-03-13 12:57:30" --end "2026-03-13 12:59:30" --predicate '(process == "tmux") || (process == "launchd") || (eventMessage CONTAINS[c] "com.dispatch.server") || (eventMessage CONTAINS[c] "logout") || (eventMessage CONTAINS[c] "Aqua")'
-```
-
-If needed, run narrower follow-ups:
-
-```bash
-log show --style compact --start "<start>" --end "<end>" --predicate '(process == "kernel") || (eventMessage CONTAINS[c] "SIGKILL") || (eventMessage CONTAINS[c] "killed") || (eventMessage CONTAINS[c] "jetsam")'
-log show --style compact --start "<start>" --end "<end>" --predicate '(process == "loginwindow") || (eventMessage CONTAINS[c] "logout") || (eventMessage CONTAINS[c] "user session")'
-```
-
-Interpretation:
-
-- Dispatch restarted but tmux stayed up: app restart only, agent sessions should have survived
-- Dispatch and tmux both disappeared: something outside Dispatch likely killed a broader user-scoped context
-- logout / Aqua / loginwindow activity: user session event likely killed tmux
-- `SIGKILL` or kernel kill messages near the same time: external kill or resource pressure
-
-6. Check for same-user interference.
-
-If self-hosted GitHub Actions runners or other automation run under the same macOS user, treat that as a suspect until proven otherwise. `tmux` and `launchd` state are user-scoped, so same-user automation has a much larger blast radius than automation running under a separate account.
-
-Known limits:
-
-- Dispatch can now tell you much more about what the host looked like when sessions vanished
-- Dispatch still cannot prove the killer if macOS did not log it or if the evidence aged out before inspection
-- If the host logged out, rebooted, or aggressively reaped processes, unified logs are still the source of truth
+Hosts run in their own process group, so a Dispatch restart never takes them down; a user logout or a same-user automation that kills process trees will.
 
 ## Bin Scripts
 
@@ -365,6 +311,5 @@ Known limits:
 | `~/.dispatch/applied-migrations.json`                      | Install-update migration ids that have been applied locally (CRU-146)       |
 | `~/.dispatch/cache/release-<tag>.tar.gz`                   | Cached pre-built release artifacts keyed by tag                             |
 | `~/.dispatch/logs/dispatch.log`                            | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days)  |
-| `~/.dispatch/diagnostics/tmux-inventory.jsonl`             | Periodic tmux inventory snapshots from reconcile (rotated at 10 MB; 7 days) |
-| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions (pruned after 7 days)             |
+| `~/.dispatch/agents/<agentId>/`                            | Per-agent host state: launch file, socket, pid, journal, host log           |
 | `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition (points at the fixed runtime)                    |

@@ -44,7 +44,7 @@ export type AgentRouteDeps = {
   onAgentStarted: (agentId: string) => Promise<void>;
   /**
    * Delivers a user-fired prompt (quick phrase, shortcut pin) as a Chat
-   * message when the Chat surface is on — see `chat/user-prompt.ts`.
+   * message; see `routes/agents/prompt-routes.ts`.
    */
   chat: ChatService;
   /** Read per click: the flag is a cold path and must not be cached stale. */

@@ -55,13 +55,23 @@ export function loginShellCommand(
   shell = process.env.SHELL || "/bin/bash"
 ): { bin: string; args: string[] } {
   const base = path.basename(shell);
+  // ~/.dispatch/env is the documented place for agent-session overrides;
+  // it is read after the profile so it wins.
+  const posix = '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"';
   if (base === "fish") {
-    return { bin: shell, args: ["-lc", "exec $argv", ...command] };
+    return {
+      bin: shell,
+      args: [
+        "-lc",
+        'test -f "$HOME/.dispatch/env"; and source "$HOME/.dispatch/env"; exec $argv',
+        ...command,
+      ],
+    };
   }
   if (base === "bash" || base === "zsh" || base === "sh") {
-    return { bin: shell, args: ["-lc", 'exec "$@"', "dispatch-agent-host", ...command] };
+    return { bin: shell, args: ["-lc", posix, "dispatch-agent-host", ...command] };
   }
-  return { bin: "/bin/bash", args: ["-lc", 'exec "$@"', "dispatch-agent-host", ...command] };
+  return { bin: "/bin/bash", args: ["-lc", posix, "dispatch-agent-host", ...command] };
 }
 
 /** What the host must not inherit from the server process. */

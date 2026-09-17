@@ -27,8 +27,8 @@ replace the fixed executable and restart the service.
 
 ## Features
 
-- Start, monitor, and stop multiple long-running agents (Claude, Codex, Cursor, OpenCode, or a plain tmux terminal) remotely.
-- Persist each agent in `tmux` so browser disconnects do not kill work.
+- Start, monitor, and stop multiple long-running agents (Claude Code or Codex) remotely.
+- Each agent runs in its own host process that outlives the Dispatch server, so restarts and browser disconnects do not kill work.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
 - Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
@@ -62,7 +62,6 @@ replace the fixed executable and restart the service.
 | Dependency                 | Purpose                  | macOS                        | Linux                    |
 | -------------------------- | ------------------------ | ---------------------------- | ------------------------ |
 | **PostgreSQL 14+**         | Database                 | `brew install postgresql@17` | `apt install postgresql` |
-| **tmux**                   | Agent session management | `brew install tmux`          | `apt install tmux`       |
 | **At least one agent CLI** | The agents Dispatch runs | See below                    | See below                |
 
 Production installs run the released, compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
@@ -116,7 +115,7 @@ For day-to-day backend work, the server itself runs under Bun. `pnpm` is still u
 - Runs database migrations on server start
 - Starts the API server on a free port
 - Starts the Vite frontend dev server
-- Enables live agent spawning via tmux (with `--live`)
+- Enables live agent spawning (with `--live`)
 - Prints the URLs when ready
 
 Open the Vite URL printed in the output to access the UI.
@@ -270,7 +269,7 @@ See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill
 User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, status events, media, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
-- [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
+- [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, host contract
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
 - [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [Theming](docs/14-theming.md) — how to add and customize color themes

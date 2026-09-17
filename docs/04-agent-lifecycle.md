@@ -1,15 +1,20 @@
 # Agent Lifecycle Model
 
+Every agent is an Agent Client Protocol (ACP) session owned by a
+`dispatch-agent-host` process. The design and the host protocol are in
+[design/acp-runtime.md](design/acp-runtime.md); this document is the
+lifecycle contract the server implements on top of it.
+
 ## States
 
 `AgentStatus` (in `apps/server/src/agents/types.ts`):
 
-- `creating` — row inserted, setup script running, tmux session not yet ready
-- `running` — tmux session is up; agent CLI may still be initializing
+- `creating` — row inserted; the workspace is being prepared or the host is starting
+- `running` — the host is up and the engine has an ACP session
 - `stopping` — soft-stop in progress
-- `stopped` — tmux session is gone, agent row preserved (resumable via `start`)
+- `stopped` — the host is gone, agent row preserved (resumable via `start`)
 - `archiving` — async cleanup during deletion (worktree check, cleanup, finalization)
-- `error` — unrecoverable failure during launch / start / stop / archive
+- `error` — unrecoverable failure during launch / start / stop / archive, or the engine died on its own
 - `unknown` — reserved/transitional. The `AgentStatus` type permits it but no code path currently sets it; the assisted-update queries treat it as a possible "in-flight" status defensively.
 
 ## Roles
@@ -20,19 +25,19 @@
 - `review` — persona review agents launched via `dispatch_launch_persona` (see [Review Agent Lifecycle](#review-agent-lifecycle)).
 - `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
-Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `cursor` / `terminal`).
+Role is orthogonal to `AgentType`, which names the engine: `claude` or `codex`.
 
 ## Setup Phases
 
-`SetupPhase` is a sub-state of `creating`/`running`, surfaced to the UI while the in-tmux setup script runs:
+`SetupPhase` is a sub-state of `creating`, surfaced to the UI while the server prepares the workspace (`apps/server/src/agents/workspace.ts`):
 
 - `worktree` — creating the git worktree
-- `env` — copying local config files / sourcing `~/.dispatch/env`
+- `env` — copying local config files
 - `deps` — installing dependencies (lockfile-driven)
-- `session` — starting the agent CLI inside tmux
-- `null` — setup is complete (or never used; agents that don't create a worktree start here)
+- `session` — starting the host and waiting for the engine's ACP handshake
+- `null` — setup is complete (or never used; agents that don't create a worktree start at `session`)
 
-The setup script reports phase via `POST /api/v1/agents/:id/setup/phase`. On completion it calls `POST /api/v1/agents/:id/setup/complete`. On unrecoverable failure (e.g. `git worktree add` fails) it calls `POST /api/v1/agents/:id/setup/error`, which routes to `markSetupFailed` and transitions the agent to `stopped` with `last_error` set and a `blocked` latest_event so the UI can surface the reason.
+Phases are written directly by the manager as it goes; there is no callback from a script. Worktree creation is the only unrecoverable step: on failure the agent goes to `stopped` with the git output in `last_error` and a `blocked` latest_event, and the partial worktree and branch are removed. A missing lockfile, a failed dependency install, or a missing local config file are non-fatal.
 
 ## Archive Phases
 
@@ -48,20 +53,22 @@ Whenever the worktree is removed, `cleanupGitWorktree` also runs `git branch -D`
 
 1. **Create**
 
-- `creating → running` once the tmux session is up
-- `creating → error` on launch failure (e.g. tmux session exited immediately)
-- `creating → stopped` if the in-tmux setup script POSTs to `setup/error` (e.g. worktree creation failed) — surfaces a `blocked` latest_event with the reason
+- `creating → running` once the host reports a running engine
+- `creating → error` on launch failure (the host never answered, or the engine failed its handshake); `last_error` carries the tail of the host log
+- `creating → stopped` when worktree creation failed
+
+The launch prompt (the Chat launch post, wrapped in the same envelope a typed message gets) is queued as the first turn as soon as the agent is `running`.
 
 2. **Start** (resume after stop)
 
-- `stopped → creating → running` via the same setup path
-- If a tmux session for the agent already exists, returns the agent at `running` directly
-- `running → error` if the underlying session command fails
+- If the agent's host is still alive (the server restarted, the host did not), the server reattaches and returns the agent at `running`
+- Otherwise `stopped → creating → running`: a new host is spawned with the stored ACP session id, and the engine resumes it (`session/resume`) so the agent keeps its history
+- `running → error` if the host cannot start
 
 3. **Stop**
 
 - `running → stopping → stopped`
-- `running → error` if the stop command fails and the process state is inconsistent
+- `running → error` if the host could not be stopped and its state is inconsistent
 - `stop` on a `stopped` agent is a no-op (returns the current record with HTTP 200)
 
 4. **Delete (archive)**
@@ -71,68 +78,37 @@ Whenever the worktree is removed, `cleanupGitWorktree` also runs `git branch -D`
 - Concurrent delete on an already-archiving agent returns `409`.
 - `archiving → error` if cleanup throws.
 
-5. **Reconciliation (on startup, then every 30s)**
+5. **Restore (on startup)**
+
+Before the first reconcile pass the server reattaches to every host that outlived the previous process: it connects to each running agent's socket, says which journal sequence it last applied, and the host replays anything after it. An agent whose host is gone is marked `stopped` ("Session ended while Dispatch was down.") and its open turn is settled as interrupted.
+
+6. **Reconciliation (on startup, then every 30s)**
 
 For each agent with status in (`running`, `stopping`, `creating`, `archiving`):
 
-- **session present, status `running`**: leave as-is.
-- **session missing, status `creating`**: → `error` with a launch-failure message and the tail of the setup log.
-- **session missing, status `running`** with non-zero exit code: → `error`.
-- **session missing, status `running`** with exit 0 (or no exit recorded): → `stopped`.
+- **host alive, status `running`**: leave as-is.
+- **host missing, status `creating`** (after a 15-minute grace for workspace preparation): → `error` with a launch-failure message and the tail of the host log.
+- **host missing, status `running`**: → `stopped`, open turn settled.
 - **status `stopping`** for >60s: → `running` (revert; user can retry stop). Surfaces an "agent reverted" latest_event.
 - **status `archiving`** for >30s: archive is resumed.
 
-Missing-session transitions also write a system-tagged latest_event (`metadata.source: "system"`): `blocked` with the setup-log tail on launch failure, `idle` ("Session ended normally.") on a clean exit.
+An engine that exits on its own while the host is up is reported by the host as an `exit` event; the manager moves the agent to `error` with the exit code and the engine's stderr tail, without waiting for a reconcile tick.
 
-Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix whose matching agent row is in a terminal state — `stopped` or `error`) runs only in the startup pass (`reconcileAgents()`), not on the periodic tick — the tick calls the status-only `reconcileAgentStatuses()`. Cleanup is a no-op when the runtime doesn't track sessions (inert mode). Sessions with no matching DB record are left alone — they may belong to another server instance sharing the tmux namespace.
+Cleanup of orphaned hosts (hosts whose matching agent row is in a terminal state — `stopped` or `error`) runs only in the startup pass (`reconcileAgents()`), not on the periodic tick. Hosts with no matching DB record are left alone — they may belong to another server instance sharing the state root. Both are no-ops in inert mode.
 
-## Activity Monitor
+## Host Contract
 
-`apps/server/src/agents/activity-monitor.ts` runs at the end of each reconcile tick (wired in `server/agent-lifecycle-runtime.ts`) but is a separate concern: the reconciler handles session lifecycle, the activity monitor handles status accuracy — it compares each running agent's self-reported status against observed tmux pane activity.
+Each agent has a state directory `<agentStateRoot>/<agentId>/` (`~/.dispatch/agents/<agentId>/` in production; `DISPATCH_AGENT_STATE_ROOT` overrides it) holding `launch.json`, `host.sock`, `host.pid`, `journal.jsonl`, `session.json` and `host.log`. The server writes `launch.json` and spawns the host detached, in its own session and process group, through the user's login shell; the host owns everything else. `stop` removes the socket and pid; archive removes the directory.
 
-Each pass it captures the last 100 pane lines of every `running` agent with a tmux session and digests them. Comparing digests across passes yields "pane changed" / "pane silent", which drives two corrections:
-
-- **Pane active + latest event is anything but `working`** → rewrite to `working` with the message "Activity detected".
-- **Pane silent for ≥3 minutes + latest event is `working`** → rewrite to `idle` with the message "No recent activity detected". The window is deliberately conservative — agent CLIs can think for a while without visible output.
-
-Corrections are conditional writes: `upsertLatestEventIfCurrent` only applies if the agent's latest event still has the `updated_at` the monitor read, so a concurrent agent-reported event always wins over the monitor's stale snapshot. Corrected events carry `metadata.source: "activity-monitor"`; these are the sidebar events users see as "Activity detected" / "No recent activity detected". Per-agent digest state is held in memory and pruned when an agent leaves `running`.
-
-## tmux Session Contract
-
-- Session name: `<prefix>_<agentId>_<sanitizedName>` where `prefix` defaults to `dispatch` (configurable via `DISPATCH_SESSION_PREFIX`), `agentId` already starts with `agt_`, and `sanitizedName` is the lowercased agent name with non-alphanumeric chars collapsed to hyphens, edge hyphens trimmed, truncated to 30 chars (omitted entirely if sanitization strips everything).
-- Agent process starts in the agent's `cwd` (or worktree path once setup completes).
-- Closing a browser terminal must only detach the WebSocket bridge, not terminate tmux.
-
-`agentManager.getTerminalAccess(id)` returns either `{ mode: "tmux", sessionName }` or `{ mode: "inert", message }`. The `inert` mode is used in test/CI environments where the runtime is configured not to spawn tmux. The web terminal endpoint uses the tmux mode result to bridge a browser WebSocket to `tmux attach`.
-
-## Launch Contract
-
-```bash
-tmux new-session -d -s <sessionName> -c "<cwd>" \
-  "bash -c 'exec 2> >(tee <setupLogPath> >&2); bash <setupScriptPath>; echo \"EXIT:$?\" > <exitFilePath>'"
-```
-
-The wrapper tees stderr to `/tmp/dispatch_setup_<agentId>.log` and captures the exit code to `/tmp/dispatch_<sessionName>.exit` — these are what the reconciler reads via `readSetupLogTail` / `readExitInfo` when a session disappears. After `new-session`, the launcher sets `status off`, `mouse on`, `allow-passthrough on`, and the `sync` terminal feature on the session, then verifies the session survived launch (a fast-fail launch throws with the setup-log tail).
-
-The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
-
-1. `unset DATABASE_URL`, then source `~/.dispatch/env` (if it exists) so user overrides win.
-2. Create the git worktree (if requested). The script doesn't post this phase — `worktree` is the initial `setup_phase` written when the agent row is inserted.
-3. POST `setup/phase: env`, then copy the source repo's gitignored local config files (see below) into the worktree.
-4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (pnpm/yarn/npm/bun). Skipped for `terminal` agent type.
-5. POST `setup/phase: session`, then `exec` into the agent CLI command.
-
-Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing local config file are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
+`agentManager.getTerminalAccess(id)` answers `{ mode: "live" }` when the host is up or `{ mode: "inert", message }` when the runtime has no processes at all (test/CI). Every prompt to an agent — a Chat message, a review injection, a cross-agent message, a job prompt — goes through `enqueueAgentPrompt`, which queues one turn behind whatever the engine is already running. "Held" means a turn is running ahead of it.
 
 ## Local Config Files
 
 `git worktree add` only materializes _tracked_ files, so a developer's
-gitignored secrets and local overrides never reach a new worktree. Both launch
-paths copy a shared list of conventionally-gitignored filenames from the source
-repo into the worktree — `apps/server/src/agents/worktree-local-config.ts` owns
-the list (`WORKTREE_LOCAL_CONFIG_FILES`) and the inert-mode copy; the tmux-mode
-bash in `apps/server/src/agents/tmux/setup-script.ts` is generated from the same
-constant so the two cannot drift.
+gitignored secrets and local overrides never reach a new worktree. The
+workspace step copies a shared list of conventionally-gitignored filenames
+from the source repo into the worktree — `apps/server/src/agents/worktree-local-config.ts`
+owns the list (`WORKTREE_LOCAL_CONFIG_FILES`) and the copy.
 
 Covered today: `.env`, `.env.local`, `.env.development.local`,
 `.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler),
@@ -142,36 +118,24 @@ Covered today: `.env`, `.env.local`, `.env.development.local`,
 Rules the list follows:
 
 - **Exact top-level filenames only** — no globs, no directory components.
-  bash and `fs` agree for free only while neither has to interpret anything; a
-  `*` or a `/` would be expanded by one and looked up literally by the other,
-  which is exactly the drift this module exists to prevent.
-  `assertTopLevelFileName` enforces this where the list is defined, and the
-  generated bash quotes every name.
+  `assertTopLevelFileName` enforces this where the list is defined.
 - Only names that are conventionally _gitignored_. Committed templates like
   `.env.example` are already in the worktree via the checkout.
 - Only files that are _configuration_. Anything that grants the launched agent
   capabilities it wouldn't otherwise have stays off the list —
-  `.claude/settings.local.json` was considered and rejected on those grounds,
-  since copying a permission allowlist would quietly widen what a
-  `fullAccess: false` launch can do.
+  `.claude/settings.local.json` was considered and rejected on those grounds.
 - Only files that copying alone actually fixes. `.envrc` was considered and
   rejected: direnv will not load it until the new worktree is approved, and
-  approving it automatically would execute repository-controlled code, so
-  copying it duplicates a secret without restoring anything.
+  approving it automatically would execute repository-controlled code.
 - An existing destination is never overwritten. A fresh worktree contains
   exactly the tracked files, so a destination that already exists means the
   repo commits that name, and the checked-out revision's copy is the correct
-  one — not the source checkout's possibly-dirty, possibly-different-branch
-  version.
-- Both sides are checked with `lstat` / `-L` rather than `stat` / `-e`, because
-  a checkout is data and a repository may be untrusted. Following a symlinked
-  _source_ would make every name a read primitive pointing anywhere on disk
-  (`.env -> ~/.ssh/id_rsa`); following a symlinked _destination_ would make
-  every name a write primitive, and a dangling link is the sharp case — it is
-  invisible to an existence check but `cp` still follows it.
-- Nothing in this step can abort an agent launch. The generated bash uses no
-  command substitution, since a bare assignment failing under `set -e` would
-  kill the setup script before the agent starts.
+  one.
+- Both sides are checked with `lstat` rather than `stat`, because a checkout
+  is data and a repository may be untrusted: a symlinked source would make
+  every name a read primitive pointing anywhere on disk, a symlinked
+  destination a write primitive.
+- Nothing in this step can abort an agent launch.
 
 Deliberately _not_ covered, because each would require globbing or a directory
 component: `*.auto.tfvars` (arbitrary prefix), Rails' `config/master.key`, and
@@ -181,9 +145,7 @@ Copying happens before the dependency install.
 
 ## Agent Environment
 
-Agent sessions run inside tmux, which is non-login and non-interactive. Tools like `nvm`, `pyenv`, `conda`, `GH_TOKEN`, etc. won't be available unless explicitly configured.
-
-Dispatch sources `~/.dispatch/env` (if it exists) at the start of every setup script. Use this file to export any environment variables or run setup commands that agents need:
+The host is started through the user's login shell (`$SHELL -lc`), so whatever `~/.zprofile` / `~/.bash_profile` export — `nvm`, `pyenv`, `GH_TOKEN`, an ssh agent — is available to the engine and to every command it runs. `~/.dispatch/env` is sourced after the profile, so it still wins for overrides:
 
 ```bash
 # ~/.dispatch/env
@@ -192,27 +154,19 @@ export NVM_DIR="$HOME/.nvm"
 export GH_TOKEN="ghp_..."
 ```
 
-Standard shell profiles (`~/.bashrc`, `~/.zshrc`, etc.) are **not** sourced — they are not safe to run under `set -e` and frequently contain commands (e.g. `conda init`) that cause the setup script to exit.
-
-**Important:** Do not use `exit` in `~/.dispatch/env` — it runs in the setup script's shell, so `exit` will kill the agent session.
+The engine child additionally gets `DISPATCH_AGENT_ID`, `DISPATCH_MEDIA_DIR`, `DISPATCH_PORT`, `DISPATCH_SCHEME`, Dispatch's `bin/` and `~/.local/bin` ahead on `PATH`, and (for Claude) `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`. It does not inherit the server's `DATABASE_URL`, `DISPATCH_*` settings, TLS material or provider API keys: each engine authenticates through the host CLI's own login.
 
 ## Stop Contract
 
-Soft stop (default):
+Soft stop (default): the server sends `shutdown` over the host socket; the host closes the ACP session, ends the adapter's stdin, and escalates to `SIGTERM` then `SIGKILL` on the adapter's process group if it does not exit. If the host itself has not exited within eight seconds the server signals the host's process group the same way.
 
-```bash
-tmux send-keys -t <sessionName> C-c
-# wait 1200ms
-tmux kill-session -t <sessionName>   # only if the session is still present
-```
+Force stop (`force: true` on `POST /agents/:id/stop`) skips the graceful ACP close.
 
-Force stop (`force: true` on `POST /agents/:id/stop`) skips the `Ctrl+C` step and goes straight to `kill-session`.
-
-The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs best-effort before the tmux teardown.
+The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs best-effort before the teardown.
 
 ## Idempotency Rules
 
-- `start` on a `running` agent is a no-op (returns the agent at `running` with HTTP 200). The handler attaches to the existing tmux session if one is found instead of spawning a new one.
+- `start` on a `running` agent is a no-op (returns the agent at `running` with HTTP 200). The handler reattaches to a live host if one is found instead of spawning a new one.
 - `stop` on a `stopped` agent is a no-op (returns the current record with HTTP 200).
 - `delete` on an already-archiving agent returns `409`. Worktree retention is controlled by `?cleanupWorktree=auto|keep|force` rather than a `force` flag on the delete itself.
 
@@ -222,7 +176,7 @@ There are three independent state axes attached to an agent. Code that talks abo
 
 | Axis                  | Values                                                                                                   | Set by                                                       |
 | --------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `setup_phase`         | `worktree` / `env` / `deps` / `session` / `null`                                                         | in-tmux setup script                                         |
+| `setup_phase`         | `worktree` / `env` / `deps` / `session` / `null`                                                         | the manager's workspace step                                 |
 | `archive_phase`       | `stopping` / `worktree-check` / `worktree-cleanup` / `finalizing` / `null`                               | `executeArchive` in agent manager                            |
 | Assisted-update phase | `inspect` / `prepare` / `apply` / `restarting` / `validate` / `done` / `rollback` / `blocked` / `failed` | the assisted-update agent via `POST /release/assisted/phase` |
 
