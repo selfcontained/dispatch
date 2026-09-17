@@ -138,17 +138,6 @@ describe("POST /api/v1/agents", () => {
     });
   });
 
-  it("rejects unknown agent type with a message that mentions terminal", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/agents",
-      payload: { type: "not-a-real-type", cwd: "/tmp", useWorktree: false },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({
-      error: expect.stringContaining("terminal"),
-    });
-  });
 });
 
 describe("POST /api/v1/agents/settings", () => {

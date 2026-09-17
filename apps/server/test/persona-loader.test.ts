@@ -290,15 +290,6 @@ describe("assemblePersonaPrompt", () => {
     expect(result).not.toContain("functions.dispatch-review_status");
   });
 
-  it("includes Cursor tool guidance and call syntax hint for Cursor reviewers", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null, {
-      agentType: "cursor",
-    });
-    expect(result).toContain("dispatch-<tool_name>");
-    expect(result).toContain("report the exact tool error");
-    expect(result).toContain("functions.dispatch-dispatch_event");
-  });
-
   it("does not inject the legacy round-trip lifecycle", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).not.toContain("Recheck round-trip");

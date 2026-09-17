@@ -5,7 +5,7 @@ export type AgentModelOption = { id: string; label: string };
 /**
  * Source-controlled model catalog for the launchers Dispatch supports.
  *
- * Agent types absent from this map (currently cursor and opencode) hide the
+ * Agent types absent from this map hide the
  * model picker and always launch with the CLI default.
  *
  * Every entry must be cross-checked against the installed CLI's own model

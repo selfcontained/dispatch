@@ -40,18 +40,6 @@ describe("describeAgentModelCatalog", () => {
     }
   });
 
-  it("calls out agent types that take no model override", () => {
-    const description = describeAgentModelCatalog();
-    const withoutModels = CLI_AGENT_TYPES.filter(
-      (agentType) => (AGENT_MODEL_OPTIONS[agentType] ?? []).length === 0
-    );
-
-    for (const agentType of withoutModels) {
-      expect(description).toContain(agentType);
-    }
-    expect(description).toContain("no model override");
-  });
-
   it("carries a label's qualifier so risky ids are not shown as equals", () => {
     const description = describeAgentModelCatalog(["codex"]);
 

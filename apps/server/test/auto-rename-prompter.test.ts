@@ -96,18 +96,6 @@ describe("createAutoRenamePrompter", () => {
     expect(inject).not.toHaveBeenCalled();
   });
 
-  it("does not inject for terminal-type agents", () => {
-    const inject = vi.fn().mockResolvedValue(undefined);
-    const handler = createAutoRenamePrompter({
-      injectAgentPrompt: inject,
-      log: fakeLogger,
-    });
-
-    handler(makeAgent({ type: "terminal" }));
-
-    expect(inject).not.toHaveBeenCalled();
-  });
-
   it("does not inject for persona agents", () => {
     const inject = vi.fn().mockResolvedValue(undefined);
     const handler = createAutoRenamePrompter({

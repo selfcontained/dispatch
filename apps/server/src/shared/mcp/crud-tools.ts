@@ -105,8 +105,8 @@ function toWriteAck(record: unknown) {
   };
 }
 
-// Jobs run an AI CLI, so they take the CLI subset; templates also back terminal
-// agents, so they take the full table. Both are aliases of the shared tables.
+// Jobs and templates both take the full agent-type table now that every type
+// runs an engine; the two names stay so their schemas read as intended.
 const JOB_AGENT_TYPES = CLI_AGENT_TYPES;
 const TEMPLATE_AGENT_TYPES = AGENT_TYPES;
 
