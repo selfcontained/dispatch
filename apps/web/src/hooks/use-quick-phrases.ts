@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useStore } from "jotai";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
+import { chatDraftAtomFamily } from "@/lib/store";
 import type { TemplateArg } from "@/hooks/use-templates";
 
 export type QuickPhrase = {
@@ -26,6 +28,7 @@ export function useQuickPhraseActions(callbacks?: {
   onInjected?: () => void;
 }) {
   const queryClient = useQueryClient();
+  const store = useStore();
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["quick-phrases"] });
 
@@ -76,15 +79,30 @@ export function useQuickPhraseActions(callbacks?: {
       args?: Record<string, string>;
       submit?: boolean;
     }) =>
-      api<null>(`/api/v1/agents/${input.agentId}/terminal/inject-phrase`, {
-        method: "POST",
-        body: JSON.stringify({
-          phraseId: input.phraseId,
-          args: input.args,
-          submit: input.submit,
-        }),
-      }),
-    onSuccess: () => callbacks?.onInjected?.(),
+      // Submitted, the server posts the rendered phrase as a Chat message and
+      // answers 204; unsubmitted, it answers with the text for the composer.
+      api<{ text: string } | null>(
+        `/api/v1/agents/${encodeURIComponent(input.agentId)}/prompts/phrase`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            phraseId: input.phraseId,
+            args: input.args,
+            submit: input.submit,
+          }),
+        }
+      ),
+    onSuccess: (result, input) => {
+      if (result?.text) {
+        const draftAtom = chatDraftAtomFamily(input.agentId);
+        const draft = store.get(draftAtom);
+        const text = draft.text.trim()
+          ? `${draft.text.replace(/\s+$/, "")}\n${result.text}`
+          : result.text;
+        store.set(draftAtom, { ...draft, text });
+      }
+      callbacks?.onInjected?.();
+    },
     onError: () => toast.error("Failed to send phrase"),
   });
 

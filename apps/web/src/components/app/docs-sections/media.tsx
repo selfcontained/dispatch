@@ -92,14 +92,11 @@ export function MediaContent() {
       <Section>
         <H3 id="uploading-files">Uploading files to agents</H3>
         <P>
-          You can send files directly to a running agent by{" "}
-          <strong>dragging and dropping</strong> them onto the terminal or by{" "}
-          <strong>pasting an image</strong> from your clipboard (
-          <Code>Cmd+V</Code> / <Code>Ctrl+V</Code>). Uploaded files are saved to
-          the agent's media store and automatically injected into the agent's
-          prompt — images go through the native clipboard when available, and
-          all other files are typed into tmux as{" "}
-          <Code>[File&nbsp;#N]&nbsp;/path/to/file</Code>.
+          You can send files to an agent by{" "}
+          <strong>dragging and dropping</strong> them onto the Chat composer or
+          by <strong>pasting an image</strong> from your clipboard (
+          <Code>Cmd+V</Code> / <Code>Ctrl+V</Code>). The files are saved to the
+          agent&apos;s media store and go with your next message.
         </P>
         <P>
           You can also upload files via the <strong>Share file</strong> button

@@ -8,7 +8,6 @@ import { type AgentType } from "@/lib/agent-types";
 export type AgentCardActionsProps = {
   agent: Agent;
   isStopped: boolean;
-  isTerminalAgent: boolean;
   enabledAgentTypes: AgentType[];
   closeOnSessionAction: boolean;
   onRequestClose?: () => void;
@@ -27,7 +26,6 @@ export type AgentCardActionsProps = {
 export function AgentCardActions({
   agent,
   isStopped,
-  isTerminalAgent,
   enabledAgentTypes,
   closeOnSessionAction,
   onRequestClose,
@@ -42,20 +40,18 @@ export function AgentCardActions({
     <div className="flex flex-col gap-3 px-0 pb-1">
       <div className="flex min-h-9 items-center justify-between gap-2 pt-2">
         <div className="min-h-9 min-w-0 flex items-center">
-          {isTerminalAgent ? null : (
-            <PersonaLauncher
-              agent={agent}
-              enabledAgentTypes={enabledAgentTypes}
-              disabled={isStopped || agent.status === "archiving"}
-              disabledReason={
-                isStopped
-                  ? "Agent is stopped — start it before launching a review."
-                  : agent.status === "archiving"
-                    ? "Agent is archiving."
-                    : undefined
-              }
-            />
-          )}
+          <PersonaLauncher
+            agent={agent}
+            enabledAgentTypes={enabledAgentTypes}
+            disabled={isStopped || agent.status === "archiving"}
+            disabledReason={
+              isStopped
+                ? "Agent is stopped — start it before launching a review."
+                : agent.status === "archiving"
+                  ? "Agent is archiving."
+                  : undefined
+            }
+          />
           {/* Keep review visible for every parent agent; lifecycle controls stay on the right. */}
         </div>
         <div className="flex h-9 shrink-0 items-center gap-[18px]">

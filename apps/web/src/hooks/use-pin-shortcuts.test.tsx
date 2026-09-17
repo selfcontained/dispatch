@@ -44,12 +44,12 @@ afterEach(() => {
 
 /**
  * Firing a shortcut is a write into a live agent session: the server resolves
- * the prompt from the pin ID and types it into the terminal. The E2E suite
+ * the prompt from the pin ID and delivers it as a Chat message. The E2E suite
  * proves the button reaches this endpoint once; what is only checkable here is
  * the request the hook builds and which toast each outcome produces.
  */
 describe("useRunPinShortcut", () => {
-  it("posts to the inject-pin endpoint for the given agent and pin", async () => {
+  it("posts to the prompts pin endpoint for the given agent and pin", async () => {
     const { result } = renderHook(() => useRunPinShortcut(), { wrapper });
 
     act(() => {
@@ -58,7 +58,7 @@ describe("useRunPinShortcut", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(apiMock).toHaveBeenCalledWith(
-      "/api/v1/agents/agt_abc/terminal/inject-pin/pin_xyz",
+      "/api/v1/agents/agt_abc/prompts/pin/pin_xyz",
       { method: "POST" }
     );
   });

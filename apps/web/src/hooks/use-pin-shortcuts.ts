@@ -4,17 +4,15 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 
 /**
- * Fires a shortcut pin: the server looks the prompt up by pin ID and delivers
- * it to the owning agent's session, exactly as if the user had typed it.
+ * Fires a shortcut pin: the server looks the prompt up by pin ID, posts it as
+ * a Chat message and delivers it as the agent's next turn.
  */
 export function useRunPinShortcut() {
   return useMutation({
     mutationFn: (input: { agentId: string; pinId: string; label?: string }) =>
       api<null>(
-        `/api/v1/agents/${input.agentId}/terminal/inject-pin/${input.pinId}`,
-        {
-          method: "POST",
-        }
+        `/api/v1/agents/${encodeURIComponent(input.agentId)}/prompts/pin/${encodeURIComponent(input.pinId)}`,
+        { method: "POST" }
       ),
     // Naming the shortcut keeps stacked toasts distinguishable when several
     // are fired in a row.

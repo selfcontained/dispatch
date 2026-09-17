@@ -85,8 +85,7 @@ function LaunchTemplateDialogContent({
   } = useAgentModelCatalog(agentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
-  const isTerminal = agentType === "terminal";
-  const showMedia = !isTerminal && template.allowMedia;
+  const showMedia = template.allowMedia;
   const {
     startupFiles,
     startupLinks,
@@ -137,15 +136,14 @@ function LaunchTemplateDialogContent({
 
   const handleLaunch = useCallback(() => {
     const launchArgs = args.length > 0 ? argValues : undefined;
-    // Terminal sessions have no model. Otherwise: until the catalog arrives we
-    // cannot tell a valid selection from a retired model id, so send nothing
-    // and let the template's saved model stand.
-    const launchModel =
-      isTerminal || !modelCatalogLoaded
-        ? undefined
-        : modelOptions.some((option) => option.id === model)
-          ? model
-          : null;
+    // Until the catalog arrives we cannot tell a valid selection from a
+    // retired model id, so send nothing and let the template's saved model
+    // stand.
+    const launchModel = !modelCatalogLoaded
+      ? undefined
+      : modelOptions.some((option) => option.id === model)
+        ? model
+        : null;
     launchTemplate
       .mutateAsync({
         id: template.id,
@@ -166,7 +164,6 @@ function LaunchTemplateDialogContent({
     agentType,
     args,
     argValues,
-    isTerminal,
     launchTemplate,
     model,
     modelCatalogLoaded,
@@ -190,9 +187,7 @@ function LaunchTemplateDialogContent({
           <DialogDescription>{template.description}</DialogDescription>
         ) : (
           <DialogDescription>
-            {isTerminal
-              ? `This will open a terminal session in ${template.directory}.`
-              : "This will create a new agent from this template."}
+            This will create a new agent from this template.
           </DialogDescription>
         )}
       </DialogHeader>
@@ -228,32 +223,30 @@ function LaunchTemplateDialogContent({
         }
         onDrop={showMedia ? handleStartupDrop : undefined}
       >
-        {!isTerminal ? (
-          <div
-            className={cn(
-              "grid gap-3",
-              showModelSelect && "min-[420px]:grid-cols-2"
-            )}
-          >
-            <AgentTypeSelect
-              label="Agent type"
-              id="launch-template-agent-type"
-              value={agentType}
-              onChange={handleAgentTypeChange}
-              agentTypes={agentTypes}
+        <div
+          className={cn(
+            "grid gap-3",
+            showModelSelect && "min-[420px]:grid-cols-2"
+          )}
+        >
+          <AgentTypeSelect
+            label="Agent type"
+            id="launch-template-agent-type"
+            value={agentType}
+            onChange={handleAgentTypeChange}
+            agentTypes={agentTypes}
+          />
+          {showModelSelect ? (
+            <AgentModelSelect
+              value={model}
+              options={modelOptions}
+              onChange={handleModelChange}
+              loading={modelCatalogLoading}
+              id="launch-template-model"
+              testId="launch-template-model"
             />
-            {showModelSelect ? (
-              <AgentModelSelect
-                value={model}
-                options={modelOptions}
-                onChange={handleModelChange}
-                loading={modelCatalogLoading}
-                id="launch-template-model"
-                testId="launch-template-model"
-              />
-            ) : null}
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
         {args.length > 0 ? (
           <div className="mt-3 flex flex-col gap-3">

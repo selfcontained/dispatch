@@ -134,7 +134,7 @@ function baseProps(agent: Agent): AgentCardProps {
     setDeleteConfirmOpen: vi.fn(),
     setStopTarget: vi.fn(),
     setStopConfirmOpen: vi.fn(),
-    enabledAgentTypes: ["claude", "codex", "terminal"],
+    enabledAgentTypes: ["claude", "codex"],
     enabledIdes: ["vscode"],
   };
 }
@@ -320,7 +320,6 @@ describe("AgentCardHeader wiring", () => {
       "a persona agent",
       makeAgent({ name: "agent-parent", persona: "security-review" }),
     ],
-    ["a terminal agent", makeAgent({ name: "agent-parent", type: "terminal" })],
   ])("hides the rename prompt for %s", (_label, agent) => {
     renderCard({ agent });
     expect(screen.queryByTestId(`agent-prompt-rename-${AGENT_ID}`)).toBeNull();
@@ -434,22 +433,6 @@ describe("AgentCardStatus wiring", () => {
     rerender({ expandedAgentId: AGENT_ID });
     expect(screen.getByText("Waiting on a merge conflict")).toBeTruthy();
   });
-
-  it("suppresses the latest-event line for terminal agents", () => {
-    const latestEvent = {
-      type: "working" as const,
-      message: "Running tests",
-      updatedAt: new Date().toISOString(),
-      metadata: {},
-    };
-    const { rerender } = renderCard({
-      agent: makeAgent({ type: "terminal", latestEvent }),
-    });
-    expect(screen.queryByText("Working")).toBeNull();
-
-    rerender({ agent: makeAgent({ type: "claude", latestEvent }) });
-    expect(screen.getByText("Working")).toBeTruthy();
-  });
 });
 
 describe("AgentCardDetails wiring", () => {
@@ -490,10 +473,6 @@ describe("AgentCardDetails wiring", () => {
     rerender({ agent: makeAgent({ fullAccess: false }) });
     expect(screen.getByText("Sandboxed")).toBeTruthy();
     expect(screen.queryByText("Full access")).toBeNull();
-
-    rerender({ agent: makeAgent({ type: "terminal", fullAccess: true }) });
-    expect(screen.queryByText("Full access")).toBeNull();
-    expect(screen.queryByText("Sandboxed")).toBeNull();
   });
 
   it("keeps the worktree-path copy confirmation across a collapse and reopen", async () => {

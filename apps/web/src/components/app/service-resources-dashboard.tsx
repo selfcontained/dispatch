@@ -84,10 +84,6 @@ export function ServiceResourcesDashboard({
   const workloadItems = [
     { label: "Running agents", value: current.workloads.runningAgents },
     { label: "Connected browsers", value: current.workloads.sseClients },
-    {
-      label: "Active terminal views",
-      value: current.workloads.terminalViewers,
-    },
     { label: "Scheduled jobs", value: current.workloads.scheduledJobs },
     {
       label: "Git refreshes active",

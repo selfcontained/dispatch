@@ -51,12 +51,6 @@ function pressHotkey(
   act(() => entry.handler(new KeyboardEvent("keydown")));
 }
 
-function hotkeyOptions(id: string): UseHotkeyOptions {
-  const entry = registeredHotkeys.get(id);
-  if (!entry) throw new Error(`hotkey ${id} was never registered`);
-  return entry.options;
-}
-
 function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
   return {
     id,
@@ -90,8 +84,6 @@ function defaultArgs(overrides: Partial<HookArgs> = {}): HookArgs {
     isMobile: false,
     sidebarAgentId: null,
     validatedSelectedAgentId: null,
-    canFocusTerminal: false,
-    focusTerminal: vi.fn(),
     mediaOpen: false,
     setMediaOpen: vi.fn(),
     leftPanelOpen: true,
@@ -333,38 +325,6 @@ describe("useAgentHotkeys", () => {
 
       pressHotkey("focus-next-agent");
       expect(pathname()).toBe("/agents/agt_toprev");
-    });
-  });
-
-  describe("focus-terminal-input", () => {
-    it("registers enabled and calls focusTerminal on desktop when focusable", () => {
-      const focusTerminal = vi.fn();
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: false, canFocusTerminal: true, focusTerminal })
-      );
-
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(true);
-      pressHotkey("focus-terminal-input");
-      expect(focusTerminal).toHaveBeenCalledTimes(1);
-    });
-
-    it("registers disabled on mobile even when the terminal is focusable", () => {
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: true, canFocusTerminal: true })
-      );
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(false);
-    });
-
-    it("registers disabled and guards the handler when the terminal is not focusable", () => {
-      const focusTerminal = vi.fn();
-      renderAgentHotkeys(
-        defaultArgs({ isMobile: false, canFocusTerminal: false, focusTerminal })
-      );
-
-      expect(hotkeyOptions("focus-terminal-input").enabled).toBe(false);
-      // The handler itself also guards, independent of the enabled option.
-      pressHotkey("focus-terminal-input", { bypassEnabled: true });
-      expect(focusTerminal).not.toHaveBeenCalled();
     });
   });
 

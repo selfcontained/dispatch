@@ -4,11 +4,13 @@ import type {
   ChatFeedEntry,
   ChatMessage,
   ChatStatusEntry,
+  ChatTurnEntry,
 } from "@dispatch/shared";
 import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   within,
   waitFor,
@@ -32,10 +34,13 @@ import {
 import {
   ChatFeed,
   collapseFeed,
+  entryGrowthKey,
+  entryVersion,
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
   layoutFeed,
+  useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
@@ -536,10 +541,10 @@ describe("ChatFeed", () => {
       {
         id: "agt_sib",
         name: "sib",
-        type: "opencode",
+        type: "codex",
         parentAgentId: "agt_root",
       },
-      { id: "agt_far", name: "far", type: "terminal", parentAgentId: null },
+      { id: "agt_far", name: "far", type: "claude", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const peerPost = (
@@ -584,8 +589,8 @@ describe("ChatFeed", () => {
     ).toEqual([
       "Codex agent",
       "Claude agent",
-      "OpenCode agent",
-      "Terminal agent",
+      "Codex agent",
+      "Claude agent",
       // Not in the list any more: the generic agent icon.
       "Agent agent",
     ]);
@@ -1756,5 +1761,173 @@ describe("reactions", () => {
     expect(chip.getAttribute("aria-label")).toBe("Your 🎉 reaction");
     fireEvent.click(chip);
     expect(onToggleReaction).not.toHaveBeenCalled();
+  });
+});
+describe("turn entries", () => {
+  function turnEntry(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
+    return {
+      type: "turn",
+      id: "turn:12",
+      agentId: AGENT_ID,
+      at: "2026-09-04T10:00:00.000Z",
+      updatedAt: "2026-09-04T10:00:09.000Z",
+      prompt: { source: "chat", text: "read the readme", attachments: [] },
+      trace: {
+        startedAt: "2026-09-04T10:00:00.000Z",
+        endedAt: "2026-09-04T10:00:09.000Z",
+        finalResult: "ok",
+        steps: [
+          {
+            id: "stream:13",
+            kind: "read",
+            label: "Read README.md",
+            status: "ok",
+            startedAt: "2026-09-04T10:00:01.000Z",
+            endedAt: "2026-09-04T10:00:02.000Z",
+            durMs: 1000,
+            detail: { toolKind: "read" },
+          },
+        ],
+      },
+      result: { text: "It documents the CLI.", streaming: false },
+      settled: true,
+      interrupted: false,
+      ...overrides,
+    };
+  }
+
+  it("renders the prompt with post styling and the result as an agent post", () => {
+    renderFeed([turnEntry()]);
+    const prompt = screen.getByTestId("chat-message");
+    expect(prompt.getAttribute("data-author")).toBe("user");
+    expect(prompt.textContent).toContain("read the readme");
+    const result = screen.getByTestId("chat-turn-result");
+    expect(result.getAttribute("data-author-kind")).toBe("agent");
+    expect(result.textContent).toContain("It documents the CLI.");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
+      "turn:12"
+    );
+  });
+
+  it("keeps a turn out of every author group and resets the run behind it", () => {
+    const rows = layoutFeed(
+      [
+        chat(
+          message({
+            id: "m1",
+            authorKind: "agent",
+            text: "before",
+            createdAt: "2026-09-04T09:59:00.000Z",
+            updatedAt: "2026-09-04T09:59:00.000Z",
+          })
+        ),
+        turnEntry(),
+        chat(
+          message({
+            id: "m2",
+            authorKind: "agent",
+            text: "after",
+            createdAt: "2026-09-04T10:00:10.000Z",
+            updatedAt: "2026-09-04T10:00:10.000Z",
+          })
+        ),
+      ],
+      makeCtx(),
+      new Date("2026-09-04T12:00:00.000Z")
+    );
+    const entries = rows.filter((r) => r.kind === "entry");
+    expect(entries.map((r) => [r.entry.id, r.grouped, r.rule])).toEqual([
+      ["m1", false, false],
+      ["turn:12", false, false],
+      // Two agent posts five minutes apart would group; the turn between
+      // them ends the run, so the second opens a fresh header.
+      ["m2", false, true],
+    ]);
+  });
+
+  it("keys a turn's growth on its newest row, steps, result and settled state", () => {
+    const base = turnEntry({
+      settled: false,
+      result: { text: "a", streaming: true },
+    });
+    const grown = turnEntry({
+      settled: false,
+      updatedAt: "2026-09-04T10:00:11.000Z",
+      result: { text: "ab", streaming: true },
+    });
+    expect(entryGrowthKey(base)).not.toBe(entryGrowthKey(grown));
+    expect(entryGrowthKey(grown)).not.toBe(
+      entryGrowthKey({ ...grown, settled: true })
+    );
+    // The fade-in version is the anchor time, which never moves, so growth
+    // does not remount the entry and collapse an expanded step.
+    expect(entryVersion(base)).toBe(entryVersion(grown));
+  });
+
+  it("does not re-enter a streaming turn as it grows", () => {
+    const { result, rerender } = renderHook(
+      ({ entries }: { entries: ChatFeedEntry[] }) =>
+        useEnteringEntries(entries),
+      {
+        initialProps: {
+          entries: [
+            turnEntry({
+              settled: false,
+              result: { text: "a", streaming: true },
+            }),
+          ] as ChatFeedEntry[],
+        },
+      }
+    );
+    const later = status("s9", "done", "finished", "2026-09-04T10:00:20.000Z");
+    rerender({
+      entries: [
+        turnEntry({ settled: false, result: { text: "a", streaming: true } }),
+        later,
+      ],
+    });
+    expect(result.current.has("s9")).toBe(true);
+    rerender({
+      entries: [
+        turnEntry({
+          settled: false,
+          updatedAt: "2026-09-04T10:00:15.000Z",
+          result: { text: "abc", streaming: true },
+        }),
+        later,
+      ],
+    });
+    expect(result.current.has("turn:12")).toBe(false);
+  });
+
+  it("takes a turn's word for a question its own chat row has not caught up on", () => {
+    const question = message({
+      id: "q1",
+      authorKind: "agent",
+      kind: "question",
+      text: "Scope choice?",
+      question: { options: [{ label: "Narrow" }], allowFreeform: true },
+      createdAt: "2026-09-04T10:00:05.000Z",
+      updatedAt: "2026-09-04T10:00:05.000Z",
+    });
+    // The card still says unanswered, and no turn contradicts it.
+    expect(
+      latestOpenFreeformQuestion([
+        turnEntry({ questions: [{ messageId: "q1", answered: false }] }),
+        chat(question),
+      ])?.id
+    ).toBe("q1");
+    // The turn is republished on every flush, so its answered state is the
+    // fresher one: the composer stops offering to answer a closed question.
+    expect(
+      latestOpenFreeformQuestion([
+        turnEntry({ questions: [{ messageId: "q1", answered: true }] }),
+        chat(question),
+      ])
+    ).toBeNull();
+    // A turn that names no question changes nothing.
+    expect(latestOpenFreeformQuestion([turnEntry(), chat(question)])?.id).toBe(
+      "q1"
+    );
   });
 });

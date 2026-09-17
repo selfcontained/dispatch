@@ -20,6 +20,9 @@ import {
   ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
+import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
+
+import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 
 /**
  * A feed entry ready to render: status lines may stand in for a run of
@@ -51,9 +54,33 @@ export type ChatFeedRow =
 /** Posts by one author this close together share a header, like Slack. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
-/** What "the same entry, changed" means: a post edited in place has a new one. */
-function entryVersion(entry: ChatFeedEntry): string {
+/**
+ * What "the same entry, changed" means for the fade-in: a post edited in
+ * place has a new one. A stream row growing chunk by chunk is not a new
+ * version here, or every chunk would remount the post and collapse an
+ * expanded activity row; growth is {@link entryGrowthKey}'s business.
+ */
+export function entryVersion(entry: ChatFeedEntry): string {
   return entry.type === "chat" ? entry.message.updatedAt : entry.at;
+}
+
+/**
+ * The tail entry's identity plus everything that makes it taller: text as it
+ * streams in, a tool call's status or output. The pane keys its follow
+ * logic on this so new content below the fold still pins the scroll.
+ */
+export function entryGrowthKey(entry: ChatFeedEntry): string {
+  const base = `${entry.id}:${entryVersion(entry)}`;
+  switch (entry.type) {
+    case "turn":
+      // Everything that makes a turn taller: the newest row folded in, the
+      // rail's length, the answer as it streams, and the settle that folds
+      // the rail. `entryVersion` stays the anchor time, so growth does not
+      // re-fade the entry.
+      return `${base}:${entry.updatedAt}:${entry.trace.steps.length}:${entry.result?.text.length ?? 0}:${entry.settled ? 1 : 0}`;
+    default:
+      return base;
+  }
 }
 
 /**
@@ -214,8 +241,11 @@ function authorKey(
       return agentMessageAuthor(entry, ctx).key;
     case "media":
     case "pin":
-    case "turn":
       return "agent";
+    case "turn":
+      // Never reached: `layoutFeed` gives a turn its own group before it
+      // asks for an author key.
+      return "turn";
     case "review":
       return reviewAuthor(entry, ctx).key;
   }
@@ -256,6 +286,20 @@ export function layoutFeed(
       lastPost = null;
       continue;
     }
+    // A turn carries a user post and an agent post inside one entry, so
+    // nothing outside it can group with either half: it always starts a
+    // fresh group, draws no hairline of its own, and ends the run behind
+    // it so the post after it opens with a header.
+    if (item.entry.type === "turn") {
+      rows.push({
+        kind: "entry",
+        entry: item.entry,
+        grouped: false,
+        rule: false,
+      });
+      lastPost = null;
+      continue;
+    }
     const key = authorKey(item.entry, ctx);
     const at = new Date(item.entry.at).getTime();
     const grouped =
@@ -288,12 +332,21 @@ export function latestUserMessageId(entries: ChatFeedEntry[]): string | null {
 export function latestOpenFreeformQuestion(
   entries: ChatFeedEntry[]
 ): ChatMessage | null {
+  // A turn republishes whole on every flush, so its answer state can be
+  // fresher than the question's own cached row.
+  const answeredByTurn = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "turn") continue;
+    for (const ref of entry.questions ?? []) {
+      if (ref.answered) answeredByTurn.add(ref.messageId);
+    }
+  }
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
     if (entry.type !== "chat") continue;
     const m = entry.message;
     if (m.authorKind !== "agent" || m.kind !== "question") continue;
-    if (m.answer !== null) continue;
+    if (m.answer !== null || answeredByTurn.has(m.id)) continue;
     return m.question?.allowFreeform ? m : null;
   }
   return null;
@@ -313,8 +366,8 @@ export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
 export type ChatFeedProps = {
   entries: ChatFeedEntry[];
   ctx: FeedContext;
-  /** Message currently waiting out the injection hold, if any. */
-  heldMessageId: string | null;
+  /** Message currently waiting to be delivered, if any. */
+  heldMessageId?: string | null;
   /** Question whose answer is in flight, if any. */
   answeringMessageId: string | null;
   /** Answers go through the same injection as the composer; lock them together. */
@@ -332,6 +385,21 @@ export function ChatFeed({
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries);
+  // Disclosure state per row (an expanded step, a folded rail), owned here so
+  // it survives a row re-rendering; entries that left the feed drop theirs.
+  const rowStates = useRef(new Map<string, ChatRowState>());
+  const present = new Set(entries.map((entry) => entry.id));
+  for (const id of rowStates.current.keys()) {
+    if (!present.has(id)) rowStates.current.delete(id);
+  }
+  const rowState = (id: string): ChatRowState => {
+    let state = rowStates.current.get(id);
+    if (!state) {
+      state = new Map();
+      rowStates.current.set(id, state);
+    }
+    return state;
+  };
 
   // Consecutive status lines sit as one quiet cluster between posts, so they
   // read as a separator rather than as posts of their own.
@@ -431,6 +499,15 @@ export function ChatFeed({
                   ctx={ctx}
                 />
               );
+            case "turn":
+              return (
+                <TurnEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
             case "pin":
               return (
                 <PinEntryView
@@ -444,7 +521,9 @@ export function ChatFeed({
         })();
         return (
           <Enter key={entry.id} id={entry.id} entering={entering}>
-            {view}
+            <ChatRowStateContext.Provider value={rowState(entry.id)}>
+              {view}
+            </ChatRowStateContext.Provider>
           </Enter>
         );
       })}

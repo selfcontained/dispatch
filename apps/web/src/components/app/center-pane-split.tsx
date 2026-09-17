@@ -13,12 +13,11 @@ type CenterPaneSplitProps = {
   splitState: SplitPaneState;
   splitLeftRef: React.RefObject<HTMLDivElement>;
   splitButtonRef: React.RefObject<HTMLButtonElement>;
-  splitTerminalSlotRef: React.RefObject<HTMLDivElement>;
   changesElement: React.ReactNode;
   whiteboardElement: React.ReactNode;
-  /** The Agent pane (Chat + Console) for the "agent" slot, flag on. */
+  /** The Agent pane (Chat) for the "agent" slot. */
   agentElement?: React.ReactNode;
-  /** The Chat | Console toggle, shown in the "agent" slot's header. */
+  /** Chat filters, shown in the "agent" slot's header. */
   agentHeaderAccessory?: React.ReactNode;
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
@@ -27,9 +26,8 @@ type CenterPaneSplitProps = {
 
 /**
  * The split-pane layout for the center pane: two resizable panels, each showing
- * either the terminal (via the shared terminal slot) or the Changes tab, with an
- * unsplit button anchored on the divider. Purely presentational — the terminal
- * DOM node is portaled into `splitTerminalSlotRef` by the parent.
+ * one center tab, with an unsplit button anchored on the divider. Purely
+ * presentational.
  *
  * The unsplit button straddles the divider, so each header keeps its
  * divider-side padding wider than the button's overhang and its title yields
@@ -39,7 +37,6 @@ export function CenterPaneSplit({
   splitState,
   splitLeftRef,
   splitButtonRef,
-  splitTerminalSlotRef,
   changesElement,
   whiteboardElement,
   agentElement = null,
@@ -50,8 +47,6 @@ export function CenterPaneSplit({
 }: CenterPaneSplitProps): JSX.Element {
   const paneFor = (tab: CenterTab): React.ReactNode => {
     switch (tab) {
-      case "terminal":
-        return <div ref={splitTerminalSlotRef} className="h-full" />;
       case "agent":
         return agentElement;
       case "whiteboard":

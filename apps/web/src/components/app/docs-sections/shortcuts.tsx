@@ -5,10 +5,10 @@ export function ShortcutsContent() {
     <>
       <P>
         Dispatch registers a small set of global keyboard shortcuts that fire
-        from anywhere in the page — including text inputs and the xterm terminal
-        — because they listen in the <em>capture</em> phase of the document. To
-        suppress them inside a particular subtree (e.g. a modal), mark the
-        subtree root with <Code>data-hotkey-disable=&quot;true&quot;</Code>.
+        from anywhere in the page — including text inputs — because they listen
+        in the <em>capture</em> phase of the document. To suppress them inside a
+        particular subtree (e.g. a modal), mark the subtree root with{" "}
+        <Code>data-hotkey-disable=&quot;true&quot;</Code>.
       </P>
 
       <Section>
@@ -20,9 +20,6 @@ export function ShortcutsContent() {
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
             <Code>Mod+K</Code> — Open the command palette.
-          </li>
-          <li>
-            <Code>Mod+Shift+Space</Code> — Focus the terminal input.
           </li>
           <li>
             <Code>Mod+Shift+&gt;</Code> — Toggle the media sidebar.

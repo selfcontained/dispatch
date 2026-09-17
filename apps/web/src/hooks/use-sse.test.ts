@@ -520,11 +520,10 @@ describe("useSSE message handling", () => {
     ).toEqual(["newer", "older"]);
   });
 
-  it("refetches the state a snapshot does not carry and drops injection holds", () => {
+  it("refetches the state a snapshot does not carry", () => {
     // The snapshot payload only carries agents. Everything else the UI holds
-    // could have changed during the gap, and injection-hold state is
-    // event-sourced with no endpoint to refetch — so it has to fail safe.
-    const { emit, invalidateQueries, removeQueries } = renderMessages();
+    // could have changed during the gap.
+    const { emit, invalidateQueries } = renderMessages();
 
     emit({ type: "snapshot", agents: [] });
 
@@ -537,9 +536,6 @@ describe("useSSE message handling", () => {
       ["chat-unread"],
       ["chat"],
     ]);
-    expect(removeQueries).toHaveBeenCalledWith({
-      queryKey: ["injection-hold"],
-    });
   });
 
   it("inserts an upserted agent in sorted position", () => {
@@ -577,31 +573,6 @@ describe("useSSE message handling", () => {
     queryClient.removeQueries({ queryKey: ["agents"] });
     emit({ type: "agent.deleted", agentId: "drop" });
     expect(queryClient.getQueryData<Agent[]>(["agents"])).toEqual([]);
-  });
-
-  it("writes terminal and injection-hold state under their agent keys", () => {
-    const { queryClient, emit } = renderMessages();
-
-    emit({
-      type: "agent.terminal_state_changed",
-      agentId: "a1",
-      terminalState: { copyMode: "copy", lastObservedAt: 7 },
-    });
-    emit({
-      type: "agent.injection_hold_changed",
-      agentId: "a2",
-      holdState: { held: true, pendingCount: 3, quietMs: 900 },
-    });
-
-    expect(queryClient.getQueryData(["terminal-state", "a1"])).toEqual({
-      copyMode: "copy",
-      lastObservedAt: 7,
-    });
-    expect(queryClient.getQueryData(["injection-hold", "a2"])).toEqual({
-      held: true,
-      pendingCount: 3,
-      quietMs: 900,
-    });
   });
 
   it("routes diff state to the include-uncommitted stats key", () => {

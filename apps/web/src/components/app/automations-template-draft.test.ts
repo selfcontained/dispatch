@@ -135,40 +135,4 @@ describe("templateConfigFromDraft", () => {
     expect(templateConfigFromDraft(draft({ prompt: "" })).prompt).toBeNull();
     expect(templateConfigFromDraft(draft({ prompt: "go" })).prompt).toBe("go");
   });
-
-  it("collapses the agent-only fields for a terminal template", () => {
-    expect(
-      templateConfigFromDraft(
-        draft({
-          agentType: "terminal",
-          prompt: "ignored",
-          useWorktree: true,
-          baseBranch: "develop",
-          branchName: "feat/x",
-          fullAccess: true,
-          callable: false,
-          allowMedia: true,
-          selfImprove: true,
-        })
-      )
-    ).toEqual({
-      description: null,
-      prompt: null,
-      agentType: "terminal",
-      useWorktree: false,
-      baseBranch: null,
-      branchName: null,
-      fullAccess: false,
-      callable: false,
-      allowMedia: false,
-      selfImprove: false,
-    });
-  });
-
-  it("leaves callable alone for a terminal template", () => {
-    expect(
-      templateConfigFromDraft(draft({ agentType: "terminal", callable: true }))
-        .callable
-    ).toBe(true);
-  });
 });

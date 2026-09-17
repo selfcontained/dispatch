@@ -162,7 +162,6 @@ export function SessionSettingsDialog({
                   diffStats={diffStats}
                   refreshDiffStats={refreshDiffStats}
                   fullAccessEnabled={isFullAccessEnabled(agent)}
-                  isTerminalAgent={agent.type === "terminal"}
                   enabledIdes={enabledIdes}
                   worktreePathCopied={worktreePathCopied}
                   copyWorktreePath={copyWorktreePath}

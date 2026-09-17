@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
 import { formatBadgeCount } from "@/lib/format";
-import { type CenterTab, centerTabs } from "@/lib/center-tabs";
+import { CENTER_TABS, type CenterTab } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -24,8 +24,6 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
-  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
-  chatEnabled: boolean;
   chatUnreadCount?: number;
 };
 
@@ -36,16 +34,13 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
-  chatEnabled,
   chatUnreadCount = 0,
 }: CenterPaneTabBarProps): JSX.Element {
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();
 
-  const visibleTabs = centerTabs(chatEnabled).filter(
-    (t) => !splitTabs.has(t.id)
-  );
+  const visibleTabs = CENTER_TABS.filter((t) => !splitTabs.has(t.id));
 
   // When the strip scrolls (phones), keep the active tab in view: a deep
   // link to Whiteboard would otherwise land with its tab off the right edge.
@@ -82,8 +77,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
     >
       {visibleTabs.map((tab) => {
         // Unread chat replies sit on the Agent tab while another tab is up;
-        // with the Agent tab active the pane's own Chat | Console toggle
-        // carries the count (see AgentViewToggle).
+        // with the Agent tab active the feed itself is being read.
         const showChatUnread =
           tab.id === "agent" && activeTab !== "agent" && chatUnreadCount > 0;
         const button = (

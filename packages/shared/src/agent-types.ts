@@ -8,21 +8,11 @@
  * re-exports these so its existing importers are untouched.
  */
 
-export const AGENT_TYPES = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-  "terminal",
-] as const;
+export const AGENT_TYPES = ["claude", "codex"] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
 
-// Agent types that run an AI CLI — eligible for jobs, review assignment, and
-// persona launches. Terminal agents are excluded because they don't run a CLI.
-export const CLI_AGENT_TYPES = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-] as const;
+// Agent types that run an AI engine — eligible for jobs, review assignment,
+// and persona launches. Every agent type is one now; the list stays separate
+// so its importers keep their meaning.
+export const CLI_AGENT_TYPES = ["claude", "codex"] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];

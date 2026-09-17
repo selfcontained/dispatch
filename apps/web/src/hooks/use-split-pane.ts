@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 
-import { type LegacyCenterTab, terminalHostTab } from "@/lib/center-tabs";
+import { type LegacyCenterTab } from "@/lib/center-tabs";
 import {
   type CenterTab,
   type PersistedSplitPaneState,
@@ -13,21 +13,15 @@ import {
 } from "@/lib/store";
 
 /**
- * The terminal-hosting tab goes by "agent" with the chat surface on and
- * "terminal" with it off, and round 1/2 persisted a separate "chat" pane. A
- * stored value from any of those reads as whichever id is current, so a
- * split saved under one flag value still renders under the other. A split
- * that collapses to the same pane twice (Chat beside Console, say) is shown
- * as a single pane. The stored value is left alone so nothing is lost if
- * the flag flips back.
+ * Older builds persisted a "chat" pane and a "terminal" pane; both read as
+ * the Agent pane now. A split that collapses to the same pane twice (Chat
+ * beside the old Terminal, say) is shown as a single pane.
  */
 export function normalizeSplitPaneState(
-  state: PersistedSplitPaneState,
-  chatEnabled: boolean
+  state: PersistedSplitPaneState
 ): SplitPaneState {
-  const host = terminalHostTab(chatEnabled);
   const fold = (tab: LegacyCenterTab): CenterTab =>
-    tab === "chat" || tab === "agent" || tab === "terminal" ? host : tab;
+    tab === "chat" || tab === "terminal" ? "agent" : tab;
   const left = fold(state.left);
   const right = fold(state.right);
   if (
@@ -45,16 +39,7 @@ export function normalizeSplitPaneState(
   };
 }
 
-/**
- * `chatEnabled` is the flag as it applies to *this* agent (off for a
- * terminal session), so a split saved with the Chat pane folds back onto
- * the Console for one.
- */
-export function useSplitPane(
-  agentId: string | null,
-  isMobile: boolean,
-  chatEnabled: boolean
-) {
+export function useSplitPane(agentId: string | null, isMobile: boolean) {
   const atom = agentId
     ? splitPaneStateAtomFamily(agentId)
     : inactiveSplitPaneStateAtom;
@@ -64,8 +49,8 @@ export function useSplitPane(
     () =>
       isMobile || !agentId
         ? defaultSplitPaneState
-        : normalizeSplitPaneState(rawState, chatEnabled),
-    [agentId, chatEnabled, isMobile, rawState]
+        : normalizeSplitPaneState(rawState),
+    [agentId, isMobile, rawState]
   );
 
   const isSplit = splitState.mode === "split" && !isMobile;

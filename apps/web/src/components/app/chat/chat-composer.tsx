@@ -74,7 +74,7 @@ export type ChatComposerProps = {
   placeholder?: string;
   /**
    * Focus the field on mount, and again whenever this turns true — the
-   * composer stays mounted under the Console view, so a flip back to Chat
+   * composer stays mounted under another tab, so coming back to the Agent tab
    * arrives as a prop change, not a mount.
    */
   autoFocus?: boolean;

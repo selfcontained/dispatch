@@ -162,7 +162,7 @@ function userAuthor(): PostAuthor {
   return { key: "user", name: "You", kind: "user" };
 }
 
-function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
+export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
   return {
     key: "agent",
     name: ctx.agentName ?? fallback,
@@ -287,7 +287,7 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
 export const SIDE_POST_INDENT = "pl-[3.75rem]";
 
 /** A post-local clipboard action with the same confirmation used elsewhere. */
-function MessageCopyButton({ text }: { text: string }): JSX.Element {
+export function MessageCopyButton({ text }: { text: string }): JSX.Element {
   const [copied, copyText] = useCopyText();
   return (
     <Button
@@ -579,7 +579,7 @@ function DeliveryMeta({
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-        title="Dispatch is holding this message until you pause typing in the Console."
+        title="Waiting for the agent's running turn to finish."
         data-testid="chat-held-hint"
       >
         <Hourglass className="h-3 w-3" />

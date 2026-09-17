@@ -4,8 +4,6 @@ import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
-import { ChatSurfaceSettings } from "@/components/app/chat-surface-settings";
-import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
 import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
@@ -215,13 +213,7 @@ export function SettingsContent({
             </div>
             <PluginUpdateSettings />
             <div className="border-t border-border">
-              <InjectionHoldSettings />
-            </div>
-            <div className="border-t border-border">
               <CrossRepoMessagingSettings />
-            </div>
-            <div className="border-t border-border">
-              <ChatSurfaceSettings />
             </div>
             <div className="px-6 pb-6">
               <WorktreeLocationSettings />

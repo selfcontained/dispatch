@@ -90,11 +90,9 @@ async function renderDialog(template: Template) {
       </MemoryRouter>
     </QueryClientProvider>
   );
-  if (template.agentType !== "terminal") {
-    // The launch payload only carries a model once the catalog has arrived, so
-    // every test starts from the settled state the user actually sees.
-    await waitFor(() => expect(modelSelect().disabled).toBe(false));
-  }
+  // The launch payload only carries a model once the catalog has arrived, so
+  // every test starts from the settled state the user actually sees.
+  await waitFor(() => expect(modelSelect().disabled).toBe(false));
   return { onOpenChange };
 }
 
@@ -432,28 +430,6 @@ describe("launch outcome", () => {
     resolveLaunch({ agent: makeAgent("agt_new") });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(launchCalls()).toHaveLength(1);
-  });
-});
-
-describe("terminal templates", () => {
-  it("hides agent type and media affordances and launches as terminal", async () => {
-    queueLaunchedAgent("agt_new");
-    await renderDialog(
-      makeTemplate({ agentType: "terminal", allowMedia: true })
-    );
-
-    expect(
-      screen.getByText("This will open a terminal session in /repo.")
-    ).toBeTruthy();
-    expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByTestId("launch-template-model")).toBeNull();
-    // allowMedia is true, but terminal launches have nowhere to route media.
-    expect(screen.queryByText("Add files or links")).toBeNull();
-
-    fireEvent.click(launchButton());
-
-    await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "terminal" });
   });
 });
 

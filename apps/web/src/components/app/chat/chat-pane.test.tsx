@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
+import type {
+  ChatFeedEntry,
+  ChatMessage,
+  ChatTurnEntry,
+} from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -14,6 +18,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import { api } from "@/lib/api";
 
 import {
   ChatPane,
@@ -162,7 +167,6 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
     <ChatPane
       agentId="agt_1"
       agent={agent}
-      terminalMode="tmux"
       active={true}
       showChildAgents={true}
       childAgentIds={[]}
@@ -305,7 +309,6 @@ describe("ChatPane", () => {
     const baseProps = {
       agentId: "agt_1",
       agent,
-      terminalMode: "tmux" as const,
       active: true,
       childAgentIds: ["agt_child"],
       onShowChildAgentsChange: vi.fn(),
@@ -373,7 +376,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={agent}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         childAgentIds={[]}
@@ -404,7 +406,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         isMobile={false}
@@ -458,7 +459,6 @@ describe("ChatPane", () => {
     renderPane();
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
-    expect(empty.textContent).toContain("before Chat was enabled");
     expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
   });
 
@@ -608,7 +608,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={agent}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         childAgentIds={[]}
@@ -657,14 +656,76 @@ describe("ChatPane", () => {
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
   });
+});
 
-  it("lets an inert agent collect messages in its stream", () => {
-    renderPane({ terminalMode: "inert" });
-    expect(
-      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
-        .disabled
-    ).toBe(false);
-    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+describe("ChatPane running turn", () => {
+  function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
+    return {
+      type: "turn",
+      id: "turn:1",
+      agentId: "agt_1",
+      at: "2026-09-02T10:00:00.000Z",
+      updatedAt: "2026-09-02T10:00:05.000Z",
+      prompt: { source: "chat", text: "run the tests", attachments: [] },
+      trace: {
+        startedAt: "2026-09-02T10:00:00.000Z",
+        steps: [],
+      },
+      result: { text: "", streaming: true },
+      settled: false,
+      interrupted: false,
+      ...overrides,
+    };
+  }
+
+  it("offers Stop while the newest turn runs, and cancels it through the runtime", async () => {
+    H.entries = [turn()];
+    renderPane();
+    const stop = screen.getByTestId("chat-stop-turn");
+    vi.mocked(api).mockClear();
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_1/runtime/cancel", {
+        method: "POST",
+      })
+    );
+  });
+
+  it("hides Stop once the newest turn has settled", () => {
+    H.entries = [
+      turn({
+        settled: true,
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          endedAt: "2026-09-02T10:00:05.000Z",
+          steps: [],
+        },
+        result: { text: "done", streaming: false },
+      }),
+    ];
+    renderPane();
+    expect(screen.queryByTestId("chat-stop-turn")).toBeNull();
+  });
+
+  it("shows the newest turn's plan above the composer while work is left", () => {
+    H.entries = [
+      turn({
+        plan: [
+          {
+            content: "write the test",
+            status: "completed",
+            priority: "medium",
+          },
+          {
+            content: "make it pass",
+            status: "in_progress",
+            priority: "medium",
+          },
+        ],
+      }),
+    ];
+    renderPane();
+    expect(screen.getByTestId("harness-tasks")).toBeTruthy();
   });
 });
 

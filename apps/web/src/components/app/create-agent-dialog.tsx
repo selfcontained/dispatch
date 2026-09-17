@@ -73,12 +73,8 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
-  const supportsModelSelection = ["codex", "claude", "cursor"].includes(
-    form.createType
-  );
   const showModelSelect =
-    supportsModelSelection &&
-    (form.modelCatalogLoading || form.modelOptions.length > 0);
+    form.modelCatalogLoading || form.modelOptions.length > 0;
 
   return (
     <DialogContent
@@ -174,50 +170,48 @@ function CreateAgentDialogContent({
                   onCreateNewBranchChange={form.setCreateNewBranch}
                 />
 
-                {form.createType !== "terminal" ? (
-                  <>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                      <Checkbox
-                        checked={form.createFullAccess}
-                        onCheckedChange={() =>
-                          form.setCreateFullAccess((current) => !current)
-                        }
-                        className="mt-0.5"
-                        title="Toggle full access"
-                      />
-                      <span className="space-y-1">
-                        <span className="block text-sm font-medium text-foreground">
-                          Start in full access mode
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Starts the selected agent with its most permissive
-                          supported execution mode.
-                        </span>
+                <>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                    <Checkbox
+                      checked={form.createFullAccess}
+                      onCheckedChange={() =>
+                        form.setCreateFullAccess((current) => !current)
+                      }
+                      className="mt-0.5"
+                      title="Toggle full access"
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Start in full access mode
                       </span>
-                    </label>
+                      <span className="block text-xs text-muted-foreground">
+                        Starts the selected agent with its most permissive
+                        supported execution mode.
+                      </span>
+                    </span>
+                  </label>
 
-                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                      <Checkbox
-                        checked={form.createAutoReview}
-                        onCheckedChange={() =>
-                          form.setCreateAutoReview((current) => !current)
-                        }
-                        className="mt-0.5"
-                        title="Toggle autonomous review"
-                        data-testid="create-agent-auto-review"
-                      />
-                      <span className="space-y-1">
-                        <span className="block text-sm font-medium text-foreground">
-                          Autonomous Review
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Agent will launch one review agent and address
-                          feedback before completing.
-                        </span>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                    <Checkbox
+                      checked={form.createAutoReview}
+                      onCheckedChange={() =>
+                        form.setCreateAutoReview((current) => !current)
+                      }
+                      className="mt-0.5"
+                      title="Toggle autonomous review"
+                      data-testid="create-agent-auto-review"
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Autonomous Review
                       </span>
-                    </label>
-                  </>
-                ) : null}
+                      <span className="block text-xs text-muted-foreground">
+                        Agent will launch one review agent and address feedback
+                        before completing.
+                      </span>
+                    </span>
+                  </label>
+                </>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-3">
@@ -230,18 +224,16 @@ function CreateAgentDialogContent({
               >
                 Cancel
               </Button>
-              {form.createType !== "terminal" ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  tabIndex={0}
-                  disabled={form.creating || !form.createCwd.trim()}
-                  data-testid="create-agent-with-context"
-                  onClick={form.enterContextStep}
-                >
-                  Create with context
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                variant="default"
+                tabIndex={0}
+                disabled={form.creating || !form.createCwd.trim()}
+                data-testid="create-agent-with-context"
+                onClick={form.enterContextStep}
+              >
+                Create with context
+              </Button>
               <Button
                 type="submit"
                 variant="primary"

@@ -11,10 +11,8 @@ export function AgentsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Type</strong> — pick a CLI assistant (<Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>) or{" "}
-            <Code>terminal</Code> for a plain tmux shell with no CLI attached.
-            Disabled types can be enabled in Settings.
+            <strong>Type</strong> — <Code>claude</Code> (the default) or{" "}
+            <Code>codex</Code>. Disabled types can be enabled in Settings.
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model
@@ -148,10 +146,10 @@ export function AgentsContent() {
       <Section>
         <H3>Sessions are persistent</H3>
         <P>
-          The agent runs inside <Code>tmux</Code>, independent of your browser.
-          Closing the tab just detaches your terminal view — the agent keeps
-          working. Open Dispatch again and click the agent to pick up where you
-          left off.
+          The agent runs in its own host process, independent of your browser
+          and of the Dispatch server. Closing the tab — or restarting Dispatch —
+          does not stop it. Open Dispatch again and click the agent to pick up
+          where you left off.
         </P>
       </Section>
 
@@ -274,80 +272,41 @@ export function AgentsContent() {
       </Section>
 
       <Section>
-        <H3>Agent pane: Chat and Console (beta)</H3>
+        <H3>Agent pane: Chat</H3>
         <P>
-          Turn on <strong>Chat surface</strong> under Settings → Agents and the
-          first center tab becomes <strong>Agent</strong>, with a{" "}
-          <strong>Chat | Console</strong> toggle in its header. Chat is a feed
-          of the agent's replies, questions, status updates, shared files, and
-          messages from other agents; what you type is delivered into the
-          agent's terminal. Console is that terminal. Flipping the toggle is
-          instant — both stay live underneath, so no output is missed and an
-          unsent draft is kept — and the choice is remembered per agent. Agents
-          reply through the <Code>dispatch_chat_post</Code> tool, so an agent
-          that only prints in its terminal has nothing in Chat — flip to the
-          Console to see it. Questions come with option buttons; picking one
-          sends that answer back. An unread count sits on the Agent tab (or on
-          the Chat segment while the Console is up) until you read the replies.
-          Drafts survive a reload: text, links, pins and pasted text come back
-          as they were; a picked file comes back as a placeholder to re-attach.
-          With the setting off nothing changes: the tab is{" "}
-          <strong>Terminal</strong>, with no toggle.
+          The first center tab, <strong>Agent</strong>, is the agent&apos;s
+          Chat. Each prompt you send opens a <em>turn</em>: the prompt, a
+          folding activity rail of the tool calls the agent made, and the answer
+          it ended with. While a turn runs, a <strong>Stop</strong> button next
+          to the status line cancels it, and the agent&apos;s current plan shows
+          above the composer. The feed also carries questions (with option
+          buttons), shared files, pins, reviews and messages from other agents.
+          An unread count sits on the Agent tab while another tab is up. Drafts
+          survive a reload: text, links, pins and pasted text come back as they
+          were; a picked file comes back as a placeholder to re-attach.
         </P>
       </Section>
 
       <Section>
         <H3>Split pane</H3>
         <P>
-          Drag an inactive tab (<strong>Terminal</strong> — or{" "}
-          <strong>Agent</strong> with the chat surface on —{" "}
-          <strong>Changes</strong>, or <strong>Whiteboard</strong>) onto the
-          left or right drop zone to show two side by side. A resize handle
-          between the panes lets you adjust the ratio. Click the{" "}
-          <strong>unsplit</strong> button on the divider to return to single-tab
-          view. The split layout persists per agent. Split pane is not available
-          on mobile.
-        </P>
-      </Section>
-
-      <Section>
-        <H3>Tmux scrollback</H3>
-        <P>
-          Attaching to an agent puts you in tmux's live mode. When you scroll up
-          (or otherwise enter tmux copy mode), Dispatch shows an{" "}
-          <em>Input paused — scroll · click · Esc</em> banner over the terminal.
-          Clicking the banner or pressing <Code>Esc</Code> drops you back to
-          live so your next keystroke goes to the agent.
+          Drag an inactive tab (<strong>Agent</strong>, <strong>Changes</strong>
+          , or <strong>Whiteboard</strong>) onto the left or right drop zone to
+          show two side by side. A resize handle between the panes lets you
+          adjust the ratio. Click the <strong>unsplit</strong> button on the
+          divider to return to single-tab view. The split layout persists per
+          agent. Split pane is not available on mobile.
         </P>
       </Section>
 
       <Section>
         <H3 id="prompt-delivery">Prompt delivery</H3>
         <P>
-          Dispatch types automated prompts — review feedback and diff comments,
-          agent-to-agent messages, the auto-rename request, browser feedback —
-          straight into the agent's terminal, the same input you type into. Turn
-          on <strong>Hold automated prompts while you type</strong> in{" "}
-          <strong>Settings → Agents</strong> to stop them landing mid-sentence.
-          It's off by default, and the setting applies to every agent on the
-          server.
-        </P>
-        <P>
-          With it on, an automated prompt waits for a 10-second pause in your
-          terminal activity (keystrokes, clicks, and scrolls all reset the
-          timer) before it's delivered. While one is waiting, a blue envelope
-          badge appears in the bottom-right of the terminal; its ring fills as
-          the pause elapses, and a count appears when more than one prompt is
-          queued. Hover it for an explanation and click to send immediately — on
-          touch devices, tap it for a <strong>Send now</strong> button. Sending
-          now releases everything queued for that agent. Nothing waits forever:
-          after 60 seconds a prompt is delivered even if you're still typing.
-        </P>
-        <P>
-          Things you send yourself — quick phrases, shortcut pins, dropped or
-          pasted files — never wait; they're meant to land where your cursor is.
-          They still take their turn behind a prompt that is actively being
-          typed in, so the two can't interleave.
+          Automated prompts — review feedback and diff comments, agent-to-agent
+          messages, the auto-rename request, browser feedback — reach the agent
+          the same way your Chat messages do: each one becomes the agent&apos;s
+          next turn. An agent runs one turn at a time, so a prompt that arrives
+          mid-turn waits for the running one to finish.
         </P>
       </Section>
 
@@ -355,9 +314,9 @@ export function AgentsContent() {
         <H3 id="quick-phrases">Quick Phrases</H3>
         <P>
           The <strong>Quick Phrases</strong> button (speech-bubble icon) in the
-          terminal top rail lets you save reusable text snippets and inject them
-          into agent sessions. Phrases are always available for management; the
-          inject action is enabled when you're connected to an agent session.
+          agent header lets you save reusable text snippets and send them to the
+          agent. Phrases are always available for management; sending is enabled
+          while an agent is selected.
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
@@ -381,11 +340,12 @@ export function AgentsContent() {
           </li>
           <li>
             <strong>Injecting</strong> — phrases without variables show a split
-            button: <strong>Send</strong> pastes the text and submits it; the
-            dropdown offers <strong>Paste without submitting</strong> which
-            pastes only. Phrases with variables show a <strong>Send…</strong>{" "}
-            button that opens the fill-in dialog — selecting one via row click
-            or <Code>Enter</Code> opens the same dialog.
+            button: <strong>Send</strong> posts the text as a Chat message; the
+            dropdown offers <strong>Paste without submitting</strong>, which
+            puts it in the composer to edit first. Phrases with variables show a{" "}
+            <strong>Send…</strong> button that opens the fill-in dialog —
+            selecting one via row click or <Code>Enter</Code> opens the same
+            dialog.
           </li>
           <li>
             <strong>Editing and deleting</strong> — each phrase row has edit and

@@ -56,7 +56,9 @@ export function useCreateAgentForm({
     const preferred = initialAgentType ?? readLastUsedAgentType();
     return preferred && enabledAgentTypes.includes(preferred)
       ? preferred
-      : (enabledAgentTypes[0] ?? "codex");
+      : enabledAgentTypes.includes("claude") || enabledAgentTypes.length === 0
+        ? "claude"
+        : enabledAgentTypes[0]!;
   });
   const [createCwd, setCreateCwd] = useState(() => {
     const resolved = resolveDefaultCwd().trim();

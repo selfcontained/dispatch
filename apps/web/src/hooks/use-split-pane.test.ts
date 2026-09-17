@@ -2,7 +2,7 @@
 import { createElement, type ReactNode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
@@ -13,29 +13,25 @@ import {
 
 import { normalizeSplitPaneState, useSplitPane } from "./use-split-pane";
 
-const H = vi.hoisted(() => ({ chatEnabled: true }));
-
-vi.mock("@/hooks/use-chat-surface-enabled", () => ({
-  useChatSurfaceEnabled: () => ({ enabled: H.chatEnabled, loaded: true }),
-}));
-
 describe("normalizeSplitPaneState", () => {
-  it("leaves a current-shape split alone while the chat surface is on", () => {
+  it("leaves a current-shape split alone", () => {
     const state = {
       mode: "split" as const,
       left: "agent" as const,
       right: "changes" as const,
       sizes: [50, 50] as [number, number],
     };
-    expect(normalizeSplitPaneState(state, true)).toBe(state);
+    expect(normalizeSplitPaneState(state)).toBe(state);
   });
 
-  it("folds a persisted terminal or chat pane into the Agent pane when the flag is on", () => {
+  it("folds a persisted terminal or chat pane into the Agent pane", () => {
     expect(
-      normalizeSplitPaneState(
-        { mode: "split", left: "terminal", right: "changes", sizes: [30, 70] },
-        true
-      )
+      normalizeSplitPaneState({
+        mode: "split",
+        left: "terminal",
+        right: "changes",
+        sizes: [30, 70],
+      })
     ).toEqual({
       mode: "split",
       left: "agent",
@@ -48,7 +44,7 @@ describe("normalizeSplitPaneState", () => {
       right: "chat",
       sizes: [50, 50],
     };
-    expect(normalizeSplitPaneState(roundTwo, true)).toEqual({
+    expect(normalizeSplitPaneState(roundTwo)).toEqual({
       mode: "split",
       left: "whiteboard",
       right: "agent",
@@ -56,50 +52,20 @@ describe("normalizeSplitPaneState", () => {
     });
   });
 
-  const chatBesideTerminal: PersistedSplitPaneState = {
-    mode: "split",
-    left: "chat",
-    right: "terminal",
-    sizes: [50, 50],
-  };
-
-  it("collapses a chat/terminal split to a single Agent pane when the flag is on", () => {
-    expect(normalizeSplitPaneState(chatBesideTerminal, true)).toEqual({
+  it("collapses a chat/terminal split to a single Agent pane", () => {
+    expect(
+      normalizeSplitPaneState({
+        mode: "split",
+        left: "chat",
+        right: "terminal",
+        sizes: [50, 50],
+      })
+    ).toEqual({
       mode: "single",
       left: "agent",
       right: "agent",
       sizes: [50, 50],
     });
-  });
-
-  it("swaps a persisted agent or chat pane for the terminal when the flag is off", () => {
-    expect(
-      normalizeSplitPaneState(
-        { mode: "split", left: "agent", right: "changes", sizes: [30, 70] },
-        false
-      )
-    ).toEqual({
-      mode: "split",
-      left: "terminal",
-      right: "changes",
-      sizes: [30, 70],
-    });
-    expect(normalizeSplitPaneState(chatBesideTerminal, false)).toEqual({
-      mode: "single",
-      left: "terminal",
-      right: "terminal",
-      sizes: [50, 50],
-    });
-  });
-
-  it("does not touch a flag-off state with no chat or agent pane", () => {
-    const state = {
-      mode: "split" as const,
-      left: "terminal" as const,
-      right: "changes" as const,
-      sizes: [50, 50] as [number, number],
-    };
-    expect(normalizeSplitPaneState(state, false)).toBe(state);
   });
 });
 
@@ -114,17 +80,16 @@ describe("useSplitPane persistence", () => {
     window.localStorage.clear();
   });
 
-  const legacySplit: SplitPaneState = {
+  const legacySplit: PersistedSplitPaneState = {
     mode: "split",
     left: "terminal",
     right: "changes",
     sizes: [30, 70],
   };
 
-  function renderPane(agentId: string, chatEnabled = true) {
-    H.chatEnabled = chatEnabled;
+  function renderPane(agentId: string) {
     const store = createStore();
-    return renderHook(() => useSplitPane(agentId, false, chatEnabled), {
+    return renderHook(() => useSplitPane(agentId, false), {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(Provider, { store }, children),
     });
@@ -147,15 +112,6 @@ describe("useSplitPane persistence", () => {
       left: "agent",
     });
     expect(result.current.isSplit).toBe(true);
-  });
-
-  it("reads the legacy key as-is with the flag off", () => {
-    window.localStorage.setItem(
-      legacyKey("agt_read_off"),
-      JSON.stringify(legacySplit)
-    );
-    const { result } = renderPane("agt_read_off", false);
-    expect(result.current.splitState).toEqual(legacySplit);
   });
 
   it("writes only the versioned key, never the legacy one", () => {
@@ -198,7 +154,7 @@ describe("useSplitPane persistence", () => {
     expect(result.current.splitState).toEqual(v2);
   });
 
-  it("folds a round-2 chat pane into the Agent pane with the flag on", () => {
+  it("folds a round-2 chat pane into the Agent pane", () => {
     window.localStorage.setItem(
       v2Key("agt_r2"),
       JSON.stringify({
@@ -215,25 +171,5 @@ describe("useSplitPane persistence", () => {
       right: "changes",
       sizes: [50, 50],
     });
-  });
-
-  it("still normalises a persisted chat pane away while the flag is off", () => {
-    window.localStorage.setItem(
-      v2Key("agt_flag_off"),
-      JSON.stringify({
-        mode: "split",
-        left: "chat",
-        right: "terminal",
-        sizes: [50, 50],
-      })
-    );
-    const { result } = renderPane("agt_flag_off", false);
-    expect(result.current.splitState).toEqual({
-      mode: "single",
-      left: "terminal",
-      right: "terminal",
-      sizes: [50, 50],
-    });
-    expect(result.current.isSplit).toBe(false);
   });
 });
