@@ -2,7 +2,6 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentType } from "../agents/types.js";
-import { buildCursorDispatchToolGuidance } from "../shared/mcp/cursor-dispatch-guidance.js";
 import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
 import type { ReviewDiffResult } from "./review-diff.js";
 
@@ -341,9 +340,6 @@ export function assemblePersonaPrompt(
     .replace(/\{\{diff\}\}/g, "");
 
   const sections: string[] = [personaBody.trimEnd()];
-  if (options.agentType === "cursor") {
-    sections.push(buildCursorDispatchToolGuidance());
-  }
   sections.push(buildStandardFeedbackGuidance(includeDiff));
   sections.push(
     `## Context from parent agent\n${capText(context, MAX_PERSONA_PROMPT_BYTES / 2, "Briefing")}`

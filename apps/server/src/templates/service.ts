@@ -169,7 +169,6 @@ export class TemplateService {
     }
 
     const resolvedType = input.agentType ?? template.agentType;
-    const isTerminal = resolvedType === "terminal";
     const resolvedModel =
       input.model !== undefined
         ? validateAgentModel(resolvedType, input.model ?? undefined)
@@ -177,7 +176,7 @@ export class TemplateService {
           ? (template.model ?? undefined)
           : undefined;
 
-    if (!isTerminal && !template.prompt) {
+    if (!template.prompt) {
       throw new Error(
         `Template "${template.name}" has no prompt configured. Add a prompt before launching.`
       );
@@ -195,7 +194,7 @@ export class TemplateService {
     let finalPrompt: string | undefined;
     let initialPins: AgentPin[] = [];
 
-    if (!isTerminal && template.prompt) {
+    if (template.prompt) {
       const parsedArgs = parseTemplateArgs(template.prompt);
       const args = input.args ?? {};
 
@@ -223,14 +222,12 @@ export class TemplateService {
       cwd,
       initialPrompt: finalPrompt,
       launchContext: {
-        links: !isTerminal ? (input.startupLinks ?? []) : [],
+        links: input.startupLinks ?? [],
       },
-      fullAccess: !isTerminal && template.fullAccess,
-      ...(isTerminal
-        ? { useWorktree: false }
-        : templateWorktreeConfig(template)),
+      fullAccess: template.fullAccess,
+      ...templateWorktreeConfig(template),
       initialPins,
-      initialFiles: !isTerminal ? (input.startupFiles ?? []) : [],
+      initialFiles: input.startupFiles ?? [],
       templateId: template.id,
     });
 

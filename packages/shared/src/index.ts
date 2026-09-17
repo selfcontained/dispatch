@@ -115,8 +115,5 @@ export {
   SURFACE_SCHEMA_VERSION,
 } from "./surface-types.js";
 export type {
-  InjectionHoldState,
   SharedUiEvent,
-  TerminalCopyMode,
-  TerminalUiState,
 } from "./ui-event-types.js";

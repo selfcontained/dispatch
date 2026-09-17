@@ -43,7 +43,6 @@ export function createAutoRenamePrompter(deps: AutoRenamePrompterDeps) {
   return function onLatestEvent(agent: AgentRecord): void {
     if (agent.latestEvent?.type !== "working") return;
     if (prompted.has(agent.id)) return;
-    if (agent.type === "terminal") return;
     if (
       !shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,

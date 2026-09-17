@@ -244,15 +244,8 @@ export async function registerAgentLifecycleRoutes(
       }
       // Mirror the gates the auto-listener and the sidebar UI apply, so a
       // direct API caller can't paste the rename prompt into an agent that
-      // wouldn't be eligible via the UI: terminal agents have no Claude
-      // session to read the prompt (it would land in the user's shell),
-      // and personas / job agents / already-renamed agents already carry a
-      // meaningful name.
-      if (agent.type === "terminal") {
-        return reply
-          .code(409)
-          .send({ error: "Terminal agents cannot be prompted to rename." });
-      }
+      // wouldn't be eligible via the UI: personas / job agents / already-
+      // renamed agents already carry a meaningful name.
       if (
         !shouldSuggestSessionRename(agent.name, agent.id, {
           persona: agent.persona,

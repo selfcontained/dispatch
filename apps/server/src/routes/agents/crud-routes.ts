@@ -260,7 +260,6 @@ export async function registerAgentCrudRoutes(
         .send({ error: `${agentType} agents are disabled in settings.` });
     }
 
-    const isTerminalAgent = agentType === "terminal";
     let model: string | undefined;
     try {
       model = validateAgentModel(
@@ -277,7 +276,7 @@ export async function registerAgentCrudRoutes(
           ? CODEX_FULL_ACCESS_ARG
           : null;
     const resolvedAgentArgs =
-      !isTerminalAgent && fullAccess === true && fullAccessArg
+      fullAccess === true && fullAccessArg
         ? Array.from(new Set([...(parsedAgentArgs ?? []), fullAccessArg]))
         : parsedAgentArgs;
 
@@ -299,7 +298,7 @@ export async function registerAgentCrudRoutes(
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
         model,
-        fullAccess: !isTerminalAgent && fullAccess === true,
+        fullAccess: fullAccess === true,
         useWorktree,
         createNewBranch,
         worktreeBranch:
@@ -318,20 +317,20 @@ export async function registerAgentCrudRoutes(
           typeof body.personaContext === "string"
             ? body.personaContext
             : undefined,
-        autoReview: !isTerminalAgent && autoReview === true,
+        autoReview: autoReview === true,
         initialPrompt:
-          !isTerminalAgent && typeof body.initialPrompt === "string"
+          typeof body.initialPrompt === "string"
             ? body.initialPrompt.trim() || undefined
             : undefined,
         launchContext: {
           prompt:
-            !isTerminalAgent && typeof body.initialPrompt === "string"
+            typeof body.initialPrompt === "string"
               ? body.initialPrompt.trim() || undefined
               : undefined,
-          links: !isTerminalAgent ? (startupLinks ?? []) : [],
+          links: startupLinks ?? [],
         },
-        initialPins: !isTerminalAgent ? startupPins : [],
-        initialFiles: !isTerminalAgent ? startupFiles : [],
+        initialPins: startupPins,
+        initialFiles: startupFiles,
       });
       deps.publishUiEvent({
         type: "agent.upsert",

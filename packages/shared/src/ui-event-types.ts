@@ -14,27 +14,6 @@ import type {
 import type { SurfaceChangedEvent } from "./surface-types.js";
 
 /**
- * Terminal copy-mode payloads. Carried by the `agent.terminal_state_changed`
- * event and also returned by `GET /api/v1/agents/:id/terminal-state`.
- */
-export type TerminalCopyMode = "live" | "copy" | "exiting";
-
-export type TerminalUiState = {
-  copyMode: TerminalCopyMode;
-  lastObservedAt: number;
-};
-
-export type InjectionHoldState = {
-  // True while a delivery is actively waiting out the user-activity quiet gate.
-  held: boolean;
-  // Gated injections enqueued but not yet delivered (includes the held one).
-  pendingCount: number;
-  // The quiet window the gate waits for, so clients can render delivery ETA
-  // from their own local typing activity.
-  quietMs: number;
-};
-
-/**
  * The SSE members both sides agree on.
  *
  * All but two were already declared identically on each side. The exceptions
@@ -61,16 +40,6 @@ export type InjectionHoldState = {
  *     it across the boundary instead.
  */
 export type SharedUiEvent =
-  | {
-      type: "agent.terminal_state_changed";
-      agentId: string;
-      terminalState: TerminalUiState;
-    }
-  | {
-      type: "agent.injection_hold_changed";
-      agentId: string;
-      holdState: InjectionHoldState;
-    }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | {
