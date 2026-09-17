@@ -257,7 +257,6 @@ export type AgentPaneProps = {
 export function AgentPane({
   agentId,
   agent,
-  terminalMode,
   active,
   chatEnabled,
   view,
@@ -335,7 +334,6 @@ export function AgentPane({
               key={agentId ?? "none"}
               agentId={agentId}
               agent={agent}
-              terminalMode={terminalMode}
               active={active && chatShown}
               showChildAgents={showChildAgents}
               childAgentIds={childAgentIds}

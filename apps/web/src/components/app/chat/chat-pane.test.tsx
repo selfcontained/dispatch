@@ -162,7 +162,6 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
     <ChatPane
       agentId="agt_1"
       agent={agent}
-      terminalMode="tmux"
       active={true}
       showChildAgents={true}
       childAgentIds={[]}
@@ -305,7 +304,6 @@ describe("ChatPane", () => {
     const baseProps = {
       agentId: "agt_1",
       agent,
-      terminalMode: "tmux" as const,
       active: true,
       childAgentIds: ["agt_child"],
       onShowChildAgentsChange: vi.fn(),
@@ -373,7 +371,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={agent}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         childAgentIds={[]}
@@ -404,7 +401,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         isMobile={false}
@@ -458,7 +454,6 @@ describe("ChatPane", () => {
     renderPane();
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
-    expect(empty.textContent).toContain("before Chat was enabled");
     expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
   });
 
@@ -608,7 +603,6 @@ describe("ChatPane", () => {
       <ChatPane
         agentId="agt_1"
         agent={agent}
-        terminalMode="tmux"
         active={true}
         showChildAgents={true}
         childAgentIds={[]}
@@ -656,15 +650,6 @@ describe("ChatPane", () => {
     ];
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
-  });
-
-  it("lets an inert agent collect messages in its stream", () => {
-    renderPane({ terminalMode: "inert" });
-    expect(
-      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
-        .disabled
-    ).toBe(false);
-    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
   });
 });
 
