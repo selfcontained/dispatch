@@ -76,7 +76,7 @@ Measure the assembled description bytes before and after and record both in the
 commit body.
 
 **Tests:** the existing MCP registration tests keep passing; add one asserting
-the tool *names* are unchanged, so an audit cannot quietly drop a tool.
+the tool _names_ are unchanged, so an audit cannot quietly drop a tool.
 
 ## Item 4 — subtask model downshift
 
@@ -99,12 +99,12 @@ parent's model; an unknown family is left alone.
 The spec makes this a hard constraint, so each item gets its own switch and no
 two share one:
 
-| Item | Switch |
-| ---- | ------ |
-| 1 | Selecting a different personality, or none |
-| 2 | `trimmed_guidance_enabled = false` |
-| 3 | Revert the commit — this one is not a setting |
-| 4 | `subtask_model_downshift = false` |
+| Item | Switch                                        |
+| ---- | --------------------------------------------- |
+| 1    | Selecting a different personality, or none    |
+| 2    | `trimmed_guidance_enabled = false`            |
+| 3    | Revert the commit — this one is not a setting |
+| 4    | `subtask_model_downshift = false`             |
 
 Item 3 is the exception and it is worth stating plainly: a description edit has
 no runtime switch, so it is reverted by reverting its commit. It is kept as a
@@ -120,3 +120,36 @@ so it goes last. Each item is one commit.
 `pnpm run check:web`, the server vitest suite, and `pnpm run test:e2e`. No new
 E2E is written: the only UI change is the personality picker gaining a row,
 which the existing settings spec already covers.
+
+## What the implementation found
+
+Recorded here rather than left in the commit log, because two of these change
+what a reader should expect from the spec.
+
+**Item 3 returned far less than the spec assumed.** The spec scopes an audit of
+27 tool descriptions as though there were obvious fat. There is not: across 74
+descriptions the total is 18,362 characters, and nearly all of it is either
+response-shape detail a caller needs to read the output (`list_agents`'s
+lineage-versus-provenance paragraph) or safety semantics with no other home
+(`dispatch_archive_agent`'s cascade and self-archive warnings). `dispatch_pin`
+was the one real offender at 1,947 characters, carrying three duplications of
+its own parameter descriptions. The pass ended at 17,754 characters, a 3.3%
+cut, and stopped deliberately.
+
+The reason it stopped matters: item 2 makes the trim the default, which makes
+these descriptions the carrier for what the guidance no longer says. Items 2
+and 3 pull in opposite directions, and past a point cutting descriptions
+re-opens the gap item 2 just decided the schemas would cover.
+
+**Item 2 had one test pinning the old default.** `agent-manager.test.ts`'s
+Codex launch asserted the full session-rename rule. Codex is plugin-capable, so
+that launch is now trimmed. The assertion moved to the short rule and added a
+negative on the long one. The job-run assertion in the same file is unchanged —
+that branch is never trimmed.
+
+**The downshift map is narrower than "a cheaper tier within the same provider
+family".** Writing a general ladder means asserting relative cost for every
+slug in the catalog, and `docs/agent-model-catalog.md` sets an evidence bar
+that such a claim does not clear for the Codex and Gemini entries. Only the
+documented Opus-above-Sonnet step is encoded; everything else is left alone.
+This is a smaller change than the spec describes, and deliberately so.

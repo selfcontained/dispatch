@@ -29,10 +29,10 @@ export function LaunchGuidanceSettings(): JSX.Element {
       </div>
       <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
         Shorten the startup rules injected into new Claude Code and Codex
-        agents. On by default, to keep sessions cheap. The MCP tool
-        descriptions carry most of the detail the rules drop, and the Dispatch
-        plugin's skills carry the rest — turn this off to send the full rules
-        to every agent.
+        agents. On by default, to keep sessions cheap. The MCP tool descriptions
+        carry most of the detail the rules drop, and the Dispatch plugin's
+        skills carry the rest — turn this off to send the full rules to every
+        agent.
       </p>
       <label className="flex w-fit cursor-pointer items-center gap-3 text-sm text-foreground">
         <Checkbox

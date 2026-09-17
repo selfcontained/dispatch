@@ -17,17 +17,17 @@ describe("trimmed launch guidance default", () => {
   // The default flipped without a migration, so "unset" is the case that
   // matters: it is what every existing install reads.
   it("is on when unset", async () => {
-    await expect(isTrimmedLaunchGuidanceEnabled(poolWith(undefined))).resolves.toBe(
-      true
-    );
+    await expect(
+      isTrimmedLaunchGuidanceEnabled(poolWith(undefined))
+    ).resolves.toBe(true);
   });
 
   it("honours an explicit false", async () => {
     await expect(
       isTrimmedLaunchGuidanceEnabled(poolWith("false"))
     ).resolves.toBe(false);
-    await expect(isTrimmedLaunchGuidanceEnabled(poolWith("true"))).resolves.toBe(
-      true
-    );
+    await expect(
+      isTrimmedLaunchGuidanceEnabled(poolWith("true"))
+    ).resolves.toBe(true);
   });
 });

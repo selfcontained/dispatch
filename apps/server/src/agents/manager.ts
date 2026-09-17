@@ -268,9 +268,7 @@ export type LaunchContextRecorder = {
 };
 
 /** The two settings-backed switches the launch guidance is built from. */
-async function readLaunchGuidanceFlags(
-  pool: Pool
-): Promise<{
+async function readLaunchGuidanceFlags(pool: Pool): Promise<{
   trimmedGuidance: boolean;
   chatSurface: boolean;
   subtaskDownshift: boolean;
@@ -677,7 +675,11 @@ export class AgentManager {
     // `creating`. Route it through the same failure handling the launch uses.
     const launchGuidanceFlags =
       input.jobRunId || inertRuntime
-        ? { trimmedGuidance: false, chatSurface: false, subtaskDownshift: false }
+        ? {
+            trimmedGuidance: false,
+            chatSurface: false,
+            subtaskDownshift: false,
+          }
         : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
             this.failCreate(p.id, error)
           );

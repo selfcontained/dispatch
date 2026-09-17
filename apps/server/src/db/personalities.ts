@@ -143,10 +143,9 @@ export async function setActivePersonalityId(
 }
 
 async function hasPersonalityRow(pool: Pool, id: string): Promise<boolean> {
-  const result = await pool.query(
-    "SELECT 1 FROM personalities WHERE id = $1",
-    [id]
-  );
+  const result = await pool.query("SELECT 1 FROM personalities WHERE id = $1", [
+    id,
+  ]);
   return (result.rowCount ?? 0) > 0;
 }
 
