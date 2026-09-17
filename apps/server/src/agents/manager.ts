@@ -474,6 +474,11 @@ export class AgentManager {
     return this.runtime.isBusy(id);
   }
 
+  /** The agent host's pid when it is alive (resource sampling). */
+  hostPid(id: string): Promise<number | null> {
+    return this.runtime.hostPid(id);
+  }
+
   /** Cancel the running turn (Stop). */
   async cancelTurn(id: string): Promise<void> {
     await this.runtime.cancel(id);

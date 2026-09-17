@@ -72,7 +72,7 @@ export type ChatUpdateInput = {
 /**
  * How user text reaches an agent's pane. The service owns the workflow (row,
  * envelope, outcome, events); this adapter owns the terminal, so tests can
- * stand in a fake and the service never imports tmux.
+ * stand in a fake and the service never imports the runtime.
  */
 export type ChatDeliveryAdapter = {
   /**

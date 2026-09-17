@@ -961,7 +961,7 @@ async function handleSendMessage(
     deliveryError = err;
     deps.appLog.error(
       { err, senderId: agentId, targetId: target.id },
-      "dispatch_send_message: tmux delivery failed"
+      "dispatch_send_message: delivery failed"
     );
   }
   // Attach the outcome handler at once so a fast rejection can never surface
@@ -972,7 +972,7 @@ async function handleSendMessage(
         (err: unknown) => {
           deps.appLog.warn(
             { err, senderId: agentId, targetId: target.id },
-            "dispatch_send_message: pane delivery failed — agent may have exited"
+            "dispatch_send_message: delivery failed — agent may have exited"
           );
           return false;
         }

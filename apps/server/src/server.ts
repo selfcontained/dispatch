@@ -321,13 +321,16 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
 const serviceResources = new ServiceResources({
   pool,
   probePool: serviceResourcesProbePool,
-  listAgentSessions: async () => {
+  listAgentProcesses: async () => {
     const agents = await agentManager.listAgents();
-    return agents
-      .filter((agent) =>
-        ["creating", "running", "stopping"].includes(agent.status)
-      )
-      .map((agent) => ({ tmuxSession: agent.tmuxSession }));
+    const running = agents.filter((agent) =>
+      ["creating", "running", "stopping"].includes(agent.status)
+    );
+    return Promise.all(
+      running.map(async (agent) => ({
+        hostPid: await agentManager.hostPid(agent.id),
+      }))
+    );
   },
   getWorkloads: () => {
     const streamMetrics = streamManager.getMetrics();

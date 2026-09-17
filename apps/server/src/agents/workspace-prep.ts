@@ -10,8 +10,7 @@ import { copyLocalConfigFiles } from "./worktree-local-config.js";
  * Lockfile → package-manager command for the auto-deps-install path.
  * The first match wins, so the priority order matters: a project that
  * has both `pnpm-lock.yaml` and `yarn.lock` checked in is treated as a
- * pnpm project (matches `agents/tmux/setup-script.ts`'s tmux-mode
- * equivalent so both launch paths agree).
+ * pnpm project.
  */
 const LOCKFILE_INSTALL_COMMANDS: ReadonlyArray<
   readonly [string, string, readonly string[]]
@@ -35,11 +34,9 @@ const LOCKFILE_INSTALL_COMMANDS: ReadonlyArray<
  *      deps for the agent's first turn, and the user can re-run install
  *      themselves if needed).
  *
- * Used only by the inert-mode launch path. The tmux-mode launch path
- * does the equivalent inside the bash setup script that runs in the
- * agent's pane (see `agents/tmux/setup-script.ts`), which is why this
- * module sits under `agents/` rather than `shared/git/` — it's not a
- * git operation, it's an agent-launch step.
+ * Called from `agents/workspace.ts` on every launch; it sits under
+ * `agents/` rather than `shared/git/` because it is an agent-launch step,
+ * not a git operation.
  */
 export async function setupAgentWorkspace(
   originalCwd: string,

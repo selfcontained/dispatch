@@ -60,6 +60,8 @@ export type AgentRuntime = {
   stop(agentId: string, force: boolean): Promise<void>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
+  /** The host's pid when it is alive; the root of the agent's process tree. */
+  hostPid(agentId: string): Promise<number | null>;
   /** Events in seq order, each delivered once. Listeners run serially per agent. */
   onEvent(listener: RuntimeEventListener): () => void;
   /** Tail of the host's log, for error messages. */
@@ -104,6 +106,9 @@ export function createInertRuntime(): AgentRuntime {
     async stop() {},
     async listHosted() {
       return [];
+    },
+    async hostPid() {
+      return null;
     },
     onEvent() {
       return () => {};

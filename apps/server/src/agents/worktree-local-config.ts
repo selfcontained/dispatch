@@ -6,7 +6,7 @@ import path from "node:path";
  * worktree add` only materializes tracked files — so a developer's
  * secrets silently go missing and the agent's first command fails oddly.
  * Consumed by both launch paths (`workspace-prep.ts` for inert mode,
- * `tmux/setup-script.ts` for tmux) so they cannot drift apart.
+ * the workspace step) so they cannot drift apart.
  *
  * Additions must be conventionally gitignored, must be fixed by copying
  * alone, and must not grant the agent new capabilities. The ignore rule
@@ -82,7 +82,7 @@ export const WORKTREE_LOCAL_CONFIG_FILES: readonly string[] = FILES.map(
  * source, `O_CREAT | O_EXCL` on the destination, and every subsequent
  * operation on the resulting descriptor.
  *
- * `tmux/setup-script.ts` mirrors this in bash, with one gap it documents:
+ * The former bash setup script mirrored this, with one gap it documented:
  * a shell has no no-follow open.
  */
 export async function copyLocalConfigFiles(

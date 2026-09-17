@@ -51,27 +51,6 @@ async function captureCommand(
 }
 
 /**
- * Find the tmux server's PID by scanning `ps` output for a process whose
- * command basename is `tmux`. Returns null when not running.
- */
-async function detectTmuxServerPid(): Promise<number | null> {
-  const processes = await captureCommand("ps", ["-axo", "pid=,comm="], [0]);
-  if (processes.exitCode !== 0) {
-    return null;
-  }
-  const pidLine = processes.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => /\btmux$/.test(line));
-  if (!pidLine) {
-    return null;
-  }
-  const [pidText] = pidLine.split(/\s+/, 1);
-  const pid = Number(pidText);
-  return Number.isFinite(pid) && pid > 0 ? pid : null;
-}
-
-/**
  * Rotate by renaming: `<file>` -> `<file>.1`, `<file>.1` -> `<file>.2`, etc.
  * No-op if the file is below `MAX_LOG_SIZE_BYTES` or doesn't exist.
  *
@@ -174,22 +153,7 @@ export async function deleteOldFiles(
   }
 }
 
-export type MissingSessionIncident = {
-  agentId: string;
-  tmuxSession: string;
-  status: string;
-  updatedAt: string;
-  exitInfo: number | null;
-};
-
 export type DiagnosticsRecorder = {
-  /**
-   * Append a tmux session/pane snapshot to the rotating inventory log.
-   * Throttled to once per minute — calling more often is a no-op so the
-   * reconciler can call it on every tick without worrying about rate.
-   */
-  maybeCaptureTmuxInventory(): Promise<void>;
-
   /**
    * Rotate the inventory log + the dispatch server log when they exceed
    * 10 MB, and prune diagnostic JSON / rotated log files older than the
@@ -197,14 +161,6 @@ export type DiagnosticsRecorder = {
    */
   maybeMaintenanceLogs(): Promise<void>;
 
-  /**
-   * One-shot capture invoked when reconciliation finds a tmux session
-   * missing for an agent that should still be running. Writes a single
-   * timestamped JSON file with the tmux state, process list, and (on
-   * macOS) launchd state. Not throttled — incidents are rare enough
-   * that we want every one captured.
-   */
-  captureMissingSessionIncident(input: MissingSessionIncident): Promise<void>;
 };
 
 /**
@@ -216,105 +172,9 @@ export type DiagnosticsRecorder = {
 export function createDiagnosticsRecorder(
   logger: FastifyBaseLogger
 ): DiagnosticsRecorder {
-  let lastTmuxInventoryAt = 0;
   let lastLogMaintenanceAt = 0;
 
   return {
-    async maybeCaptureTmuxInventory(): Promise<void> {
-      const now = Date.now();
-      if (now - lastTmuxInventoryAt < TMUX_INVENTORY_INTERVAL_MS) {
-        return;
-      }
-      lastTmuxInventoryAt = now;
-
-      try {
-        await mkdir(diagnosticsRoot(), { recursive: true });
-        const payload = {
-          capturedAt: new Date(now).toISOString(),
-          source: "reconcile",
-          tmux: {
-            serverPid: await detectTmuxServerPid(),
-            sessions: await captureCommand(
-              "tmux",
-              ["list-sessions", "-F", "#{session_name}:#{session_created}"],
-              [0, 1]
-            ),
-            panes: await captureCommand(
-              "tmux",
-              [
-                "list-panes",
-                "-a",
-                "-F",
-                "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
-              ],
-              [0, 1]
-            ),
-          },
-        };
-        await appendFile(
-          path.join(diagnosticsRoot(), "tmux-inventory.jsonl"),
-          `${JSON.stringify(payload)}\n`,
-          "utf-8"
-        );
-      } catch (error) {
-        logger.warn({ err: error }, "Failed to capture tmux inventory.");
-      }
-    },
-
-    async captureMissingSessionIncident(
-      input: MissingSessionIncident
-    ): Promise<void> {
-      try {
-        await mkdir(diagnosticsRoot(), { recursive: true });
-        const capturedAt = new Date().toISOString();
-        const safeTs = capturedAt.replaceAll(":", "-");
-        const payload = {
-          capturedAt,
-          incident: "missing_tmux_session",
-          agent: input,
-          tmux: {
-            serverPid: await detectTmuxServerPid(),
-            sessions: await captureCommand(
-              "tmux",
-              ["list-sessions", "-F", "#{session_name}:#{session_created}"],
-              [0, 1]
-            ),
-            panes: await captureCommand(
-              "tmux",
-              [
-                "list-panes",
-                "-a",
-                "-F",
-                "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
-              ],
-              [0, 1]
-            ),
-          },
-          processes: await captureCommand(
-            "ps",
-            ["-axo", "pid,ppid,pgid,user,command"],
-            [0]
-          ),
-          launchctl: await captureCommand(
-            "launchctl",
-            ["print", `gui/${process.getuid?.() ?? -1}/com.dispatch.server`],
-            [0, 113]
-          ),
-        };
-        const fileName = `${safeTs}-missing-session-${input.agentId}.json`;
-        await writeFile(
-          path.join(diagnosticsRoot(), fileName),
-          JSON.stringify(payload, null, 2),
-          "utf-8"
-        );
-      } catch (error) {
-        logger.warn(
-          { err: error, agentId: input.agentId },
-          "Failed to capture missing tmux session incident."
-        );
-      }
-    },
-
     async maybeMaintenanceLogs(): Promise<void> {
       const now = Date.now();
       if (now - lastLogMaintenanceAt < LOG_MAINTENANCE_INTERVAL_MS) {

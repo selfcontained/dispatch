@@ -76,7 +76,8 @@ export type WorkloadSnapshot = {
 export type ServiceResourcesDeps = {
   pool: Pool;
   probePool: Pool;
-  listAgentSessions: () => Promise<Array<{ tmuxSession: string | null }>>;
+  /** Running agents and the pid of each one's host process, when alive. */
+  listAgentProcesses: () => Promise<Array<{ hostPid: number | null }>>;
   getWorkloads: () => WorkloadSnapshot;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
@@ -779,9 +780,9 @@ export class ServiceResources {
     processes: AgentProcessSnapshot;
     runningAgentCount: number;
   }> {
-    let agents: Array<{ tmuxSession: string | null }>;
+    let agents: Array<{ hostPid: number | null }>;
     try {
-      agents = await this.deps.listAgentSessions();
+      agents = await this.deps.listAgentProcesses();
     } catch {
       return {
         processes: {
@@ -793,8 +794,8 @@ export class ServiceResources {
       };
     }
 
-    // Session ownership is platform-independent. Commit its fresh value even
-    // when the optional tmux/ps process probe below is unavailable or fails.
+    // Agent ownership is platform-independent. Commit its fresh value even
+    // when the optional ps process probe below is unavailable or fails.
     const runningAgentCount = agents.length;
     if (!this.agentProcesses.supported) {
       return {
@@ -804,12 +805,12 @@ export class ServiceResources {
     }
 
     try {
-      const sessions = new Set(
+      const roots = new Set(
         agents
-          .map((agent) => agent.tmuxSession?.trim())
-          .filter((value): value is string => Boolean(value))
+          .map((agent) => agent.hostPid)
+          .filter((pid): pid is number => typeof pid === "number" && pid > 0)
       );
-      if (sessions.size === 0) {
+      if (roots.size === 0) {
         return {
           processes: {
             supported: true,
@@ -824,25 +825,9 @@ export class ServiceResources {
       }
 
       const run = this.deps.runProcessCommand ?? runCommand;
-      const [panes, processes] = await Promise.all([
-        run(
-          "tmux",
-          ["list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"],
-          { allowedExitCodes: [0, 1], timeoutMs: 3_000 }
-        ),
-        run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
-          timeoutMs: 3_000,
-        }),
-      ]);
-
-      const roots = new Set<number>();
-      for (const line of panes.stdout.split("\n")) {
-        const [session, pidText] = line.trim().split("\t");
-        const pid = Number(pidText);
-        if (session && sessions.has(session) && Number.isFinite(pid)) {
-          roots.add(pid);
-        }
-      }
+      const processes = await run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
+        timeoutMs: 3_000,
+      });
 
       const rows = processes.stdout
         .split("\n")

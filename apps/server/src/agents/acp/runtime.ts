@@ -444,6 +444,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       return hosted;
     },
 
+    async hostPid(agentId) {
+      const pid = await readPid(stateDir(agentId));
+      return pid && pidAlive(pid) ? pid : null;
+    },
+
     onEvent(listener) {
       listeners.add(listener);
       return () => {

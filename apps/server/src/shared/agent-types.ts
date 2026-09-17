@@ -30,7 +30,7 @@ export function isAgentType(value: unknown): value is AgentType {
 
 // Agent types with a Dispatch plugin (skills for the CLI itself, installed
 // via `claude plugin` / `codex plugin`). Single source of truth for this —
-// keep launch-guidance trimming (agents/tmux/command-builder.ts) and plugin
+// keep launch-guidance trimming (agents/launch-guidance.ts) and plugin
 // update detection (shared/plugin-status.ts) both pointed at this list
 // rather than each declaring their own, so a third CLI shipping a plugin
 // only needs one line changed.
