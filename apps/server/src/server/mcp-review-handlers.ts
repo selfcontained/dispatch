@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
