@@ -37,11 +37,6 @@ export type PlanPayload = {
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
-  /**
-   * The engine started this turn itself (a goal round), so no prompt from
-   * Dispatch opened it and no prompt response closes it.
-   */
-  autonomous?: boolean;
   stopReason?: string;
   error?: string;
   endedAt?: string;
@@ -197,6 +192,21 @@ export class StreamStore {
       [agentId]
     );
     return turns.rowCount ?? 0;
+  }
+
+  /** The agent's newest turn row when it is still open; null otherwise. */
+  async openTurn(agentId: string): Promise<StreamEventRow | null> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_stream_events
+        WHERE agent_id = $1 AND kind = 'turn'
+        ORDER BY seq DESC LIMIT 1`,
+      [agentId]
+    );
+    const row = result.rows[0];
+    if (!row || (row.payload as { state?: string }).state !== "started") {
+      return null;
+    }
+    return toRow(row);
   }
 
   /** How the agent's newest turn ended: its error, if any, and when. */
