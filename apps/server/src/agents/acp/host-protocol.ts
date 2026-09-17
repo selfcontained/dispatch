@@ -58,6 +58,8 @@ export type HostMessage =
       agentId: string;
       engine: AcpEngineId;
       sessionId: string;
+      /** Whether the session was resumed from a stored id. */
+      resumed: boolean;
       /** Whether the engine child is alive. */
       running: boolean;
       /** The open turn, if one is running. */

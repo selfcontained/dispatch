@@ -309,7 +309,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         const entry = await connect(input.agentId, LAUNCH_TIMEOUT_MS);
         const welcome = entry.client.welcome;
         if (!welcome) throw new Error("no welcome from the agent host");
-        return { sessionId: welcome.sessionId, resumed: false };
+        return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const tail = await readLogTail(input.agentId);

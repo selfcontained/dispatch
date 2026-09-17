@@ -148,6 +148,7 @@ async function main(): Promise<void> {
   let openTurn: { seq: number; startedAt: string } | null = null;
   let running = false;
   let sessionId = "";
+  let resumed = false;
   let shuttingDown = false;
 
   const send = (socket: net.Socket | null, message: HostMessage) => {
@@ -216,6 +217,7 @@ async function main(): Promise<void> {
           agentId,
           engine: launch.engine,
           sessionId,
+          resumed,
           running,
           turn: openTurn,
           journalSeq: journal.lastSeq,
@@ -299,6 +301,7 @@ async function main(): Promise<void> {
       env: childEnv,
     });
     sessionId = session.sessionId;
+    resumed = session.resumed;
     running = true;
     await writeFile(
       hostFile(stateDir, "session"),
@@ -311,6 +314,7 @@ async function main(): Promise<void> {
       agentId,
       engine: launch.engine,
       sessionId,
+      resumed,
       running,
       turn: null,
       journalSeq: journal.lastSeq,
