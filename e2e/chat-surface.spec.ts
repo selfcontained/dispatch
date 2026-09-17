@@ -280,8 +280,15 @@ test.describe("Chat surface", () => {
       const startup = page.getByTestId("chat-agent-startup");
       const progress = startup.getByRole("progressbar");
       const composer = page.getByTestId("chat-composer-input");
+      // The bar creeps within a stage, so each stage is a band, not a number.
+      const progressNow = async () =>
+        Number(await progress.getAttribute("aria-valuenow"));
+      const expectStageBand = async (from: number, to: number) => {
+        await expect.poll(progressNow).toBeGreaterThanOrEqual(from);
+        expect(await progressNow()).toBeLessThan(to);
+      };
       await expect(startup).toContainText("Installing dependencies");
-      await expect(progress).toHaveAttribute("aria-valuenow", "45");
+      await expectStageBand(40, 72);
       await expect(composer).toBeDisabled();
       await expect(page.getByTestId("chat-empty")).toHaveCount(0);
       await expect(page.getByTestId("chat-presence")).toHaveCount(0);
@@ -292,19 +299,22 @@ test.describe("Chat surface", () => {
 
       await update("running", null, "connect");
       await expect(startup).toContainText("Connecting to Claude Code");
-      await expect(progress).toHaveAttribute("aria-valuenow", "80");
+      await expectStageBand(84, 94);
       await expect(composer).toBeDisabled();
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ reducedMotion: "reduce" });
       await expect(startup).toBeVisible();
-      const spinner = startup.locator("svg").last();
-      await expect(spinner).toHaveCSS("animation-name", "none");
+      const pulse = page
+        .getByTestId("chat-agent-startup-mark")
+        .locator("div")
+        .first();
+      await expect(pulse).toHaveCSS("animation-name", "none");
       await page.screenshot({
         path: "/tmp/dispatch-chat-startup-mobile.png",
         fullPage: true,
       });
       await update("running", null, "configure");
-      await expect(progress).toHaveAttribute("aria-valuenow", "95");
+      await expectStageBand(94, 99);
       await update("error", null);
       await expect(startup).toHaveCount(0);
       await expect(page.getByTestId("harness-status-line")).toContainText(
