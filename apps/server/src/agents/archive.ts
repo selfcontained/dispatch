@@ -263,6 +263,9 @@ export async function executeArchive(
       );
       await runtime.stop(id, true);
       await deps.settleStream(id);
+      // The state directory holds the launch file with the MCP token; the
+      // stream is already in the database.
+      await runtime.discard(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -413,6 +416,9 @@ export async function deleteAgentDirect(
       );
       await runtime.stop(id, true);
       await deps.settleStream(id);
+      // The state directory holds the launch file with the MCP token; the
+      // stream is already in the database.
+      await runtime.discard(id);
     } catch (err) {
       logger.warn(
         { err, agentId: id },

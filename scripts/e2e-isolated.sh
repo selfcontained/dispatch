@@ -37,23 +37,16 @@ export DISPATCH_DB_PORT="$DB_PORT"
 export DISPATCH_DB_RESTART="no"
 export E2E_PORT="$API_PORT"
 # Agent runtime defaults to inert (no real agent processes). Live mode is an
-# explicit opt-in via E2E_AGENT_RUNTIME=tmux (`pnpm run test:e2e:live`), which
-# runs the terminal-live tests against real tmux sessions. It is deliberately
-# a dedicated variable rather than DISPATCH_AGENT_RUNTIME itself: the Dispatch
-# server exports DISPATCH_AGENT_RUNTIME=tmux into every agent shell it
-# launches, so honoring the inherited value would silently flip suite runs
-# started from inside an agent session to live mode. Live sessions are
-# namespaced under this run's unique session prefix and killed on teardown,
-# so they can never collide with a production Dispatch server on the same
-# machine. (Sessions from a SIGKILL'd run are not reaped by later runs —
-# each run only matches its own prefix; kill stale e2e-* sessions manually.)
+# explicit opt-in via E2E_AGENT_RUNTIME=acp (`pnpm run test:e2e:live`), which
+# runs real agent hosts against the fake ACP engine in e2e/fixtures, so no
+# provider CLI or login is needed. It is deliberately a dedicated variable
+# rather than DISPATCH_AGENT_RUNTIME itself, so a suite run started from
+# inside an agent session cannot inherit live mode. Hosts live under this
+# run's own state root and are stopped on teardown.
 export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
-export DISPATCH_SESSION_PREFIX="$RUN_ID"
-
-if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && ! command -v tmux &>/dev/null; then
-  echo "Error: E2E_AGENT_RUNTIME=tmux but tmux is not on PATH." >&2
-  exit 1
-fi
+export DISPATCH_AGENT_STATE_ROOT="/tmp/dispatch-agents-${RUN_ID}"
+export DISPATCH_CLAUDE_ADAPTER_BIN="$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs"
+export DISPATCH_CODEX_ADAPTER_BIN="$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs"
 
 # `pnpm install` does not fetch Playwright browser binaries, so a Playwright
 # version bump in the lockfile leaves the newly pinned revision missing and
@@ -80,13 +73,13 @@ mkdir -p "$MEDIA_ROOT"
 
 cleanup() {
   echo "==> Tearing down isolated environment"
-  if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && command -v tmux &>/dev/null; then
-    tmux list-sessions -F '#{session_name}' 2>/dev/null \
-      | grep "^${DISPATCH_SESSION_PREFIX}_" \
-      | while read -r session; do
-          tmux kill-session -t "$session" 2>/dev/null || true
-        done || true
-  fi
+  # Agent hosts outlive the server by design; stop the ones this run made.
+  for pidfile in "$DISPATCH_AGENT_STATE_ROOT"/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  done
+  rm -rf "$DISPATCH_AGENT_STATE_ROOT"
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
   rm -rf "$MEDIA_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"

@@ -250,10 +250,13 @@ cmd_up() {
     export DISPATCH_PORT="$DEV_API_PORT"
     export DISPATCH_SESSION_PREFIX="dispatch_dev"
     if [ "$OPT_LIVE" = "1" ]; then
-      export DISPATCH_AGENT_RUNTIME="tmux"
+      export DISPATCH_AGENT_RUNTIME="acp"
     else
       export DISPATCH_AGENT_RUNTIME="inert"
     fi
+    # Agent hosts outlive the API server; keep this stack's under its own
+    # cache dir so `down` can find them and stacks never share a root.
+    export DISPATCH_AGENT_STATE_ROOT="$(log_dir)/agents"
 
     # Keep the release store out of ~/.dispatch/ — a stale version there
     # surfaces the update-available toast against the dev build.
@@ -370,12 +373,27 @@ cmd_up() {
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
 }
 
+# Stop every agent host this stack spawned. They outlive the API server by
+# design, so stopping the server alone would leave engines running.
+stop_agent_hosts() {
+  local root="$(log_dir)/agents"
+  [ -d "$root" ] || return 0
+  local pidfile pid
+  for pidfile in "$root"/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ -n "$pid" ] || continue
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  done
+}
+
 cmd_down() {
   if ! load_state; then
     echo "No state file found for suffix '${SUFFIX}'. Nothing to tear down."
     return 0
   fi
 
+  stop_agent_hosts
   stop_service "${DEV_API_PID:-}" "API server"
   stop_service "${DEV_VITE_PID:-}" "Vite server"
 

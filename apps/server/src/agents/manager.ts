@@ -452,6 +452,12 @@ export class AgentManager {
       };
     }
     if (!(await this.runtime.isAlive(id))) {
+      // The host is spawned at the end of `creating`; a prompt that arrives
+      // during workspace setup has nowhere to go yet, but the agent is not
+      // dead either.
+      if (agent.status === "creating") {
+        throw new AgentError("Agent is still starting.", 409);
+      }
       await this.setAgentStatus(id, "stopped", "The agent host is no longer running.");
       throw new AgentError(
         "Agent session is not available. Start the agent again.",
@@ -1146,6 +1152,7 @@ export class AgentManager {
     });
     const { env, pathPrefix } = buildLaunchEnv({
       agentId: agent.id,
+      role: agent.role,
       mediaDir,
       engine: agent.type,
       config: this.config,
