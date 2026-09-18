@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 import { reloadApp } from "@/lib/pwa-update";
-import { noteServerVersion } from "@/lib/version";
+import { noteServerBuild, noteServerVersion } from "@/lib/version";
 
 // Wire types are defined once on the server and imported type-only — esbuild
 // erases these imports, so nothing from the server reaches the web bundle.
@@ -172,6 +172,7 @@ export function useReleaseStream(
     try {
       const res = await fetch("/api/v1/release/status");
       noteServerVersion(res.headers.get("X-Dispatch-Version"));
+      noteServerBuild(res.headers.get("X-Dispatch-Build"));
       if (res.ok) setStatus((await res.json()) as ReleaseStatus);
     } catch {
       /* ignore */
@@ -192,6 +193,7 @@ export function useReleaseStream(
       try {
         const res = await fetch("/api/v1/release/status");
         noteServerVersion(res.headers.get("X-Dispatch-Version"));
+        noteServerBuild(res.headers.get("X-Dispatch-Build"));
         if (res.ok) {
           const data = (await res.json()) as ReleaseStatus;
           if (data.tag && data.tag === expectedTag) {

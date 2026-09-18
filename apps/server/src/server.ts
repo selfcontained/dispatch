@@ -102,6 +102,7 @@ import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  gitSha,
   packageVersion,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
@@ -594,9 +595,16 @@ async function registerRoutes() {
   // Stamp every API response with the build-time package version so the
   // client can detect a server upgrade (e.g. after a self-update) and
   // surface a "reload" banner without polling a version endpoint.
+  //
+  // The build id rides alongside because the version cannot see a redeploy
+  // that kept the same semver: every branch build of 0.38.14 reports
+  // 0.38.14, so an open tab kept serving stale code with no banner. Its own
+  // header rather than a richer X-Dispatch-Version, which release-checks.ts
+  // parses to prove which executable is running.
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/")) {
       reply.header("X-Dispatch-Version", packageVersion);
+      if (gitSha) reply.header("X-Dispatch-Build", gitSha);
     }
     return payload;
   });
