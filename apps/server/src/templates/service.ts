@@ -14,25 +14,10 @@ import {
 import {
   TemplateStore,
   parseTemplateArgs,
+  type AddTemplateInput,
   type TemplateRecord,
 } from "./store.js";
 import { templateWorktreeConfig } from "./worktree-config.js";
-
-export type AddTemplateInput = {
-  name: string;
-  directory: string;
-  description?: string | null;
-  prompt?: string | null;
-  agentType?: AgentType;
-  model?: string | null;
-  useWorktree?: boolean;
-  baseBranch?: string | null;
-  branchName?: string | null;
-  fullAccess?: boolean;
-  callable?: boolean;
-  allowMedia?: boolean;
-  selfImprove?: boolean;
-};
 
 export type LaunchTemplateInput = {
   templateId: string;

@@ -8,6 +8,9 @@ import { isUniqueViolation } from "../shared/lib/pg-errors.js";
 
 export { parseTemplateArgs, substituteArgs } from "./arg-parser.js";
 
+// The template wire types below (TemplateRecord, AddTemplateInput) are
+// imported type-only by the web client (apps/web/src/hooks/use-templates.ts)
+// so both sides of the API agree on one definition.
 export type TemplateRecord = {
   id: string;
   directory: string;
@@ -25,6 +28,22 @@ export type TemplateRecord = {
   selfImprove: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AddTemplateInput = {
+  name: string;
+  directory: string;
+  description?: string | null;
+  prompt?: string | null;
+  agentType?: AgentType;
+  model?: string | null;
+  useWorktree?: boolean;
+  baseBranch?: string | null;
+  branchName?: string | null;
+  fullAccess?: boolean;
+  callable?: boolean;
+  allowMedia?: boolean;
+  selfImprove?: boolean;
 };
 
 export type TemplateConfigUpdate = {
