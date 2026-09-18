@@ -101,6 +101,7 @@ const HARNESS = vi.hoisted(() => ({
   sendNow: vi.fn(async (_id: string) => {}),
   remove: vi.fn(async (_id: string) => {}),
   interrupt: vi.fn(async () => {}),
+  recall: vi.fn(async () => ({ text: "the original prompt", attachments: [] })),
 }));
 
 vi.mock("@/components/app/harness/use-harness-queue", () => ({
@@ -119,6 +120,7 @@ vi.mock("@/components/app/harness/use-harness-queue", () => ({
     interrupt: HARNESS.interrupt,
     interrupting: false,
   }),
+  useRecallTurn: () => ({ recall: HARNESS.recall, recalling: false }),
 }));
 vi.mock(
   "@/components/app/harness/use-harness-config",
@@ -1644,6 +1646,67 @@ describe("ChatPane harness chrome", () => {
     expect(stop.className).not.toContain("invisible");
     fireEvent.click(stop);
     expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Edit on a running turn the user prompted, and refills the draft", async () => {
+    H.entries = [
+      turnEntry({
+        settled: false,
+        prompt: {
+          source: "chat",
+          text: "the original prompt",
+          chatMessageId: "m-prompt",
+          attachments: [],
+        },
+        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+        result: { text: "working", streaming: true },
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    expect(HARNESS.recall).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
+      ).toBe("the original prompt")
+    );
+  });
+
+  it("hides Edit when the prompt carried attachments", () => {
+    // The draft takes text, not chips, so recalling one would drop them —
+    // the same reason the queued ArrowUp recall refuses.
+    H.entries = [
+      turnEntry({
+        settled: false,
+        prompt: {
+          source: "chat",
+          text: "look at this",
+          chatMessageId: "m-prompt",
+          attachments: [{ type: "link", url: "https://x" }],
+        } as never,
+        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+        result: { text: "working", streaming: true },
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.getByTestId("harness-edit-turn").className).toContain(
+      "hidden"
+    );
+  });
+
+  it("hides Edit on a turn nobody prompted from chat", () => {
+    H.entries = [
+      turnEntry({
+        settled: false,
+        prompt: { source: "agent", text: "from a peer", attachments: [] },
+        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+        result: { text: "working", streaming: true },
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    expect(screen.getByTestId("harness-edit-turn").className).toContain(
+      "hidden"
+    );
   });
 
   it("keeps Stop laid out but hidden when nothing runs", () => {

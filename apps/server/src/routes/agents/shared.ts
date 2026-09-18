@@ -44,6 +44,8 @@ export type AgentRouteDeps = {
     removeQueued: (agentId: string, id: string) => boolean;
     /** Cancel the running turn; false when nothing runs. */
     interrupt: (agentId: string) => Promise<boolean>;
+    /** Await in-flight stream writes, so a delete cannot race a settle. */
+    drainEvents?: (agentId: string) => Promise<void>;
   };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;

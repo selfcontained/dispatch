@@ -215,6 +215,45 @@ export class StreamStore {
     return turns.rowCount ?? 0;
   }
 
+  /**
+   * Where a recall starts: the newest turn row, but only while it is still
+   * open. `chatMessageId` is the Chat row that prompted it, or null for a
+   * turn the engine opened itself — nothing of the user's to put back.
+   *
+   * Grouping is positional (`groupTurnRows`): a turn row owns every row
+   * after it until the next one. So its seq is both the anchor and the
+   * lower bound of everything the turn produced.
+   */
+  async openTurnAnchor(
+    agentId: string
+  ): Promise<{ seq: number; chatMessageId: string | null } | null> {
+    const result = await this.db.query<{
+      seq: number;
+      state: string | null;
+      chat_message_id: string | null;
+    }>(
+      `SELECT seq,
+              payload->>'state' AS state,
+              payload->'prompt'->>'chatMessageId' AS chat_message_id
+         FROM agent_stream_events
+        WHERE agent_id = $1 AND kind = 'turn'
+        ORDER BY seq DESC LIMIT 1`,
+      [agentId]
+    );
+    const row = result.rows[0];
+    if (!row || row.state !== "started") return null;
+    return { seq: row.seq, chatMessageId: row.chat_message_id };
+  }
+
+  /** Drop every row from `seq` on. Returns how many went. */
+  async deleteFrom(agentId: string, seq: number): Promise<number> {
+    const result = await this.db.query(
+      `DELETE FROM agent_stream_events WHERE agent_id = $1 AND seq >= $2`,
+      [agentId, seq]
+    );
+    return result.rowCount ?? 0;
+  }
+
   /** How the agent's newest turn ended: its error, if any, and when. */
   async lastTurnSettlement(
     agentId: string

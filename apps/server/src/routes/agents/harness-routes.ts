@@ -13,7 +13,7 @@ import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
-  deps: Pick<AgentRouteDeps, "pool" | "harness">
+  deps: Pick<AgentRouteDeps, "pool" | "harness" | "chat">
 ): Promise<void> {
   const exists = async (id: string): Promise<boolean> => {
     const row = await deps.pool.query(
@@ -179,6 +179,28 @@ export async function registerAgentHarnessRoutes(
       return reply.code(409).send({ error: "No turn is running." });
     }
     return reply.code(204).send();
+  });
+
+  /**
+   * Take back the running turn: cancel it, drop it and the message that
+   * started it, and hand the text back so the composer can be refilled.
+   *
+   * Cancel first. Deleting the rows under a live turn would leave the engine
+   * writing into a group that no longer exists, and the next stream write
+   * would open a fresh turn mid-answer.
+   */
+  app.post("/api/v1/agents/:id/harness/turn/recall", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    await deps.harness.interrupt(id);
+    await deps.harness.drainEvents?.(id);
+    const recalled = await deps.chat.recallOpenTurn(id);
+    if (!recalled) {
+      return reply.code(409).send({ error: "No turn is running." });
+    }
+    return recalled;
   });
 
   app.get("/api/v1/agents/:id/harness/commands", async (request, reply) => {

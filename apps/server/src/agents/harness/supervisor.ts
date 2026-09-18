@@ -1052,6 +1052,16 @@ export class HarnessSupervisor {
     await this.queues.get(agentId);
   }
 
+  /**
+   * Wait for the agent's in-flight stream writes to land. A cancel returns
+   * when the RPC does, but the turn's own settle arrives as a later event on
+   * the chain; a caller that deletes rows before it lands leaves the settle
+   * to recreate one behind it.
+   */
+  async drainEvents(agentId: string): Promise<void> {
+    await this.drained(agentId);
+  }
+
   private async onEvent(event: DriverEvent): Promise<void> {
     try {
       await this.streams.handle(event);

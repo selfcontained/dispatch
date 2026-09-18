@@ -477,6 +477,68 @@ test.describe("harness agent", () => {
     );
   });
 
+  test("edits the running turn: it vanishes and the text comes back", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-harness-edit-${Date.now()}`,
+      type: "dispatch",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const pane = page.getByTestId("chat-pane");
+    const input = pane.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    await input.fill("sleep:60000 summarise teh README");
+    await input.press("Enter");
+    const runningTurn = pane.locator(
+      '[data-testid="chat-turn"]:not([data-settled])'
+    );
+    await expect(runningTurn).toBeVisible({ timeout: 30_000 });
+
+    await pane.getByTestId("harness-edit-turn").click();
+
+    // The turn goes entirely: the prompt row it claimed goes with it, so the
+    // feed holds no trace of the typo.
+    await expect(pane.getByTestId("chat-turn")).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    await expect(pane.getByTestId("chat-scroll")).not.toContainText(
+      "summarise teh README"
+    );
+    // And the words are back in the composer, ready to fix.
+    await expect(input).toHaveValue("sleep:60000 summarise teh README", {
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: test.info().outputPath("harness-edit-turn.png"),
+      fullPage: true,
+    });
+
+    // Corrected and sent: one turn, the new text, nothing of the old.
+    await input.fill("say:summarised the README");
+    await input.press("Enter");
+    await expect(pane.getByTestId("chat-turn")).toHaveCount(1, {
+      timeout: 30_000,
+    });
+    await expect(pane.getByTestId("chat-scroll")).toContainText(
+      "summarised the README",
+      { timeout: 30_000 }
+    );
+  });
+
   test("folds the queue past two rows and opens it on the count", async ({
     page,
     request,

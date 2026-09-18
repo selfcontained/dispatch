@@ -6,8 +6,10 @@ import type {
 } from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { AnimatePresence, motion } from "framer-motion";
-import { CircleDollarSign, Cpu, LogIn, Square } from "lucide-react";
+import { useSetAtom } from "jotai";
+import { CircleDollarSign, Cpu, LogIn, Pencil, Square } from "lucide-react";
 
+import { chatDraftAtomFamily } from "@/lib/store";
 import type { SlashItem } from "@/components/app/chat/chat-composer";
 import { QueuedStack } from "@/components/app/chat/turn/queued-prompt";
 import {
@@ -36,6 +38,7 @@ import {
   useHarnessInterrupt,
   useHarnessQueue,
   useQueuedPrompts,
+  useRecallTurn,
 } from "@/components/app/harness/use-harness-queue";
 import type { Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -215,6 +218,8 @@ export function useHarnessChrome({
     busyId: queueBusyId,
   } = useHarnessQueue(agentId);
   const { interrupt, interrupting } = useHarnessInterrupt(agentId);
+  const { recall, recalling } = useRecallTurn(agentId);
+  const setDraft = useSetAtom(chatDraftAtomFamily(agentId ?? ""));
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
   const commands = useHarnessCommands(agentId);
@@ -302,6 +307,25 @@ export function useHarnessChrome({
       onError(errorText(err, "Could not stop."));
     });
   }, [interrupt, onError]);
+
+  // Edit is offered only for a turn the user's own message started, and only
+  // when that message carried no attachments: the draft takes text, not
+  // chips, so a recall with attachments would silently drop them. Same rule
+  // the queued ArrowUp recall follows.
+  const editable =
+    streaming &&
+    newest?.prompt.source === "chat" &&
+    newest.prompt.attachments.length === 0;
+  const onEdit = useCallback(() => {
+    onError(null);
+    recall()
+      .then((prompt) => {
+        setDraft((draft) => ({ ...draft, text: prompt.text }));
+      })
+      .catch((err: unknown) => {
+        onError(errorText(err, "Could not take that message back."));
+      });
+  }, [onError, recall, setDraft]);
 
   // ArrowUp on an empty field takes the newest message the user queued back
   // to edit. Only their own: the queue also holds prompts another agent or
@@ -578,6 +602,25 @@ export function useHarnessChrome({
                 ? `${Math.round((contextUsage.used / contextUsage.size) * 100)}% context`
                 : "usage"}
             </button>
+            {/* Edit takes the running turn back to the composer: the turn and
+              the message that started it go, and the text returns to the
+              draft to be corrected and sent again. */}
+            <button
+              type="button"
+              onClick={onEdit}
+              disabled={recalling || !editable}
+              aria-hidden={!editable}
+              tabIndex={editable ? 0 : -1}
+              title="Stop this turn, delete it, and put your message back in the composer to edit"
+              data-testid="harness-edit-turn"
+              className={cn(
+                "ml-auto inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/60 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
+                !editable && "hidden"
+              )}
+            >
+              <Pencil className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              {recalling ? "Taking back…" : "Edit"}
+            </button>
             {/* The Stop slot is always laid out, so the row does not reflow
               when a turn starts; the button only shows while one runs. */}
             <button
@@ -589,7 +632,7 @@ export function useHarnessChrome({
               title="Stop the running turn (Ctrl+C in the field); queued messages run next"
               data-testid="harness-stop"
               className={cn(
-                "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
+                "inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
                 !streaming && "invisible"
               )}
             >

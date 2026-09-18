@@ -34,6 +34,7 @@ import {
 } from "./envelope.js";
 import { loadChatMessageEntry } from "./feed.js";
 import { loadLatestTurnEntry } from "./turns.js";
+import { StreamStore } from "../agents/harness/stream-store.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -882,6 +883,47 @@ export class ChatService {
    * carry (a mark-read sweep, startup recovery) and as `publishEntry`'s
    * fallback.
    */
+  /**
+   * Take the running turn back: hand the prompt to the caller and delete the
+   * turn along with the Chat row that started it.
+   *
+   * The Chat row has to go with it. The feed hides a message whose turn
+   * claims it as its prompt (`TURN_PROMPT_CHAT_ID_PATH`, the anti-join in
+   * feed.ts), so dropping only the stream rows would hand the message back
+   * as a loose one — the turn would vanish and the text would stay.
+   *
+   * Deletion, not a tombstone: recalling is for a prompt the user wants
+   * unsaid. Whatever the agent did in those seconds is still done on disk;
+   * only the record of the exchange goes. The caller cancels the engine
+   * first — this settles the feed, not the turn.
+   *
+   * Null when no turn is open, or when the open turn is one the engine
+   * started itself and there is no prompt of the user's to give back.
+   */
+  async recallOpenTurn(
+    agentId: string
+  ): Promise<{ text: string; attachments: ChatAttachment[] } | null> {
+    const streams = new StreamStore(this.deps.pool);
+    const anchor = await streams.openTurnAnchor(agentId);
+    if (!anchor) return null;
+    const message = anchor.chatMessageId
+      ? await this.store.getById(anchor.chatMessageId)
+      : null;
+    if (anchor.chatMessageId && !message) return null;
+    await streams.deleteFrom(agentId, anchor.seq);
+    if (message) {
+      await this.deps.pool.query(
+        "DELETE FROM agent_chat_messages WHERE id = $1",
+        [message.id]
+      );
+    }
+    this.publishChanged(agentId);
+    return {
+      text: message?.text ?? "",
+      attachments: message?.attachments ?? [],
+    };
+  }
+
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
   }

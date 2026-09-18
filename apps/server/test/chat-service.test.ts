@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
@@ -1452,5 +1453,108 @@ describe("ChatService reactions", () => {
     expect(await svc.store.listReactions(agentMessage.id)).toEqual([
       expect.objectContaining({ authorKind: "user", emoji: "👍" }),
     ]);
+  });
+});
+
+describe("ChatService.recallOpenTurn", () => {
+  beforeEach(async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+  });
+
+  /** A user message plus the open turn that claims it as its prompt. */
+  async function seedOpenTurn(text: string): Promise<string> {
+    const messageId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES ($1, $2, 'user', 'reply', $3, '[]'::jsonb, true)`,
+      [messageId, A, text]
+    );
+    published.length = 0;
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       SELECT $1, COALESCE(MAX(seq), 0) + 1, 'turn', NULL, $2::jsonb
+         FROM agent_stream_events WHERE agent_id = $1`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "chat", chatMessageId: messageId },
+        }),
+      ]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       SELECT $1, COALESCE(MAX(seq), 0) + 1, 'assistant', NULL, $2::jsonb
+         FROM agent_stream_events WHERE agent_id = $1`,
+      [A, JSON.stringify({ text: "half an answer", streaming: true })]
+    );
+    return messageId;
+  }
+
+  it("returns the prompt and leaves no trace of the turn", async () => {
+    const messageId = await seedOpenTurn("run the wrong thing");
+
+    await expect(service.recallOpenTurn(A)).resolves.toMatchObject({
+      text: "run the wrong thing",
+    });
+
+    // The chat row goes too. The feed hides a message its turn claims, so
+    // deleting only the stream rows would hand it back as a loose message.
+    const message = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE id = $1",
+      [messageId]
+    );
+    expect(message.rowCount).toBe(0);
+    const stream = await pool.query(
+      "SELECT 1 FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    expect(stream.rowCount).toBe(0);
+  });
+
+  it("tells clients the feed changed", async () => {
+    await seedOpenTurn("oops");
+    await service.recallOpenTurn(A);
+    expect(published).toContainEqual({ type: "chat.changed", agentId: A });
+  });
+
+  it("keeps earlier turns and their messages", async () => {
+    const keptId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES ($1, $2, 'user', 'reply', 'the good one', '[]'::jsonb, true)`,
+      [keptId, A]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       VALUES ($1, 1, 'turn', NULL, $2::jsonb)`,
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          prompt: { source: "chat", chatMessageId: keptId },
+        }),
+      ]
+    );
+    await seedOpenTurn("the bad one");
+
+    await service.recallOpenTurn(A);
+
+    const rows = await pool.query(
+      "SELECT payload->>'state' AS state FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows).toEqual([{ state: "settled" }]);
+    const still = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE id = $1",
+      [keptId]
+    );
+    expect(still.rowCount).toBe(1);
+  });
+
+  it("is null when no turn is open", async () => {
+    await expect(service.recallOpenTurn(A)).resolves.toBeNull();
   });
 });

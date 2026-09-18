@@ -78,6 +78,36 @@ export function useHarnessQueue(agentId: string | null): {
   };
 }
 
+/**
+ * Take the running turn back to the composer: the engine is cancelled, and
+ * the turn and the message that started it are deleted. Returns the prompt
+ * so the caller can refill the draft.
+ *
+ * Both caches move: the turn leaves the feed, and cancelling lets whatever
+ * was queued start, which changes the queue too.
+ */
+export function useRecallTurn(agentId: string | null): {
+  recall: () => Promise<{ text: string; attachments: unknown[] }>;
+  recalling: boolean;
+} {
+  const queryClient = useQueryClient();
+  const recall = useMutation<{ text: string; attachments: unknown[] }, Error>({
+    mutationFn: () =>
+      api<{ text: string; attachments: unknown[] }>(
+        `/api/v1/agents/${agentId}/harness/turn/recall`,
+        { method: "POST" }
+      ),
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: harnessQueueQueryKey(agentId),
+        exact: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: ["chat", agentId] });
+    },
+  });
+  return { recall: recall.mutateAsync, recalling: recall.isPending };
+}
+
 /** Stop: cancel the running turn. What is queued runs next. */
 export function useHarnessInterrupt(agentId: string | null): {
   interrupt: () => Promise<void>;

@@ -133,3 +133,47 @@ describe("settleInterrupted", () => {
     expect(byTitle.get("read file")).toMatchObject({ status: "completed" });
   });
 });
+
+describe("recall", () => {
+  it("finds the open turn's anchor and its prompt message", async () => {
+    await store.append(A, "turn", {
+      state: "settled",
+      prompt: { source: "chat", chatMessageId: "old" },
+    });
+    const open = await store.append(A, "turn", {
+      state: "started",
+      prompt: { source: "chat", chatMessageId: "m-live" },
+    });
+    await store.append(A, "assistant", { text: "working", streaming: true });
+
+    await expect(store.openTurnAnchor(A)).resolves.toEqual({
+      seq: open.seq,
+      chatMessageId: "m-live",
+    });
+  });
+
+  it("has no anchor once the newest turn has settled", async () => {
+    await store.append(A, "turn", {
+      state: "settled",
+      prompt: { source: "chat", chatMessageId: "m" },
+    });
+    await expect(store.openTurnAnchor(A)).resolves.toBeNull();
+  });
+
+  it("reports a null prompt for a turn Dispatch did not prompt", async () => {
+    await store.append(A, "turn", { state: "started", autonomous: true });
+    const anchor = await store.openTurnAnchor(A);
+    expect(anchor?.chatMessageId).toBeNull();
+  });
+
+  it("deletes the turn's rows and leaves everything before it", async () => {
+    const keep = await store.append(A, "assistant", { text: "earlier" });
+    const open = await store.append(A, "turn", { state: "started" });
+    await store.append(A, "tool_call", { status: "pending" }, "call_1");
+    await store.append(A, "assistant", { text: "partial", streaming: true });
+
+    await expect(store.deleteFrom(A, open.seq)).resolves.toBe(3);
+    const rows = await store.list(A, 20);
+    expect(rows.map((r) => r.seq)).toEqual([keep.seq]);
+  });
+});
