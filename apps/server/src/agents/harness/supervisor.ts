@@ -245,10 +245,20 @@ const RECONCILE_TIMEOUT_MS = 2_000;
  * Sent as the first turn after a restart to an agent whose previous turn
  * the restart cut short. The session log carries everything the model did
  * up to the cut, so it can pick the task up rather than start over.
+ *
+ * The middle line exists because the cut is reported to the model as a
+ * refusal. A tool call in flight when the engine dies never returns, and the
+ * CLI harnesses render an unresolved call with their standard "the user
+ * doesn't want to proceed" text — indistinguishable from a real denial. An
+ * agent that believes it was refused draws conclusions about the user's
+ * intent from something the user never did, so the notice says plainly that
+ * nobody declined and the call's side effects may already have landed.
  */
 export const RESTART_PROMPT = [
   "--- DISPATCH: RESTART ---",
-  'Dispatch restarted while your previous turn was running, so that turn ended early (it is marked "interrupted by restart"). Pick the task back up from where you left off: check the current state of any files you were changing before redoing work, then continue.',
+  'Dispatch restarted while your previous turn was running, so that turn ended early (it is marked "interrupted by restart").',
+  "A tool call still running was cut with it. Your harness may report that call as declined or rejected: nobody declined anything, the restart took it, and its side effects may already have landed. Treat it as unknown rather than as a refusal, and check what it actually did before redoing it.",
+  "Pick the task back up from where you left off: check the current state of anything you were changing, then continue.",
   "--- END DISPATCH: RESTART ---",
 ].join("\n");
 

@@ -30,6 +30,8 @@ export type ToolPayload = {
   input?: unknown;
   /** A nested call: the toolCallId of the step it runs under (a subagent's parent). */
   parentToolCallId?: string;
+  /** Why the call never reported: set when a cut settled it, not by the engine. */
+  error?: string;
 };
 export type PlanPayload = {
   entries: { content: string; status: string; priority: string }[];
@@ -170,9 +172,10 @@ export class StreamStore {
 
   /**
    * Settle whatever a dead child left open: a turn still `started` gets
-   * `settled` with the given error, and an assistant row still streaming
-   * stops. Run before a session (re)starts, so a turn cut off by a crash,
-   * a Stop, or a server restart never spins in the view forever.
+   * `settled` with the given error, an assistant row still streaming stops,
+   * and a tool call still pending or in progress is failed. Run before a
+   * session (re)starts, so a turn cut off by a crash, a Stop, or a server
+   * restart never spins in the view forever.
    */
   async settleInterrupted(agentId: string, error: string): Promise<number> {
     const turns = await this.db.query(
@@ -195,6 +198,19 @@ export class StreamStore {
         WHERE agent_id = $1 AND kind = 'assistant'
           AND payload->>'streaming' = 'true'`,
       [agentId]
+    );
+    // A tool call the cut left open has nobody to report its result: the
+    // engine that ran it is gone. Without this the feed projects a step that
+    // runs forever, since `toolStep` reads anything unfinished as "running".
+    // `failed` because it never reported success — which is not the same as
+    // never having run. A call cut mid-flight may well have landed its side
+    // effects, so the error is carried for whoever reads back.
+    await this.db.query(
+      `UPDATE agent_stream_events
+          SET payload = payload || $2::jsonb, updated_at = NOW()
+        WHERE agent_id = $1 AND kind = 'tool_call'
+          AND payload->>'status' IN ('pending', 'in_progress')`,
+      [agentId, JSON.stringify({ status: "failed", error })]
     );
     return turns.rowCount ?? 0;
   }

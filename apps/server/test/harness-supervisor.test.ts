@@ -1410,3 +1410,14 @@ describe("HarnessSupervisor login failure", () => {
     await sup.stop("agt_1");
   });
 });
+
+describe("RESTART_PROMPT", () => {
+  it("tells the agent the cut call was not a refusal", () => {
+    // The whole point of the line: an unresolved tool call reaches the model
+    // as "the user doesn't want to proceed", and an agent that believes that
+    // reasons about intent the user never had.
+    expect(RESTART_PROMPT).toContain("nobody declined anything");
+    expect(RESTART_PROMPT).toContain("side effects may already have landed");
+    expect(RESTART_PROMPT).toContain("interrupted by restart");
+  });
+});

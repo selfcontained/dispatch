@@ -77,3 +77,59 @@ describe("StreamStore", () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe("settleInterrupted", () => {
+  it("settles the open turn and stops streaming text", async () => {
+    await store.append(A, "turn", { state: "started" });
+    await store.append(A, "assistant", { text: "partial", streaming: true });
+    const turns = await store.settleInterrupted(A, "interrupted by restart");
+    expect(turns).toBe(1);
+    const rows = await store.list(A, 10);
+    const turn = rows.find((r) => r.kind === "turn")!;
+    expect(turn.payload).toMatchObject({
+      state: "settled",
+      error: "interrupted by restart",
+    });
+    expect(rows.find((r) => r.kind === "assistant")!.payload).toMatchObject({
+      streaming: false,
+    });
+  });
+
+  it("settles tool calls the cut left open, so they stop spinning", async () => {
+    // A restart kills the engine mid-call. Left alone these rows keep
+    // `pending`/`in_progress`, which the feed projects as a step that runs
+    // for ever — and the side effects may well have landed.
+    await store.upsertByKey(A, "tool_call", "call_pending", {
+      status: "pending",
+      title: "cp a b",
+    });
+    await store.upsertByKey(A, "tool_call", "call_running", {
+      status: "in_progress",
+      title: "systemctl restart",
+    });
+    await store.upsertByKey(A, "tool_call", "call_done", {
+      status: "completed",
+      title: "read file",
+    });
+
+    await store.settleInterrupted(A, "interrupted by restart");
+
+    const byTitle = new Map(
+      (await store.list(A, 10))
+        .filter((r) => r.kind === "tool_call")
+        .map((r) => [
+          (r.payload as { title?: string }).title,
+          r.payload as { status?: string; error?: string },
+        ])
+    );
+    expect(byTitle.get("cp a b")).toMatchObject({
+      status: "failed",
+      error: "interrupted by restart",
+    });
+    expect(byTitle.get("systemctl restart")).toMatchObject({
+      status: "failed",
+    });
+    // A call that had already finished keeps its result.
+    expect(byTitle.get("read file")).toMatchObject({ status: "completed" });
+  });
+});
