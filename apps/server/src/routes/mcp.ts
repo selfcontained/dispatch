@@ -9,10 +9,8 @@ import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
 import type { AddJobInput, JobService } from "../jobs/service.js";
-import type {
-  TemplateService,
-  AddTemplateInput,
-} from "../templates/service.js";
+import type { TemplateService } from "../templates/service.js";
+import type { AddTemplateInput } from "../templates/store.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
