@@ -307,6 +307,13 @@ export function assembleTurns(
     // being written now: it reads as a running step, not a finished one.
     const live = group.turn !== null && !settled;
     const newest = group.rows[group.rows.length - 1];
+    // In a tool-using turn, text written before the turn settles is
+    // narration ("listing done, now reading…"): it rides in the rail with
+    // the steps around it, streaming in place, and only the text the turn
+    // ends on becomes the answer. Otherwise the newest text kept jumping
+    // from the answer slot into the rail each time a tool call followed
+    // it. A turn with no tools streams its text as the answer from the start.
+    const narrates = live && group.rows.some((r) => r.kind === "tool_call");
     const flat: {
       step: ChatTurnStep;
       key: string | null;
@@ -331,15 +338,23 @@ export function assembleTurns(
           parent: null,
         });
       } else if (row.kind === "assistant") {
-        if (row === last) {
-          const p = row.payload as Partial<AssistantPayload>;
+        const p = row.payload as Partial<AssistantPayload>;
+        if (row === last && !narrates) {
           result = {
             text: p.text ?? "",
             streaming: p.streaming === true && !settled,
             ...(p.truncated ? { truncated: true } : {}),
           };
         } else {
-          flat.push({ step: noteStep(row, "note"), key: null, parent: null });
+          flat.push({
+            step: noteStep(
+              row,
+              "note",
+              live && row === newest && p.streaming === true
+            ),
+            key: null,
+            parent: null,
+          });
         }
       } else if (row.kind === "plan") {
         plan = planEntriesOf(row);

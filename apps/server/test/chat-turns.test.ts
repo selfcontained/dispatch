@@ -490,6 +490,94 @@ describe("assembleTurns with agent questions", () => {
   });
 });
 
+describe("assembleTurns narration", () => {
+  it("keeps a live tool-using turn's newest text in the rail, streaming, until it settles", () => {
+    seq = 0;
+    const live = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row(
+          "tool_call",
+          { toolKind: "execute", title: "Bash", status: "completed" },
+          1,
+          2
+        ),
+        row(
+          "assistant",
+          { text: "Listing done, reading…", streaming: true },
+          3
+        ),
+      ],
+      new Map()
+    );
+    expect(live[0].result).toBeNull();
+    expect(live[0].trace.steps.map((s) => [s.kind, s.status, s.label])).toEqual(
+      [
+        ["execute", "ok", "Bash"],
+        ["note", "running", "Listing done, reading…"],
+      ]
+    );
+
+    seq = 0;
+    const settled = assembleTurns(
+      [
+        row(
+          "turn",
+          {
+            state: "settled",
+            prompt: { source: "system", text: "go" },
+            endedAt: at(9).toISOString(),
+          },
+          0,
+          9
+        ),
+        row(
+          "tool_call",
+          { toolKind: "execute", title: "Bash", status: "completed" },
+          1,
+          2
+        ),
+        row(
+          "assistant",
+          { text: "Listing done, reading…", streaming: false },
+          3
+        ),
+        row("assistant", { text: "Two files.", streaming: false }, 8),
+      ],
+      new Map()
+    );
+    expect(settled[0].result).toMatchObject({ text: "Two files." });
+    expect(settled[0].trace.steps.map((s) => [s.kind, s.status])).toEqual([
+      ["execute", "ok"],
+      ["note", "ok"],
+    ]);
+  });
+
+  it("streams a tool-free turn's text as the answer from the start", () => {
+    seq = 0;
+    const live = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row("assistant", { text: "Sure, here", streaming: true }, 1),
+      ],
+      new Map()
+    );
+    expect(live[0].result).toMatchObject({
+      text: "Sure, here",
+      streaming: true,
+    });
+    expect(live[0].trace.steps).toEqual([]);
+  });
+});
+
 describe("assembleTurns thinking", () => {
   it("marks the newest thought of a live turn as running, and times settled ones", () => {
     seq = 0;

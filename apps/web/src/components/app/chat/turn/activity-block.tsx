@@ -55,7 +55,11 @@ function ActivityBlockImpl({
 
   const unaccountedMs = computeUnaccountedMs(trace);
   // Stream updates must not open and close details underneath the reader.
-  const stepOpen = (step: Step): boolean => stepOverrides[step.id] ?? false;
+  // Narration being written right now is the exception: it opens so it can
+  // be read as it streams, and folds like any note once it is finished.
+  const stepOpen = (step: Step): boolean =>
+    stepOverrides[step.id] ??
+    (step.kind === "note" && step.status === "running");
   const toggleStep = (step: Step) =>
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
