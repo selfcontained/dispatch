@@ -26,8 +26,10 @@ import { api } from "@/lib/api";
 import {
   ChatPane,
   clearChatScrollMemory,
-  filterChildAgentMessages,
+  entryOwner,
+  filterStreamView,
   questionExcerpt,
+  type StreamView,
   readChatScrollPosition,
   REMEMBER_THROTTLE_MS,
   rememberChatScrollPosition,
@@ -50,18 +52,30 @@ const H = vi.hoisted(() => ({
   markRead: vi.fn(),
   /** What the thread panel shows for whichever thread is open. */
   threadRoot: null as unknown,
+  /** The agents list the peers query resolves to. */
+  agents: [] as unknown[],
+  /** The lineage the pane reads: the page agent's root, and what sits under it. */
+  rootId: null as string | null,
+  descendants: new Set<string>() as ReadonlySet<string>,
+  /** Every root id the feed was asked for, in order. */
+  streamIds: [] as Array<string | null>,
 }));
 
 // No real request may be in flight under a test: the pane's peers query
 // (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: [] })),
+  api: vi.fn(async () => ({ agents: H.agents })),
+}));
+
+vi.mock("@/hooks/use-agent-tree", () => ({
+  useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
+  useDescendantAgentIds: () => H.descendants,
 }));
 
 vi.mock("@/hooks/use-stream", () => ({
-  useStreamFeed: () => ({
-    entries: H.entries,
+  useStreamFeed: (rootId: string | null) => ({
+    entries: (H.streamIds.push(rootId), H.entries),
     unreadCount: H.unreadCount,
     hasOlder: false,
     isLoading: H.isLoading,
@@ -172,13 +186,78 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       agent={agent}
       active={true}
       showChildAgents={true}
-      childAgentIds={[]}
       onShowChildAgentsChange={vi.fn()}
       openLightbox={vi.fn()}
       isMobile={false}
       {...props}
     />,
     { wrapper: Wrapper }
+  );
+}
+
+/** A turn run by `agentId`, settled, with a couple of steps. */
+function turnEntry(
+  id: string,
+  agentId: string,
+  at: string,
+  overrides: Partial<ChatTurnEntry> = {}
+): ChatTurnEntry {
+  return {
+    type: "turn",
+    id,
+    agentId,
+    at,
+    updatedAt: at,
+    prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
+    trace: {
+      startedAt: at,
+      endedAt: at,
+      finalResult: "ok",
+      steps: [
+        {
+          id: `${id}:s1`,
+          kind: "execute",
+          label: "pnpm test",
+          status: "ok",
+          startedAt: at,
+          endedAt: at,
+          detail: { input: { command: "pnpm test" } },
+        },
+        {
+          id: `${id}:s2`,
+          kind: "read",
+          label: "read a.ts",
+          status: "ok",
+          startedAt: at,
+          endedAt: at,
+          detail: { locations: [{ path: "a.ts" }] },
+        },
+      ],
+    },
+    result: { text: `answer ${id}`, streaming: false },
+    settled: true,
+    interrupted: false,
+    ...overrides,
+  };
+}
+
+/** A block from `from` (an agent) addressed to `to`. */
+function agentPost(
+  id: string,
+  from: string,
+  to: string | null,
+  text: string,
+  at = "2026-09-02T10:00:00.000Z"
+): StreamEntry {
+  return blockEntry(
+    block({
+      id,
+      author: { kind: "agent", agentId: from },
+      toAgentId: to,
+      text,
+      delivered: true,
+      createdAt: at,
+    })
   );
 }
 
@@ -199,6 +278,10 @@ beforeEach(() => {
   H.answer.mockReset();
   H.markRead.mockReset();
   H.threadRoot = null;
+  H.agents = [];
+  H.rootId = null;
+  H.descendants = new Set();
+  H.streamIds = [];
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -215,97 +298,192 @@ describe("questionExcerpt", () => {
   });
 });
 
-describe("filterChildAgentMessages", () => {
-  const childMessage = (
-    id: string,
-    senderAgentId: string,
-    recipientAgentId: string
-  ): StreamEntry => ({
-    type: "agent_message",
-    id,
-    direction: senderAgentId === "agt_1" ? "out" : "in",
-    senderAgentId,
-    senderName: senderAgentId,
-    recipientAgentId,
-    recipientName: recipientAgentId,
-    content: id,
-    delivered: true,
-    at: "2026-09-02T10:00:00.000Z",
-  });
-
-  const entries = [
-    childMessage("from-child", "agt_child", "agt_1"),
-    childMessage("to-child", "agt_1", "agt_child"),
-    childMessage("other-agent", "agt_other", "agt_1"),
-    blockEntry(block({ id: "human-chat" })),
+describe("entryOwner / filterStreamView", () => {
+  const T = "2026-09-02T10:00:00.000Z";
+  const rootView: StreamView = {
+    agentId: "agt_1",
+    rootId: "agt_1",
+    descendants: new Set(["agt_child", "agt_grandchild"]),
+  };
+  const childView: StreamView = {
+    agentId: "agt_child",
+    rootId: "agt_1",
+    descendants: new Set(["agt_grandchild"]),
+  };
+  const entries: StreamEntry[] = [
+    turnEntry("root-turn", "agt_1", T),
+    turnEntry("child-turn", "agt_child", T),
+    turnEntry("grandchild-turn", "agt_grandchild", T),
+    turnEntry("sibling-turn", "agt_sibling", T),
+    blockEntry(block({ id: "human-chat", authorKind: "user" })),
+    agentPost("root-reply", "agt_1", null, "for people"),
+    agentPost("child-reply", "agt_child", null, "child for people"),
+    agentPost("from-child", "agt_child", "agt_1", "to root"),
+    agentPost("to-child", "agt_1", "agt_child", "to child"),
+    agentPost("to-grandchild", "agt_child", "agt_grandchild", "launch"),
+    blockEntry(
+      block({
+        id: "child-launch",
+        authorKind: "user",
+        toAgentId: "agt_child",
+        origin: "launch",
+      })
+    ),
+    {
+      type: "status",
+      id: "event:1",
+      eventType: "idle",
+      system: true,
+      message: "Session started",
+      at: T,
+    },
   ];
+  const ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
 
-  it("keeps all entries while child agents are shown", () => {
-    expect(
-      filterChildAgentMessages(entries, new Set(["agt_child"]), true)
-    ).toHaveLength(4);
+  it("gives the root's page everything, with descendants' rows as child activity", () => {
+    expect(ids(filterStreamView(entries, rootView, true))).toEqual(
+      ids(entries.filter((entry) => entry.id !== "sibling-turn"))
+    );
+    expect(ids(filterStreamView(entries, rootView, false))).toEqual([
+      "root-turn",
+      "human-chat",
+      "root-reply",
+      "to-child",
+      "event:1",
+    ]);
   });
 
-  it("hides both directions of child-agent messages only", () => {
-    expect(
-      filterChildAgentMessages(entries, new Set(["agt_child"]), false).map(
-        (entry) => entry.id
-      )
-    ).toEqual(["other-agent", "human-chat"]);
+  it("filters a child's page to its own turns and the posts by or to it", () => {
+    expect(ids(filterStreamView(entries, childView, false))).toEqual([
+      "child-turn",
+      "child-reply",
+      "from-child",
+      "to-child",
+      "to-grandchild",
+      "child-launch",
+    ]);
+    // Its own children fold in below it, as on the root's page.
+    expect(ids(filterStreamView(entries, childView, true))).toEqual([
+      "child-turn",
+      "grandchild-turn",
+      "child-reply",
+      "from-child",
+      "to-child",
+      "to-grandchild",
+      "child-launch",
+    ]);
   });
 
-  it("uses feed lineage when an archived child is absent from the live list", () => {
-    const archivedChild = {
-      ...childMessage("archived-child", "agt_archived", "agt_1"),
-      involvesChildAgent: true,
-    };
-    expect(
-      filterChildAgentMessages(
-        [...entries, archivedChild],
-        new Set(),
-        false
-      ).map((entry) => entry.id)
-    ).toEqual(["from-child", "to-child", "other-agent", "human-chat"]);
+  it("names whose a row is", () => {
+    expect(entryOwner(entries[0]!, rootView)).toBe("own");
+    expect(entryOwner(entries[1]!, rootView)).toBe("child");
+    expect(entryOwner(entries[3]!, rootView)).toBe("other");
+    expect(entryOwner(entries[3]!, childView)).toBe("other");
+    // The stream's marks are the root's, not a child's.
+    expect(entryOwner(entries[entries.length - 1]!, childView)).toBe("other");
   });
 });
 
 describe("ChatPane", () => {
-  it("removes child-agent messages from the rendered feed when filtered", () => {
+  it("reads the root's stream and posts to the page's agent", async () => {
+    H.rootId = "agt_root";
+    H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+    renderPane({ agentId: "agt_child", agent: { ...agent, id: "agt_child" } });
+    expect(H.streamIds).toContain("agt_root");
+    expect(H.streamIds).not.toContain("agt_child");
+
+    typeAndSend("do this");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    expect(H.send.mock.calls[0]![0]).toMatchObject({
+      text: "do this",
+      to: "agt_child",
+    });
+  });
+
+  it("posts to the root with no recipient from the root's own page", async () => {
+    H.entries = [blockEntry(block({ id: "human-chat", text: "hi" }))];
+    renderPane();
+    typeAndSend("do this");
+    await waitFor(() => expect(H.send).toHaveBeenCalled());
+    expect(H.send.mock.calls[0]![0]).not.toHaveProperty("to");
+  });
+
+  it("shows a child's page the root stream filtered to the child", () => {
+    H.rootId = "agt_1";
     H.entries = [
-      {
-        type: "agent_message",
-        id: "from-child",
-        direction: "in",
-        senderAgentId: "agt_child",
-        senderName: "child",
-        recipientAgentId: "agt_1",
-        recipientName: "demo",
-        content: "child update",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
+      turnEntry("root-turn", "agt_1", "2026-09-02T10:00:00.000Z"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
+      agentPost("to-child", "agt_1", "agt_child", "please review"),
+      agentPost("root-reply", "agt_1", null, "for people"),
+    ];
+    renderPane({
+      agentId: "agt_child",
+      agent: { ...agent, id: "agt_child", name: "reviewer" },
+    });
+    expect(screen.queryByText("prompt root-turn")).toBeNull();
+    expect(screen.queryByText("for people")).toBeNull();
+    expect(screen.getByText("prompt child-turn")).toBeTruthy();
+    expect(screen.getByText("please review")).toBeTruthy();
+    // The child's own turn is its own here, not a folded child row.
+    expect(screen.queryByTestId("chat-child-turn")).toBeNull();
+  });
+
+  it("folds a child's turn to one row under the child's name and opens it on click", async () => {
+    H.agents = [
+      { ...agent, id: "agt_1", name: "demo" },
+      { ...agent, id: "agt_child", name: "reviewer", parentAgentId: "agt_1" },
+    ];
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [
+      turnEntry("root-turn", "agt_1", "2026-09-02T10:00:00.000Z"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderPane();
+    const row = screen.getByTestId("chat-child-turn");
+    expect(row.getAttribute("data-agent-id")).toBe("agt_child");
+    expect(row.getAttribute("data-open")).toBe("false");
+    // The child's answer is folded away; the root's own turn is in full.
+    expect(screen.queryByText("answer child-turn")).toBeNull();
+    expect(screen.getByText("answer root-turn")).toBeTruthy();
+    const summary = screen.getByTestId("chat-child-turn-summary");
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
+        "reviewer"
+      )
+    );
+    // The same reading as the rail's own summary row: verb, steps, time.
+    expect(summary.textContent).toContain("ran pnpm test");
+    expect(summary.textContent).toContain("2 steps");
+
+    fireEvent.click(summary);
+    expect(row.getAttribute("data-open")).toBe("true");
+    expect(screen.getByText("answer child-turn")).toBeTruthy();
+  });
+
+  it("removes child activity from the rendered feed when filtered", () => {
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [
+      agentPost("from-child", "agt_child", "agt_1", "child update"),
+      turnEntry("child-turn", "agt_child", "2026-09-02T10:00:30.000Z"),
       blockEntry(block({ id: "human-chat", text: "visible reply" })),
     ];
 
-    renderPane({ showChildAgents: false, childAgentIds: ["agt_child"] });
+    renderPane({ showChildAgents: false });
 
     expect(screen.queryByText("child update")).toBeNull();
+    expect(screen.queryByTestId("chat-child-turn")).toBeNull();
     expect(screen.getByText("visible reply")).toBeTruthy();
   });
 
-  it("does not treat filtering or hidden child messages as visible appends", () => {
-    const childEntry: StreamEntry = {
-      type: "agent_message",
-      id: "from-child",
-      direction: "in",
-      senderAgentId: "agt_child",
-      senderName: "child",
-      recipientAgentId: "agt_1",
-      recipientName: "demo",
-      content: "child update",
-      delivered: true,
-      at: "2026-09-02T10:01:00.000Z",
-    };
+  it("does not treat filtering or hidden child activity as visible appends", () => {
+    H.descendants = new Set(["agt_child"]);
+    const childEntry = agentPost(
+      "from-child",
+      "agt_child",
+      "agt_1",
+      "child update",
+      "2026-09-02T10:01:00.000Z"
+    );
     H.entries = [
       blockEntry(block({ id: "human-chat", text: "visible reply" })),
       childEntry,
@@ -314,7 +492,6 @@ describe("ChatPane", () => {
       agentId: "agt_1",
       agent,
       active: true,
-      childAgentIds: ["agt_child"],
       onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
       isMobile: false,
@@ -336,7 +513,13 @@ describe("ChatPane", () => {
 
     H.entries = [
       ...H.entries,
-      { ...childEntry, id: "new-hidden-child", content: "still hidden" },
+      agentPost(
+        "new-hidden-child",
+        "agt_child",
+        "agt_1",
+        "still hidden",
+        "2026-09-02T10:02:00.000Z"
+      ),
     ];
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
     expect(screen.queryByText("New messages")).toBeNull();
@@ -383,7 +566,6 @@ describe("ChatPane", () => {
         agent={agent}
         active={true}
         showChildAgents={true}
-        childAgentIds={[]}
         onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
@@ -397,7 +579,6 @@ describe("ChatPane", () => {
     const stable = {
       onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
-      childAgentIds: [] as string[],
     };
     const { rerender } = renderPane(stable);
     // Let mount-time queries (peers, injection hold) settle, then take the
@@ -420,32 +601,16 @@ describe("ChatPane", () => {
     expect(markdownRenders.count).toBe(settled);
   });
 
-  it("explains a filter-only empty feed and can show child messages again", () => {
+  it("explains a filter-only empty feed and can show child activity again", () => {
     const onShowChildAgentsChange = vi.fn();
-    H.entries = [
-      {
-        type: "agent_message",
-        id: "from-child",
-        direction: "in",
-        senderAgentId: "agt_child",
-        senderName: "child",
-        recipientAgentId: "agt_1",
-        recipientName: "demo",
-        content: "child update",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ];
+    H.descendants = new Set(["agt_child"]);
+    H.entries = [agentPost("from-child", "agt_child", "agt_1", "child update")];
 
-    renderPane({
-      showChildAgents: false,
-      childAgentIds: ["agt_child"],
-      onShowChildAgentsChange,
-    });
+    renderPane({ showChildAgents: false, onShowChildAgentsChange });
 
     const empty = screen.getByTestId("chat-empty");
     expect(empty.classList.contains("h-full")).toBe(true);
-    expect(empty.textContent).toContain("Child-agent messages are hidden");
+    expect(empty.textContent).toContain("Child-agent activity is hidden");
     expect(empty.textContent).not.toContain("No messages yet");
     fireEvent.click(screen.getByRole("button", { name: "Show child agents" }));
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
@@ -615,7 +780,6 @@ describe("ChatPane", () => {
         agent={agent}
         active={true}
         showChildAgents={true}
-        childAgentIds={[]}
         onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
@@ -896,7 +1060,6 @@ describe("ChatPane threads", () => {
             agent={agent}
             active={true}
             showChildAgents={true}
-            childAgentIds={[]}
             onShowChildAgentsChange={vi.fn()}
             openLightbox={vi.fn()}
             isMobile={false}

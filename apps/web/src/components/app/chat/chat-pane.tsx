@@ -33,6 +33,7 @@ import {
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { useDescendantAgentIds, useRootAgentId } from "@/hooks/use-agent-tree";
 import {
   useAnswerQuestion,
   useMarkStreamRead,
@@ -54,8 +55,8 @@ export type ChatPaneProps = {
    * not mark anything read or take focus.
    */
   active: boolean;
+  /** Show the turns and posts of the agents under this one (default on). */
   showChildAgents: boolean;
-  childAgentIds: readonly string[];
   onShowChildAgentsChange: (show: boolean) => void;
   openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded; from a review card. */
@@ -63,31 +64,79 @@ export type ChatPaneProps = {
   isMobile: boolean;
 };
 
-/** Remove both directions of the selected agent's child conversations. */
-export function filterChildAgentMessages(
+/**
+ * One agent's page onto its root's stream. The stream carries the turns
+ * and posts of every agent in the root's tree; the page shows what is the
+ * agent's own, folds what belongs to the agents under it, and drops the
+ * rest (a sibling's work, on a child's page).
+ */
+export type StreamView = {
+  /** The agent whose page this is. */
+  agentId: string;
+  /** The root of its lineage, whose stream the feed is. */
+  rootId: string;
+  /** Every agent under `agentId`. */
+  descendants: ReadonlySet<string>;
+};
+
+/**
+ * Whose a feed row is, from the page's point of view: the page agent's own
+ * (its turns, its posts, posts addressed to it, and on the root's page the
+ * stream's own marks), a descendant's (a child's turn, a child's post, a
+ * launch addressed to a child), or another agent's altogether.
+ */
+export function entryOwner(
+  entry: StreamEntry,
+  view: StreamView
+): "own" | "child" | "other" {
+  const { agentId, rootId, descendants } = view;
+  const isRoot = agentId === rootId;
+  if (entry.type === "turn") {
+    if (entry.agentId === agentId) return "own";
+    return descendants.has(entry.agentId) ? "child" : "other";
+  }
+  if (entry.type === "block") {
+    const { author, toAgentId } = entry.block;
+    if (author.kind === "agent") {
+      if (author.agentId === agentId) return "own";
+      if (descendants.has(author.agentId)) return "child";
+    }
+    if (toAgentId === agentId) return "own";
+    if (toAgentId !== null && descendants.has(toAgentId)) return "child";
+    return isRoot ? "own" : "other";
+  }
+  // Status marks, reviews and pins are the stream's, so the root's.
+  return isRoot ? "own" : "other";
+}
+
+/** The rows a page shows: its own, plus its descendants' when asked. */
+export function filterStreamView(
   entries: readonly StreamEntry[],
-  childAgentIds: ReadonlySet<string>,
+  view: StreamView,
   showChildAgents: boolean
 ): StreamEntry[] {
-  if (showChildAgents) return [...entries];
-  return entries.filter(
-    (entry) =>
-      entry.type !== "agent_message" ||
-      (!entry.involvesChildAgent &&
-        !childAgentIds.has(entry.senderAgentId) &&
-        !childAgentIds.has(entry.recipientAgentId))
-  );
+  return entries.filter((entry) => {
+    const owner = entryOwner(entry, view);
+    return owner === "own" || (owner === "child" && showChildAgents);
+  });
 }
 
 /**
  * What the main column shows of the feed. A reply (a block under a thread)
- * lives in the thread panel only; Dispatch's own marks stay — setup phases
+ * lives in the thread panel only, except an agent's post to another agent,
+ * which is the one record of that exchange in the column (a parent's post
+ * to a child threads under the child's launch post, and folds into the
+ * parent's turn as "Sent to"). Dispatch's own marks stay — setup phases
  * (folded into the Setup block) and lifecycle seams (stopped, resumed) —
  * while the per-turn derived status is what the presence line already
  * shows.
  */
 export function isMainColumnEntry(entry: StreamEntry): boolean {
-  if (entry.type === "block") return entry.block.threadId === null;
+  if (entry.type === "block") {
+    const { block } = entry;
+    if (block.threadId === null) return true;
+    return block.author.kind === "agent" && block.toAgentId !== null;
+  }
   if (entry.type === "status") {
     return entry.system === true && entry.phase !== "turn";
   }
@@ -252,19 +301,25 @@ export function ChatPane({
   agent,
   active,
   showChildAgents,
-  childAgentIds,
   onShowChildAgentsChange,
   openLightbox,
   onOpenReview,
   isMobile,
 }: ChatPaneProps): JSX.Element {
-  const feed = useStreamFeed(agentId);
-  const send = usePostBlock(agentId);
-  const answer = useAnswerQuestion(agentId);
-  const submitForm = useSubmitForm(agentId);
-  const setBlockState = useSetBlockState(agentId);
-  const reaction = useToggleReaction(agentId);
-  const markRead = useMarkStreamRead(agentId, feed.unreadCount);
+  // The stream is the root's: a child agent's page reads its root's feed
+  // and filters it down to the child (see `entryOwner`).
+  const rootId = useRootAgentId(agentId);
+  const descendants = useDescendantAgentIds(agentId);
+  const feed = useStreamFeed(rootId);
+  const send = usePostBlock(rootId);
+  const answer = useAnswerQuestion(rootId);
+  const submitForm = useSubmitForm(rootId);
+  const setBlockState = useSetBlockState(rootId);
+  const reaction = useToggleReaction(rootId);
+  const markRead = useMarkStreamRead(rootId, feed.unreadCount);
+  // A post from a child's page goes to the child; the root's page posts to
+  // the root, which is the stream's default recipient.
+  const postTo = agentId && rootId && agentId !== rootId ? agentId : undefined;
 
   // The open thread lives in the URL so it survives a reload and a link
   // to a finding lands on it.
@@ -299,18 +354,26 @@ export function ChatPane({
   }, [setSearchParams]);
 
   const entries = feed.entries;
-  const childAgentIdSet = useMemo(
-    () => new Set(childAgentIds),
-    [childAgentIds]
+  const view = useMemo<StreamView | null>(
+    () => (agentId && rootId ? { agentId, rootId, descendants } : null),
+    [agentId, descendants, rootId]
   );
   const visibleEntries = useMemo(
     () =>
-      filterChildAgentMessages(
-        entries,
-        childAgentIdSet,
-        showChildAgents
+      (view
+        ? filterStreamView(entries, view, showChildAgents)
+        : entries
       ).filter(isMainColumnEntry),
-    [childAgentIdSet, entries, showChildAgents]
+    [entries, showChildAgents, view]
+  );
+  // The page agent's own rows: what its composer answers, what its Stop
+  // button stops, whose plan sits above the composer.
+  const ownEntries = useMemo(
+    () =>
+      view
+        ? entries.filter((entry) => entryOwner(entry, view) === "own")
+        : entries,
+    [entries, view]
   );
   // Status events alone are not a conversation: real agents always have
   // some, so the empty state must key off the entries a person wrote.
@@ -318,13 +381,19 @@ export function ChatPane({
     () => visibleEntries.some((entry) => entry.type !== "status"),
     [visibleEntries]
   );
-  const hasHiddenChildMessages = visibleEntries.length < entries.length;
+  const hasHiddenChildActivity = useMemo(
+    () =>
+      view !== null &&
+      !showChildAgents &&
+      entries.some((entry) => entryOwner(entry, view) === "child"),
+    [entries, showChildAgents, view]
+  );
 
   // A typed reply answers the newest open free-text question unless the
   // user has opted out of that question with the chip's ×.
   const openQuestion = useMemo(
-    () => latestOpenFreeformQuestion(entries),
-    [entries]
+    () => latestOpenFreeformQuestion(ownEntries),
+    [ownEntries]
   );
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null
@@ -562,9 +631,13 @@ export function ChatPane({
         });
         return;
       }
-      await sendAsync({ text, attachments });
+      await sendAsync({
+        text,
+        attachments,
+        ...(postTo ? { to: postTo } : {}),
+      });
     },
-    [answerAsync, replyTarget, sendAsync]
+    [answerAsync, postTo, replyTarget, sendAsync]
   );
 
   const uploadFile = useCallback(
@@ -667,9 +740,9 @@ export function ChatPane({
     ? (submitForm.variables?.blockId ?? null)
     : null;
 
-  const newestTurn = useMemo(() => newestTurnEntry(entries), [entries]);
+  const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
   const turnRunning = newestTurn !== null && !newestTurn.settled;
-  const tasks = useMemo(() => latestTurnPlan(entries), [entries]);
+  const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
 
@@ -737,10 +810,10 @@ export function ChatPane({
                     data-testid="chat-empty"
                   >
                     <MessageSquare className="h-8 w-8" />
-                    {hasHiddenChildMessages ? (
+                    {hasHiddenChildActivity ? (
                       <>
                         <div className="text-foreground">
-                          Child-agent messages are hidden.
+                          Child-agent activity is hidden.
                         </div>
                         <Button
                           type="button"
@@ -839,10 +912,11 @@ export function ChatPane({
           </div>
           {shortcutDialog}
         </div>
-        {agentId && openThreadId ? (
+        {agentId && rootId && openThreadId ? (
           <ThreadPanel
             key={openThreadId}
             agentId={agentId}
+            rootId={rootId}
             blockId={openThreadId}
             findingId={openFindingId}
             ctx={ctx}

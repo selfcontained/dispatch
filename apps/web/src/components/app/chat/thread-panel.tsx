@@ -46,7 +46,10 @@ export function groupReplies(
 }
 
 export type ThreadPanelProps = {
+  /** The page's agent: owns the media a reply attaches. */
   agentId: string;
+  /** The root of its lineage: the stream the thread lives in. */
+  rootId: string;
   blockId: string;
   /** A finding to highlight on a review root, from `?finding=`. */
   findingId?: string | null;
@@ -62,6 +65,7 @@ export type ThreadPanelProps = {
 
 export function ThreadPanel({
   agentId,
+  rootId,
   blockId,
   findingId = null,
   ctx,
@@ -72,8 +76,8 @@ export function ThreadPanel({
   answeringBlockId,
   submittingBlockId,
 }: ThreadPanelProps): JSX.Element {
-  const thread = useThread(agentId, blockId);
-  const post = usePostBlock(agentId);
+  const thread = useThread(rootId, blockId);
+  const post = usePostBlock(rootId);
   const { mutateAsync: postAsync } = post;
 
   const grouped = useMemo(

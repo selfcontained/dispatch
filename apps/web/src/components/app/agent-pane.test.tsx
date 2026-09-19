@@ -107,7 +107,6 @@ function paneProps(overrides: Partial<PaneProps> = {}): PaneProps {
     active: true,
     showChildAgents: true,
     onShowChildAgentsChange: vi.fn(),
-    childAgentIds: [],
     header: true,
     openLightbox: vi.fn(),
     isMobile: false,
@@ -168,7 +167,7 @@ describe("ChatFiltersButton", () => {
     );
     expect(
       screen.getByTestId("chat-filters-trigger").getAttribute("aria-label")
-    ).toBe("Chat filters, child-agent messages hidden");
+    ).toBe("Chat filters, child agents hidden");
   });
 
   it("keeps the filter icon unchanged inside a compact visible surface", () => {

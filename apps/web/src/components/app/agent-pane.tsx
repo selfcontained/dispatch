@@ -23,7 +23,7 @@ export function ChatFiltersButton({
 }: ChatFiltersButtonProps): JSX.Element {
   const filtersLabel = showChildAgents
     ? "Chat filters"
-    : "Chat filters, child-agent messages hidden";
+    : "Chat filters, child agents hidden";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -67,17 +67,17 @@ export function ChatFiltersButton({
         >
           <span className="min-w-0">
             <span className="block text-sm font-medium text-foreground">
-              Show child agents
+              Child agents
             </span>
             <span className="block text-xs text-muted-foreground">
-              Include messages between this agent and its children.
+              Show what the agents under this one did and posted.
             </span>
           </span>
           <Switch
             id="show-child-agents"
             checked={showChildAgents}
             onCheckedChange={onShowChildAgentsChange}
-            aria-label="Show child agents"
+            aria-label="Child agents"
             data-testid="show-child-agents-switch"
           />
         </label>
@@ -93,7 +93,6 @@ export type AgentPaneProps = {
   active: boolean;
   showChildAgents: boolean;
   onShowChildAgentsChange: (show: boolean) => void;
-  childAgentIds: readonly string[];
   /**
    * Render the pane's own header row (agent name + filters). A split pane
    * has a header of its own and puts `ChatFiltersButton` there instead.
@@ -112,7 +111,6 @@ export function AgentPane({
   active,
   showChildAgents,
   onShowChildAgentsChange,
-  childAgentIds,
   header,
   openLightbox,
   onOpenReview,
@@ -147,7 +145,6 @@ export function AgentPane({
           agent={agent}
           active={active}
           showChildAgents={showChildAgents}
-          childAgentIds={childAgentIds}
           onShowChildAgentsChange={onShowChildAgentsChange}
           openLightbox={openLightbox}
           onOpenReview={onOpenReview}

@@ -132,6 +132,74 @@ function ActivityBlockImpl({
 
 export const ActivityBlock = memo(ActivityBlockImpl);
 
+/** What the summary row says of a turn at one moment. */
+export type TurnSummary = {
+  /** "thinking", "working", the verb from the steps, "done", "failed", "interrupted". */
+  verb: string;
+  /** "3 steps". */
+  steps: string;
+  /** Elapsed so far, or the turn's length once it ended. */
+  ms: number;
+  done: boolean;
+  /** Running with nothing to show yet. */
+  thinking: boolean;
+  failed: boolean;
+  interrupted: boolean;
+};
+
+/**
+ * The turn's work in a few words: the same reading whether the row is the
+ * rail's own summary or a child's turn folded in its parent's feed.
+ */
+export function turnSummary(
+  trace: Trace,
+  label?: string,
+  now: number = Date.now()
+): TurnSummary {
+  const done = trace.endedAt != null;
+  const thinking = !done && trace.steps.length === 0;
+  const failed = trace.finalResult === "error";
+  const interrupted = trace.finalResult === "interrupted";
+  const verb = done
+    ? failed
+      ? "failed"
+      : interrupted
+        ? "interrupted"
+        : (label ?? "done")
+    : thinking
+      ? "thinking"
+      : (label ?? "working");
+  const stepCount = trace.steps.length;
+  return {
+    verb,
+    steps: `${stepCount} step${stepCount === 1 ? "" : "s"}`,
+    ms: (trace.endedAt ?? now) - trace.startedAt,
+    done,
+    thinking,
+    failed,
+    interrupted,
+  };
+}
+
+/** The glyph for a turn's state: live bars, a check, a cross, a stop square. */
+export function TurnGlyph({
+  summary,
+}: {
+  summary: Pick<TurnSummary, "done" | "failed" | "interrupted">;
+}): JSX.Element {
+  if (!summary.done) {
+    // Dispatch's own loading bars, at glyph size.
+    return <ActivityBars size={11} className="justify-center" />;
+  }
+  if (summary.failed) {
+    return <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />;
+  }
+  if (summary.interrupted) {
+    return <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />;
+  }
+  return <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />;
+}
+
 /**
  * The one row that describes the turn's work at every moment: the glyph
  * says live / done / failed / interrupted, the verb says what is or was
@@ -151,32 +219,10 @@ function SummaryRow({
   onToggle: () => void;
 }): JSX.Element {
   const done = trace.endedAt != null;
-  const thinking = !done && trace.steps.length === 0;
   const { dots } = useStreamTicker(!done);
-  const failed = trace.finalResult === "error";
-  const interrupted = trace.finalResult === "interrupted";
-  const verb = done
-    ? failed
-      ? "failed"
-      : interrupted
-        ? "interrupted"
-        : (label ?? "done")
-    : thinking
-      ? "thinking"
-      : (label ?? "working");
-  const stepCount = trace.steps.length;
-  const steps = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
-  const ms = (trace.endedAt ?? Date.now()) - trace.startedAt;
-  const glyph = !done ? (
-    // Dispatch's own loading bars, at glyph size.
-    <ActivityBars size={11} className="justify-center" />
-  ) : failed ? (
-    <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />
-  ) : interrupted ? (
-    <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />
-  ) : (
-    <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />
-  );
+  const summary = turnSummary(trace, label);
+  const { verb, steps, ms, thinking } = summary;
+  const glyph = <TurnGlyph summary={summary} />;
   return (
     <button
       type="button"
