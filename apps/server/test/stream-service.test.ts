@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import {
@@ -26,8 +34,20 @@ const B = "agt_stream_peer";
 const NIL = "00000000-0000-4000-8000-000000000000";
 const PINS = [{ id: "pin_1", label: "URL", value: "http://x", type: "url" }];
 const AGENTS: Record<string, StreamAgent> = {
-  [A]: { id: A, name: "Svc", mediaDir: null, pins: PINS as never, status: "running" },
-  [B]: { id: B, name: "Peer", mediaDir: "/peer/media", pins: [], status: "running" },
+  [A]: {
+    id: A,
+    name: "Svc",
+    mediaDir: null,
+    pins: PINS as never,
+    status: "running",
+  },
+  [B]: {
+    id: B,
+    name: "Peer",
+    mediaDir: "/peer/media",
+    pins: [],
+    status: "running",
+  },
 };
 const getAgent = async (id: string) => AGENTS[id] ?? null;
 
@@ -252,12 +272,19 @@ describe("StreamService.prepareLaunchContext", () => {
     ]);
     // Nothing written and nothing announced until record() runs.
     expect(published).toEqual([]);
-    const rows = await pool.query("SELECT id FROM blocks WHERE stream_id = $1", [A]);
+    const rows = await pool.query(
+      "SELECT id FROM blocks WHERE stream_id = $1",
+      [A]
+    );
     expect(rows.rows).toHaveLength(0);
 
     const block = await prepared!.record();
     expect(block.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
-    expect(block).toMatchObject({ origin: "launch", delivered: true, toAgentId: A });
+    expect(block).toMatchObject({
+      origin: "launch",
+      delivered: true,
+      toAgentId: A,
+    });
     expect(published).toEqual([entryEvent(block)]);
   });
 
@@ -282,7 +309,10 @@ describe("StreamService.prepareLaunchContext", () => {
 
   it("leaves a prompt that fits exactly as written", async () => {
     const prompt = "y".repeat(BLOCK_TEXT_MAX_CHARS);
-    const prepared = await service.prepareLaunchContext({ agentId: A, text: prompt });
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: prompt,
+    });
     expect(prepared?.postText).toBe(prompt);
   });
 
@@ -305,11 +335,22 @@ describe("StreamService.prepareLaunchContext", () => {
 
   it("refuses to write a block whose id is already taken", async () => {
     const id = "7c1f0a10-2222-4333-8444-555566667777";
-    const first = await service.prepareLaunchContext({ agentId: A, id, text: "First" });
+    const first = await service.prepareLaunchContext({
+      agentId: A,
+      id,
+      text: "First",
+    });
     await first!.record();
-    const second = await service.prepareLaunchContext({ agentId: A, id, text: "Second" });
+    const second = await service.prepareLaunchContext({
+      agentId: A,
+      id,
+      text: "Second",
+    });
     await expect(second!.record()).rejects.toBeInstanceOf(StreamConflictError);
-    const rows = await pool.query<{ text: string }>("SELECT text FROM blocks WHERE id = $1", [id]);
+    const rows = await pool.query<{ text: string }>(
+      "SELECT text FROM blocks WHERE id = $1",
+      [id]
+    );
     expect(rows.rows).toEqual([{ text: "First" }]);
   });
 });
@@ -320,7 +361,10 @@ describe("StreamService.prepareLaunchContext", () => {
 
 describe("resolveKindAndData", () => {
   it("infers the kind from the payload given, defaulting to text", () => {
-    expect(resolveKindAndData({ text: "hi" })).toEqual({ kind: "text", data: null });
+    expect(resolveKindAndData({ text: "hi" })).toEqual({
+      kind: "text",
+      data: null,
+    });
     expect(resolveKindAndData({})).toEqual({ kind: "text", data: null });
     expect(
       resolveKindAndData({ question: { options: [{ label: "a" }] } })
@@ -356,9 +400,14 @@ describe("resolveKindAndData", () => {
         question: { options: [{ label: "a" }] },
         link: { url: "https://x.y" },
       })
-    ).toThrow(/one of question, form, link, review or tasks, not question and link/);
+    ).toThrow(
+      /one of question, form, link, review or tasks, not question and link/
+    );
     expect(() =>
-      resolveKindAndData({ kind: "text", question: { options: [{ label: "a" }] } })
+      resolveKindAndData({
+        kind: "text",
+        question: { options: [{ label: "a" }] },
+      })
     ).toThrow(/kind "text" does not match the question data/);
     expect(() => resolveKindAndData({ kind: "question", text: "?" })).toThrow(
       /question needs at least one option/
@@ -367,7 +416,10 @@ describe("resolveKindAndData", () => {
       /needs at least one file attachment/
     );
     expect(() =>
-      resolveKindAndData({ kind: "file", attachments: [{ type: "link", url: "https://x" }] })
+      resolveKindAndData({
+        kind: "file",
+        attachments: [{ type: "link", url: "https://x" }],
+      })
     ).toThrow(/file attachment/);
   });
 
@@ -397,7 +449,9 @@ describe("resolveKindAndData", () => {
     );
     expect(() =>
       resolveKindAndData({
-        question: { options: Array.from({ length: 11 }, (_, i) => ({ label: `o${i}` })) },
+        question: {
+          options: Array.from({ length: 11 }, (_, i) => ({ label: `o${i}` })),
+        },
       })
     ).toThrow(/10 entries or fewer/);
   });
@@ -440,8 +494,9 @@ describe("resolveKindAndData", () => {
   });
 
   it("validates a link's url", () => {
-    expect(resolveKindAndData({ link: { url: " https://x.y/p ", title: "T" } }).data)
-      .toEqual({ url: "https://x.y/p", title: "T" });
+    expect(
+      resolveKindAndData({ link: { url: " https://x.y/p ", title: "T" } }).data
+    ).toEqual({ url: "https://x.y/p", title: "T" });
     for (const url of ["javascript:alert(1)", "not a url", "ftp://x", ""]) {
       expect(() => resolveKindAndData({ link: { url } })).toThrow(
         /absolute http\(s\) url/
@@ -450,17 +505,34 @@ describe("resolveKindAndData", () => {
   });
 
   it("validates a review: verdict, findings, severities, unique ids", () => {
-    const finding = { id: "f1", severity: "major", title: "t", body: "b" } as const;
+    const finding = {
+      id: "f1",
+      severity: "major",
+      title: "t",
+      body: "b",
+    } as const;
     expect(
       resolveKindAndData({
-        review: { verdict: "request_changes", summary: "s", findings: [finding] },
+        review: {
+          verdict: "request_changes",
+          summary: "s",
+          findings: [finding],
+        },
       }).data
-    ).toEqual({ verdict: "request_changes", summary: "s", findings: [finding] });
+    ).toEqual({
+      verdict: "request_changes",
+      summary: "s",
+      findings: [finding],
+    });
     expect(() =>
-      resolveKindAndData({ review: { verdict: "lgtm", summary: "s", findings: [] } as never })
+      resolveKindAndData({
+        review: { verdict: "lgtm", summary: "s", findings: [] } as never,
+      })
     ).toThrow(/verdict must be approve, request_changes or comment/);
     expect(() =>
-      resolveKindAndData({ review: { verdict: "approve", summary: "s" } as never })
+      resolveKindAndData({
+        review: { verdict: "approve", summary: "s" } as never,
+      })
     ).toThrow(/needs verdict, summary and findings/);
     expect(() =>
       resolveKindAndData({
@@ -473,7 +545,11 @@ describe("resolveKindAndData", () => {
     ).toThrow(/finding "f1" has an unknown severity/);
     expect(() =>
       resolveKindAndData({
-        review: { verdict: "approve", summary: "s", findings: [finding, finding] },
+        review: {
+          verdict: "approve",
+          summary: "s",
+          findings: [finding, finding],
+        },
       })
     ).toThrow(/Duplicate finding id "f1"/);
     expect(() =>
@@ -481,7 +557,10 @@ describe("resolveKindAndData", () => {
         review: {
           verdict: "approve",
           summary: "s",
-          findings: Array.from({ length: 51 }, (_, i) => ({ ...finding, id: `f${i}` })),
+          findings: Array.from({ length: 51 }, (_, i) => ({
+            ...finding,
+            id: `f${i}`,
+          })),
         },
       })
     ).toThrow(/50 entries or fewer/);
@@ -493,13 +572,21 @@ describe("resolveKindAndData", () => {
     );
     expect(() =>
       resolveKindAndData({
-        tasks: { items: [{ id: "t", text: "a" }, { id: "t", text: "b" }] },
+        tasks: {
+          items: [
+            { id: "t", text: "a" },
+            { id: "t", text: "b" },
+          ],
+        },
       })
     ).toThrow(/Duplicate task id "t"/);
     expect(() =>
       resolveKindAndData({
         tasks: {
-          items: Array.from({ length: 51 }, (_, i) => ({ id: `t${i}`, text: "x" })),
+          items: Array.from({ length: 51 }, (_, i) => ({
+            id: `t${i}`,
+            text: "x",
+          })),
         },
       })
     ).toThrow(/50 entries or fewer/);
@@ -532,7 +619,9 @@ describe("StreamService.post", () => {
     await expect(service.post(A, { text: "  " })).rejects.toThrow(
       /A post needs text, an attachment, or one of/
     );
-    await expect(service.post(A, {})).rejects.toBeInstanceOf(StreamValidationError);
+    await expect(service.post(A, {})).rejects.toBeInstanceOf(
+      StreamValidationError
+    );
     await expect(service.post(A, { text: "x".repeat(20_001) })).rejects.toThrow(
       /20000 characters or fewer/
     );
@@ -554,9 +643,9 @@ describe("StreamService.post", () => {
     await expect(service.post(A, { text: "x", to: A })).rejects.toThrow(
       /to must name another agent/
     );
-    await expect(service.post(A, { text: "x", to: "agt_nobody" })).rejects.toThrow(
-      /Agent agt_nobody not found/
-    );
+    await expect(
+      service.post(A, { text: "x", to: "agt_nobody" })
+    ).rejects.toThrow(/Agent agt_nobody not found/);
     expect(published).toEqual([]);
   });
 
@@ -575,7 +664,11 @@ describe("StreamService.post", () => {
     });
     expect(form).toMatchObject({ kind: "form", state: {}, text: "" });
     const link = await service.post(A, { link: { url: "https://x.y" } });
-    expect(link).toMatchObject({ kind: "link", data: { url: "https://x.y" }, state: null });
+    expect(link).toMatchObject({
+      kind: "link",
+      data: { url: "https://x.y" },
+      state: null,
+    });
     const review = await service.post(A, {
       review: {
         verdict: "request_changes",
@@ -594,7 +687,12 @@ describe("StreamService.post", () => {
       },
     });
     const tasks = await service.post(A, {
-      tasks: { items: [{ id: "t1", text: "a" }, { id: "t2", text: "b" }] },
+      tasks: {
+        items: [
+          { id: "t1", text: "a" },
+          { id: "t2", text: "b" },
+        ],
+      },
     });
     expect(tasks.state).toEqual({ items: { t1: "todo", t2: "todo" } });
   });
@@ -647,7 +745,10 @@ describe("StreamService.post", () => {
     // local path are all unknown.
     for (const fileName of ["shot.png", "theirs.png", "/tmp/report.pdf"]) {
       await expect(
-        service.post(A, { text: "see", attachments: [{ type: "file", fileName }] })
+        service.post(A, {
+          text: "see",
+          attachments: [{ type: "file", fileName }],
+        })
       ).rejects.toThrow(/Unknown file/);
     }
     await expect(
@@ -657,27 +758,43 @@ describe("StreamService.post", () => {
     await expect(
       service.post(A, {
         text: "see",
-        attachments: [{ type: "file", fileName: "report.pdf", mediaId: pdf.rows[0].id }],
+        attachments: [
+          { type: "file", fileName: "report.pdf", mediaId: pdf.rows[0].id },
+        ],
       })
     ).rejects.toThrow(/not both/);
     await expect(
-      service.post(A, { text: "see", attachments: [{ type: "pin", pinId: "pin_missing" }] })
+      service.post(A, {
+        text: "see",
+        attachments: [{ type: "pin", pinId: "pin_missing" }],
+      })
     ).rejects.toThrow(/Unknown pin/);
     await expect(
-      service.post(A, { text: "see", attachments: [{ type: "link", url: "javascript:1" }] })
+      service.post(A, {
+        text: "see",
+        attachments: [{ type: "link", url: "javascript:1" }],
+      })
     ).rejects.toThrow(/http or https/);
   });
 
   it("uploads a file given by path through the uploadFile dep, then attaches it", async () => {
-    const uploadFile = vi.fn(async (agentId: string, input: { filePath: string; description: string }) => {
-      await pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+    const uploadFile = vi.fn(
+      async (
+        agentId: string,
+        input: { filePath: string; description: string }
+      ) => {
+        await pool.query(
+          `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
          VALUES ($1, 'shot-uploaded.png', 'screenshot', 77, $2)`,
-        [agentId, input.description]
-      );
-      return { fileName: "shot-uploaded.png" };
+          [agentId, input.description]
+        );
+        return { fileName: "shot-uploaded.png" };
+      }
+    );
+    const { svc, events } = build({
+      withDelivery: false,
+      deps: { uploadFile },
     });
-    const { svc, events } = build({ withDelivery: false, deps: { uploadFile } });
     const block = await svc.post(A, {
       kind: "file",
       attachments: [{ type: "file", path: "/tmp/shots/shot.png" }],
@@ -703,7 +820,9 @@ describe("StreamService.post", () => {
     // A description travels with the upload.
     await svc.post(A, {
       text: "again",
-      attachments: [{ type: "file", path: "/tmp/b.png", description: "the board" }],
+      attachments: [
+        { type: "file", path: "/tmp/b.png", description: "the board" },
+      ],
     });
     expect(uploadFile).toHaveBeenLastCalledWith(A, {
       filePath: "/tmp/b.png",
@@ -712,12 +831,18 @@ describe("StreamService.post", () => {
 
     // Without the dep a path is refused before anything is written.
     await expect(
-      service.post(A, { text: "x", attachments: [{ type: "file", path: "/tmp/a.png" }] })
+      service.post(A, {
+        text: "x",
+        attachments: [{ type: "file", path: "/tmp/a.png" }],
+      })
     ).rejects.toThrow(/File uploads are not available/);
     // A failed upload surfaces and writes no block.
     uploadFile.mockRejectedValueOnce(new Error("disk full"));
     await expect(
-      svc.post(A, { text: "x", attachments: [{ type: "file", path: "/tmp/c.png" }] })
+      svc.post(A, {
+        text: "x",
+        attachments: [{ type: "file", path: "/tmp/c.png" }],
+      })
     ).rejects.toThrow(/disk full/);
     const rows = await pool.query("SELECT count(*)::int AS n FROM blocks");
     expect(rows.rows[0].n).toBe(2);
@@ -742,9 +867,17 @@ describe("StreamService.post", () => {
     published.length = 0;
     const reply = await service.post(A, { text: "reply", replyTo: root.id });
     expect(reply).toMatchObject({ threadId: root.id, replyTo: root.id });
-    // A reply publishes its root (the reply count changed), twice: once for
-    // the reply's own write, once for the thread it landed in.
+    // A reply publishes itself (the client files it into the open thread),
+    // then its root with the changed reply count, then the root once more
+    // for the thread it landed in.
     expect(published).toEqual([
+      expect.objectContaining({
+        type: "stream.entry",
+        entry: expect.objectContaining({
+          id: reply.id,
+          block: expect.objectContaining({ threadId: root.id }),
+        }),
+      }),
       expect.objectContaining({
         type: "stream.entry",
         entry: expect.objectContaining({
@@ -759,16 +892,15 @@ describe("StreamService.post", () => {
     ]);
     const nested = await service.post(A, { text: "nested", replyTo: reply.id });
     expect(nested).toMatchObject({ threadId: root.id, replyTo: reply.id });
-    expect((await service.store.listThread(root.id))?.replies.map((r) => r.id)).toEqual([
-      reply.id,
-      nested.id,
-    ]);
+    expect(
+      (await service.store.listThread(root.id))?.replies.map((r) => r.id)
+    ).toEqual([reply.id, nested.id]);
   });
 
   it("rejects a replyTo that is malformed, unknown, or on another stream", async () => {
-    await expect(service.post(A, { text: "x", replyTo: "not-a-uuid" })).rejects.toThrow(
-      /replyTo must be a block id/
-    );
+    await expect(
+      service.post(A, { text: "x", replyTo: "not-a-uuid" })
+    ).rejects.toThrow(/replyTo must be a block id/);
     expect(published).toEqual([]);
     await expect(service.post(A, { text: "x", replyTo: NIL })).rejects.toThrow(
       /replyTo must name a block on this stream/
@@ -779,25 +911,38 @@ describe("StreamService.post", () => {
       toAgentId: B,
       text: "not yours",
     });
-    await expect(service.post(A, { text: "x", replyTo: theirs.id })).rejects.toThrow(
-      /on this stream/
+    await expect(
+      service.post(A, { text: "x", replyTo: theirs.id })
+    ).rejects.toThrow(/on this stream/);
+    const rows = await pool.query(
+      "SELECT id FROM blocks WHERE stream_id = $1",
+      [A]
     );
-    const rows = await pool.query("SELECT id FROM blocks WHERE stream_id = $1", [A]);
     expect(rows.rows).toHaveLength(0);
   });
 
   it("marks the agent waiting when it posts a question or form for people", async () => {
     const onInputPosted = vi.fn(async () => {});
     const { svc } = build({ access: inert, deps: { onInputPosted } });
-    await svc.post(A, { text: "Ship it?", question: { options: [{ label: "Yes" }] } });
+    await svc.post(A, {
+      text: "Ship it?",
+      question: { options: [{ label: "Yes" }] },
+    });
     expect(onInputPosted).toHaveBeenLastCalledWith(A, "Ship it?");
-    await svc.post(A, { question: { options: [{ label: "Yes" }, { label: "No" }] } });
+    await svc.post(A, {
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
     expect(onInputPosted).toHaveBeenLastCalledWith(A, "Yes / No");
     await svc.post(A, {
-      form: { title: "Deploy details", fields: [{ id: "n", label: "N", type: "text" }] },
+      form: {
+        title: "Deploy details",
+        fields: [{ id: "n", label: "N", type: "text" }],
+      },
     });
     expect(onInputPosted).toHaveBeenLastCalledWith(A, "Deploy details");
-    await svc.post(A, { form: { fields: [{ id: "n", label: "N", type: "text" }] } });
+    await svc.post(A, {
+      form: { fields: [{ id: "n", label: "N", type: "text" }] },
+    });
     expect(onInputPosted).toHaveBeenLastCalledWith(A, "Form");
     onInputPosted.mockClear();
     // Not for plain text, and not for a question addressed to an agent.
@@ -818,14 +963,21 @@ describe("StreamService.post", () => {
     expect(notify).not.toHaveBeenCalled();
     await svc.post(A, { text: "Build finished", notify: true });
     expect(notify).toHaveBeenCalledWith(A, { message: "Build finished" });
-    await svc.post(A, { notify: true, question: { options: [{ label: "Yes" }] } });
+    await svc.post(A, {
+      notify: true,
+      question: { options: [{ label: "Yes" }] },
+    });
     expect(notify).toHaveBeenLastCalledWith(A, { message: "Yes" });
     notify.mockRejectedValueOnce(new Error("slack down"));
-    await expect(svc.post(A, { text: "x", notify: true })).resolves.toMatchObject({
+    await expect(
+      svc.post(A, { text: "x", notify: true })
+    ).resolves.toMatchObject({
       text: "x",
     });
     // Without the dep, notify is silently ignored.
-    await expect(service.post(A, { text: "x", notify: true })).resolves.toBeTruthy();
+    await expect(
+      service.post(A, { text: "x", notify: true })
+    ).resolves.toBeTruthy();
   });
 
   it("delivers a post with `to` as a DISPATCH POST from the agent, settling delivered", async () => {
@@ -870,7 +1022,9 @@ describe("StreamService.post", () => {
     ]);
     // Pending first, then the same row once delivery settled it.
     expect(
-      events.map((e) => (e as { entry: { block: Block } }).entry.block.delivered)
+      events.map(
+        (e) => (e as { entry: { block: Block } }).entry.block.delivered
+      )
     ).toEqual([null, true]);
     expect(svc.inFlightDeliveryCount).toBe(0);
   });
@@ -891,8 +1045,16 @@ describe("StreamService.post", () => {
     const root = await svc.post(A, { to: B, text: "Two findings." });
     await settled(svc, root.id);
     injected.length = 0;
-    const reply = await svc.post(A, { to: B, text: "One more.", replyTo: root.id });
-    expect(reply).toMatchObject({ threadId: root.id, replyTo: root.id, toAgentId: B });
+    const reply = await svc.post(A, {
+      to: B,
+      text: "One more.",
+      replyTo: root.id,
+    });
+    expect(reply).toMatchObject({
+      threadId: root.id,
+      replyTo: root.id,
+      toAgentId: B,
+    });
     await settled(svc, reply.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
     expect(injected[0]?.text).toContain(
@@ -907,18 +1069,20 @@ describe("StreamService.update", () => {
     published.length = 0;
     const updated = await service.update(A, mine.id, { text: "final" });
     expect(updated).toMatchObject({ id: mine.id, text: "final" });
-    expect(Date.parse(updated.updatedAt)).toBeGreaterThanOrEqual(Date.parse(mine.updatedAt));
+    expect(Date.parse(updated.updatedAt)).toBeGreaterThanOrEqual(
+      Date.parse(mine.updatedAt)
+    );
     expect(published).toEqual([entryEvent(updated)]);
   });
 
   it("refuses other people's blocks, malformed ids, and unknown blocks", async () => {
     const mine = await service.post(A, { text: "draft" });
-    await expect(service.update(B, mine.id, { text: "hijack" })).rejects.toBeInstanceOf(
-      StreamForbiddenError
-    );
-    await expect(service.update(A, "not-a-uuid", { text: "x" })).rejects.toThrow(
-      /id must be the id returned by post/
-    );
+    await expect(
+      service.update(B, mine.id, { text: "hijack" })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    await expect(
+      service.update(A, "not-a-uuid", { text: "x" })
+    ).rejects.toThrow(/id must be the id returned by post/);
     await expect(service.update(A, NIL, { text: "x" })).rejects.toBeInstanceOf(
       StreamNotFoundError
     );
@@ -929,10 +1093,12 @@ describe("StreamService.update", () => {
       text: "from user",
     });
     // A user block addressed to the agent: only its state, and text has none.
-    await expect(service.update(A, userRow.id, { text: "nope" })).rejects.toThrow(
-      /Only the state of a block addressed to you/
+    await expect(
+      service.update(A, userRow.id, { text: "nope" })
+    ).rejects.toThrow(/Only the state of a block addressed to you/);
+    await expect(service.update(A, userRow.id, {})).rejects.toThrow(
+      /state is required/
     );
-    await expect(service.update(A, userRow.id, {})).rejects.toThrow(/state is required/);
     await expect(
       service.update(A, userRow.id, { state: { items: { a: "done" } } })
     ).rejects.toThrow(/A text block has no state/);
@@ -951,16 +1117,22 @@ describe("StreamService.update", () => {
       kind: "question",
       data: { options: [{ label: "b", value: "B" }], allowFreeform: true },
     });
-    await expect(service.update(A, q.id, { data: { options: [] } })).rejects.toThrow(
-      /at least one option/
-    );
+    await expect(
+      service.update(A, q.id, { data: { options: [] } })
+    ).rejects.toThrow(/at least one option/);
     const link = await service.post(A, { link: { url: "https://a.b" } });
     await expect(
       service.update(A, link.id, { data: { url: "javascript:1" } })
     ).rejects.toThrow(/http\(s\) url/);
-    const tasks = await service.post(A, { tasks: { items: [{ id: "t1", text: "a" }] } });
+    const tasks = await service.post(A, {
+      tasks: { items: [{ id: "t1", text: "a" }] },
+    });
     expect(
-      (await service.update(A, tasks.id, { data: { items: [{ id: "t2", text: "b" }] } })).data
+      (
+        await service.update(A, tasks.id, {
+          data: { items: [{ id: "t2", text: "b" }] },
+        })
+      ).data
     ).toEqual({ items: [{ id: "t2", text: "b" }] });
   });
 
@@ -988,7 +1160,9 @@ describe("StreamService.update", () => {
       { type: "code", code: "let x = 1", language: "ts" },
       expect.objectContaining({ type: "file", fileName: "late.png" }),
     ]);
-    expect((await svc.update(A, m.id, { attachments: [] })).attachments).toEqual([]);
+    expect(
+      (await svc.update(A, m.id, { attachments: [] })).attachments
+    ).toEqual([]);
   });
 
   it("merges state on the agent's own review and tasks, stamped by the agent", async () => {
@@ -1007,34 +1181,50 @@ describe("StreamService.update", () => {
     });
     expect(resolved.state).toEqual({
       findings: {
-        f1: { status: "resolved", by: { kind: "agent", agentId: A }, at: expect.any(String) },
+        f1: {
+          status: "resolved",
+          by: { kind: "agent", agentId: A },
+          at: expect.any(String),
+        },
         f2: { status: "open", by: { kind: "user" }, at: expect.any(String) },
       },
     });
     const tasks = await service.post(A, {
-      tasks: { items: [{ id: "t1", text: "a" }, { id: "t2", text: "b" }] },
+      tasks: {
+        items: [
+          { id: "t1", text: "a" },
+          { id: "t2", text: "b" },
+        ],
+      },
     });
     const ticked = await service.update(A, tasks.id, {
       text: "Progress",
       state: { items: { t1: "done", t2: "now" } },
     });
-    expect(ticked).toMatchObject({ text: "Progress", state: { items: { t1: "done", t2: "now" } } });
+    expect(ticked).toMatchObject({
+      text: "Progress",
+      state: { items: { t1: "done", t2: "now" } },
+    });
     await expect(
       service.update(A, tasks.id, { state: { items: { t1: "later" } } })
     ).rejects.toThrow(/must be todo, now or done/);
     await expect(
-      service.update(A, review.id, { state: { findings: { f1: { status: "wontfix" } } } })
+      service.update(A, review.id, {
+        state: { findings: { f1: { status: "wontfix" } } },
+      })
     ).rejects.toThrow(/must be open, resolved or disputed/);
-    await expect(service.update(A, review.id, { state: { items: {} } })).rejects.toThrow(
-      /state\.findings is required/
-    );
-    await expect(service.update(A, tasks.id, { state: { findings: {} } })).rejects.toThrow(
-      /state\.items is required/
-    );
+    await expect(
+      service.update(A, review.id, { state: { items: {} } })
+    ).rejects.toThrow(/state\.findings is required/);
+    await expect(
+      service.update(A, tasks.id, { state: { findings: {} } })
+    ).rejects.toThrow(/state\.items is required/);
   });
 
   it("merges raw state onto a question or form the agent owns", async () => {
-    const q = await service.post(A, { question: { options: [{ label: "a" }] } });
+    const q = await service.post(A, {
+      question: { options: [{ label: "a" }] },
+    });
     const updated = await service.update(A, q.id, { state: { note: "hint" } });
     expect(updated.state).toEqual({ note: "hint" });
   });
@@ -1051,22 +1241,28 @@ describe("StreamService.update", () => {
     });
     await settled(svc, review.id);
     injected.length = 0;
-    await expect(svc.update(A, review.id, { text: "mine now" })).rejects.toBeInstanceOf(
-      StreamForbiddenError
-    );
+    await expect(
+      svc.update(A, review.id, { text: "mine now" })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
     await expect(svc.update(A, review.id, { data: {} })).rejects.toBeInstanceOf(
       StreamForbiddenError
     );
-    await expect(svc.update(A, review.id, { attachments: [] })).rejects.toBeInstanceOf(
-      StreamForbiddenError
+    await expect(
+      svc.update(A, review.id, { attachments: [] })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    await expect(svc.update(A, review.id, {})).rejects.toThrow(
+      /state is required/
     );
-    await expect(svc.update(A, review.id, {})).rejects.toThrow(/state is required/);
     const resolved = await svc.update(A, review.id, {
       state: { findings: { f1: "resolved" } },
     });
     expect(resolved.state).toEqual({
       findings: {
-        f1: { status: "resolved", by: { kind: "agent", agentId: A }, at: expect.any(String) },
+        f1: {
+          status: "resolved",
+          by: { kind: "agent", agentId: A },
+          at: expect.any(String),
+        },
       },
     });
     // The author hears about it.
@@ -1081,7 +1277,9 @@ describe("StreamService.update", () => {
     ]);
     // A third agent may not.
     await expect(
-      svc.update("agt_third", review.id, { state: { findings: { f1: "open" } } })
+      svc.update("agt_third", review.id, {
+        state: { findings: { f1: "open" } },
+      })
     ).rejects.toBeInstanceOf(StreamForbiddenError);
   });
 });
@@ -1138,10 +1336,12 @@ describe("StreamService.sendUserPost", () => {
 
   it("rejects invalid text, and either records or refuses an inert post", async () => {
     const { svc } = build({ access: inert });
-    await expect(svc.sendUserPost(A, { text: "   " })).rejects.toThrow(/text is required/);
-    await expect(svc.sendUserPost(A, { text: "x".repeat(20_001) })).rejects.toBeInstanceOf(
-      StreamValidationError
+    await expect(svc.sendUserPost(A, { text: "   " })).rejects.toThrow(
+      /text is required/
     );
+    await expect(
+      svc.sendUserPost(A, { text: "x".repeat(20_001) })
+    ).rejects.toBeInstanceOf(StreamValidationError);
     await expect(
       svc.sendUserPost(A, { text: "hi", allowInert: false })
     ).rejects.toBeInstanceOf(StreamConflictError);
@@ -1160,9 +1360,9 @@ describe("StreamService.sendUserPost", () => {
     const id = "7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5";
     const first = await svc.sendUserPost(A, { id, text: "hello" });
     expect(first.block.id).toBe(id);
-    await expect(svc.sendUserPost(A, { id, text: "again" })).rejects.toBeInstanceOf(
-      StreamConflictError
-    );
+    await expect(
+      svc.sendUserPost(A, { id, text: "again" })
+    ).rejects.toBeInstanceOf(StreamConflictError);
     await svc.waitForInFlightDeliveries(1_000);
   });
 
@@ -1171,15 +1371,19 @@ describe("StreamService.sendUserPost", () => {
     await expect(svc.sendUserPost("agt_nobody", { text: "x" })).rejects.toThrow(
       /Agent agt_nobody not found/
     );
-    await expect(svc.sendUserPost(A, { text: "x", to: "agt_nobody" })).rejects.toThrow(
-      /not found/
-    );
+    await expect(
+      svc.sendUserPost(A, { text: "x", to: "agt_nobody" })
+    ).rejects.toThrow(/not found/);
     expect(injected).toEqual([]);
     expect((await pool.query("SELECT 1 FROM blocks")).rowCount).toBe(0);
   });
 
   it("resolves user attachments and lists them in the envelope", async () => {
-    const mediaId = await seedMedia(A, "shot-2026-01-01-00-00-00-000.png", 122880);
+    const mediaId = await seedMedia(
+      A,
+      "shot-2026-01-01-00-00-00-000.png",
+      122880
+    );
     const { svc, injected } = build();
     const res = await svc.sendUserPost(A, {
       text: "look at this",
@@ -1232,10 +1436,16 @@ describe("StreamService.sendUserPost", () => {
   it("rejects unknown media, foreign pins, and too many attachments before writing", async () => {
     const { svc, injected } = build();
     await expect(
-      svc.sendUserPost(A, { text: "x", attachments: [{ type: "file", mediaId: 999_999 }] })
+      svc.sendUserPost(A, {
+        text: "x",
+        attachments: [{ type: "file", mediaId: 999_999 }],
+      })
     ).rejects.toThrow(/Unknown file #999999/);
     await expect(
-      svc.sendUserPost(A, { text: "x", attachments: [{ type: "pin", pinId: "pin_nope" }] })
+      svc.sendUserPost(A, {
+        text: "x",
+        attachments: [{ type: "pin", pinId: "pin_nope" }],
+      })
     ).rejects.toThrow(/Unknown pin/);
     await expect(
       svc.sendUserPost(A, {
@@ -1264,28 +1474,40 @@ describe("StreamService.sendUserPost", () => {
     const { svc, events, injected } = build();
     const root = await svc.post(A, { text: "Here is the plan." });
     events.length = 0;
-    const res = await svc.sendUserPost(A, { text: "Looks right.", replyTo: root.id });
-    expect(res.block).toMatchObject({ threadId: root.id, replyTo: root.id, toAgentId: A });
-    expect(events.map((e) => (e as { entry: { id: string } }).entry.id)).toEqual([
-      root.id,
-      root.id,
-    ]);
+    const res = await svc.sendUserPost(A, {
+      text: "Looks right.",
+      replyTo: root.id,
+    });
+    expect(res.block).toMatchObject({
+      threadId: root.id,
+      replyTo: root.id,
+      toAgentId: A,
+    });
     expect(
-      (events[0] as { entry: { block: Block } }).entry.block.replyCount
+      events.map((e) => (e as { entry: { id: string } }).entry.id)
+    ).toEqual([res.block.id, root.id, root.id]);
+    expect(
+      (events[1] as { entry: { block: Block } }).entry.block.replyCount
     ).toBe(1);
     await settled(svc, res.block.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
     expect(injected[0]?.text).toContain(`post with replyTo: "${root.id}"`);
     // A reply to the reply keeps the root.
-    const nested = await svc.sendUserPost(A, { text: "more", replyTo: res.block.id });
-    expect(nested.block).toMatchObject({ threadId: root.id, replyTo: res.block.id });
+    const nested = await svc.sendUserPost(A, {
+      text: "more",
+      replyTo: res.block.id,
+    });
+    expect(nested.block).toMatchObject({
+      threadId: root.id,
+      replyTo: res.block.id,
+    });
     await settled(svc, nested.block.id);
-    await expect(svc.sendUserPost(A, { text: "x", replyTo: NIL })).rejects.toThrow(
-      /on this stream/
-    );
-    await expect(svc.sendUserPost(A, { text: "x", replyTo: "nope" })).rejects.toThrow(
-      /replyTo must be a block id/
-    );
+    await expect(
+      svc.sendUserPost(A, { text: "x", replyTo: NIL })
+    ).rejects.toThrow(/on this stream/);
+    await expect(
+      svc.sendUserPost(A, { text: "x", replyTo: "nope" })
+    ).rejects.toThrow(/replyTo must be a block id/);
   });
 });
 
@@ -1325,15 +1547,20 @@ describe("StreamService.answerQuestion", () => {
       blockId: res.reply.id,
       at: expect.any(String),
     });
-    // The answered question, then the thread it now heads (the reply is a
-    // thread block, so its root is what the feed republishes).
-    expect(events.slice(0, 2)).toEqual([
+    // The answered question, then the reply (a thread block, filed into
+    // the thread by the client), then the question again as the thread's
+    // root with its reply count.
+    expect(events.slice(0, 3)).toEqual([
       expect.objectContaining({
         type: "stream.entry",
         entry: expect.objectContaining({
           id: q.id,
           block: expect.objectContaining({ state: res.block.state }),
         }),
+      }),
+      expect.objectContaining({
+        type: "stream.entry",
+        entry: expect.objectContaining({ id: res.reply.id }),
       }),
       expect.objectContaining({
         type: "stream.entry",
@@ -1354,34 +1581,34 @@ describe("StreamService.answerQuestion", () => {
       ].join("\n")
     );
     // Value-less options match on their label; but the question is taken.
-    await expect(svc.answerQuestion(A, q.id, { value: "No" })).rejects.toBeInstanceOf(
-      StreamConflictError
-    );
+    await expect(
+      svc.answerQuestion(A, q.id, { value: "No" })
+    ).rejects.toBeInstanceOf(StreamConflictError);
     expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
   });
 
   it("maps missing, foreign, non-question, and bad values to domain errors", async () => {
     const { svc } = build();
-    await expect(svc.answerQuestion(A, "not-a-uuid", { value: "a" })).rejects.toThrow(
-      /blockId must be a UUID/
-    );
-    await expect(svc.answerQuestion(A, NIL, { value: "a" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.answerQuestion(A, "not-a-uuid", { value: "a" })
+    ).rejects.toThrow(/blockId must be a UUID/);
+    await expect(
+      svc.answerQuestion(A, NIL, { value: "a" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     const plain = await svc.post(A, { text: "not a question" });
-    await expect(svc.answerQuestion(A, plain.id, { value: "a" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.answerQuestion(A, plain.id, { value: "a" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     const q = await ask(svc);
-    await expect(svc.answerQuestion(B, q.id, { value: "yes" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.answerQuestion(B, q.id, { value: "yes" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     await expect(svc.answerQuestion(A, q.id, { value: "  " })).rejects.toThrow(
       /value is required/
     );
-    await expect(svc.answerQuestion(A, q.id, { value: "typed" })).rejects.toThrow(
-      /does not match one of the question's options/
-    );
+    await expect(
+      svc.answerQuestion(A, q.id, { value: "typed" })
+    ).rejects.toThrow(/does not match one of the question's options/);
     const after = await svc.store.getById(q.id);
     expect(after?.kind === "question" && after.state).toEqual({});
     await svc.waitForInFlightDeliveries(1_000);
@@ -1395,24 +1622,35 @@ describe("StreamService.answerQuestion", () => {
       label: `  ${"t".repeat(300)}  `,
     });
     expect(res.reply.text).toBe("something typed");
-    expect(res.block.kind === "question" && res.block.state.answer).toMatchObject({
+    expect(
+      res.block.kind === "question" && res.block.state.answer
+    ).toMatchObject({
       value: "something typed",
       label: "t".repeat(200),
     });
     await svc.waitForInFlightDeliveries(1_000);
     const q2 = await ask(svc, true);
-    const bare = await svc.answerQuestion(A, q2.id, { value: "typed", label: "  " });
-    expect(bare.block.kind === "question" && bare.block.state.answer).not.toHaveProperty(
-      "label"
-    );
+    const bare = await svc.answerQuestion(A, q2.id, {
+      value: "typed",
+      label: "  ",
+    });
+    expect(
+      bare.block.kind === "question" && bare.block.state.answer
+    ).not.toHaveProperty("label");
     await expect(
-      svc.answerQuestion(A, (await ask(svc, true)).id, { value: "x".repeat(20_001) })
+      svc.answerQuestion(A, (await ask(svc, true)).id, {
+        value: "x".repeat(20_001),
+      })
     ).rejects.toThrow(/20000 characters or fewer/);
     await svc.waitForInFlightDeliveries(1_000);
   });
 
   it("stores attachments on the reply and lists them in the envelope", async () => {
-    const mediaId = await seedMedia(A, "shot-2026-01-01-00-00-00-000.png", 122880);
+    const mediaId = await seedMedia(
+      A,
+      "shot-2026-01-01-00-00-00-000.png",
+      122880
+    );
     const { svc, injected } = build();
     const q = await ask(svc, true);
     const res = await svc.answerQuestion(A, q.id, {
@@ -1457,10 +1695,16 @@ describe("StreamService.answerQuestion", () => {
     const { svc, injected } = build();
     const q = await ask(svc, true);
     await expect(
-      svc.answerQuestion(A, q.id, { value: "x", attachments: [{ type: "file", mediaId: 999_999 }] })
+      svc.answerQuestion(A, q.id, {
+        value: "x",
+        attachments: [{ type: "file", mediaId: 999_999 }],
+      })
     ).rejects.toThrow(/Unknown file #999999/);
     await expect(
-      svc.answerQuestion(A, q.id, { value: "x", attachments: [{ type: "pin", pinId: "pin_nope" }] })
+      svc.answerQuestion(A, q.id, {
+        value: "x",
+        attachments: [{ type: "pin", pinId: "pin_nope" }],
+      })
     ).rejects.toThrow(/Unknown pin/);
     await expect(
       svc.answerQuestion(A, q.id, {
@@ -1472,7 +1716,9 @@ describe("StreamService.answerQuestion", () => {
       })
     ).rejects.toThrow(/20 entries or fewer/);
     expect((await svc.store.getById(q.id))?.state).toEqual({});
-    const rows = await pool.query("SELECT 1 FROM blocks WHERE author_kind = 'user'");
+    const rows = await pool.query(
+      "SELECT 1 FROM blocks WHERE author_kind = 'user'"
+    );
     expect(rows.rowCount).toBe(0);
     expect(injected).toHaveLength(0);
   });
@@ -1492,18 +1738,23 @@ describe("StreamService.answerQuestion", () => {
     const { svc } = build();
     const q = await ask(svc);
     const results = await Promise.allSettled(
-      ["yes", "No", "yes", "No"].map((value) => svc.answerQuestion(A, q.id, { value }))
+      ["yes", "No", "yes", "No"].map((value) =>
+        svc.answerQuestion(A, q.id, { value })
+      )
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const r of results) {
-      if (r.status === "rejected") expect(r.reason).toBeInstanceOf(StreamConflictError);
+      if (r.status === "rejected")
+        expect(r.reason).toBeInstanceOf(StreamConflictError);
     }
     const replies = await pool.query<{ id: string }>(
       `SELECT id FROM blocks WHERE reply_to = $1`,
       [q.id]
     );
     expect(replies.rows).toHaveLength(1);
-    const winner = results.find((r) => r.status === "fulfilled")! as PromiseFulfilledResult<
+    const winner = results.find(
+      (r) => r.status === "fulfilled"
+    )! as PromiseFulfilledResult<
       Awaited<ReturnType<StreamService["answerQuestion"]>>
     >;
     expect(replies.rows[0].id).toBe(winner.value.reply.id);
@@ -1540,7 +1791,9 @@ describe("StreamService.submitForm", () => {
 
   it("records the submission, lists the values as the reply, and delivers", async () => {
     const { svc, injected, events } = build();
-    const form = await svc.post(A, { form: { title: "Details", fields: FIELDS } });
+    const form = await svc.post(A, {
+      form: { title: "Details", fields: FIELDS },
+    });
     events.length = 0;
     const res = await svc.submitForm(A, form.id, {
       values: { name: "Ada", count: 2, ok: true, unknown: "dropped", size: "" },
@@ -1560,10 +1813,9 @@ describe("StreamService.submitForm", () => {
       blockId: res.reply.id,
       at: expect.any(String),
     });
-    expect(events.map((e) => (e as { entry: { id: string } }).entry.id)).toEqual([
-      form.id,
-      form.id,
-    ]);
+    expect(
+      events.map((e) => (e as { entry: { id: string } }).entry.id)
+    ).toEqual([form.id, res.reply.id, form.id]);
     expect((await settled(svc, res.reply.id)).delivered).toBe(true);
     expect(injected[0]?.text).toBe(
       [
@@ -1574,9 +1826,9 @@ describe("StreamService.submitForm", () => {
         `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent; to answer in this thread, post with replyTo: "${form.id}".`,
       ].join("\n")
     );
-    await expect(svc.submitForm(A, form.id, { values: { name: "B" } })).rejects.toThrow(
-      /already submitted/
-    );
+    await expect(
+      svc.submitForm(A, form.id, { values: { name: "B" } })
+    ).rejects.toThrow(/already submitted/);
   });
 
   it("requires required fields and maps missing or foreign forms to errors", async () => {
@@ -1585,22 +1837,22 @@ describe("StreamService.submitForm", () => {
     await expect(svc.submitForm(A, form.id, { values: {} })).rejects.toThrow(
       /"Name" is required/
     );
-    await expect(svc.submitForm(A, form.id, { values: { name: "" } })).rejects.toThrow(
-      /"Name" is required/
-    );
-    await expect(svc.submitForm(A, "nope", { values: {} })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.submitForm(A, form.id, { values: { name: "" } })
+    ).rejects.toThrow(/"Name" is required/);
+    await expect(
+      svc.submitForm(A, "nope", { values: {} })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     await expect(svc.submitForm(A, NIL, { values: {} })).rejects.toBeInstanceOf(
       StreamNotFoundError
     );
-    await expect(svc.submitForm(B, form.id, { values: { name: "x" } })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.submitForm(B, form.id, { values: { name: "x" } })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     const q = await svc.post(A, { question: { options: [{ label: "a" }] } });
-    await expect(svc.submitForm(A, q.id, { values: {} })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.submitForm(A, q.id, { values: {} })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     expect((await svc.store.getById(form.id))?.state).toEqual({});
     expect(injected).toEqual([]);
   });
@@ -1609,17 +1861,25 @@ describe("StreamService.submitForm", () => {
     const { svc } = build({ access: inert });
     const form = await svc.post(A, { form: { fields: FIELDS } });
     const res = await svc.submitForm(A, form.id, { values: { name: "Ada" } });
-    expect(res).toMatchObject({ delivered: false, reply: { delivered: false } });
+    expect(res).toMatchObject({
+      delivered: false,
+      reply: { delivered: false },
+    });
   });
 
   it("leaves exactly one reply when submissions race, and honours a client id", async () => {
     const { svc } = build();
     const form = await svc.post(A, { form: { fields: FIELDS } });
     const results = await Promise.allSettled(
-      ["a", "b", "c"].map((name) => svc.submitForm(A, form.id, { values: { name } }))
+      ["a", "b", "c"].map((name) =>
+        svc.submitForm(A, form.id, { values: { name } })
+      )
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    const replies = await pool.query(`SELECT id FROM blocks WHERE reply_to = $1`, [form.id]);
+    const replies = await pool.query(
+      `SELECT id FROM blocks WHERE reply_to = $1`,
+      [form.id]
+    );
     expect(replies.rows).toHaveLength(1);
 
     const second = await svc.post(A, { form: { fields: FIELDS } });
@@ -1629,14 +1889,21 @@ describe("StreamService.submitForm", () => {
     ).rejects.toBeInstanceOf(StreamConflictError);
     expect((await svc.store.getById(second.id))?.state).toEqual({});
     const minted = "2e1e1e1e-2d2d-4c3c-8b4b-5a5a5a5a5a5a";
-    const res = await svc.submitForm(A, second.id, { id: minted, values: { name: "x" } });
+    const res = await svc.submitForm(A, second.id, {
+      id: minted,
+      values: { name: "x" },
+    });
     expect(res.reply.id).toBe(minted);
     await svc.waitForInFlightDeliveries(1_000);
   });
 });
 
 describe("StreamService.setState", () => {
-  async function review(svc: StreamService, author = A, to: string | null = null) {
+  async function review(
+    svc: StreamService,
+    author = A,
+    to: string | null = null
+  ) {
     return svc.post(author, {
       ...(to ? { to } : {}),
       review: {
@@ -1654,10 +1921,19 @@ describe("StreamService.setState", () => {
     const { svc, events, injected } = build();
     const r = await review(svc);
     events.length = 0;
-    const updated = await svc.setState(A, r.id, { findings: { f1: "resolved" } }, { kind: "user" });
+    const updated = await svc.setState(
+      A,
+      r.id,
+      { findings: { f1: "resolved" } },
+      { kind: "user" }
+    );
     expect(updated.state).toEqual({
       findings: {
-        f1: { status: "resolved", by: { kind: "user" }, at: expect.any(String) },
+        f1: {
+          status: "resolved",
+          by: { kind: "user" },
+          at: expect.any(String),
+        },
         f2: { status: "open", by: { kind: "user" }, at: expect.any(String) },
       },
     });
@@ -1693,9 +1969,19 @@ describe("StreamService.setState", () => {
   it("ticks tasks the same way", async () => {
     const { svc, injected } = build();
     const tasks = await svc.post(A, {
-      tasks: { items: [{ id: "t1", text: "a" }, { id: "t2", text: "b" }] },
+      tasks: {
+        items: [
+          { id: "t1", text: "a" },
+          { id: "t2", text: "b" },
+        ],
+      },
     });
-    const updated = await svc.setState(A, tasks.id, { items: { t2: "done" } }, { kind: "user" });
+    const updated = await svc.setState(
+      A,
+      tasks.id,
+      { items: { t2: "done" } },
+      { kind: "user" }
+    );
     expect(updated.state).toEqual({ items: { t1: "todo", t2: "done" } });
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected[0]?.text).toContain("Task t2 is now done.");
@@ -1704,11 +1990,21 @@ describe("StreamService.setState", () => {
   it("says nothing to an inert author, and nothing when the author changed it", async () => {
     const inertSvc = build({ access: inert });
     const r = await review(inertSvc.svc);
-    await inertSvc.svc.setState(A, r.id, { findings: { f1: "resolved" } }, { kind: "user" });
+    await inertSvc.svc.setState(
+      A,
+      r.id,
+      { findings: { f1: "resolved" } },
+      { kind: "user" }
+    );
     expect(inertSvc.injected).toEqual([]);
     const { svc, injected } = build();
     const own = await review(svc);
-    await svc.setState(A, own.id, { findings: { f1: "resolved" } }, { kind: "agent", agentId: A });
+    await svc.setState(
+      A,
+      own.id,
+      { findings: { f1: "resolved" } },
+      { kind: "agent", agentId: A }
+    );
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([]);
   });
@@ -1720,7 +2016,12 @@ describe("StreamService.setState", () => {
     await settled(svc, r.id);
     injected.length = 0;
     await expect(
-      svc.setState(B, r.id, { findings: { f1: "resolved" } }, { kind: "agent", agentId: "agt_third" })
+      svc.setState(
+        B,
+        r.id,
+        { findings: { f1: "resolved" } },
+        { kind: "agent", agentId: "agt_third" }
+      )
     ).rejects.toBeInstanceOf(StreamForbiddenError);
     const byRecipient = await svc.setState(
       B,
@@ -1729,7 +2030,9 @@ describe("StreamService.setState", () => {
       { kind: "agent", agentId: A }
     );
     expect(byRecipient.state).toMatchObject({
-      findings: { f1: { status: "resolved", by: { kind: "agent", agentId: A } } },
+      findings: {
+        f1: { status: "resolved", by: { kind: "agent", agentId: A } },
+      },
     });
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([
@@ -1742,30 +2045,32 @@ describe("StreamService.setState", () => {
       { kind: "agent", agentId: B }
     );
     expect(byAuthor.state).toMatchObject({
-      findings: { f2: { status: "resolved", by: { kind: "agent", agentId: B } } },
+      findings: {
+        f2: { status: "resolved", by: { kind: "agent", agentId: B } },
+      },
     });
   });
 
   it("maps unknown or foreign blocks, stateless kinds and bad patches to errors", async () => {
     const { svc } = build();
-    await expect(svc.setState(A, NIL, { findings: {} }, { kind: "user" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
-    await expect(svc.setState(A, "nope", { findings: {} }, { kind: "user" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.setState(A, NIL, { findings: {} }, { kind: "user" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
+    await expect(
+      svc.setState(A, "nope", { findings: {} }, { kind: "user" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     const r = await review(svc);
-    await expect(svc.setState(B, r.id, { findings: {} }, { kind: "user" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.setState(B, r.id, { findings: {} }, { kind: "user" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     const text = await svc.post(A, { text: "plain" });
-    await expect(svc.setState(A, text.id, { items: {} }, { kind: "user" })).rejects.toThrow(
-      /A text block has no state/
-    );
+    await expect(
+      svc.setState(A, text.id, { items: {} }, { kind: "user" })
+    ).rejects.toThrow(/A text block has no state/);
     const q = await svc.post(A, { question: { options: [{ label: "a" }] } });
-    await expect(svc.setState(A, q.id, { answer: {} }, { kind: "user" })).rejects.toThrow(
-      /A question block has no state/
-    );
+    await expect(
+      svc.setState(A, q.id, { answer: {} }, { kind: "user" })
+    ).rejects.toThrow(/A question block has no state/);
     await expect(svc.setState(A, r.id, {}, { kind: "user" })).rejects.toThrow(
       /state\.findings is required/
     );
@@ -1858,7 +2163,9 @@ describe("StreamService reactions", () => {
     await svc.addReaction(A, block.id, "👍");
     await svc.addReaction(A, block.id, "🚀");
     await svc.waitForInFlightDeliveries(1_000);
-    expect((await svc.store.listReactions(block.id)).map((r) => r.emoji)).toEqual(["👍", "🚀"]);
+    expect(
+      (await svc.store.listReactions(block.id)).map((r) => r.emoji)
+    ).toEqual(["👍", "🚀"]);
   });
 
   it("records delivered=false when the inject fails, and when there is no engine", async () => {
@@ -1896,17 +2203,21 @@ describe("StreamService reactions", () => {
     const userPost = await svc.sendUserPost(A, { text: "hi" });
     const block = await agentPost();
     const elsewhere = await service.post(B, { text: "x" });
-    await expect(svc.addReaction(A, userPost.block.id, "👍")).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.addReaction(A, userPost.block.id, "👍")
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     await expect(svc.addReaction(A, elsewhere.id, "👍")).rejects.toBeInstanceOf(
       StreamNotFoundError
     );
-    await expect(svc.addReaction(A, "not-a-uuid", "👍")).rejects.toThrow(/blockId must be a UUID/);
-    await expect(svc.addReaction(A, block.id, "lgtm")).rejects.toThrow(/single emoji/);
-    await expect(svc.removeReaction(A, elsewhere.id, "👍")).rejects.toBeInstanceOf(
-      StreamNotFoundError
+    await expect(svc.addReaction(A, "not-a-uuid", "👍")).rejects.toThrow(
+      /blockId must be a UUID/
     );
+    await expect(svc.addReaction(A, block.id, "lgtm")).rejects.toThrow(
+      /single emoji/
+    );
+    await expect(
+      svc.removeReaction(A, elsewhere.id, "👍")
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toHaveLength(1);
   });
@@ -1916,7 +2227,9 @@ describe("StreamService reactions", () => {
     const { svc } = build({ access: inert });
     const emoji = [..."😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙🥲😚🙂"];
     for (const e of emoji) await svc.addReaction(A, block.id, e);
-    await expect(svc.addReaction(A, block.id, "🤗")).rejects.toThrow(/20 reactions at most/);
+    await expect(svc.addReaction(A, block.id, "🤗")).rejects.toThrow(
+      /20 reactions at most/
+    );
   });
 
   it("recovery marks a reaction abandoned by a restart as not delivered", async () => {
@@ -1949,12 +2262,17 @@ describe("StreamService reactions", () => {
 
   it("lets an agent react to the user's and other agents' blocks, shown but never injected", async () => {
     const { svc, events, injected } = build();
-    const userPost = await svc.sendUserPost(A, { text: "Can you check the logs?" });
+    const userPost = await svc.sendUserPost(A, {
+      text: "Can you check the logs?",
+    });
     const peer = await svc.post(B, { to: A, text: "FYI" });
     await svc.waitForInFlightDeliveries(1_000);
     injected.length = 0;
     events.length = 0;
-    const res = await svc.addReaction(A, userPost.block.id, "👀", { kind: "agent", agentId: A });
+    const res = await svc.addReaction(A, userPost.block.id, "👀", {
+      kind: "agent",
+      agentId: A,
+    });
     await svc.waitForInFlightDeliveries(1_000);
     expect(res.reactions).toEqual([
       {
@@ -1974,12 +2292,18 @@ describe("StreamService reactions", () => {
       svc.addReaction(A, peer.id, "👍", { kind: "agent", agentId: A })
     ).rejects.toBeInstanceOf(StreamNotFoundError);
     expect(
-      (await svc.addReaction(B, peer.id, "👍", { kind: "agent", agentId: A })).reactions
+      (await svc.addReaction(B, peer.id, "👍", { kind: "agent", agentId: A }))
+        .reactions
     ).toHaveLength(1);
     // A restart's sweep leaves agent reactions alone: they had nothing to deliver.
     expect(await svc.recoverPendingDeliveries()).toEqual([]);
-    expect((await svc.store.listReactions(userPost.block.id))[0]?.delivered).toBeNull();
-    const removed = await svc.removeReaction(A, userPost.block.id, "👀", { kind: "agent", agentId: A });
+    expect(
+      (await svc.store.listReactions(userPost.block.id))[0]?.delivered
+    ).toBeNull();
+    const removed = await svc.removeReaction(A, userPost.block.id, "👀", {
+      kind: "agent",
+      agentId: A,
+    });
     expect(removed.reactions).toEqual([]);
   });
 
@@ -1990,15 +2314,18 @@ describe("StreamService reactions", () => {
     await expect(
       svc.addReaction(A, agentBlock.id, "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/DISPATCH POST envelope/);
-    await expect(svc.addReaction(A, userPost.block.id, "👍", { kind: "user" })).rejects.toBeInstanceOf(
-      StreamNotFoundError
-    );
+    await expect(
+      svc.addReaction(A, userPost.block.id, "👍", { kind: "user" })
+    ).rejects.toBeInstanceOf(StreamNotFoundError);
     await expect(
       svc.addReaction(A, "nope", "👍", { kind: "agent", agentId: A })
     ).rejects.toThrow(/id must be the block id from a DISPATCH POST envelope/);
     await svc.addReaction(A, agentBlock.id, "👍", { kind: "user" });
     // The agent cannot take the user's reaction back off.
-    await svc.removeReaction(A, userPost.block.id, "👍", { kind: "agent", agentId: A });
+    await svc.removeReaction(A, userPost.block.id, "👍", {
+      kind: "agent",
+      agentId: A,
+    });
     expect(await svc.store.listReactions(agentBlock.id)).toEqual([
       expect.objectContaining({ author: { kind: "user" }, emoji: "👍" }),
     ]);
@@ -2067,13 +2394,19 @@ describe("StreamService delivery bookkeeping", () => {
     await expect(service.post(A, { to: B, text: "x" })).rejects.toThrow(
       /no delivery adapter/
     );
-    await expect(service.post(A, { text: "fine" })).resolves.toMatchObject({ text: "fine" });
+    await expect(service.post(A, { text: "fine" })).resolves.toMatchObject({
+      text: "fine",
+    });
   });
 
   it("publishes stream.changed and stream.read on demand", () => {
     const { svc, events } = build();
     svc.publishChanged(A);
-    svc.publishRead(A, { unreadCount: 2, readAt: "2026-01-01T00:00:00.000Z", upToAt: null });
+    svc.publishRead(A, {
+      unreadCount: 2,
+      readAt: "2026-01-01T00:00:00.000Z",
+      upToAt: null,
+    });
     expect(events).toEqual([
       { type: "stream.changed", agentId: A },
       {
@@ -2094,5 +2427,4 @@ describe("StreamService delivery bookkeeping", () => {
     await listening.svc.publishTurnEntry(A);
     expect(listening.events).toEqual([]);
   });
-
 });

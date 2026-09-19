@@ -53,7 +53,10 @@ beforeEach(async () => {
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
 
 async function stamp(id: string, when: Date): Promise<void> {
-  await pool.query(`UPDATE blocks SET created_at = $2 WHERE id = $1`, [id, when]);
+  await pool.query(`UPDATE blocks SET created_at = $2 WHERE id = $1`, [
+    id,
+    when,
+  ]);
 }
 
 const blockEntries = (feed: { entries: unknown[] }) =>
@@ -141,7 +144,12 @@ describe("composeStreamFeed", () => {
       delivered: false,
     });
     expect(userBlock).toMatchObject({
-      block: { id: m2.id, author: { kind: "user" }, toAgentId: A, delivered: true },
+      block: {
+        id: m2.id,
+        author: { kind: "user" },
+        toAgentId: A,
+        delivered: true,
+      },
     });
   });
 
@@ -219,7 +227,11 @@ describe("composeStreamFeed", () => {
          VALUES (gen_random_uuid(), $2, $1, 'Other', 'Feed A', $3, true, $4)`,
         [A, OTHER, `msg${i}`, t]
       );
-      const b = await store.insert({ streamId: A, author: agent(A), text: `c${i}` });
+      const b = await store.insert({
+        streamId: A,
+        author: agent(A),
+        text: `c${i}`,
+      });
       await stamp(b.id, t);
     }
     const seen: string[] = [];
@@ -255,7 +267,9 @@ describe("composeStreamFeed", () => {
     };
     expect(decodeFeedCursor(encodeFeedCursor(cursor))).toEqual(cursor);
     const forged = (value: unknown) =>
-      decodeFeedCursor(Buffer.from(JSON.stringify(value)).toString("base64url"));
+      decodeFeedCursor(
+        Buffer.from(JSON.stringify(value)).toString("base64url")
+      );
     expect(decodeFeedCursor("not-a-cursor")).toBeNull();
     expect(forged({})).toBeNull();
     expect(forged({ ...cursor, at: "2026-01-01T00:00:00.000Z" })).toBeNull();
@@ -275,7 +289,10 @@ describe("composeStreamFeed", () => {
       id: "12",
     });
     for (const type of ["review", "turn", "pin"]) {
-      expect(forged({ ...cursor, type, id: "7" })).toMatchObject({ type, id: "7" });
+      expect(forged({ ...cursor, type, id: "7" })).toMatchObject({
+        type,
+        id: "7",
+      });
       expect(forged({ ...cursor, type, id: uuid })).toBeNull();
     }
     // Shape-valid but impossible instants.
@@ -285,13 +302,19 @@ describe("composeStreamFeed", () => {
     expect(forged({ ...cursor, at: "2026-01-01 00:60:00.000000" })).toBeNull();
     // Year zero parses in JS but is not a Postgres timestamp.
     expect(forged({ ...cursor, at: "0000-01-01 00:00:00.000000" })).toBeNull();
-    expect(forged({ ...cursor, at: "0001-01-01 00:00:00.000000" })).toMatchObject({
+    expect(
+      forged({ ...cursor, at: "0001-01-01 00:00:00.000000" })
+    ).toMatchObject({
       at: "0001-01-01 00:00:00.000000",
     });
   });
 
   it("lists top-level blocks only, with each thread's reply count and last reply time", async () => {
-    const root = await store.insert({ streamId: A, author: agent(A), text: "root" });
+    const root = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "root",
+    });
     await stamp(root.id, at(1));
     const r1 = await store.insert({
       streamId: A,
@@ -311,7 +334,11 @@ describe("composeStreamFeed", () => {
       text: "r2",
     });
     await stamp(r2.id, at(4));
-    const lone = await store.insert({ streamId: A, author: agent(A), text: "lone" });
+    const lone = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "lone",
+    });
     await stamp(lone.id, at(3));
 
     const feed = await composeStreamFeed(store, A);
@@ -329,7 +356,11 @@ describe("composeStreamFeed", () => {
 
   it("carries a block's reactions, oldest first, and omits the key when there are none", async () => {
     const b = await store.insert({ streamId: A, author: agent(A), text: "x" });
-    const plain = await store.insert({ streamId: A, author: agent(A), text: "y" });
+    const plain = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "y",
+    });
     const first = await store.insertReaction({
       streamId: A,
       blockId: b.id,
@@ -337,10 +368,10 @@ describe("composeStreamFeed", () => {
       emoji: "👍",
       delivered: true,
     });
-    await pool.query(`UPDATE block_reactions SET created_at = $2 WHERE id = $1`, [
-      first!.id,
-      at(1),
-    ]);
+    await pool.query(
+      `UPDATE block_reactions SET created_at = $2 WHERE id = $1`,
+      [first!.id, at(1)]
+    );
     const second = await store.insertReaction({
       streamId: A,
       blockId: b.id,
@@ -348,10 +379,10 @@ describe("composeStreamFeed", () => {
       emoji: "🎉",
       delivered: null,
     });
-    await pool.query(`UPDATE block_reactions SET created_at = $2 WHERE id = $1`, [
-      second!.id,
-      at(2),
-    ]);
+    await pool.query(
+      `UPDATE block_reactions SET created_at = $2 WHERE id = $1`,
+      [second!.id, at(2)]
+    );
     const feed = await composeStreamFeed(store, A);
     const entry = blockEntries(feed).find((e) => e.id === b.id)!;
     expect(entry.block.reactions).toEqual([
@@ -424,11 +455,17 @@ describe("composeStreamFeed", () => {
     await pool.query(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
        VALUES ($1, 2, 'turn', $2::jsonb)`,
-      [A, JSON.stringify({ state: "settled", prompt: { source: "chat", chatMessageId: foreign.id } })]
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          prompt: { source: "chat", chatMessageId: foreign.id },
+        }),
+      ]
     );
-    expect(blockEntries(await composeStreamFeed(store, OTHER)).map((e) => e.id)).toEqual([
-      foreign.id,
-    ]);
+    expect(
+      blockEntries(await composeStreamFeed(store, OTHER)).map((e) => e.id)
+    ).toEqual([foreign.id]);
   });
 
   it("surfaces pin writes grouped per write", async () => {
@@ -448,7 +485,11 @@ describe("composeStreamFeed", () => {
           { id: "p2", label: "PR" },
         ],
       }),
-      expect.objectContaining({ type: "pin", action: "deleted", pins: [{ id: "p1", label: "Dev" }] }),
+      expect.objectContaining({
+        type: "pin",
+        action: "deleted",
+        pins: [{ id: "p1", label: "Dev" }],
+      }),
     ]);
   });
 
@@ -496,7 +537,10 @@ describe("composeStreamFeed", () => {
 
     it("leaves them off when the row has no dimensions", async () => {
       const mediaId = await postWithAttachment("unreadable-now.png");
-      await pool.query(`UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`, [mediaId]);
+      await pool.query(
+        `UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`,
+        [mediaId]
+      );
       const attachment = await attachmentOf();
       expect(attachment.width).toBeUndefined();
       expect(attachment.height).toBeUndefined();
@@ -655,8 +699,12 @@ describe("feed entries as events carry them", () => {
     ).toBeNull();
   });
 
-  it("returns the thread's root for a reply, with the count the reply changed", async () => {
-    const root = await store.insert({ streamId: A, author: agent(A), text: "root" });
+  it("loads a reply as itself, and its root with the count the reply changed", async () => {
+    const root = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "root",
+    });
     const reply = await store.insert({
       streamId: A,
       author: USER,
@@ -665,13 +713,18 @@ describe("feed entries as events carry them", () => {
       replyTo: root.id,
       text: "reply",
     });
+    // A reply loads as itself (the client files it into its thread); the
+    // root, loaded on its own, carries the count the reply changed.
     const entry = await loadBlockEntry(pool, A, reply.id);
     expect(entry).toMatchObject({
       type: "block",
+      id: reply.id,
+      block: { id: reply.id, threadId: root.id, replyTo: root.id },
+    });
+    expect(await loadBlockEntry(pool, A, root.id)).toMatchObject({
       id: root.id,
       block: { id: root.id, replyCount: 1, lastReplyAt: reply.createdAt },
     });
-    expect(entry).toEqual(await loadBlockEntry(pool, A, root.id));
     // A reply on another stream resolves to nothing here.
     expect(await loadBlockEntry(pool, OTHER, reply.id)).toBeNull();
   });
@@ -699,7 +752,12 @@ describe("feed entries as events carry them", () => {
     const feed = await composeStreamFeed(store, A);
     const status = feed.entries.find((entry) => entry.type === "status");
     expect(
-      toStatusEntry(recorded.id, recorded.eventType, recorded.message, recorded.createdAt)
+      toStatusEntry(
+        recorded.id,
+        recorded.eventType,
+        recorded.message,
+        recorded.createdAt
+      )
     ).toEqual(status);
   });
 
@@ -725,7 +783,9 @@ describe("feed entries as events carry them", () => {
         setupPhase: "worktree",
       })
     ).toMatchObject({ system: true, phase: "setup", setupPhase: "worktree" });
-    expect(toStatusEntry(9, "working", "x", at(1), { source: "agent" })).toEqual({
+    expect(
+      toStatusEntry(9, "working", "x", at(1), { source: "agent" })
+    ).toEqual({
       type: "status",
       id: "event:9",
       eventType: "working",

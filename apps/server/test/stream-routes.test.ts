@@ -12,7 +12,10 @@ import { handleAgentError } from "../src/server/http-helpers.js";
 const ctx = useInjectApp();
 
 const USER: BlockAuthor = { kind: "user" };
-const agentAuthor = (agentId: string): BlockAuthor => ({ kind: "agent", agentId });
+const agentAuthor = (agentId: string): BlockAuthor => ({
+  kind: "agent",
+  agentId,
+});
 const NIL = "00000000-0000-4000-8000-000000000000";
 
 async function authedInject(
@@ -48,7 +51,10 @@ let store: BlockStore;
 
 function question(
   streamId: string,
-  extra: { allowFreeform?: boolean; options?: Array<{ label: string; value?: string }> } = {}
+  extra: {
+    allowFreeform?: boolean;
+    options?: Array<{ label: string; value?: string }>;
+  } = {}
 ) {
   return store.insert({
     streamId,
@@ -145,9 +151,16 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
 
   it("pages with the returned cursor", async () => {
     for (let i = 0; i < 3; i++) {
-      await store.insert({ streamId: agentId, author: agentAuthor(agentId), text: `m${i}` });
+      await store.insert({
+        streamId: agentId,
+        author: agentAuthor(agentId),
+        text: `m${i}`,
+      });
     }
-    const first = await authedInject("GET", `/api/v1/streams/${agentId}/blocks?limit=2`);
+    const first = await authedInject(
+      "GET",
+      `/api/v1/streams/${agentId}/blocks?limit=2`
+    );
     expect(first.statusCode).toBe(200);
     expect(first.json().hasMore).toBe(true);
     expect(typeof first.json().nextCursor).toBe("string");
@@ -182,7 +195,9 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
     expect(body.hasMore).toBe(false);
     expect(body.nextCursor).toBeNull();
     expect(body.unreadCount).toBe(1);
-    const blocks = body.entries.filter((e: { type: string }) => e.type === "block");
+    const blocks = body.entries.filter(
+      (e: { type: string }) => e.type === "block"
+    );
     // The agent create emitted status rows too; the reply stays in its thread.
     expect(blocks).toEqual([
       expect.objectContaining({
@@ -263,14 +278,22 @@ describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
 
 describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
   it("400s on missing or oversized text", async () => {
-    const empty = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "   ",
-    });
+    const empty = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "   ",
+      }
+    );
     expect(empty.statusCode).toBe(400);
     expect(empty.json().error).toMatch(/text is required/);
-    const big = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "x".repeat(20_001),
-    });
+    const big = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "x".repeat(20_001),
+      }
+    );
     expect(big.statusCode).toBe(400);
     expect(big.json().error).toMatch(/20000 characters or fewer/);
   });
@@ -291,7 +314,10 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       { type: "file", fileName: "shot.png" },
       { type: "file", path: "/tmp/shot.png" },
     ]) {
-      const res = await authedInject("POST", url, { text: "x", attachments: [file] });
+      const res = await authedInject("POST", url, {
+        text: "x",
+        attachments: [file],
+      });
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toMatch(/attachments\.0/);
     }
@@ -320,7 +346,9 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     }
     const oversizedUrl = await authedInject("POST", url, {
       text: "x",
-      attachments: [{ type: "link", url: `https://example.com/${"a".repeat(2100)}` }],
+      attachments: [
+        { type: "link", url: `https://example.com/${"a".repeat(2100)}` },
+      ],
     });
     expect(oversizedUrl.statusCode).toBe(400);
     expect(oversizedUrl.json().error).toMatch(/2048 characters or fewer/);
@@ -329,7 +357,10 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       attachments: { type: "link", url: "https://example.com" },
     });
     expect(notArray.statusCode).toBe(400);
-    const blank = await authedInject("POST", url, { text: "", attachments: [] });
+    const blank = await authedInject("POST", url, {
+      text: "",
+      attachments: [],
+    });
     expect(blank.statusCode).toBe(400);
     expect(blank.json().error).toMatch(/text is required/);
     const unknownMedia = await authedInject("POST", url, {
@@ -338,21 +369,37 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     });
     expect(unknownMedia.statusCode).toBe(400);
     expect(unknownMedia.json().error).toMatch(/Unknown file/);
-    const badReply = await authedInject("POST", url, { text: "x", replyTo: "nope" });
+    const badReply = await authedInject("POST", url, {
+      text: "x",
+      replyTo: "nope",
+    });
     expect(badReply.statusCode).toBe(400);
-    const unknownReply = await authedInject("POST", url, { text: "x", replyTo: NIL });
+    const unknownReply = await authedInject("POST", url, {
+      text: "x",
+      replyTo: NIL,
+    });
     expect(unknownReply.statusCode).toBe(400);
     expect(unknownReply.json().error).toMatch(/replyTo/);
-    const badId = await authedInject("POST", url, { id: "not-a-uuid", text: "x" });
+    const badId = await authedInject("POST", url, {
+      id: "not-a-uuid",
+      text: "x",
+    });
     expect(badId.statusCode).toBe(400);
-    const rows = await ctx.pool.query("SELECT 1 FROM blocks WHERE stream_id = $1", [agentId]);
+    const rows = await ctx.pool.query(
+      "SELECT 1 FROM blocks WHERE stream_id = $1",
+      [agentId]
+    );
     expect(rows.rows).toHaveLength(0);
   });
 
   it("stores an undelivered block when the agent is inert", async () => {
-    const res = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "hello?",
-    });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "hello?",
+      }
+    );
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       delivered: false,
@@ -369,7 +416,9 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       "SELECT text, delivered, to_agent_id FROM blocks WHERE stream_id = $1",
       [agentId]
     );
-    expect(rows.rows).toEqual([{ text: "hello?", delivered: false, to_agent_id: agentId }]);
+    expect(rows.rows).toEqual([
+      { text: "hello?", delivered: false, to_agent_id: agentId },
+    ]);
   });
 
   it("threads a reply and addresses a post to another agent on the stream", async () => {
@@ -379,22 +428,40 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       author: agentAuthor(agentId),
       text: "root",
     });
-    const reply = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "in thread",
+    const reply = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "in thread",
+        replyTo: root.id,
+      }
+    );
+    expect(reply.statusCode).toBe(200);
+    expect(reply.json().block).toMatchObject({
+      threadId: root.id,
       replyTo: root.id,
     });
-    expect(reply.statusCode).toBe(200);
-    expect(reply.json().block).toMatchObject({ threadId: root.id, replyTo: root.id });
-    const addressed = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "for the other one",
-      to: other,
-    });
+    const addressed = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "for the other one",
+        to: other,
+      }
+    );
     expect(addressed.statusCode).toBe(200);
-    expect(addressed.json().block).toMatchObject({ streamId: agentId, toAgentId: other });
-    const unknownTo = await authedInject("POST", `/api/v1/streams/${agentId}/blocks`, {
-      text: "x",
-      to: "agt_nobody",
+    expect(addressed.json().block).toMatchObject({
+      streamId: agentId,
+      toAgentId: other,
     });
+    const unknownTo = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks`,
+      {
+        text: "x",
+        to: "agt_nobody",
+      }
+    );
     expect(unknownTo.statusCode).toBe(400);
   });
 
@@ -512,7 +579,12 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/submit (inert runtime)", 
       delivered: false,
       block: {
         id: f.id,
-        state: { submission: { values: { name: "Ada", count: 3 }, by: { kind: "user" } } },
+        state: {
+          submission: {
+            values: { name: "Ada", count: 3 },
+            by: { kind: "user" },
+          },
+        },
       },
       reply: { text: "Name: Ada\nCount: 3", delivered: false, replyTo: f.id },
     });
@@ -532,9 +604,14 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/submit (inert runtime)", 
     expect(missing.json().error).toMatch(/"Name" is required/);
     const noValues = await authedInject("POST", url, {});
     expect(noValues.statusCode).toBe(400);
-    const badType = await authedInject("POST", url, { values: { name: { nested: 1 } } });
+    const badType = await authedInject("POST", url, {
+      values: { name: { nested: 1 } },
+    });
     expect(badType.statusCode).toBe(400);
-    const badId = await authedInject("POST", url, { id: "nope", values: { name: "x" } });
+    const badId = await authedInject("POST", url, {
+      id: "nope",
+      values: { name: "x" },
+    });
     expect(badId.statusCode).toBe(400);
     expect((await store.getById(f.id))?.state).toEqual({});
     const q = await question(agentId);
@@ -567,7 +644,11 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
         id: r.id,
         state: {
           findings: {
-            f1: { status: "resolved", by: { kind: "user" }, at: expect.any(String) },
+            f1: {
+              status: "resolved",
+              by: { kind: "user" },
+              at: expect.any(String),
+            },
           },
         },
       }),
@@ -591,7 +672,9 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
     const r = await review(agentId);
     const url = `/api/v1/streams/${agentId}/blocks/${r.id}/state`;
     expect((await authedInject("PATCH", url, {})).statusCode).toBe(400);
-    expect((await authedInject("PATCH", url, { state: "resolved" })).statusCode).toBe(400);
+    expect(
+      (await authedInject("PATCH", url, { state: "resolved" })).statusCode
+    ).toBe(400);
     const badStatus = await authedInject("PATCH", url, {
       state: { findings: { f1: "fixed" } },
     });
@@ -610,14 +693,26 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
     expect(stateless.statusCode).toBe(400);
     expect(stateless.json().error).toMatch(/has no state/);
     expect(
-      (await authedInject("PATCH", `/api/v1/streams/${agentId}/blocks/${NIL}/state`, {
-        state: { findings: {} },
-      })).statusCode
+      (
+        await authedInject(
+          "PATCH",
+          `/api/v1/streams/${agentId}/blocks/${NIL}/state`,
+          {
+            state: { findings: {} },
+          }
+        )
+      ).statusCode
     ).toBe(404);
     expect(
-      (await authedInject("PATCH", `/api/v1/streams/agt_other/blocks/${r.id}/state`, {
-        state: { findings: {} },
-      })).statusCode
+      (
+        await authedInject(
+          "PATCH",
+          `/api/v1/streams/agt_other/blocks/${r.id}/state`,
+          {
+            state: { findings: {} },
+          }
+        )
+      ).statusCode
     ).toBe(404);
     expect((await store.getById(r.id))?.state).toEqual(r.state);
   });
@@ -625,7 +720,11 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
 
 describe("stream reaction routes (inert runtime)", () => {
   async function agentPost(): Promise<Block> {
-    return store.insert({ streamId: agentId, author: agentAuthor(agentId), text: "Done." });
+    return store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "Done.",
+    });
   }
 
   it("adds a reaction as not delivered and shows it on the feed row", async () => {
@@ -649,7 +748,9 @@ describe("stream reaction routes (inert runtime)", () => {
       ],
     });
     const feed = await authedInject("GET", `/api/v1/streams/${agentId}/blocks`);
-    const entry = feed.json().entries.find((e: { id: string }) => e.id === block.id);
+    const entry = feed
+      .json()
+      .entries.find((e: { id: string }) => e.id === block.id);
     expect(entry.block.reactions).toEqual(res.json().reactions);
   });
 
@@ -677,7 +778,11 @@ describe("stream reaction routes (inert runtime)", () => {
       text: "mine",
     });
     const post = (id: string, payload: unknown) =>
-      authedInject("POST", `/api/v1/streams/${agentId}/blocks/${id}/reactions`, payload);
+      authedInject(
+        "POST",
+        `/api/v1/streams/${agentId}/blocks/${id}/reactions`,
+        payload
+      );
     expect((await post(block.id, { emoji: "nice" })).statusCode).toBe(400);
     expect((await post(block.id, {})).statusCode).toBe(400);
     expect((await post("nope", { emoji: "👍" })).statusCode).toBe(400);
@@ -698,20 +803,40 @@ describe("POST /api/v1/streams/:rootId/read", () => {
       author: agentAuthor(agentId),
       text: "1",
     });
-    await store.insert({ streamId: agentId, author: agentAuthor(agentId), text: "2" });
-    const partial = await authedInject("POST", `/api/v1/streams/${agentId}/read`, {
-      upTo: first.id,
+    await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "2",
     });
+    const partial = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/read`,
+      {
+        upTo: first.id,
+      }
+    );
     expect(partial.statusCode).toBe(200);
     expect(partial.json()).toEqual({ unreadCount: 1 });
-    const all = await authedInject("POST", `/api/v1/streams/${agentId}/read`, {});
+    const all = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/read`,
+      {}
+    );
     expect(all.json()).toEqual({ unreadCount: 0 });
   });
 
   it("400s a present-but-invalid upTo and treats null as omitted", async () => {
-    await store.insert({ streamId: agentId, author: agentAuthor(agentId), text: "1" });
+    await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "1",
+    });
     for (const upTo of ["nope", 5, {}]) {
-      const res = await authedInject("POST", `/api/v1/streams/${agentId}/read`, { upTo });
+      const res = await authedInject(
+        "POST",
+        `/api/v1/streams/${agentId}/read`,
+        { upTo }
+      );
       expect(res.statusCode).toBe(400);
     }
     const res = await authedInject("POST", `/api/v1/streams/${agentId}/read`, {
@@ -729,7 +854,11 @@ describe("POST /api/v1/streams/:rootId/read", () => {
 describe("GET /api/v1/chat/unread", () => {
   it("lists per-agent unread and open-input counts", async () => {
     const other = await createAgent("Other");
-    await store.insert({ streamId: agentId, author: agentAuthor(agentId), text: "1" });
+    await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "1",
+    });
     await question(agentId);
     await form(agentId);
     const res = await authedInject("GET", "/api/v1/chat/unread");
@@ -741,7 +870,10 @@ describe("GET /api/v1/chat/unread", () => {
   });
 
   it("rejects an unauthenticated request", async () => {
-    const res = await ctx.app.inject({ method: "GET", url: "/api/v1/chat/unread" });
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/chat/unread",
+    });
     expect(res.statusCode).toBe(401);
   });
 });
@@ -887,7 +1019,11 @@ describe("stream routes with a deliverable engine", () => {
       author: agentAuthor(agentId),
       text: "1",
     });
-    await store.insert({ streamId: agentId, author: agentAuthor(agentId), text: "2" });
+    await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "2",
+    });
 
     const partial = await app.inject({
       method: "POST",
@@ -915,7 +1051,11 @@ describe("stream routes with a deliverable engine", () => {
     });
     expect(all.json()).toEqual({ unreadCount: 0 });
     expect(published).toEqual([
-      expect.objectContaining({ type: "stream.read", unreadCount: 0, upToAt: null }),
+      expect.objectContaining({
+        type: "stream.read",
+        unreadCount: 0,
+        upToAt: null,
+      }),
     ]);
 
     // Nothing left to mark: nothing announced.
@@ -934,7 +1074,10 @@ describe("stream routes with a deliverable engine", () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    const { app, ready, streams, published, prompts } = buildApp({ held: true, gate });
+    const { app, ready, streams, published, prompts } = buildApp({
+      held: true,
+      gate,
+    });
     await ready;
     const res = await app.inject({
       method: "POST",
@@ -955,7 +1098,9 @@ describe("stream routes with a deliverable engine", () => {
     // Still held: nothing has reached the engine and the row is pending.
     expect(prompts).toHaveLength(0);
     expect((await store.getById(body.block.id))?.delivered).toBeNull();
-    expect(entryIds(published)).toEqual([["stream.entry", body.block.id, null]]);
+    expect(entryIds(published)).toEqual([
+      ["stream.entry", body.block.id, null],
+    ]);
 
     release();
     const row = await settled(streams, body.block.id);
@@ -1124,10 +1269,11 @@ describe("stream routes with a deliverable engine", () => {
     expect(prompts[0].prompt).toContain(`(id: ${body.reply.id}, from: user)`);
     expect(prompts[0].prompt).toContain("\nYes\n");
     expect(prompts[0].prompt).toContain(`This answers your question ${q.id}.`);
-    // The answered question first, then its thread (the reply's root is the
-    // question, so that is what the feed re-lists), then the reply settling.
-    expect(entryIds(published).slice(0, 2)).toEqual([
+    // The answered question first, then the reply (filed into its thread by
+    // the client), then the question again as the thread's root.
+    expect(entryIds(published).slice(0, 3)).toEqual([
       ["stream.entry", q.id, null],
+      ["stream.entry", body.reply.id, null],
       ["stream.entry", q.id, null],
     ]);
 
@@ -1242,14 +1388,20 @@ describe("stream routes with a deliverable engine", () => {
     const byName = await app.inject({
       method: "POST",
       url,
-      payload: { value: "x", attachments: [{ type: "file", fileName: "a.png" }] },
+      payload: {
+        value: "x",
+        attachments: [{ type: "file", fileName: "a.png" }],
+      },
     });
     expect(byName.statusCode).toBe(400);
     expect(byName.json().error).toMatch(/attachments\.0/);
     const badUrl = await app.inject({
       method: "POST",
       url,
-      payload: { value: "x", attachments: [{ type: "link", url: "not a url" }] },
+      payload: {
+        value: "x",
+        attachments: [{ type: "link", url: "not a url" }],
+      },
     });
     expect(badUrl.statusCode).toBe(400);
     const oversized = await app.inject({
@@ -1266,7 +1418,9 @@ describe("stream routes with a deliverable engine", () => {
   it("leaves no orphan reply when answers race", async () => {
     const { app, ready } = buildApp({});
     await ready;
-    const q = await question(agentId, { options: [{ label: "a" }, { label: "b" }] });
+    const q = await question(agentId, {
+      options: [{ label: "a" }, { label: "b" }],
+    });
     const results = await Promise.all(
       ["a", "b", "a", "b"].map((value) =>
         app.inject({
@@ -1278,7 +1432,10 @@ describe("stream routes with a deliverable engine", () => {
     );
     const codes = results.map((r) => r.statusCode).sort();
     expect(codes).toEqual([200, 409, 409, 409]);
-    const replies = await ctx.pool.query(`SELECT id FROM blocks WHERE reply_to = $1`, [q.id]);
+    const replies = await ctx.pool.query(
+      `SELECT id FROM blocks WHERE reply_to = $1`,
+      [q.id]
+    );
     expect(replies.rows).toHaveLength(1);
     const winner = results.find((r) => r.statusCode === 200)!.json();
     expect(replies.rows[0].id).toBe(winner.reply.id);
@@ -1305,8 +1462,9 @@ describe("stream routes with a deliverable engine", () => {
     expect(row.delivered).toBe(true);
     expect(prompts[0].prompt).toContain("\nName: Ada\nCount: 2\n");
     expect(prompts[0].prompt).toContain(`This answers your form ${f.id}.`);
-    expect(entryIds(published).slice(0, 2)).toEqual([
+    expect(entryIds(published).slice(0, 3)).toEqual([
       ["stream.entry", f.id, null],
+      ["stream.entry", body.reply.id, null],
       ["stream.entry", f.id, null],
     ]);
     // Racing submissions leave one reply.
@@ -1321,7 +1479,10 @@ describe("stream routes with a deliverable engine", () => {
       )
     );
     expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409, 409]);
-    const replies = await ctx.pool.query(`SELECT id FROM blocks WHERE reply_to = $1`, [g.id]);
+    const replies = await ctx.pool.query(
+      `SELECT id FROM blocks WHERE reply_to = $1`,
+      [g.id]
+    );
     expect(replies.rows).toHaveLength(1);
     await streams.waitForInFlightDeliveries(1_000);
     await app.close();
@@ -1364,13 +1525,17 @@ describe("stream routes with a deliverable engine", () => {
       payload: { emoji: "🎉" },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().reactions).toEqual([expect.objectContaining({ delivered: null })]);
+    expect(res.json().reactions).toEqual([
+      expect.objectContaining({ delivered: null }),
+    ]);
     await streams.waitForInFlightDeliveries(1_000);
     expect(prompts[0]?.prompt).toContain(
       `--- DISPATCH REACTION (block id: ${block.id}) ---\nThe user reacted 🎉 to your latest post:\n> Shipped it.`
     );
     const last = published.at(-1) as { entry: { block: Block } };
-    expect(last.entry.block.reactions).toEqual([expect.objectContaining({ delivered: true })]);
+    expect(last.entry.block.reactions).toEqual([
+      expect.objectContaining({ delivered: true }),
+    ]);
     await app.close();
   });
 });
