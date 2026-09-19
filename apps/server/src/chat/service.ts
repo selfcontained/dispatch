@@ -1216,8 +1216,9 @@ export class StreamService {
 
   /**
    * Announce one block as the feed row it now is, read back through the
-   * feed's own query. A thread reply publishes its root instead (the reply
-   * count changed; the reply itself is read through the thread route).
+   * feed's own query. A thread reply is published as itself (the client
+   * files it into the open thread) and then its root is published again,
+   * since the root's reply count changed.
    */
   private async publishEntry(streamId: string, blockId: string): Promise<void> {
     let entry: StreamBlockEntry | null = null;
@@ -1229,15 +1230,19 @@ export class StreamService {
         "stream: could not read a block back for its feed event"
       );
     }
-    if (entry)
-      this.deps.publishUiEvent({
-        type: "stream.entry",
-        agentId: streamId,
-        entry,
-      });
-    else this.publishChanged(streamId);
+    if (!entry) {
+      this.publishChanged(streamId);
+      return;
+    }
+    this.deps.publishUiEvent({
+      type: "stream.entry",
+      agentId: streamId,
+      entry,
+    });
+    if (entry.block.threadId) {
+      await this.publishEntry(streamId, entry.block.threadId);
+    }
   }
-
   // -------------------------------------------------------------------------
   // Delivery
   // -------------------------------------------------------------------------

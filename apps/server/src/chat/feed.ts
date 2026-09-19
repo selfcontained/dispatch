@@ -83,9 +83,14 @@ async function listBlockEntries(
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
+  // A page lists top-level blocks only; a single read by id may name a
+  // reply, which is published as its own entry so a client can file it
+  // into its thread.
+  let scope = "AND b.thread_id IS NULL";
   if (onlyId !== undefined) {
     params.push(onlyId);
     clause += ` AND b.id = $${params.length}::uuid`;
+    scope = "";
   }
   params.push(limit);
   const result = await db.query<BlockRow & { at_key: string }>(
@@ -94,7 +99,7 @@ async function listBlockEntries(
               to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
          FROM blocks b
         WHERE b.stream_id = $1
-          AND b.thread_id IS NULL
+          ${scope}
           AND NOT EXISTS (
             SELECT 1
               FROM agent_stream_events s
@@ -172,9 +177,8 @@ async function listBlockEntries(
 }
 
 /**
- * One block as the feed would list it. A thread reply is not on the feed;
- * its root is what changed (reply count), so the root is returned instead.
- * Null when neither is on this stream.
+ * One block as the feed would list it, or a reply as its thread lists it.
+ * Null when it is not on this stream.
  */
 export async function loadBlockEntry(
   db: Queryable,
@@ -182,15 +186,7 @@ export async function loadBlockEntry(
   blockId: string
 ): Promise<StreamBlockEntry | null> {
   const [found] = await listBlockEntries(db, streamId, null, 1, blockId);
-  if (found) return found.entry;
-  const reply = await db.query<{ thread_id: string | null }>(
-    `SELECT thread_id FROM blocks WHERE id = $1::uuid AND stream_id = $2`,
-    [blockId, streamId]
-  );
-  const rootId = reply.rows[0]?.thread_id;
-  if (!rootId) return null;
-  const [root] = await listBlockEntries(db, streamId, null, 1, rootId);
-  return root?.entry ?? null;
+  return found?.entry ?? null;
 }
 
 async function listStatusEntries(
