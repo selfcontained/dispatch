@@ -7,11 +7,10 @@
 export function buildPersonaKickoffPrompt(): string {
   return buildReviewPromptBlock("REVIEW ASSIGNMENT", [
     "Begin your review now. Your persona instructions, the parent's context briefing, and the diff to review are already loaded into your context.",
-    "Before inspecting the target, call dispatch_event with type 'working' and a short description of the review phase. Refresh that working event whenever you move to a distinct review phase so your parent can see accurate progress.",
     "Inspect the full review target before submitting. Do not use direct agent messages for review discussion.",
     "When your initial pass is complete, call dispatch_review_submit exactly once with every actionable finding. When feedback items carry the review, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; do not repeat feedback-item details. A concise nonblank summary is required for a clean approval with an empty feedback array.",
     "After submission, use dispatch_review_add_message for clarifying questions or replies on an existing feedback item. Use dispatch_review_add_feedback only for a genuinely new concern.",
-    "Immediately after dispatch_review_submit, call dispatch_event with type 'done' if your pass is complete, or 'waiting_user' only when a tracked feedback thread needs a reply. Never leave your status as 'working' while waiting. Later thread activity will be delivered in a new injected review block.",
+    "After dispatch_review_submit, later thread activity arrives as a new review block; handle it in the tracked feedback thread.",
   ]);
 }
 
@@ -100,7 +99,7 @@ export function buildReviewFeedbackAddedPrompt(input: {
     `Feedback item ID: ${input.itemId}`,
     `From: ${input.reviewerName}`,
     `Finding: ${input.body}`,
-    "Call dispatch_event with type 'working' before handling this update, then call dispatch_review_list_feedback with this reviewId to refresh the review. Keep questions and explanations in this item's thread. Finish with dispatch_event type 'done', or 'waiting_user' only after posting a tracked question that needs a reply.",
+    "Call dispatch_review_list_feedback with this reviewId to refresh the review. Keep questions and explanations in this item's thread.",
   ]);
 }
 
@@ -120,7 +119,7 @@ export function buildReviewThreadUpdatePrompt(input: {
     `Feedback item ID: ${input.itemId}`,
     `From: ${input.from}`,
     `Message: ${input.body}`,
-    `Call dispatch_event with type 'working' before handling this update, then call dispatch_review_list_feedback with this reviewId for full context. ${nextStep} Do not move review discussion to direct agent messages. Finish with dispatch_event type 'done', or 'waiting_user' only after posting a tracked question that needs a reply.`,
+    `Call dispatch_review_list_feedback with this reviewId for full context. ${nextStep} Do not move review discussion to direct agent messages.`,
   ]);
 }
 
@@ -142,7 +141,7 @@ export function buildReviewItemStatePrompt(input: {
   ];
   if (input.note) lines.push(`Message: ${input.note}`);
   lines.push(
-    "Call dispatch_event with type 'working' before handling this update, then call dispatch_review_list_feedback with this reviewId for the current thread. Use dispatch_review_add_message if clarification is needed. Finish with dispatch_event type 'done', or 'waiting_user' only after posting a tracked question that needs a reply."
+    "Call dispatch_review_list_feedback with this reviewId for the current thread. Use dispatch_review_add_message if clarification is needed."
   );
   return buildReviewPromptBlock(kind, lines);
 }

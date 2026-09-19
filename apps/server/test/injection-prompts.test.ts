@@ -17,8 +17,6 @@ describe("buildPersonaKickoffPrompt", () => {
     expect(text).toContain("--- DISPATCH: REVIEW ASSIGNMENT ---");
     expect(text).toContain("--- END DISPATCH: REVIEW ASSIGNMENT ---");
     expect(text).toContain("dispatch_review_submit");
-    expect(text).toContain("type 'working'");
-    expect(text).toContain("'waiting_user'");
   });
 });
 
@@ -49,8 +47,6 @@ describe("unified review prompt blocks", () => {
     expect(text).toContain("dispatch_review_add_message");
     expect(text).toContain("dispatch_review_resolve");
     expect(text).toMatch(/re-inspect/i);
-    expect(text).toContain("type 'working'");
-    expect(text).toContain("type 'done'");
   });
 
   it("tells the assignee to request verification instead of resolving", () => {
