@@ -228,7 +228,7 @@ cmd_up() {
 
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
-  DEV_DISPLAY_HOST="${DISPATCH_HOST:-127.0.0.1}"
+  DEV_DISPLAY_HOST="${DISPATCH_HOST:-127.0.0.1}"; [ "$DEV_DISPLAY_HOST" = "0.0.0.0" ] && DEV_DISPLAY_HOST="127.0.0.1"
 
   # Build environment
   (
@@ -248,6 +248,9 @@ cmd_up() {
 
     # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
+    # Bind to all interfaces so the dev stack is reachable from other devices
+    # (phone, another laptop) on the LAN or tailnet, not just this machine.
+    export DISPATCH_HOST="${DISPATCH_HOST:-0.0.0.0}"
     export DISPATCH_SESSION_PREFIX="dispatch_dev"
     if [ "$OPT_LIVE" = "1" ]; then
       export DISPATCH_AGENT_RUNTIME="acp"
