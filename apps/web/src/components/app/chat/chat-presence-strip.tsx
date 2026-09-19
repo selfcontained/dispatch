@@ -53,7 +53,9 @@ export function presenceState(
   blip: AgentToolBlip | null,
   now: number
 ): PresenceState {
-  const running = agent.status === "running";
+  // A creating agent is alive too: its startup phases arrive as events and
+  // should read as such rather than as "Stopped".
+  const running = agent.status === "running" || agent.status === "creating";
   const { label, colorClass } = describeAgentStatus(agent, !running);
   if (!running)
     return { label, colorClass, detail: { kind: "phase", text: null } };

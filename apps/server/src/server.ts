@@ -373,6 +373,12 @@ const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
 );
+// Status and phase changes the manager makes on its own (a detached launch
+// coming up, an engine exiting, a restore at boot) reach the sidebar and the
+// Chat presence line through the same upsert the routes publish.
+agentManager.onLatestEvent((agent) => {
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+});
 agentManager.onAgentCreated((agent) => {
   uiEventBroker.publish({
     type: "agent.upsert",
