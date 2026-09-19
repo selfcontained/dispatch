@@ -878,9 +878,7 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       expect(agent.fullAccess).toBe(true);
-      expect(agent.agentArgs).toContain(
-        "--dangerously-skip-permissions"
-      );
+      expect(agent.agentArgs).toContain("--dangerously-skip-permissions");
     });
 
     it("should append the claude full access flag for direct launches", async () => {
@@ -1316,6 +1314,94 @@ describe("AgentManager", () => {
         [agent.id]
       );
       expect(Number(after.rows[0]!.host_seq)).toBe(7);
+    });
+
+    it("derives working, waiting and idle from the turn lifecycle", async () => {
+      const { ChatStore } = await import("../../src/chat/store.js");
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await runtime.emit(
+        agent.id,
+        {
+          type: "turn",
+          agentId: agent.id,
+          state: "started",
+          text: "Fix the login bug\nDetails follow.",
+        },
+        1
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "working",
+        message: "Fix the login bug",
+      });
+
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        2
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "idle",
+      });
+
+      await new ChatStore(pool).insert({
+        agentId: agent.id,
+        authorKind: "agent",
+        kind: "question",
+        text: "Ship it?",
+        replyTo: null,
+        question: { options: [{ label: "Yes" }], allowFreeform: false },
+        attachments: [],
+      });
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "again" },
+        3
+      );
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        4
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "waiting_user",
+        message: "Ship it?",
+      });
+
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        5
+      );
+      await runtime.emit(
+        agent.id,
+        {
+          type: "turn",
+          agentId: agent.id,
+          state: "settled",
+          error: "rate limited",
+        },
+        6
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "blocked",
+        message: "rate limited",
+      });
+    });
+
+    it("marks the agent waiting as soon as it posts a question", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.noteQuestionPosted(agent.id, "Which branch?\nmain or dev");
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "waiting_user",
+        message: "Which branch?",
+      });
     });
 
     it("should put a running agent into error when its engine exits unexpectedly", async () => {

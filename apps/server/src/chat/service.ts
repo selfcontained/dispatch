@@ -108,6 +108,8 @@ export type ChatServiceDeps = {
    * means assume someone is listening.
    */
   hasUiClient?: () => boolean;
+  /** An agent question landed: the agent's status becomes waiting. */
+  onQuestionPosted?: (agentId: string, text: string) => Promise<void>;
   /** Required for the user-side workflows (send, answer). */
   delivery?: ChatDeliveryAdapter;
   log?: {
@@ -1001,6 +1003,16 @@ export class ChatService {
       attachments,
     });
     await this.publishEntry(agentId, message.id);
+    if (kind === "question" && this.deps.onQuestionPosted) {
+      await this.deps
+        .onQuestionPosted(agentId, input.text)
+        .catch((error: unknown) => {
+          this.deps.log?.warn(
+            { err: error, agentId },
+            "chat: failed to mark the agent as waiting on its question"
+          );
+        });
+    }
     return message;
   }
 

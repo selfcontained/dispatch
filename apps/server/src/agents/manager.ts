@@ -103,6 +103,16 @@ export type {
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 
+/** The first line of a prompt or answer, short enough for the sidebar. */
+function statusLine(text: string): string {
+  const line =
+    text
+      .split("\n")
+      .find((l) => l.trim().length > 0)
+      ?.trim() ?? "";
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
 const ENGINE_LABELS: Record<AgentType, string> = {
   claude: "Claude Code",
   codex: "Codex",
@@ -361,7 +371,8 @@ export class AgentManager {
       setAgentStatus: (id, status, lastError) =>
         this.setAgentStatus(id, status, lastError),
       setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
-      settleStream: (id, reason) => this.streamStore.settleInterrupted(id, reason),
+      settleStream: (id, reason) =>
+        this.streamStore.settleInterrupted(id, reason),
     });
   }
 
@@ -410,6 +421,9 @@ export class AgentManager {
         [agentId, seq]
       );
     }
+    if (event.type === "turn") {
+      await this.deriveTurnStatus(agentId, event);
+    }
     if (event.type === "exit" && !event.expected) {
       const how =
         event.code === null
@@ -426,8 +440,72 @@ export class AgentManager {
     );
   }
 
+  /**
+   * The agent's status, read off its stream rather than reported by it: a
+   * turn opening means working, a turn closing means idle unless a question
+   * of the agent's is still unanswered (waiting) or the turn failed
+   * (blocked). Written as status events so the sidebar, notifications and
+   * the Activity page keep one source; the feed hides the per-turn ones.
+   */
+  private async deriveTurnStatus(
+    agentId: string,
+    event: Extract<DriverEvent, { type: "turn" }>
+  ): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent || agent.status !== "running") return;
+    if (event.state === "started") {
+      await this.setSystemLatestEvent(agentId, {
+        type: "working",
+        message: statusLine(event.text),
+        metadata: { source: "system", phase: "turn" },
+      });
+    } else if (event.error) {
+      await this.setSystemLatestEvent(agentId, {
+        type: "blocked",
+        message: statusLine(event.error),
+        metadata: { source: "system", phase: "turn" },
+      });
+    } else {
+      const question = await this.openQuestion(agentId);
+      await this.setSystemLatestEvent(agentId, {
+        type: question ? "waiting_user" : "idle",
+        message: question ? statusLine(question) : "Ready.",
+        metadata: { source: "system", phase: "turn" },
+      });
+    }
+    this.eventBus.publish(await this.getRequiredAgent(agentId));
+  }
+
+  /** The newest question the agent asked in Chat that nobody has answered. */
+  private async openQuestion(agentId: string): Promise<string | null> {
+    const result = await this.pool.query<{ text: string }>(
+      `SELECT text FROM agent_chat_messages
+        WHERE agent_id = $1 AND author_kind = 'agent'
+          AND kind = 'question' AND answer IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [agentId]
+    );
+    return result.rows[0]?.text ?? null;
+  }
+
+  /** The agent asked the user something in Chat: it is waiting on them now. */
+  async noteQuestionPosted(agentId: string, text: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent || agent.status !== "running") return;
+    await this.setSystemLatestEvent(agentId, {
+      type: "waiting_user",
+      message: statusLine(text),
+      metadata: { source: "system", phase: "turn" },
+    });
+    this.eventBus.publish(await this.getRequiredAgent(agentId));
+  }
+
   /** The engine or its host died on its own: the agent cannot stay running. */
-  private async markHostExited(agentId: string, message: string): Promise<void> {
+  private async markHostExited(
+    agentId: string,
+    message: string
+  ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
     await this.setAgentStatus(agentId, "error", message.slice(0, 1000));
@@ -463,7 +541,11 @@ export class AgentManager {
       if (agent.status === "creating") {
         throw new AgentError("Agent is still starting.", 409);
       }
-      await this.setAgentStatus(id, "stopped", "The agent host is no longer running.");
+      await this.setAgentStatus(
+        id,
+        "stopped",
+        "The agent host is no longer running."
+      );
       throw new AgentError(
         "Agent session is not available. Start the agent again.",
         409
@@ -510,7 +592,10 @@ export class AgentManager {
    * An agent whose host is gone is marked stopped rather than left "running"
    * with nothing behind it.
    */
-  async restoreRunningAgents(): Promise<{ attached: string[]; lost: string[] }> {
+  async restoreRunningAgents(): Promise<{
+    attached: string[];
+    lost: string[];
+  }> {
     const attached: string[] = [];
     const lost: string[] = [];
     const result = await this.pool.query<{ id: string; cwd: string }>(
@@ -718,31 +803,33 @@ export class AgentManager {
         );
     // The launch post is the first turn's envelope, so a launch that carries
     // a prompt waits for the post to be durable before the engine starts.
-    // Job runs keep Chat quiet; their prompt goes as the first turn as-is.
+    // It is written once the workspace is ready rather than up front, so the
+    // feed reads setup → launch message → first turn. Job runs keep Chat
+    // quiet; their prompt goes as the first turn as-is.
     const recorder = this.launchContextRecorder;
     const wantsEnvelope = recorder !== null && !input.jobRunId;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
       ? this.launchContextInput(p, input, initialMedia, launchPostId)
       : null;
-    let chatLaunchPost: ChatLaunchPost | null = null;
     let launchContextWrite: Promise<void> = Promise.resolve();
-    if (recorder && launchContextInput) {
+    const resolveLaunchPost = async (): Promise<ChatLaunchPost | null> => {
+      if (!recorder || !launchContextInput) return null;
       if (wantsEnvelope) {
-        chatLaunchPost = await this.resolveDurableLaunchPost(
+        return this.resolveDurableLaunchPost(
           recorder,
           p.id,
           launchPostId,
           launchContextInput
         );
-      } else {
-        launchContextWrite = this.recordLaunchContextDetached(
-          recorder,
-          p.id,
-          launchContextInput
-        );
       }
-    }
+      launchContextWrite = this.recordLaunchContextDetached(
+        recorder,
+        p.id,
+        launchContextInput
+      );
+      return null;
+    };
 
     const launch = this.launchAgent({
       id: p.id,
@@ -757,7 +844,7 @@ export class AgentManager {
       initialPrompt: input.initialPrompt,
       initialPins: p.initialPins,
       initialMedia,
-      chatLaunchPost,
+      resolveLaunchPost,
       launchGuidanceFlags,
       jobRunId: input.jobRunId,
     });
@@ -1072,7 +1159,8 @@ export class AgentManager {
     initialPrompt: string | undefined;
     initialPins: AgentPin[];
     initialMedia: SeededMedia[];
-    chatLaunchPost: ChatLaunchPost | null;
+    /** Writes the launch post once the workspace is ready; see createAgent. */
+    resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     launchGuidanceFlags: { trimmedGuidance: boolean; chatSurface: boolean };
     jobRunId: string | undefined;
   }): Promise<void> {
@@ -1104,6 +1192,7 @@ export class AgentManager {
         ]
       );
       const agent = await this.getRequiredAgent(id);
+      const chatLaunchPost = await opts.resolveLaunchPost();
       const { sessionId } = await this.startHost(agent, {
         resumeSessionId: null,
         jobRunId: opts.jobRunId,
@@ -1125,7 +1214,7 @@ export class AgentManager {
           initialPrompt: opts.initialPrompt,
           initialPins: opts.initialPins,
           initialMedia: opts.initialMedia,
-          chatLaunchPost: opts.chatLaunchPost,
+          chatLaunchPost,
         },
         { chatSurface: true, jobRunId: opts.jobRunId }
       );
@@ -1135,7 +1224,10 @@ export class AgentManager {
         const lastError = `Worktree creation failed: ${error.message}`;
         await this.setAgentStatus(id, "stopped", lastError);
         await this.setSetupPhase(id, null);
-        await this.setSystemLatestEvent(id, { type: "blocked", message: lastError });
+        await this.setSystemLatestEvent(id, {
+          type: "blocked",
+          message: lastError,
+        });
         throw new AgentError(lastError, error.statusCode);
       }
       await this.failCreate(id, error);

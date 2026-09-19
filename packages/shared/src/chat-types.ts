@@ -173,9 +173,18 @@ export type ChatStatusEntry = {
   at: string;
   /**
    * Written by Dispatch itself (a lifecycle mark: started, stopped, resumed,
-   * a setup phase) rather than reported by the agent.
+   * a setup phase, a status derived from the stream) rather than reported
+   * by the agent.
    */
   system?: boolean;
+  /**
+   * What a system event marks: `setup` (one workspace step, see
+   * `setupPhase`), `started`, `create` (setup failed), `start`, `stop`,
+   * `exit`, or `turn` (status derived from a turn opening or closing).
+   */
+  phase?: string;
+  /** For `phase: "setup"`: worktree | env | deps | session. */
+  setupPhase?: string;
 };
 
 /** A cross-agent message (`agent_messages`) in either direction. */

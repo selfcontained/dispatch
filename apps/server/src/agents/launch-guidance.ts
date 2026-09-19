@@ -148,7 +148,7 @@ export const CHAT_SURFACE_GUIDANCE_RULE =
  *
  * - **The MCP tool schemas.** `pin`'s own description already lists
  *   every pin type, explains shortcut/confirm/disabled, and says to pair a
- *   blocking shortcut with `waiting_user`. Restating that here duplicated a
+ *   blocking shortcut. Restating that here duplicated a
  *   description the agent already has, in every session, whether or not the flow ever comes up. The
  *   trimmed rules say *that* these tools matter and leave the *how* to the
  *   schema. This half does not depend on the plugin at all.
@@ -248,7 +248,7 @@ export function buildLaunchGuidance(
         "Pin key info with pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call list_pins then delete_pin with its id. For longer artifacts, write a file via share_file and pin a reference."
       );
       rules.push(
-        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you. For a structured decision, form, or status view — several related values, or something the user must fill in — use surface_create instead of a shortcut pin."
+        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones. For a structured decision, form, or status view — several related values, or something the user must fill in — use surface_create instead of a shortcut pin."
       );
     }
     rules.push(

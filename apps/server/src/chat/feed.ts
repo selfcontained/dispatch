@@ -209,6 +209,9 @@ export function toStatusEntry(
   metadata?: Record<string, unknown> | null
 ): ChatStatusEntry {
   const system = metadata?.source === "system";
+  const phase = typeof metadata?.phase === "string" ? metadata.phase : null;
+  const setupPhase =
+    typeof metadata?.setupPhase === "string" ? metadata.setupPhase : null;
   return {
     type: "status",
     id: `event:${id}`,
@@ -216,6 +219,8 @@ export function toStatusEntry(
     message,
     at: new Date(createdAt).toISOString(),
     ...(system ? { system: true } : {}),
+    ...(phase ? { phase } : {}),
+    ...(setupPhase ? { setupPhase } : {}),
   };
 }
 

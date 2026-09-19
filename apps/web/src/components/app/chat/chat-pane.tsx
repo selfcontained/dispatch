@@ -247,12 +247,17 @@ export function ChatPane({
   );
   const visibleEntries = useMemo(
     () =>
-      filterChildAgentMessages(entries, childAgentIdSet, showChildAgents).filter(
-        // Agent-reported status is noise in the feed and is
-        // not dependable; the presence line carries the live status. Only
-        // Dispatch's own lifecycle marks (started, stopped, resumed) stay,
-        // rendered as hairlines.
-        (entry) => entry.type !== "status" || entry.system === true
+      filterChildAgentMessages(
+        entries,
+        childAgentIdSet,
+        showChildAgents
+      ).filter(
+        // Only Dispatch's own marks stay in the feed: setup phases (folded
+        // into the Setup block) and lifecycle seams (stopped, resumed). The
+        // per-turn derived status is what the presence line already shows.
+        (entry) =>
+          entry.type !== "status" ||
+          (entry.system === true && entry.phase !== "turn")
       ),
     [childAgentIdSet, entries, showChildAgents]
   );

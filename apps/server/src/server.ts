@@ -415,6 +415,8 @@ const chatService = new ChatService({
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   mediaRoot: config.mediaRoot,
+  onQuestionPosted: (agentId, text) =>
+    agentManager.noteQuestionPosted(agentId, text),
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
     // The service already checked deliverability; the injector re-resolves
