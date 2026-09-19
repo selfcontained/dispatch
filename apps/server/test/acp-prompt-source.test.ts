@@ -3,20 +3,41 @@ import { describe, expect, it } from "vitest";
 import { parsePromptSource } from "../src/agents/acp/prompt-source.js";
 
 describe("parsePromptSource", () => {
-  it("reads the chat message id out of a chat envelope", () => {
-    const text = [
-      "--- DISPATCH POST (id: fae1f052-5d66-4039-9bde-35ac8166695d, from: user) ---",
-      "hello",
-      "--- END DISPATCH POST ---",
-      "The user is reading Chat…",
-    ].join("\n");
-    expect(parsePromptSource(text)).toEqual({
+  it("reads the block id out of a POST envelope, whoever it is from", () => {
+    for (const from of [
+      "user",
+      "Reviewer (agt_683b115bc1e9)",
+      "Odd (name) here",
+    ]) {
+      const text = [
+        `--- DISPATCH POST (id: fae1f052-5d66-4039-9bde-35ac8166695d, from: ${from}) ---`,
+        "hello",
+        "--- END DISPATCH POST ---",
+        "Your reply appears in the stream…",
+      ].join("\n");
+      expect(parsePromptSource(text), from).toEqual({
+        source: "chat",
+        chatMessageId: "fae1f052-5d66-4039-9bde-35ac8166695d",
+      });
+    }
+    // A header without a sender still names its block.
+    expect(
+      parsePromptSource(
+        "--- DISPATCH POST (id: fae1f052-5d66-4039-9bde-35ac8166695d) ---\nhi\n--- END DISPATCH POST ---"
+      )
+    ).toEqual({
       source: "chat",
       chatMessageId: "fae1f052-5d66-4039-9bde-35ac8166695d",
     });
+    // The retired CHAT marker is no longer a prompt source.
+    expect(
+      parsePromptSource(
+        "--- DISPATCH CHAT (id: fae1f052-5d66-4039-9bde-35ac8166695d) ---\nhi\n--- END DISPATCH CHAT ---"
+      ).source
+    ).toBe("system");
   });
 
-  it("does not read a chat id out of a header that is not a real UUID", () => {
+  it("does not read a block id out of a header that is not a real UUID", () => {
     // The header is matched on every prompt that reaches the queue, review
     // injection prompts included, and those embed feedback bodies verbatim.
     // A captured value that is not a UUID reaches a `::uuid[]` cast and

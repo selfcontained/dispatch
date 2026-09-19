@@ -13,9 +13,10 @@ export type PromptSource =
 // rejects there turns every later read of that agent's turns into a 500. The
 // header is matched on every prompt that reaches the queue, and review
 // injection prompts embed feedback bodies verbatim, so the text is not
-// always Dispatch's own.
+// always Dispatch's own. The sender label may itself hold parentheses
+// (`Name (agt_x)`), so it is matched lazily up to the closing marker.
 const CHAT_HEADER =
-  /^--- DISPATCH POST \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:, from: [^)]*)?\) ---/m;
+  /^--- DISPATCH POST \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:, from: [^\n]*?)?\) ---/m;
 const MESSAGE_BLOCK =
   /^--- DISPATCH MESSAGE ---\n([\s\S]*?)\n--- END MESSAGE ---/m;
 const SYSTEM_MAX = 500;
