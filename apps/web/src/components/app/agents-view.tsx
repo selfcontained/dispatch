@@ -34,7 +34,8 @@ import {
 import { BottomBar } from "@/components/app/bottom-bar";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
-import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
+import { NavigationSidebar } from "@/components/app/navigation-sidebar";
+import { type NavSection } from "@/components/app/sidebar-shell";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type Agent,
@@ -681,75 +682,59 @@ export function AgentsView({
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
-        <GlassSidebar
-          open={isMobile ? mobileLeftOpen : leftOpen}
-          onOpenChange={(open) => {
-            if (isMobile) {
-              if (open) setMobileMediaOpen(false);
-              setMobileLeftOpen(open);
-            } else {
-              setLeftOpen(open);
-            }
-          }}
-          side="left"
-          width={320}
-          mobile={isMobile}
-          label="Navigation sidebar"
+        <NavigationSidebar
+          isMobile={isMobile}
+          leftOpen={leftOpen}
+          mobileLeftOpen={mobileLeftOpen}
+          setLeftOpen={setLeftOpen}
+          setMobileLeftOpen={setMobileLeftOpen}
+          setMobileMediaOpen={setMobileMediaOpen}
+          pulsingNavItem={pulsingNavItem}
+          triggerNavAnimation={triggerNavAnimation}
+          activeSection="agents"
+          onNavigate={onNavigateSection}
         >
-          <SidebarShell
-            activeSection="agents"
-            onNavigate={onNavigateSection}
-            onRequestClose={
+          <AgentListContent
+            agents={agents}
+            selectedAgentId={validatedSelectedAgentId}
+            expandedAgentId={expandedAgentId}
+            overflowAgentId={overflowAgentId}
+            onOpenCreateDialog={
               isMobile
-                ? () => setMobileLeftOpen(false)
-                : () => setLeftOpen(false)
+                ? mobileCloseAndAction(openCreateDialog)
+                : openCreateDialog
             }
-            closeButtonIcon={isMobile ? "x" : "chevron"}
-            pulsingNavItem={pulsingNavItem}
-            triggerNavAnimation={triggerNavAnimation}
-          >
-            <AgentListContent
-              agents={agents}
-              selectedAgentId={validatedSelectedAgentId}
-              expandedAgentId={expandedAgentId}
-              overflowAgentId={overflowAgentId}
-              onOpenCreateDialog={
-                isMobile
-                  ? mobileCloseAndAction(openCreateDialog)
-                  : openCreateDialog
-              }
-              enabledAgentTypes={enabledAgentTypes}
-              enabledIdes={enabledIdes}
-              lastUsedAgentType={lastUsedAgentType}
-              setOverflowAgentId={setOverflowAgentId}
-              setDeleteTarget={setDeleteTarget}
-              setDeleteConfirmOpen={
-                isMobile
-                  ? mobileCloseAndAction(setDeleteConfirmOpen)
-                  : setDeleteConfirmOpen
-              }
-              setStopTarget={setStopTarget}
-              setStopConfirmOpen={
-                isMobile
-                  ? mobileCloseAndAction(setStopConfirmOpen)
-                  : setStopConfirmOpen
-              }
-              agentVisualState={agentVisualState}
-              borderForAgentState={borderForAgentState}
-              toggleAgentDetails={toggleAgentDetails}
-              isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={detachAndClearSelection}
-              attachToAgent={attachToAgent}
-              startAgent={startAgent}
-              openSubmittedReview={handleOpenSubmittedReview}
-              connectedAgentId={connectedAgentId}
-              onRequestClose={
-                isMobile ? () => setMobileLeftOpen(false) : undefined
-              }
-              closeOnSessionAction={isMobile}
-            />
-          </SidebarShell>
-        </GlassSidebar>
+            enabledAgentTypes={enabledAgentTypes}
+            enabledIdes={enabledIdes}
+            lastUsedAgentType={lastUsedAgentType}
+            setOverflowAgentId={setOverflowAgentId}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={
+              isMobile
+                ? mobileCloseAndAction(setDeleteConfirmOpen)
+                : setDeleteConfirmOpen
+            }
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={
+              isMobile
+                ? mobileCloseAndAction(setStopConfirmOpen)
+                : setStopConfirmOpen
+            }
+            agentVisualState={agentVisualState}
+            borderForAgentState={borderForAgentState}
+            toggleAgentDetails={toggleAgentDetails}
+            isFullAccessEnabled={isFullAccessEnabled}
+            detachTerminal={detachAndClearSelection}
+            attachToAgent={attachToAgent}
+            startAgent={startAgent}
+            openSubmittedReview={handleOpenSubmittedReview}
+            connectedAgentId={connectedAgentId}
+            onRequestClose={
+              isMobile ? () => setMobileLeftOpen(false) : undefined
+            }
+            closeOnSessionAction={isMobile}
+          />
+        </NavigationSidebar>
 
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <div

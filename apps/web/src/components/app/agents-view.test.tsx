@@ -1567,6 +1567,11 @@ describe("AgentsView hook wiring", () => {
       validatedSelectedAgentId: "a1",
     });
     const desktop = mount();
+    expect(propsOf("SidebarShell").activeSection).toBe("agents");
+    expect(propsOf("SidebarShell").onNavigate).toBe(
+      desktop.props.onNavigateSection
+    );
+    expect(propsOf("SidebarShell").closeButtonIcon).toBe("chevron");
     act(() => (propsOf("SidebarShell").onRequestClose as () => void)());
     expect(desktop.props.setLeftOpen).toHaveBeenCalledWith(false);
     expect(desktop.props.setMobileLeftOpen).not.toHaveBeenCalled();
@@ -1574,6 +1579,7 @@ describe("AgentsView hook wiring", () => {
     cleanup();
     H.clearProps();
     const mobile = mount({ isMobile: true });
+    expect(propsOf("SidebarShell").closeButtonIcon).toBe("x");
     act(() => (propsOf("SidebarShell").onRequestClose as () => void)());
     expect(mobile.props.setMobileLeftOpen).toHaveBeenCalledWith(false);
     expect(mobile.props.setLeftOpen).not.toHaveBeenCalled();

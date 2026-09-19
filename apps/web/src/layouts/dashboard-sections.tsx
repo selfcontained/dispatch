@@ -13,10 +13,10 @@ import {
   SettingsNavContent,
 } from "@/components/app/settings-pane";
 import { useSettingsState } from "@/components/app/settings-state";
-import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
+import { NavigationSidebar } from "@/components/app/navigation-sidebar";
+import { type NavSection } from "@/components/app/sidebar-shell";
 import { type ServiceState } from "@/components/app/types";
 import { DesignLab } from "@/components/app/design-lab";
-import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/components/app/dashboard-context";
@@ -53,36 +53,20 @@ function SectionShell({
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden py-2">
-        <GlassSidebar
-          open={isMobile ? mobileLeftOpen : leftOpen}
-          onOpenChange={(open) => {
-            if (isMobile) {
-              if (open) setMobileMediaOpen(false);
-              setMobileLeftOpen(open);
-            } else {
-              setLeftOpen(open);
-            }
-          }}
-          side="left"
-          width={320}
-          mobile={isMobile}
-          label="Navigation sidebar"
+        <NavigationSidebar
+          isMobile={isMobile}
+          leftOpen={leftOpen}
+          mobileLeftOpen={mobileLeftOpen}
+          setLeftOpen={setLeftOpen}
+          setMobileLeftOpen={setMobileLeftOpen}
+          setMobileMediaOpen={setMobileMediaOpen}
+          pulsingNavItem={pulsingNavItem}
+          triggerNavAnimation={triggerNavAnimation}
+          activeSection={activeSection}
+          onNavigate={handleSidebarNavigate}
         >
-          <SidebarShell
-            activeSection={activeSection}
-            onNavigate={handleSidebarNavigate}
-            onRequestClose={
-              isMobile
-                ? () => setMobileLeftOpen(false)
-                : () => setLeftOpen(false)
-            }
-            closeButtonIcon={isMobile ? "x" : "chevron"}
-            pulsingNavItem={pulsingNavItem}
-            triggerNavAnimation={triggerNavAnimation}
-          >
-            {sidebar}
-          </SidebarShell>
-        </GlassSidebar>
+          {sidebar}
+        </NavigationSidebar>
 
         <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {!leftPanelOpen ? (

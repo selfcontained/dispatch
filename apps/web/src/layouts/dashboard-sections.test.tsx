@@ -289,6 +289,11 @@ describe("SectionShell sidebar open/close wiring", () => {
     renderAt("/settings");
     expect(propsOf("GlassSidebar").open).toBe(false);
     expect(propsOf("GlassSidebar").mobile).toBe(false);
+    expect(propsOf("SidebarShell").activeSection).toBe("settings");
+    expect(propsOf("SidebarShell").onNavigate).toBe(
+      H.context.handleSidebarNavigate
+    );
+    expect(propsOf("SidebarShell").closeButtonIcon).toBe("chevron");
   });
 
   it("passes mobileLeftOpen (not leftOpen) as the open prop on mobile", () => {
@@ -300,6 +305,7 @@ describe("SectionShell sidebar open/close wiring", () => {
     renderAt("/settings");
     expect(propsOf("GlassSidebar").open).toBe(true);
     expect(propsOf("GlassSidebar").mobile).toBe(true);
+    expect(propsOf("SidebarShell").closeButtonIcon).toBe("x");
   });
 
   it("opens the desktop sidebar through setLeftOpen only, never touching the media flag", () => {
