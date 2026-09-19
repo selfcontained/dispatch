@@ -20,6 +20,10 @@ import {
   ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
+import {
+  type FoldedEntry,
+  foldAttachments,
+} from "@/components/app/chat/turn/turn-attachments";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
@@ -49,6 +53,11 @@ export type ChatFeedRow =
        * between the two, so nothing is separated twice.
        */
       rule: boolean;
+      /**
+       * A turn only: the files, pins and peer messages the agent produced
+       * while it ran, lifted out of the feed and into the turn's post.
+       */
+      folded?: FoldedEntry[];
     };
 
 /** Posts by one author this close together share a header, like Slack. */
@@ -270,7 +279,8 @@ export function layoutFeed(
   const rows: ChatFeedRow[] = [];
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
-  for (const item of collapseFeed(entries)) {
+  const fold = foldAttachments(entries);
+  for (const item of collapseFeed(fold.entries)) {
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
       rows.push({
@@ -291,11 +301,13 @@ export function layoutFeed(
     // fresh group, draws no hairline of its own, and ends the run behind
     // it so the post after it opens with a header.
     if (item.entry.type === "turn") {
+      const folded = fold.folded.get(item.entry.id);
       rows.push({
         kind: "entry",
         entry: item.entry,
         grouped: false,
         rule: false,
+        ...(folded ? { folded } : {}),
       });
       lastPost = null;
       continue;
@@ -506,6 +518,7 @@ export function ChatFeed({
                   grouped={row.grouped}
                   rule={row.rule}
                   ctx={ctx}
+                  folded={row.folded}
                 />
               );
             case "pin":

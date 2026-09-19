@@ -25,9 +25,11 @@ import type { Step, Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
+import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
+const NO_FOLDED: readonly FoldedEntry[] = [];
 
 /** One trace step as the rail's model carries it: ISO times become epoch ms. */
 export function turnStep(step: ChatTurnStep): Step {
@@ -119,6 +121,8 @@ export type TurnEntryViewProps = {
   /** A hairline above the prompt post: this entry follows another directly. */
   rule?: boolean;
   ctx: FeedContext;
+  /** Files, pins and peer messages the agent produced during this turn. */
+  folded?: readonly FoldedEntry[];
 };
 
 /**
@@ -131,6 +135,7 @@ function TurnEntryViewImpl({
   entry,
   rule = false,
   ctx,
+  folded = NO_FOLDED,
 }: TurnEntryViewProps): JSX.Element {
   const trace = useMemo(() => turnTrace(entry), [entry]);
   const result = useMemo(() => resultTurnModel(entry, trace), [entry, trace]);
@@ -205,7 +210,7 @@ function TurnEntryViewImpl({
                 instead of snapping, so the feed above glides rather than
                 jumps while it follows the bottom. */}
             <AutoHeight data-testid="chat-turn-body">
-              {isQuietThinking(trace, result) ? (
+              {folded.length === 0 && isQuietThinking(trace, result) ? (
                 <ThinkingLine trace={trace} />
               ) : (
                 <>
@@ -214,6 +219,7 @@ function TurnEntryViewImpl({
                       <ActivityBlock trace={trace} label={foldLabel} />
                     </div>
                   ) : null}
+                  <TurnAttachments items={folded} ctx={ctx} />
                   <ResultTurn turn={result} />
                 </>
               )}

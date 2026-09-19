@@ -5,7 +5,7 @@
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { type ReactNode } from "react";
-import type { ChatAttachment } from "@dispatch/shared";
+import type { ChatAttachment, ChatMediaEntry } from "@dispatch/shared";
 import { ExternalLink, FileText, GitPullRequest } from "lucide-react";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
@@ -24,6 +24,54 @@ type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenMedia">;
 /** The URL a media file is served from. */
 export function mediaFileUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * A file the agent shared, as one block: name, size, and a preview when it
+ * is an image. Rendered under the agent's own post when the file arrived on
+ * its own, and inside a turn's post when it was shared mid-turn.
+ */
+export function MediaFileBody({
+  entry,
+  ctx,
+  testId,
+}: {
+  entry: ChatMediaEntry;
+  ctx: AttachmentCtx;
+  testId: string;
+}): JSX.Element {
+  const url = mediaFileUrl(ctx.agentId, entry.fileName);
+  const open = () => ctx.onOpenMedia(entry.mediaId);
+  const isImage = isImageFile(entry.fileName);
+  return (
+    <AttachmentBlock className="mt-1" data-testid={testId}>
+      <button
+        type="button"
+        onClick={open}
+        className="block max-w-full text-left"
+        title={entry.fileName}
+      >
+        <span className="block truncate text-sm font-medium text-foreground">
+          {entry.description ?? entry.fileName}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {entry.fileName} · {formatBytes(entry.sizeBytes)}
+        </span>
+        {isImage ? (
+          <FeedImage
+            src={url}
+            alt={entry.description ?? entry.fileName}
+            width={entry.width}
+            height={entry.height}
+            maxHeightPx={256}
+            // Matches the max-w-xs this image carried before it had a ratio.
+            containerMax="20rem"
+            className="mt-1.5 block rounded-md border border-border transition-colors hover:border-foreground/30"
+          />
+        ) : null}
+      </button>
+    </AttachmentBlock>
+  );
 }
 
 function hostOf(url: string): string {

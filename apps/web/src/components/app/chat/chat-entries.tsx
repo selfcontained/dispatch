@@ -26,7 +26,6 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { FeedImage } from "@/components/app/chat/feed-image";
 import {
   reviewerLabel,
   ReviewSummaryBlock,
@@ -35,17 +34,15 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
-import { formatBytes } from "@/components/app/service-resources-format";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { isImageFile } from "../../../../../server/src/shared/media-file-types";
 import {
   AttachmentBlock,
   AttachmentList,
   LivePin,
-  mediaFileUrl,
+  MediaFileBody,
 } from "./chat-attachment-views";
 import {
   POST_ACTION_BUTTON,
@@ -923,9 +920,6 @@ export const MediaEntryView = memo(function MediaEntryView({
   rule?: boolean;
   ctx: FeedContext;
 }): JSX.Element {
-  const url = mediaFileUrl(ctx.agentId, entry.fileName);
-  const open = () => ctx.onOpenMedia(entry.mediaId);
-  const isImage = isImageFile(entry.fileName);
   return (
     <Post
       author={agentAuthor(ctx, "Agent")}
@@ -934,33 +928,7 @@ export const MediaEntryView = memo(function MediaEntryView({
       rule={rule}
       data-testid="chat-media"
     >
-      <AttachmentBlock className="mt-1">
-        <button
-          type="button"
-          onClick={open}
-          className="block max-w-full text-left"
-          title={entry.fileName}
-        >
-          <span className="block truncate text-sm font-medium text-foreground">
-            {entry.description ?? entry.fileName}
-          </span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {entry.fileName} · {formatBytes(entry.sizeBytes)}
-          </span>
-          {isImage ? (
-            <FeedImage
-              src={url}
-              alt={entry.description ?? entry.fileName}
-              width={entry.width}
-              height={entry.height}
-              maxHeightPx={256}
-              // Matches the max-w-xs this image carried before it had a ratio.
-              containerMax="20rem"
-              className="mt-1.5 block rounded-md border border-border transition-colors hover:border-foreground/30"
-            />
-          ) : null}
-        </button>
-      </AttachmentBlock>
+      <MediaFileBody entry={entry} ctx={ctx} testId="chat-media-file" />
     </Post>
   );
 });
