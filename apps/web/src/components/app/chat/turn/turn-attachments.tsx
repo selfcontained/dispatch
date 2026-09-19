@@ -6,16 +6,27 @@ import type {
   ChatPinEntry,
   ChatTurnEntry,
 } from "@dispatch/shared";
-import { AlertTriangle, Loader2, Pin } from "lucide-react";
-
 import {
-  type FeedContext,
-  pinEntryVerb,
-} from "@/components/app/chat/chat-entries";
+  AlertTriangle,
+  Check,
+  Copy,
+  ExternalLink,
+  Loader2,
+  Pin,
+} from "lucide-react";
+
 import {
   LivePin,
   MediaFileBody,
 } from "@/components/app/chat/chat-attachment-views";
+import {
+  type FeedContext,
+  pinEntryVerb,
+} from "@/components/app/chat/chat-entries";
+import { usePinShortcuts } from "@/components/app/chat/pin-shortcut-context";
+import type { AgentPin } from "@/components/app/types";
+import { useCopyText } from "@/hooks/use-copy";
+import { cn } from "@/lib/utils";
 
 /**
  * A feed entry the agent produced while a turn was running: a file it
@@ -124,6 +135,88 @@ function SentTo({ entry }: { entry: ChatAgentMessageEntry }): JSX.Element {
   );
 }
 
+const CHIP_VALUE_MAX = 48;
+
+function chipValue(pin: AgentPin): string {
+  const first = pin.value.split(/[\n,]/, 1)[0]?.trim() ?? "";
+  const shown =
+    pin.type === "url" || pin.type === "pr"
+      ? first.replace(/^https?:\/\//, "")
+      : first;
+  return shown.length > CHIP_VALUE_MAX
+    ? `${shown.slice(0, CHIP_VALUE_MAX - 1)}…`
+    : shown;
+}
+
+const CHIP_CLASS =
+  "inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs leading-none";
+
+/**
+ * A pin as one chip: its label, its first value, and one action — open
+ * for a link, copy for anything else. Compact enough that several pins
+ * from one turn read as a row, where the sidebar's card would stack into
+ * a column of boxes taller than the answer they sit above.
+ */
+function PinChip({
+  pin,
+  testId,
+}: {
+  pin: AgentPin;
+  testId: string;
+}): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  const value = chipValue(pin);
+  const link = pin.type === "url" || pin.type === "pr";
+  const body = (
+    <>
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {pin.label}
+      </span>
+      {value ? (
+        <span
+          className={cn(
+            "min-w-0 truncate font-terminal",
+            link ? "text-status-done" : "text-foreground"
+          )}
+        >
+          {value}
+        </span>
+      ) : null}
+      {link ? (
+        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+      ) : copied ? (
+        <Check className="h-3 w-3 shrink-0 text-status-working" />
+      ) : (
+        <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
+      )}
+    </>
+  );
+  return link ? (
+    <a
+      href={pin.value.split(/[\n,]/, 1)[0]?.trim()}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(CHIP_CLASS, "hover:border-foreground/30")}
+      title={pin.value}
+      data-testid={testId}
+      data-pin-type={pin.type}
+    >
+      {body}
+    </a>
+  ) : (
+    <button
+      type="button"
+      onClick={() => copyText(pin.value)}
+      className={cn(CHIP_CLASS, "hover:border-foreground/30")}
+      title={copied ? "Copied" : `Copy ${pin.label}`}
+      data-testid={testId}
+      data-pin-type={pin.type}
+    >
+      {body}
+    </button>
+  );
+}
+
 function PinLine({
   entry,
   ctx,
@@ -131,10 +224,11 @@ function PinLine({
   entry: ChatPinEntry;
   ctx: FeedContext;
 }): JSX.Element {
+  const shortcuts = usePinShortcuts();
   const removed = entry.action === "deleted";
   return (
     <div
-      className="flex min-w-0 flex-col gap-1"
+      className="flex min-w-0 flex-col gap-1.5"
       data-testid="chat-turn-pin"
       data-pin-action={entry.action}
     >
@@ -148,16 +242,26 @@ function PinLine({
         ) : null}
       </div>
       {removed ? null : (
-        <div className="flex flex-col gap-2">
-          {entry.pins.map((pin) => (
-            <LivePin
-              key={pin.id}
-              pinId={pin.id}
-              label={pin.label}
-              ctx={ctx}
-              testId="chat-turn-pin-pin"
-            />
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {entry.pins.map((ref) => {
+            const pin = shortcuts.pins.find((p) => p.id === ref.id);
+            // A shortcut is a button already; a pin that has since been
+            // deleted falls back to the "no longer available" line.
+            if (!pin || pin.type === "shortcut") {
+              return (
+                <LivePin
+                  key={ref.id}
+                  pinId={ref.id}
+                  label={ref.label}
+                  ctx={ctx}
+                  testId="chat-turn-pin-pin"
+                />
+              );
+            }
+            return (
+              <PinChip key={ref.id} pin={pin} testId="chat-turn-pin-chip" />
+            );
+          })}
         </div>
       )}
     </div>

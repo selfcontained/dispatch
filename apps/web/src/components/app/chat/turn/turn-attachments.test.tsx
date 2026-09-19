@@ -196,6 +196,54 @@ describe("TurnAttachments", () => {
     ]);
   });
 
+  it("renders a live pin as a chip and a link pin as an anchor", () => {
+    render(
+      <MemoryRouter>
+        <PinShortcutProvider
+          value={{
+            ...INERT_PIN_SHORTCUTS,
+            pins: [
+              {
+                id: "pin_1",
+                label: "Dev URL",
+                value: "http://localhost:5173",
+                type: "url",
+              },
+              { id: "pin_2", label: "Port", value: "5173", type: "port" },
+            ],
+          }}
+        >
+          <TurnAttachments
+            items={[
+              {
+                type: "pin",
+                id: "pn1",
+                action: "created",
+                pins: [
+                  { id: "pin_1", label: "Dev URL" },
+                  { id: "pin_2", label: "Port" },
+                  { id: "pin_gone", label: "Old" },
+                ],
+                at: at("10:02"),
+              },
+            ]}
+            ctx={ctx}
+          />
+        </PinShortcutProvider>
+      </MemoryRouter>
+    );
+    const chips = screen.getAllByTestId("chat-turn-pin-chip");
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.tagName).toBe("A");
+    expect(chips[0]!.getAttribute("href")).toBe("http://localhost:5173");
+    expect(chips[0]!.textContent).toContain("localhost:5173");
+    expect(chips[1]!.tagName).toBe("BUTTON");
+    expect(chips[1]!.textContent).toContain("5173");
+    expect(
+      screen.getByTestId("chat-turn-pin-pin-missing").textContent
+    ).toContain("Old");
+  });
+
   it("renders nothing for an empty list", () => {
     const { container } = render(<TurnAttachments items={[]} ctx={ctx} />);
     expect(container.innerHTML).toBe("");
