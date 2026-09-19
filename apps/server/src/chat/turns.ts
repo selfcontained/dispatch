@@ -1,6 +1,6 @@
 import type {
-  ChatMessage,
-  ChatQuestionOption,
+  Block,
+  BlockOption,
   ChatTurnEntry,
   ChatTurnPrompt,
   ChatTurnPlanEntry,
@@ -26,7 +26,7 @@ import type {
   ToolPayload,
   TurnPayload,
 } from "../agents/acp/stream-store.js";
-import { isChatMessageId, type Queryable, toChatMessage } from "./store.js";
+import { isBlockId, type Queryable, toBlock } from "./store.js";
 
 export type TurnSourceRow = Pick<
   StreamEventRow,
@@ -42,7 +42,7 @@ type AssembledQuestion = {
   /** The chat message id; answers post against it. */
   id: string;
   text: string;
-  options: ChatQuestionOption[];
+  options: BlockOption[];
   allowFreeform: boolean;
   answer: { value: string; label?: string } | null;
   createdAt: string;
@@ -82,15 +82,15 @@ function firstLine(text: string): string {
 
 function promptFor(
   source: PromptSource,
-  chat: Map<string, ChatMessage>
+  chat: Map<string, Block>
 ): ChatTurnPrompt {
   if (source.source === "chat") {
-    const message = chat.get(source.chatMessageId);
+    const block = chat.get(source.chatMessageId);
     return {
-      source: message?.origin === "launch" ? "launch" : "chat",
-      text: message?.text ?? "",
+      source: block?.origin === "launch" ? "launch" : "chat",
+      text: block?.text ?? "",
       chatMessageId: source.chatMessageId,
-      attachments: message?.attachments ?? [],
+      attachments: block?.attachments ?? [],
     };
   }
   if (source.source === "agent") {
@@ -227,19 +227,21 @@ export function groupTurnRows(rows: TurnSourceRow[]): TurnGroup[] {
 }
 
 /** An agent question as the view carries it. */
-function toQuestion(message: ChatMessage): AssembledQuestion {
+function toQuestion(block: Block): AssembledQuestion {
+  const question = block.kind === "question" ? block : null;
+  const answer = question?.state?.answer ?? null;
   return {
-    id: message.id,
-    text: message.text,
-    options: message.question?.options ?? [],
-    allowFreeform: message.question?.allowFreeform === true,
-    answer: message.answer
+    id: block.id,
+    text: block.text,
+    options: question?.data.options ?? [],
+    allowFreeform: question?.data.allowFreeform === true,
+    answer: answer
       ? {
-          value: message.answer.value,
-          ...(message.answer.label ? { label: message.answer.label } : {}),
+          value: answer.value,
+          ...(answer.label ? { label: answer.label } : {}),
         }
       : null,
-    createdAt: message.createdAt,
+    createdAt: block.createdAt,
   };
 }
 
@@ -274,8 +276,8 @@ function planEntriesOf(row: TurnSourceRow): ChatTurnPlanEntry[] {
 /** Cut ascending stream rows into turns and shape each for the view. */
 export function assembleTurns(
   rows: TurnSourceRow[],
-  chat: Map<string, ChatMessage>,
-  questions: ChatMessage[] = []
+  chat: Map<string, Block>,
+  questions: Block[] = []
 ): AssembledTurn[] {
   const groups = groupTurnRows(rows);
   // Each question belongs to the latest turn that had started when it was
@@ -545,14 +547,15 @@ export async function listTurnEntries(
   // this page's last turn, which is the one that had started when it landed.
   const since = source.length ? source[0].createdAt : new Date(0);
   const asked = await db.query(
-    `SELECT * FROM agent_chat_messages
-      WHERE agent_id = $1 AND author_kind = 'agent' AND kind = 'question'
+    `SELECT * FROM blocks
+      WHERE stream_id = $1 AND author_kind = 'agent' AND author_agent_id = $1
+        AND kind = 'question' AND to_agent_id IS NULL AND thread_id IS NULL
         AND created_at >= $2
         AND ($3::timestamptz IS NULL OR created_at < $3)
       ORDER BY created_at ASC`,
     [agentId, since, untilAt]
   );
-  const questions = asked.rows.map((row) => toChatMessage(row as never));
+  const questions = asked.rows.map((row) => toBlock(row as never));
   const groups = groupTurnRows(source);
   const turns = assembleTurns(source, chat, questions);
   const keyed: Keyed<ChatTurnEntry>[] = [];
@@ -615,22 +618,21 @@ async function loadChatMessages(
   db: Queryable,
   agentId: string,
   ids: string[]
-): Promise<Map<string, ChatMessage>> {
-  const chat = new Map<string, ChatMessage>();
+): Promise<Map<string, Block>> {
+  const chat = new Map<string, Block>();
   // The cast below is the only thing standing between a stored prompt and a
   // permanent 500 on this agent's turns, so ids Postgres would reject are
   // dropped here rather than sent. A dropped id reads as a prompt with no
   // chat text behind it.
-  const valid = ids.filter((id) => isChatMessageId(id));
+  const valid = ids.filter((id) => isBlockId(id));
   if (valid.length === 0) return chat;
-  const messages = await db.query(
-    `SELECT * FROM agent_chat_messages
-      WHERE agent_id = $1 AND id = ANY($2::uuid[])`,
+  const blocks = await db.query(
+    `SELECT * FROM blocks WHERE stream_id = $1 AND id = ANY($2::uuid[])`,
     [agentId, valid]
   );
-  for (const row of messages.rows) {
-    const message = toChatMessage(row as never);
-    chat.set(message.id, message);
+  for (const row of blocks.rows) {
+    const block = toBlock(row as never);
+    chat.set(block.id, block);
   }
   return chat;
 }

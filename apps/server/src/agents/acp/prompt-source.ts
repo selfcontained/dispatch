@@ -15,7 +15,7 @@ export type PromptSource =
 // injection prompts embed feedback bodies verbatim, so the text is not
 // always Dispatch's own.
 const CHAT_HEADER =
-  /^--- DISPATCH CHAT \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\) ---/m;
+  /^--- DISPATCH POST \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:, from: [^)]*)?\) ---/m;
 const MESSAGE_BLOCK =
   /^--- DISPATCH MESSAGE ---\n([\s\S]*?)\n--- END MESSAGE ---/m;
 const SYSTEM_MAX = 500;

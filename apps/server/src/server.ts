@@ -106,9 +106,9 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
-import { registerChatRoutes } from "./routes/chat.js";
+import { registerStreamRoutes } from "./routes/streams.js";
 import { toStatusEntry } from "./chat/feed.js";
-import { ChatService } from "./chat/service.js";
+import { StreamService } from "./chat/service.js";
 import { isChatSurfaceEnabled } from "./chat-surface-settings.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
@@ -389,7 +389,7 @@ agentManager.onAgentCreated((agent) => {
 // feed appends one line instead of refetching every page per event.
 agentManager.onEventRecorded((row) => {
   uiEventBroker.publish({
-    type: "chat.entry",
+    type: "stream.entry",
     agentId: row.agentId,
     entry: toStatusEntry(
       row.id,
@@ -409,29 +409,37 @@ const surfaceService = new SurfaceService(pool, {
   publishUiEvent: (event) => uiEventBroker.publish(event),
   sendAgentPrompt: injectAgentPrompt,
 });
-const chatService = new ChatService({
+const streamService = new StreamService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   mediaRoot: config.mediaRoot,
-  onQuestionPosted: (agentId, text) =>
+  onInputPosted: (agentId, text) =>
     agentManager.noteQuestionPosted(agentId, text),
+  // Both are created below; they are only called once requests arrive.
+  uploadFile: (agentId, input) =>
+    mcpHandlers.shareMedia(agentId, {
+      filePath: input.filePath,
+      description: input.description,
+    }),
+  notify: (agentId, input) =>
+    mcpHandlers.sendNotify(agentId, {
+      message: input.message,
+      ...(input.title ? { title: input.title } : {}),
+    }),
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
-    // The service already checked deliverability; the injector re-resolves
-    // the session itself, so a pane that vanished in between surfaces as a
-    // failed delivery rather than a stale session name.
-    inject: async (agentId, _sessionName, text) =>
+    inject: async (agentId, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
   },
   log: app.log,
 });
-agentManager.attachLaunchContextRecorder(chatService);
+agentManager.attachLaunchContextRecorder(streamService);
 // Every stream write re-publishes the agent's newest turn as one feed row.
 agentManager.onStreamWrite((agentId) => {
-  void chatService.publishTurnEntry(agentId);
+  void streamService.publishTurnEntry(agentId);
 });
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
@@ -676,7 +684,7 @@ async function registerRoutes() {
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
     surfaces: surfaceService,
-    chat: chatService,
+    chat: streamService,
   });
 
   await registerSystemRoutes(app, {
@@ -769,7 +777,11 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
-  await registerChatRoutes(app, { pool, chat: chatService, handleAgentError });
+  await registerStreamRoutes(app, {
+    pool,
+    streams: streamService,
+    handleAgentError,
+  });
 
   await registerSurfaceRoutes(app, { surfaces: surfaceService });
 
@@ -811,7 +823,7 @@ async function registerRoutes() {
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     onAgentStarted: (agentId) =>
       surfaceService.notifyQueuedAfterResume(agentId),
-    chat: chatService,
+    chat: streamService,
     isChatSurfaceEnabled: () => isChatSurfaceEnabled(pool),
   });
 
@@ -882,7 +894,7 @@ export async function initializeApp(options?: {
     await agentManager.reconcileAgents();
     // Chat deliveries queued in the previous process died with it; flip their
     // rows from pending to not-delivered so the UI offers a resend.
-    const recovered = await chatService.recoverPendingDeliveries();
+    const recovered = await streamService.recoverPendingDeliveries();
     if (recovered.length > 0) {
       app.log.info(
         { agentIds: recovered },
@@ -977,9 +989,9 @@ async function cleanupAppResources(): Promise<void> {
   await agentLifecycleRuntime.waitForActiveArchives(10_000);
   // Let deliveries that are about to settle record their outcome; anything
   // still waiting on the quiet gate is swept to not-delivered at next start.
-  if (!(await chatService.waitForInFlightDeliveries(5_000))) {
+  if (!(await streamService.waitForInFlightDeliveries(5_000))) {
     app.log.warn(
-      { pending: chatService.inFlightDeliveryCount },
+      { pending: streamService.inFlightDeliveryCount },
       "Shutting down with chat deliveries still in flight"
     );
   }

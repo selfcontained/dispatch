@@ -6,14 +6,16 @@ const SLASH_RULE =
   'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.';
 
 export const CHAT_RULE =
-  "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through chat_post. Use chat_post only for a question that needs a choice (kind: question with options).";
+  'The user reads your stream. Your replies appear there as you write them, so answer in plain text and never repeat a reply through post. Use post for what plain text cannot do: a question with options, a form, a file (attachments: [{ type: "file", path }]), a link, a review of another agent\'s work, a checklist, or a message to another agent (to). Reply to a DISPATCH POST from another agent only when it asks for one.';
 
 /**
  * Pull a `--append-system-prompt <value>` pair out of stored agent args.
  * Older agents carried their extra system prompt this way; the ACP session
  * takes one string, so it is folded in here.
  */
-export function extractAppendedSystemPrompt(args: readonly string[]): string | null {
+export function extractAppendedSystemPrompt(
+  args: readonly string[]
+): string | null {
   for (let index = 0; index < args.length; index += 1) {
     if (
       args[index] === "--append-system-prompt" &&
@@ -31,7 +33,10 @@ export function extractAppendedSystemPrompt(args: readonly string[]): string | n
  * prompt, which wins over the personality as it did for CLI launches).
  */
 export function buildSystemPrompt(input: {
-  agent: Pick<AgentRecord, "id" | "type" | "agentArgs" | "persona" | "autoReview">;
+  agent: Pick<
+    AgentRecord,
+    "id" | "type" | "agentArgs" | "persona" | "autoReview"
+  >;
   personalityPrompt: string | null;
   trimmedGuidance: boolean;
   suggestSessionRename: boolean;
@@ -45,8 +50,8 @@ export function buildSystemPrompt(input: {
     suggestSessionRename: input.suggestSessionRename,
     autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,
-    // The chat-surface rule tells a CLI agent to re-post replies through
-    // chat_post; a streamed reply already lands in Chat.
+    // The chat-surface rule told a CLI agent to re-post replies through a
+    // tool; a streamed reply already lands in the stream.
     chatSurface: false,
   });
   const appended = extractAppendedSystemPrompt(agent.agentArgs ?? []);

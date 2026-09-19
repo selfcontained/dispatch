@@ -3,98 +3,124 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 import type {
-  ChatAnswerResponse,
+  Block,
+  BlockAuthor,
+  BlockFormData,
+  BlockKind,
+  BlockLinkData,
+  BlockQuestionData,
+  BlockReviewData,
+  BlockTasksData,
   ChatAttachment,
-  ChatAuthorKind,
-  ChatMessage,
-  ChatMessageKind,
-  ChatQuestion,
-  ChatReactionResponse,
-  ChatSendResponse,
   ChatUserAttachmentInput,
-  ChatChangedEvent,
-  ChatEntryEvent,
-  ChatMessageEntry,
-  ChatReadEvent,
+  StreamAnswerResponse,
+  StreamBlockEntry,
+  StreamChangedEvent,
+  StreamEntryEvent,
+  StreamPostResponse,
+  StreamReactionResponse,
+  StreamReadEvent,
 } from "@dispatch/shared";
 import {
-  CHAT_ATTACHMENTS_MAX,
-  CHAT_MESSAGE_MAX_CHARS,
-  CHAT_QUESTION_OPTIONS_MAX,
-  CHAT_REACTIONS_MAX,
+  BLOCK_ATTACHMENTS_MAX,
+  BLOCK_FORM_FIELDS_MAX,
+  BLOCK_OPTIONS_MAX,
+  BLOCK_REACTIONS_MAX,
+  BLOCK_REVIEW_FINDINGS_MAX,
+  BLOCK_TASKS_MAX,
+  BLOCK_TEXT_MAX_CHARS,
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import {
-  buildChatEnvelope,
+  buildPostEnvelope,
   buildReactionEnvelope,
+  type EnvelopeSender,
   formatAttachmentSize,
 } from "./envelope.js";
-import { loadChatMessageEntry } from "./feed.js";
+import { loadBlockEntry } from "./feed.js";
 import { loadLatestTurnEntry } from "./turns.js";
 import {
-  ChatStore,
-  isChatMessageId,
-  type UpdateChatMessageInput,
+  BlockStore,
+  isBlockId,
+  sameAuthor,
+  type UpdateBlockInput,
 } from "./store.js";
-import { normalizeReactionEmoji } from "./validation.js";
+import { chatUrlSchema, normalizeReactionEmoji } from "./validation.js";
 
 /**
- * An attachment as an agent supplies it to chat_post: `file` carries
- * only the path; the server fills in the media row fields.
+ * An attachment as an agent supplies it to `post`: `file` names a file it
+ * shared before (by `fileName` or `mediaId`) or a `path` on disk that the
+ * server uploads first; the server fills in the media row fields.
  */
-export type ChatAttachmentInput =
+export type BlockAttachmentInput =
   | {
       type: "file";
-      /** Stored name returned by share_file. */
       fileName?: string;
-      /** Media row id, as an alternative to fileName. */
       mediaId?: number;
+      path?: string;
+      description?: string;
     }
-  | Exclude<ChatAttachment, { type: "file" }>;
+  | { type: "link"; url: string; title?: string }
+  | { type: "pr"; url: string; title?: string }
+  | { type: "code"; code: string; language?: string; path?: string }
+  | { type: "pin"; pinId: string };
 
-export type ChatPostInput = {
-  text: string;
-  kind?: ChatMessageKind;
+/** What an agent hands `post`. */
+export type PostInput = {
+  /** The agent to deliver to; omitted = the author's own stream, for people. */
+  to?: string | null;
+  kind?: BlockKind;
+  text?: string;
   replyTo?: string | null;
-  question?: ChatQuestion | null;
-  attachments?: ChatAttachmentInput[];
+  question?: BlockQuestionData | null;
+  form?: BlockFormData | null;
+  link?: BlockLinkData | null;
+  review?: BlockReviewData | null;
+  tasks?: BlockTasksData | null;
+  attachments?: BlockAttachmentInput[];
+  /** Also send the browser/Slack notification. */
+  notify?: boolean;
 };
 
-export type ChatUpdateInput = {
+export type UpdateInput = {
   text?: string;
-  kind?: ChatMessageKind;
-  question?: ChatQuestion | null;
-  attachments?: ChatAttachmentInput[];
+  data?: unknown;
+  state?: Record<string, unknown>;
+  attachments?: BlockAttachmentInput[];
 };
 
 /**
- * How user text reaches an agent's pane. The service owns the workflow (row,
- * envelope, outcome, events); this adapter owns the terminal, so tests can
- * stand in a fake and the service never imports the runtime.
+ * How a block reaches an agent. The service owns the workflow (row,
+ * envelope, outcome, events); this adapter owns the runtime, so tests can
+ * stand in a fake and the service never imports it.
  */
-export type ChatDeliveryAdapter = {
+export type StreamDeliveryAdapter = {
   /**
-   * Whether the agent can receive text right now. Throws `AgentError` for a
-   * missing/stopped agent; resolves to `mode: "inert"` when there is no pane.
+   * Whether the agent can receive a prompt right now. Throws `AgentError`
+   * for a missing/stopped agent; resolves to `mode: "inert"` when there is
+   * no engine.
    */
   access: (agentId: string) => Promise<AgentTerminalAccess>;
-  /** Write `text` into the pane, behind the quiet gate; resolves when done. */
-  inject: (agentId: string, sessionName: string, text: string) => Promise<void>;
-  /** Whether the quiet gate is holding deliveries for this agent right now. */
+  /** Queue `text` as a prompt for the agent; resolves when accepted. */
+  inject: (agentId: string, text: string) => Promise<void>;
+  /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
 };
 
-type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
+export type StreamAgent = Pick<
+  AgentRecord,
+  "id" | "name" | "mediaDir" | "pins" | "status"
+>;
 
-export type ChatServiceDeps = {
+export type StreamServiceDeps = {
   pool: Pool;
   publishUiEvent: (
-    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+    event: StreamChangedEvent | StreamEntryEvent | StreamReadEvent
   ) => void;
-  /** Minimal agent lookup: media dir and pins are all the service needs. */
-  getAgent: (agentId: string) => Promise<ChatAgent | null>;
+  /** Minimal agent lookup: name, media dir and pins are all the service needs. */
+  getAgent: (agentId: string) => Promise<StreamAgent | null>;
   /**
    * Root of per-agent media directories (config.mediaRoot), so the envelope
    * can hand the agent an absolute path for a file attachment — the same
@@ -108,10 +134,20 @@ export type ChatServiceDeps = {
    * means assume someone is listening.
    */
   hasUiClient?: () => boolean;
-  /** An agent question landed: the agent's status becomes waiting. */
-  onQuestionPosted?: (agentId: string, text: string) => Promise<void>;
-  /** Required for the user-side workflows (send, answer). */
-  delivery?: ChatDeliveryAdapter;
+  /** An agent posted a question or form for people: it is waiting now. */
+  onInputPosted?: (agentId: string, text: string) => Promise<void>;
+  /** Copy a file from the agent's disk into its media; for `path` attachments. */
+  uploadFile?: (
+    agentId: string,
+    input: { filePath: string; description: string }
+  ) => Promise<{ fileName: string }>;
+  /** The browser/Slack notification a post with `notify: true` sends. */
+  notify?: (
+    agentId: string,
+    input: { message: string; title?: string }
+  ) => Promise<unknown>;
+  /** Required for anything that delivers to an agent. */
+  delivery?: StreamDeliveryAdapter;
   log?: {
     warn: (obj: object, msg: string) => void;
     error: (obj: object, msg: string) => void;
@@ -119,20 +155,24 @@ export type ChatServiceDeps = {
 };
 
 /** Base for the domain errors the HTTP layer maps to a status code. */
-export abstract class ChatServiceError extends Error {
+export abstract class StreamServiceError extends Error {
   abstract readonly statusCode: number;
 }
 
-export class ChatValidationError extends ChatServiceError {
+export class StreamValidationError extends StreamServiceError {
   readonly statusCode = 400;
 }
 
-export class ChatNotFoundError extends ChatServiceError {
+export class StreamNotFoundError extends StreamServiceError {
   readonly statusCode = 404;
 }
 
-export class ChatConflictError extends ChatServiceError {
+export class StreamConflictError extends StreamServiceError {
   readonly statusCode = 409;
+}
+
+export class StreamForbiddenError extends StreamServiceError {
+  readonly statusCode = 403;
 }
 
 /**
@@ -142,10 +182,10 @@ export class ChatConflictError extends ChatServiceError {
  * pins (a url pin made from one of `links` is skipped, so the same URL is
  * not shown twice).
  */
-export type ChatLaunchContextInput = {
+export type LaunchContextInput = {
   /**
-   * The post's id, when the caller needs it before the write — the launch
-   * path fixes it so the CLI's first turn can carry it in its envelope.
+   * The block's id, when the caller needs it before the write — the launch
+   * path fixes it so the engine's first turn can carry it in its envelope.
    */
   id?: string;
   agentId: string;
@@ -158,47 +198,36 @@ export type ChatLaunchContextInput = {
   launchedByAgentId?: string | null;
 };
 
-/** A launch post resolved but not yet written; see `prepareLaunchContext`. */
+/** A launch block resolved but not yet written; see `prepareLaunchContext`. */
 export type PreparedLaunchContext = {
-  /** The post's id, known before the write. */
   id: string;
   /**
    * One envelope line per resolved startup attachment — *every* one, not
-   * the capped set the row stores. The CLI's first turn must still describe
-   * all the startup files, links and pins it used to get from
-   * `buildStartupPrompt`; only the post is capped.
+   * the capped set the row stores. The engine's first turn must still
+   * describe all the startup files, links and pins.
    */
   attachmentLines: string[];
-  /**
-   * Exactly what the row will store: the prompt, truncated to the chat
-   * limit and marked as truncated when it did not fit, plus a line naming
-   * the attachments the cap left off. Exposed so a caller can see what the
-   * feed will say without waiting for the write.
-   */
+  /** Exactly what the row will store. */
   postText: string;
-  /** Write the post and announce the feed change. */
-  record: () => Promise<ChatMessage>;
+  /** Write the block and announce the feed change. */
+  record: () => Promise<Block>;
 };
 
 /**
- * Appended to a launch post whose prompt did not fit in
- * `CHAT_MESSAGE_MAX_CHARS`. The CLI's first turn always carries the full
- * prompt, so the post must say plainly that it is showing less rather than
- * quietly disagreeing with what the agent was told.
+ * Appended to a launch block whose prompt did not fit in
+ * `BLOCK_TEXT_MAX_CHARS`. The engine's first turn always carries the full
+ * prompt, so the block must say plainly that it is showing less.
  */
 export const LAUNCH_POST_TRUNCATED_NOTE =
-  "[Truncated for Chat — the agent's first turn received the full prompt.]";
+  "[Truncated for the stream — the agent's first turn received the full prompt.]";
 
-/** Appended when the attachment cap left startup context off the post. */
 function launchPostAttachmentNote(hidden: number): string {
   return `[${hidden} more startup attachment${hidden === 1 ? "" : "s"} not listed here — all of them were delivered to the agent.]`;
 }
 
 /**
- * The launch post's stored text, normalized once so the row and the first
- * turn cannot disagree without saying so. The prompt is trimmed to fit
- * `CHAT_MESSAGE_MAX_CHARS` (a launched agent's prompt may be five times
- * that), and each thing the row is showing less of gets its own note.
+ * The launch block's stored text, normalized once so the row and the first
+ * turn cannot disagree without saying so.
  */
 export function buildLaunchPostText(
   text: string,
@@ -208,273 +237,402 @@ export function buildLaunchPostText(
   if (hiddenAttachments > 0) {
     notes.push(launchPostAttachmentNote(hiddenAttachments));
   }
-  // Reserve room for the notes before deciding how much prompt fits, so a
-  // note is never itself truncated away.
   const reserved = notes.reduce((sum, note) => sum + note.length + 2, 0);
   let body = text;
-  if (body.length + reserved > CHAT_MESSAGE_MAX_CHARS) {
+  if (body.length + reserved > BLOCK_TEXT_MAX_CHARS) {
     const budget =
-      CHAT_MESSAGE_MAX_CHARS -
-      reserved -
-      (LAUNCH_POST_TRUNCATED_NOTE.length + 2);
+      BLOCK_TEXT_MAX_CHARS - reserved - (LAUNCH_POST_TRUNCATED_NOTE.length + 2);
     body = body.slice(0, Math.max(0, budget));
     notes.unshift(LAUNCH_POST_TRUNCATED_NOTE);
   }
   return [body, ...notes].filter((part) => part.length > 0).join("\n\n");
 }
 
-export type ChatAnswerInput = {
-  /** Client-minted id for the reply row; see `ChatSendRequest.id`. */
+export type AnswerInput = {
+  /** Client-minted id for the reply block. */
   id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
-  /** Ride along on the reply message, resolved like sendUserMessage's. */
   attachments?: ChatUserAttachmentInput[];
 };
 
 const ANSWER_LABEL_MAX = 200;
 const NO_OP_LOG = { warn() {}, error() {} };
+const USER: BlockAuthor = { kind: "user" };
 
-/** Cross-field checks the zod shapes cannot express on their own. */
-export function validateChatContent(input: {
-  text?: string;
-  kind?: ChatMessageKind;
-  question?: ChatQuestion | null;
-  attachments?: ChatAttachmentInput[];
-}): void {
-  if (input.text !== undefined) {
-    if (input.text.trim().length === 0) {
-      throw new ChatValidationError("text must not be empty.");
-    }
-    if (input.text.length > CHAT_MESSAGE_MAX_CHARS) {
-      throw new ChatValidationError(
-        `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
-      );
-    }
-  }
-  const kind = input.kind ?? "reply";
-  if (kind === "question") {
-    if (!input.question || input.question.options.length === 0) {
-      throw new ChatValidationError(
-        'question (with at least one option) is required when kind is "question".'
-      );
-    }
-  } else if (input.question) {
-    throw new ChatValidationError(
-      'question is only accepted when kind is "question".'
+// ---------------------------------------------------------------------------
+// Validation: the shape checks zod cannot express across fields, and the
+// per-kind rules for `data`.
+// ---------------------------------------------------------------------------
+
+function requireText(text: string | undefined): string {
+  const value = text ?? "";
+  if (value.length > BLOCK_TEXT_MAX_CHARS) {
+    throw new StreamValidationError(
+      `text must be ${BLOCK_TEXT_MAX_CHARS} characters or fewer.`
     );
   }
-  if (
-    input.question &&
-    input.question.options.length > CHAT_QUESTION_OPTIONS_MAX
-  ) {
-    throw new ChatValidationError(
-      `question.options must have ${CHAT_QUESTION_OPTIONS_MAX} entries or fewer.`
-    );
-  }
-  if (input.attachments && input.attachments.length > CHAT_ATTACHMENTS_MAX) {
-    throw new ChatValidationError(
-      `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
-    );
+  return value;
+}
+
+function uniqueIds(items: Array<{ id: string }>, what: string): void {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (typeof item.id !== "string" || !item.id.trim()) {
+      throw new StreamValidationError(`Every ${what} needs an id.`);
+    }
+    if (seen.has(item.id)) {
+      throw new StreamValidationError(`Duplicate ${what} id "${item.id}".`);
+    }
+    seen.add(item.id);
   }
 }
 
-/** One agent's in-flight turn compose, and whether another is owed after it. */
+/** The kind a post is, from what it carries; and its validated data. */
+export function resolveKindAndData(input: PostInput): {
+  kind: BlockKind;
+  data: unknown;
+} {
+  const given = [
+    input.question ? "question" : null,
+    input.form ? "form" : null,
+    input.link ? "link" : null,
+    input.review ? "review" : null,
+    input.tasks ? "tasks" : null,
+  ].filter((k): k is BlockKind => k !== null);
+  if (given.length > 1) {
+    throw new StreamValidationError(
+      `A post carries one of question, form, link, review or tasks, not ${given.join(" and ")}.`
+    );
+  }
+  const kind = input.kind ?? given[0] ?? "text";
+  if (given[0] && given[0] !== kind) {
+    throw new StreamValidationError(
+      `kind "${kind}" does not match the ${given[0]} data given.`
+    );
+  }
+  switch (kind) {
+    case "text":
+      return { kind, data: null };
+    case "file":
+      if (!(input.attachments ?? []).some((a) => a.type === "file")) {
+        throw new StreamValidationError(
+          'kind "file" needs at least one file attachment.'
+        );
+      }
+      return { kind, data: null };
+    case "question": {
+      const q = input.question;
+      if (!q || !Array.isArray(q.options) || q.options.length === 0) {
+        throw new StreamValidationError("question needs at least one option.");
+      }
+      if (q.options.length > BLOCK_OPTIONS_MAX) {
+        throw new StreamValidationError(
+          `question.options must have ${BLOCK_OPTIONS_MAX} entries or fewer.`
+        );
+      }
+      return {
+        kind,
+        data: {
+          options: q.options.map((o) => ({
+            label: o.label,
+            ...(o.value !== undefined ? { value: o.value } : {}),
+          })),
+          ...(q.allowFreeform ? { allowFreeform: true } : {}),
+        },
+      };
+    }
+    case "form": {
+      const f = input.form;
+      if (!f || !Array.isArray(f.fields) || f.fields.length === 0) {
+        throw new StreamValidationError("form needs at least one field.");
+      }
+      if (f.fields.length > BLOCK_FORM_FIELDS_MAX) {
+        throw new StreamValidationError(
+          `form.fields must have ${BLOCK_FORM_FIELDS_MAX} entries or fewer.`
+        );
+      }
+      uniqueIds(f.fields, "form field");
+      for (const field of f.fields) {
+        if (field.type === "select" && !(field.options?.length ?? 0)) {
+          throw new StreamValidationError(
+            `form field "${field.id}" is a select and needs options.`
+          );
+        }
+      }
+      return { kind, data: f };
+    }
+    case "link": {
+      const l = input.link;
+      const url = chatUrlSchema.safeParse(l?.url);
+      if (!l || !url.success) {
+        throw new StreamValidationError("link needs an absolute http(s) url.");
+      }
+      return {
+        kind,
+        data: { url: url.data, ...(l.title ? { title: l.title } : {}) },
+      };
+    }
+    case "review": {
+      const r = input.review;
+      if (!r || !Array.isArray(r.findings)) {
+        throw new StreamValidationError(
+          "review needs verdict, summary and findings."
+        );
+      }
+      if (!["approve", "request_changes", "comment"].includes(r.verdict)) {
+        throw new StreamValidationError(
+          "review.verdict must be approve, request_changes or comment."
+        );
+      }
+      if (r.findings.length > BLOCK_REVIEW_FINDINGS_MAX) {
+        throw new StreamValidationError(
+          `review.findings must have ${BLOCK_REVIEW_FINDINGS_MAX} entries or fewer.`
+        );
+      }
+      uniqueIds(r.findings, "finding");
+      for (const finding of r.findings) {
+        if (!["blocker", "major", "minor", "nit"].includes(finding.severity)) {
+          throw new StreamValidationError(
+            `finding "${finding.id}" has an unknown severity.`
+          );
+        }
+      }
+      return { kind, data: r };
+    }
+    case "tasks": {
+      const t = input.tasks;
+      if (!t || !Array.isArray(t.items) || t.items.length === 0) {
+        throw new StreamValidationError("tasks needs at least one item.");
+      }
+      if (t.items.length > BLOCK_TASKS_MAX) {
+        throw new StreamValidationError(
+          `tasks.items must have ${BLOCK_TASKS_MAX} entries or fewer.`
+        );
+      }
+      uniqueIds(t.items, "task");
+      return { kind, data: t };
+    }
+  }
+}
+
+/** The initial state a kind starts with. */
+function initialState(kind: BlockKind, data: unknown): unknown {
+  switch (kind) {
+    case "question":
+    case "form":
+      return {};
+    case "review": {
+      const findings: Record<string, unknown> = {};
+      for (const f of (data as BlockReviewData).findings) {
+        findings[f.id] = {
+          status: "open",
+          by: USER,
+          at: new Date().toISOString(),
+        };
+      }
+      return { findings };
+    }
+    case "tasks": {
+      const items: Record<string, string> = {};
+      for (const item of (data as BlockTasksData).items)
+        items[item.id] = "todo";
+      return { items };
+    }
+    default:
+      return null;
+  }
+}
+
 type TurnPublish = { done: Promise<void>; again: boolean };
 
-export class ChatService {
-  readonly store: ChatStore;
-  /** Detached pane deliveries that have not recorded their outcome yet. */
+/**
+ * Everything that reads or writes a stream: posts from people and agents,
+ * answers, state changes, reactions, delivery to agents, the launch block,
+ * and the events that keep a mounted feed current.
+ */
+export class StreamService {
+  readonly store: BlockStore;
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
   private readonly turnPublishes = new Map<string, TurnPublish>();
-  private readonly log: NonNullable<ChatServiceDeps["log"]>;
+  private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
-  constructor(private readonly deps: ChatServiceDeps) {
-    this.store = new ChatStore(deps.pool);
+  constructor(private readonly deps: StreamServiceDeps) {
+    this.store = new BlockStore(deps.pool);
     this.log = deps.log ?? NO_OP_LOG;
   }
 
+  /** The stream an agent's blocks live in. Step 1: its own. */
+  streamOf(agentId: string): string {
+    return agentId;
+  }
+
   // -------------------------------------------------------------------------
-  // User-side workflows (HTTP)
+  // People (HTTP)
   // -------------------------------------------------------------------------
 
   /**
-   * A user message typed in the Chat tab: persist it, enqueue pane delivery
-   * when a terminal exists, and return at once. In inert mode the post still
-   * belongs in the feed, but starts at `delivered: false` because there is no
-   * pane to receive it. The quiet gate can hold a real delivery far longer
-   * than a request should wait, so those rows stay null until injection
-   * settles; `held` reports whether the gate is holding right now.
-   *
-   * `text` may be blank when at least one attachment is present. Attachments
-   * are resolved (file by mediaId, pin verified on the agent, link as given)
-   * before anything is written, so a bad one is a 400 with no row behind it.
+   * A person's post: to the stream's agent by default, or a reply in a
+   * thread. Persisted first, then delivered to the recipient as a prompt.
+   * The pending row is on the wire before delivery can settle it.
    */
-  async sendUserMessage(
-    agentId: string,
-    text: string,
-    attachments: ChatUserAttachmentInput[] = [],
-    options: { allowInert?: boolean; id?: string } = {}
-  ): Promise<ChatSendResponse> {
+  async sendUserPost(
+    streamId: string,
+    input: {
+      id?: string;
+      to?: string | null;
+      text: string;
+      replyTo?: string | null;
+      attachments?: ChatUserAttachmentInput[];
+      allowInert?: boolean;
+    }
+  ): Promise<StreamPostResponse> {
+    const attachments = input.attachments ?? [];
+    const text = requireText(input.text);
     if (!text.trim() && attachments.length === 0) {
-      throw new ChatValidationError("text is required.");
+      throw new StreamValidationError("text is required.");
     }
-    if (text.length > CHAT_MESSAGE_MAX_CHARS) {
-      throw new ChatValidationError(
-        `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
+    if (attachments.length > BLOCK_ATTACHMENTS_MAX) {
+      throw new StreamValidationError(
+        `attachments must have ${BLOCK_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    if (attachments.length > CHAT_ATTACHMENTS_MAX) {
-      throw new ChatValidationError(
-        `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
-      );
-    }
+    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    // A reply in a thread goes to the agents in it; a top-level post goes to
+    // the stream's agent unless addressed elsewhere.
+    const toAgentId = input.to ?? streamId;
+    const recipient = await this.requireAgent(toAgentId);
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
-      resolved = await this.resolveAttachmentsFor(agent, attachments);
-      attachmentLines = this.describeAttachments(agent, resolved);
+      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      attachmentLines = this.describeAttachments(recipient, resolved);
     }
-    const sessionName = await this.deliverySession(
-      agentId,
-      options.allowInert ?? false
-    );
-    const delivered = sessionName === null ? false : null;
+    const live = await this.canDeliver(toAgentId, input.allowInert ?? true);
     const row = {
-      agentId,
-      authorKind: "user" as const,
-      kind: "reply" as const,
+      streamId,
+      author: USER,
+      toAgentId,
+      kind: "text" as const,
+      threadId: thread?.threadId ?? null,
+      replyTo: thread?.replyTo ?? null,
       text,
       attachments: resolved,
-      delivered,
+      delivered: live ? null : false,
     };
-    // A client-minted id is honoured once: a repeat is a retry of a send
-    // that already landed, not a second message.
-    const message = options.id
-      ? await this.store.insertIfAbsent({ id: options.id, ...row })
+    const block = input.id
+      ? await this.store.insertIfAbsent({ id: input.id, ...row })
       : await this.store.insert(row);
-    if (!message) {
-      throw new ChatConflictError("A message with that id already exists.");
+    if (!block) {
+      throw new StreamConflictError("A block with that id already exists.");
     }
-    // The pending row goes out before delivery starts: settlement publishes
-    // the same row again as delivered, and a client must never see that
-    // one first and then the pending one on top of it.
-    await this.publishEntry(agentId, message.id);
-    if (sessionName === null) return { message, delivered: false, held: false };
-    const { held } = this.deliverDetached(
-      agentId,
-      sessionName,
-      message,
+    await this.publishEntry(streamId, block.id);
+    if (thread) await this.publishEntry(streamId, thread.threadId);
+    if (!live) return { block, delivered: false, held: false };
+    const { held } = this.deliverBlock(
+      block,
+      { kind: "user" },
       attachmentLines
     );
-    return { message, delivered: null, held };
+    return { block, delivered: null, held };
   }
 
   /**
    * Answer an agent question. The stored question decides what `value`
    * means: an option's label is the reply text, and a client label only
-   * matters for a freeform answer. Attachments are resolved before anything
-   * is written and stored on the reply, exactly as for a plain user message.
-   * The reply row and the answer land in one transaction, so racing answers
-   * leave exactly one reply.
+   * matters for a freeform answer. The reply block and the answer land in
+   * one transaction, so racing answers leave exactly one reply.
    */
   async answerQuestion(
-    agentId: string,
-    messageId: string,
-    input: ChatAnswerInput
-  ): Promise<ChatAnswerResponse> {
-    if (!isChatMessageId(messageId)) {
-      throw new ChatValidationError("messageId must be a UUID.");
+    streamId: string,
+    blockId: string,
+    input: AnswerInput
+  ): Promise<StreamAnswerResponse> {
+    if (!isBlockId(blockId)) {
+      throw new StreamValidationError("blockId must be a UUID.");
     }
     if (!input.value.trim()) {
-      throw new ChatValidationError("value is required.");
+      throw new StreamValidationError("value is required.");
     }
     const attachments = input.attachments ?? [];
-    if (attachments.length > CHAT_ATTACHMENTS_MAX) {
-      throw new ChatValidationError(
-        `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
+    if (attachments.length > BLOCK_ATTACHMENTS_MAX) {
+      throw new StreamValidationError(
+        `attachments must have ${BLOCK_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    const question = await this.store.getById(messageId);
+    const question = await this.store.getById(blockId);
     if (
       !question ||
-      question.agentId !== agentId ||
-      question.authorKind !== "agent" ||
+      question.streamId !== streamId ||
+      question.author.kind !== "agent" ||
       question.kind !== "question"
     ) {
-      throw new ChatNotFoundError("Question not found.");
+      throw new StreamNotFoundError("Question not found.");
     }
-    if (question.answer) {
-      throw new ChatConflictError("Question already answered.");
+    if (question.state?.answer) {
+      throw new StreamConflictError("Question already answered.");
     }
     const { value } = input;
-    const options = question.question?.options ?? [];
+    const options = question.data.options;
     const option = options.find((o) => (o.value ?? o.label) === value);
     let label: string | undefined;
     if (option) {
       label = option.label;
-    } else if (question.question?.allowFreeform) {
+    } else if (question.data.allowFreeform) {
       const supplied = input.label?.trim() ?? "";
       label = supplied ? supplied.slice(0, ANSWER_LABEL_MAX) : undefined;
     } else {
-      throw new ChatValidationError(
+      throw new StreamValidationError(
         "value does not match one of the question's options."
       );
     }
-    const text = option ? option.label : value;
-    if (text.length > CHAT_MESSAGE_MAX_CHARS) {
-      throw new ChatValidationError(
-        `value must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
-      );
-    }
+    const text = requireText(option ? option.label : value);
+    const toAgentId = question.author.agentId;
+    const recipient = await this.requireAgent(toAgentId);
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
-      resolved = await this.resolveAttachmentsFor(agent, attachments);
-      attachmentLines = this.describeAttachments(agent, resolved);
+      resolved = await this.resolveAttachmentsFor(recipient, attachments);
+      attachmentLines = this.describeAttachments(recipient, resolved);
     }
+    const live = await this.canDeliver(toAgentId, true);
 
-    const sessionName = await this.deliverySession(agentId, true);
-    const delivered = sessionName === null ? false : null;
-
-    // Reply row and answer land together or not at all: a concurrent answer
-    // makes recordAnswer match nothing, and the rollback takes the orphan
-    // reply with it.
     const client = await this.deps.pool.connect();
-    let replyMessage: ChatMessage;
-    let answered: ChatMessage | null;
+    let reply: Block;
+    let answered: Block | null;
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
       const replyRow = {
-        agentId,
-        authorKind: "user" as const,
-        kind: "reply" as const,
-        text,
+        streamId,
+        author: USER,
+        toAgentId,
+        kind: "text" as const,
+        threadId: question.threadId ?? question.id,
         replyTo: question.id,
+        text,
         attachments: resolved,
-        delivered,
+        delivered: live ? null : false,
       };
       const inserted = input.id
         ? await tx.insertIfAbsent({ id: input.id, ...replyRow })
         : await tx.insert(replyRow);
       if (!inserted) {
         await client.query("ROLLBACK");
-        throw new ChatConflictError("A message with that id already exists.");
+        throw new StreamConflictError("A block with that id already exists.");
       }
-      replyMessage = inserted;
+      reply = inserted;
       answered = await tx.recordAnswer(question.id, {
         value,
         ...(label !== undefined ? { label } : {}),
-        replyMessageId: replyMessage.id,
-        answeredAt: new Date().toISOString(),
+        by: USER,
+        blockId: reply.id,
+        at: new Date().toISOString(),
       });
       if (!answered) {
         await client.query("ROLLBACK");
-        throw new ChatConflictError("Question already answered.");
+        throw new StreamConflictError("Question already answered.");
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -483,247 +641,451 @@ export class ChatService {
     } finally {
       client.release();
     }
-
-    // As in sendUserMessage: the pending reply is on the wire before its
-    // delivery can settle and publish it again.
-    await this.publishEntry(agentId, answered.id);
-    await this.publishEntry(agentId, replyMessage.id);
-    if (sessionName !== null) {
-      this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
+    await this.publishEntry(streamId, answered.id);
+    await this.publishEntry(streamId, reply.id);
+    if (live) {
+      this.deliverBlock(reply, { kind: "user" }, attachmentLines, {
+        answers: { blockId: question.id, kind: "question" },
+      });
     }
-    return { question: answered, reply: replyMessage, delivered };
+    return { block: answered, reply, delivered: live ? null : false };
+  }
+
+  /** Submit a form: the values land on the form's state and reach its author. */
+  async submitForm(
+    streamId: string,
+    blockId: string,
+    input: { id?: string; values: Record<string, string | number | boolean> }
+  ): Promise<StreamAnswerResponse> {
+    const form = await this.store.getById(blockId);
+    if (
+      !form ||
+      form.streamId !== streamId ||
+      form.author.kind !== "agent" ||
+      form.kind !== "form"
+    ) {
+      throw new StreamNotFoundError("Form not found.");
+    }
+    if (form.state?.submission) {
+      throw new StreamConflictError("Form already submitted.");
+    }
+    const values: Record<string, string | number | boolean> = {};
+    for (const field of form.data.fields) {
+      const value = input.values[field.id];
+      if (value === undefined || value === "") {
+        if (field.required) {
+          throw new StreamValidationError(`"${field.label}" is required.`);
+        }
+        continue;
+      }
+      values[field.id] = value;
+    }
+    const toAgentId = form.author.agentId;
+    const live = await this.canDeliver(toAgentId, true);
+    const text = form.data.fields
+      .filter((f) => values[f.id] !== undefined)
+      .map((f) => `${f.label}: ${String(values[f.id])}`)
+      .join("\n");
+    const client = await this.deps.pool.connect();
+    let reply: Block;
+    let submitted: Block | null;
+    try {
+      await client.query("BEGIN");
+      const tx = this.store.withClient(client);
+      const inserted = await tx.insertIfAbsent({
+        id: input.id ?? randomUUID(),
+        streamId,
+        author: USER,
+        toAgentId,
+        kind: "text",
+        threadId: form.threadId ?? form.id,
+        replyTo: form.id,
+        text,
+        delivered: live ? null : false,
+      });
+      if (!inserted) {
+        await client.query("ROLLBACK");
+        throw new StreamConflictError("A block with that id already exists.");
+      }
+      reply = inserted;
+      submitted = await tx.recordSubmission(form.id, {
+        values,
+        by: USER,
+        blockId: reply.id,
+        at: new Date().toISOString(),
+      });
+      if (!submitted) {
+        await client.query("ROLLBACK");
+        throw new StreamConflictError("Form already submitted.");
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    await this.publishEntry(streamId, submitted.id);
+    await this.publishEntry(streamId, reply.id);
+    if (live) {
+      this.deliverBlock(reply, { kind: "user" }, [], {
+        answers: { blockId: form.id, kind: "form" },
+      });
+    }
+    return { block: submitted, reply, delivered: live ? null : false };
   }
 
   /**
-   * Add a reaction from `authorKind` to one of the other side's messages.
-   * The reaction is stored and published at once. A user reaction is then
-   * enqueued into the pane behind the quiet gate exactly like a user
-   * message, and its outcome lands on the reaction row (with no pane it is
-   * stored as not delivered). An agent reaction is only shown.
-   *
-   * Adding an emoji the author already put on the message changes nothing
-   * and delivers nothing, so a double click cannot inject it twice.
+   * Change a block's state: a finding resolved, a task ticked. The author
+   * and the recipient may; people always may. The author is told when
+   * someone else changed it.
    */
+  async setState(
+    streamId: string,
+    blockId: string,
+    patch: Record<string, unknown>,
+    by: BlockAuthor
+  ): Promise<Block> {
+    const block = await this.store.getById(blockId);
+    if (!block || block.streamId !== streamId) {
+      throw new StreamNotFoundError("Block not found.");
+    }
+    if (
+      by.kind === "agent" &&
+      !sameAuthor(block.author, by) &&
+      block.toAgentId !== by.agentId
+    ) {
+      throw new StreamForbiddenError(
+        "Only the block's author or the agent it is addressed to may change its state."
+      );
+    }
+    if (block.kind !== "review" && block.kind !== "tasks") {
+      throw new StreamValidationError(
+        `A ${block.kind} block has no state to change this way.`
+      );
+    }
+    const kind = block.kind;
+    const stamped = stampState(kind, patch, by);
+    const updated = await this.store.mergeState(block.id, stamped);
+    if (!updated) throw new StreamNotFoundError("Block not found.");
+    await this.publishEntry(streamId, updated.id);
+    if (
+      updated.author.kind === "agent" &&
+      !sameAuthor(updated.author, by) &&
+      (await this.canDeliver(updated.author.agentId, true))
+    ) {
+      const summary = describeStateChange(kind, stamped);
+      this.injectDetached({
+        agentId: updated.author.agentId,
+        envelope: buildPostEnvelope({
+          blockId: updated.id,
+          from: await this.senderOf(by),
+          text: summary,
+          threadId: updated.threadId,
+        }),
+        record: async () => undefined,
+        logContext: { blockId: updated.id },
+      });
+    }
+    return updated;
+  }
+
+  // -------------------------------------------------------------------------
+  // Reactions
+  // -------------------------------------------------------------------------
+
   async addReaction(
-    agentId: string,
-    messageId: string,
+    streamId: string,
+    blockId: string,
     rawEmoji: unknown,
-    authorKind: ChatAuthorKind = "user"
-  ): Promise<ChatReactionResponse> {
-    const { message, emoji } = await this.reactionTarget(
-      agentId,
-      messageId,
+    author: BlockAuthor = USER
+  ): Promise<StreamReactionResponse> {
+    const { block, emoji } = await this.reactionTarget(
+      streamId,
+      blockId,
       rawEmoji,
-      authorKind
+      author
     );
-    const existing = await this.store.listReactions(message.id);
+    const existing = await this.store.listReactions(block.id);
     if (
       existing.some(
         (reaction) =>
-          reaction.authorKind === authorKind && reaction.emoji === emoji
+          sameAuthor(reaction.author, author) && reaction.emoji === emoji
       )
     ) {
-      return { messageId: message.id, reactions: existing };
+      return { blockId: block.id, reactions: existing };
     }
-    if (existing.length >= CHAT_REACTIONS_MAX) {
-      throw new ChatValidationError(
-        `A message can carry ${CHAT_REACTIONS_MAX} reactions at most.`
+    if (existing.length >= BLOCK_REACTIONS_MAX) {
+      throw new StreamValidationError(
+        `A block can carry ${BLOCK_REACTIONS_MAX} reactions at most.`
       );
     }
-    const sessionName =
-      authorKind === "user" ? await this.deliverySession(agentId, true) : null;
+    // A person's reaction reaches the agent that wrote the block.
+    const recipient =
+      author.kind === "user" && block.author.kind === "agent"
+        ? block.author.agentId
+        : null;
+    const live = recipient ? await this.canDeliver(recipient, true) : false;
     const reaction = await this.store.insertReaction({
-      agentId,
-      messageId: message.id,
-      authorKind,
+      streamId,
+      blockId: block.id,
+      author,
       emoji,
-      delivered: authorKind === "user" && sessionName === null ? false : null,
+      delivered: recipient ? (live ? null : false) : null,
     });
-    // Null means a concurrent add of the same emoji won; that one delivers.
     if (reaction) {
-      await this.publishEntry(agentId, message.id);
-      if (sessionName !== null) {
+      await this.publishEntry(streamId, block.id);
+      if (recipient && live) {
         const postsSince = await this.store.countLaterPostsBySameAuthor(
-          message.id
+          block.id
         );
         this.injectDetached({
-          agentId,
-          sessionName,
+          agentId: recipient,
           envelope: buildReactionEnvelope({
-            messageId: message.id,
+            blockId: block.id,
             emoji,
-            kind: message.kind,
-            text: message.text,
+            kind: block.kind,
+            text: block.text,
             postsSince,
           }),
           record: async (delivered) => {
             await this.store.setReactionDelivered(reaction.id, delivered);
-            await this.publishEntry(agentId, message.id);
+            await this.publishEntry(streamId, block.id);
           },
-          logContext: { messageId: message.id, reactionId: reaction.id },
+          logContext: { blockId: block.id, reactionId: reaction.id },
         });
       }
     }
     return {
-      messageId: message.id,
-      reactions: await this.store.listReactions(message.id),
+      blockId: block.id,
+      reactions: await this.store.listReactions(block.id),
     };
   }
 
-  /**
-   * Take an author's reaction back off a message. Only the chip goes: an
-   * agent already told about a user reaction stays told, and nothing is
-   * injected. Removing an emoji the author did not put there is a no-op.
-   */
   async removeReaction(
-    agentId: string,
-    messageId: string,
+    streamId: string,
+    blockId: string,
     rawEmoji: unknown,
-    authorKind: ChatAuthorKind = "user"
-  ): Promise<ChatReactionResponse> {
-    const { message, emoji } = await this.reactionTarget(
-      agentId,
-      messageId,
+    author: BlockAuthor = USER
+  ): Promise<StreamReactionResponse> {
+    const { block, emoji } = await this.reactionTarget(
+      streamId,
+      blockId,
       rawEmoji,
-      authorKind
+      author
     );
-    if (await this.store.deleteReaction(message.id, authorKind, emoji)) {
-      await this.publishEntry(agentId, message.id);
+    if (await this.store.deleteReaction(block.id, author, emoji)) {
+      await this.publishEntry(streamId, block.id);
     }
     return {
-      messageId: message.id,
-      reactions: await this.store.listReactions(message.id),
+      blockId: block.id,
+      reactions: await this.store.listReactions(block.id),
     };
   }
 
-  /**
-   * The message a reaction names, and the emoji as stored. Each side reacts
-   * only to the other's posts on this feed: the user to the agent's, the
-   * agent to the user's.
-   */
   private async reactionTarget(
-    agentId: string,
-    messageId: string,
+    streamId: string,
+    blockId: string,
     rawEmoji: unknown,
-    authorKind: ChatAuthorKind
-  ): Promise<{ message: ChatMessage; emoji: string }> {
-    if (!isChatMessageId(messageId)) {
-      throw new ChatValidationError(
-        authorKind === "agent"
-          ? "messageId must be the id from a DISPATCH CHAT envelope."
-          : "messageId must be a UUID."
+    author: BlockAuthor
+  ): Promise<{ block: Block; emoji: string }> {
+    if (!isBlockId(blockId)) {
+      throw new StreamValidationError(
+        author.kind === "agent"
+          ? "id must be the block id from a DISPATCH POST envelope."
+          : "blockId must be a UUID."
       );
     }
     const emoji = normalizeReactionEmoji(rawEmoji);
     if (emoji === null) {
-      throw new ChatValidationError(
+      throw new StreamValidationError(
         "emoji must be a single emoji, such as 👍."
       );
     }
-    const message = await this.store.getById(messageId);
+    const block = await this.store.getById(blockId);
     if (
-      !message ||
-      message.agentId !== agentId ||
-      message.authorKind === authorKind
+      !block ||
+      block.streamId !== streamId ||
+      sameAuthor(block.author, author)
     ) {
-      throw new ChatNotFoundError(
-        authorKind === "agent"
-          ? "Message not found — you can react to the user's messages on your own Chat feed, by the id from their DISPATCH CHAT envelope."
-          : "Message not found."
+      throw new StreamNotFoundError(
+        author.kind === "agent"
+          ? "Block not found — you can react to other people's and agents' blocks on your stream, by the id from their DISPATCH POST envelope."
+          : "Block not found."
       );
     }
-    return { message, emoji };
+    return { block, emoji };
   }
 
-  /** A real pane's session name, or null when this Chat flow permits inert. */
-  private async deliverySession(
-    agentId: string,
-    allowInert: boolean
-  ): Promise<string | null> {
-    const access = await this.delivery().access(agentId);
-    if (access.mode === "live") return "live";
-    if (!allowInert) throw new ChatConflictError(access.message);
-    return null;
-  }
+  // -------------------------------------------------------------------------
+  // Agents (MCP)
+  // -------------------------------------------------------------------------
 
-  private delivery(): ChatDeliveryAdapter {
-    if (!this.deps.delivery) {
-      throw new Error("ChatService: no delivery adapter configured.");
+  /** An agent's `post`. */
+  async post(agentId: string, input: PostInput): Promise<Block> {
+    const author: BlockAuthor = { kind: "agent", agentId };
+    const agent = await this.requireAgent(agentId);
+    const streamId = this.streamOf(agentId);
+    const { kind, data } = resolveKindAndData(input);
+    const text = requireText(input.text);
+    const attachmentInputs = input.attachments ?? [];
+    if (attachmentInputs.length > BLOCK_ATTACHMENTS_MAX) {
+      throw new StreamValidationError(
+        `attachments must have ${BLOCK_ATTACHMENTS_MAX} entries or fewer.`
+      );
     }
-    return this.deps.delivery;
-  }
-
-  /**
-   * Enqueue the envelope and return at once. The detached continuation
-   * records true/false on the row and publishes `chat.changed`; graceful
-   * shutdown waits (briefly) for it, and a restart sweeps whatever it could
-   * not wait for to delivered=false.
-   */
-  private deliverDetached(
-    agentId: string,
-    sessionName: string,
-    message: ChatMessage,
-    attachmentLines: string[] = []
-  ): { held: boolean } {
-    return this.injectDetached({
-      agentId,
-      sessionName,
-      envelope: buildChatEnvelope(message.id, message.text, attachmentLines),
-      record: async (delivered) => {
-        await this.store.setDelivered(message.id, delivered);
-        await this.publishEntry(agentId, message.id);
-      },
-      logContext: { messageId: message.id },
+    if (!text.trim() && data === null && attachmentInputs.length === 0) {
+      throw new StreamValidationError(
+        "A post needs text, an attachment, or one of question, form, link, review or tasks."
+      );
+    }
+    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    const toAgentId = input.to ?? null;
+    if (toAgentId === agentId) {
+      throw new StreamValidationError("to must name another agent.");
+    }
+    if (toAgentId !== null) await this.requireAgent(toAgentId);
+    const attachments = await this.resolveAgentAttachments(
+      agent,
+      attachmentInputs
+    );
+    const live = toAgentId ? await this.canDeliver(toAgentId, true) : false;
+    const block = await this.store.insert({
+      streamId,
+      author,
+      toAgentId,
+      kind,
+      threadId: thread?.threadId ?? null,
+      replyTo: thread?.replyTo ?? null,
+      text,
+      data,
+      state: initialState(kind, data),
+      attachments,
+      delivered: toAgentId ? (live ? null : false) : null,
     });
-  }
-
-  /**
-   * The detached half every pane delivery shares: inject, then hand the
-   * outcome to `record`, tracked so shutdown can wait for it.
-   */
-  private injectDetached(input: {
-    agentId: string;
-    sessionName: string;
-    envelope: string;
-    record: (delivered: boolean) => Promise<void>;
-    logContext: Record<string, string>;
-  }): { held: boolean } {
-    const { agentId, logContext } = input;
-    const delivery = this.delivery();
-    const settlement = delivery
-      .inject(agentId, input.sessionName, input.envelope)
-      .then(
-        () => true,
-        (error: unknown) => {
+    await this.publishEntry(streamId, block.id);
+    if (thread) await this.publishEntry(streamId, thread.threadId);
+    if (toAgentId && live) {
+      const recipient = await this.requireAgent(toAgentId);
+      this.deliverBlock(
+        block,
+        { kind: "agent", agentId, name: agent.name },
+        this.describeAttachments(recipient, attachments)
+      );
+    }
+    if (
+      toAgentId === null &&
+      (kind === "question" || kind === "form") &&
+      this.deps.onInputPosted
+    ) {
+      await this.deps
+        .onInputPosted(agentId, text || describeInput(block))
+        .catch((error: unknown) => {
           this.log.warn(
-            { err: error, agentId, ...logContext },
-            "chat: pane delivery failed — agent may have exited"
+            { err: error, agentId },
+            "stream: failed to mark the agent waiting"
           );
-          return false;
-        }
-      )
-      .then(input.record)
-      .catch((error: unknown) => {
-        this.log.error(
-          { err: error, agentId, ...logContext },
-          "chat: failed to record delivery outcome"
-        );
-      });
-    this.trackDelivery(settlement);
-    return { held: delivery.held(agentId) };
+        });
+    }
+    if (input.notify && this.deps.notify) {
+      await this.deps
+        .notify(agentId, { message: text || describeInput(block) })
+        .catch((error: unknown) => {
+          this.log.warn({ err: error, agentId }, "stream: notification failed");
+        });
+    }
+    return block;
   }
 
+  /** An agent's `update`: its own block's text, data, attachments or state; a block addressed to it, state only. */
+  async update(
+    agentId: string,
+    blockId: string,
+    input: UpdateInput
+  ): Promise<Block> {
+    const author: BlockAuthor = { kind: "agent", agentId };
+    if (!isBlockId(blockId)) {
+      throw new StreamValidationError("id must be the id returned by post.");
+    }
+    const block = await this.store.getById(blockId);
+    if (!block) throw new StreamNotFoundError("Block not found.");
+    const own = sameAuthor(block.author, author);
+    if (!own && block.toAgentId !== agentId) {
+      throw new StreamForbiddenError(
+        "Only your own blocks, or the state of a block addressed to you, can be updated."
+      );
+    }
+    if (!own) {
+      if (
+        input.text !== undefined ||
+        input.data !== undefined ||
+        input.attachments !== undefined
+      ) {
+        throw new StreamForbiddenError(
+          "Only the state of a block addressed to you can be changed."
+        );
+      }
+      if (!input.state) throw new StreamValidationError("state is required.");
+      return this.setState(block.streamId, block.id, input.state, author);
+    }
+    const patch: UpdateBlockInput = {};
+    if (input.text !== undefined) patch.text = requireText(input.text);
+    if (input.data !== undefined) {
+      patch.data = resolveKindAndData({
+        kind: block.kind,
+        ...(block.kind === "question"
+          ? { question: input.data as BlockQuestionData }
+          : {}),
+        ...(block.kind === "form" ? { form: input.data as BlockFormData } : {}),
+        ...(block.kind === "link" ? { link: input.data as BlockLinkData } : {}),
+        ...(block.kind === "review"
+          ? { review: input.data as BlockReviewData }
+          : {}),
+        ...(block.kind === "tasks"
+          ? { tasks: input.data as BlockTasksData }
+          : {}),
+        attachments: block.attachments.map((a) =>
+          a.type === "file" ? { type: "file" as const, mediaId: a.mediaId } : a
+        ),
+      }).data;
+    }
+    if (input.attachments !== undefined) {
+      const agent = await this.requireAgent(agentId);
+      patch.attachments = await this.resolveAgentAttachments(
+        agent,
+        input.attachments
+      );
+    }
+    let updated = await this.store.update(block.id, patch);
+    if (!updated) throw new StreamNotFoundError("Block not found.");
+    if (input.state) {
+      if (block.kind === "review" || block.kind === "tasks") {
+        updated = await this.setState(
+          block.streamId,
+          block.id,
+          input.state,
+          author
+        );
+      } else {
+        updated =
+          (await this.store.mergeState(block.id, input.state)) ?? updated;
+      }
+    }
+    await this.publishEntry(updated.streamId, updated.id);
+    return updated;
+  }
+
+  // -------------------------------------------------------------------------
+  // Launch block
+  // -------------------------------------------------------------------------
+
   /**
-   * Resolve a launch's context without writing it: the attachments (file
-   * by mediaId, pin verified on the agent, link as given) and the envelope
-   * lines that describe them — the same lines `sendUserMessage` injects, so
-   * the pane and the post agree — plus a `record` that performs the write.
-   * The launch path builds the CLI's first turn from `id` and
-   * `attachmentLines` while `record` runs alongside the runtime start.
-   * A launch with no context at all resolves to null and records nothing.
+   * Resolve a launch's context without writing it: the attachments and the
+   * envelope lines that describe them, plus a `record` that performs the
+   * write. A launch with no context at all resolves to null.
    */
   async prepareLaunchContext(
-    input: ChatLaunchContextInput
+    input: LaunchContextInput
   ): Promise<PreparedLaunchContext | null> {
     const text = input.text ?? "";
     const links = (input.links ?? []).filter((url) => url.trim().length > 0);
@@ -748,10 +1110,6 @@ export class ChatService {
       ...links.map((url) => ({ type: "link" as const, url })),
       ...pins.map((pin) => ({ type: "pin" as const, pinId: pin.id })),
     ];
-    // Everything is resolved and described, because the CLI's first turn has
-    // to list all of it. Only the row is capped: a launch can seed more pins
-    // than a post may carry, and refusing the launch over that would be
-    // worse than a post that says how much it left off.
     let attachments: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (inputs.length > 0) {
@@ -759,86 +1117,60 @@ export class ChatService {
       attachments = await this.resolveAttachmentsFor(agent, inputs);
       attachmentLines = this.describeAttachments(agent, attachments);
     }
-    const storedAttachments =
-      attachments.length > CHAT_ATTACHMENTS_MAX
-        ? attachments.slice(0, CHAT_ATTACHMENTS_MAX)
+    const stored =
+      attachments.length > BLOCK_ATTACHMENTS_MAX
+        ? attachments.slice(0, BLOCK_ATTACHMENTS_MAX)
         : attachments;
     const postText = buildLaunchPostText(
       text,
-      attachments.length - storedAttachments.length
+      attachments.length - stored.length
     );
     const id = input.id ?? randomUUID();
+    const streamId = this.streamOf(input.agentId);
     return {
       id,
       attachmentLines,
       postText,
       record: async () => {
-        // Collision-safe: an id that is already taken means this call did not
-        // write the post, and the caller must not name it in an envelope.
-        const message = await this.store.insertIfAbsent({
+        const block = await this.store.insertIfAbsent({
           id,
-          agentId: input.agentId,
-          authorKind: "user",
-          kind: "reply",
+          streamId,
+          author: USER,
+          toAgentId: input.agentId,
+          kind: "text",
           text: postText,
-          attachments: storedAttachments,
+          attachments: stored,
           delivered: true,
           origin: "launch",
           launchedByAgentId: input.launchedByAgentId ?? null,
         });
-        if (!message) {
-          throw new ChatConflictError(
-            `A chat message with id ${id} already exists; the launch post was not written.`
+        if (!block) {
+          throw new StreamConflictError(
+            `A block with id ${id} already exists; the launch post was not written.`
           );
         }
-        await this.publishEntry(input.agentId, message.id);
-        return message;
+        await this.publishEntry(streamId, block.id);
+        return block;
       },
     };
   }
 
-  /**
-   * Record the context an agent was launched with as one user post at the
-   * top of its feed: the initial prompt as text, plus a file attachment per
-   * startup file, a link per startup link, and a pin per initial pin. The
-   * prompt reaches the CLI through the normal launch path (wrapped in the
-   * Chat envelope when the chat surface is on), so the post is
-   * `delivered: true` and nothing is injected. A launch with no context at
-   * all records nothing and returns null.
-   *
-   * When another agent did the launching, `launchedByAgentId` is stored so
-   * the web can attribute the post to it; the row stays a user post so the
-   * unread and question counts (agent posts only) are unaffected.
-   */
-  async recordLaunchContext(
-    input: ChatLaunchContextInput
-  ): Promise<ChatMessage | null> {
+  async recordLaunchContext(input: LaunchContextInput): Promise<Block | null> {
     const prepared = await this.prepareLaunchContext(input);
     return prepared ? prepared.record() : null;
   }
 
   // -------------------------------------------------------------------------
-  // Delivery lifecycle (startup recovery, shutdown drain)
+  // Events
   // -------------------------------------------------------------------------
 
-  /**
-   * Announce a write to `agent_chat_messages` the coarse way: the Chat tab
-   * refetches every page it has. Kept for writes with no single row to
-   * carry (a mark-read sweep, startup recovery) and as `publishEntry`'s
-   * fallback.
-   */
   publishChanged(agentId: string): void {
-    this.deps.publishUiEvent({ type: "chat.changed", agentId });
+    this.deps.publishUiEvent({ type: "stream.changed", agentId });
   }
 
   /**
-   * The agent's newest turn as the feed row it now is, so a mounted feed
-   * replaces that one row instead of refetching every page it holds. The
-   * newest turn is always the affected one: the recorder only ever writes
-   * into the turn it opened last. Never rejects: a stream write must not
-   * fail because its announcement did. One compose per agent at a time,
-   * with a single trailing re-run, so an older read can never land over a
-   * newer one.
+   * The agent's newest turn as the feed row it now is. Never rejects. One
+   * compose per agent at a time, with a single trailing re-run.
    */
   async publishTurnEntry(agentId: string): Promise<void> {
     if (this.deps.hasUiClient && !this.deps.hasUiClient()) return;
@@ -865,71 +1197,152 @@ export class ChatService {
   private async composeTurnEntry(agentId: string): Promise<void> {
     try {
       const entry = await loadLatestTurnEntry(this.store.db, agentId);
-      if (entry) {
-        this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
-      }
+      if (entry)
+        this.deps.publishUiEvent({ type: "stream.entry", agentId, entry });
     } catch (error) {
       this.log.warn(
         { err: error, agentId },
-        "chat: could not compose the turn for its feed event"
+        "stream: could not compose the turn for its feed event"
       );
     }
   }
 
-  /** A mark-read landed: the count, and which rows it stamped. */
   publishRead(
     agentId: string,
     read: { unreadCount: number; readAt: string; upToAt: string | null }
   ): void {
-    this.deps.publishUiEvent({ type: "chat.read", agentId, ...read });
+    this.deps.publishUiEvent({ type: "stream.read", agentId, ...read });
   }
 
   /**
-   * Announce one message as the feed row it now is, read back through the
-   * feed's own query so the wire entry is exactly what a refetch would
-   * return. A row that cannot be read back falls back to `chat.changed`.
+   * Announce one block as the feed row it now is, read back through the
+   * feed's own query. A thread reply publishes its root instead (the reply
+   * count changed; the reply itself is read through the thread route).
    */
-  private async publishEntry(
-    agentId: string,
-    messageId: string
-  ): Promise<void> {
-    let entry: ChatMessageEntry | null = null;
+  private async publishEntry(streamId: string, blockId: string): Promise<void> {
+    let entry: StreamBlockEntry | null = null;
     try {
-      entry = await loadChatMessageEntry(this.store.db, agentId, messageId);
+      entry = await loadBlockEntry(this.store.db, streamId, blockId);
     } catch (error) {
       this.log.warn(
-        { err: error, agentId, messageId },
-        "chat: could not read a message back for its feed event"
+        { err: error, streamId, blockId },
+        "stream: could not read a block back for its feed event"
       );
     }
-    if (entry) this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
-    else this.publishChanged(agentId);
+    if (entry)
+      this.deps.publishUiEvent({
+        type: "stream.entry",
+        agentId: streamId,
+        entry,
+      });
+    else this.publishChanged(streamId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Delivery
+  // -------------------------------------------------------------------------
+
+  private async canDeliver(
+    agentId: string,
+    allowInert: boolean
+  ): Promise<boolean> {
+    const access = await this.delivery().access(agentId);
+    if (access.mode === "live") return true;
+    if (!allowInert) throw new StreamConflictError(access.message);
+    return false;
+  }
+
+  private delivery(): StreamDeliveryAdapter {
+    if (!this.deps.delivery) {
+      throw new Error("StreamService: no delivery adapter configured.");
+    }
+    return this.deps.delivery;
+  }
+
+  private async senderOf(author: BlockAuthor): Promise<EnvelopeSender> {
+    if (author.kind === "user") return { kind: "user" };
+    const agent = await this.deps.getAgent(author.agentId);
+    return {
+      kind: "agent",
+      agentId: author.agentId,
+      name: agent?.name ?? author.agentId,
+    };
   }
 
   /**
-   * Startup recovery for deliveries (messages and reactions) the previous
-   * process never settled: the quiet-gate queue is in-memory, so a restart
-   * abandons them while their rows still say pending. Mark them
-   * not-delivered (no replay — a resend is the user's call, a duplicate
-   * injection is not) and announce each affected feed. Returns the agent ids
-   * touched.
+   * Queue the block as a prompt for its recipient and return at once. The
+   * detached continuation records true/false on the row and publishes it
+   * again; graceful shutdown waits (briefly) for it, and a restart sweeps
+   * whatever it could not wait for to delivered=false.
    */
+  private deliverBlock(
+    block: Block,
+    from: EnvelopeSender,
+    attachmentLines: string[] = [],
+    extra: { answers?: { blockId: string; kind: BlockKind } | null } = {}
+  ): { held: boolean } {
+    const toAgentId = block.toAgentId;
+    if (!toAgentId) return { held: false };
+    return this.injectDetached({
+      agentId: toAgentId,
+      envelope: buildPostEnvelope({
+        blockId: block.id,
+        from,
+        text: block.text,
+        attachmentLines,
+        threadId: block.threadId,
+        answers: extra.answers ?? null,
+      }),
+      record: async (delivered) => {
+        await this.store.setDelivered(block.id, delivered);
+        await this.publishEntry(block.streamId, block.id);
+      },
+      logContext: { blockId: block.id },
+    });
+  }
+
+  private injectDetached(input: {
+    agentId: string;
+    envelope: string;
+    record: (delivered: boolean) => Promise<void>;
+    logContext: Record<string, string>;
+  }): { held: boolean } {
+    const { agentId, logContext } = input;
+    const delivery = this.delivery();
+    const settlement = delivery
+      .inject(agentId, input.envelope)
+      .then(
+        () => true,
+        (error: unknown) => {
+          this.log.warn(
+            { err: error, agentId, ...logContext },
+            "stream: delivery failed — agent may have exited"
+          );
+          return false;
+        }
+      )
+      .then(input.record)
+      .catch((error: unknown) => {
+        this.log.error(
+          { err: error, agentId, ...logContext },
+          "stream: failed to record delivery outcome"
+        );
+      });
+    this.trackDelivery(settlement);
+    return { held: delivery.held(agentId) };
+  }
+
   async recoverPendingDeliveries(): Promise<string[]> {
-    const agentIds = [
+    const streamIds = [
       ...new Set([
         ...(await this.store.sweepPendingDeliveries()),
         ...(await this.store.sweepPendingReactions()),
       ]),
     ];
-    for (const agentId of agentIds) this.publishChanged(agentId);
-    return agentIds;
+    for (const streamId of streamIds) this.publishChanged(streamId);
+    return streamIds;
   }
 
-  /**
-   * Register a detached delivery's settlement chain so graceful shutdown can
-   * wait for it. The promise must never reject (the route already handles
-   * outcomes); it is dropped from the set once it settles.
-   */
   private trackDelivery(settlement: Promise<unknown>): void {
     this.inFlightDeliveries.add(settlement);
     void settlement.finally(() => {
@@ -941,12 +1354,6 @@ export class ChatService {
     return this.inFlightDeliveries.size;
   }
 
-  /**
-   * Bounded wait for in-flight deliveries to record their outcome, so a
-   * graceful shutdown does not leave rows pending that were about to settle.
-   * Resolves true when everything settled, false on timeout — whatever is
-   * still pending then is swept to not-delivered by the next startup.
-   */
   async waitForInFlightDeliveries(timeoutMs: number): Promise<boolean> {
     if (this.inFlightDeliveries.size === 0) return true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -954,7 +1361,6 @@ export class ChatService {
       timer = setTimeout(() => resolve(false), timeoutMs);
     });
     try {
-      // Snapshot: deliveries enqueued after shutdown began are not waited on.
       const pending = Promise.allSettled([...this.inFlightDeliveries]).then(
         () => true as const
       );
@@ -965,149 +1371,69 @@ export class ChatService {
   }
 
   // -------------------------------------------------------------------------
-  // Agent-side workflows (MCP)
+  // Threads, attachments
   // -------------------------------------------------------------------------
 
-  /** Agent-authored message from chat_post. */
-  async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
-    validateChatContent(input);
-    if (input.replyTo != null) {
-      if (!isChatMessageId(input.replyTo)) {
-        throw new ChatValidationError(
-          "replyTo must be the message id from a DISPATCH CHAT envelope."
-        );
-      }
-      // A syntactically valid id is not enough: the envelope's id is the only
-      // thing that entitles an agent to thread onto a message, and a launching
-      // agent knows real ids from other feeds. Anything that is not a message
-      // on this agent's own feed is refused rather than silently threaded.
-      const target = await this.store.getById(input.replyTo);
-      if (!target || target.agentId !== agentId) {
-        throw new ChatValidationError(
-          "replyTo must name a message on this agent's own Chat feed — use the id from a DISPATCH CHAT envelope."
-        );
-      }
-    }
-    const kind = input.kind ?? "reply";
-    const attachments = await this.resolveAttachments(
-      agentId,
-      input.attachments ?? []
-    );
-    const message = await this.store.insert({
-      agentId,
-      authorKind: "agent",
-      kind,
-      text: input.text,
-      replyTo: input.replyTo ?? null,
-      question: kind === "question" ? (input.question ?? null) : null,
-      attachments,
-    });
-    await this.publishEntry(agentId, message.id);
-    if (kind === "question" && this.deps.onQuestionPosted) {
-      await this.deps
-        .onQuestionPosted(agentId, input.text)
-        .catch((error: unknown) => {
-          this.deps.log?.warn(
-            { err: error, agentId },
-            "chat: failed to mark the agent as waiting on its question"
-          );
-        });
-    }
-    return message;
-  }
-
-  /** Edit an agent-authored message from chat_update. */
-  async update(
-    agentId: string,
-    messageId: string,
-    input: ChatUpdateInput
-  ): Promise<ChatMessage> {
-    if (!isChatMessageId(messageId)) {
-      throw new ChatValidationError(
-        "messageId must be an id returned by chat_post."
-      );
-    }
-    const existing = await this.store.getById(messageId);
-    if (
-      !existing ||
-      existing.agentId !== agentId ||
-      existing.authorKind !== "agent"
-    ) {
-      throw new ChatValidationError(
-        "Message not found — chat_update only edits your own agent messages."
-      );
-    }
-    if (
-      existing.answer &&
-      ((input.kind !== undefined && input.kind !== existing.kind) ||
-        input.question !== undefined)
-    ) {
-      // The answer references these options; swapping or dropping them would
-      // leave it pointing at nothing.
-      throw new ChatValidationError(
-        "This question has already been answered, so its kind and options are fixed — edit the text or attachments, or post a new question."
-      );
-    }
-    const kind = input.kind ?? existing.kind;
-    // Moving away from kind=question clears the stored question, so only a
-    // question supplied in this call counts against the "rejected otherwise"
-    // rule; staying on a question keeps the stored one.
-    const question =
-      input.question !== undefined
-        ? input.question
-        : kind === "question"
-          ? existing.question
-          : null;
-    validateChatContent({
-      text: input.text,
-      kind,
-      question,
-      attachments: input.attachments,
-    });
-    const patch: UpdateChatMessageInput = {};
-    if (input.text !== undefined) patch.text = input.text;
-    if (input.kind !== undefined) patch.kind = input.kind;
-    if (kind !== "question") {
-      if (existing.question) patch.question = null;
-    } else if (input.question !== undefined) {
-      patch.question = input.question;
-    }
-    if (input.attachments !== undefined) {
-      patch.attachments = await this.resolveAttachments(
-        agentId,
-        input.attachments
-      );
-    }
-    const updated = await this.store.update(messageId, patch);
-    if (!updated) throw new ChatValidationError("Message not found.");
-    await this.publishEntry(agentId, updated.id);
-    return updated;
-  }
-
   /**
-   * Turn agent-supplied attachments into their stored form: `file` resolves
-   * to this agent's media row by the stored fileName (or mediaId) that
-   * share_file returned — never by a local path, so an unshared
-   * file cannot masquerade as an earlier share — and `pin` must name a pin
-   * on this agent.
+   * Where a reply lands: `replyTo` may name a top-level block (the thread's
+   * root) or a reply inside one (then the root is that reply's thread).
+   * Must be on this stream.
    */
-  async resolveAttachments(
-    agentId: string,
-    inputs: ChatAttachmentInput[]
-  ): Promise<ChatAttachment[]> {
-    if (inputs.length === 0) return [];
-    return this.resolveAttachmentsFor(await this.requireAgent(agentId), inputs);
+  private async resolveThread(
+    streamId: string,
+    replyTo: string | null
+  ): Promise<{ threadId: string; replyTo: string } | null> {
+    if (replyTo === null) return null;
+    if (!isBlockId(replyTo)) {
+      throw new StreamValidationError(
+        "replyTo must be a block id from a DISPATCH POST envelope or a post result."
+      );
+    }
+    const target = await this.store.getById(replyTo);
+    if (!target || target.streamId !== streamId) {
+      throw new StreamValidationError(
+        "replyTo must name a block on this stream."
+      );
+    }
+    return { threadId: target.threadId ?? target.id, replyTo: target.id };
   }
 
-  private async requireAgent(agentId: string): Promise<ChatAgent> {
+  private async requireAgent(agentId: string): Promise<StreamAgent> {
     const agent = await this.deps.getAgent(agentId);
-    if (!agent) throw new ChatValidationError("Agent not found.");
+    if (!agent) throw new StreamValidationError(`Agent ${agentId} not found.`);
     return agent;
   }
 
+  /** Attachments as an agent gives them: a `path` is uploaded first. */
+  private async resolveAgentAttachments(
+    agent: StreamAgent,
+    inputs: BlockAttachmentInput[]
+  ): Promise<ChatAttachment[]> {
+    const out: ChatAttachment[] = [];
+    for (const input of inputs) {
+      if (input.type === "file" && input.path) {
+        if (!this.deps.uploadFile) {
+          throw new StreamValidationError(
+            "File uploads are not available here."
+          );
+        }
+        const uploaded = await this.deps.uploadFile(agent.id, {
+          filePath: input.path,
+          description: input.description ?? path.basename(input.path),
+        });
+        out.push(
+          await this.resolveFile(agent.id, { fileName: uploaded.fileName })
+        );
+        continue;
+      }
+      out.push(...(await this.resolveAttachmentsFor(agent, [input])));
+    }
+    return out;
+  }
+
   private async resolveAttachmentsFor(
-    agent: ChatAgent,
-    inputs: ChatAttachmentInput[]
+    agent: StreamAgent,
+    inputs: Array<ChatUserAttachmentInput | BlockAttachmentInput>
   ): Promise<ChatAttachment[]> {
     const out: ChatAttachment[] = [];
     for (const input of inputs) {
@@ -1115,11 +1441,23 @@ export class ChatService {
         out.push(await this.resolveFile(agent.id, input));
       } else if (input.type === "pin") {
         if (!this.findPin(agent, input.pinId)) {
-          throw new ChatValidationError(
+          throw new StreamValidationError(
             `Unknown pin "${input.pinId}" — list_pins shows the ids on this agent.`
           );
         }
         out.push({ type: "pin", pinId: input.pinId });
+      } else if (input.type === "link" || input.type === "pr") {
+        const url = chatUrlSchema.safeParse(input.url);
+        if (!url.success) {
+          throw new StreamValidationError(
+            "url must be an absolute http or https URL."
+          );
+        }
+        out.push({
+          type: input.type,
+          url: url.data,
+          ...(input.title ? { title: input.title } : {}),
+        });
       } else {
         out.push(input);
       }
@@ -1127,19 +1465,19 @@ export class ChatService {
     return out;
   }
 
-  private findPin(agent: ChatAgent, pinId: string) {
+  private findPin(agent: StreamAgent, pinId: string) {
     const pins = Array.isArray(agent.pins) ? agent.pins : [];
     return pins.find((pin) => pin.id === pinId);
   }
 
   /**
-   * One envelope line per resolved attachment, in the documented format:
-   * `file: <abs path> (<mime>, <size>)`, `pin: <label> — <value>`,
-   * `link: <url>`. File paths use the agent's media directory — the same
-   * resolution the media download route uses — so the agent can open them.
+   * One envelope line per resolved attachment: `file: <abs path> (<mime>,
+   * <size>)`, `pin: <label> — <value>`, `link: <url>`. File paths use the
+   * recipient agent's media directory when the file is its own; otherwise
+   * the file is described by name and the agent fetches it by URL.
    */
   private describeAttachments(
-    agent: ChatAgent,
+    agent: StreamAgent,
     attachments: ChatAttachment[]
   ): string[] {
     const mediaDir = resolveMediaDir(
@@ -1192,14 +1530,12 @@ export class ChatService {
         ? input.mediaId
         : undefined;
     if (!fileName && mediaId === undefined) {
-      throw new ChatValidationError(
-        "file attachments need fileName (from share_file) or mediaId."
+      throw new StreamValidationError(
+        "file attachments need fileName, mediaId or path."
       );
     }
     if (fileName && mediaId !== undefined) {
-      // Two identifiers could name two different rows; refuse rather than
-      // pick one.
-      throw new ChatValidationError(
+      throw new StreamValidationError(
         "file attachments take either fileName or mediaId, not both."
       );
     }
@@ -1210,28 +1546,90 @@ export class ChatService {
     }>(
       `SELECT id, file_name, size_bytes FROM media
         WHERE agent_id = $1
-          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text
-                   ELSE id = $3::int END`,
+          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END`,
       [agentId, fileName ?? null, mediaId ?? null]
     );
     const match = result.rows[0];
     if (!match) {
-      throw new ChatValidationError(
-        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with share_file and attach the fileName it returns.`
+      throw new StreamValidationError(
+        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — attach it by path to upload it first.`
       );
     }
-    // The same lookup GET /media serves the file with.
     return {
       type: "file",
       mediaId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),
-      // No dimensions here on purpose. The feed fills them in from the live
-      // media row when it reads the page, which is the only thing that can be
-      // right: share_file replaces a file's bytes under an unchanged
-      // URL, so a shape frozen at write time can describe bytes the post no
-      // longer serves.
     };
   }
+}
+
+/** A state patch with `by`/`at` stamped onto each item it touches. */
+function stampState(
+  kind: "review" | "tasks",
+  patch: Record<string, unknown>,
+  by: BlockAuthor
+): Record<string, unknown> {
+  const at = new Date().toISOString();
+  if (kind === "review") {
+    const findings = patch.findings;
+    if (!findings || typeof findings !== "object") {
+      throw new StreamValidationError(
+        "state.findings is required for a review."
+      );
+    }
+    const stamped: Record<string, unknown> = {};
+    for (const [id, value] of Object.entries(
+      findings as Record<string, unknown>
+    )) {
+      const status =
+        typeof value === "string"
+          ? value
+          : (value as { status?: unknown })?.status;
+      if (!["open", "resolved", "disputed"].includes(status as string)) {
+        throw new StreamValidationError(
+          `finding "${id}" status must be open, resolved or disputed.`
+        );
+      }
+      stamped[id] = { status, by, at };
+    }
+    return { findings: stamped };
+  }
+  const items = patch.items;
+  if (!items || typeof items !== "object") {
+    throw new StreamValidationError("state.items is required for tasks.");
+  }
+  const stamped: Record<string, string> = {};
+  for (const [id, value] of Object.entries(items as Record<string, unknown>)) {
+    if (!["todo", "now", "done"].includes(value as string)) {
+      throw new StreamValidationError(
+        `task "${id}" status must be todo, now or done.`
+      );
+    }
+    stamped[id] = value as string;
+  }
+  return { items: stamped };
+}
+
+function describeStateChange(
+  kind: "review" | "tasks",
+  patch: Record<string, unknown>
+): string {
+  if (kind === "review") {
+    return Object.entries(patch.findings as Record<string, { status: string }>)
+      .map(([id, v]) => `Finding ${id} is now ${v.status}.`)
+      .join("\n");
+  }
+  return Object.entries(patch.items as Record<string, string>)
+    .map(([id, v]) => `Task ${id} is now ${v}.`)
+    .join("\n");
+}
+
+function describeInput(block: Block): string {
+  if (block.kind === "question") {
+    return block.data.options.map((o) => o.label).join(" / ");
+  }
+  if (block.kind === "form") return block.data.title ?? "Form";
+  return block.text;
 }

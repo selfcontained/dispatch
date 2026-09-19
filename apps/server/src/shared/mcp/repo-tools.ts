@@ -12,7 +12,9 @@ const BUILTIN_TOOL_NAMES = new Set([
   "create_pr",
 
   "get_pr_status",
-  "share_file",
+  "post",
+  "update",
+  "react",
 ]);
 
 type RepoToolFile = {

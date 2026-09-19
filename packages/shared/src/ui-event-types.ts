@@ -7,10 +7,10 @@
  */
 
 import type {
-  ChatChangedEvent,
-  ChatEntryEvent,
-  ChatReadEvent,
-} from "./chat-types.js";
+  StreamChangedEvent,
+  StreamEntryEvent,
+  StreamReadEvent,
+} from "./block-types.js";
 import type { SurfaceChangedEvent } from "./surface-types.js";
 
 /**
@@ -61,9 +61,9 @@ export type SharedUiEvent =
    */
   | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
   | SurfaceChangedEvent
-  | ChatChangedEvent
-  | ChatEntryEvent
-  | ChatReadEvent
+  | StreamChangedEvent
+  | StreamEntryEvent
+  | StreamReadEvent
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | {

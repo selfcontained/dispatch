@@ -4,7 +4,7 @@ import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 import type { DiffStatsRefresher } from "../../agents/diff-stats-refresher.js";
-import type { ChatService } from "../../chat/service.js";
+import type { StreamService } from "../../chat/service.js";
 import type { PublishUiEvent } from "../../server/ui-events.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
@@ -46,7 +46,7 @@ export type AgentRouteDeps = {
    * Delivers a user-fired prompt (quick phrase, shortcut pin) as a Chat
    * message; see `routes/agents/prompt-routes.ts`.
    */
-  chat: ChatService;
+  chat: StreamService;
   /** Read per click: the flag is a cold path and must not be cached stale. */
   isChatSurfaceEnabled: () => Promise<boolean>;
 };

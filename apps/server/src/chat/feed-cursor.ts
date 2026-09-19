@@ -1,6 +1,6 @@
-import type { ChatFeedEntry } from "@dispatch/shared";
+import type { StreamEntry } from "@dispatch/shared";
 
-import { isChatMessageId } from "./store.js";
+import { isBlockId } from "./store.js";
 
 const CHAT_FEED_DEFAULT_LIMIT = 200;
 const CHAT_FEED_MAX_LIMIT = 500;
@@ -15,20 +15,19 @@ const CHAT_FEED_MAX_LIMIT = 500;
  */
 export type FeedCursor = {
   at: string;
-  type: ChatFeedEntry["type"];
+  type: StreamEntry["type"];
   id: string;
 };
 
-const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
+const SOURCE_RANK: Record<StreamEntry["type"], number> = {
   // Turns come from agent_stream_events; the rank keeps the cursor's id
   // tie-break exact against every other source.
   turn: 6,
   review: 5,
-  chat: 4,
+  block: 4,
   status: 3,
   pin: 2,
   agent_message: 1,
-  media: 0,
 };
 
 const AT_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
@@ -40,13 +39,12 @@ export function encodeFeedCursor(cursor: FeedCursor): string {
 
 const SERIAL_ID_RE = /^\d{1,10}$/;
 
-function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
+function isValidCursorId(type: StreamEntry["type"], id: string): boolean {
   switch (type) {
-    case "chat":
+    case "block":
     case "agent_message":
-      return isChatMessageId(id);
+      return isBlockId(id);
     case "status":
-    case "media":
     case "review":
     case "turn":
     case "pin":
@@ -86,7 +84,7 @@ export function decodeFeedCursor(raw: string): FeedCursor | null {
     return null;
   }
   if (typeof type !== "string" || !(type in SOURCE_RANK)) return null;
-  const sourceType = type as ChatFeedEntry["type"];
+  const sourceType = type as StreamEntry["type"];
   if (typeof id !== "string" || !isValidCursorId(sourceType, id)) return null;
   return { at, type: sourceType, id };
 }
@@ -98,7 +96,7 @@ export function clampFeedLimit(limit: number | undefined): number {
   return Math.min(CHAT_FEED_MAX_LIMIT, Math.max(1, Math.floor(limit)));
 }
 
-export type Keyed<E extends ChatFeedEntry> = {
+export type Keyed<E extends StreamEntry> = {
   entry: E;
   atKey: string;
   rawId: string;
@@ -113,7 +111,7 @@ export type Keyed<E extends ChatFeedEntry> = {
  * whose query joins other tables that have `id`/`created_at` of their own.
  */
 export function cursorClause(
-  type: ChatFeedEntry["type"],
+  type: StreamEntry["type"],
   idCast: "int" | "uuid",
   cursor: FeedCursor | null,
   params: unknown[],
@@ -135,8 +133,8 @@ export const intKey = (id: number) => String(id).padStart(20, "0");
 
 /** Newest first: (atKey, source rank, id) descending. */
 export function compareNewestFirst(
-  a: Keyed<ChatFeedEntry>,
-  b: Keyed<ChatFeedEntry>
+  a: Keyed<StreamEntry>,
+  b: Keyed<StreamEntry>
 ): number {
   if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
   const rank = SOURCE_RANK[b.entry.type] - SOURCE_RANK[a.entry.type];

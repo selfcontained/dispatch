@@ -20,7 +20,7 @@ import {
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { SurfaceService } from "../surfaces/service.js";
-import type { ChatService } from "../chat/service.js";
+import type { StreamService } from "../chat/service.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 
 /**
@@ -105,7 +105,7 @@ type McpRouteDeps = {
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
   surfaces: SurfaceService;
-  chat: Pick<ChatService, "post" | "update" | "addReaction" | "removeReaction">;
+  chat: Pick<StreamService, "post" | "update" | "addReaction" | "removeReaction">;
 };
 
 function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {

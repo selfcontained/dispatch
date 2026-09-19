@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { resolveShortcutRun } from "../../agents/pin-run.js";
-import { ChatServiceError } from "../../chat/service.js";
+import { StreamServiceError } from "../../chat/service.js";
 import { getQuickPhrase } from "../../db/quick-phrases.js";
 import { substituteArgs } from "../../templates/arg-parser.js";
 import type { AgentRouteDeps } from "./shared.js";
@@ -47,7 +47,9 @@ export async function registerAgentPromptRoutes(
     const args: Record<string, string> = {};
     for (const [key, val] of Object.entries(rawArgs)) {
       if (typeof val !== "string") {
-        return reply.code(400).send({ error: `arg "${key}" must be a string.` });
+        return reply
+          .code(400)
+          .send({ error: `arg "${key}" must be a string.` });
       }
       if (val.length > ARG_VALUE_MAX) {
         return reply.code(400).send({
@@ -80,10 +82,10 @@ export async function registerAgentPromptRoutes(
       return { text };
     }
     try {
-      await deps.chat.sendUserMessage(agentId, text);
+      await deps.chat.sendUserPost(deps.chat.streamOf(agentId), { text });
       return reply.code(204).send();
     } catch (error) {
-      if (error instanceof ChatServiceError) {
+      if (error instanceof StreamServiceError) {
         return reply.code(error.statusCode).send({ error: error.message });
       }
       return deps.handleAgentError(reply, error);
@@ -106,10 +108,12 @@ export async function registerAgentPromptRoutes(
       if (!target.ok) {
         return reply.code(target.status).send({ error: target.error });
       }
-      await deps.chat.sendUserMessage(agentId, target.prompt);
+      await deps.chat.sendUserPost(deps.chat.streamOf(agentId), {
+        text: target.prompt,
+      });
       return reply.code(204).send();
     } catch (error) {
-      if (error instanceof ChatServiceError) {
+      if (error instanceof StreamServiceError) {
         return reply.code(error.statusCode).send({ error: error.message });
       }
       return deps.handleAgentError(reply, error);

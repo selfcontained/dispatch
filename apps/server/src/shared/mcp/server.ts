@@ -46,8 +46,8 @@ import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerSurfaceTools } from "./surface-tools.js";
 import type { SurfaceService } from "../../surfaces/service.js";
-import { registerChatTools } from "./chat-tools.js";
-import type { ChatService } from "../../chat/service.js";
+import { registerStreamTools } from "./stream-tools.js";
+import type { StreamService } from "../../chat/service.js";
 
 /** One pin spec as an agent supplies it, shared by the single and batch tools. */
 type McpPinInput = {
@@ -126,11 +126,9 @@ const AGENT_TOOLS = new Set([
   "get_pr_status",
   "login_link",
   "rename_session",
-  "notify",
   "pin",
   "pins",
   "delete_pin",
-  "share_file",
   "list_media",
   "delete_media",
   "list_pins",
@@ -163,9 +161,9 @@ const AGENT_TOOLS = new Set([
   "surface_interactions",
   "surface_claim",
   "surface_resolve",
-  "chat_post",
-  "chat_update",
-  "chat_react",
+  "post",
+  "update",
+  "react",
   "get_activity_summary",
   "get_feedback_summary",
   "whiteboard_get",
@@ -203,11 +201,9 @@ const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
   "rename_session",
-  "notify",
   "pin",
   "pins",
   "delete_pin",
-  "share_file",
   "list_media",
   "delete_media",
   "list_pins",
@@ -234,9 +230,9 @@ const JOB_TOOLS = new Set([
   "surface_interactions",
   "surface_claim",
   "surface_resolve",
-  "chat_post",
-  "chat_update",
-  "chat_react",
+  "post",
+  "update",
+  "react",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -275,7 +271,6 @@ const REVIEW_AGENT_TOOLS = new Set([
   "pin",
   "pins",
   "delete_pin",
-  "share_file",
   "list_media",
   "delete_media",
   "list_pins",
@@ -295,9 +290,9 @@ const REVIEW_AGENT_TOOLS = new Set([
   "surface_interactions",
   "surface_claim",
   "surface_resolve",
-  "chat_post",
-  "chat_update",
-  "chat_react",
+  "post",
+  "update",
+  "react",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -338,9 +333,9 @@ export type McpRequestContext = {
    */
   publishUiEvent?: (event: ToolInvokedEvent) => void;
   surfaces?: SurfaceService;
-  /** Chat tab posting and reactions (chat_post / _update / _react). */
+  /** The stream: post / update / react. */
   chat?: Pick<
-    ChatService,
+    StreamService,
     "post" | "update" | "addReaction" | "removeReaction"
   >;
   /**
@@ -705,7 +700,6 @@ export async function createDispatchMcpServer(
   if (allowed.has("pin")) registerPinTool(server, context);
   if (allowed.has("pins")) registerBatchPinTool(server, context);
   if (allowed.has("delete_pin")) registerDeletePinTool(server, context);
-  if (allowed.has("share_file")) registerShareTool(server, context);
   // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
@@ -769,13 +763,11 @@ export async function createDispatchMcpServer(
     });
   }
 
-  // ── Chat tab tools (every agent, regardless of the chat-surface flag; the
-  //    flag only decides how chat_post describes itself) ──
+  // ── Stream tools: post / update / react ──
   if (context.agent) {
-    registerChatTools(server, allowed, {
+    registerStreamTools(server, allowed, {
       agentId: context.agent.id,
-      chat: context.chat,
-      chatSurface: context.chatSurface,
+      streams: context.chat,
     });
   }
 
@@ -1107,145 +1099,6 @@ function registerDeletePinTool(
           ? `group "${args.group}"`
           : (args.ids ?? [args.id]).join(", ");
         return { content: [{ type: "text", text: `Removed ${removed}.` }] };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
-}
-
-function registerShareTool(
-  server: McpServer,
-  context: McpRequestContext
-): void {
-  if (!context.agent || !context.shareMedia) return;
-  const agentId = context.agent.id;
-  const shareMedia = context.shareMedia;
-
-  server.registerTool(
-    "share_file",
-    {
-      description:
-        "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), documents (pdf), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
-      inputSchema: {
-        filePath: z
-          .string()
-          .optional()
-          .describe(
-            "Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."
-          ),
-        content: z
-          .string()
-          .optional()
-          .describe(
-            "Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."
-          ),
-        description: z
-          .string()
-          .describe("A short description of the shared media."),
-        source: z
-          .enum(["screenshot", "simulator", "text"])
-          .default("screenshot")
-          .describe(
-            "The source type of the media. Automatically set to 'text' when sharing text files."
-          ),
-        name: z
-          .string()
-          .optional()
-          .describe(
-            "Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."
-          ),
-        simulatorUdid: z
-          .string()
-          .optional()
-          .describe(
-            "Simulator UDID for simulator screenshots. Defaults to 'booted'."
-          ),
-        update: z
-          .string()
-          .optional()
-          .describe(
-            "fileName of an existing shared media file to update (returned from a previous share_file call). When set, the file content is replaced instead of creating a new file."
-          ),
-      },
-    },
-    async (args) => {
-      try {
-        let filePath = args.filePath;
-
-        if (args.content !== undefined) {
-          const MAX_CONTENT_BYTES = 32 * 1024;
-          if (Buffer.byteLength(args.content, "utf-8") > MAX_CONTENT_BYTES) {
-            return toToolError(
-              new Error(
-                "content exceeds 32KB limit. Write to a file and use filePath instead."
-              )
-            );
-          }
-          if (!args.name) {
-            return toToolError(
-              new Error(
-                "name is required when using content param (e.g. 'snippet.ts')."
-              )
-            );
-          }
-          const { writeFile: writeFileTmp } = await import("node:fs/promises");
-          const tmpDir = process.env.TMPDIR ?? "/tmp";
-          const timestamp = new Date()
-            .toISOString()
-            .replace(/[:.]/g, "-")
-            .replace("T", "-")
-            .replace("Z", "");
-          const tmpPath = `${tmpDir}/dispatch-text-${timestamp}-${args.name}`;
-          await writeFileTmp(tmpPath, args.content, "utf-8");
-          filePath = tmpPath;
-        } else if (args.source === "simulator") {
-          const { execFile } = await import("node:child_process");
-          const { promisify } = await import("node:util");
-          const execFileAsync = promisify(execFile);
-          const udid = args.simulatorUdid ?? "booted";
-          const timestamp = new Date()
-            .toISOString()
-            .replace(/[:.]/g, "-")
-            .replace("T", "-")
-            .replace("Z", "");
-          const tmpPath = `${process.env.TMPDIR ?? "/tmp"}/sim-${timestamp}.png`;
-          await execFileAsync("xcrun", [
-            "simctl",
-            "io",
-            udid,
-            "screenshot",
-            "--type=png",
-            tmpPath,
-          ]);
-          filePath = tmpPath;
-        }
-
-        if (!filePath) {
-          return toToolError(
-            new Error(
-              "filePath is required when source is not 'simulator' and content is not provided."
-            )
-          );
-        }
-
-        const result = await shareMedia(agentId, {
-          filePath,
-          description: args.description,
-          source: args.source,
-          name: args.name,
-          update: args.update,
-        });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result),
-            },
-          ],
-          structuredContent: result,
-        };
       } catch (error) {
         return toToolError(error);
       }

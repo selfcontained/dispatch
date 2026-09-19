@@ -486,23 +486,36 @@ export class AgentManager {
     const source = parsePromptSource(prompt);
     if (source.source !== "chat") return source.text;
     const result = await this.pool.query<{ text: string }>(
-      `SELECT text FROM agent_chat_messages WHERE id = $1 AND agent_id = $2`,
+      `SELECT text FROM blocks WHERE id = $1 AND stream_id = $2`,
       [source.chatMessageId, agentId]
     );
     return result.rows[0]?.text ?? "";
   }
 
-  /** The newest question the agent asked in Chat that nobody has answered. */
+  /** The newest open question or form the agent posted for people. */
   private async openQuestion(agentId: string): Promise<string | null> {
-    const result = await this.pool.query<{ text: string }>(
-      `SELECT text FROM agent_chat_messages
-        WHERE agent_id = $1 AND author_kind = 'agent'
-          AND kind = 'question' AND answer IS NULL
-        ORDER BY created_at DESC
+    const result = await this.pool.query<{ text: string; data: unknown }>(
+      `SELECT text, data FROM blocks b
+        WHERE b.author_kind = 'agent' AND b.author_agent_id = $1
+          AND b.to_agent_id IS NULL AND b.thread_id IS NULL
+          AND b.kind IN ('question', 'form')
+          AND (b.state IS NULL OR (b.state->'answer' IS NULL AND b.state->'submission' IS NULL))
+        ORDER BY b.created_at DESC, b.id DESC
         LIMIT 1`,
       [agentId]
     );
-    return result.rows[0]?.text ?? null;
+    const row = result.rows[0];
+    if (!row) return null;
+    if (row.text) return row.text;
+    const data = row.data as {
+      title?: string;
+      options?: Array<{ label: string }>;
+    } | null;
+    return (
+      data?.title ??
+      data?.options?.map((o) => o.label).join(" / ") ??
+      "Waiting for input"
+    );
   }
 
   /** The agent asked the user something in Chat: it is waiting on them now. */
