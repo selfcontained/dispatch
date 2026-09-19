@@ -40,6 +40,7 @@ async function createAgent(
   });
   expect(res.statusCode).toBe(201);
   const id = res.json().agent.id;
+  await ctx.awaitLaunched(id);
 
   const updates: string[] = [];
   const params: unknown[] = [];
@@ -165,7 +166,7 @@ describe("GET /api/v1/activity/heatmap", () => {
     const eventDay = await waitForAgentEvent(
       agentId,
       "idle",
-      "Session started."
+      "Claude Code session started."
     );
     await seedEvent(agentId, "working", `${eventDay}T10:00:00Z`);
     await seedEvent(agentId, "working", `${eventDay}T11:00:00Z`);
@@ -178,8 +179,9 @@ describe("GET /api/v1/activity/heatmap", () => {
       d.day.startsWith(eventDay)
     );
     expect(todayEntry).toBeTruthy();
-    // 2 seeded + 1 "Session started" idle event from createAgent
-    expect(todayEntry.count).toBe(3);
+    // 2 seeded + the launch's own two: "Starting Claude Code…" (working)
+    // and "Claude Code session started." (idle).
+    expect(todayEntry.count).toBe(4);
   });
 
   it("respects days query parameter", async () => {
@@ -215,7 +217,7 @@ describe("GET /api/v1/activity/stats", () => {
     const eventDay = await waitForAgentEvent(
       agentId,
       "idle",
-      "Session started."
+      "Claude Code session started."
     );
     await seedEvent(agentId, "working", `${eventDay}T10:00:00Z`);
     await seedEvent(agentId, "done", `${eventDay}T10:30:00Z`);
@@ -225,8 +227,9 @@ describe("GET /api/v1/activity/stats", () => {
     const body = res.json();
     expect(body.totalWorkingMs).toBeGreaterThan(0);
     expect(body.busiestDay).toBeTruthy();
-    // 2 seeded + 1 "Session started" idle event from createAgent
-    expect(body.busiestDayCount).toBe(3);
+    // 2 seeded + the launch's own two: "Starting Claude Code…" (working)
+    // and "Claude Code session started." (idle).
+    expect(body.busiestDayCount).toBe(4);
     expect(body.stateDurations).toBeDefined();
   });
 
@@ -368,7 +371,9 @@ describe("GET /api/v1/activity/active-hours", () => {
     );
     expect(res.statusCode).toBe(200);
     const { events } = res.json();
-    expect(events.length).toBe(2);
+    // working + blocked seeded, plus the launch's "Starting Claude Code…"
+    // working event.
+    expect(events.length).toBe(3);
   });
 });
 

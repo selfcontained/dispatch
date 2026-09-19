@@ -30,6 +30,13 @@ export interface InjectAppContext {
   auth: typeof import("../../src/auth.js");
   /** Create a fresh session and return a signed cookie string ready for inject(). */
   sessionCookie: () => Promise<string>;
+  /**
+   * `POST /api/v1/agents` returns while the launch runs in the background.
+   * A test that then reads or mutates the agent races that launch (status
+   * flips, startup events land, the row may even be gone by the time the
+   * launch writes). Wait here for the launch to settle first.
+   */
+  awaitLaunched: (agentId: string) => Promise<void>;
 }
 
 export interface InjectAppOptions {
@@ -57,6 +64,21 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
   const extraEnv = opts?.env ?? {};
 
   const ctx = {} as InjectAppContext;
+  ctx.awaitLaunched = async (agentId: string): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const res = await ctx.pool.query<{ status: string }>(
+        "SELECT status FROM agents WHERE id = $1",
+        [agentId]
+      );
+      const status = res.rows[0]?.status;
+      if (status === undefined || status !== "creating") return;
+      if (Date.now() > deadline) {
+        throw new Error(`Agent ${agentId} still creating after 10s`);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
 
   beforeAll(async () => {
     process.prependListener("uncaughtException", uncaughtExceptionFilter);

@@ -60,6 +60,7 @@ beforeEach(async () => {
   });
   expect(response.statusCode).toBe(201);
   agentId = response.json().agent.id;
+  await ctx.awaitLaunched(agentId);
   events.length = 0;
   service = new SurfaceService(ctx.pool, {
     publishUiEvent: (event) => events.push(event),

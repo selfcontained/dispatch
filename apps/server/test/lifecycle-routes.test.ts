@@ -31,7 +31,9 @@ async function createAgent(
     ...overrides,
   });
   expect(res.statusCode).toBe(201);
-  return res.json().agent;
+  const agent = res.json().agent;
+  await ctx.awaitLaunched(agent.id);
+  return agent;
 }
 
 beforeEach(async () => {

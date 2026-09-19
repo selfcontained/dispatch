@@ -103,11 +103,13 @@ describe("dispatch-dev", () => {
   }, 60_000);
 
   it("reports a custom DISPATCH_HOST in status and url output", () => {
-    const displayHost = "0.0.0.0";
+    // The stack binds to DISPATCH_HOST, but 0.0.0.0 is not a host a browser
+    // can open, so status and url print the loopback address for it.
+    const displayHost = "127.0.0.1";
 
     try {
       const upOutput = run("up --no-db", {
-        env: { DISPATCH_HOST: displayHost },
+        env: { DISPATCH_HOST: "0.0.0.0" },
       });
       expect(upOutput).toContain(`api: http://${displayHost}:`);
       expect(upOutput).toContain(`web: http://${displayHost}:`);
