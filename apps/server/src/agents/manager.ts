@@ -102,6 +102,11 @@ export type {
 } from "./types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+
+const ENGINE_LABELS: Record<AgentType, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 /**
@@ -660,7 +665,18 @@ export class AgentManager {
     );
   }
 
-  async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
+  /**
+   * Create an agent. By default the call returns once the agent is running
+   * (jobs, templates and MCP launches want the outcome). With
+   * `detachLaunch`, it returns as soon as the row exists in `creating` and
+   * the workspace and host come up in the background, reporting progress
+   * through the agent's setup phase and status events: what the UI wants,
+   * since it shows the agent while it starts.
+   */
+  async createAgent(
+    input: CreateAgentInput,
+    options: { detachLaunch?: boolean } = {}
+  ): Promise<AgentRecord> {
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
 
@@ -728,9 +744,10 @@ export class AgentManager {
       }
     }
 
-    await this.launchAgent({
+    const launch = this.launchAgent({
       id: p.id,
       name: p.name,
+      type: p.type,
       originalCwd: p.originalCwd,
       useWorktree: p.useWorktree,
       createNewBranch: p.createNewBranch,
@@ -745,6 +762,16 @@ export class AgentManager {
       jobRunId: input.jobRunId,
     });
 
+    if (options.detachLaunch) {
+      // launchAgent already put the row in its failure state; the rejection
+      // has nowhere else to go.
+      launch.catch((error: unknown) => {
+        this.logger.warn({ err: error, agentId: p.id }, "Agent launch failed");
+      });
+      void launchContextWrite;
+      return (await this.getAgent(p.id)) as AgentRecord;
+    }
+    await launch;
     await launchContextWrite;
     return (await this.getAgent(p.id)) as AgentRecord;
   }
@@ -1035,6 +1062,7 @@ export class AgentManager {
   private async launchAgent(opts: {
     id: string;
     name: string;
+    type: AgentType;
     originalCwd: string;
     useWorktree: boolean;
     createNewBranch: boolean;
@@ -1059,7 +1087,10 @@ export class AgentManager {
           worktreeBranchName: opts.worktreeBranchName,
           baseBranch: opts.normalizedBaseBranch,
           worktreePathOverride: opts.worktreePathOverride,
-          onPhase: (phase) => this.setSetupPhase(id, phase),
+          onPhase: async (phase) => {
+            await this.setSetupPhase(id, phase);
+            await this.reportStartupPhase(id, phase, opts.type);
+          },
         },
         this.logger
       );
@@ -1085,8 +1116,10 @@ export class AgentManager {
       await this.populateGitContext(id);
       await this.setSystemLatestEvent(id, {
         type: "idle",
-        message: "Session started.",
+        message: `${ENGINE_LABELS[opts.type]} session started.`,
+        metadata: { source: "system", phase: "started" },
       });
+      this.eventBus.publish(await this.getRequiredAgent(id));
       const firstTurn = buildStartupTurn(
         {
           initialPrompt: opts.initialPrompt,
@@ -1107,6 +1140,35 @@ export class AgentManager {
       }
       await this.failCreate(id, error);
     }
+  }
+
+  /**
+   * The Chat feed and the sidebar show the agent's latest status event, so
+   * each setup phase reports one: with no pane to watch, this is the only
+   * sign that anything is happening while the worktree and host come up.
+   */
+  private async reportStartupPhase(
+    id: string,
+    phase: SetupPhase,
+    type: AgentType
+  ): Promise<void> {
+    const message =
+      phase === "worktree"
+        ? "Creating git worktree…"
+        : phase === "env"
+          ? "Copying local config…"
+          : phase === "deps"
+            ? "Installing dependencies…"
+            : phase === "session"
+              ? `Starting ${ENGINE_LABELS[type]}…`
+              : null;
+    if (!message) return;
+    await this.setSystemLatestEvent(id, {
+      type: "working",
+      message,
+      metadata: { source: "system", phase: "setup", setupPhase: phase },
+    });
+    this.eventBus.publish(await this.getRequiredAgent(id));
   }
 
   /**

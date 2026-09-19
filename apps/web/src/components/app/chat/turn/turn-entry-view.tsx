@@ -16,8 +16,11 @@ import {
 } from "@/components/app/chat/chat-entries";
 import { cn } from "@/lib/utils";
 
+import { ActivityBars } from "@/components/ui/activity-bars";
+
 import { ActivityBlock, showsActivity } from "./activity-block";
 import { AutoHeight } from "./auto-height";
+import { LiveDuration, RunningDots } from "./step-row";
 import type { Step, Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
@@ -204,16 +207,55 @@ function TurnEntryViewImpl({
                 instead of snapping, so the feed above glides rather than
                 jumps while it follows the bottom. */}
             <AutoHeight data-testid="chat-turn-body">
-              {showsActivity(trace) ? (
-                <div className="mb-2">
-                  <ActivityBlock trace={trace} label={foldLabel} />
-                </div>
-              ) : null}
-              <ResultTurn turn={result} />
+              {isQuietThinking(trace, result) ? (
+                <ThinkingLine trace={trace} />
+              ) : (
+                <>
+                  {showsActivity(trace) ? (
+                    <div className="mb-2">
+                      <ActivityBlock trace={trace} label={foldLabel} />
+                    </div>
+                  ) : null}
+                  <ResultTurn turn={result} />
+                </>
+              )}
             </AutoHeight>
           </div>
         </Post>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A live turn that has produced nothing but thought so far. Before the first
+ * tool call or output there is nothing to fold or expand, so a bordered rail
+ * would only be a box around the word "thinking"; one quiet line holds the
+ * place until the answer starts, where the answer then lands.
+ */
+export function isQuietThinking(trace: Trace, result: Turn): boolean {
+  if (trace.endedAt != null) return false;
+  if (result.content.length > 0) return false;
+  return trace.steps.every((step) => step.kind === "think");
+}
+
+function ThinkingLine({ trace }: { trace: Trace }): JSX.Element {
+  const since =
+    trace.steps.length > 0
+      ? trace.steps[trace.steps.length - 1].startedAt
+      : trace.startedAt;
+  return (
+    <div
+      className="flex items-center gap-2 py-0.5 text-[12px] text-muted-foreground"
+      data-testid="chat-turn-thinking"
+      aria-label="thinking, running"
+    >
+      <span className="flex w-3 justify-center">
+        <ActivityBars size={11} className="justify-center" />
+      </span>
+      <span>thinking</span>
+      <RunningDots />
+      <LiveDuration startedAt={since} />
     </div>
   );
 }

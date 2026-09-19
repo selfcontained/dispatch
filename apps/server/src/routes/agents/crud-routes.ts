@@ -331,7 +331,7 @@ export async function registerAgentCrudRoutes(
         },
         initialPins: startupPins,
         initialFiles: startupFiles,
-      });
+      }, { detachLaunch: true });
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),

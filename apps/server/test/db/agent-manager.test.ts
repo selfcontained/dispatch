@@ -226,7 +226,7 @@ describe("AgentManager", () => {
       expect(agent.cliSessionId).toBe("sess_1");
       expect(agent.mediaDir).toBeTruthy();
       expect(agent.createdAt).toBeTruthy();
-      expect(agent.latestEvent?.message).toBe("Session started.");
+      expect(agent.latestEvent?.message).toBe("Claude Code session started.");
       expect(runtime.launch).toHaveBeenCalledTimes(1);
     });
 
