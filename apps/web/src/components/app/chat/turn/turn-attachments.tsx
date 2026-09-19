@@ -1,10 +1,10 @@
 import { memo, useMemo } from "react";
 import type {
   ChatAgentMessageEntry,
-  ChatFeedEntry,
-  ChatMediaEntry,
   ChatPinEntry,
   ChatTurnEntry,
+  StreamBlockEntry,
+  StreamEntry,
 } from "@dispatch/shared";
 import {
   AlertTriangle,
@@ -15,9 +15,10 @@ import {
   Pin,
 } from "lucide-react";
 
+import { LinkBlockBody } from "@/components/app/chat/block-bodies";
 import {
+  AttachmentList,
   LivePin,
-  MediaFileBody,
 } from "@/components/app/chat/chat-attachment-views";
 import {
   type FeedContext,
@@ -29,16 +30,22 @@ import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
 /**
- * A feed entry the agent produced while a turn was running: a file it
- * shared, a pin it wrote, a message it sent to another agent. Each one is
- * still its own row on the wire; the feed folds it into the turn's post so
- * the work reads as one story instead of a post per side effect.
+ * A feed entry the agent produced while a turn was running: a file or link
+ * block it posted, a pin it wrote, a message it sent to another agent. Each
+ * one is still its own row on the wire; the feed folds it into the turn's
+ * post so the work reads as one story instead of a post per side effect.
  */
-export type FoldedEntry = ChatMediaEntry | ChatPinEntry | ChatAgentMessageEntry;
+export type FoldedEntry =
+  | StreamBlockEntry
+  | ChatPinEntry
+  | ChatAgentMessageEntry;
 
-export function isFoldable(entry: ChatFeedEntry): entry is FoldedEntry {
+export function isFoldable(entry: StreamEntry): entry is FoldedEntry {
   return (
-    entry.type === "media" ||
+    (entry.type === "block" &&
+      entry.block.author.kind === "agent" &&
+      entry.block.threadId === null &&
+      (entry.block.kind === "file" || entry.block.kind === "link")) ||
     entry.type === "pin" ||
     (entry.type === "agent_message" && entry.direction === "out")
   );
@@ -69,11 +76,11 @@ export function turnWindow(entry: ChatTurnEntry): {
  * candidate; anything that falls outside its window (a pin written between
  * turns, a file shared by a person's hand) stays a post of its own.
  */
-export function foldAttachments(entries: readonly ChatFeedEntry[]): {
-  entries: ChatFeedEntry[];
+export function foldAttachments(entries: readonly StreamEntry[]): {
+  entries: StreamEntry[];
   folded: ReadonlyMap<string, FoldedEntry[]>;
 } {
-  const out: ChatFeedEntry[] = [];
+  const out: StreamEntry[] = [];
   const folded = new Map<string, FoldedEntry[]>();
   let open: { id: string; window: { start: number; end: number } } | null =
     null;
@@ -95,6 +102,33 @@ export function foldAttachments(entries: readonly ChatFeedEntry[]): {
     out.push(entry);
   }
   return { entries: out, folded };
+}
+
+/**
+ * A file or link the agent posted mid-turn: its text (the description) in
+ * the rail's quiet tone, then the file's own card or the link's.
+ */
+function FoldedBlock({
+  entry,
+  ctx,
+}: {
+  entry: StreamBlockEntry;
+  ctx: FeedContext;
+}): JSX.Element {
+  const { block } = entry;
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-1"
+      data-testid="chat-turn-block"
+      data-kind={block.kind}
+    >
+      {block.text ? (
+        <div className="text-xs text-muted-foreground">{block.text}</div>
+      ) : null}
+      {block.kind === "link" ? <LinkBlockBody block={block} /> : null}
+      <AttachmentList attachments={block.attachments} ctx={ctx} />
+    </div>
+  );
 }
 
 function SentTo({ entry }: { entry: ChatAgentMessageEntry }): JSX.Element {
@@ -311,15 +345,8 @@ export const TurnAttachments = memo(function TurnAttachments({
     >
       {merged.map((item) => {
         switch (item.type) {
-          case "media":
-            return (
-              <MediaFileBody
-                key={item.id}
-                entry={item}
-                ctx={ctx}
-                testId="chat-turn-media"
-              />
-            );
+          case "block":
+            return <FoldedBlock key={item.id} entry={item} ctx={ctx} />;
           case "pin":
             return <PinLine key={item.id} entry={item} ctx={ctx} />;
           case "agent_message":

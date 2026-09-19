@@ -1,13 +1,9 @@
 import { memo, useMemo } from "react";
-import type {
-  ChatMessage,
-  ChatTurnEntry,
-  ChatTurnStep,
-} from "@dispatch/shared";
+import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
 
 import {
   agentAuthor,
-  ChatMessageView,
+  BlockView,
   type FeedContext,
   MessageCopyButton,
   Post,
@@ -62,16 +58,18 @@ export function turnTrace(entry: ChatTurnEntry): Trace {
  * handles them rather than a second renderer. `updatedAt` deliberately
  * mirrors `at`: the post does not change while the turn below it grows.
  */
-export function promptChatMessage(entry: ChatTurnEntry): ChatMessage {
+export function promptBlock(entry: ChatTurnEntry): Block {
   return {
     id: entry.prompt.chatMessageId ?? `${entry.id}:prompt`,
-    agentId: entry.agentId,
-    authorKind: "user",
-    kind: "reply",
-    text: entry.prompt.text,
+    streamId: entry.agentId,
+    author: { kind: "user" },
+    toAgentId: entry.agentId,
+    threadId: null,
     replyTo: null,
-    question: null,
-    answer: null,
+    kind: "text",
+    data: null,
+    state: null,
+    text: entry.prompt.text,
     attachments: entry.prompt.attachments,
     // The prompt reached the engine: it opened this turn.
     delivered: true,
@@ -155,7 +153,7 @@ function TurnEntryViewImpl({
    */
   const showsPrompt = entry.prompt.source !== "agent";
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
-  const promptMessage = useMemo(() => promptChatMessage(entry), [entry]);
+  const prompt = useMemo(() => promptBlock(entry), [entry]);
   return (
     <div
       data-testid="chat-turn"
@@ -170,8 +168,8 @@ function TurnEntryViewImpl({
           <PromptLine turn={promptTurn} />
         </div>
       ) : showsPrompt ? (
-        <ChatMessageView
-          message={promptMessage}
+        <BlockView
+          block={prompt}
           held={false}
           grouped={false}
           rule={rule}

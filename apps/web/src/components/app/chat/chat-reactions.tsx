@@ -1,12 +1,12 @@
 /**
- * Emoji reactions on chat posts: the picker a post offers as an action, and
+ * Emoji reactions on blocks: the picker a post offers as an action, and
  * the row of chips under a post. Presentational — they take a post's
  * reactions and a toggle callback, and read nothing else from the feed.
  * Also home to the post action button styles the picker shares with the
  * copy button. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { useEffect, useRef, useState } from "react";
-import type { ChatReaction } from "@dispatch/shared";
+import type { BlockReaction } from "@dispatch/shared";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertTriangle, SmilePlus } from "lucide-react";
 
@@ -16,7 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { isOptimisticReaction } from "@/hooks/use-chat";
+import { isOptimisticReaction } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
 
 /**
@@ -51,7 +51,7 @@ const REACTION_EMOJI: readonly string[] = [
 ];
 
 /**
- * The post action that opens the emoji picker. Picking an emoji the message
+ * The post action that opens the emoji picker. Picking an emoji the block
  * already carries takes it back off, as clicking its chip does.
  */
 export function ReactionPickerButton({
@@ -59,7 +59,7 @@ export function ReactionPickerButton({
   onToggle,
   disabled = false,
 }: {
-  reactions: readonly ChatReaction[];
+  reactions: readonly BlockReaction[];
   onToggle: (emoji: string, remove: boolean) => void;
   /**
    * Nothing can reach the agent right now (stopped, loading, errored). The
@@ -96,7 +96,7 @@ export function ReactionPickerButton({
   }
   const reacted = new Set(
     reactions
-      .filter((reaction) => reaction.authorKind === "user")
+      .filter((reaction) => reaction.author.kind === "user")
       .map((reaction) => reaction.emoji)
   );
   return (
@@ -167,7 +167,7 @@ export function ReactionPickerButton({
   );
 }
 
-function userReactionTitle(reaction: ChatReaction, removable: boolean): string {
+function userReactionTitle(reaction: BlockReaction, removable: boolean): string {
   const state =
     reaction.delivered === null
       ? "Sending your reaction to the agent…"
@@ -213,7 +213,7 @@ export function ReactionBar({
   agentName,
   onToggle,
 }: {
-  reactions: readonly ChatReaction[];
+  reactions: readonly BlockReaction[];
   agentName: string;
   onToggle?: (emoji: string, remove: boolean) => void;
 }): JSX.Element {
@@ -262,7 +262,7 @@ export function ReactionBar({
               }}
             >
               {reactions.map((reaction) => {
-                if (reaction.authorKind === "agent") {
+                if (reaction.author.kind === "agent") {
                   return (
                     <motion.span
                       key={`agent:${reaction.emoji}`}

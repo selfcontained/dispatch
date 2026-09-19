@@ -19,6 +19,9 @@ export type ChatFeedContextInput = {
   onOpenReview?: (reviewId: number) => void;
   /** Must be stable: every row is memoised on the context it lands in. */
   onToggleReaction?: FeedContext["onToggleReaction"];
+  onOpenThread?: FeedContext["onOpenThread"];
+  onSubmitForm?: FeedContext["onSubmitForm"];
+  onSetBlockState?: FeedContext["onSetBlockState"];
 };
 
 export type ChatFeedContextResult = {
@@ -54,6 +57,9 @@ export function useChatFeedContext({
   openLightbox,
   onOpenReview,
   onToggleReaction,
+  onOpenThread,
+  onSubmitForm,
+  onSetBlockState,
 }: ChatFeedContextInput): ChatFeedContextResult {
   // Every agent.upsert hands over a fresh pins array; key on its content so
   // unchanged pins don't invalidate the pin rows.
@@ -131,6 +137,9 @@ export function useChatFeedContext({
       onOpenMedia: openLightbox,
       onOpenReview,
       onToggleReaction,
+      onOpenThread,
+      onSubmitForm,
+      onSetBlockState,
     }),
     [
       agentId,
@@ -138,6 +147,9 @@ export function useChatFeedContext({
       agentType,
       onOpenReview,
       onToggleReaction,
+      onOpenThread,
+      onSubmitForm,
+      onSetBlockState,
       openLightbox,
       peers,
     ]

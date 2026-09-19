@@ -1,10 +1,9 @@
 import { memo, type ReactNode } from "react";
 import type {
+  Block,
+  BlockOption,
   ChatAgentMessageEntry,
-  ChatMediaEntry,
-  ChatMessage,
   ChatPinEntry,
-  ChatQuestionOption,
   ChatReviewEntry,
   ChatStatusEntry,
 } from "@dispatch/shared";
@@ -15,6 +14,7 @@ import {
   Copy,
   Hourglass,
   Loader2,
+  MessagesSquare,
   Pin,
   Rocket,
   UserRound,
@@ -35,15 +35,18 @@ import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import {
-  AttachmentBlock,
-  AttachmentList,
-  LivePin,
-  MediaFileBody,
-} from "./chat-attachment-views";
+  type BlockStatePatch,
+  FormBlockBody,
+  LinkBlockBody,
+  QuestionOptions,
+  ReviewBlockBody,
+  TasksBlockBody,
+} from "./block-bodies";
+import { AttachmentList, LivePin } from "./chat-attachment-views";
 import {
   POST_ACTION_BUTTON,
   POST_ACTION_FACE,
@@ -134,15 +137,20 @@ export type FeedContext = {
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
   /**
-   * Adds (`remove: false`) or takes back an emoji reaction on an agent
-   * message. Absent, the feed shows reactions but offers no way to change
+   * Adds (`remove: false`) or takes back an emoji reaction on an agent's
+   * block. Absent, the feed shows reactions but offers no way to change
    * them.
    */
-  onToggleReaction?: (
-    messageId: string,
-    emoji: string,
-    remove: boolean
+  onToggleReaction?: (blockId: string, emoji: string, remove: boolean) => void;
+  /** Opens a block's thread in the side panel, on one finding when given. */
+  onOpenThread?: (blockId: string, findingId?: string) => void;
+  /** Submits a form block's values. */
+  onSubmitForm?: (
+    blockId: string,
+    values: Record<string, string | number | boolean>
   ) => void;
+  /** `PATCH …/state`: resolve a finding, tick a task. */
+  onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
 };
 
 export type PostAuthor = {
@@ -189,18 +197,21 @@ function peerAuthor(
 }
 
 /**
- * Who a user post reads as. A launch-context post made by another agent
- * (launch_agent) is that agent's, named from the agents list when
- * it is still there and "Agent" otherwise; every other user post is "You".
+ * Who a block reads as. A launch-context post made by another agent
+ * (launch_agent) is that agent's, named from the agents list when it is
+ * still there and "Agent" otherwise; every other user block is "You". An
+ * agent block is this agent's, or a peer's when another agent wrote into
+ * this stream.
  */
-export function chatMessageAuthor(
-  message: ChatMessage,
-  ctx: FeedContext
-): PostAuthor {
-  if (message.authorKind !== "user") return agentAuthor(ctx, "Agent");
-  if (message.launchedByAgentId) {
-    const peer = ctx.peers?.[message.launchedByAgentId];
-    return peerAuthor(message.launchedByAgentId, peer?.name ?? "Agent", ctx);
+export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
+  if (block.author.kind === "agent") {
+    if (block.author.agentId === ctx.agentId) return agentAuthor(ctx, "Agent");
+    const peer = ctx.peers?.[block.author.agentId];
+    return peerAuthor(block.author.agentId, peer?.name ?? "Agent", ctx);
+  }
+  if (block.launchedByAgentId) {
+    const peer = ctx.peers?.[block.launchedByAgentId];
+    return peerAuthor(block.launchedByAgentId, peer?.name ?? "Agent", ctx);
   }
   return userAuthor();
 }
@@ -475,106 +486,21 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Questions
+// Blocks
 // ---------------------------------------------------------------------------
 
-export function QuestionOptions({
-  message,
-  answering,
-  answersDisabled,
-  onAnswer,
-}: {
-  message: ChatMessage;
-  /** This question's answer is in flight. */
-  answering: boolean;
-  /** Nothing can be sent right now, so neither buttons nor a typed reply. */
-  answersDisabled: boolean;
-  onAnswer: (option: ChatQuestionOption) => void;
-}): JSX.Element | null {
-  const question = message.question;
-  if (!question) return null;
-  const answer = message.answer;
-  const open = answer === null;
-  const optionsDisabled = answer !== null || answering || answersDisabled;
-  return (
-    <div
-      className={cn(
-        "mt-2 rounded-md border p-3",
-        open
-          ? "border-status-waiting/50 bg-status-waiting/[0.07]"
-          : "border-border bg-muted/30"
-      )}
-      data-testid="chat-question-options"
-    >
-      {open ? (
-        <div
-          className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-status-waiting"
-          data-testid="chat-needs-reply"
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Needs your reply
-        </div>
-      ) : (
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-          <Check className="h-3 w-3" />
-          Answered
-          <span className="truncate">· {answer.label ?? answer.value}</span>
-        </div>
-      )}
-      <div className="flex flex-wrap gap-1.5">
-        {question.options.map((option, index) => {
-          const value = option.value ?? option.label;
-          const chosen = answer !== null && answer.value === value;
-          return (
-            <Button
-              key={`${index}-${value}`}
-              type="button"
-              size="sm"
-              // Open choices carry the theme's accent so the ask stands out
-              // from everything else in the feed; once answered only the
-              // chosen one keeps it.
-              variant={chosen || open ? "primary" : "default"}
-              className={cn(
-                "h-7 gap-1 text-xs",
-                // Phones and touch screens: a real tap target, with the label
-                // allowed to wrap instead of being clipped.
-                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
-                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
-                chosen && "cursor-default"
-              )}
-              disabled={optionsDisabled}
-              aria-pressed={chosen}
-              data-testid="chat-question-option"
-              onClick={() => onAnswer(option)}
-            >
-              {chosen ? <Check className="h-3 w-3" /> : null}
-              {option.label}
-            </Button>
-          );
-        })}
-      </div>
-      {open && question.allowFreeform && !answersDisabled ? (
-        <div className="mt-2 text-[11px] text-muted-foreground">
-          Or type a reply below.
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Chat messages
-// ---------------------------------------------------------------------------
-
-/** Delivery state of a user post; nothing once it has landed. */
+/**
+ * Delivery state of a block addressed to an agent; nothing once it has
+ * landed, and nothing on a block for people.
+ */
 function DeliveryMeta({
-  message,
+  block,
   held,
 }: {
-  message: ChatMessage;
+  block: Block;
   held: boolean;
 }): JSX.Element | null {
-  if (message.authorKind !== "user") return null;
+  if (block.author.kind !== "user" || block.toAgentId === null) return null;
   if (held) {
     return (
       <div
@@ -587,11 +513,11 @@ function DeliveryMeta({
       </div>
     );
   }
-  if (message.delivered === false) {
+  if (block.delivered === false) {
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
-        title="The agent had no terminal to receive this message."
+        title="The agent had no session to receive this message."
         data-testid="chat-delivery-failed"
       >
         <AlertTriangle className="h-3 w-3" />
@@ -599,11 +525,11 @@ function DeliveryMeta({
       </div>
     );
   }
-  if (message.delivered === null) {
+  if (block.delivered === null) {
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-        title="Delivering to the agent's terminal."
+        title="Delivering to the agent."
         data-testid="chat-delivery-pending"
       >
         <Loader2 className="h-3 w-3 animate-spin" />
@@ -614,46 +540,193 @@ function DeliveryMeta({
   return null;
 }
 
-export const ChatMessageView = memo(function ChatMessageView({
-  message,
+/** "3 replies · last 2m ago", the line that opens a block's thread. */
+export function replyLine(block: Block): string | null {
+  const count = block.replyCount ?? 0;
+  if (count === 0) return null;
+  const head = `${count} ${count === 1 ? "reply" : "replies"}`;
+  const last = block.lastReplyAt ? formatRelativeTime(block.lastReplyAt) : "";
+  return last ? `${head} · last ${last}` : head;
+}
+
+function ThreadLine({
+  block,
+  onOpen,
+}: {
+  block: Block;
+  onOpen?: (blockId: string) => void;
+}): JSX.Element | null {
+  const label = replyLine(block);
+  if (!label) return null;
+  return (
+    <button
+      type="button"
+      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-status-done underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline"
+      disabled={!onOpen}
+      data-testid="chat-thread-line"
+      data-reply-count={String(block.replyCount ?? 0)}
+      onClick={() => onOpen?.(block.id)}
+    >
+      <MessagesSquare className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+/**
+ * A block's body by kind, under its text. `text` and `file` have nothing
+ * past the text and the attachments; every other kind hangs its own view.
+ */
+function BlockBody({
+  block,
+  ctx,
+  answering,
+  answersDisabled,
+  submitting,
+  onAnswer,
+  inThread,
+  highlightFindingId,
+}: {
+  block: Block;
+  ctx: FeedContext;
+  answering: boolean;
+  answersDisabled: boolean;
+  submitting: boolean;
+  onAnswer: (blockId: string, option: BlockOption) => void;
+  inThread: boolean;
+  highlightFindingId: string | null;
+}): JSX.Element | null {
+  const { onSubmitForm, onSetBlockState, onOpenThread } = ctx;
+  const setState = onSetBlockState
+    ? (patch: BlockStatePatch) => onSetBlockState(block.id, patch)
+    : undefined;
+  switch (block.kind) {
+    case "question":
+      return (
+        <QuestionOptions
+          block={block}
+          answering={answering}
+          answersDisabled={answersDisabled}
+          onAnswer={(option) => onAnswer(block.id, option)}
+        />
+      );
+    case "form":
+      return (
+        <FormBlockBody
+          block={block}
+          submitting={submitting}
+          disabled={answersDisabled || !onSubmitForm}
+          onSubmit={(values) => onSubmitForm?.(block.id, values)}
+        />
+      );
+    case "review":
+      return (
+        <ReviewBlockBody
+          block={block}
+          disabled={answersDisabled}
+          onSetState={setState}
+          onOpenFinding={
+            onOpenThread && !inThread
+              ? (findingId) => onOpenThread(block.id, findingId)
+              : undefined
+          }
+          // In the panel the review is the whole subject: open, with the
+          // findings' bodies, and the finding the link named picked out.
+          defaultExpanded={inThread}
+          showBodies={inThread}
+          highlightFindingId={highlightFindingId}
+        />
+      );
+    case "tasks":
+      return (
+        <TasksBlockBody
+          block={block}
+          disabled={answersDisabled}
+          onSetState={setState}
+        />
+      );
+    case "link":
+      return <LinkBlockBody block={block} />;
+    case "text":
+    case "file":
+      return null;
+  }
+}
+
+export type BlockViewProps = {
+  block: Block;
+  held: boolean;
+  grouped: boolean;
+  rule?: boolean;
+  ctx: FeedContext;
+  /** This question's answer is in flight. */
+  answering: boolean;
+  /** This form's submission is in flight. */
+  submitting?: boolean;
+  /** Answers go through the same delivery as the composer; lock them together. */
+  answersDisabled?: boolean;
+  onAnswer: (blockId: string, option: BlockOption) => void;
+  /** Inside the thread panel: no reply line, no thread to open. */
+  inThread?: boolean;
+  /** A review's finding to pick out (the panel's `?finding=`). */
+  highlightFindingId?: string | null;
+};
+
+/**
+ * One block as a post: the author header, the text, the kind's own body,
+ * the attachments, and then the delivery state (a person's block), the
+ * reactions, and the thread's reply line.
+ */
+export const BlockView = memo(function BlockView({
+  block,
   held,
   grouped,
   rule = false,
   ctx,
   answering,
+  submitting = false,
   answersDisabled = false,
   onAnswer,
-}: {
-  message: ChatMessage;
-  held: boolean;
-  grouped: boolean;
-  rule?: boolean;
-  ctx: FeedContext;
-  /** This message's answer is in flight. */
-  answering: boolean;
-  /** Answers go through the same injection as the composer; lock them together. */
-  answersDisabled?: boolean;
-  onAnswer: (messageId: string, option: ChatQuestionOption) => void;
-}): JSX.Element {
-  const copyAction = message.text ? (
-    <MessageCopyButton text={message.text} />
+  inThread = false,
+  highlightFindingId = null,
+}: BlockViewProps): JSX.Element {
+  const author = blockAuthor(block, ctx);
+  const copyAction = block.text ? (
+    <MessageCopyButton text={block.text} />
   ) : undefined;
+  const reactions = block.reactions ?? [];
+  const threadLine = inThread ? null : (
+    <ThreadLine block={block} onOpen={ctx.onOpenThread} />
+  );
+  const body = (
+    <BlockBody
+      block={block}
+      ctx={ctx}
+      answering={answering}
+      answersDisabled={answersDisabled}
+      submitting={submitting}
+      onAnswer={onAnswer}
+      inThread={inThread}
+      highlightFindingId={highlightFindingId}
+    />
+  );
 
-  if (message.authorKind === "user") {
+  if (author.kind === "user") {
     return (
       <Post
-        author={chatMessageAuthor(message, ctx)}
-        at={message.createdAt}
+        author={author}
+        at={block.createdAt}
         grouped={grouped}
         rule={rule}
         data-testid="chat-message"
         data-author="user"
-        data-origin={message.origin}
-        data-launched-by={message.launchedByAgentId}
-        data-message-id={message.id}
+        data-kind={block.kind}
+        data-origin={block.origin}
+        data-launched-by={block.launchedByAgentId}
+        data-block-id={block.id}
         action={copyAction}
       >
-        {message.origin === "launch" ? (
+        {block.origin === "launch" ? (
           <div
             className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
             title="What this agent was started with — the prompt, files, links and pins from its launch."
@@ -663,30 +736,29 @@ export const ChatMessageView = memo(function ChatMessageView({
             Launch context
           </div>
         ) : null}
-        {message.text ? (
+        {block.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            {message.text}
+            {block.text}
           </div>
         ) : null}
-        <AttachmentList attachments={message.attachments} ctx={ctx} />
-        <DeliveryMeta message={message} held={held} />
+        {body}
+        <AttachmentList attachments={block.attachments} ctx={ctx} />
+        <DeliveryMeta block={block} held={held} />
         <ReactionBar
-          reactions={message.reactions ?? []}
+          reactions={reactions}
           agentName={ctx.agentName || "Agent"}
         />
+        {threadLine}
       </Post>
     );
   }
 
-  const author = agentAuthor(ctx, "Agent");
-  const isQuestion = message.kind === "question";
-  const reactions = message.reactions ?? [];
   const { onToggleReaction } = ctx;
   const toggleReaction = onToggleReaction
     ? (emoji: string, remove: boolean) =>
-        onToggleReaction(message.id, emoji, remove)
+        onToggleReaction(block.id, emoji, remove)
     : undefined;
-  // Adding a reaction injects it like a message, so the picker is disabled
+  // Adding a reaction is delivered like a message, so the picker is disabled
   // whenever a message could not be sent; taking one back off never needs
   // the agent.
   const agentAction = (
@@ -701,84 +773,34 @@ export const ChatMessageView = memo(function ChatMessageView({
       {copyAction}
     </div>
   );
-  const reactionBar = (
-    <ReactionBar
-      reactions={reactions}
-      agentName={author.name}
-      onToggle={toggleReaction}
-    />
-  );
-
-  if (message.kind === "update") {
-    return (
-      <Post
-        author={author}
-        at={message.createdAt}
-        grouped={grouped}
-        rule={rule}
-        data-testid="chat-message"
-        data-author="agent"
-        data-kind="update"
-        data-message-id={message.id}
-        action={agentAction}
-      >
-        <Markdown className="text-muted-foreground prose-p:my-0.5">
-          {message.text}
-        </Markdown>
-        <AttachmentList attachments={message.attachments} ctx={ctx} />
-        {reactionBar}
-      </Post>
-    );
-  }
-
-  const body = (
-    <>
-      <Markdown>{message.text}</Markdown>
-      <AttachmentList attachments={message.attachments} ctx={ctx} />
-    </>
-  );
 
   return (
     <Post
       author={author}
-      at={message.createdAt}
+      at={block.createdAt}
       grouped={grouped}
       rule={rule}
       data-testid="chat-message"
-      data-author="agent"
-      data-kind={message.kind}
-      data-message-id={message.id}
+      data-author={author.kind === "peer" ? "peer" : "agent"}
+      data-kind={block.kind}
+      data-block-id={block.id}
       action={agentAction}
     >
-      {message.kind === "summary" ? (
-        <AttachmentBlock
-          accent="border-status-done/70"
-          className="mt-1"
-          data-testid="chat-summary"
-        >
-          <div className="mb-1 text-[11px] font-semibold text-status-done">
-            Summary
-          </div>
-          {body}
-        </AttachmentBlock>
-      ) : (
-        body
-      )}
-      {isQuestion ? (
-        <QuestionOptions
-          message={message}
-          answering={answering}
-          answersDisabled={answersDisabled}
-          onAnswer={(option) => onAnswer(message.id, option)}
-        />
-      ) : null}
-      {reactionBar}
+      {block.text ? <Markdown>{block.text}</Markdown> : null}
+      {body}
+      <AttachmentList attachments={block.attachments} ctx={ctx} />
+      <ReactionBar
+        reactions={reactions}
+        agentName={author.name}
+        onToggle={toggleReaction}
+      />
+      {threadLine}
     </Post>
   );
 });
 
 // ---------------------------------------------------------------------------
-// Status, cross-agent messages, media
+// Status, cross-agent messages, pins, reviews
 // ---------------------------------------------------------------------------
 
 /**
@@ -905,30 +927,6 @@ export const AgentMessageView = memo(function AgentMessageView({
           Not delivered
         </div>
       ) : null}
-    </Post>
-  );
-});
-
-export const MediaEntryView = memo(function MediaEntryView({
-  entry,
-  grouped,
-  rule = false,
-  ctx,
-}: {
-  entry: ChatMediaEntry;
-  grouped: boolean;
-  rule?: boolean;
-  ctx: FeedContext;
-}): JSX.Element {
-  return (
-    <Post
-      author={agentAuthor(ctx, "Agent")}
-      at={entry.at}
-      grouped={grouped}
-      rule={rule}
-      data-testid="chat-media"
-    >
-      <MediaFileBody entry={entry} ctx={ctx} testId="chat-media-file" />
     </Post>
   );
 });

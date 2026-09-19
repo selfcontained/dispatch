@@ -1,20 +1,19 @@
 import { type ReactNode, useMemo, useRef } from "react";
 import type {
-  ChatFeedEntry,
-  ChatMessage,
-  ChatQuestionOption,
+  Block,
+  BlockOption,
   ChatStatusEntry,
+  StreamEntry,
 } from "@dispatch/shared";
 
 import {
   AgentMessageView,
   agentMessageAuthor,
-  chatMessageAuthor,
-  type FeedContext,
-  ChatMessageView,
+  blockAuthor,
+  BlockView,
   DayDivider,
   dayLabel,
-  MediaEntryView,
+  type FeedContext,
   PinEntryView,
   reviewAuthor,
   ReviewEntryView,
@@ -34,7 +33,7 @@ import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
  * consecutive `working` events, in which case `collapsedCount` says how many.
  */
 type ChatFeedItem =
-  | { kind: "entry"; entry: Exclude<ChatFeedEntry, ChatStatusEntry> }
+  | { kind: "entry"; entry: Exclude<StreamEntry, ChatStatusEntry> }
   | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number };
 
 /**
@@ -46,7 +45,7 @@ export type ChatFeedRow =
   | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number }
   | {
       kind: "entry";
-      entry: Exclude<ChatFeedEntry, ChatStatusEntry>;
+      entry: Exclude<StreamEntry, ChatStatusEntry>;
       grouped: boolean;
       /**
        * A hairline above this post: it starts a new author group right after
@@ -70,8 +69,8 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
  * version here, or every chunk would remount the post and collapse an
  * expanded activity row; growth is {@link entryGrowthKey}'s business.
  */
-export function entryVersion(entry: ChatFeedEntry): string {
-  return entry.type === "chat" ? entry.message.updatedAt : entry.at;
+export function entryVersion(entry: StreamEntry): string {
+  return entry.type === "block" ? entry.block.updatedAt : entry.at;
 }
 
 /**
@@ -79,7 +78,7 @@ export function entryVersion(entry: ChatFeedEntry): string {
  * streams in, a tool call's status or output. The pane keys its follow
  * logic on this so new content below the fold still pins the scroll.
  */
-export function entryGrowthKey(entry: ChatFeedEntry): string {
+export function entryGrowthKey(entry: StreamEntry): string {
   const base = `${entry.id}:${entryVersion(entry)}`;
   switch (entry.type) {
     case "turn":
@@ -108,7 +107,7 @@ export function entryGrowthKey(entry: ChatFeedEntry): string {
  * mode) settles on the same result.
  */
 export function useEnteringEntries(
-  entries: ChatFeedEntry[]
+  entries: StreamEntry[]
 ): ReadonlyMap<string, string> {
   const seenRef = useRef<Map<string, string> | null>(null);
   const newestAtRef = useRef("");
@@ -164,7 +163,7 @@ export function useEnteringEntries(
  */
 export function arrivedEntryIds(
   seen: ReadonlySet<string>,
-  entries: readonly ChatFeedEntry[]
+  entries: readonly StreamEntry[]
 ): string[] {
   const arrived: string[] = [];
   let afterSeen = false;
@@ -214,7 +213,7 @@ function Enter({
  * nothing a single line can't, so a run collapses to its latest member; any
  * other entry in between breaks the run.
  */
-export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
+export function collapseFeed(entries: StreamEntry[]): ChatFeedItem[] {
   const items: ChatFeedItem[] = [];
   for (const entry of entries) {
     if (entry.type !== "status") {
@@ -245,15 +244,14 @@ export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
 }
 
 function authorKey(
-  entry: Exclude<ChatFeedEntry, ChatStatusEntry>,
+  entry: Exclude<StreamEntry, ChatStatusEntry>,
   ctx: FeedContext
 ): string {
   switch (entry.type) {
-    case "chat":
-      return chatMessageAuthor(entry.message, ctx).key;
+    case "block":
+      return blockAuthor(entry.block, ctx).key;
     case "agent_message":
       return agentMessageAuthor(entry, ctx).key;
-    case "media":
     case "pin":
       return "agent";
     case "turn":
@@ -277,7 +275,7 @@ function dayKey(iso: string): string {
  * posted it within {@link GROUP_WINDOW_MS} with nothing else in between.
  */
 export function layoutFeed(
-  entries: ChatFeedEntry[],
+  entries: StreamEntry[],
   ctx: FeedContext,
   now: Date = new Date()
 ): ChatFeedRow[] {
@@ -331,12 +329,12 @@ export function layoutFeed(
   return rows;
 }
 
-/** The id of the most recent user message, for the hold hint. */
-export function latestUserMessageId(entries: ChatFeedEntry[]): string | null {
+/** The id of the most recent user block, for the hold hint. */
+export function latestUserBlockId(entries: StreamEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (entry.type === "chat" && entry.message.authorKind === "user") {
-      return entry.message.id;
+    if (entry.type === "block" && entry.block.author.kind === "user") {
+      return entry.block.id;
     }
   }
   return null;
@@ -347,8 +345,8 @@ export function latestUserMessageId(entries: ChatFeedEntry[]): string | null {
  * open the composer answers it instead of sending a plain message.
  */
 export function latestOpenFreeformQuestion(
-  entries: ChatFeedEntry[]
-): ChatMessage | null {
+  entries: StreamEntry[]
+): Extract<Block, { kind: "question" }> | null {
   // A turn republishes whole on every flush, so its answer state can be
   // fresher than the question's own cached row.
   const answeredByTurn = new Set<string>();
@@ -360,43 +358,53 @@ export function latestOpenFreeformQuestion(
   }
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (entry.type !== "chat") continue;
-    const m = entry.message;
-    if (m.authorKind !== "agent" || m.kind !== "question") continue;
-    if (m.answer !== null || answeredByTurn.has(m.id)) continue;
-    return m.question?.allowFreeform ? m : null;
+    if (entry.type !== "block") continue;
+    const block = entry.block;
+    if (block.author.kind !== "agent" || block.kind !== "question") continue;
+    if (block.toAgentId !== null) continue;
+    if (block.state?.answer !== undefined || answeredByTurn.has(block.id)) {
+      continue;
+    }
+    return block.data.allowFreeform ? block : null;
   }
   return null;
 }
 
-/** The id of the most recent agent message, the `upTo` for mark-read. */
-export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
+/** The id of the most recent agent block for people, the `upTo` for mark-read. */
+export function latestAgentBlockId(entries: StreamEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (entry.type === "chat" && entry.message.authorKind === "agent") {
-      return entry.message.id;
+    if (
+      entry.type === "block" &&
+      entry.block.author.kind === "agent" &&
+      entry.block.toAgentId === null
+    ) {
+      return entry.block.id;
     }
   }
   return null;
 }
 
 export type ChatFeedProps = {
-  entries: ChatFeedEntry[];
+  entries: StreamEntry[];
   ctx: FeedContext;
-  /** Message currently waiting to be delivered, if any. */
-  heldMessageId?: string | null;
+  /** Block currently waiting to be delivered, if any. */
+  heldBlockId?: string | null;
   /** Question whose answer is in flight, if any. */
-  answeringMessageId: string | null;
-  /** Answers go through the same injection as the composer; lock them together. */
+  answeringBlockId: string | null;
+  /** Form whose submission is in flight, if any. */
+  submittingBlockId?: string | null;
+  /** Answers go through the same delivery as the composer; lock them together. */
   answersDisabled?: boolean;
-  onAnswer: (messageId: string, option: ChatQuestionOption) => void;
+  onAnswer: (blockId: string, option: BlockOption) => void;
 };
 
 export function ChatFeed({
   entries,
   ctx,
-  heldMessageId,
-  answeringMessageId,
+  heldBlockId,
+  answeringBlockId,
+  submittingBlockId = null,
   answersDisabled = false,
   onAnswer,
 }: ChatFeedProps): JSX.Element {
@@ -498,15 +506,16 @@ export function ChatFeed({
         const entry = row.entry;
         const view = (() => {
           switch (entry.type) {
-            case "chat":
+            case "block":
               return (
-                <ChatMessageView
-                  message={entry.message}
-                  held={heldMessageId === entry.message.id}
+                <BlockView
+                  block={entry.block}
+                  held={heldBlockId === entry.block.id}
                   grouped={row.grouped}
                   rule={row.rule}
                   ctx={ctx}
-                  answering={answeringMessageId === entry.message.id}
+                  answering={answeringBlockId === entry.block.id}
+                  submitting={submittingBlockId === entry.block.id}
                   answersDisabled={answersDisabled}
                   onAnswer={onAnswer}
                 />
@@ -514,15 +523,6 @@ export function ChatFeed({
             case "agent_message":
               return (
                 <AgentMessageView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
-            case "media":
-              return (
-                <MediaEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
