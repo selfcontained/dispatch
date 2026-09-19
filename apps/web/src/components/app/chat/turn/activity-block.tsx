@@ -1,7 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo, useEffect, useRef, useState, type RefObject } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { memo, useEffect, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -15,8 +15,12 @@ import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
 
-/** Fill behind the rail; steps mask the guide line with the same color. */
-const BLOCK_FILL = "bg-muted";
+/**
+ * The rail sits on the post's own background, no fill or frame of its own:
+ * a filled block read as a second post inside the post. Steps mask the
+ * guide line with the same color.
+ */
+const BLOCK_FILL = "bg-background";
 
 /**
  * Whether a trace is worth a rail at all: a finished turn that ran no steps
@@ -33,7 +37,7 @@ function ActivityBlockImpl({
   label,
 }: {
   trace: Trace;
-  /** Verb for the collapsed summary; "done" by default. */
+  /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
 }): JSX.Element {
   const done = trace.endedAt != null;
@@ -44,28 +48,10 @@ function ActivityBlockImpl({
   const [stepOverrides, setStepOverrides] = useChatRowState<
     Record<string, boolean>
   >("activity-steps", {});
+  // The rail is open while the turn runs and folds when it settles; a click
+  // on the row overrides either way.
   const open = blockOverride ?? !done;
-  // Toggling the block swaps its toggle control between the header collapse
-  // button and the CollapsedSummary button, two different DOM nodes, so a
-  // plain re-render drops focus to <body>. The effect moves focus to the
-  // newly-mounted control when a click flipped it.
-  const collapseButtonRef = useRef<HTMLButtonElement>(null);
-  const summaryButtonRef = useRef<HTMLButtonElement>(null);
-  const justToggledRef = useRef(false);
-  useEffect(() => {
-    if (!justToggledRef.current) return;
-    justToggledRef.current = false;
-    if (open) collapseButtonRef.current?.focus();
-    else summaryButtonRef.current?.focus();
-  }, [open]);
-  const handleExpand = () => {
-    justToggledRef.current = true;
-    setBlockOverride(true);
-  };
-  const handleCollapse = () => {
-    justToggledRef.current = true;
-    setBlockOverride(false);
-  };
+  const reduced = useReducedMotion();
 
   const unaccountedMs = computeUnaccountedMs(trace);
   // Stream updates must not open and close details underneath the reader.
@@ -73,261 +59,182 @@ function ActivityBlockImpl({
   const toggleStep = (step: Step) =>
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
+  // One container for the whole turn: the summary row is there from the
+  // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
+  // and the rail is a disclosure under it that grows while the turn runs
+  // and eases shut when it settles. Nothing swaps out.
   return (
-    <motion.div
+    <div
       className="w-full min-w-0 max-w-full [overflow-wrap:anywhere]"
       data-testid="harness-activity-fold"
     >
-      <AnimatePresence mode="wait" initial={false}>
-        {done && !open ? (
-          <motion.div
-            key="summary"
-            variants={fadeVariants}
-            initial="hidden"
-            animate="shown"
-            exit="hidden"
-            transition={arrive(DURATION.fast)}
-          >
-            <CollapsedSummary
-              trace={trace}
-              label={label}
-              onExpand={handleExpand}
-              buttonRef={summaryButtonRef}
+      <div
+        className="w-full min-w-0 max-w-full"
+        data-testid="harness-activity"
+        data-open={open ? "true" : "false"}
+        data-final-result={trace.finalResult}
+      >
+        <SummaryRow
+          trace={trace}
+          label={label}
+          open={open}
+          onToggle={() => setBlockOverride(!open)}
+        />
+        <motion.div
+          initial={false}
+          animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+          transition={reduced ? { duration: 0 } : arrive()}
+          style={{ overflow: "hidden" }}
+          aria-hidden={!open}
+        >
+          {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
+          <div className="relative pb-1">
+            <span
+              aria-hidden="true"
+              className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
             />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="open"
-            variants={fadeVariants}
-            initial="hidden"
-            animate={{
-              opacity: 1,
-              borderColor: done
-                ? "hsl(var(--border) / 0.6)"
-                : "hsl(var(--status-working) / 0.35)",
-            }}
-            exit="hidden"
-            transition={{ ...arrive(DURATION.fast), borderColor: arrive() }}
-            className={cn(
-              "w-full min-w-0 max-w-full overflow-hidden rounded-md border border-border/60 px-3 py-2.5",
-              BLOCK_FILL
-            )}
-            data-testid="harness-activity"
-          >
-            <BlockHeader
-              trace={trace}
-              collapsible={done}
-              onCollapse={handleCollapse}
-              buttonRef={collapseButtonRef}
-            />
-            {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
-            <div className="relative mt-1.5">
-              <span
-                aria-hidden="true"
-                className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border"
-              />
-              <div role="list" aria-label="activity steps" className="relative">
-                {trace.steps.map((step, i) => (
-                  <StepRow
-                    key={step.id}
-                    step={step}
-                    index={burstIndex(trace.steps, i)}
-                    open={stepOpen(step)}
-                    onToggle={() => toggleStep(step)}
-                    maskClass={BLOCK_FILL}
-                  />
-                ))}
-                {!done &&
-                trace.steps.length > 0 &&
-                !trace.steps.some((s) => s.status === "running") ? (
-                  <ThinkingRow
-                    since={trace.steps.reduce(
-                      (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
-                      trace.startedAt
-                    )}
-                    maskClass={BLOCK_FILL}
-                  />
-                ) : null}
-                {unaccountedMs > 0 ? (
-                  <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
-                ) : null}
-              </div>
+            <div role="list" aria-label="activity steps" className="relative">
+              {trace.steps.map((step, i) => (
+                <StepRow
+                  key={step.id}
+                  step={step}
+                  index={burstIndex(trace.steps, i)}
+                  open={stepOpen(step)}
+                  onToggle={() => toggleStep(step)}
+                  maskClass={BLOCK_FILL}
+                />
+              ))}
+              {!done &&
+              trace.steps.length > 0 &&
+              !trace.steps.some((s) => s.status === "running") ? (
+                <ThinkingRow
+                  since={trace.steps.reduce(
+                    (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+                    trace.startedAt
+                  )}
+                  maskClass={BLOCK_FILL}
+                />
+              ) : null}
+              {unaccountedMs > 0 ? (
+                <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
+              ) : null}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+          </div>
+        </motion.div>
+      </div>
+    </div>
   );
 }
 
 export const ActivityBlock = memo(ActivityBlockImpl);
 
-function BlockHeader({
+/**
+ * The one row that describes the turn's work at every moment: the glyph
+ * says live / done / failed / interrupted, the verb says what is or was
+ * being done, the meta counts steps and time, the chevron says whether the
+ * rail under it is open. The same node from start to finish, so the eye
+ * never has to find the turn again.
+ */
+function SummaryRow({
   trace,
-  collapsible,
-  onCollapse,
-  buttonRef,
+  label,
+  open,
+  onToggle,
 }: {
   trace: Trace;
-  collapsible: boolean;
-  onCollapse: () => void;
-  buttonRef: RefObject<HTMLButtonElement>;
+  label?: string;
+  open: boolean;
+  onToggle: () => void;
 }): JSX.Element {
   const done = trace.endedAt != null;
   const thinking = !done && trace.steps.length === 0;
   const { dots } = useStreamTicker(!done);
-  const label = done
-    ? trace.finalResult === "error"
+  const failed = trace.finalResult === "error";
+  const interrupted = trace.finalResult === "interrupted";
+  const verb = done
+    ? failed
       ? "failed"
-      : trace.finalResult === "interrupted"
+      : interrupted
         ? "interrupted"
-        : "complete"
+        : (label ?? "done")
     : thinking
       ? "thinking"
-      : "working";
+      : (label ?? "working");
+  const stepCount = trace.steps.length;
+  const steps = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
+  const ms = (trace.endedAt ?? Date.now()) - trace.startedAt;
   const glyph = !done ? (
     // Dispatch's own loading bars, at glyph size.
     <ActivityBars size={11} className="justify-center" />
-  ) : trace.finalResult === "error" ? (
-    <span className="font-bold text-status-blocked" aria-hidden="true">
-      <X className="h-3 w-3" strokeWidth={2.5} />
-    </span>
-  ) : trace.finalResult === "interrupted" ? (
-    <span className="font-bold text-status-waiting" aria-hidden="true">
-      <Square className="h-2.5 w-2.5" fill="currentColor" />
-    </span>
+  ) : failed ? (
+    <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />
+  ) : interrupted ? (
+    <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />
   ) : (
-    <span className="font-bold text-status-done" aria-hidden="true">
-      <Check className="h-3 w-3" strokeWidth={2.5} />
-    </span>
+    <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />
   );
-  const inner = (
-    <>
-      <span className="flex w-3 justify-center text-[12px] leading-none">
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)}, ${open ? "collapse" : "expand"} activity`}
+      data-testid="harness-activity-summary"
+      data-final-result={trace.finalResult}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md py-1 pl-0 pr-1 text-left",
+        "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
+      )}
+    >
+      <span
+        className="flex w-3 shrink-0 justify-center text-[12px] leading-none"
+        aria-hidden="true"
+      >
         {glyph}
       </span>
       <AnimatePresence mode="wait" initial={false}>
         <motion.span
-          key={label}
+          key={verb}
           variants={fadeVariants}
           initial="hidden"
           animate="shown"
           exit="hidden"
           transition={arrive(DURATION.fast)}
           className={cn(
-            "text-[12px]",
+            "min-w-0 max-w-[60%] truncate text-[12px]",
             done ? "text-foreground" : "font-medium text-status-working"
           )}
+          title={verb}
         >
-          {label}
+          {verb}
         </motion.span>
       </AnimatePresence>
       {thinking ? (
         <span className="text-[12px] text-muted-foreground" aria-hidden="true">
           {dots}
         </span>
-      ) : null}
-      <Elapsed trace={trace} />
-      {collapsible ? (
-        <span
-          aria-hidden="true"
-          className="text-[9px] text-muted-foreground/70"
-        >
-          <ChevronDown className="h-3 w-3" />
+      ) : (
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {steps} · {formatStepDuration(ms)}
+        </span>
+      )}
+      {thinking ? (
+        <span className="ml-auto text-[10.5px] tabular-nums text-muted-foreground">
+          {formatStepDuration(ms)}
         </span>
       ) : null}
-    </>
-  );
-  return collapsible ? (
-    <button
-      ref={buttonRef}
-      type="button"
-      onClick={onCollapse}
-      aria-label="Collapse activity"
-      className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
-    >
-      {inner}
-    </button>
-  ) : (
-    <div className="flex w-full items-center gap-2">{inner}</div>
-  );
-}
-
-function Elapsed({ trace }: { trace: Trace }): JSX.Element {
-  const done = trace.endedAt != null;
-  useStreamTicker(!done); // repaint while running
-  const ms = (trace.endedAt ?? Date.now()) - trace.startedAt;
-  return (
-    <span
-      aria-hidden="true"
-      className="ml-auto text-[10.5px] tabular-nums text-muted-foreground"
-    >
-      {formatStepDuration(ms)}
-    </span>
-  );
-}
-
-function CollapsedSummary({
-  trace,
-  label,
-  onExpand,
-  buttonRef,
-}: {
-  trace: Trace;
-  label?: string;
-  onExpand: () => void;
-  buttonRef: RefObject<HTMLButtonElement>;
-}): JSX.Element {
-  const stepCount = trace.steps.length;
-  const dur = (trace.endedAt ?? trace.startedAt) - trace.startedAt;
-  const failed = trace.finalResult === "error";
-  const interrupted = trace.finalResult === "interrupted";
-  const verb = failed
-    ? "failed"
-    : interrupted
-      ? "interrupted"
-      : (label ?? "done");
-  const steps = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      onClick={onExpand}
-      aria-label={`${verb}, ${steps}, ${formatStepDuration(dur)}, expand activity`}
-      data-testid="harness-activity-summary"
-      data-final-result={trace.finalResult}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-left",
-        "hover:border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
-        BLOCK_FILL
-      )}
-    >
       <span
-        className="flex w-3 justify-center text-[12px] leading-none"
         aria-hidden="true"
-      >
-        {failed ? (
-          <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />
-        ) : interrupted ? (
-          <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />
-        ) : (
-          <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />
+        className={cn(
+          "text-[9px] text-muted-foreground/70",
+          !thinking && "ml-auto"
         )}
-      </span>
-      <span
-        className="min-w-0 max-w-[60%] truncate text-[12px] text-foreground"
-        title={verb}
       >
-        {verb}
-      </span>
-      <span className="shrink-0 text-[11px] text-muted-foreground">
-        {steps} · {formatStepDuration(dur)}
-      </span>
-      <span
-        aria-hidden="true"
-        className="ml-auto text-[9px] text-muted-foreground/70"
-      >
-        <ChevronRight className="h-3 w-3" />
+        {open ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
       </span>
     </button>
   );
