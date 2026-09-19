@@ -65,6 +65,8 @@ CREATE INDEX IF NOT EXISTS blocks_attachments_gin
   ON blocks USING gin (attachments jsonb_path_ops);
 
 -- One row per (block, author, emoji): each party reacts once per emoji.
+-- NULLS NOT DISTINCT: a user reaction has no agent id, and a plain UNIQUE
+-- would treat every NULL as different and let a double click store two rows.
 CREATE TABLE IF NOT EXISTS block_reactions (
   id uuid PRIMARY KEY,
   block_id uuid NOT NULL REFERENCES blocks (id) ON DELETE CASCADE,
