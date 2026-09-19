@@ -40,21 +40,6 @@ import {
   writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import {
-  MAX_PINS,
-  type PinSpec,
-  applyPinSpec,
-  applyPinSpecs,
-  removePinGroup,
-  removePinsByIds,
-  replacePinGroup,
-} from "./pin-write.js";
-import {
-  validatePinCaption,
-  validatePinShortcutFields,
-  validatePinValue,
-} from "../pins.js";
-import { diffPins, recordPinEvents } from "./pin-events.js";
 import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -76,7 +61,6 @@ import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
   AgentLatestEventInput,
-  AgentPin,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -94,7 +78,6 @@ export { AgentError } from "./errors.js";
 export type {
   AgentEventListener,
   AgentGitContext,
-  AgentPin,
   AgentRecord,
   AgentRole,
   AgentTerminalAccess,
@@ -118,45 +101,6 @@ const ENGINE_LABELS: Record<AgentType, string> = {
   codex: "Codex",
 };
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-
-/**
- * Validate + de-duplicate the `initialPins` array supplied to
- * `createAgent`. De-dup is case-insensitive on label with last-write-wins
- * semantics — same rule `upsertPin` applies for incremental adds. Throws
- * `AgentError(400)` when the de-duplicated count exceeds `MAX_PINS` so a
- * client can't bypass the quota by piling pins into the create payload.
- */
-function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
-  const byLabel = new Map<string, AgentPin>();
-  for (const pin of pins) {
-    // Seeding is the second write path into agents.pins; it has to accept the
-    // same shapes as pin, or a template could seed a pin the MCP tool
-    // would have rejected — which now matters, since a shortcut's value is
-    // delivered to a terminal rather than just displayed.
-    try {
-      validatePinValue(pin.type, pin.value);
-      if (pin.caption !== undefined) validatePinCaption(pin.caption);
-      if (pin.type === "shortcut") validatePinShortcutFields(pin);
-    } catch (error) {
-      // The validators throw plain Errors; surface them as 400s so a bad
-      // initialPins payload reads as a client error rather than a crash.
-      throw new AgentError(errorMessage(error), 400);
-    }
-
-    byLabel.set(pin.label.toLowerCase(), {
-      ...pin,
-      id: pin.id ?? randomUUID(),
-    });
-  }
-  const deduped = Array.from(byLabel.values());
-  if (deduped.length > MAX_PINS) {
-    throw new AgentError(
-      `Cannot seed agent with more than ${MAX_PINS} initial pins (got ${deduped.length} after de-duplication).`,
-      400
-    );
-  }
-  return deduped;
-}
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -192,15 +136,13 @@ type CreateAgentInput = {
    * What the Chat feed shows as the launch context, when it differs from
    * what the CLI receives: `prompt` is the message as the person or launching
    * agent wrote it (the MCP launch path wraps `initialPrompt` in a header the
-   * feed should not repeat); `links` are the raw startup URLs the route also
-   * turned into url pins. Internal/generated startup prompts are deliberately
+   * feed should not repeat); `links` are the raw startup URLs. Internal/generated startup prompts are deliberately
    * omitted unless a caller explicitly supplies their user-authored context.
    */
   launchContext?: {
     prompt?: string;
     links?: string[];
   };
-  initialPins?: AgentPin[];
   initialFiles?: Array<{
     fileName: string;
     originalName?: string;
@@ -225,7 +167,6 @@ type PreparedCreateInputs = {
   agentArgs: string[];
   model: string | undefined;
   fullAccess: boolean;
-  initialPins: AgentPin[];
   useWorktree: boolean;
   createNewBranch: boolean;
   normalizedBaseBranch: string | undefined;
@@ -259,14 +200,13 @@ export type LaunchContextInput = {
   text?: string;
   files?: Array<{ mediaId: number }>;
   links?: string[];
-  pins?: Array<{ id: string; type: string; value: string }>;
   launchedByAgentId?: string | null;
 };
 
 export type LaunchContextRecorder = {
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
     /**
-     * Every startup file, link and pin, described the way the pane lists
+     * Every startup file and link, described the way the pane lists
      * them. Not capped: the post may show fewer, but the CLI's first turn
      * has to name all of the context the agent was launched with.
      */
@@ -869,7 +809,6 @@ export class AgentManager {
       normalizedBaseBranch: p.normalizedBaseBranch,
       worktreePathOverride: p.worktreePathOverride,
       initialPrompt: input.initialPrompt,
-      initialPins: p.initialPins,
       initialMedia,
       resolveLaunchPost,
       launchGuidanceFlags,
@@ -910,11 +849,6 @@ export class AgentManager {
       text: input.launchContext?.prompt,
       files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
       links: input.launchContext?.links ?? [],
-      pins: p.initialPins.map((pin) => ({
-        id: pin.id ?? "",
-        type: pin.type,
-        value: pin.value,
-      })),
       launchedByAgentId: input.launchedByAgentId ?? null,
     };
   }
@@ -1048,9 +982,6 @@ export class AgentManager {
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
-    // Cap + de-dup pins so the create endpoint can't bypass the upsertPin
-    // quota or bloat the startup prompt (pins flow into buildStartupPrompt).
-    const initialPins = normalizeInitialPins(input.initialPins ?? []);
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
@@ -1124,7 +1055,6 @@ export class AgentManager {
       agentArgs,
       model: input.model,
       fullAccess,
-      initialPins,
       useWorktree,
       createNewBranch,
       normalizedBaseBranch,
@@ -1141,8 +1071,8 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
       `,
       [
         p.id,
@@ -1164,7 +1094,6 @@ export class AgentManager {
         input.autoReview ?? false,
         p.normalizedBaseBranch ?? null,
         input.templateId ?? null,
-        JSON.stringify(p.initialPins),
       ]
     );
   }
@@ -1184,7 +1113,6 @@ export class AgentManager {
     normalizedBaseBranch: string | undefined;
     worktreePathOverride: string | undefined;
     initialPrompt: string | undefined;
-    initialPins: AgentPin[];
     initialMedia: SeededMedia[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
@@ -1239,7 +1167,6 @@ export class AgentManager {
       const firstTurn = buildStartupTurn(
         {
           initialPrompt: opts.initialPrompt,
-          initialPins: opts.initialPins,
           initialMedia: opts.initialMedia,
           chatLaunchPost,
         },
@@ -1576,142 +1503,6 @@ export class AgentManager {
     return agent;
   }
 
-  /**
-   * Update in place when the pin already exists, append otherwise. Position
-   * is deliberately stable: re-pinning to refresh a value must not shuffle the
-   * sidebar out from under the user, and grouped pins would tear apart if an
-   * update relocated a member.
-   *
-   * The pin is addressed by `id` when the caller supplies one and by label
-   * otherwise — see `applyPinSpec`, which both this and the batch path share
-   * so the two cannot drift apart.
-   */
-  async upsertPin(
-    id: string,
-    pin: PinSpec
-  ): Promise<{ agent: AgentRecord; pin: AgentPin; created: boolean }> {
-    // Assigned by the mutation below, which always runs before we read it.
-    let stored!: AgentPin;
-    let created = true;
-    await this.mutatePins(id, (currentPins) => {
-      const result = applyPinSpec(currentPins, pin);
-      stored = result.stored;
-      created = result.created;
-      return result.pins;
-    });
-
-    return {
-      agent: (await this.getAgent(id)) as AgentRecord,
-      pin: stored,
-      created,
-    };
-  }
-
-  /**
-   * Write many pins in one transaction.
-   *
-   * The point is atomicity and a single round trip: applying N pins through
-   * `upsertPin` costs N transactions, N `getAgent` reads and N sidebar
-   * re-renders, and a failure halfway leaves the set half-applied.
-   *
-   * In `replace` mode the named group is rebuilt to contain exactly `specs`,
-   * in order. There is deliberately no whole-list replace: every destructive
-   * batch has to name the group it is allowed to clear, so no call can remove
-   * a pin the agent forgot to restate.
-   */
-  async upsertPins(
-    id: string,
-    specs: PinSpec[],
-    options: { mode?: "merge" | "replace"; group?: string } = {}
-  ): Promise<{ agent: AgentRecord }> {
-    const mode = options.mode ?? "merge";
-    if (mode === "replace" && !options.group?.trim()) {
-      throw new AgentError(
-        "Replace mode requires a group to scope the replacement to.",
-        400
-      );
-    }
-
-    await this.mutatePins(id, (currentPins) =>
-      mode === "replace"
-        ? replacePinGroup(currentPins, options.group!, specs).pins
-        : applyPinSpecs(currentPins, specs).pins
-    );
-
-    return { agent: (await this.getAgent(id)) as AgentRecord };
-  }
-
-  async deletePinById(id: string, pinId: string): Promise<AgentRecord> {
-    await this.mutatePins(id, (currentPins) =>
-      removePinsByIds(currentPins, [pinId])
-    );
-
-    return (await this.getAgent(id)) as AgentRecord;
-  }
-
-  /** Delete several pins by id in one transaction; every id must exist. */
-  async deletePinsByIds(id: string, pinIds: string[]): Promise<AgentRecord> {
-    await this.mutatePins(id, (currentPins) =>
-      removePinsByIds(currentPins, pinIds)
-    );
-
-    return (await this.getAgent(id)) as AgentRecord;
-  }
-
-  /** Clear an entire group in one transaction. */
-  async deletePinsByGroup(id: string, group: string): Promise<AgentRecord> {
-    await this.mutatePins(id, (currentPins) =>
-      removePinGroup(currentPins, group)
-    );
-
-    return (await this.getAgent(id)) as AgentRecord;
-  }
-
-  async deletePinByLabel(id: string, label: string): Promise<AgentRecord> {
-    await this.mutatePins(id, (currentPins) => {
-      const pins = currentPins.filter(
-        (pin) => pin.label.toLowerCase() !== label.toLowerCase()
-      );
-      if (pins.length === currentPins.length) {
-        throw new AgentError("Pin not found.", 404);
-      }
-      return pins;
-    });
-
-    return (await this.getAgent(id)) as AgentRecord;
-  }
-
-  private async mutatePins(
-    id: string,
-    mutate: (pins: AgentPin[]) => AgentPin[]
-  ): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const result = await client.query<{ pins: AgentPin[] }>(
-        "SELECT pins FROM agents WHERE id = $1 FOR UPDATE",
-        [id]
-      );
-      if (result.rows.length === 0)
-        throw new AgentError("Agent not found.", 404);
-      const currentPins = result.rows[0]!.pins ?? [];
-      const pins = mutate(currentPins);
-      await client.query(
-        "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
-        [id, JSON.stringify(pins)]
-      );
-      // Same transaction as the write, so the Chat feed's pin history can
-      // never disagree with what the sidebar shows.
-      await recordPinEvents(client, id, diffPins(currentPins, pins));
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
   async reconcileAgents(): Promise<void> {
     // Two passes: status reconciliation + orphan-session cleanup. The
     // SSE broadcaster doesn't need the changed-record list at this
@@ -1843,7 +1634,6 @@ export class AgentManager {
             COALESCE(latest_event_metadata, '{}'::jsonb)
           )
         END AS "latestEvent",
-        COALESCE(pins, '[]'::jsonb) AS "pins",
         git_context AS "gitContext",
         git_context_stale AS "gitContextStale",
         git_context_updated_at AS "gitContextUpdatedAt",

@@ -8,14 +8,7 @@ const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 // Cache parsed hooks keyed by manifest path, invalidated by mtime.
 const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
-const BUILTIN_TOOL_NAMES = new Set([
-  "create_pr",
-
-  "get_pr_status",
-  "post",
-  "update",
-  "react",
-]);
+const BUILTIN_TOOL_NAMES = new Set(["post", "update", "react"]);
 
 type RepoToolFile = {
   tools?: unknown;

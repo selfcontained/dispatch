@@ -28,7 +28,6 @@ const makeAgent = (
     archiveCleanupMode: null,
     lastError: null,
     latestEvent: null,
-    pins: [],
     gitContext: null,
     gitContextStale: false,
     gitContextUpdatedAt: null,

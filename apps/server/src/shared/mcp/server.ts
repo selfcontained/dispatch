@@ -25,71 +25,15 @@ import {
   type AgentListing,
 } from "./messaging-tools.js";
 import { registerPersonalityTools } from "./personality-tools.js";
-import type { PinListing, PinSummary } from "../../server/pin-listing.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
-import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
-import { VALID_PIN_SHORTCUT_ICONS } from "../../pins.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
-import { registerSurfaceTools } from "./surface-tools.js";
-import type { SurfaceService } from "../../surfaces/service.js";
 import { registerStreamTools } from "./stream-tools.js";
 import type { StreamService } from "../../chat/service.js";
-
-/** One pin spec as an agent supplies it, shared by the single and batch tools. */
-type McpPinInput = {
-  id?: string;
-  label: string;
-  /** Omitted on an update means "keep the stored value". */
-  value?: string;
-  /** Omitted on an update means "keep the stored type". */
-  type?: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: string;
-  confirm?: boolean;
-  disabled?: boolean;
-};
-
-/**
- * The constrained field types every pin write shares. `pin` and
- * `pins` build their schemas from these and override only the
- * `.describe()` text — duplicating the *constraints* is how a raised cap ends
- * up enforced on one tool and silently not the other.
- */
-const pinFields = {
-  id: z.string().min(1),
-  label: z.string().max(100),
-  value: z.string().max(2000),
-  type: z.enum([
-    "string",
-    "url",
-    "port",
-    "code",
-    "pr",
-    "filename",
-    "markdown",
-    "shortcut",
-  ]),
-  caption: z.string().max(160),
-  /** A pin's own group. Must accept "" — that is how an agent clears it. */
-  group: z.string().max(100),
-  /**
-   * A group named as the *target* of a bulk operation. Blank is rejected here
-   * because a missing group compares equal to "", so an empty name would widen
-   * "clear this group" into "delete every ungrouped pin".
-   */
-  scopingGroup: z.string().trim().min(1).max(100),
-  icon: z.enum(VALID_PIN_SHORTCUT_ICONS),
-  variant: z.enum(["default", "primary", "destructive"]),
-  confirm: z.boolean(),
-  disabled: z.boolean(),
-} as const;
 
 export type McpAgent = {
   id: string;
@@ -113,16 +57,10 @@ export type MediaResult = {
 // Each list defines which MCP tools are exposed to that agent type.
 // To add a tool to an agent type, just add its name here.
 const AGENT_TOOLS = new Set([
-  "create_pr",
-  "get_pr_status",
   "login_link",
   "rename_session",
-  "pin",
-  "pins",
-  "delete_pin",
   "list_media",
   "delete_media",
-  "list_pins",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -136,15 +74,6 @@ const AGENT_TOOLS = new Set([
   "list_agents",
   "launch_agent",
   "archive_agent",
-  "surface_create",
-  "surface_update",
-  "surface_list",
-  "surface_get",
-  "surface_delete",
-  "surface_reorder",
-  "surface_interactions",
-  "surface_claim",
-  "surface_resolve",
   "post",
   "update",
   "react",
@@ -178,15 +107,9 @@ const AGENT_TOOLS = new Set([
 ]);
 
 const JOB_TOOLS = new Set([
-  "create_pr",
-  "get_pr_status",
   "rename_session",
-  "pin",
-  "pins",
-  "delete_pin",
   "list_media",
   "delete_media",
-  "list_pins",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -194,15 +117,6 @@ const JOB_TOOLS = new Set([
   "list_agents",
   "launch_agent",
   "archive_agent",
-  "surface_create",
-  "surface_update",
-  "surface_list",
-  "surface_get",
-  "surface_delete",
-  "surface_reorder",
-  "surface_interactions",
-  "surface_claim",
-  "surface_resolve",
   "post",
   "update",
   "react",
@@ -275,7 +189,6 @@ export type McpRequestContext = {
    * the token-less `/api/mcp` route and unit tests can omit it.
    */
   publishUiEvent?: (event: ToolInvokedEvent) => void;
-  surfaces?: SurfaceService;
   /** The stream: post / update / react. */
   chat?: Pick<
     StreamService,
@@ -306,22 +219,6 @@ export type McpRequestContext = {
     opts: { source?: string; ownerAgentId?: string }
   ) => Promise<ListedMediaItem[]>;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
-  listPins?: (
-    agentId: string,
-    opts?: { ownerAgentId?: string }
-  ) => Promise<
-    Array<{
-      id: string;
-      label: string;
-      value: string;
-      type: string;
-      caption?: string;
-      group?: string;
-      icon?: string;
-      variant?: string;
-      confirm?: boolean;
-    }>
-  >;
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
@@ -387,19 +284,6 @@ export type McpRequestContext = {
    * has read the result.
    */
   whenResponseFinished?: () => Promise<void>;
-  upsertPin?: (
-    agentId: string,
-    pin: McpPinInput
-  ) => Promise<{ pin: PinListing; created: boolean }>;
-  upsertPins?: (
-    agentId: string,
-    input: { pins: McpPinInput[]; mode?: "merge" | "replace"; group?: string }
-  ) => Promise<PinSummary[]>;
-  deletePin?: (
-    agentId: string,
-    input: { id?: string; ids?: string[]; group?: string }
-  ) => Promise<void>;
-  deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
   listAgentsForAgent?: (
     agentId: string,
     senderRepoRoot: string | null
@@ -501,12 +385,6 @@ export async function createDispatchMcpServer(
     issueLoginLink: context.issueLoginLink,
   });
 
-  // ── PR tools (create_pr, get_pr_status) ────────────────────────────
-  registerPrTools(server, allowed, {
-    defaultCwd,
-    baseBranch: context.agent?.baseBranch ?? undefined,
-  });
-
   // ── Agent lifecycle tools (rename, notify, list_media) ──
   if (context.agent) {
     registerAgentLifecycleTools(server, allowed, {
@@ -516,7 +394,6 @@ export async function createDispatchMcpServer(
       sendNotify: context.sendNotify,
       listMedia: context.listMedia,
       deleteMedia: context.deleteMedia,
-      listPins: context.listPins,
     });
   }
 
@@ -530,9 +407,6 @@ export async function createDispatchMcpServer(
     clearActivePersonality: context.clearActivePersonality,
   });
 
-  if (allowed.has("pin")) registerPinTool(server, context);
-  if (allowed.has("pins")) registerBatchPinTool(server, context);
-  if (allowed.has("delete_pin")) registerDeletePinTool(server, context);
   // ── Persona tools (list, templates, authoring) ─────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
@@ -570,10 +444,6 @@ export async function createDispatchMcpServer(
       agentId: context.agent.id,
       archiveAgent: context.archiveAgent,
       whenResponseFinished: context.whenResponseFinished,
-    });
-    registerSurfaceTools(server, allowed, {
-      agentId: context.agent.id,
-      surfaces: context.surfaces,
     });
   }
 
@@ -664,260 +534,6 @@ export async function createDispatchMcpServer(
   }
 
   return server;
-}
-
-// ── Shared tool registrations (used by both persona and standard agents) ──
-
-function registerPinTool(server: McpServer, context: McpRequestContext): void {
-  if (!context.agent || !context.upsertPin) return;
-  const agentId = context.agent.id;
-  const upsertPin = context.upsertPin;
-  const deletePinByLabel = context.deletePinByLabel;
-
-  server.registerTool(
-    "pin",
-    {
-      description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To rename a pin, pass its id from list_pins along with the new label. To write several pins at once, use pins instead of calling this repeatedly. To remove a pin, use list_pins followed by delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
-        "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
-        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert. " +
-        "When a shortcut's action becomes temporarily or permanently unavailable but is still worth showing (e.g. its build already started elsewhere), set disabled: true instead of deleting it — the button greys out and stops accepting clicks. Set the caption to explain why (e.g. 'already building — agt_...'); it renders in place of the normal caption. Send disabled: false to re-enable it later.",
-      inputSchema: {
-        id: pinFields.id
-          .optional()
-          .describe(
-            "Exact pin id from list_pins. Pass it to edit that pin specifically — this is the only way to change a pin's label, since without an id the label is what identifies the pin. Omit to match by label."
-          ),
-        label: pinFields.label.describe(
-          "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port'). For shortcut pins this is the button text."
-        ),
-        value: pinFields.value
-          .optional()
-          .describe(
-            "The value to display. For shortcut pins this is the prompt delivered to your session when the button is clicked. Required on a new pin; omit on an update to keep the stored value."
-          ),
-        type: pinFields.type
-          .optional()
-          .describe(
-            "Value type, defaulting to 'string' on a new pin. Omit when updating an existing pin and its stored type is kept. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. 'shortcut' renders a button that sends `value` to your session when clicked. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
-          ),
-        caption: pinFields.caption
-          .optional()
-          .describe(
-            "A one-line caption rendered under the pin, supporting inline markdown (bold, italic, `code`, strikethrough). Works on any pin type. On shortcut pins it is context for the click, not part of the injected prompt."
-          ),
-        group: pinFields.group
-          .optional()
-          .describe(
-            "Renders this pin under a shared heading with every other pin using the same group name — use it to present a set of related actions, or the question they answer, as one block."
-          ),
-        icon: pinFields.icon
-          .optional()
-          .describe("Shortcut pins only: icon shown on the button."),
-        variant: pinFields.variant
-          .optional()
-          .describe(
-            "Shortcut pins only: button styling. 'primary' for the main suggested action, 'destructive' for dangerous ones, 'default' otherwise."
-          ),
-        confirm: pinFields.confirm
-          .optional()
-          .describe(
-            "Shortcut pins only: when true, clicking asks the user to confirm and shows them the prompt first. Use for destructive or hard-to-undo actions."
-          ),
-        disabled: pinFields.disabled
-          .optional()
-          .describe(
-            "Shortcut pins only: when true, the button renders non-interactive instead of being deleted — for an action that's temporarily or permanently unavailable but still worth showing. Pair with a caption explaining why. Send false to re-enable."
-          ),
-        delete: z
-          .boolean()
-          .optional()
-          .describe("Deprecated compatibility option for deleting by label."),
-      },
-    },
-    async (args) => {
-      try {
-        if (args.delete) {
-          if (!deletePinByLabel) {
-            return toToolError(
-              new Error("Legacy pin deletion is unavailable.")
-            );
-          }
-          await deletePinByLabel(agentId, args.label);
-          return {
-            content: [{ type: "text", text: `Removed pin \"${args.label}\".` }],
-          };
-        }
-        const { created } = await upsertPin(agentId, {
-          ...(args.id !== undefined ? { id: args.id } : {}),
-          label: args.label,
-          ...(args.value !== undefined ? { value: args.value } : {}),
-          ...(args.type !== undefined ? { type: args.type } : {}),
-          ...(args.caption !== undefined ? { caption: args.caption } : {}),
-          ...(args.group !== undefined ? { group: args.group } : {}),
-          ...(args.icon !== undefined ? { icon: args.icon } : {}),
-          ...(args.variant !== undefined ? { variant: args.variant } : {}),
-          ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
-          ...(args.disabled !== undefined ? { disabled: args.disabled } : {}),
-        });
-        // Acknowledge the write without echoing the stored pin: the caller just
-        // sent every field it set, and an update merges rather than replaces, so
-        // the only thing it cannot infer is whether this created or updated —
-        // which is exactly what it gets back. list_pins remains the way
-        // to check what an update actually carried over.
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${created ? "Created" : "Updated"} pin "${args.label}".`,
-            },
-          ],
-        };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
-}
-
-/**
- * The per-entry shape for `pins`. Field semantics live on
- * `pin` — restating them here would double what every agent pays in
- * context for the pin toolset, so this stays terse and points there.
- */
-const batchPinEntrySchema = z.object({
-  id: pinFields.id
-    .optional()
-    .describe("Pin id from list_pins. Required to change a label."),
-  label: pinFields.label.describe("Display label, or button text."),
-  value: pinFields.value
-    .optional()
-    .describe(
-      "Value, or the prompt for a shortcut. Required on a new pin; omit on an update to keep the stored value."
-    ),
-  type: pinFields.type
-    .optional()
-    .describe(
-      "Defaults to 'string' on a new pin; omit on an update to keep the stored type. See pin."
-    ),
-  caption: pinFields.caption.optional().describe("One-line caption."),
-  group: pinFields.group
-    .optional()
-    .describe(
-      "Shared heading. Ignored in replace mode, which files entries under its own group."
-    ),
-  icon: pinFields.icon.optional().describe("Shortcut pins only."),
-  variant: pinFields.variant.optional().describe("Shortcut pins only."),
-  confirm: pinFields.confirm.optional().describe("Shortcut pins only."),
-  disabled: pinFields.disabled.optional().describe("Shortcut pins only."),
-});
-
-function registerBatchPinTool(
-  server: McpServer,
-  context: McpRequestContext
-): void {
-  if (!context.agent || !context.upsertPins) return;
-  const agentId = context.agent.id;
-  const upsertPins = context.upsertPins;
-
-  server.registerTool(
-    "pins",
-    {
-      description:
-        "Write several sidebar pins in one atomic call — use this instead of calling pin in a loop. Each entry behaves exactly like pin: it updates the pin matching its id (or, with no id, its label) and creates one otherwise, keeping any field you omit. Because an id survives a relabel, relabelling a whole set is one call here rather than a delete and recreate per pin. " +
-        "Default mode 'merge' leaves pins you did not mention alone. Mode 'replace' requires a group and makes that group contain exactly the entries you pass, in the order you pass them — members you omit are deleted, and nothing outside the group is ever removed. Use replace to reorder a group or rewrite it wholesale; use merge for everything else. Returns the full resulting pin list.",
-      inputSchema: {
-        pins: z
-          .array(batchPinEntrySchema)
-          .min(1)
-          .max(50)
-          .describe("Pins to write, applied in order."),
-        mode: z
-          .enum(["merge", "replace"])
-          .default("merge")
-          .describe(
-            "'merge' updates or creates each entry and touches nothing else. 'replace' rebuilds the named group to be exactly these entries."
-          ),
-        group: pinFields.scopingGroup
-          .optional()
-          .describe(
-            "Required by mode 'replace': the only group the call may delete from. Entries are filed under it automatically."
-          ),
-      },
-    },
-    async (args) => {
-      try {
-        const pins = await upsertPins(agentId, {
-          pins: args.pins,
-          ...(args.mode !== undefined ? { mode: args.mode } : {}),
-          ...(args.group !== undefined ? { group: args.group } : {}),
-        });
-        // Echo the resulting list, not the request: an agent can then see what
-        // the batch actually produced — order included — rather than assuming
-        // its input round-tripped. upsertPins returns summaries (id, label,
-        // group), so this stays thin however long the stored values are; read
-        // one back in full with list_pins and its id.
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Wrote ${args.pins.length} pin(s). Pins are now: ${jsonText(pins)}`,
-            },
-          ],
-        };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
-}
-
-function registerDeletePinTool(
-  server: McpServer,
-  context: McpRequestContext
-): void {
-  if (!context.agent || !context.deletePin) return;
-  const agentId = context.agent.id;
-  const deletePin = context.deletePin;
-  server.registerTool(
-    "delete_pin",
-    {
-      description:
-        "Permanently remove sidebar pins. Pass exactly one of: 'id' for a single pin, 'ids' for several at once, or 'group' to clear an entire group. Call list_pins first and pass exact returned ids.",
-      inputSchema: {
-        id: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Exact pin id returned by list_pins."),
-        ids: z
-          .array(z.string().min(1))
-          .min(1)
-          .optional()
-          .describe(
-            "Several exact pin ids, removed together. Every id must exist."
-          ),
-        group: pinFields.scopingGroup
-          .optional()
-          .describe("Remove every pin filed under this group heading."),
-      },
-    },
-    async (args) => {
-      try {
-        await deletePin(agentId, {
-          ...(args.id !== undefined ? { id: args.id } : {}),
-          ...(args.ids !== undefined ? { ids: args.ids } : {}),
-          ...(args.group !== undefined ? { group: args.group } : {}),
-        });
-        const removed = args.group
-          ? `group "${args.group}"`
-          : (args.ids ?? [args.id]).join(", ");
-        return { content: [{ type: "text", text: `Removed ${removed}.` }] };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
 }
 
 function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {

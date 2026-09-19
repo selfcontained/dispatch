@@ -65,8 +65,10 @@ describe("MCP login-link tool", () => {
       arguments: {},
     });
     expect(called.statusCode).toBe(200);
-    expect(called.body).toContain('"isError":true');
-    expect(called.body).toMatch(/tool.*login_link.*not found/i);
+    // The root endpoint registers no tools at all, so tools/call is not a
+    // method it serves.
+    expect(called.body).toContain('"code":-32601');
+    expect(called.body).not.toContain("login_link");
   });
 
   it("lists and issues a 60-second login link for agent-scoped callers", async () => {

@@ -1,5 +1,4 @@
 import type {
-  ChatPinEntry,
   ChatStatusEntry,
   StreamBlockEntry,
   StreamEntry,
@@ -251,58 +250,8 @@ export function toStatusEntry(
 }
 
 /**
- * Pin activity, one entry per write: every row of a batch write shares the
- * transaction's `now()`, so grouping by (created_at, action) turns "replace
- * group Build with five pins" into one post rather than five.
- */
-async function listPinEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatPinEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("pin", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    action: ChatPinEntry["action"];
-    pin_ids: string[];
-    labels: string[];
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT id, action, pin_ids, labels, created_at, ${AT_KEY_SQL} AS at_key
-       FROM (
-         SELECT min(id) AS id, action, created_at,
-                array_agg(pin_id ORDER BY id) AS pin_ids,
-                array_agg(label ORDER BY id) AS labels
-           FROM pin_events
-          WHERE agent_id = $1
-          GROUP BY created_at, action
-       ) AS writes
-      WHERE TRUE ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "pin",
-      id: `pin:${row.id}`,
-      action: row.action,
-      pins: row.pin_ids.map((id, i) => ({ id, label: row.labels[i] ?? "" })),
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
-}
-
-/**
  * Compose one stream's feed at read time from blocks, system status marks,
- * pin activity, and the turns of every agent in the root's tree
+ * and the turns of every agent in the root's tree
  * (a child's turns show in its parent's stream, folded by the client).
  * Each source contributes its newest `limit + 1` rows past the cursor; the
  * merge keeps the newest `limit` overall, so any row that belongs on the
@@ -317,13 +266,12 @@ export async function composeStreamFeed(
   const cursor = opts.cursor ?? null;
   const { db } = store;
   const tree = await agentTree(db, streamId);
-  const [blocks, status, turnsByAgent, pins, unreadCount] = await Promise.all([
+  const [blocks, status, turnsByAgent, unreadCount] = await Promise.all([
     listBlockEntries(db, streamId, cursor, limit + 1),
     listStatusEntries(db, streamId, cursor, limit + 1),
     Promise.all(
       tree.map((agentId) => listTurnEntries(db, agentId, cursor, limit + 1))
     ),
-    listPinEntries(db, streamId, cursor, limit + 1),
     store.countUnread(streamId),
   ]);
 
@@ -331,7 +279,6 @@ export async function composeStreamFeed(
     ...blocks,
     ...status,
     ...turnsByAgent.flat(),
-    ...pins,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);

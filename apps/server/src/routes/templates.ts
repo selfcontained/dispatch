@@ -10,7 +10,7 @@ import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
-  createStartupPins,
+  validateStartupLinks,
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
 import type { AgentRecord } from "../agents/manager.js";
@@ -250,10 +250,10 @@ export async function registerTemplateRoutes(
         });
       }
 
-      let startupPins: ReturnType<typeof createStartupPins> = [];
+      let links: string[] = [];
       if (startupLinks && startupLinks.length > 0) {
         try {
-          startupPins = createStartupPins(startupLinks);
+          links = validateStartupLinks(startupLinks);
         } catch (error) {
           return reply.code(400).send({
             error: errorMessage(error),
@@ -266,8 +266,7 @@ export async function registerTemplateRoutes(
           templateId: request.params.id,
           ...parsed,
           startupFiles,
-          startupPins,
-          startupLinks,
+          startupLinks: links,
         });
         deps.publishUiEvent({
           type: "agent.upsert",

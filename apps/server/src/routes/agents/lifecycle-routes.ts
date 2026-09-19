@@ -163,7 +163,6 @@ export async function registerAgentLifecycleRoutes(
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
       });
-      await deps.onAgentStarted(id);
       return { agent };
     } catch (error) {
       return deps.handleAgentError(reply, error);

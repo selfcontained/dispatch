@@ -155,17 +155,13 @@ const attachmentSchema = z.discriminatedUnion("type", [
       .optional()
       .describe("Caption: where the snippet is from."),
   }),
-  z.object({
-    type: z.literal("pin"),
-    pinId: z.string().min(1).describe("Id of one of your own pins."),
-  }),
 ]);
 
 const attachmentsSchema = z
   .array(attachmentSchema)
   .max(BLOCK_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/mediaId of one already shared), link, pr, code, or pin.`
+    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/mediaId of one already shared), link, pr, or code.`
   );
 
 const textSchema = z

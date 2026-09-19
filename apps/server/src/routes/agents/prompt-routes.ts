@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 
-import { resolveShortcutRun } from "../../agents/pin-run.js";
 import { StreamServiceError } from "../../chat/service.js";
 import { getQuickPhrase } from "../../db/quick-phrases.js";
 import { substituteArgs } from "../../templates/arg-parser.js";
@@ -10,10 +9,10 @@ const TEXT_MAX = 10_000;
 const ARG_VALUE_MAX = 2_000;
 
 /**
- * Prompts the user fires from a UI control rather than typing into the Chat
- * composer: a quick phrase, a shortcut pin. Both become a Chat message — a
- * user post in the feed, delivered as the agent's next turn — so the
- * agent's reply threads onto it exactly as for a typed message.
+ * Prompts the user fires from a UI control rather than typing into the
+ * composer: a quick phrase. It becomes a user post in the stream, delivered
+ * as the agent's next turn, so the agent's reply threads onto it exactly as
+ * for a typed message.
  */
 export async function registerAgentPromptRoutes(
   app: FastifyInstance,
@@ -84,35 +83,6 @@ export async function registerAgentPromptRoutes(
     try {
       await deps.chat.sendUserPost(await deps.chat.streamOf(agentId), {
         text,
-        allowInert: false,
-      });
-      return reply.code(204).send();
-    } catch (error) {
-      if (error instanceof StreamServiceError) {
-        return reply.code(error.statusCode).send({ error: error.message });
-      }
-      return deps.handleAgentError(reply, error);
-    }
-  });
-
-  // Shortcut pins: the click delivers the pin's stored prompt to the owning
-  // agent. The prompt is looked up server-side by pin id so the client can
-  // only fire prompts the agent itself pinned.
-  app.post("/api/v1/agents/:id/prompts/pin/:pinId", async (request, reply) => {
-    const params = request.params as { id?: string; pinId?: string };
-    const agentId = params.id ?? "";
-    const pinId = params.pinId ?? "";
-    try {
-      const agent = await deps.agentManager.getAgent(agentId);
-      if (!agent) {
-        return reply.code(404).send({ error: "Agent not found." });
-      }
-      const target = resolveShortcutRun(agent.pins, pinId);
-      if (!target.ok) {
-        return reply.code(target.status).send({ error: target.error });
-      }
-      await deps.chat.sendUserPost(await deps.chat.streamOf(agentId), {
-        text: target.prompt,
         allowInert: false,
       });
       return reply.code(204).send();

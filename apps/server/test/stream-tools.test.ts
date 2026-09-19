@@ -81,7 +81,11 @@ describe("registerStreamTools", () => {
   }
 
   it("registers the tools only when allowed and a service is present", () => {
-    expect(server.tools.map((t) => t.name)).toEqual(["post", "update", "react"]);
+    expect(server.tools.map((t) => t.name)).toEqual([
+      "post",
+      "update",
+      "react",
+    ]);
     const none = createMockServer();
     registerStreamTools(none as never, ALL, { agentId: AGENT_ID });
     expect(none.tools).toHaveLength(0);
@@ -199,7 +203,14 @@ describe("registerStreamTools", () => {
       verdict: "request_changes",
       summary: "Two things",
       findings: [
-        { id: "f1", severity: "major", title: "Leak", body: "…", path: "a.ts", line: 3 },
+        {
+          id: "f1",
+          severity: "major",
+          title: "Leak",
+          body: "…",
+          path: "a.ts",
+          line: 3,
+        },
       ],
     };
     await tool("post").handler({ to: "agt_builder", review });
@@ -261,12 +272,21 @@ describe("registerStreamTools", () => {
       schema.safeParse([{ type: "file", fileName: "a.png" }]).success
     ).toBe(true);
     expect(schema.safeParse([{ type: "file", mediaId: 3 }]).success).toBe(true);
-    expect(schema.safeParse([{ type: "file", mediaId: 0 }]).success).toBe(false);
-    expect(schema.safeParse([{ type: "link", url: "https://x" }]).success).toBe(true);
-    expect(schema.safeParse([{ type: "link", url: "javascript:1" }]).success).toBe(false);
-    expect(schema.safeParse([{ type: "pr", url: "https://gh/1" }]).success).toBe(true);
-    expect(schema.safeParse([{ type: "pin", pinId: "pin_1" }]).success).toBe(true);
-    expect(schema.safeParse([{ type: "pin" }]).success).toBe(false);
+    expect(schema.safeParse([{ type: "file", mediaId: 0 }]).success).toBe(
+      false
+    );
+    expect(schema.safeParse([{ type: "link", url: "https://x" }]).success).toBe(
+      true
+    );
+    expect(
+      schema.safeParse([{ type: "link", url: "javascript:1" }]).success
+    ).toBe(false);
+    expect(
+      schema.safeParse([{ type: "pr", url: "https://gh/1" }]).success
+    ).toBe(true);
+    expect(schema.safeParse([{ type: "pin", pinId: "pin_1" }]).success).toBe(
+      false
+    );
     expect(schema.safeParse([{ type: "code", code: "" }]).success).toBe(false);
     expect(schema.safeParse([{ type: "image", url: "x" }]).success).toBe(false);
     expect(
@@ -285,7 +305,9 @@ describe("registerStreamTools", () => {
         options: Array.from({ length: 11 }, (_, i) => ({ label: `o${i}` })),
       }).success
     ).toBe(false);
-    expect(question.safeParse({ options: [{ label: "" }] }).success).toBe(false);
+    expect(question.safeParse({ options: [{ label: "" }] }).success).toBe(
+      false
+    );
     const form = input.form as Schema;
     expect(form.safeParse({ fields: [] }).success).toBe(false);
     expect(
@@ -309,9 +331,15 @@ describe("registerStreamTools", () => {
     ).toBe(true);
     const tasks = input.tasks as Schema;
     expect(tasks.safeParse({ items: [] }).success).toBe(false);
-    expect(tasks.safeParse({ items: [{ id: "t", text: "x" }] }).success).toBe(true);
-    expect((input.replyTo as Schema).safeParse("not-a-uuid").success).toBe(false);
-    expect((input.text as Schema).safeParse("x".repeat(20_001)).success).toBe(false);
+    expect(tasks.safeParse({ items: [{ id: "t", text: "x" }] }).success).toBe(
+      true
+    );
+    expect((input.replyTo as Schema).safeParse("not-a-uuid").success).toBe(
+      false
+    );
+    expect((input.text as Schema).safeParse("x".repeat(20_001)).success).toBe(
+      false
+    );
   });
 
   it("updates a block and returns id + updatedAt", async () => {
@@ -374,7 +402,10 @@ describe("registerStreamTools", () => {
       agentId: AGENT_ID,
     });
     expect(addReaction).not.toHaveBeenCalled();
-    expect(removed.structuredContent).toEqual({ blockId: OTHER, reactions: [] });
+    expect(removed.structuredContent).toEqual({
+      blockId: OTHER,
+      reactions: [],
+    });
 
     addReaction.mockRejectedValueOnce(new Error("Block not found"));
     const failed = await tool("react").handler({ id: OTHER, emoji: "👍" });

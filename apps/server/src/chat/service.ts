@@ -65,8 +65,7 @@ export type BlockAttachmentInput =
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
-  | { type: "code"; code: string; language?: string; path?: string }
-  | { type: "pin"; pinId: string };
+  | { type: "code"; code: string; language?: string; path?: string };
 
 /** What an agent hands `post`. */
 export type PostInput = {
@@ -112,7 +111,7 @@ export type StreamDeliveryAdapter = {
 
 export type StreamAgent = Pick<
   AgentRecord,
-  "id" | "name" | "mediaDir" | "pins" | "status"
+  "id" | "name" | "mediaDir" | "status"
 >;
 
 export type StreamServiceDeps = {
@@ -120,7 +119,7 @@ export type StreamServiceDeps = {
   publishUiEvent: (
     event: StreamChangedEvent | StreamEntryEvent | StreamReadEvent
   ) => void;
-  /** Minimal agent lookup: name, media dir and pins are all the service needs. */
+  /** Minimal agent lookup: name, media dir and status are all the service needs. */
   getAgent: (agentId: string) => Promise<StreamAgent | null>;
   /**
    * Root of per-agent media directories (config.mediaRoot), so the envelope
@@ -179,9 +178,7 @@ export class StreamForbiddenError extends StreamServiceError {
 /**
  * What an agent was created with, as `AgentManager.createAgent` hands it to
  * the recorder once the agent row and its media rows exist. Files are the
- * seeded media rows; links are the raw startup URLs; pins are the initial
- * pins (a url pin made from one of `links` is skipped, so the same URL is
- * not shown twice).
+ * seeded media rows; links are the raw startup URLs.
  */
 export type LaunchContextInput = {
   /**
@@ -194,7 +191,6 @@ export type LaunchContextInput = {
   text?: string;
   files?: Array<{ mediaId: number }>;
   links?: string[];
-  pins?: Array<{ id: string; type: string; value: string }>;
   /** The agent that created this one via launch_agent, if any. */
   launchedByAgentId?: string | null;
 };
@@ -205,7 +201,7 @@ export type PreparedLaunchContext = {
   /**
    * One envelope line per resolved startup attachment — *every* one, not
    * the capped set the row stores. The engine's first turn must still
-   * describe all the startup files, links and pins.
+   * describe all the startup files and links.
    */
   attachmentLines: string[];
   /** Exactly what the row will store. */
@@ -1206,17 +1202,8 @@ export class StreamService {
   ): Promise<PreparedLaunchContext | null> {
     const text = input.text ?? "";
     const links = (input.links ?? []).filter((url) => url.trim().length > 0);
-    const linkSet = new Set(links);
     const files = input.files ?? [];
-    const pins = (input.pins ?? []).filter(
-      (pin) => !(pin.type === "url" && linkSet.has(pin.value))
-    );
-    if (
-      !text.trim() &&
-      files.length === 0 &&
-      links.length === 0 &&
-      pins.length === 0
-    ) {
+    if (!text.trim() && files.length === 0 && links.length === 0) {
       return null;
     }
     const inputs: ChatUserAttachmentInput[] = [
@@ -1225,7 +1212,6 @@ export class StreamService {
         mediaId: file.mediaId,
       })),
       ...links.map((url) => ({ type: "link" as const, url })),
-      ...pins.map((pin) => ({ type: "pin" as const, pinId: pin.id })),
     ];
     let attachments: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
@@ -1567,13 +1553,6 @@ export class StreamService {
     for (const input of inputs) {
       if (input.type === "file") {
         out.push(await this.resolveFile(agent.id, input));
-      } else if (input.type === "pin") {
-        if (!this.findPin(agent, input.pinId)) {
-          throw new StreamValidationError(
-            `Unknown pin "${input.pinId}" — list_pins shows the ids on this agent.`
-          );
-        }
-        out.push({ type: "pin", pinId: input.pinId });
       } else if (input.type === "link" || input.type === "pr") {
         const url = chatUrlSchema.safeParse(input.url);
         if (!url.success) {
@@ -1593,14 +1572,9 @@ export class StreamService {
     return out;
   }
 
-  private findPin(agent: StreamAgent, pinId: string) {
-    const pins = Array.isArray(agent.pins) ? agent.pins : [];
-    return pins.find((pin) => pin.id === pinId);
-  }
-
   /**
    * One envelope line per resolved attachment: `file: <abs path> (<mime>,
-   * <size>)`, `pin: <label> — <value>`, `link: <url>`. File paths use the
+   * <size>)`, `link: <url>`, `code: …`. File paths use the
    * recipient agent's media directory when the file is its own; otherwise
    * the file is described by name and the agent fetches it by URL.
    */
@@ -1620,15 +1594,6 @@ export class StreamService {
           const mime = attachment.mimeType ?? mimeType(attachment.fileName);
           lines.push(
             `- file: ${path.join(mediaDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
-          );
-          break;
-        }
-        case "pin": {
-          const pin = this.findPin(agent, attachment.pinId);
-          lines.push(
-            pin
-              ? `- pin: ${pin.label} — ${pin.value}`
-              : `- pin: ${attachment.pinId}`
           );
           break;
         }

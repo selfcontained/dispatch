@@ -32,20 +32,17 @@ let published: unknown[];
 const A = "agt_stream_svc";
 const B = "agt_stream_peer";
 const NIL = "00000000-0000-4000-8000-000000000000";
-const PINS = [{ id: "pin_1", label: "URL", value: "http://x", type: "url" }];
 const AGENTS: Record<string, StreamAgent> = {
   [A]: {
     id: A,
     name: "Svc",
     mediaDir: null,
-    pins: PINS as never,
     status: "running",
   },
   [B]: {
     id: B,
     name: "Peer",
     mediaDir: "/peer/media",
-    pins: [],
     status: "running",
   },
 };
@@ -163,14 +160,13 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.recordLaunchContext", () => {
-  it("records one delivered user block with file, link and pin attachments", async () => {
+  it("records one delivered user block with file and link attachments", async () => {
     const mediaId = await seedMedia(A, "brief-2026.md", 300);
     const block = await service.recordLaunchContext({
       agentId: A,
       text: "Build the widget",
       files: [{ mediaId }],
       links: ["https://example.com/spec"],
-      pins: [{ id: "pin_1", type: "url", value: "http://x" }],
     });
     expect(block).toMatchObject({
       streamId: A,
@@ -189,23 +185,11 @@ describe("StreamService.recordLaunchContext", () => {
           mimeType: "text/markdown",
         },
         { type: "link", url: "https://example.com/spec" },
-        { type: "pin", pinId: "pin_1" },
       ],
     });
     expect(block && "launchedByAgentId" in block).toBe(false);
     expect(published).toEqual([entryEvent(block!)]);
     expect(await service.store.getById(block!.id)).toEqual(block);
-  });
-
-  it("skips a url pin that duplicates a startup link", async () => {
-    const block = await service.recordLaunchContext({
-      agentId: A,
-      text: "",
-      links: ["http://x"],
-      pins: [{ id: "pin_1", type: "url", value: "http://x" }],
-    });
-    expect(block?.attachments).toEqual([{ type: "link", url: "http://x" }]);
-    expect(block?.text).toBe("");
   });
 
   it("records nothing for a launch with no context", async () => {
@@ -234,19 +218,12 @@ describe("StreamService.recordLaunchContext", () => {
     });
   });
 
-  it("rejects an unknown file or pin like any user attachment", async () => {
+  it("rejects an unknown file like any user attachment", async () => {
     await expect(
       service.recordLaunchContext({
         agentId: A,
         text: "x",
         files: [{ mediaId: 999_999 }],
-      })
-    ).rejects.toBeInstanceOf(StreamValidationError);
-    await expect(
-      service.recordLaunchContext({
-        agentId: A,
-        text: "x",
-        pins: [{ id: "pin_nope", type: "string", value: "v" }],
       })
     ).rejects.toBeInstanceOf(StreamValidationError);
   });
@@ -261,14 +238,12 @@ describe("StreamService.prepareLaunchContext", () => {
       text: "Build the widget",
       files: [{ mediaId }],
       links: ["https://example.com/spec"],
-      pins: [{ id: "pin_1", type: "string", value: "DIS-42" }],
     });
     expect(prepared?.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
     // The same lines sendUserPost injects, so envelope and block agree.
     expect(prepared?.attachmentLines).toEqual([
       "- file: /media-root/agt_stream_svc/brief-2026.md (text/markdown, 300 B)",
       "- link: https://example.com/spec",
-      "- pin: URL — http://x",
     ]);
     // Nothing written and nothing announced until record() runs.
     expect(published).toEqual([]);
@@ -715,7 +690,6 @@ describe("StreamService.post", () => {
         { type: "file", mediaId: pdf.rows[0].id },
         { type: "link", url: "https://example.com" },
         { type: "pr", url: "https://gh/1", title: "PR" },
-        { type: "pin", pinId: "pin_1" },
         { type: "code", code: "x = 1", language: "py" },
       ],
     });
@@ -736,7 +710,6 @@ describe("StreamService.post", () => {
       },
       { type: "link", url: "https://example.com" },
       { type: "pr", url: "https://gh/1", title: "PR" },
-      { type: "pin", pinId: "pin_1" },
       { type: "code", code: "x = 1", language: "py" },
     ]);
     expect(block.attachments[0]).not.toHaveProperty("path");
@@ -763,12 +736,6 @@ describe("StreamService.post", () => {
         ],
       })
     ).rejects.toThrow(/not both/);
-    await expect(
-      service.post(A, {
-        text: "see",
-        attachments: [{ type: "pin", pinId: "pin_missing" }],
-      })
-    ).rejects.toThrow(/Unknown pin/);
     await expect(
       service.post(A, {
         text: "see",
@@ -1389,7 +1356,6 @@ describe("StreamService.sendUserPost", () => {
       text: "look at this",
       attachments: [
         { type: "file", mediaId },
-        { type: "pin", pinId: "pin_1" },
         { type: "link", url: "https://example.com/spec", title: "Spec" },
       ],
     });
@@ -1401,7 +1367,6 @@ describe("StreamService.sendUserPost", () => {
         sizeBytes: 122880,
         mimeType: "image/png",
       },
-      { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
     ]);
     await settled(svc, res.block.id);
@@ -1412,7 +1377,6 @@ describe("StreamService.sendUserPost", () => {
         "",
         "Attachments:",
         "- file: /media-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
-        "- pin: URL — http://x",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH POST ---",
         "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
@@ -1433,7 +1397,7 @@ describe("StreamService.sendUserPost", () => {
     );
   });
 
-  it("rejects unknown media, foreign pins, and too many attachments before writing", async () => {
+  it("rejects unknown media and too many attachments before writing", async () => {
     const { svc, injected } = build();
     await expect(
       svc.sendUserPost(A, {
@@ -1441,12 +1405,6 @@ describe("StreamService.sendUserPost", () => {
         attachments: [{ type: "file", mediaId: 999_999 }],
       })
     ).rejects.toThrow(/Unknown file #999999/);
-    await expect(
-      svc.sendUserPost(A, {
-        text: "x",
-        attachments: [{ type: "pin", pinId: "pin_nope" }],
-      })
-    ).rejects.toThrow(/Unknown pin/);
     await expect(
       svc.sendUserPost(A, {
         text: "x",
@@ -1657,7 +1615,6 @@ describe("StreamService.answerQuestion", () => {
       value: "this one",
       attachments: [
         { type: "file", mediaId },
-        { type: "pin", pinId: "pin_1" },
         { type: "link", url: "https://example.com/spec", title: "Spec" },
       ],
     });
@@ -1669,7 +1626,6 @@ describe("StreamService.answerQuestion", () => {
         sizeBytes: 122880,
         mimeType: "image/png",
       },
-      { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
     ]);
     expect((await svc.store.getById(res.reply.id))?.attachments).toEqual(
@@ -1683,7 +1639,6 @@ describe("StreamService.answerQuestion", () => {
         "",
         "Attachments:",
         "- file: /media-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
-        "- pin: URL — http://x",
         "- link: https://example.com/spec — Spec",
         `This answers your question ${q.id}. In the thread under ${q.id}.`,
         "--- END DISPATCH POST ---",
@@ -1691,7 +1646,7 @@ describe("StreamService.answerQuestion", () => {
     );
   });
 
-  it("rejects unknown media, foreign pins, and too many attachments before writing", async () => {
+  it("rejects unknown media and too many attachments before writing", async () => {
     const { svc, injected } = build();
     const q = await ask(svc, true);
     await expect(
@@ -1700,12 +1655,6 @@ describe("StreamService.answerQuestion", () => {
         attachments: [{ type: "file", mediaId: 999_999 }],
       })
     ).rejects.toThrow(/Unknown file #999999/);
-    await expect(
-      svc.answerQuestion(A, q.id, {
-        value: "x",
-        attachments: [{ type: "pin", pinId: "pin_nope" }],
-      })
-    ).rejects.toThrow(/Unknown pin/);
     await expect(
       svc.answerQuestion(A, q.id, {
         value: "x",

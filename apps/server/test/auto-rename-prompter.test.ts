@@ -43,7 +43,6 @@ function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
       message: "doing work",
       updatedAt: new Date().toISOString(),
     },
-    pins: [],
     gitContext: null,
     gitContextStale: false,
     gitContextUpdatedAt: null,

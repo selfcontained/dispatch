@@ -939,7 +939,6 @@ describe("stream routes with a deliverable engine", () => {
         name: "Streamy",
         status: "running",
         mediaDir: null,
-        pins: [{ id: "pin_1", label: "PR", value: "https://gh/1" }] as never,
       }),
       mediaRoot: "/media-root",
       delivery: {
@@ -1138,7 +1137,6 @@ describe("stream routes with a deliverable engine", () => {
         text: "",
         attachments: [
           { type: "file", mediaId },
-          { type: "pin", pinId: "pin_1" },
           { type: "link", url: "https://example.com/x" },
         ],
       },
@@ -1154,7 +1152,6 @@ describe("stream routes with a deliverable engine", () => {
         sizeBytes: 2048,
         mimeType: "application/pdf",
       },
-      { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/x" },
     ]);
     await settled(streams, body.block.id);
@@ -1164,7 +1161,6 @@ describe("stream routes with a deliverable engine", () => {
         `--- DISPATCH POST (id: ${body.block.id}, from: user) ---`,
         "Attachments:",
         `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
-        "- pin: PR — https://gh/1",
         "- link: https://example.com/x",
         "--- END DISPATCH POST ---",
       ].join("\n")
@@ -1322,7 +1318,6 @@ describe("stream routes with a deliverable engine", () => {
         value: "see the doc",
         attachments: [
           { type: "file", mediaId },
-          { type: "pin", pinId: "pin_1" },
           { type: "link", url: "https://example.com/x" },
         ],
       },
@@ -1338,7 +1333,6 @@ describe("stream routes with a deliverable engine", () => {
         sizeBytes: 2048,
         mimeType: "application/pdf",
       },
-      { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/x" },
     ]);
     await settled(streams, body.reply.id);
@@ -1350,7 +1344,6 @@ describe("stream routes with a deliverable engine", () => {
         "",
         "Attachments:",
         `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
-        "- pin: PR — https://gh/1",
         "- link: https://example.com/x",
         `This answers your question ${q.id}. In the thread under ${q.id}.`,
         "--- END DISPATCH POST ---",

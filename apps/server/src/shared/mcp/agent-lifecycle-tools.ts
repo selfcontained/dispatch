@@ -41,12 +41,6 @@ export type AgentLifecycleContext = {
     opts: { source?: string; ownerAgentId?: string }
   ) => Promise<ListedMediaItem[]>;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
-  listPins?: (
-    agentId: string,
-    opts?: { ownerAgentId?: string }
-  ) => Promise<
-    Array<{ id: string; label: string; value: string; type: string }>
-  >;
 };
 
 export function registerAgentLifecycleTools(
@@ -150,62 +144,6 @@ export function registerAgentLifecycleTools(
           return {
             content: [
               { type: "text", text: `Deleted media \"${args.fileName}\".` },
-            ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (allowed.has("list_pins") && context.listPins) {
-    const listPins = context.listPins;
-    server.registerTool(
-      "list_pins",
-      {
-        description:
-          "List this agent's current Dispatch sidebar pins, or — with ownerAgentId — the pins of its parent or one of its direct children, read-only. Use delete_pin with a returned id to remove a stale pin of your own. " +
-          `Pin values longer than ${LIST_STRING_MAX} characters are truncated (marked with the number of characters dropped). ` +
-          "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
-        inputSchema: {
-          id: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              "Return only this pin, untruncated. Omit to list every pin."
-            ),
-          ownerAgentId: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              "Whose pins to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const pins = await listPins(agentId, {
-            ownerAgentId: args.ownerAgentId,
-          });
-          if (args.id !== undefined) {
-            const pin = pins.find((candidate) => candidate.id === args.id);
-            if (!pin) {
-              return toToolError(new Error(`Pin ${args.id} not found.`));
-            }
-            // A request for one pin is the detail read, so it is not truncated.
-            return {
-              content: [{ type: "text" as const, text: jsonText(pin) }],
-            };
-          }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: jsonText(truncateLongStrings(pins, LIST_STRING_MAX)),
-              },
             ],
           };
         } catch (error) {

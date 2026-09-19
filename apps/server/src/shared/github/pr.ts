@@ -4,25 +4,6 @@ import {
 } from "../git/git-context.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
-export type CreatePrInput = {
-  cwd: string;
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  draft?: boolean;
-  fillFromCommits?: boolean;
-};
-
-export type CreatePrResult = {
-  repoRoot: string;
-  branchName: string;
-  baseBranch: string;
-  prNumber: number | null;
-  url: string;
-  title: string | null;
-  isDraft: boolean | null;
-};
-
 export type GetPrStatusInput = {
   cwd: string;
   prNumber?: number;
@@ -55,80 +36,6 @@ export class GitHubPrError extends Error {
     this.name = "GitHubPrError";
     this.statusCode = statusCode;
   }
-}
-
-export async function createPr(
-  input: CreatePrInput,
-  commandRunner: CommandRunner = runCommand
-): Promise<CreatePrResult> {
-  const cwd = requireString(input.cwd, "cwd");
-  const repoRoot = await resolveCheckoutRootOrThrow(
-    cwd,
-    commandRunner,
-    GitHubPrError
-  );
-  const baseBranch = input.baseBranch?.trim() || "main";
-  const branchName = await resolveCurrentBranch(repoRoot, commandRunner);
-
-  if (!branchName) {
-    throw new GitHubPrError("Current checkout is in detached HEAD state.", 409);
-  }
-  if (branchName === baseBranch) {
-    throw new GitHubPrError(
-      `Current branch is already "${baseBranch}". Create the PR from a feature branch instead.`,
-      409
-    );
-  }
-
-  await ensureBaseBranchHasDiff(repoRoot, baseBranch, commandRunner);
-  await ensureRemoteBranch(repoRoot, branchName, commandRunner);
-
-  const args = ["pr", "create", "--base", baseBranch, "--head", branchName];
-  if (input.draft ?? false) {
-    args.push("--draft");
-  }
-  if (input.fillFromCommits ?? false) {
-    args.push("--fill");
-  }
-  if (input.title?.trim()) {
-    args.push("--title", input.title.trim());
-  }
-  if (input.body?.trim()) {
-    args.push("--body", input.body.trim());
-  }
-
-  if (!args.includes("--title") && !args.includes("--fill")) {
-    throw new GitHubPrError(
-      "create_pr requires title or fillFromCommits to avoid interactive gh prompts.",
-      400
-    );
-  }
-  if (!args.includes("--body") && !args.includes("--fill")) {
-    throw new GitHubPrError(
-      "create_pr requires body or fillFromCommits to avoid interactive gh prompts.",
-      400
-    );
-  }
-
-  const createResult = await commandRunner("gh", args, { cwd: repoRoot });
-  const url = firstNonEmptyLine(createResult.stdout);
-  if (!url) {
-    throw new GitHubPrError("gh pr create did not return a PR URL.", 500);
-  }
-
-  const status = await getPrStatus(
-    { cwd: repoRoot, prNumber: undefined },
-    commandRunner
-  );
-  return {
-    repoRoot,
-    branchName,
-    baseBranch,
-    prNumber: status.number,
-    url,
-    title: status.title,
-    isDraft: status.isDraft,
-  };
 }
 
 export async function getPrStatus(
@@ -172,84 +79,12 @@ export async function getPrStatus(
   };
 }
 
-async function ensureBaseBranchHasDiff(
-  repoRoot: string,
-  baseBranch: string,
-  commandRunner: CommandRunner
-): Promise<void> {
-  await commandRunner("git", [
-    "-C",
-    repoRoot,
-    "fetch",
-    "origin",
-    baseBranch,
-    "--quiet",
-  ]);
-  const diffCount = (
-    await commandRunner("git", [
-      "-C",
-      repoRoot,
-      "rev-list",
-      "--count",
-      `origin/${baseBranch}..HEAD`,
-    ])
-  ).stdout;
-  if (Number(diffCount) <= 0) {
-    throw new GitHubPrError(
-      `Current branch has no commits ahead of origin/${baseBranch}.`,
-      409
-    );
-  }
-}
-
-async function ensureRemoteBranch(
-  repoRoot: string,
-  branchName: string,
-  commandRunner: CommandRunner
-): Promise<void> {
-  const hasUpstream = await commandRunner(
-    "git",
-    [
-      "-C",
-      repoRoot,
-      "rev-parse",
-      "--abbrev-ref",
-      "--symbolic-full-name",
-      "@{upstream}",
-    ],
-    { allowedExitCodes: [0, 128] }
-  );
-
-  if (hasUpstream.exitCode !== 0 || !hasUpstream.stdout) {
-    await commandRunner("git", [
-      "-C",
-      repoRoot,
-      "push",
-      "--set-upstream",
-      "origin",
-      branchName,
-    ]);
-    return;
-  }
-
-  await commandRunner("git", ["-C", repoRoot, "push", "origin", branchName]);
-}
-
 function requireString(value: string | undefined, fieldName: string): string {
   const normalized = value?.trim() ?? "";
   if (!normalized) {
     throw new GitHubPrError(`${fieldName} is required.`, 400);
   }
   return normalized;
-}
-
-function firstNonEmptyLine(value: string): string | null {
-  return (
-    value
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? null
-  );
 }
 
 function stringField(value: unknown, fieldName: string): string {

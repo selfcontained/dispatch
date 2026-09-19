@@ -290,7 +290,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     expect(body.agent.id).toBeTruthy();
   });
 
-  it("records startup links as link attachments on the launch post, not as duplicate url pins", async () => {
+  it("records startup links as link attachments on the launch post", async () => {
     const created = await createTemplate("links-tmpl", {
       prompt: "Read the spec",
     });
@@ -300,15 +300,8 @@ describe("POST /api/v1/templates/:id/launch", () => {
     });
     expect(res.statusCode).toBe(200);
     const agent = res.json().agent;
-    // The route still turns the link into a url pin for the sidebar...
-    expect(agent.pins).toEqual([
-      expect.objectContaining({
-        type: "url",
-        value: "https://example.com/spec",
-      }),
-    ]);
-    // ...but the launch post shows the URL once, as a link attachment, while
-    // template runtime instructions stay out of Chat.
+    // The launch post shows the URL once, as a link attachment, while
+    // template runtime instructions stay out of the stream.
     const posts = await ctx.pool.query(
       `SELECT text, origin, attachments FROM blocks
          WHERE stream_id = $1`,

@@ -13,7 +13,6 @@ export type {
   AgentGitContext,
   AgentLatestEvent,
   AgentLatestEventType,
-  AgentPin,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -22,8 +21,6 @@ export type {
   StreamedAgentRecord,
   WorktreeCleanupMode,
 } from "./agent-record.js";
-export { VALID_PIN_SHORTCUT_VARIANTS, VALID_PIN_TYPES } from "./pin-types.js";
-export type { PinShortcutVariant, PinType } from "./pin-types.js";
 export {
   CHAT_ATTACHMENTS_MAX,
   CHAT_MESSAGE_MAX_CHARS,
@@ -48,7 +45,6 @@ export type {
   ChatMessageOrigin,
   ChatQuestion,
   ChatQuestionOption,
-  ChatPinEntry,
   ChatTurnEntry,
   ChatTurnPlanEntry,
   ChatTurnPrompt,
@@ -127,41 +123,4 @@ export type {
   DiffTotals,
   FileDiffResponse,
 } from "./diff-types.js";
-export type {
-  ActionRef,
-  FormBlock,
-  FormField,
-  FormFieldOption,
-  ListBlock,
-  ProgressBlock,
-  Scalar,
-  StatusBlock,
-  Surface,
-  SurfaceBlock,
-  SurfaceChangedEvent,
-  SurfaceDocumentInput,
-  SurfaceFooter,
-  SurfaceHeader,
-  SurfaceIcon,
-  SurfaceInteraction,
-  SurfaceInteractionRecord,
-  SurfaceInteractionRequest,
-  SurfaceInteractionResponse,
-  SurfaceInteractionStatus,
-  SurfaceInteractionSummary,
-  SurfaceItemAction,
-  SurfaceLifecycle,
-  SurfaceListItem,
-  SurfaceSectionBlock,
-  SurfaceSubmitAction,
-  TableBlock,
-  TableColumn,
-  TableRow,
-  TextBlock,
-  Tone,
-} from "./surface-types.js";
-export {
-  SURFACE_FOOTER_BLOCK_ID,
-  SURFACE_SCHEMA_VERSION,
-} from "./surface-types.js";
 export type { SharedUiEvent } from "./ui-event-types.js";

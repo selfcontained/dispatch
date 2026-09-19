@@ -9,7 +9,6 @@
  */
 
 import type { AgentType } from "./agent-types.js";
-import type { PinShortcutVariant, PinType } from "./pin-types.js";
 
 export type AgentStatus =
   | "creating"
@@ -39,31 +38,6 @@ export type ArchivePhase =
   | null;
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
-
-export type AgentPin = {
-  id?: string;
-  label: string;
-  value: string;
-  type: PinType;
-  /** Inline-markdown caption rendered under the pin. Any pin type. */
-  caption?: string;
-  /** Renders this pin under a shared heading with pins of the same group. */
-  group?: string;
-  /** Icon name for a shortcut pin's button. Shortcut pins only. */
-  icon?: string;
-  /** Button styling for a shortcut pin. Shortcut pins only. */
-  variant?: PinShortcutVariant;
-  /** When true, clicking a shortcut pin asks for confirmation first. */
-  confirm?: boolean;
-  /**
-   * When true, the shortcut renders non-interactive instead of being
-   * deleted — for an action that has become temporarily or permanently
-   * unavailable but is still worth showing (e.g. a launch pin once its
-   * builder is already running). `caption` doubles as the reason shown in
-   * place of its normal subtitle. Shortcut pins only.
-   */
-  disabled?: boolean;
-};
 
 export type AgentLatestEvent = {
   type: AgentLatestEventType;
@@ -101,7 +75,6 @@ export type AgentRecord = {
   archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
-  pins: AgentPin[];
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;

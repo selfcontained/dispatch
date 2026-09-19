@@ -264,7 +264,6 @@ async function handleHistoryAgentDetail(
           )
         END AS "latestEvent",
         git_context AS "gitContext",
-        pins,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
        FROM agents WHERE id = $1`,

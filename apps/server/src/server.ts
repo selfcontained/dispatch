@@ -108,7 +108,6 @@ import { registerMediaRoutes } from "./routes/media.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
-import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -119,7 +118,6 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
-import { SurfaceService } from "./surfaces/service.js";
 import {
   dateTruncTz,
   loadScopedActivityEvents,
@@ -400,10 +398,6 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
-const surfaceService = new SurfaceService(pool, {
-  publishUiEvent: (event) => uiEventBroker.publish(event),
-  sendAgentPrompt: injectAgentPrompt,
-});
 const streamService = new StreamService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
@@ -656,17 +650,11 @@ async function registerRoutes() {
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpArchiveAgent: mcpHandlers.archiveAgent,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
-    mcpUpsertPin: mcpHandlers.upsertPin,
-    mcpUpsertPins: mcpHandlers.upsertPins,
-    mcpDeletePin: mcpHandlers.deletePin,
-    mcpDeletePinByLabel: mcpHandlers.deletePinByLabel,
-    mcpListPins: mcpHandlers.listPins,
     mcpJobComplete: mcpHandlers.jobComplete,
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
-    surfaces: surfaceService,
     chat: streamService,
   });
 
@@ -761,8 +749,6 @@ async function registerRoutes() {
     handleAgentError,
   });
 
-  await registerSurfaceRoutes(app, { surfaces: surfaceService });
-
   await registerAgentRoutes(app, {
     pool,
     appLog: app.log,
@@ -792,8 +778,6 @@ async function registerRoutes() {
       agentLifecycleRuntime.trackArchivePromise(agentId, archivePromise),
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
-    onAgentStarted: (agentId) =>
-      surfaceService.notifyQueuedAfterResume(agentId),
     chat: streamService,
   });
 

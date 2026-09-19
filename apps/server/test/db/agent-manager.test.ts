@@ -477,7 +477,7 @@ describe("AgentManager", () => {
         }>;
       }
 
-      it("records the prompt, startup file, link and pins as one delivered user post", async () => {
+      it("records the prompt, startup file and link as one delivered user post", async () => {
         const agent = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
@@ -486,14 +486,6 @@ describe("AgentManager", () => {
             prompt: "Build the widget",
             links: ["https://example.com/spec"],
           },
-          initialPins: [
-            {
-              label: "example.com",
-              value: "https://example.com/spec",
-              type: "url",
-            },
-            { label: "Ticket", value: "DIS-42", type: "string" },
-          ],
           initialFiles: [
             {
               fileName: "brief.md",
@@ -509,7 +501,6 @@ describe("AgentManager", () => {
           `SELECT id, file_name FROM media WHERE agent_id = $1`,
           [agent.id]
         );
-        const ticketPin = agent.pins.find((pin) => pin.label === "Ticket");
         expect(posts[0]).toMatchObject({
           author_kind: "user",
           kind: "text",
@@ -526,8 +517,6 @@ describe("AgentManager", () => {
               sizeBytes: 7,
             },
             { type: "link", url: "https://example.com/spec" },
-            // The url pin made from the link is not repeated; the other is.
-            { type: "pin", pinId: ticketPin?.id },
           ],
         });
         expect(chatEvents).toEqual([
@@ -819,57 +808,6 @@ describe("AgentManager", () => {
         );
         expect(rows.rows).toEqual([{ text: "squatter" }]);
       }, 15_000);
-    });
-
-    it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {
-      // The createAgent path bypasses upsertPin's "later upsert overwrites
-      // earlier" loop, so it has to apply the same de-dup rule itself.
-      // Otherwise the seeded pins would carry duplicates that upsertPin
-      // would silently merge later.
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-        initialPins: [
-          { label: "PR", value: "https://example.com/pr/1", type: "pr" },
-          { label: "pr", value: "https://example.com/pr/2", type: "pr" },
-        ],
-      });
-      expect(agent.pins).toHaveLength(1);
-      expect(agent.pins[0]?.value).toBe("https://example.com/pr/2");
-    });
-
-    it("rejects initialPins that exceed the 50-pin cap (quota bypass guard)", async () => {
-      // Without this guard, /api/v1/agents was a vector for piling
-      // unbounded pins into a fresh agent — both a DB-row size concern
-      // and a prompt-bloat concern (pins flow into buildStartupPrompt).
-      const tooMany = Array.from({ length: 51 }, (_, i) => ({
-        label: `pin-${i}`,
-        value: `value-${i}`,
-        type: "string" as const,
-      }));
-      await expect(
-        manager.createAgent({
-          cwd: "/tmp",
-          useWorktree: false,
-          initialPins: tooMany,
-        })
-      ).rejects.toThrow(/more than 50 initial pins/);
-    });
-
-    it("counts post-dedup against the 50-pin cap, not pre-dedup", async () => {
-      // 51 entries that all collapse to the same label should pass —
-      // de-dup runs first, cap check runs against the deduped count.
-      const allSameLabel = Array.from({ length: 51 }, (_, i) => ({
-        label: "duplicate",
-        value: `value-${i}`,
-        type: "string" as const,
-      }));
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-        initialPins: allSameLabel,
-      });
-      expect(agent.pins).toHaveLength(1);
     });
 
     it("should persist fullAccess", async () => {
@@ -2041,262 +1979,6 @@ describe("AgentManager", () => {
       } finally {
         await rm(customDir, { recursive: true, force: true });
       }
-    });
-  });
-
-  describe("upsertPin", () => {
-    it("should add a pin to an agent", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const { agent: updated } = await manager.upsertPin(agent.id, {
-        label: "URL",
-        type: "url",
-        value: "https://example.com",
-      });
-
-      expect(updated.pins).toHaveLength(1);
-      expect(updated.pins![0]).toMatchObject({
-        label: "URL",
-        type: "url",
-        value: "https://example.com",
-      });
-    });
-
-    it("should overwrite a pin with the same label (case-insensitive)", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "URL",
-        type: "url",
-        value: "https://old.com",
-      });
-
-      const { agent: updated } = await manager.upsertPin(agent.id, {
-        label: "url",
-        type: "url",
-        value: "https://new.com",
-      });
-
-      expect(updated.pins).toHaveLength(1);
-      expect(updated.pins![0]!.value).toBe("https://new.com");
-    });
-
-    it("merges into an existing pin instead of replacing it", async () => {
-      // Regression: adding a group to an existing shortcut wiped its icon,
-      // caption, and variant, because the agent had to restate every field.
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const first = await manager.upsertPin(agent.id, {
-        label: "What day is it?",
-        type: "shortcut",
-        value: "What day is it today?",
-        caption: "Day-related",
-        icon: "clock",
-        variant: "primary",
-      });
-      expect(first.created).toBe(true);
-
-      const second = await manager.upsertPin(agent.id, {
-        label: "What day is it?",
-        type: "shortcut",
-        value: "What day is it today?",
-        group: "Day quick actions",
-      });
-
-      expect(second.created).toBe(false);
-      expect(second.agent.pins).toHaveLength(1);
-      expect(second.agent.pins![0]).toMatchObject({
-        id: first.pin.id,
-        group: "Day quick actions",
-        caption: "Day-related",
-        icon: "clock",
-        variant: "primary",
-      });
-    });
-
-    it("clears a decoration when it is sent as an empty string", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "Status",
-        type: "string",
-        value: "green",
-        caption: "from CI",
-      });
-      const cleared = await manager.upsertPin(agent.id, {
-        label: "Status",
-        type: "string",
-        value: "green",
-        caption: "",
-      });
-
-      expect(cleared.agent.pins![0]).not.toHaveProperty("caption");
-    });
-
-    it("keeps a pin in place when it is updated", async () => {
-      // Position stability matters for grouping: a re-pinned member must not
-      // jump to the end of the list.
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "First",
-        type: "string",
-        value: "a",
-      });
-      await manager.upsertPin(agent.id, {
-        label: "Second",
-        type: "string",
-        value: "b",
-      });
-      const { agent: updated } = await manager.upsertPin(agent.id, {
-        label: "First",
-        type: "string",
-        value: "changed",
-      });
-
-      expect(updated.pins!.map((p) => p.label)).toEqual(["First", "Second"]);
-      expect(updated.pins![0]!.value).toBe("changed");
-    });
-
-    it("should keep distinct labels as separate pins", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "PR",
-        type: "pr",
-        value: "#42",
-      });
-
-      const { agent: updated } = await manager.upsertPin(agent.id, {
-        label: "URL",
-        type: "url",
-        value: "https://example.com",
-      });
-
-      expect(updated.pins).toHaveLength(2);
-    });
-
-    it("should reject when pin cap is reached", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const pins = Array.from({ length: 50 }, (_, i) => ({
-        label: `pin-${i}`,
-        type: "string" as const,
-        value: `val-${i}`,
-      }));
-      await pool.query(`UPDATE agents SET pins = $2::jsonb WHERE id = $1`, [
-        agent.id,
-        JSON.stringify(pins),
-      ]);
-
-      await expect(
-        manager.upsertPin(agent.id, {
-          label: "one-more",
-          type: "string",
-          value: "overflow",
-        })
-      ).rejects.toThrow(/Maximum of 50 pins/);
-    });
-
-    it("should allow upsert that replaces an existing pin at the cap", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const pins = Array.from({ length: 50 }, (_, i) => ({
-        label: `pin-${i}`,
-        type: "string" as const,
-        value: `val-${i}`,
-      }));
-      await pool.query(`UPDATE agents SET pins = $2::jsonb WHERE id = $1`, [
-        agent.id,
-        JSON.stringify(pins),
-      ]);
-
-      const { agent: updated } = await manager.upsertPin(agent.id, {
-        label: "pin-0",
-        type: "string",
-        value: "updated",
-      });
-
-      expect(updated.pins).toHaveLength(50);
-      expect(updated.pins!.find((p) => p.label === "pin-0")!.value).toBe(
-        "updated"
-      );
-    });
-
-    it("should throw 404 for non-existent agent", async () => {
-      await expect(
-        manager.upsertPin("agt_nope", {
-          label: "X",
-          type: "string",
-          value: "y",
-        })
-      ).rejects.toThrow(/not found/i);
-    });
-  });
-
-  describe("deletePinById", () => {
-    it("should remove a pin by stable ID", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "URL",
-        type: "url",
-        value: "https://example.com",
-      });
-
-      const pinId = (await manager.getAgent(agent.id))!.pins[0]!.id!;
-      const updated = await manager.deletePinById(agent.id, pinId);
-      expect(updated.pins).toHaveLength(0);
-    });
-
-    it("should throw when the pin ID does not exist", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertPin(agent.id, {
-        label: "Keep",
-        type: "string",
-        value: "v",
-      });
-
-      await expect(manager.deletePinById(agent.id, "nope")).rejects.toThrow(
-        /pin not found/i
-      );
-    });
-
-    it("should throw 404 for non-existent agent", async () => {
-      await expect(manager.deletePinById("agt_nope", "X")).rejects.toThrow(
-        /not found/i
-      );
     });
   });
 

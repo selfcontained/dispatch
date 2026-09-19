@@ -85,7 +85,6 @@ describe("migrations", () => {
       "persona",
       "parent_agent_id",
       "persona_context",
-      "pins",
       "archive_phase",
       "archive_cleanup_mode",
     ];

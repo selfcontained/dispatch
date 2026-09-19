@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseOptionalBooleanField,
   parseOptionalStringArrayField,
-  createStartupPins,
+  validateStartupLinks,
   parseCreateAgentRequest,
   MAX_STARTUP_FILE_COUNT,
 } from "../src/routes/agent-startup.js";
@@ -79,47 +79,37 @@ describe("parseOptionalStringArrayField", () => {
   });
 });
 
-describe("createStartupPins", () => {
-  it("creates pins from URLs with hostname labels", () => {
-    const pins = createStartupPins(["https://github.com/foo/bar"]);
-    expect(pins).toEqual([
-      { label: "github.com", value: "https://github.com/foo/bar", type: "url" },
-    ]);
+describe("validateStartupLinks", () => {
+  it("keeps absolute http(s) URLs, trimmed", () => {
+    expect(
+      validateStartupLinks([" https://github.com/foo/bar ", "http://x.test/"])
+    ).toEqual(["https://github.com/foo/bar", "http://x.test/"]);
   });
 
-  it("strips www. from hostnames", () => {
-    const pins = createStartupPins(["https://www.example.com/page"]);
-    expect(pins[0].label).toBe("example.com");
+  it("drops blank entries and returns an empty list for none", () => {
+    expect(validateStartupLinks(["", "  "])).toEqual([]);
+    expect(validateStartupLinks([])).toEqual([]);
   });
 
-  it("numbers duplicate hostnames", () => {
-    const pins = createStartupPins([
-      "https://github.com/a",
-      "https://github.com/b",
-      "https://github.com/c",
-    ]);
-    expect(pins.map((p) => p.label)).toEqual([
-      "github.com",
-      "github.com 2",
-      "github.com 3",
-    ]);
+  it("rejects anything that is not an http or https URL", () => {
+    expect(() => validateStartupLinks(["github.com/foo"])).toThrow(
+      /not a valid URL/
+    );
+    expect(() => validateStartupLinks(["ftp://x.test/"])).toThrow(
+      /http or https/
+    );
+    expect(() => validateStartupLinks(["javascript:alert(1)"])).toThrow(
+      /http or https/
+    );
   });
 
-  it("handles mixed hostnames", () => {
-    const pins = createStartupPins([
-      "https://github.com/a",
-      "https://linear.app/b",
-      "https://github.com/c",
-    ]);
-    expect(pins.map((p) => p.label)).toEqual([
-      "github.com",
-      "linear.app",
-      "github.com 2",
-    ]);
-  });
-
-  it("returns empty array for no URLs", () => {
-    expect(createStartupPins([])).toEqual([]);
+  it("bounds the count and length", () => {
+    expect(() =>
+      validateStartupLinks(Array.from({ length: 21 }, () => "https://x.test/"))
+    ).toThrow(/maximum of 20/);
+    expect(() =>
+      validateStartupLinks([`https://x.test/${"a".repeat(2000)}`])
+    ).toThrow(/at most 2000/);
   });
 });
 

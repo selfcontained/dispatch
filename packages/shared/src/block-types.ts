@@ -9,7 +9,6 @@
 
 import type {
   ChatAttachment,
-  ChatPinEntry,
   ChatStatusEntry,
   ChatTurnEntry,
   ChatUserAttachmentInput,
@@ -196,15 +195,8 @@ export type StreamBlockEntry = {
   block: Block;
 };
 
-/**
- * One row of `GET /streams/:rootId/blocks`: a block, a turn, a system status
- * mark, or (until its own step lands) a pin write.
- */
-export type StreamEntry =
-  | StreamBlockEntry
-  | ChatTurnEntry
-  | ChatStatusEntry
-  | ChatPinEntry;
+/** One row of `GET /streams/:rootId/blocks`: a block, a turn, or a system status mark. */
+export type StreamEntry = StreamBlockEntry | ChatTurnEntry | ChatStatusEntry;
 
 export type StreamFeedResponse = {
   entries: StreamEntry[];

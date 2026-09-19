@@ -5,10 +5,9 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
 import { mediaMetadataFromBuffer } from "../media/metadata.js";
-import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
+import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -27,19 +26,6 @@ import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
 } from "../agents/latest-event.js";
-import {
-  isPinType,
-  validatePinShortcutFields,
-  validatePinCaption,
-  validatePinValue,
-  type PinShortcutVariant,
-} from "../pins.js";
-import {
-  toPinListing,
-  toPinSummary,
-  type PinListing,
-  type PinSummary,
-} from "./pin-listing.js";
 import {
   createLineageIndex,
   delegationChain,
@@ -87,8 +73,7 @@ function buildLaunchedAgentInitialPrompt(
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
           "If you need to hand work off, launch an independent agent with launch_agent's `child: false`.",
-        "Your parent's pins and media are readable: pass its id as ownerAgentId to list_pins or " +
-          "list_media. A dev-stack URL or PR link it pinned is there without asking for it.",
+        "Your parent's media is readable: pass its id as ownerAgentId to list_media.",
       ]
     : [
         `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent as an independent agent — you are not its child.`,
@@ -243,168 +228,17 @@ async function handleSendNotify(
   return deps.slackNotifier.sendNotification(agent, input);
 }
 
-type PinInput = {
-  id?: string;
-  label: string;
-  value?: string;
-  type?: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: string;
-  confirm?: boolean;
-  disabled?: boolean;
-};
-
-/**
- * Narrow one pin spec to a storable shape.
- *
- * Shared by the single and batch write paths so a pin the batch tool accepts
- * is exactly a pin `pin` would have accepted — a batch must not
- * become a way to smuggle in a shape the single-pin validator rejects.
- *
- * An omitted `type` stays omitted rather than defaulting: the write layer
- * inherits the stored pin's type, so relabelling a shortcut cannot silently
- * demote it to a plain string and strip its icon. Validation of the value
- * happens there too, once the effective type is known.
- */
-function toValidatedPin(pin: PinInput): PinSpec {
-  if (pin.type !== undefined && !isPinType(pin.type)) {
-    throw new Error(`Invalid pin type: ${pin.type}`);
-  }
-  // Only a spec carrying both can be checked here; anything relying on an
-  // inherited type or value is validated in `pin-write` once merged.
-  if (pin.type !== undefined && pin.value !== undefined) {
-    validatePinValue(pin.type, pin.value);
-  }
-
-  // Captions and grouping are generic; button styling, confirmation, and the
-  // disabled state only mean anything for shortcut pins — silently dropping
-  // those elsewhere keeps stored pins honest. With no type given we cannot
-  // tell yet, so they ride along and `mergePin` strips them if the resolved
-  // type turns out not to be shortcut.
-  if (pin.caption !== undefined) {
-    validatePinCaption(pin.caption);
-  }
-  const isShortcut = pin.type === "shortcut";
-  if (isShortcut) {
-    validatePinShortcutFields(pin);
-  }
-  const keepShortcutFields = pin.type === undefined || isShortcut;
-
-  return {
-    ...(pin.id !== undefined ? { id: pin.id } : {}),
-    label: pin.label,
-    ...(pin.value !== undefined ? { value: pin.value } : {}),
-    ...(pin.type !== undefined ? { type: pin.type } : {}),
-    ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
-    ...(pin.group !== undefined ? { group: pin.group } : {}),
-    ...(keepShortcutFields && pin.icon !== undefined ? { icon: pin.icon } : {}),
-    ...(keepShortcutFields && pin.variant !== undefined
-      ? { variant: pin.variant as PinShortcutVariant }
-      : {}),
-    ...(keepShortcutFields && pin.confirm !== undefined
-      ? { confirm: pin.confirm }
-      : {}),
-    ...(keepShortcutFields && pin.disabled !== undefined
-      ? { disabled: pin.disabled }
-      : {}),
-  };
-}
-
-async function handleUpsertPin(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  pin: PinInput
-): Promise<{ pin: PinListing; created: boolean }> {
-  const result = await deps.agentManager.upsertPin(
-    agentId,
-    toValidatedPin(pin)
-  );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(result.agent),
-  });
-  return { pin: toPinListing(result.pin), created: result.created };
-}
-
-async function handleUpsertPins(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: {
-    pins: PinInput[];
-    mode?: "merge" | "replace";
-    group?: string;
-  }
-): Promise<PinSummary[]> {
-  // Validate the whole batch before opening the transaction: a bad entry at
-  // position 19 should fail the call outright rather than leave the first
-  // eighteen applied. Replace mode files entries under the scoping group
-  // itself, so nothing needs stamping here.
-  const specs = input.pins.map(toValidatedPin);
-
-  const { agent } = await deps.agentManager.upsertPins(agentId, specs, {
-    ...(input.mode !== undefined ? { mode: input.mode } : {}),
-    ...(input.group !== undefined ? { group: input.group } : {}),
-  });
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-  // A thin projection, not the full listing: the point of the echo is to show
-  // what the batch produced and in what order, and 50 pins' worth of values
-  // (2000 chars each) would dwarf that. list_pins serves full state.
-  return (agent.pins ?? []).map(toPinSummary);
-}
-
-async function handleDeletePin(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: { id?: string; ids?: string[]; group?: string }
-): Promise<void> {
-  const targets = [input.id, input.ids, input.group].filter(
-    (target) => target !== undefined
-  );
-  if (targets.length !== 1) {
-    throw new Error("Pass exactly one of id, ids, or group.");
-  }
-
-  const agent = input.group
-    ? await deps.agentManager.deletePinsByGroup(agentId, input.group)
-    : await deps.agentManager.deletePinsByIds(
-        agentId,
-        input.ids ?? [input.id!]
-      );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
-
-async function handleDeletePinByLabel(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  label: string
-): Promise<void> {
-  const agent = await deps.agentManager.deletePinByLabel(agentId, label);
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
-
 type ReadableOwner = {
   id: string;
   name: string;
   mediaDir: string | null;
-  pins: AgentPin[];
 };
 
 /**
- * The agent whose pins or media a read tool should return: the caller itself,
+ * The agent whose media a read tool should return: the caller itself,
  * or — when `ownerAgentId` is given — its parent or one of its direct children
- * (see `isFamily`). Anything else is "not found", the way surfaces answer a
- * non-child owner: the tool neither confirms nor denies the agent exists.
+ * (see `isFamily`). Anything else is "not found": the tool neither confirms
+ * nor denies the agent exists.
  *
  * Reads the table directly rather than through `agentManager.getAgent`, which
  * filters out archived rows. Media outlives an archive, and a parent that has
@@ -421,10 +255,9 @@ async function resolveReadableOwner(
     id: string;
     name: string;
     media_dir: string | null;
-    pins: AgentPin[] | null;
     parent_agent_id: string | null;
   }>(
-    `SELECT id, name, media_dir, COALESCE(pins, '[]'::jsonb) AS pins, parent_agent_id
+    `SELECT id, name, media_dir, parent_agent_id
      FROM agents WHERE id = ANY($1::text[])`,
     [Array.from(new Set([requesterId, ownerId]))]
   );
@@ -449,19 +282,7 @@ async function resolveReadableOwner(
     id: owner.id,
     name: owner.name,
     mediaDir: owner.media_dir,
-    pins: owner.pins ?? [],
   };
-}
-
-async function handleListPins(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  opts: { ownerAgentId?: string } = {}
-): Promise<PinListing[]> {
-  const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
-  // Decorations are listed too, so an agent can see what a pin already has
-  // (its group, caption, icon) before deciding what to change.
-  return owner.pins.map(toPinListing);
 }
 
 async function handleRenameSession(
@@ -1117,25 +938,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     sendNotify: (agentId: string, input: NotifyInput) =>
       handleSendNotify(deps, agentId, input),
-
-    upsertPin: (agentId: string, pin: PinInput) =>
-      handleUpsertPin(deps, agentId, pin),
-
-    upsertPins: (
-      agentId: string,
-      input: { pins: PinInput[]; mode?: "merge" | "replace"; group?: string }
-    ) => handleUpsertPins(deps, agentId, input),
-
-    deletePin: (
-      agentId: string,
-      input: { id?: string; ids?: string[]; group?: string }
-    ) => handleDeletePin(deps, agentId, input),
-
-    deletePinByLabel: (agentId: string, label: string) =>
-      handleDeletePinByLabel(deps, agentId, label),
-
-    listPins: (agentId: string, opts?: { ownerAgentId?: string }) =>
-      handleListPins(deps, agentId, opts),
 
     renameSession: (agentId: string, name: string) =>
       handleRenameSession(deps, agentId, name),

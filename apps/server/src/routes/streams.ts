@@ -29,7 +29,6 @@ type StreamRouteDeps = {
  */
 const userAttachmentSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("file"), mediaId: z.int().positive() }),
-  z.strictObject({ type: z.literal("pin"), pinId: z.string().min(1) }),
   z.strictObject({
     type: z.literal("link"),
     url: chatUrlSchema,

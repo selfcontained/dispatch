@@ -9,7 +9,6 @@ import { seedActivityEvents } from "./activity.js";
 import { seedTokenUsage } from "./token-usage.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
-import { seedSurfaces } from "./surfaces.js";
 import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
 
 type SeedOptions = {
@@ -77,7 +76,6 @@ export async function seedDevData(
     await client.query("BEGIN");
     await clearSeeded(client);
     await seedAgents(client);
-    await seedSurfaces(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
     await seedMedia(client);

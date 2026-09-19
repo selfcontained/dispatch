@@ -19,28 +19,6 @@ type ArchivePhase =
   | "finalizing"
   | null;
 
-type AgentPin = {
-  // Pins need a stable ID: the shortcut run endpoint addresses them by it, so
-  // a seeded pin without one renders as a button that does nothing.
-  id: string;
-  label: string;
-  type:
-    | "string"
-    | "url"
-    | "port"
-    | "code"
-    | "pr"
-    | "filename"
-    | "markdown"
-    | "shortcut";
-  value: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: "default" | "primary" | "destructive";
-  confirm?: boolean;
-};
-
 type SeedAgentInput = {
   id: string;
   name: string;
@@ -58,87 +36,10 @@ type SeedAgentInput = {
     message: string;
     ageMinutes: number;
   } | null;
-  pins?: AgentPin[];
   persona?: string | null;
   parentAgentId?: string | null;
   createdDaysAgo: number;
 };
-
-const allPinTypesSample: AgentPin[] = [
-  {
-    id: "seed-pin-dev-server",
-    label: "Dev Server",
-    type: "url",
-    value: "http://localhost:5173",
-  },
-  {
-    id: "seed-pin-api-port",
-    label: "API Port",
-    type: "port",
-    value: "6767, 5432",
-  },
-  {
-    id: "seed-pin-draft-pr",
-    label: "Draft PR",
-    type: "pr",
-    value: "https://github.com/example/dispatch/pull/1234",
-  },
-  {
-    id: "seed-pin-primary-file",
-    label: "Primary File",
-    type: "filename",
-    value: "apps/web/src/components/AgentSidebar.tsx",
-  },
-  {
-    id: "seed-pin-simulator-udid",
-    label: "Simulator UDID",
-    type: "code",
-    value: "7A9F33E2-1234-ABCD-EF00-0123456789AB",
-  },
-  {
-    id: "seed-pin-decision",
-    label: "Decision",
-    type: "string",
-    value: "Going with shadcn Sheet for the mobile slide-over",
-  },
-  {
-    id: "seed-pin-summary",
-    label: "Summary",
-    type: "markdown",
-    value:
-      "- Wired migration + seed\n- Covered all agent states\n- Jobs disabled by default",
-  },
-  {
-    id: "seed-pin-work-sse",
-    label: "Work on sse-reconnect",
-    type: "shortcut",
-    variant: "primary",
-    icon: "rocket",
-    group: "Ready to build",
-    value: "work on sse-eventsource-reconnect",
-    caption: "**High priority** · idea since Aug 4",
-  },
-  {
-    id: "seed-pin-rerun-e2e",
-    label: "Re-run E2E suite",
-    type: "shortcut",
-    icon: "refresh",
-    group: "Ready to build",
-    value: "Re-run the full Playwright suite and report failures.",
-    caption: "Last run touched `e2e/media-sidebar.spec.ts`",
-  },
-  {
-    id: "seed-pin-reset-db",
-    label: "Reset the dev database",
-    type: "shortcut",
-    variant: "destructive",
-    icon: "trash",
-    confirm: true,
-    group: "Housekeeping",
-    value: "Drop and reseed the dev database, then confirm migrations applied.",
-    caption: "*Destructive* · wipes local seed data",
-  },
-];
 
 function ago(now: Date, minutes: number): Date {
   return new Date(now.getTime() - minutes * 60 * 1000);
@@ -164,20 +65,6 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         message: "Tweaking sidebar spacing",
         ageMinutes: 2,
       },
-      pins: [
-        {
-          id: "seed-pin-theme-dev-server",
-          label: "Dev Server",
-          type: "url",
-          value: "http://localhost:5173",
-        },
-        {
-          id: "seed-pin-theme-primary-file",
-          label: "Primary File",
-          type: "filename",
-          value: "apps/web/src/components/layout/Sidebar.tsx",
-        },
-      ],
       createdDaysAgo: 1,
     },
     // Rich agent — has persona review + feedback + media + all 7 pin types. Base branch set.
@@ -195,7 +82,6 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         message: "Wiring hourly breakdown",
         ageMinutes: 12,
       },
-      pins: allPinTypesSample, // coverage of every pin type
       createdDaysAgo: 2,
     },
   ];
@@ -213,14 +99,14 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         persona, parent_agent_id, persona_context,
         worktree_path, worktree_branch, base_branch,
         latest_event_type, latest_event_message, latest_event_metadata, latest_event_updated_at,
-        pins, created_at, updated_at
+        created_at, updated_at
       ) VALUES (
         $1,$2,$3,$4,$5,NULL,NULL,'[]'::jsonb,false,
         $6,$7,$8,
         $9,$10,NULL,
         $11,$12,$13,
         $14,$15,$16::jsonb,$17,
-        $18::jsonb,$19,$19
+        $18,$18
       )
       `,
       [
@@ -241,7 +127,6 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         agent.latestEvent?.message ?? null,
         agent.latestEvent ? seedMetadata() : null,
         latestEventUpdatedAt,
-        JSON.stringify(agent.pins ?? []),
         created,
       ]
     );

@@ -14,7 +14,7 @@ import {
   type CreateAgentBody,
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
-  createStartupPins,
+  validateStartupLinks,
   parseCreateAgentRequest,
   parseOptionalBooleanField,
   parseOptionalStringArrayField,
@@ -280,9 +280,9 @@ export async function registerAgentCrudRoutes(
         ? Array.from(new Set([...(parsedAgentArgs ?? []), fullAccessArg]))
         : parsedAgentArgs;
 
-    let startupPins: ReturnType<typeof createStartupPins>;
+    let links: string[];
     try {
-      startupPins = createStartupPins(startupLinks ?? []);
+      links = validateStartupLinks(startupLinks ?? []);
     } catch (error) {
       return reply.code(400).send({
         error: errorMessage(error),
@@ -292,46 +292,48 @@ export async function registerAgentCrudRoutes(
     try {
       const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-      const agent = await deps.agentManager.createAgent({
-        name: typeof body.name === "string" ? body.name : undefined,
-        type: agentType,
-        cwd: body.cwd,
-        agentArgs: resolvedAgentArgs,
-        model,
-        fullAccess: fullAccess === true,
-        useWorktree,
-        createNewBranch,
-        worktreeBranch:
-          typeof body.worktreeBranch === "string"
-            ? body.worktreeBranch
-            : undefined,
-        baseBranch:
-          typeof body.baseBranch === "string" ? body.baseBranch : undefined,
-        worktreeLocation,
-        persona: typeof body.persona === "string" ? body.persona : undefined,
-        parentAgentId:
-          typeof body.parentAgentId === "string"
-            ? body.parentAgentId
-            : undefined,
-        personaContext:
-          typeof body.personaContext === "string"
-            ? body.personaContext
-            : undefined,
-        autoReview: autoReview === true,
-        initialPrompt:
-          typeof body.initialPrompt === "string"
-            ? body.initialPrompt.trim() || undefined
-            : undefined,
-        launchContext: {
-          prompt:
+      const agent = await deps.agentManager.createAgent(
+        {
+          name: typeof body.name === "string" ? body.name : undefined,
+          type: agentType,
+          cwd: body.cwd,
+          agentArgs: resolvedAgentArgs,
+          model,
+          fullAccess: fullAccess === true,
+          useWorktree,
+          createNewBranch,
+          worktreeBranch:
+            typeof body.worktreeBranch === "string"
+              ? body.worktreeBranch
+              : undefined,
+          baseBranch:
+            typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+          worktreeLocation,
+          persona: typeof body.persona === "string" ? body.persona : undefined,
+          parentAgentId:
+            typeof body.parentAgentId === "string"
+              ? body.parentAgentId
+              : undefined,
+          personaContext:
+            typeof body.personaContext === "string"
+              ? body.personaContext
+              : undefined,
+          autoReview: autoReview === true,
+          initialPrompt:
             typeof body.initialPrompt === "string"
               ? body.initialPrompt.trim() || undefined
               : undefined,
-          links: startupLinks ?? [],
+          launchContext: {
+            prompt:
+              typeof body.initialPrompt === "string"
+                ? body.initialPrompt.trim() || undefined
+                : undefined,
+            links,
+          },
+          initialFiles: startupFiles,
         },
-        initialPins: startupPins,
-        initialFiles: startupFiles,
-      }, { detachLaunch: true });
+        { detachLaunch: true }
+      );
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),

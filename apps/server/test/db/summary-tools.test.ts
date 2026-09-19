@@ -88,8 +88,8 @@ async function insertAgent(
   const now = opts.createdAt ?? new Date();
   await pool.query(
     `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id,
-      latest_event_type, latest_event_message, created_at, updated_at, git_context, pins)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, '[]'::jsonb)`,
+      latest_event_type, latest_event_message, created_at, updated_at, git_context)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)`,
     [
       id,
       opts.name ?? id,
@@ -301,8 +301,8 @@ describe("getActivitySummary", () => {
     });
     // error agent with no latest event — insert directly to avoid default
     await pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at, git_context, pins)
-       VALUES ('a4', 'a4', 'claude', 'error', '/projects/test', $1, $1, $2, '[]'::jsonb)`,
+      `INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at, git_context)
+       VALUES ('a4', 'a4', 'claude', 'error', '/projects/test', $1, $1, $2)`,
       [created, JSON.stringify(gitA)]
     );
 

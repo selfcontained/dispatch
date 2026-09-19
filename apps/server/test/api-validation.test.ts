@@ -134,10 +134,10 @@ describe("POST /api/v1/agents", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({
-      error: "URL pins must be valid http or https URLs.",
+      error:
+        "Startup link is not a valid URL: github.com/selfcontained/dispatch",
     });
   });
-
 });
 
 describe("POST /api/v1/agents/settings", () => {

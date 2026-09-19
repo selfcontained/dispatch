@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
-import type { AgentPin, AgentRecord } from "../agents/types.js";
+import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
@@ -49,9 +49,7 @@ export type LaunchTemplateInput = {
     source: "text" | "user";
     description?: string | null;
   }>;
-  startupPins?: AgentPin[];
-  /** Raw startup links, recorded as link attachments on the launch post
-   * (the url pins the route made from them are `startupPins`). */
+  /** Raw startup links, recorded as link attachments on the launch post. */
   startupLinks?: string[];
 };
 
@@ -184,7 +182,7 @@ export class TemplateService {
     if (
       !template.allowMedia &&
       ((input.startupFiles && input.startupFiles.length > 0) ||
-        (input.startupPins && input.startupPins.length > 0))
+        (input.startupLinks && input.startupLinks.length > 0))
     ) {
       throw new Error(
         `Template "${template.name}" does not allow media attachments.`
@@ -192,26 +190,12 @@ export class TemplateService {
     }
 
     let finalPrompt: string | undefined;
-    let initialPins: AgentPin[] = [];
 
     if (template.prompt) {
-      const parsedArgs = parseTemplateArgs(template.prompt);
-      const args = input.args ?? {};
-
       finalPrompt = renderTemplatePrompt(
         { ...template, prompt: template.prompt },
-        args
+        input.args ?? {}
       );
-
-      const argPins = parsedArgs
-        .filter((a) => args[a.key] != null || args[a.name] != null)
-        .map((a) => ({
-          label: a.name,
-          value: args[a.key] ?? args[a.name],
-          type: "string" as const,
-        }));
-
-      initialPins = [...argPins, ...(input.startupPins ?? [])];
     }
 
     const cwd = input.directory ?? template.directory;
@@ -226,7 +210,6 @@ export class TemplateService {
       },
       fullAccess: template.fullAccess,
       ...templateWorktreeConfig(template),
-      initialPins,
       initialFiles: input.startupFiles ?? [],
       templateId: template.id,
     });

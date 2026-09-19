@@ -11,7 +11,6 @@ import type {
   StreamEntryEvent,
   StreamReadEvent,
 } from "./block-types.js";
-import type { SurfaceChangedEvent } from "./surface-types.js";
 
 /**
  * The SSE members both sides agree on.
@@ -48,7 +47,6 @@ export type SharedUiEvent =
    * feeds the presence strip's tool blip.
    */
   | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
-  | SurfaceChangedEvent
   | StreamChangedEvent
   | StreamEntryEvent
   | StreamReadEvent

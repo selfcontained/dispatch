@@ -14,7 +14,6 @@ export type {
   AgentGitContext,
   AgentLatestEvent,
   AgentLatestEventType,
-  AgentPin,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -26,8 +25,6 @@ export type {
 // Re-exported so the ~15 modules that already import AgentType from here keep
 // working, while the member list itself lives in one place.
 export type { AgentType } from "../shared/agent-types.js";
-
-export type { PinShortcutVariant, PinType } from "../pins.js";
 
 // Canonical home is `shared/git/worktree-status.ts` — this re-export is
 // here so existing importers (manager.ts's public surface, and through

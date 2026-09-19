@@ -62,24 +62,6 @@ vi.mock("../src/shared/media.js", () => ({
   resolveMediaDir: vi.fn(() => "/tmp/media/agt_test1"),
 }));
 
-vi.mock("../src/pins.js", () => ({
-  isPinType: vi.fn((t: string) =>
-    [
-      "url",
-      "port",
-      "code",
-      "string",
-      "pr",
-      "filename",
-      "markdown",
-      "shortcut",
-    ].includes(t)
-  ),
-  validatePinValue: vi.fn(),
-  validatePinCaption: vi.fn(),
-  validatePinShortcutFields: vi.fn(),
-}));
-
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(async () => Buffer.from("file-content")),
   writeFile: vi.fn(async () => {}),
@@ -92,7 +74,6 @@ import {
   mcpMethodNotAllowed,
 } from "../src/server/mcp-handlers.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
-import { isPinType, validatePinValue } from "../src/pins.js";
 import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
@@ -137,7 +118,6 @@ function createMockDeps() {
         status: "running",
         type: "claude",
         fullAccess: false,
-        pins: [],
         latestEvent: null,
         worktreePath: null,
         worktreeBranch: null,
@@ -176,42 +156,6 @@ function createMockDeps() {
           callbacks.onComplete([id]);
         }
       ),
-      // Mirrors the manager contract: the record, plus the pin as stored and
-      // whether it was created, so the tool can echo it back.
-      upsertPin: vi.fn(async (id: string, pin: Record<string, unknown>) => ({
-        agent: {
-          id,
-          name: "test-agent",
-          pins: [{ id: "pin_url", ...pin }],
-        },
-        pin: { id: "pin_url", ...pin },
-        created: true,
-      })),
-      upsertPins: vi.fn(
-        async (id: string, specs: Array<Record<string, unknown>>) => ({
-          agent: {
-            id,
-            name: "test-agent",
-            pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
-          },
-          pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
-        })
-      ),
-      deletePinById: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
-      deletePinsByIds: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
-      deletePinsByGroup: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [],
-      })),
       listMedia: vi.fn(async () => []),
     },
     jobService: {
@@ -361,185 +305,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("upsertPin", () => {
-    it("validates and creates a pin", async () => {
-      await handlers.upsertPin("agt_test1", {
-        label: "URL",
-        value: "http://localhost",
-        type: "url",
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "URL",
-        value: "http://localhost",
-        type: "url",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-    });
-
-    // Regression: group and icon were accepted by the tool schema but never
-    // forwarded, so agents silently lost them.
-    it("forwards every shortcut decoration to the manager", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Work on X",
-        value: "work on x",
-        type: "shortcut",
-        caption: "**High priority**",
-        group: "Ready to build",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "Work on X",
-        value: "work on x",
-        type: "shortcut",
-        caption: "**High priority**",
-        group: "Ready to build",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-    });
-
-    it("drops shortcut-only decorations on other pin types", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Dev Server",
-        value: "http://localhost",
-        type: "url",
-        caption: "Vite",
-        group: "Dev stack",
-        icon: "rocket",
-        variant: "primary",
-        confirm: true,
-      });
-      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
-        label: "Dev Server",
-        value: "http://localhost",
-        type: "url",
-        caption: "Vite",
-        group: "Dev stack",
-      });
-    });
-
-    it("rejects invalid pin type", async () => {
-      vi.mocked(isPinType).mockReturnValue(false);
-      await expect(
-        handlers.upsertPin("agt_test1", {
-          label: "Bad",
-          value: "x",
-          type: "invalid",
-        })
-      ).rejects.toThrow("Invalid pin type: invalid");
-    });
-
-    it("calls validatePinValue", async () => {
-      vi.mocked(isPinType).mockReturnValue(true);
-      await handlers.upsertPin("agt_test1", {
-        label: "Port",
-        value: "3000",
-        type: "port",
-      });
-      expect(validatePinValue).toHaveBeenCalledWith("port", "3000");
-    });
-  });
-
-  describe("deletePin", () => {
-    it("deletes pin and publishes event", async () => {
-      await handlers.deletePin("agt_test1", { id: "pin_123" });
-      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
-        "agt_test1",
-        ["pin_123"]
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-    });
-
-    it("deletes several pins in one call", async () => {
-      await handlers.deletePin("agt_test1", { ids: ["pin_1", "pin_2"] });
-      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
-        "agt_test1",
-        ["pin_1", "pin_2"]
-      );
-    });
-
-    it("clears a group", async () => {
-      await handlers.deletePin("agt_test1", { group: "Ready to build" });
-      expect(deps.agentManager.deletePinsByGroup).toHaveBeenCalledWith(
-        "agt_test1",
-        "Ready to build"
-      );
-    });
-
-    it("rejects an ambiguous target", async () => {
-      // Accepting both would leave it unclear which one actually applied.
-      await expect(
-        handlers.deletePin("agt_test1", { id: "pin_1", group: "Group" })
-      ).rejects.toThrow(/exactly one/i);
-      await expect(handlers.deletePin("agt_test1", {})).rejects.toThrow(
-        /exactly one/i
-      );
-    });
-  });
-
-  describe("upsertPins", () => {
-    it("writes a batch through one manager call", async () => {
-      await handlers.upsertPins("agt_test1", {
-        pins: [
-          { label: "One", value: "1", type: "string" },
-          { label: "Two", value: "2", type: "string" },
-        ],
-      });
-      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
-        "agt_test1",
-        [
-          { label: "One", value: "1", type: "string" },
-          { label: "Two", value: "2", type: "string" },
-        ],
-        {}
-      );
-      // One event for the whole batch, not one per pin.
-      expect(deps.publishUiEvent).toHaveBeenCalledTimes(1);
-    });
-
-    it("validates every entry before writing any", async () => {
-      vi.mocked(validatePinValue).mockImplementation((type, value) => {
-        if (value === "bad") throw new Error("Invalid pin value");
-      });
-      await expect(
-        handlers.upsertPins("agt_test1", {
-          pins: [
-            { label: "One", value: "1", type: "string" },
-            { label: "Two", value: "bad", type: "string" },
-          ],
-        })
-      ).rejects.toThrow(/Invalid pin value/);
-      expect(deps.agentManager.upsertPins).not.toHaveBeenCalled();
-    });
-
-    it("passes the scoping group through as an option, not per entry", async () => {
-      // Filing entries under the group is `replacePinGroup`'s own job — the
-      // handler compensating for it here is what let the primitive drift from
-      // its own contract. Covered end-to-end in pin-write.test.ts.
-      await handlers.upsertPins("agt_test1", {
-        mode: "replace",
-        group: "Ready to build",
-        pins: [
-          { label: "One", value: "1", type: "string", group: "Elsewhere" },
-        ],
-      });
-      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
-        "agt_test1",
-        [{ label: "One", value: "1", type: "string", group: "Elsewhere" }],
-        { mode: "replace", group: "Ready to build" }
-      );
-    });
-  });
-
   // Agent rows as the family-read query returns them. `deleted_at` is not
   // selected on purpose: an archived owner is still readable.
   const FAMILY_ROWS: Record<
@@ -548,7 +313,6 @@ describe("createMcpHandlers", () => {
       id: string;
       name: string;
       media_dir: string | null;
-      pins: unknown[];
       parent_agent_id: string | null;
     }
   > = {
@@ -556,37 +320,24 @@ describe("createMcpHandlers", () => {
       id: "agt_test1",
       name: "parent",
       media_dir: null,
-      pins: [
-        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
-      ],
       parent_agent_id: null,
     },
     agt_child: {
       id: "agt_child",
       name: "child",
       media_dir: "/custom/child-media",
-      pins: [
-        {
-          id: "pin_pr",
-          label: "PR",
-          value: "https://example/pr/1",
-          type: "pr",
-        },
-      ],
       parent_agent_id: "agt_test1",
     },
     agt_grandchild: {
       id: "agt_grandchild",
       name: "grandchild",
       media_dir: null,
-      pins: [],
       parent_agent_id: "agt_child",
     },
     agt_stranger: {
       id: "agt_stranger",
       name: "stranger",
       media_dir: null,
-      pins: [{ id: "pin_x", label: "X", value: "y", type: "string" }],
       parent_agent_id: null,
     },
   };
@@ -615,56 +366,6 @@ describe("createMcpHandlers", () => {
       }
     );
   }
-
-  describe("listPins", () => {
-    it("returns the current agent pins", async () => {
-      mockFamilyRows();
-
-      await expect(handlers.listPins("agt_test1")).resolves.toEqual([
-        {
-          id: "pin_url",
-          label: "URL",
-          value: "http://localhost",
-          type: "url",
-        },
-      ]);
-    });
-
-    it("reads a direct child's pins", async () => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins("agt_test1", { ownerAgentId: "agt_child" })
-      ).resolves.toEqual([
-        {
-          id: "pin_pr",
-          label: "PR",
-          value: "https://example/pr/1",
-          type: "pr",
-        },
-      ]);
-    });
-
-    it("reads the parent's pins from a child", async () => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins("agt_child", { ownerAgentId: "agt_test1" })
-      ).resolves.toEqual([
-        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
-      ]);
-    });
-
-    it.each([
-      ["a grandchild", "agt_test1", "agt_grandchild"],
-      ["a grandparent", "agt_grandchild", "agt_test1"],
-      ["an unrelated agent", "agt_test1", "agt_stranger"],
-      ["an unknown id", "agt_test1", "agt_missing"],
-    ])("reports %s as not found", async (_label, requester, owner) => {
-      mockFamilyRows();
-      await expect(
-        handlers.listPins(requester, { ownerAgentId: owner })
-      ).rejects.toThrow("Agent not found.");
-    });
-  });
 
   describe("listMedia", () => {
     it("lists a child's media from the child's own directory", async () => {

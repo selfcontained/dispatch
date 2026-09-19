@@ -1,6 +1,5 @@
 import path from "node:path";
 
-import { validatePinValue } from "../pins.js";
 import {
   isMediaFile,
   isTextFile,
@@ -74,23 +73,38 @@ export function parseOptionalStringArrayField(
   throw new Error(`${fieldName} must be an array of strings.`);
 }
 
-export function createStartupPins(urls: string[]): Array<{
-  label: string;
-  value: string;
-  type: "url";
-}> {
-  const counts = new Map<string, number>();
-  return urls.map((rawUrl) => {
-    validatePinValue("url", rawUrl);
-    const hostname = new URL(rawUrl).hostname.replace(/^www\./, "") || "Link";
-    const seen = counts.get(hostname) ?? 0;
-    counts.set(hostname, seen + 1);
-    return {
-      label: seen === 0 ? hostname : `${hostname} ${seen + 1}`,
-      value: rawUrl,
-      type: "url",
-    };
-  });
+const MAX_STARTUP_LINKS = 20;
+const MAX_STARTUP_LINK_LENGTH = 2000;
+
+/**
+ * Startup links become link attachments on the launch post and lines in the
+ * first turn, so each has to be an absolute http(s) URL. Returns the trimmed
+ * list; throws a plain Error the route reports as a 400.
+ */
+export function validateStartupLinks(urls: string[]): string[] {
+  const links = urls.map((url) => url.trim()).filter((url) => url.length > 0);
+  if (links.length > MAX_STARTUP_LINKS) {
+    throw new Error(
+      `A maximum of ${MAX_STARTUP_LINKS} startup links is allowed.`
+    );
+  }
+  for (const link of links) {
+    if (link.length > MAX_STARTUP_LINK_LENGTH) {
+      throw new Error(
+        `Startup links must be at most ${MAX_STARTUP_LINK_LENGTH} characters.`
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(link);
+    } catch {
+      throw new Error(`Startup link is not a valid URL: ${link}`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`Startup link must be an http or https URL: ${link}`);
+    }
+  }
+  return links;
 }
 
 function sanitizeStartupDisplayName(

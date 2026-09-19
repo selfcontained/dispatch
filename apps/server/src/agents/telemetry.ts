@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
-import type { AgentGitContext, AgentPin } from "./types.js";
+import type { AgentGitContext } from "./types.js";
 
 export type ActivitySummaryResult = {
   period: { start: string; end: string };

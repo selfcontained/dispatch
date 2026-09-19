@@ -1,6 +1,5 @@
 import { buildPostEnvelope } from "../chat/envelope.js";
-import { PLUGIN_AGENT_TYPES } from "../shared/agent-types.js";
-import type { AgentPin, AgentType } from "./types.js";
+import { PLUGIN_AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
 
 /**
  * Agent types that can install the Dispatch plugin, whose skills carry the
@@ -21,7 +20,7 @@ export type StartupMedia = {
 /**
  * The Chat feed's launch post, fixed before the CLI command is built so the
  * first turn can carry its id. `attachmentLines` are the recorder's own
- * envelope lines for the startup files, links and pins — one source, so the
+ * envelope lines for the startup files and links — one source, so the
  * pane and the post agree.
  */
 export type ChatLaunchPost = {
@@ -31,7 +30,8 @@ export type ChatLaunchPost = {
 
 export type StartupTurnInput = {
   initialPrompt?: string;
-  initialPins?: AgentPin[];
+  /** Raw startup URLs. */
+  initialLinks?: string[];
   initialMedia?: StartupMedia[];
   chatLaunchPost?: ChatLaunchPost | null;
 };
@@ -60,14 +60,14 @@ export function buildStartupTurn(
   }
   return buildStartupPrompt(
     startup.initialPrompt,
-    startup.initialPins ?? [],
+    startup.initialLinks ?? [],
     startup.initialMedia ?? []
   );
 }
 
 /**
  * Compose the first user-message-style prompt handed to the agent on
- * launch — formats `initialPrompt`, `initialPins`, and `initialMedia` into
+ * launch — formats `initialPrompt`, `initialLinks`, and `initialMedia` into
  * a single string the CLI passes through as the opening turn.
  *
  * Returns `undefined` when there's nothing to attach (the caller can then
@@ -75,43 +75,26 @@ export function buildStartupTurn(
  */
 export function buildStartupPrompt(
   initialPrompt: string | undefined,
-  initialPins: AgentPin[],
+  initialLinks: string[],
   initialMedia: StartupMedia[]
 ): string | undefined {
   const trimmedPrompt = initialPrompt?.trim() || "";
-  if (initialPins.length === 0 && initialMedia.length === 0) {
+  if (initialLinks.length === 0 && initialMedia.length === 0) {
     return trimmedPrompt || undefined;
   }
 
   const sections = [
     "Startup context is attached to this session.",
-    "Inspect the provided pins and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
+    "Inspect the provided links and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
   ];
 
   if (trimmedPrompt) {
     sections.push(`Instructions:\n${trimmedPrompt}`);
   }
 
-  if (initialPins.length > 0) {
+  if (initialLinks.length > 0) {
     sections.push(
-      [
-        "Links:",
-        ...initialPins.map((pin) => {
-          try {
-            const hostname =
-              new URL(pin.value).hostname.replace(/^www\./, "") || "Link";
-            const numberedHostPattern = new RegExp(
-              `^${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\d+)?$`,
-              "i"
-            );
-            return numberedHostPattern.test(pin.label)
-              ? `- ${pin.value}`
-              : `- ${pin.label}: ${pin.value}`;
-          } catch {
-            return `- ${pin.value}`;
-          }
-        }),
-      ].join("\n")
+      ["Links:", ...initialLinks.map((url) => `- ${url}`)].join("\n")
     );
   }
 
@@ -137,14 +120,13 @@ export function buildStartupPrompt(
  * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
  * different things carry the detail it drops, and the distinction matters:
  *
- * - **The MCP tool schemas.** `pin`'s own description already lists
- *   every pin type, explains shortcut/confirm/disabled, and says to pair a
- *   blocking shortcut. Restating that here duplicated a
- *   description the agent already has, in every session, whether or not the flow ever comes up. The
- *   trimmed rules say *that* these tools matter and leave the *how* to the
- *   schema. This half does not depend on the plugin at all.
+ * - **The MCP tool schemas.** `post`'s own description already lists
+ *   every block kind and attachment type. Restating that here duplicated a
+ *   description the agent already has, in every session, whether or not the
+ *   flow ever comes up. The trimmed rules say *that* these tools matter and
+ *   leave the *how* to the schema. This half does not depend on the plugin.
  * - **Plugin skills**, for the Playwright methodology (→ `ui-validation` +
- *   `sharing`) and the `create_pr` routing line (→ `review-workflow`). This
+ *   `sharing`) and the pull-request routine (→ `review-workflow`). This
  *   half genuinely needs the plugin installed, which is why the setting is
  *   worded as an assertion about it.
  *
@@ -154,7 +136,7 @@ export function buildStartupPrompt(
  * A short file-posting nudge survives the trim on purpose. That habit was
  * already stated in two always-on places and agents still pasted file paths
  * into chat, so it's the one tool-routing rule with a demonstrated failure
- * history — the toggle tests `create_pr`, not this.
+ * history — the toggle tests the PR line, not this.
  *
  * The Autonomous Review rule is shortened for *everyone*, toggle or not, and
  * that has nothing to do with the plugin: two thirds of the old block was
@@ -218,17 +200,17 @@ export function buildLaunchGuidance(
       );
     }
     if (trimmed) {
-      // One rule instead of two: surface values, and ask questions, with pins.
-      // The tool schema carries the types, shortcut mechanics, and deletion.
+      // One rule: everything the user needs to read, copy or decide is a
+      // block. The tool schema carries the kinds and attachment types.
       rules.push(
-        "Surface important data to the user with pin — anything they may need to read or copy — and use shortcut pins to offer a next step. Route a structured decision, form, or status view to surface_create instead."
+        "Put anything the user needs to read, copy or click in the stream: post with link, pr, code or file attachments, and ask a decision with a question or form block rather than in prose."
       );
     } else {
       rules.push(
-        'Pin key info with pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call list_pins then delete_pin with its id. For longer artifacts, post a file (attachments: [{ type: "file", path }]) and pin a reference.'
+        "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports). A path or URL pasted into prose is easy to lose; an attachment is not."
       );
       rules.push(
-        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones. For a structured decision, form, or status view — several related values, or something the user must fill in — use surface_create instead of a shortcut pin."
+        "When you need a decision, post a question block (a row of options, freeform allowed when useful) or a form block for several fields. Waiting on an answer is visible to the user; a question buried in prose is not."
       );
     }
     rules.push(
@@ -238,12 +220,12 @@ export function buildLaunchGuidance(
     );
     if (!trimmed) {
       rules.push(
-        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+        "For pull requests, use the gh CLI (gh pr create) and post the PR as a pr attachment."
       );
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; resolve or dispute its findings with update state and answer questions in the block's thread. Don't finish until every finding is resolved."
+        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; resolve or dispute its findings with update state and answer questions in the block's thread. Don't finish until every finding is resolved."
       );
     }
   }

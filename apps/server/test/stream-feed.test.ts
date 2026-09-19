@@ -45,7 +45,6 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agent_stream_events");
   await pool.query("DELETE FROM media");
-  await pool.query("DELETE FROM pin_events");
 });
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
@@ -233,7 +232,7 @@ describe("composeStreamFeed", () => {
       type: "status",
       id: "12",
     });
-    for (const type of ["turn", "pin"]) {
+    for (const type of ["turn"]) {
       expect(forged({ ...cursor, type, id: "7" })).toMatchObject({
         type,
         id: "7",
@@ -411,31 +410,6 @@ describe("composeStreamFeed", () => {
     expect(
       blockEntries(await composeStreamFeed(store, OTHER)).map((e) => e.id)
     ).toEqual([foreign.id]);
-  });
-
-  it("surfaces pin writes grouped per write", async () => {
-    await pool.query(
-      `INSERT INTO pin_events (agent_id, pin_id, label, action, created_at)
-       VALUES ($1, 'p1', 'Dev', 'created', $2), ($1, 'p2', 'PR', 'created', $2),
-              ($1, 'p1', 'Dev', 'deleted', $3)`,
-      [A, at(1), at(2)]
-    );
-    const feed = await composeStreamFeed(store, A);
-    expect(feed.entries).toEqual([
-      expect.objectContaining({
-        type: "pin",
-        action: "created",
-        pins: [
-          { id: "p1", label: "Dev" },
-          { id: "p2", label: "PR" },
-        ],
-      }),
-      expect.objectContaining({
-        type: "pin",
-        action: "deleted",
-        pins: [{ id: "p1", label: "Dev" }],
-      }),
-    ]);
   });
 
   describe("attachment dimensions", () => {

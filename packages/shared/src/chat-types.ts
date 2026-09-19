@@ -56,18 +56,15 @@ export type ChatAttachment =
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
-  | { type: "code"; code: string; language?: string; path?: string }
-  | { type: "pin"; pinId: string };
+  | { type: "code"; code: string; language?: string; path?: string };
 
 /**
  * An attachment as the user supplies it from the Chat composer. `file` names
  * a media row uploaded first via `POST /agents/:id/media`; the server resolves
- * it into the stored `ChatAttachment` shape, verifies `pin` on the agent, and
- * stores `link` as given.
+ * it into the stored `ChatAttachment` shape and stores `link` as given.
  */
 export type ChatUserAttachmentInput =
   | { type: "file"; mediaId: number }
-  | { type: "pin"; pinId: string }
   | { type: "link"; url: string; title?: string };
 
 /** Body of `POST /agents/:id/chat/messages`. */
@@ -144,7 +141,7 @@ export type ChatMessage = {
   readAt: string | null;
   /**
    * `"launch"` on the user post that records the context an agent was
-   * created with (initial prompt, startup files, links, pins). Absent on
+   * created with (initial prompt, startup files, links). Absent on
    * every other message. Such a post is always `delivered: true` — the
    * prompt reached the CLI through the normal launch path, not the pane.
    */
@@ -296,22 +293,6 @@ export type ChatTurnEntry = {
   questions?: ChatTurnQuestionRef[];
 };
 
-/**
- * Pins the agent created, updated, or deleted in one write (`pin_events`),
- * surfaced as a post in the feed. Entries carry ids, not values: the web
- * renders each pin live from the agent's current pins, exactly as a pin
- * attachment does, so a later update refreshes every earlier entry and a
- * shortcut in the stream stays runnable. `label` is the one snapshot, so an
- * entry can still name a pin that has since been deleted.
- */
-export type ChatPinEntry = {
-  type: "pin";
-  id: string;
-  action: "created" | "updated" | "deleted";
-  pins: Array<{ id: string; label: string }>;
-  at: string;
-};
-
 export type ChatMessageEntry = {
   type: "chat";
   id: string;
@@ -323,8 +304,7 @@ export type ChatFeedEntry =
   | ChatMessageEntry
   | ChatStatusEntry
   | ChatMediaEntry
-  | ChatTurnEntry
-  | ChatPinEntry;
+  | ChatTurnEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];

@@ -25,7 +25,6 @@ const SOURCE_RANK: Record<StreamEntry["type"], number> = {
   turn: 6,
   block: 4,
   status: 3,
-  pin: 2,
 };
 
 const AT_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
@@ -43,7 +42,6 @@ function isValidCursorId(type: StreamEntry["type"], id: string): boolean {
       return isBlockId(id);
     case "status":
     case "turn":
-    case "pin":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
 }

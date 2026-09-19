@@ -41,7 +41,6 @@ export type AgentRouteDeps = {
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
-  onAgentStarted: (agentId: string) => Promise<void>;
   /**
    * Delivers a user-fired prompt (quick phrase, shortcut pin) as a Chat
    * message; see `routes/agents/prompt-routes.ts`.

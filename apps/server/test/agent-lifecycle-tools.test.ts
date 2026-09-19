@@ -36,7 +36,6 @@ function baseContext(): AgentLifecycleContext {
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
     listMedia: vi.fn(async () => []),
     deleteMedia: vi.fn(async () => {}),
-    listPins: vi.fn(async () => []),
   };
 }
 
@@ -51,21 +50,11 @@ describe("registerAgentLifecycleTools", () => {
 
   describe("conditional registration", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
-      const allowed = new Set([
-        "rename_session",
-        "list_media",
-        "delete_media",
-        "list_pins",
-      ]);
+      const allowed = new Set(["rename_session", "list_media", "delete_media"]);
       registerAgentLifecycleTools(server as never, allowed, baseContext());
 
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual([
-        "rename_session",
-        "list_media",
-        "delete_media",
-        "list_pins",
-      ]);
+      expect(names).toEqual(["rename_session", "list_media", "delete_media"]);
     });
 
     it("registers nothing when allowed set is empty", () => {
@@ -106,21 +95,14 @@ describe("registerAgentLifecycleTools", () => {
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips list_pins when listPins is missing", () => {
-      const ctx = baseContext();
-      delete ctx.listPins;
-      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
-      expect(server.tools).toHaveLength(0);
-    });
-
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media", "list_pins"]),
+        new Set(["list_media", "delete_media"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["list_media", "list_pins"]);
+      expect(names).toEqual(["list_media", "delete_media"]);
     });
   });
 
@@ -270,55 +252,6 @@ describe("registerAgentLifecycleTools", () => {
       expect(ctx.deleteMedia).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
       expect(result).toEqual({
         content: [{ type: "text", text: 'Deleted media "screenshot.png".' }],
-      });
-    });
-  });
-
-  describe("list_pins handler", () => {
-    it("returns one pin untruncated when given its id", async () => {
-      const value = "z".repeat(1200);
-      const pins = [
-        { id: "pin_1", label: "Short", value: "ok", type: "string" },
-        { id: "pin_2", label: "Shortcut", value, type: "shortcut" },
-      ];
-      const ctx = baseContext();
-      ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
-
-      const one = (await server.tools[0]!.handler({ id: "pin_2" })) as {
-        content: Array<{ text: string }>;
-      };
-      expect(JSON.parse(one.content[0]!.text).value).toBe(value);
-
-      // ...while the unfiltered listing still caps it.
-      const all = (await server.tools[0]!.handler({})) as {
-        content: Array<{ text: string }>;
-      };
-      expect(JSON.parse(all.content[0]!.text)[1].value).toBe(
-        `${"z".repeat(400)}…[+800 chars]`
-      );
-
-      const missing = (await server.tools[0]!.handler({ id: "nope" })) as {
-        isError?: true;
-      };
-      expect(missing.isError).toBe(true);
-    });
-
-    it("returns the current pins", async () => {
-      const pins = [
-        { label: "Dev", value: "http://localhost:5173", type: "url" },
-      ];
-      const ctx = baseContext();
-      ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
-
-      const result = await server.tools[0]!.handler({});
-
-      expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID, {
-        ownerAgentId: undefined,
-      });
-      expect(result).toEqual({
-        content: [{ type: "text", text: JSON.stringify(pins) }],
       });
     });
   });

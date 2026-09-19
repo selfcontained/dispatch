@@ -19,7 +19,6 @@ import {
 } from "../shared/git/git-context.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
-import type { SurfaceService } from "../surfaces/service.js";
 import type { StreamService } from "../chat/service.js";
 
 /**
@@ -71,7 +70,6 @@ type McpRouteDeps = {
   mcpShareMedia: unknown;
   mcpListMedia: unknown;
   mcpDeleteMedia: unknown;
-  mcpListPins: unknown;
   mcpListPersonas: unknown;
   mcpListPersonalities: unknown;
   mcpCreatePersonality: unknown;
@@ -81,17 +79,12 @@ type McpRouteDeps = {
   mcpClearActivePersonality: unknown;
   mcpLaunchAgent: unknown;
   mcpArchiveAgent: unknown;
-  mcpUpsertPin: unknown;
-  mcpUpsertPins: unknown;
-  mcpDeletePin: unknown;
-  mcpDeletePinByLabel: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
   mcpJobLog: unknown;
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
-  surfaces: SurfaceService;
   chat: Pick<
     StreamService,
     "post" | "update" | "addReaction" | "removeReaction"
@@ -229,11 +222,6 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
-      upsertPin: deps.mcpUpsertPin,
-      upsertPins: deps.mcpUpsertPins,
-      deletePin: deps.mcpDeletePin,
-      deletePinByLabel: deps.mcpDeletePinByLabel,
-      listPins: deps.mcpListPins,
       listPersonas: deps.mcpListPersonas,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
@@ -258,7 +246,6 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
-      surfaces: deps.surfaces,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
@@ -329,11 +316,6 @@ export async function registerMcpRoutes(
       archiveAgent: deps.mcpArchiveAgent,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       issueLoginLink: () => deps.loginLinkStore.issue(),
-      upsertPin: deps.mcpUpsertPin,
-      upsertPins: deps.mcpUpsertPins,
-      deletePin: deps.mcpDeletePin,
-      deletePinByLabel: deps.mcpDeletePinByLabel,
-      listPins: deps.mcpListPins,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
@@ -346,7 +328,6 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       publishUiEvent: deps.publishUiEvent,
-      surfaces: deps.surfaces,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
