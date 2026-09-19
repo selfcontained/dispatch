@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import type {
-  ChatPinEntry,
   ChatTurnEntry,
   StreamBlockEntry,
   StreamEntry,
@@ -11,16 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { block, blockEntry, FILE_BODY } from "@/test-utils/blocks";
-import {
-  INERT_PIN_SHORTCUTS,
-  PinShortcutProvider,
-} from "@/components/app/chat/pin-shortcut-context";
 
-import {
-  foldAttachments,
-  mergePinRuns,
-  TurnAttachments,
-} from "./turn-attachments";
+import { foldAttachments, TurnAttachments } from "./turn-attachments";
 
 const AGENT_ID = "agt_1";
 const at = (hhmm: string): string => `2026-09-08T${hhmm}:00.000Z`;
@@ -60,16 +51,6 @@ function media(id: string, when: string): StreamBlockEntry {
   );
 }
 
-function pin(id: string, when: string): ChatPinEntry {
-  return {
-    type: "pin",
-    id,
-    action: "created",
-    pins: [{ id: "pin_1", label: "Dev URL" }],
-    at: when,
-  };
-}
-
 /** A post from one agent to another: a block with `toAgentId` set. */
 function sent(
   id: string,
@@ -93,20 +74,15 @@ function sent(
 }
 
 describe("foldAttachments", () => {
-  it("lifts files, pins and posts to other agents into the turn that produced them", () => {
+  it("lifts files and posts to other agents into the turn that produced them", () => {
     const entries: StreamEntry[] = [
       turn(),
       media("md1", at("10:01")),
-      pin("pn1", at("10:02")),
       sent("am1", at("10:03")),
     ];
     const out = foldAttachments(entries, AGENT_ID);
     expect(out.entries.map((e) => e.id)).toEqual(["turn:1"]);
-    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual([
-      "md1",
-      "pn1",
-      "am1",
-    ]);
+    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["md1", "am1"]);
   });
 
   it("leaves another agent's post to this one, and anything after the turn ended, in the feed", () => {
@@ -152,7 +128,7 @@ describe("foldAttachments", () => {
         // The child's reply to its parent: a post of its own in the feed.
         sent("reply", at("10:03"), "agt_2", AGENT_ID),
         media("md1", at("10:03")),
-        pin("pn1", at("10:04")),
+        media("md2", at("10:04")),
       ],
       AGENT_ID
     );
@@ -164,7 +140,7 @@ describe("foldAttachments", () => {
       "child-file",
       "reply",
     ]);
-    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["md1", "pn1"]);
+    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["md1", "md2"]);
     expect(out.folded.has("turn:child")).toBe(false);
   });
 
@@ -209,28 +185,6 @@ describe("foldAttachments", () => {
   });
 });
 
-describe("mergePinRuns", () => {
-  it("collapses adjacent pin writes with one action, and nothing else", () => {
-    const a = pin("p1", at("10:01"));
-    const b = {
-      ...pin("p2", at("10:02")),
-      pins: [{ id: "pin_2", label: "B" }],
-    };
-    const removed = { ...pin("p3", at("10:03")), action: "deleted" as const };
-    const m = media("md1", at("10:04"));
-    const c = {
-      ...pin("p4", at("10:05")),
-      pins: [{ id: "pin_4", label: "C" }],
-    };
-    const out = mergePinRuns([a, b, removed, m, c]);
-    expect(out.map((e) => e.id)).toEqual(["p1", "p3", "md1", "p4"]);
-    expect(out[0]!.type === "pin" && out[0].pins.map((p) => p.label)).toEqual([
-      "Dev URL",
-      "B",
-    ]);
-  });
-});
-
 describe("TurnAttachments", () => {
   afterEach(cleanup);
 
@@ -247,83 +201,23 @@ describe("TurnAttachments", () => {
   it("renders each folded item in order with its own block", () => {
     render(
       <MemoryRouter>
-        <PinShortcutProvider value={INERT_PIN_SHORTCUTS}>
-          <TurnAttachments
-            items={[
-              media("md1", at("10:01")),
-              pin("pn1", at("10:02")),
-              sent("am1", at("10:03")),
-            ]}
-            ctx={ctx}
-          />
-        </PinShortcutProvider>
+        <TurnAttachments
+          items={[media("md1", at("10:01")), sent("am1", at("10:03"))]}
+          ctx={ctx}
+        />
       </MemoryRouter>
     );
     const block = screen.getByTestId("chat-turn-attachments");
     expect(block.textContent).toContain("Login page");
-    expect(block.textContent).toContain("Pinned");
-    expect(block.textContent).toContain("Dev URL");
     expect(block.textContent).toContain("Sent to");
     expect(block.textContent).toContain("Reviewer");
     expect(block.textContent).toContain("please review");
     const order = Array.from(
       block.querySelectorAll(
-        '[data-testid="chat-turn-block"],[data-testid="chat-turn-pin"],[data-testid="chat-turn-sent-to"]'
+        '[data-testid="chat-turn-block"],[data-testid="chat-turn-sent-to"]'
       )
     ).map((el) => el.getAttribute("data-testid"));
-    expect(order).toEqual([
-      "chat-turn-block",
-      "chat-turn-pin",
-      "chat-turn-sent-to",
-    ]);
-  });
-
-  it("renders a live pin as a chip and a link pin as an anchor", () => {
-    render(
-      <MemoryRouter>
-        <PinShortcutProvider
-          value={{
-            ...INERT_PIN_SHORTCUTS,
-            pins: [
-              {
-                id: "pin_1",
-                label: "Dev URL",
-                value: "http://localhost:5173",
-                type: "url",
-              },
-              { id: "pin_2", label: "Port", value: "5173", type: "port" },
-            ],
-          }}
-        >
-          <TurnAttachments
-            items={[
-              {
-                type: "pin",
-                id: "pn1",
-                action: "created",
-                pins: [
-                  { id: "pin_1", label: "Dev URL" },
-                  { id: "pin_2", label: "Port" },
-                  { id: "pin_gone", label: "Old" },
-                ],
-                at: at("10:02"),
-              },
-            ]}
-            ctx={ctx}
-          />
-        </PinShortcutProvider>
-      </MemoryRouter>
-    );
-    const chips = screen.getAllByTestId("chat-turn-pin-chip");
-    expect(chips).toHaveLength(2);
-    expect(chips[0]!.tagName).toBe("A");
-    expect(chips[0]!.getAttribute("href")).toBe("http://localhost:5173");
-    expect(chips[0]!.textContent).toContain("localhost:5173");
-    expect(chips[1]!.tagName).toBe("BUTTON");
-    expect(chips[1]!.textContent).toContain("5173");
-    expect(
-      screen.getByTestId("chat-turn-pin-pin-missing").textContent
-    ).toContain("Old");
+    expect(order).toEqual(["chat-turn-block", "chat-turn-sent-to"]);
   });
 
   it("renders nothing for an empty list", () => {

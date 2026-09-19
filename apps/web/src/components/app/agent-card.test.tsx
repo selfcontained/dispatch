@@ -77,7 +77,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo/app",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${AGENT_ID}`,
     agentArgs: [],
     model: null,
     fullAccess: false,
@@ -95,7 +94,6 @@ function makeChild(overrides: Partial<Agent> = {}): Agent {
     persona: "security-review",
     parentAgentId: AGENT_ID,
     role: "review",
-    tmuxSession: "dispatch-agt_child",
     ...overrides,
   });
 }
@@ -129,7 +127,6 @@ function baseProps(agent: Agent): AgentCardProps {
     detachTerminal: vi.fn(),
     attachToAgent: vi.fn().mockResolvedValue(undefined),
     startAgent: vi.fn().mockResolvedValue(undefined),
-    openSubmittedReview: vi.fn(),
     setDeleteTarget: vi.fn(),
     setDeleteConfirmOpen: vi.fn(),
     setStopTarget: vi.fn(),

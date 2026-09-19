@@ -256,37 +256,23 @@ describe("TasksBlockBody", () => {
       ),
     }) as Extract<Block, { kind: "tasks" }>;
 
-  it("renders the checklist with the current item marked and ticks through the state route", () => {
-    const onSetState = vi.fn();
-    render(
-      <TasksBlockBody
-        block={tasks({ a: "done", b: "now" })}
-        disabled={false}
-        onSetState={onSetState}
-      />
-    );
+  it("renders the checklist read-only with the current item marked", () => {
+    render(<TasksBlockBody block={tasks({ a: "done", b: "now" })} />);
     expect(screen.getByTestId("chat-tasks-header").textContent).toContain(
       "1/2 done"
     );
     const rows = screen.getAllByTestId("chat-task");
     expect(rows[0]!.getAttribute("data-status")).toBe("done");
+    expect(rows[1]!.getAttribute("data-status")).toBe("now");
     expect(
       rows[1]!.querySelector("[data-testid='chat-task-now']")
     ).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("Wire the route"));
-    expect(onSetState).toHaveBeenCalledWith({ items: { b: "done" } });
-    fireEvent.click(screen.getByLabelText("Write the migration"));
-    expect(onSetState).toHaveBeenCalledWith({ items: { a: "todo" } });
+    // The agent moves items with `update`; there is nothing here to click.
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("folds to its count line once every item is done, and opens on click", () => {
-    render(
-      <TasksBlockBody
-        block={tasks({ a: "done", b: "done" })}
-        disabled={false}
-        onSetState={vi.fn()}
-      />
-    );
+    render(<TasksBlockBody block={tasks({ a: "done", b: "done" })} />);
     expect(screen.queryByTestId("chat-task")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-tasks-header"));
     expect(screen.getAllByTestId("chat-task")).toHaveLength(2);

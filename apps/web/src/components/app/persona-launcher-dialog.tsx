@@ -17,13 +17,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
-/** Mirrors MAX_LAUNCH_REVIEW_NOTE_LENGTH on the server. */
+/** Mirrors MAX_LAUNCH_NOTE_LENGTH on the server. */
 const MAX_NOTE_LENGTH = 2000;
 
 type PersonaSummary = {
@@ -52,6 +53,8 @@ export function PersonaLauncherDialog({
   setSelectedPersonas,
   note,
   setNote,
+  includeDiff,
+  setIncludeDiff,
   launchError,
   isLaunching,
   onResetLaunchError,
@@ -76,6 +79,9 @@ export function PersonaLauncherDialog({
   setSelectedPersonas: Dispatch<SetStateAction<string[]>>;
   note: string;
   setNote: Dispatch<SetStateAction<string>>;
+  /** Hand each persona the agent's current diff in its briefing. */
+  includeDiff: boolean;
+  setIncludeDiff: (include: boolean) => void;
   /** Error message from the last launch attempt, or null. */
   launchError: string | null;
   /** True while a launch request is in flight. */
@@ -98,11 +104,12 @@ export function PersonaLauncherDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Launch Review</DialogTitle>
+            <DialogTitle>Launch personas</DialogTitle>
             <DialogDescription>
-              Pick one or more reviewer personas and a review agent type. Each
-              reviewer will submit one tracked review, with follow-up discussion
-              kept in its feedback item threads.
+              Pick one or more personas and an agent type. Each one runs as a
+              child of this agent and posts what it produces into its stream — a
+              reviewer posts a review block whose findings you and the agent
+              resolve in threads.
             </DialogDescription>
           </DialogHeader>
 
@@ -333,9 +340,21 @@ export function PersonaLauncherDialog({
                     data-testid="launch-reviewer-note"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Added to the briefing each reviewer receives.
+                    Added to the briefing each persona receives.
                   </p>
                 </div>
+
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={includeDiff}
+                    onCheckedChange={(checked) => {
+                      setIncludeDiff(checked === true);
+                      onResetLaunchError();
+                    }}
+                    data-testid="launch-reviewer-include-diff"
+                  />
+                  Include the current diff in the briefing
+                </label>
               </div>
             </div>
 
@@ -372,8 +391,8 @@ export function PersonaLauncherDialog({
                 data-testid="launch-reviewer-submit"
               >
                 {selectedPersonas.length > 1
-                  ? `Launch ${selectedPersonas.length} Reviews`
-                  : "Launch Review"}
+                  ? `Launch ${selectedPersonas.length} personas`
+                  : "Launch persona"}
               </Button>
             </div>
           </div>

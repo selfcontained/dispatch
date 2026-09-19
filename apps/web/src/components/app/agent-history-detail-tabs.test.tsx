@@ -9,12 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentPin } from "@/components/app/types";
-import type {
-  HistoryEvent,
-  HistoryFeedbackItem,
-  HistoryMedia,
-} from "@/hooks/use-agent-history";
+import type { HistoryEvent, HistoryMedia } from "@/hooks/use-agent-history";
 
 import { DetailTabs } from "./agent-history-detail-tabs";
 
@@ -54,22 +49,6 @@ function makeMedia(overrides: Partial<HistoryMedia> = {}): HistoryMedia {
   };
 }
 
-function makeFeedback(id: number, description: string): HistoryFeedbackItem {
-  return {
-    id,
-    agentId: AGENT_ID,
-    persona: null,
-    severity: "warn",
-    filePath: null,
-    lineNumber: null,
-    description,
-    suggestion: null,
-    mediaRef: null,
-    status: "open",
-    createdAt: "2026-07-20T10:00:00.000Z",
-  };
-}
-
 function renderTabs(
   overrides: Partial<React.ComponentProps<typeof DetailTabs>> = {}
 ) {
@@ -93,15 +72,7 @@ function renderTabs(
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <DetailTabs
-        events={[]}
-        media={[]}
-        pins={[]}
-        feedback={[]}
-        agentId={AGENT_ID}
-        workspaceRoot="/repo"
-        {...overrides}
-      />
+      <DetailTabs events={[]} media={[]} agentId={AGENT_ID} {...overrides} />
     </QueryClientProvider>
   );
 }
@@ -131,8 +102,6 @@ describe("DetailTabs", () => {
     expect(tabButton("Events").textContent).toBe("Events2");
     // Empty tabs must not render a stray "0" badge.
     expect(tabButton("Media").textContent).toBe("Media");
-    expect(tabButton("Pins").textContent).toBe("Pins");
-    expect(tabButton("Feedback").textContent).toBe("Feedback");
   });
 
   it("renders the event timeline when events exist", () => {
@@ -147,33 +116,8 @@ describe("DetailTabs", () => {
     expect(screen.getByText("No media captured.")).toBeTruthy();
     expect(screen.queryByText("only event")).toBeNull();
 
-    fireEvent.click(tabButton("Pins"));
-    expect(screen.getByText("No pins recorded.")).toBeTruthy();
-
-    fireEvent.click(tabButton("Feedback"));
-    expect(screen.getByText("No feedback received.")).toBeTruthy();
-
     fireEvent.click(tabButton("Events"));
     expect(screen.getByText("only event")).toBeTruthy();
-  });
-
-  it("renders pins through PinItem with the workspace root", () => {
-    const pins: AgentPin[] = [
-      { label: "Preview URL", value: "http://localhost:3000", type: "url" },
-      { label: "Branch", value: "feat/history", type: "string" },
-    ];
-    renderTabs({ pins });
-    fireEvent.click(tabButton("Pins"));
-    const items = screen.getAllByTestId("pin-item");
-    expect(items).toHaveLength(2);
-    expect(items[0]?.getAttribute("data-pin-label")).toBe("Preview URL");
-    expect(items[1]?.getAttribute("data-pin-label")).toBe("Branch");
-  });
-
-  it("renders feedback items on the feedback tab", () => {
-    renderTabs({ feedback: [makeFeedback(1, "Button label is misaligned")] });
-    fireEvent.click(tabButton("Feedback"));
-    expect(screen.getByText("Button label is misaligned")).toBeTruthy();
   });
 
   it("renders screenshot tiles as images with encoded media URLs and text tiles as placeholders", () => {

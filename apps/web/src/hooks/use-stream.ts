@@ -10,6 +10,7 @@ import type {
   Block,
   BlockOption,
   BlockReaction,
+  BlockReviewData,
   ChatAttachment,
   ChatUserAttachmentInput,
   StreamAnswerRequest,
@@ -380,19 +381,18 @@ export function optimisticUserBlock(
   attachments: ChatAttachment[] = [],
   thread: { threadId: string; replyTo: string } | null = null,
   /** The agent it is for; the stream's root when not given. */
-  to?: string
+  to?: string,
+  /** A review left by hand: the block is a `review` with no findings resolved. */
+  review?: BlockReviewData
 ): Block {
   const now = new Date().toISOString();
-  return {
+  const base = {
     id,
     streamId,
-    author: { kind: "user" },
+    author: { kind: "user" } as const,
     toAgentId: to ?? streamId,
     threadId: thread?.threadId ?? null,
     replyTo: thread?.replyTo ?? null,
-    kind: "text",
-    data: null,
-    state: null,
     text,
     attachments,
     delivered: null,
@@ -400,6 +400,15 @@ export function optimisticUserBlock(
     createdAt: now,
     updatedAt: now,
   };
+  if (review) {
+    return {
+      ...base,
+      kind: "review",
+      data: review,
+      state: { findings: {} },
+    };
+  }
+  return { ...base, kind: "text", data: null, state: null };
 }
 
 function entryOf(block: Block): StreamBlockEntry {
@@ -685,24 +694,26 @@ export function usePostBlock(rootId: string | null) {
     StreamPostInput & { id: string },
     { placeholder: Block; threadKey: readonly unknown[] | null }
   >({
-    mutationFn: async ({ id, to, text, replyTo, attachments }) => {
+    mutationFn: async ({ id, to, text, replyTo, attachments, review }) => {
       const body: StreamPostRequest = { id, text };
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
       if (attachments && attachments.length > 0) body.attachments = attachments;
+      if (review) body.review = review;
       return api<StreamPostResponse>(`${streamPath(rootId)}/blocks`, {
         method: "POST",
         body: JSON.stringify(body),
       });
     },
-    onMutate: async ({ id, to, text, replyTo, attachments }) => {
+    onMutate: async ({ id, to, text, replyTo, attachments, review }) => {
       const placeholder = optimisticUserBlock(
         id,
         rootId ?? "",
         text,
         optimisticAttachments(attachments ?? []),
         replyTo ? { threadId: replyTo, replyTo } : null,
-        to
+        to,
+        review
       );
       if (replyTo) {
         const threadKey = threadQueryKey(rootId, replyTo);
@@ -991,7 +1002,7 @@ export function optimisticStatePatch(
 }
 
 /**
- * `PATCH …/state`: resolve or reopen a finding, tick a task. The patch
+ * `PATCH …/state`: resolve, dispute or reopen a finding. The patch
  * applies to the cached block at once; the response, and then the
  * `stream.entry`, carry the server's merge.
  */

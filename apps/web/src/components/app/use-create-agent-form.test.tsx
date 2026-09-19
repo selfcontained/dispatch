@@ -33,7 +33,6 @@ const createdAgent = {
   cwd: "/repo/app",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: "dispatch-agt_new",
   agentArgs: [],
   model: null,
   fullAccess: false,

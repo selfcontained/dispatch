@@ -35,7 +35,6 @@ type LenientAgentField =
   | "launchedByAgentId"
   | "personaContext"
   | "reviewAgentType"
-  | "submittedReviewId"
   | "baseBranch"
   | "templateId"
   | "autoReview"

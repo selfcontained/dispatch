@@ -35,6 +35,12 @@ type PersonaSummary = {
   description: string;
 };
 
+export type LaunchedPersona = {
+  agentId: string;
+  name: string;
+  persona: string;
+};
+
 function defaultReviewAgentType(agent: Agent): AgentType {
   return agent.reviewAgentType ?? agent.type ?? "codex";
 }
@@ -44,11 +50,17 @@ export function PersonaLauncher({
   enabledAgentTypes,
   disabled = false,
   disabledReason,
+  label = "Review",
+  onLaunched,
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
   disabled?: boolean;
   disabledReason?: string;
+  /** The trigger button's text. */
+  label?: string;
+  /** Called with the launched children once the request succeeds. */
+  onLaunched?: (launched: LaunchedPersona[]) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
@@ -57,6 +69,7 @@ export function PersonaLauncher({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  const [includeDiff, setIncludeDiff] = useState(true);
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
@@ -90,22 +103,29 @@ export function PersonaLauncher({
   const launchMutation = useMutation({
     mutationFn: async (personas: string[]) => {
       await persistReviewAgentType(selectedAgentType);
-      await api(`/api/v1/agents/${agent.id}/launch-review`, {
-        method: "POST",
-        body: JSON.stringify({
-          personas,
-          agentType: selectedAgentType,
-          // A stored id the catalog no longer offers means "CLI default",
-          // same as the select renders it.
-          model: modelOptions.some((option) => option.id === selectedModel)
-            ? selectedModel
-            : null,
-          note: note.trim() ? note.trim() : null,
-        }),
-      });
+      // Each persona becomes a child agent that posts its review (or
+      // whatever the persona produces) into this agent's stream.
+      return api<{ ok: boolean; launched: LaunchedPersona[] }>(
+        `/api/v1/agents/${agent.id}/launch-persona`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            personas,
+            agentType: selectedAgentType,
+            includeDiff,
+            // A stored id the catalog no longer offers means "CLI default",
+            // same as the select renders it.
+            model: modelOptions.some((option) => option.id === selectedModel)
+              ? selectedModel
+              : null,
+            note: note.trim() ? note.trim() : null,
+          }),
+        }
+      );
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setDialogOpen(false);
+      onLaunched?.(result.launched);
     },
   });
 
@@ -125,11 +145,11 @@ export function PersonaLauncher({
               type={defaultReviewAgentType(agent)}
               className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
             />
-            Review
+            {label}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Could not load reviewer personas for this workspace.
+          Could not load personas for this workspace.
         </TooltipContent>
       </Tooltip>
     );
@@ -139,6 +159,7 @@ export function PersonaLauncher({
     setSelectedAgentType(agentType);
     setSelectedPersonas([]);
     setNote("");
+    setIncludeDiff(true);
     launchMutation.reset();
     setTypeDropdownOpen(false);
     setDialogOpen(true);
@@ -180,7 +201,7 @@ export function PersonaLauncher({
         type={defaultReviewAgentType(agent)}
         className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
       />
-      Review
+      {label}
     </Button>
   );
 
@@ -250,6 +271,8 @@ export function PersonaLauncher({
         setSelectedPersonas={setSelectedPersonas}
         note={note}
         setNote={setNote}
+        includeDiff={includeDiff}
+        setIncludeDiff={setIncludeDiff}
         launchError={launchErrorMessage}
         isLaunching={launchMutation.isPending}
         onResetLaunchError={() => launchMutation.reset()}

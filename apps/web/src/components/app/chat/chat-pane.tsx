@@ -42,6 +42,7 @@ import {
   useSubmitForm,
   useToggleReaction,
 } from "@/hooks/use-stream";
+import { FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -143,8 +144,7 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
 }
 
 /** The thread and finding named in the URL (`?thread=<id>&finding=<id>`). */
-export const THREAD_PARAM = "thread";
-export const FINDING_PARAM = "finding";
+export { FINDING_PARAM, THREAD_PARAM };
 
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;

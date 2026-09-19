@@ -59,7 +59,6 @@ function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     fullAccess: false,
     mediaDir: null,

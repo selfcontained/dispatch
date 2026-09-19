@@ -40,7 +40,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { useMedia } from "@/hooks/use-media";
 import { useStreamRail } from "@/hooks/use-stream-rail";
-import { THREAD_PARAM } from "@/components/app/chat/chat-pane";
+import { THREAD_PARAM } from "@/lib/agent-routes";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";

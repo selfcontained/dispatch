@@ -34,7 +34,6 @@ function makeAgent(id: string, name: string): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${id}`,
     agentArgs: [],
     model: null,
     fullAccess: false,

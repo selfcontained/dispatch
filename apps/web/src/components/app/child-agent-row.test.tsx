@@ -26,7 +26,6 @@ const baseAgent: Agent = {
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: "dispatch-agt_child",
   agentArgs: [],
   model: null,
   fullAccess: false,
@@ -55,7 +54,6 @@ function renderRow(
   const attachToAgent = vi.fn().mockResolvedValue(undefined);
   const detachTerminal = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
-  const openSubmittedReview = vi.fn();
   const setStopTarget = vi.fn();
   const setStopConfirmOpen = vi.fn();
   const setDeleteTarget = vi.fn();
@@ -73,7 +71,6 @@ function renderRow(
           attachToAgent={attachToAgent}
           detachTerminal={detachTerminal}
           startAgent={startAgent}
-          openSubmittedReview={openSubmittedReview}
           setStopTarget={setStopTarget}
           setStopConfirmOpen={setStopConfirmOpen}
           setDeleteTarget={setDeleteTarget}
@@ -89,7 +86,6 @@ function renderRow(
     attachToAgent,
     detachTerminal,
     startAgent,
-    openSubmittedReview,
     setStopTarget,
     setStopConfirmOpen,
     setDeleteTarget,
@@ -173,101 +169,16 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("shows the muted clipboard-list indicator until a review has been submitted", () => {
+  it("shows the muted clipboard-list indicator for a reviewer", () => {
     renderRow(baseAgent);
 
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.dataset.reviewReady).toBe("false");
     const indicator = screen.getByRole("img", { name: "Review in progress" });
     expect(indicator.querySelector("svg.lucide-clipboard-list")).not.toBeNull();
-    expect(indicator.querySelector("svg.lucide-clipboard-check")).toBeNull();
-    // "Open review" only makes sense once a review exists.
+    // The review itself lands in the parent's stream; the row has no
+    // "open review" action of its own.
     openMenu();
     expect(
       screen.queryByTestId("child-agent-open-review-agt_child")
-    ).toBeNull();
-  });
-
-  it("swaps to a colored clipboard-check indicator once the review can be opened, without a row border", () => {
-    renderRow(
-      { ...baseAgent, status: "stopped", submittedReviewId: 42 },
-      { state: "stopped", isInitialReviewActive: false }
-    );
-
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.dataset.reviewReady).toBe("true");
-    expect(row.className).toContain("opacity-100");
-    expect(row.className).not.toContain("opacity-65");
-    // "Ready to open" no longer gets its own row-wide border/tint (it used
-    // to read as a muted echo of the connected accent) — the indicator's
-    // color/icon swap is the sole carrier of that signal, and opening it
-    // moves to the overflow menu (tested below), decoupled from connecting.
-    expect(row.className).not.toContain("border-primary/45");
-    expect(row.className).not.toContain("bg-primary/[0.06]");
-    const trigger = screen.getByTestId(
-      "child-agent-open-review-badge-agt_child"
-    );
-    // status-working (green), deliberately not the same color family as the
-    // connected accent (status-done/primary, blue in this theme) — the two
-    // signals must never look like variants of each other.
-    expect(trigger.className).toContain("text-status-working");
-    expect(trigger.querySelector("svg.lucide-clipboard-check")).not.toBeNull();
-  });
-
-  it("opens the submitted review from the overflow menu, independent of connecting", () => {
-    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
-    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
-      isInitialReviewActive: false,
-    });
-
-    openMenu();
-    fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-    // Also proves the portal-bubbling fix: DropdownMenuContent is portaled
-    // outside the row's real DOM, but React's synthetic events still
-    // bubble through the *component* tree — without the row's
-    // currentTarget.contains() guard, this click would also attach.
-    expect(attachToAgent).not.toHaveBeenCalled();
-  });
-
-  it("opens the submitted review by clicking its own badge, not the row", () => {
-    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
-    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
-      isInitialReviewActive: false,
-    });
-
-    fireEvent.click(
-      screen.getByTestId("child-agent-open-review-badge-agt_child")
-    );
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-    expect(attachToAgent).not.toHaveBeenCalled();
-  });
-
-  it("keeps the badge trigger reachable on a stopped, ready-to-open row", () => {
-    // The row's own click-to-connect is a dead end here (isStopped bails
-    // out), so the badge is the only way to reach the review without
-    // opening the overflow menu — worth pinning explicitly.
-    const submittedAgent = {
-      ...baseAgent,
-      status: "stopped" as const,
-      submittedReviewId: 42,
-    };
-    const { openSubmittedReview } = renderRow(submittedAgent, {
-      state: "stopped",
-      isInitialReviewActive: false,
-    });
-
-    fireEvent.click(
-      screen.getByTestId("child-agent-open-review-badge-agt_child")
-    );
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-  });
-
-  it("renders the badge plain (not a button) before a review is submitted", () => {
-    renderRow(baseAgent);
-
-    expect(
-      screen.queryByTestId("child-agent-open-review-badge-agt_child")
     ).toBeNull();
   });
 
@@ -307,21 +218,6 @@ describe("ChildAgentRow", () => {
     });
   });
 
-  it("still attaches by clicking a ready-to-open row's body, same as any other row", () => {
-    // Opening the review is a menu action now — the row itself has no
-    // special case for a ready-to-open review, it's click-to-connect like
-    // every other row.
-    const { attachToAgent } = renderRow(
-      { ...baseAgent, submittedReviewId: 42 },
-      { isInitialReviewActive: false, state: "idle" }
-    );
-
-    fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-    expect(attachToAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "agt_child" })
-    );
-  });
-
   it("shows the connected right-edge accent when not also ready to open", () => {
     renderRow(baseAgent, { state: "active" });
 
@@ -358,9 +254,7 @@ describe("ChildAgentRow", () => {
       screen.queryByRole("img", { name: "Review in progress" })
     ).toBeNull();
     // Throws (failing the test) if not found — this is the assertion.
-    screen.getByRole("img", {
-      name: "Review agent — paused, no review submitted",
-    });
+    screen.getByRole("img", { name: "Review agent — paused" });
   });
 
   it("does not infer review purpose from a persona", () => {

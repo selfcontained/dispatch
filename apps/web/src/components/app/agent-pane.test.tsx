@@ -77,7 +77,6 @@ function agentNamed(id: string): Agent {
     cwd: "/tmp",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     model: null,
     fullAccess: false,

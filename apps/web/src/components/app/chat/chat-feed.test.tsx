@@ -16,11 +16,6 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
-import {
-  INERT_PIN_SHORTCUTS,
-  PinShortcutProvider,
-  type PinShortcutState,
-} from "@/components/app/chat/pin-shortcut-context";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -135,21 +130,18 @@ function feedElement(
   entries: StreamEntry[],
   ctx: FeedContext,
   onAnswer: ReturnType<typeof vi.fn>,
-  extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  pinShortcuts: Partial<PinShortcutState> = {}
+  extra: Partial<Parameters<typeof ChatFeed>[0]> = {}
 ) {
   return (
     <MemoryRouter>
-      <PinShortcutProvider value={{ ...INERT_PIN_SHORTCUTS, ...pinShortcuts }}>
-        <ChatFeed
-          entries={entries}
-          ctx={ctx}
-          heldBlockId={null}
-          answeringBlockId={null}
-          onAnswer={onAnswer}
-          {...extra}
-        />
-      </PinShortcutProvider>
+      <ChatFeed
+        entries={entries}
+        ctx={ctx}
+        heldBlockId={null}
+        answeringBlockId={null}
+        onAnswer={onAnswer}
+        {...extra}
+      />
     </MemoryRouter>
   );
 }
@@ -157,15 +149,14 @@ function feedElement(
 function renderFeed(
   entries: StreamEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<FeedContext> = {},
-  pinShortcuts: Partial<PinShortcutState> = {}
+  ctxOverrides: Partial<FeedContext> = {}
 ) {
   const onAnswer = vi.fn();
   const onOpenMedia = vi.fn();
   const ctx = makeCtx(ctxOverrides, onOpenMedia);
-  const view = render(feedElement(entries, ctx, onAnswer, extra, pinShortcuts));
+  const view = render(feedElement(entries, ctx, onAnswer, extra));
   const rerenderWith = (next: StreamEntry[]) =>
-    view.rerender(feedElement(next, ctx, onAnswer, extra, pinShortcuts));
+    view.rerender(feedElement(next, ctx, onAnswer, extra));
   return { onAnswer, onOpenMedia, rerenderWith };
 }
 
@@ -1008,44 +999,33 @@ describe("ChatFeed", () => {
   });
 
   it("renders every attachment type", () => {
-    const { onOpenMedia } = renderFeed(
-      [
-        blockEntry(
-          block({
-            id: "a1",
-            attachments: [
-              fileAttachment({
-                mediaId: 7,
-                fileName: "shot.png",
-                sizeBytes: 2048,
-              }),
-              fileAttachment({
-                mediaId: 8,
-                fileName: "notes.md",
-                sizeBytes: 100,
-              }),
-              { type: "link", url: "https://example.com/x", title: "Example" },
-              { type: "pr", url: "https://github.com/o/r/pull/1" },
-              {
-                type: "code",
-                code: "const a = 1;",
-                language: "ts",
-                path: "a.ts",
-              },
-              { type: "pin", pinId: "pin_1" },
-              { type: "pin", pinId: "pin_missing" },
-            ],
-          })
-        ),
-      ],
-      {},
-      {},
-      {
-        pins: [
-          { id: "pin_1", label: "Dev URL", value: "http://x", type: "url" },
-        ],
-      }
-    );
+    const { onOpenMedia } = renderFeed([
+      blockEntry(
+        block({
+          id: "a1",
+          attachments: [
+            fileAttachment({
+              mediaId: 7,
+              fileName: "shot.png",
+              sizeBytes: 2048,
+            }),
+            fileAttachment({
+              mediaId: 8,
+              fileName: "notes.md",
+              sizeBytes: 100,
+            }),
+            { type: "link", url: "https://example.com/x", title: "Example" },
+            { type: "pr", url: "https://github.com/o/r/pull/1" },
+            {
+              type: "code",
+              code: "const a = 1;",
+              language: "ts",
+              path: "a.ts",
+            },
+          ],
+        })
+      ),
+    ]);
 
     const image = screen.getByTestId("chat-attachment-image");
     expect(image.querySelector("img")?.getAttribute("src")).toBe(
@@ -1074,88 +1054,6 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-attachment-code").textContent).toContain(
       "a.ts"
     );
-    expect(screen.getByTestId("chat-attachment-pin").textContent).toContain(
-      "Dev URL"
-    );
-    expect(screen.getByTestId("chat-attachment-pin-missing")).toBeTruthy();
-  });
-
-  it("renders pin entries live from the agent's pins, with removed ones by label", () => {
-    const pins = [
-      {
-        id: "pin_a",
-        label: "Dev URL",
-        value: "http://localhost:5173",
-        type: "url" as const,
-      },
-      {
-        id: "pin_s",
-        label: "Rerun",
-        value: "rerun tests",
-        type: "shortcut" as const,
-      },
-    ];
-    const onRunShortcut = vi.fn();
-    renderFeed(
-      [
-        {
-          type: "pin",
-          id: "pin:1",
-          action: "created",
-          pins: [
-            { id: "pin_a", label: "Dev URL" },
-            { id: "pin_gone", label: "Old" },
-          ],
-          at: "2026-09-02T10:00:00.000Z",
-        },
-        {
-          type: "pin",
-          id: "pin:2",
-          action: "updated",
-          pins: [{ id: "pin_s", label: "Rerun" }],
-          at: "2026-09-02T10:01:00.000Z",
-        },
-        {
-          type: "pin",
-          id: "pin:3",
-          action: "deleted",
-          pins: [
-            { id: "pin_x", label: "Scratch" },
-            { id: "pin_y", label: "Notes" },
-          ],
-          at: "2026-09-02T10:02:00.000Z",
-        },
-      ],
-      {},
-      {},
-      { pins, onRunShortcut }
-    );
-    const entries = screen.getAllByTestId("chat-pin-entry");
-    expect(entries).toHaveLength(3);
-    expect(
-      screen.getAllByTestId("chat-pin-entry-verb").map((n) => n.textContent)
-    ).toEqual(["Pinned 2 items", "Updated pin", "Removed 2 pins"]);
-    // Created: the live pin renders with the sidebar's own item; the one
-    // that has since gone is named by its snapshotted label.
-    const live = screen.getAllByTestId("chat-pin-entry-pin");
-    expect(live[0]!.textContent).toContain("Dev URL");
-    expect(live[0]!.textContent).toContain("localhost:5173");
-    expect(
-      screen.getByTestId("chat-pin-entry-pin-missing").textContent
-    ).toContain("Old");
-    // Updated: a shortcut in the stream is runnable.
-    const button = live[1]!.querySelector("button");
-    expect(button?.textContent).toContain("Rerun");
-    fireEvent.click(button!);
-    expect(onRunShortcut).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "pin_s" }),
-      expect.anything()
-    );
-    // Deleted: nothing to render, so the labels stand in.
-    expect(entries[2]!.textContent).toContain("Scratch, Notes");
-    expect(
-      entries[2]!.querySelector('[data-testid="chat-pin-entry-pin"]')
-    ).toBeNull();
   });
 
   it("renders status lines with a collapsed count", () => {
@@ -1348,78 +1246,6 @@ describe("ChatFeed", () => {
     expect(first.textContent).toContain("Sending");
   });
 
-  it("renders a review card and opens the review it links to", () => {
-    const onOpenReview = vi.fn();
-    renderFeed(
-      [
-        {
-          type: "review",
-          id: "review:12",
-          reviewId: 12,
-          reviewerType: "agent",
-          reviewerAgentId: "agt_reviewer",
-          reviewerName: "backend-security",
-          summary: "Two things to fix",
-          status: "partially_resolved",
-          itemCount: 3,
-          resolvedCount: 1,
-          at: "2026-09-02T10:00:00.000Z",
-        },
-      ],
-      {},
-      {
-        onOpenReview,
-        peers: peerDirectory(AGENT_ID, [
-          {
-            id: "agt_reviewer",
-            name: "Reviewer",
-            type: "codex",
-            parentAgentId: AGENT_ID,
-          },
-        ]),
-      }
-    );
-    const card = screen.getByTestId("chat-review");
-    // Header and block name the same actor: the persona it reviewed as.
-    expect(
-      card.querySelector("[data-testid='chat-post-author']")?.textContent
-    ).toBe("backend-security");
-    expect(card.textContent).toContain("Review · backend-security");
-    expect(card.textContent).toContain("1/3 resolved");
-    expect(card.textContent).toContain("Open");
-    // The collapsed block is a status line, not a copy of the review body.
-    expect(card.textContent).not.toContain("Two things to fix");
-    fireEvent.click(
-      screen.getByRole("button", { name: /open review from backend-security/i })
-    );
-    expect(onOpenReview).toHaveBeenCalledWith(12);
-  });
-
-  it("attributes a human review to the user and says when it approved", () => {
-    renderFeed([
-      {
-        type: "review",
-        id: "review:13",
-        reviewId: 13,
-        reviewerType: "human",
-        reviewerAgentId: null,
-        reviewerName: null,
-        summary: null,
-        status: "resolved",
-        itemCount: 0,
-        resolvedCount: 0,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ]);
-    const card = screen.getByTestId("chat-review");
-    expect(
-      card.querySelector("[data-testid='chat-post-author']")?.textContent
-    ).toBe("You");
-    expect(card.textContent).toContain("Review · Human reviewer");
-    expect(card.textContent).toContain("Approved · no feedback");
-    expect(card.textContent).toContain("Resolved");
-  });
-
   it("renders a file block as the agent's post with its image, opening the lightbox", () => {
     const { onOpenMedia } = renderFeed([
       blockEntry(
@@ -1451,36 +1277,6 @@ describe("ChatFeed", () => {
 });
 
 describe("memoised rows still repaint when their data changes", () => {
-  it("shows a pin's new value when a fresh ctx carries it", () => {
-    const entries: StreamEntry[] = [
-      {
-        type: "pin",
-        id: "pin:1",
-        action: "created",
-        pins: [{ id: "p1", label: "Dev Server" }],
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ];
-    const onAnswer = vi.fn();
-    const onOpenMedia = vi.fn();
-    const pinAt = (value: string) => [
-      { id: "p1", label: "Dev Server", type: "url" as const, value },
-    ];
-    const ctx = makeCtx({}, onOpenMedia);
-    const view = render(
-      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://a") })
-    );
-    // Scoped to this tree so nothing else in the document can answer.
-    const pin = () => within(view.container).getByTestId("chat-pin-entry-pin");
-    expect(pin().textContent).toContain("http://a");
-    // Same entries, same ctx: only the pin context moved, and the memoised
-    // pin row must still follow the sidebar through it.
-    view.rerender(
-      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://b") })
-    );
-    expect(pin().textContent).toContain("http://b");
-  });
-
   it("updates a status line's label and collapsed count", () => {
     const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
     expect(screen.getByTestId("chat-status").textContent).toContain("Reading");

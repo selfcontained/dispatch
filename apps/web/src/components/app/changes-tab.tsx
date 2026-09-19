@@ -1,10 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BlockReviewSeverity } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
-import { FileDiff, Loader2 } from "lucide-react";
+import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
 import { parseDiff } from "react-diff-view";
 
 import { useAgentDiff } from "@/hooks/use-agent-diff";
+import { useRootAgentId } from "@/hooks/use-agent-tree";
 import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
@@ -14,8 +16,11 @@ import {
   reviewDraftAtomFamily,
 } from "@/lib/store";
 import { useVisibleDiffFiles } from "@/hooks/use-visible-diff";
+import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { ReviewModeBar } from "@/components/app/review-mode";
-import { useAllReviewFeedbackItems } from "@/hooks/use-agent-reviews";
+import { type Agent } from "@/components/app/types";
+import { Button } from "@/components/ui/button";
+import { type AgentType } from "@/lib/agent-types";
 import {
   findLastChangeKeyInRange,
   type LineSelection,
@@ -25,23 +30,78 @@ import { DiffPane } from "@/components/app/changes-diff-section";
 
 type ChangesTabProps = {
   agentId: string | null;
+  agent: Agent | null;
+  enabledAgentTypes: AgentType[];
   active: boolean;
   isMobile?: boolean;
-  onReviewSubmitted?: (reviewId: number) => void;
+  /** A hand-written review was posted as a review block. */
+  onReviewPosted?: (blockId: string) => void;
 };
+
+/**
+ * The toolbar above the diff: launch personas (reviewers) as children of
+ * this agent, or review the diff by hand and post it as a review block.
+ */
+function ChangesToolbar({
+  agent,
+  enabledAgentTypes,
+  onStartReview,
+}: {
+  agent: Agent;
+  enabledAgentTypes: AgentType[];
+  onStartReview: () => void;
+}): JSX.Element {
+  const isStopped = agent.status !== "running";
+  return (
+    <div
+      className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
+      data-testid="changes-toolbar"
+    >
+      <span className="text-xs font-medium text-muted-foreground">Review</span>
+      <div className="flex-1" />
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        data-testid="changes-start-review"
+        onClick={onStartReview}
+      >
+        <MessageSquarePlus className="h-3.5 w-3.5" />
+        Leave a review
+      </Button>
+      <PersonaLauncher
+        agent={agent}
+        enabledAgentTypes={enabledAgentTypes}
+        label="Launch personas"
+        disabled={isStopped || agent.status === "archiving"}
+        disabledReason={
+          isStopped
+            ? "Agent is stopped — start it before launching a persona."
+            : agent.status === "archiving"
+              ? "Agent is archiving."
+              : undefined
+        }
+      />
+    </div>
+  );
+}
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
+  agent,
+  enabledAgentTypes,
   active,
   isMobile,
-  onReviewSubmitted,
+  onReviewPosted,
 }: ChangesTabProps): JSX.Element {
+  // A hand-written review is a block in the agent's stream: the root's.
+  // Nothing is fetched while the tab is inactive.
+  const rootId = useRootAgentId(active ? agentId : null);
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
-  const feedbackItems = useAllReviewFeedbackItems(agentId, active);
   const [viewState, setViewState] = useAtom(
     diffViewStateAtomFamily(agentId ?? "")
   );
@@ -103,6 +163,16 @@ export const ChangesTab = memo(function ChangesTab({
     [setReviewState]
   );
 
+  const setDraftSeverity = useCallback(
+    (id: string, severity: BlockReviewSeverity) => {
+      setReviewState((prev) => ({
+        ...prev,
+        drafts: prev.drafts.map((d) => (d.id === id ? { ...d, severity } : d)),
+      }));
+    },
+    [setReviewState]
+  );
+
   const clearDrafts = useCallback(() => {
     setReviewState((prev) => ({
       ...prev,
@@ -146,14 +216,6 @@ export const ChangesTab = memo(function ChangesTab({
   );
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [focusedFeedbackItemId, setFocusedFeedbackItemId] = useState<
-    number | null
-  >(null);
-  const handleFeedbackFocusComplete = useCallback((feedbackItemId: number) => {
-    setFocusedFeedbackItemId((current) =>
-      current === feedbackItemId ? null : current
-    );
-  }, []);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
   );
@@ -169,7 +231,6 @@ export const ChangesTab = memo(function ChangesTab({
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
-  const navFeedbackTarget = searchParams.get("feedback");
 
   const files = useVisibleDiffFiles(data, navFileTarget);
 
@@ -194,17 +255,11 @@ export const ChangesTab = memo(function ChangesTab({
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
     if (isMobile) setFileTreeOpen(false);
-    const feedbackItemId = navFeedbackTarget ? Number(navFeedbackTarget) : null;
-    setFocusedFeedbackItemId(
-      feedbackItemId != null && Number.isInteger(feedbackItemId)
-        ? feedbackItemId
-        : null
-    );
     setSearchParams({}, { replace: true });
     if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (!navFeedbackTarget && navLineTarget && targetFile.diff) {
+        if (navLineTarget && targetFile.diff) {
           const lineNum = Number(navLineTarget);
           if (Number.isInteger(lineNum) && lineNum > 0) {
             requestAnimationFrame(() => {
@@ -237,7 +292,6 @@ export const ChangesTab = memo(function ChangesTab({
   }, [
     navFileTarget,
     navLineTarget,
-    navFeedbackTarget,
     files,
     isMobile,
     scrollToFile,
@@ -305,33 +359,50 @@ export const ChangesTab = memo(function ChangesTab({
     );
   }
 
+  const toolbar =
+    agent && agentId ? (
+      reviewMode ? (
+        <ReviewModeBar
+          agentId={agentId}
+          rootId={rootId}
+          drafts={draftComments}
+          onClearDrafts={clearDrafts}
+          onRemoveDraft={removeDraft}
+          onSetDraftSeverity={setDraftSeverity}
+          onExitReview={() => setReviewMode(false)}
+          onReviewPosted={(blockId) => {
+            setReviewMode(false);
+            onReviewPosted?.(blockId);
+          }}
+        />
+      ) : (
+        <ChangesToolbar
+          agent={agent}
+          enabledAgentTypes={enabledAgentTypes}
+          onStartReview={() => setReviewMode(true)}
+        />
+      )
+    ) : null;
+
   if (files.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-        <FileDiff className="h-8 w-8" />
-        <p className="text-sm">
-          {hideTestFiles && data?.files.length
-            ? "No non-test changes"
-            : "No changes yet"}
-        </p>
+      <div className="flex h-full min-h-0 flex-col">
+        {toolbar}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+          <FileDiff className="h-8 w-8" />
+          <p className="text-sm">
+            {hideTestFiles && data?.files.length
+              ? "No non-test changes"
+              : "No changes yet"}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {reviewMode && agentId && (
-        <ReviewModeBar
-          agentId={agentId}
-          drafts={draftComments}
-          onClearDrafts={clearDrafts}
-          onExitReview={() => setReviewMode(false)}
-          onReviewSubmitted={(reviewId) => {
-            setReviewMode(false);
-            onReviewSubmitted?.(reviewId);
-          }}
-        />
-      )}
+      {toolbar}
       <div className="flex min-h-0 flex-1">
         <FileTree
           files={files}
@@ -362,9 +433,6 @@ export const ChangesTab = memo(function ChangesTab({
           onRemoveDraft={removeDraft}
           onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
-          feedbackItems={feedbackItems}
-          focusedFeedbackItemId={focusedFeedbackItemId}
-          onFeedbackFocusComplete={handleFeedbackFocusComplete}
         />
       </div>
     </div>

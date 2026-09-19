@@ -120,6 +120,8 @@ export type FeedContext = {
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
   onOpenMedia: (mediaId: number) => void;
+  /** Opens the Changes tab on a file, at a line when one is given. */
+  onOpenPath?: (path: string, line: number | null) => void;
   /**
    * Adds (`remove: false`) or takes back an emoji reaction on an agent's
    * block. Absent, the feed shows reactions but offers no way to change
@@ -133,7 +135,7 @@ export type FeedContext = {
     blockId: string,
     values: Record<string, string | number | boolean>
   ) => void;
-  /** `PATCH …/state`: resolve a finding, tick a task. */
+  /** `PATCH …/state`: resolve, dispute or reopen a finding. */
   onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
 };
 
@@ -601,7 +603,7 @@ function BlockBody({
   inThread: boolean;
   highlightFindingId: string | null;
 }): JSX.Element | null {
-  const { onSubmitForm, onSetBlockState, onOpenThread } = ctx;
+  const { onSubmitForm, onSetBlockState, onOpenThread, onOpenPath } = ctx;
   const setState = onSetBlockState
     ? (patch: BlockStatePatch) => onSetBlockState(block.id, patch)
     : undefined;
@@ -635,6 +637,7 @@ function BlockBody({
               ? (findingId) => onOpenThread(block.id, findingId)
               : undefined
           }
+          onOpenPath={onOpenPath}
           // In the panel the review is the whole subject: open, with the
           // findings' bodies, and the finding the link named picked out.
           defaultExpanded={inThread}
@@ -643,13 +646,7 @@ function BlockBody({
         />
       );
     case "tasks":
-      return (
-        <TasksBlockBody
-          block={block}
-          disabled={answersDisabled}
-          onSetState={setState}
-        />
-      );
+      return <TasksBlockBody block={block} />;
     case "link":
       return <LinkBlockBody block={block} />;
     case "text":

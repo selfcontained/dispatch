@@ -70,9 +70,6 @@ export function DiffPane({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
-  feedbackItems,
-  focusedFeedbackItemId,
-  onFeedbackFocusComplete,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -107,11 +104,6 @@ export function DiffPane({
           onRemoveDraft={onRemoveDraft}
           onUpdateDraft={onUpdateDraft}
           onStartReview={onStartReview}
-          feedbackItems={feedbackItems?.filter(
-            (fi) => fi.filePath === file.path
-          )}
-          focusedFeedbackItemId={focusedFeedbackItemId}
-          onFeedbackFocusComplete={onFeedbackFocusComplete}
         />
       ))}
     </div>
@@ -150,9 +142,6 @@ function FileDiffSection({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
-  feedbackItems,
-  focusedFeedbackItemId,
-  onFeedbackFocusComplete,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div
@@ -214,9 +203,6 @@ function FileDiffSection({
               onRemoveDraft={onRemoveDraft}
               onUpdateDraft={onUpdateDraft}
               onStartReview={onStartReview}
-              feedbackItems={feedbackItems}
-              focusedFeedbackItemId={focusedFeedbackItemId}
-              onFeedbackFocusComplete={onFeedbackFocusComplete}
             />
           </motion.div>
         )}
@@ -251,9 +237,6 @@ function FileDiffContent({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
-  feedbackItems,
-  focusedFeedbackItemId,
-  onFeedbackFocusComplete,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -338,9 +321,6 @@ function FileDiffContent({
       onRemoveDraft={onRemoveDraft}
       onUpdateDraft={onUpdateDraft}
       onStartReview={onStartReview}
-      feedbackItems={feedbackItems}
-      focusedFeedbackItemId={focusedFeedbackItemId}
-      onFeedbackFocusComplete={onFeedbackFocusComplete}
     />
   );
 }

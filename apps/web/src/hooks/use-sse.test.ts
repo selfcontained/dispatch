@@ -19,23 +19,14 @@ import {
   type MediaFile,
 } from "@/components/app/types";
 
-import {
-  applyAgentUpsert,
-  applyDiffStateChanged,
-  applyReviewCreated,
-  useSSE,
-} from "./use-sse";
+import { applyDiffStateChanged, useSSE } from "./use-sse";
 
 vi.mock("@/lib/web-notifications", () => ({
   showWebNotification: vi.fn(() => false),
 }));
 
-function agent(
-  id: string,
-  submittedReviewId: number | null,
-  createdAt = "2026-07-16T12:00:00.000Z"
-): Agent {
-  return { id, submittedReviewId, createdAt } as Agent;
+function agent(id: string, createdAt = "2026-07-16T12:00:00.000Z"): Agent {
+  return { id, createdAt } as Agent;
 }
 
 describe("applyDiffStateChanged", () => {
@@ -71,30 +62,6 @@ describe("applyDiffStateChanged", () => {
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: agentDiffQueryKey("agent-1"),
-    });
-  });
-});
-
-describe("review submission SSE state", () => {
-  it("marks the reviewer submitted when review.created arrives", () => {
-    const queryClient = new QueryClient();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("reviewer", null)]);
-
-    applyReviewCreated(queryClient, "reviewer", 42);
-
-    expect(queryClient.getQueryData<Agent[]>(["agents"])?.[0]).toMatchObject({
-      id: "reviewer",
-      submittedReviewId: 42,
-    });
-  });
-
-  it("does not let a stale agent upsert reactivate a submitted review", () => {
-    const current = [agent("reviewer", 42)];
-    const incoming = agent("reviewer", null);
-
-    expect(applyAgentUpsert(current, incoming)[0]).toMatchObject({
-      id: "reviewer",
-      submittedReviewId: 42,
     });
   });
 });
@@ -502,13 +469,13 @@ describe("useSSE message handling", () => {
 
   it("replaces the agent list from a snapshot in created-at order", () => {
     const { queryClient, emit } = renderMessages();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("stale", null)]);
+    queryClient.setQueryData<Agent[]>(["agents"], [agent("stale")]);
 
     emit({
       type: "snapshot",
       agents: [
-        agent("older", null, "2026-07-16T10:00:00.000Z"),
-        agent("newer", null, "2026-07-16T14:00:00.000Z"),
+        agent("older", "2026-07-16T10:00:00.000Z"),
+        agent("newer", "2026-07-16T14:00:00.000Z"),
       ],
     });
 
@@ -538,12 +505,12 @@ describe("useSSE message handling", () => {
     const { queryClient, emit } = renderMessages();
     queryClient.setQueryData<Agent[]>(
       ["agents"],
-      [agent("old", null, "2026-07-16T10:00:00.000Z")]
+      [agent("old", "2026-07-16T10:00:00.000Z")]
     );
 
     emit({
       type: "agent.upsert",
-      agent: agent("fresh", null, "2026-07-16T18:00:00.000Z"),
+      agent: agent("fresh", "2026-07-16T18:00:00.000Z"),
     });
 
     expect(
@@ -555,7 +522,7 @@ describe("useSSE message handling", () => {
     const { queryClient, emit } = renderMessages();
     queryClient.setQueryData<Agent[]>(
       ["agents"],
-      [agent("keep", null), agent("drop", null)]
+      [agent("keep"), agent("drop")]
     );
 
     emit({ type: "agent.deleted", agentId: "drop" });
@@ -591,8 +558,8 @@ describe("useSSE message handling", () => {
     queryClient.setQueryData<Agent[]>(
       ["agents"],
       [
-        { ...agent("a1", null), hasStream: false } as Agent,
-        { ...agent("a2", null), hasStream: false } as Agent,
+        { ...agent("a1"), hasStream: false } as Agent,
+        { ...agent("a2"), hasStream: false } as Agent,
       ]
     );
 
@@ -663,88 +630,6 @@ describe("useSSE message handling", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: MEDIA_ITEM_QUERY_PREFIX,
     });
-  });
-
-  it("marks the reviewer submitted and refreshes review state on review.created", () => {
-    const { queryClient, emit, invalidateQueries } = renderMessages();
-    queryClient.setQueryData<Agent[]>(
-      ["agents"],
-      [agent("reviewer", null), agent("author", null)]
-    );
-
-    emit({
-      type: "review.created",
-      agentId: "author",
-      reviewId: 42,
-      reviewerAgentId: "reviewer",
-    });
-
-    expect(
-      queryClient
-        .getQueryData<Agent[]>(["agents"])
-        ?.map((a) => a.submittedReviewId)
-    ).toEqual([42, null]);
-    expectInvalidatedSet(invalidateQueries, [
-      ["agent-reviews", "author"],
-      ["agent-feedback-items", "author"],
-      // The Chat feed carries a card per review.
-      ["stream", "author"],
-    ]);
-  });
-
-  it("still refreshes review state when no reviewer is attributed", () => {
-    // Human-authored reviews carry no reviewer agent. The missing attribution
-    // must skip only the badge, not the refresh of the review lists.
-    const { queryClient, emit, invalidateQueries } = renderMessages();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("author", null)]);
-
-    emit({
-      type: "review.created",
-      agentId: "author",
-      reviewId: 42,
-      reviewerAgentId: null,
-    });
-
-    expect(
-      queryClient.getQueryData<Agent[]>(["agents"])?.[0]?.submittedReviewId
-    ).toBeNull();
-    expectInvalidatedSet(invalidateQueries, [
-      ["agent-reviews", "author"],
-      ["agent-feedback-items", "author"],
-      // The Chat feed carries a card per review.
-      ["stream", "author"],
-    ]);
-  });
-
-  it("scopes the review-detail predicate to the event's agent", () => {
-    const { emit, invalidateQueries } = renderMessages();
-
-    emit({ type: "review.updated", agentId: "author" });
-
-    const predicate = invalidateQueries.mock.calls
-      .map(
-        ([filters]) =>
-          (filters as { predicate?: (q: unknown) => boolean }).predicate
-      )
-      .find(Boolean)!;
-    const matches = (queryKey: unknown[]) => predicate({ queryKey } as never);
-
-    expect(matches(["agent-review-detail", "author", 1])).toBe(true);
-    expect(matches(["agent-review-detail", "someone-else", 1])).toBe(false);
-    expect(matches(["agent-reviews", "author"])).toBe(false);
-  });
-
-  it("leaves submittedReviewId alone for review updates", () => {
-    // Only creation carries a reviewId; an update must not clear or reassign
-    // the badge the reviewer already earned.
-    const { queryClient, emit } = renderMessages();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("reviewer", 42)]);
-
-    emit({ type: "review_feedback.updated", agentId: "reviewer" });
-
-    expect(
-      queryClient.getQueryData<Agent[]>(["agents"])?.[0]?.submittedReviewId
-    ).toBe(42);
   });
 
   it("puts a chat.entry straight into the cached feed without a refetch", () => {
@@ -960,7 +845,7 @@ describe("useSSE message handling", () => {
   it("no longer refetches the chat feed for a status-only agent upsert", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
     const before = {
-      ...agent("agt_1", null),
+      ...agent("agt_1"),
       latestEvent: { type: "working", message: "a", updatedAt: "1" },
       pins: [],
     } as unknown as Agent;
@@ -974,16 +859,6 @@ describe("useSSE message handling", () => {
       },
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
-
-    // Pin activity still reaches the feed through the agent row.
-    emit({
-      type: "agent.upsert",
-      agent: {
-        ...before,
-        pins: [{ label: "PR", value: "#1", type: "string" }],
-      },
-    });
-    expectInvalidatedSet(invalidateQueries, [["stream", "agt_1"]]);
   });
 
   it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {
@@ -1089,7 +964,7 @@ describe("useSSE message handling", () => {
 
   it("ignores an unparseable frame and keeps handling the next one", () => {
     const { queryClient, emit, emitRaw } = renderMessages();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("keep", null)]);
+    queryClient.setQueryData<Agent[]>(["agents"], [agent("keep")]);
 
     expect(() => emitRaw("not json")).not.toThrow();
     expect(
@@ -1103,7 +978,7 @@ describe("useSSE message handling", () => {
 
   it("ignores an event type it does not know", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("keep", null)]);
+    queryClient.setQueryData<Agent[]>(["agents"], [agent("keep")]);
 
     emit({ type: "agent.invented_by_a_newer_server", agentId: "keep" });
 

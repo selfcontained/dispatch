@@ -3,35 +3,24 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
 import { MediaLightbox } from "@/components/app/media-lightbox";
-import { PinList } from "@/components/app/pins-panel";
-import { type AgentPin, type MediaFile } from "@/components/app/types";
+import { type MediaFile } from "@/components/app/types";
 import {
   type HistoryEvent,
-  type HistoryFeedbackItem,
   type HistoryMedia,
 } from "@/hooks/use-agent-history";
-import {
-  EventTimeline,
-  FeedbackTimeline,
-} from "@/components/app/agent-history-timeline";
+import { EventTimeline } from "@/components/app/agent-history-timeline";
 import { mediaItemQueryKey } from "@/hooks/use-media";
 
-type DetailTab = "events" | "media" | "pins" | "feedback";
+type DetailTab = "events" | "media";
 
 export function DetailTabs({
   events,
   media,
-  pins,
-  feedback,
   agentId,
-  workspaceRoot,
 }: {
   events: HistoryEvent[];
   media: HistoryMedia[];
-  pins: AgentPin[];
-  feedback: HistoryFeedbackItem[];
   agentId: string;
-  workspaceRoot: string | null;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<DetailTab>("events");
@@ -56,8 +45,6 @@ export function DetailTabs({
   const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
     { key: "events", label: "Events", count: events.length },
     { key: "media", label: "Media", count: media.length },
-    { key: "pins", label: "Pins", count: pins.length },
-    { key: "feedback", label: "Feedback", count: feedback.length },
   ];
 
   return (
@@ -137,30 +124,6 @@ export function DetailTabs({
           {tab === "media" && media.length === 0 && (
             <p className="py-6 text-center text-xs text-muted-foreground">
               No media captured.
-            </p>
-          )}
-
-          {tab === "pins" && pins.length > 0 && (
-            <div className="divide-y divide-border rounded-md border border-border">
-              <PinList
-                pins={pins}
-                workspaceRoot={workspaceRoot}
-                collapseScope={agentId}
-              />
-            </div>
-          )}
-          {tab === "pins" && pins.length === 0 && (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              No pins recorded.
-            </p>
-          )}
-
-          {tab === "feedback" && feedback.length > 0 && (
-            <FeedbackTimeline feedback={feedback} />
-          )}
-          {tab === "feedback" && feedback.length === 0 && (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              No feedback received.
             </p>
           )}
         </div>

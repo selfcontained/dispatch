@@ -4,7 +4,6 @@ import { type FileData } from "react-diff-view";
 import type { DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
 import { InlineCommentForm } from "@/components/app/diff-comment-form";
 import { InlineDraftAnnotation } from "@/components/app/diff-draft-annotation";
-import { InlineFeedbackAnnotation } from "@/components/app/diff-feedback-annotation";
 import {
   findLastChangeKeyInRange,
   type LineSelection,
@@ -34,50 +33,10 @@ export function useDiffWidgets({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
-  feedbackItems,
-  focusedFeedbackItemId,
-  onFeedbackFocusComplete,
 }: UseDiffWidgetsOptions): Record<string, React.ReactElement> {
   return useMemo(() => {
     if (!file) return {};
     const w: Record<string, React.ReactElement> = {};
-
-    if (feedbackItems) {
-      const grouped = new Map<string, typeof feedbackItems>();
-      for (const fi of feedbackItems) {
-        if (fi.lineStart == null) continue;
-        const key = findLastChangeKeyInRange(
-          file.hunks,
-          fi.lineStart,
-          fi.lineEnd ?? fi.lineStart
-        );
-        if (!key) continue;
-        const list = grouped.get(key) ?? [];
-        list.push(fi);
-        grouped.set(key, list);
-      }
-      for (const [key, items] of grouped) {
-        w[key] = (
-          <>
-            {items.map((fi) => {
-              const firstMsg = fi.messages[0]?.content?.body ?? "";
-              const isResolved = fi.status === "resolved";
-              return (
-                <InlineFeedbackAnnotation
-                  key={fi.id}
-                  agentId={agentId}
-                  feedbackItem={fi}
-                  comment={firstMsg}
-                  isResolved={isResolved}
-                  focused={fi.id === focusedFeedbackItemId}
-                  onFocusComplete={onFeedbackFocusComplete}
-                />
-              );
-            })}
-          </>
-        );
-      }
-    }
 
     if (draftComments) {
       for (const draft of draftComments) {
@@ -150,8 +109,5 @@ export function useDiffWidgets({
     onAddDraft,
     onRemoveDraft,
     onUpdateDraft,
-    feedbackItems,
-    focusedFeedbackItemId,
-    onFeedbackFocusComplete,
   ]);
 }

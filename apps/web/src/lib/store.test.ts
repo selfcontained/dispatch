@@ -17,12 +17,9 @@ import {
   type SplitPaneState,
   atomWithLocalStorage,
   isPersistedSplitPaneState,
-  reconcileSeenSurfaceIdsStorage,
-  SEEN_SURFACE_IDS_STORAGE_PREFIX,
-  isSystemSidebarTab,
+  asMediaSidebarTab,
   reconcileAgentScopedStorage,
-  CUSTOM_TAB_ORDER_STORAGE_PREFIX,
-  SURFACE_FORM_DRAFT_STORAGE_PREFIX,
+  REVIEW_DRAFTS_STORAGE_PREFIX,
   CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
   chatShowChildAgentsAtom,
 } from "./store";
@@ -51,27 +48,27 @@ describe("sidebar tab and scoped storage helpers", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => window.localStorage.clear());
 
-  it("keeps system tabs explicit while permitting dynamic surface ids", () => {
-    expect(isSystemSidebarTab("pins")).toBe(true);
-    expect(isSystemSidebarTab("surface-a")).toBe(false);
-    expect(isSystemSidebarTab("review")).toBe(false);
+  it("maps a stored tab id to a live tab, falling back to the rail", () => {
+    expect(asMediaSidebarTab("media")).toBe("media");
+    expect(asMediaSidebarTab("rail")).toBe("rail");
+    // Ids from before the cutover: the pins/reviews tabs and surface ids.
+    expect(asMediaSidebarTab("pins")).toBe("rail");
+    expect(asMediaSidebarTab("reviews")).toBe("rail");
+    expect(asMediaSidebarTab("srf_abc")).toBe("rail");
+    expect(asMediaSidebarTab(undefined)).toBe("rail");
   });
 
-  it("reconciles all per-agent storage in one pass with safe draft extraction", () => {
+  it("reconciles all per-agent storage in one pass", () => {
     window.localStorage.setItem(
       `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
       "{}"
     );
     window.localStorage.setItem(
-      `${CUSTOM_TAB_ORDER_STORAGE_PREFIX}agt_dead`,
-      "[]"
-    );
-    window.localStorage.setItem(
-      `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_live:surface:block`,
+      `${REVIEW_DRAFTS_STORAGE_PREFIX}agt_dead`,
       "{}"
     );
     window.localStorage.setItem(
-      `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_dead:surface:block`,
+      `${REVIEW_DRAFTS_STORAGE_PREFIX}agt_live`,
       "{}"
     );
     window.localStorage.setItem("dispatch:unrelated", "keep");
@@ -80,18 +77,16 @@ describe("sidebar tab and scoped storage helpers", () => {
 
     expect(window.localStorage.getItem("dispatch:unrelated")).toBe("keep");
     expect(
-      window.localStorage.getItem(`${CUSTOM_TAB_ORDER_STORAGE_PREFIX}agt_dead`)
+      window.localStorage.getItem(`${REVIEW_DRAFTS_STORAGE_PREFIX}agt_dead`)
     ).toBeNull();
     expect(
-      window.localStorage.getItem(
-        `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_live:surface:block`
-      )
+      window.localStorage.getItem(`${REVIEW_DRAFTS_STORAGE_PREFIX}agt_live`)
     ).not.toBeNull();
     expect(
       window.localStorage.getItem(
-        `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_dead:surface:block`
+        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
       )
-    ).toBeNull();
+    ).not.toBeNull();
   });
 });
 
@@ -428,51 +423,6 @@ describe("reconcileSplitPaneStateStorage", () => {
     ).not.toBeNull();
     expect(
       window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_2`)
-    ).toBeNull();
-  });
-});
-
-describe("reconcileSeenSurfaceIdsStorage", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-
-  afterEach(() => {
-    window.localStorage.clear();
-  });
-
-  const storeForAgent = (agentId: string) => {
-    window.localStorage.setItem(
-      `${SEEN_SURFACE_IDS_STORAGE_PREFIX}${agentId}`,
-      JSON.stringify(["surface-a"])
-    );
-  };
-
-  it("removes keys for agents not in the live set", () => {
-    storeForAgent("agt_1");
-    storeForAgent("agt_2");
-
-    reconcileSeenSurfaceIdsStorage(["agt_1"]);
-
-    expect(
-      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_1`)
-    ).not.toBeNull();
-    expect(
-      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_2`)
-    ).toBeNull();
-  });
-
-  it("leaves unrelated keys untouched", () => {
-    window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
-    storeForAgent("agt_dead");
-
-    reconcileSeenSurfaceIdsStorage([]);
-
-    expect(window.localStorage.getItem("dispatch:leftSidebarOpen")).toBe(
-      "true"
-    );
-    expect(
-      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_dead`)
     ).toBeNull();
   });
 });
