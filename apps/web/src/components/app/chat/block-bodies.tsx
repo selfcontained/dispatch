@@ -430,12 +430,17 @@ export function findingsSummary(
   return `${total} ${total === 1 ? "finding" : "findings"} · ${open} open`;
 }
 
-/** First sentence of the summary, for the collapsed header line. */
+/**
+ * First sentence of the summary's first paragraph, for the collapsed
+ * header line; a heading is skipped in favour of the prose under it.
+ */
 export function summarySentence(summary: string): string {
   const line =
     summary
       .split("\n")
-      .map((l) => l.replace(/^[#>*\-\s]+/, "").trim())
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#"))
+      .map((l) => l.replace(/^[>*\-\s]+/, "").trim())
       .find((l) => l.length > 0) ?? "";
   const match = /^(.+?[.!?])(\s|$)/.exec(line);
   return (match ? match[1]! : line).replace(/[*_`]/g, "");

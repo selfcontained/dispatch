@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
@@ -48,6 +48,8 @@ const H = vi.hoisted(() => ({
   answerNow: vi.fn(),
   sendNow: vi.fn(),
   markRead: vi.fn(),
+  /** What the thread panel shows for whichever thread is open. */
+  threadRoot: null as unknown,
 }));
 
 // No real request may be in flight under a test: the pane's peers query
@@ -95,6 +97,13 @@ vi.mock("@/hooks/use-stream", () => ({
     return () => ({ mutate, isPending: false, variables: undefined });
   })(),
   useMarkStreamRead: () => H.markRead,
+  useThread: () => ({
+    root: H.threadRoot,
+    replies: [],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   // One mutate for the whole file: the feed's rows are memoised on a context
   // built from it.
   useToggleReaction: (() => {
@@ -189,6 +198,7 @@ beforeEach(() => {
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
+  H.threadRoot = null;
   Element.prototype.scrollTo = vi.fn();
   clearChatScrollMemory();
 });
@@ -865,5 +875,93 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("ChatPane threads", () => {
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="location-search">{location.search}</div>;
+  }
+
+  function renderWithUrl(search: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
+          <ChatPane
+            agentId="agt_1"
+            agent={agent}
+            active={true}
+            showChildAgents={true}
+            childAgentIds={[]}
+            onShowChildAgentsChange={vi.fn()}
+            openLightbox={vi.fn()}
+            isMobile={false}
+          />
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  const root = block({
+    id: "root",
+    text: "Plan",
+    replyCount: 3,
+    lastReplyAt: "2026-09-02T10:05:00.000Z",
+  });
+
+  it("shows a reply line on a threaded block and opens the panel into the URL", () => {
+    H.entries = [blockEntry(root)];
+    H.threadRoot = root;
+    renderWithUrl("");
+    const line = screen.getByTestId("chat-thread-line");
+    expect(line.textContent).toContain("3 replies");
+    expect(line.textContent).toContain("last");
+    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
+    fireEvent.click(line);
+    expect(screen.getByTestId("location-search").textContent).toBe(
+      "?thread=root"
+    );
+    expect(
+      screen.getByTestId("chat-thread-panel").getAttribute("data-block-id")
+    ).toBe("root");
+    fireEvent.click(screen.getByTestId("chat-thread-close"));
+    expect(screen.getByTestId("location-search").textContent).toBe("");
+    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
+  });
+
+  it("reopens the thread named in the URL, with its finding", () => {
+    H.entries = [blockEntry(root)];
+    H.threadRoot = root;
+    renderWithUrl("?thread=root&finding=f1");
+    expect(
+      screen.getByTestId("chat-thread-panel").getAttribute("data-block-id")
+    ).toBe("root");
+  });
+
+  it("keeps replies out of the main column", () => {
+    H.entries = [
+      blockEntry(root),
+      blockEntry(
+        block({
+          id: "r1",
+          authorKind: "user",
+          text: "a reply",
+          threadId: "root",
+          replyTo: "root",
+          createdAt: "2026-09-02T10:05:00.000Z",
+        })
+      ),
+    ];
+    renderWithUrl("");
+    expect(
+      screen
+        .getAllByTestId("chat-message")
+        .map((p) => p.getAttribute("data-block-id"))
+    ).toEqual(["root"]);
   });
 });
