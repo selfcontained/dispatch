@@ -97,8 +97,8 @@ type CreateMcpHandlersDeps = {
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
   /**
-   * Enqueue-and-settle delivery for send_message: the row records
-   * the real outcome once the pane write completes instead of "enqueued".
+   * Enqueue-and-settle delivery: the caller learns the real outcome once
+   * the prompt reaches the engine instead of "enqueued".
    */
   enqueueAgentPrompt: EnqueueAgentPrompt;
   appLog: FastifyBaseLogger;

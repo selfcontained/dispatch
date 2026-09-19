@@ -12,8 +12,8 @@
  * The sidebar card an agent renders in, or its own id when it owns a card.
  *
  * Every agent with a parent renders as a row in the Sub Agents section of a
- * card — review agents from launch_persona and plain children from
- * launch_agent alike. Agents launched with `child: false` carry no
+ * card — persona children and plain children from launch_agent alike.
+ * Agents launched with `child: false` carry no
  * parent and own a card.
  *
  * The walk goes all the way to the root rather than stopping at the direct

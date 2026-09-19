@@ -53,18 +53,18 @@ describe("presenceState", () => {
   });
 
   it("overlays a tool blip for four seconds", () => {
-    const blip = { tool: "share_file", at: NOW - TOOL_BLIP_MS + 1 };
+    const blip = { tool: "post", at: NOW - TOOL_BLIP_MS + 1 };
     expect(presenceState(agent(), blip, NOW).detail).toEqual({
       kind: "tool",
-      text: "sharing a file",
+      text: "posting",
     });
-    const expired = { tool: "share_file", at: NOW - TOOL_BLIP_MS };
+    const expired = { tool: "post", at: NOW - TOOL_BLIP_MS };
     expect(presenceState(agent(), expired, NOW).detail.kind).toBe("phase");
   });
 
   it("falls back to the status text when the agent is not running", () => {
     const stopped = agent({ status: "stopped" });
-    const state = presenceState(stopped, { tool: "pin", at: NOW }, NOW);
+    const state = presenceState(stopped, { tool: "post", at: NOW }, NOW);
     expect(state.label).toBe("Stopped");
     expect(state.detail).toEqual({ kind: "phase", text: null });
   });
@@ -72,12 +72,12 @@ describe("presenceState", () => {
 
 describe("toolBlipLabel", () => {
   it("maps the known tools and humanises the rest", () => {
-    expect(toolBlipLabel("share_file")).toBe("sharing a file");
-    expect(toolBlipLabel("pins")).toBe("pinning");
-    expect(toolBlipLabel("chat_update")).toBe("posting to chat");
+    expect(toolBlipLabel("post")).toBe("posting");
+    expect(toolBlipLabel("react")).toBe("reacting");
+    expect(toolBlipLabel("update")).toBe("updating a post");
     expect(toolBlipLabel("launch_agent")).toBe("launching an agent");
     expect(toolBlipLabel("brain_store_object")).toBe("saving notes");
-    expect(toolBlipLabel("surface_update")).toBe("surface update");
+    expect(toolBlipLabel("repo_dev_up")).toBe("dev up");
     expect(toolBlipLabel("repo_dev_up")).toBe("dev up");
   });
 });
@@ -106,12 +106,12 @@ describe("ChatPresenceStrip", () => {
     const store = renderStrip();
     act(() => {
       store.set(agentToolBlipAtomFamily("agt_1"), {
-        tool: "chat_post",
+        tool: "post",
         at: Date.now(),
       });
     });
     expect(screen.getByTestId("chat-presence-tool").textContent).toBe(
-      "posting to chat"
+      "posting"
     );
     act(() => {
       vi.advanceTimersByTime(TOOL_BLIP_MS + 1_000);

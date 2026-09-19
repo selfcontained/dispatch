@@ -10,21 +10,18 @@ import { cn } from "@/lib/utils";
 export const TOOL_BLIP_MS = 4_000;
 
 const TOOL_BLIP_LABELS: Readonly<Record<string, string>> = {
-  share_file: "sharing a file",
-  pin: "pinning",
-  pins: "pinning",
-  chat_post: "posting to chat",
-  chat_update: "posting to chat",
-  chat_react: "reacting in chat",
+  post: "posting",
+  update: "updating a post",
+  react: "reacting",
   launch_agent: "launching an agent",
-  launch_persona: "launching an agent",
+  archive_agent: "archiving an agent",
   brain_store_object: "saving notes",
   brain_append_event: "saving notes",
   brain_list_push: "saving notes",
   brain_list_set: "saving notes",
 };
 
-/** "sharing a file" for the known tools; "surface update" for the rest. */
+/** "posting" for the known tools; a generic label for the rest. */
 export function toolBlipLabel(tool: string): string {
   const known = TOOL_BLIP_LABELS[tool];
   if (known) return known;
