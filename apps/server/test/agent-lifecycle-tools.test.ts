@@ -53,7 +53,6 @@ describe("registerAgentLifecycleTools", () => {
   describe("conditional registration", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
       const allowed = new Set([
-        "dispatch_event",
         "dispatch_rename_session",
         "dispatch_notify",
         "dispatch_list_media",
@@ -64,7 +63,6 @@ describe("registerAgentLifecycleTools", () => {
 
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
-        "dispatch_event",
         "dispatch_rename_session",
         "dispatch_notify",
         "dispatch_list_media",
@@ -78,16 +76,6 @@ describe("registerAgentLifecycleTools", () => {
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_event when upsertEvent is missing from context", () => {
-      const ctx = baseContext();
-      delete ctx.upsertEvent;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      expect(server.tools).toHaveLength(0);
-    });
 
     it("skips dispatch_rename_session when renameSession is missing", () => {
       const ctx = baseContext();
@@ -147,92 +135,13 @@ describe("registerAgentLifecycleTools", () => {
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_event", "dispatch_list_media"]),
+        new Set(["dispatch_notify", "dispatch_list_media"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["dispatch_event", "dispatch_list_media"]);
+      expect(names).toEqual(["dispatch_notify", "dispatch_list_media"]);
     });
   });
-
-  // ── dispatch_event handler ──────────────────────────────────────
-
-  describe("dispatch_event handler", () => {
-    it("calls upsertEvent with correct args and returns formatted text", async () => {
-      const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      const result = await handler({
-        type: "working",
-        message: "Reading files",
-      });
-
-      expect(ctx.upsertEvent).toHaveBeenCalledWith(AGENT_ID, {
-        type: "working",
-        message: "Reading files",
-        metadata: undefined,
-      });
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: `Updated ${AGENT_ID}: working - Reading files`,
-          },
-        ],
-      });
-    });
-
-    it("passes metadata when provided", async () => {
-      const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      await handler({
-        type: "done",
-        message: "Finished",
-        metadata: { key: "value" },
-      });
-
-      expect(ctx.upsertEvent).toHaveBeenCalledWith(AGENT_ID, {
-        type: "done",
-        message: "Finished",
-        metadata: { key: "value" },
-      });
-    });
-
-    it("returns tool error when upsertEvent throws", async () => {
-      const ctx = baseContext();
-      ctx.upsertEvent = vi.fn(async () => {
-        throw new Error("DB connection lost");
-      });
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["dispatch_event"]),
-        ctx
-      );
-
-      const result = await server.tools[0]!.handler({
-        type: "working",
-        message: "test",
-      });
-
-      expect(result).toEqual({
-        content: [{ type: "text", text: "DB connection lost" }],
-        isError: true,
-      });
-    });
-  });
-
-  // ── dispatch_rename_session handler ─────────────────────────────
 
   describe("dispatch_rename_session handler", () => {
     it("calls renameSession and returns result", async () => {

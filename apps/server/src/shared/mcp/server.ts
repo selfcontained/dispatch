@@ -125,7 +125,6 @@ const AGENT_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
   "dispatch_login_link",
-  "dispatch_event",
   "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
@@ -203,7 +202,6 @@ const AGENT_TOOLS = new Set([
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
-  "dispatch_event",
   "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
@@ -274,7 +272,6 @@ const JOB_TOOLS = new Set([
 
 const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_login_link",
-  "dispatch_event",
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
@@ -336,7 +333,7 @@ export type McpRequestContext = {
   worktreeRoot: string | null;
   /**
    * Publishes `agent.tool_invoked` for every tool call on this server
-   * (dynamic repo tools included; `dispatch_event` excluded). Optional so
+   * (dynamic repo tools included). Optional so
    * the token-less `/api/mcp` route and unit tests can omit it.
    */
   publishUiEvent?: (event: ToolInvokedEvent) => void;
@@ -707,8 +704,7 @@ function instrumentToolInvocations(
   const original = server.registerTool.bind(server) as unknown as AnyRegister;
   const instrumented: AnyRegister = (name, config, callback) =>
     original(name, config, (...args) => {
-      // dispatch_event already drives the phase; a blip for it is noise.
-      if (name !== "dispatch_event") {
+      {
         try {
           publish({
             type: "agent.tool_invoked",
@@ -756,7 +752,7 @@ export async function createDispatchMcpServer(
     baseBranch: context.agent?.baseBranch ?? undefined,
   });
 
-  // ── Agent lifecycle tools (dispatch_event, rename, notify, list_media) ──
+  // ── Agent lifecycle tools (rename, notify, list_media) ──
   if (context.agent) {
     registerAgentLifecycleTools(server, allowed, {
       agentId: context.agent.id,

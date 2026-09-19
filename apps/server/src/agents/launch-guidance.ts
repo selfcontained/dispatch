@@ -148,9 +148,8 @@ export const CHAT_SURFACE_GUIDANCE_RULE =
  *
  * - **The MCP tool schemas.** `dispatch_pin`'s own description already lists
  *   every pin type, explains shortcut/confirm/disabled, and says to pair a
- *   blocking shortcut with `waiting_user`; `dispatch_event`'s enumerates the
- *   status types. Restating them here duplicated a description the agent
- *   already has, in every session, whether or not the flow ever comes up. The
+ *   blocking shortcut with `waiting_user`. Restating that here duplicated a
+ *   description the agent already has, in every session, whether or not the flow ever comes up. The
  *   trimmed rules say *that* these tools matter and leave the *how* to the
  *   schema. This half does not depend on the plugin at all.
  * - **Plugin skills**, for the Playwright methodology (→ `ui-validation` +
@@ -220,7 +219,6 @@ export function buildLaunchGuidance(
         "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
       );
     }
-    rules.push("Report status with dispatch_event to keep the UI current.");
     rules.push("Log task-level progress with job_log.");
     rules.push(
       "Call a job terminal tool when the run is complete, failed, or needs input."
@@ -236,11 +234,6 @@ export function buildLaunchGuidance(
           : "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
     }
-    rules.push(
-      trimmed
-        ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
-        : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
-    );
     if (chatSurface) {
       rules.push(CHAT_SURFACE_GUIDANCE_RULE);
     }

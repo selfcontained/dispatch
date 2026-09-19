@@ -79,20 +79,6 @@ describe("agent.tool_invoked", () => {
     });
   });
 
-  it("skips dispatch_event, which already drives the phase", async () => {
-    const publishUiEvent = vi.fn();
-    const upsertEvent = vi.fn(async () => {});
-    const client = await connect({ publishUiEvent, upsertEvent });
-
-    const result = await client.callTool({
-      name: "dispatch_event",
-      arguments: { type: "working", message: "busy" },
-    });
-    expect(result.isError).toBeFalsy();
-    expect(upsertEvent).toHaveBeenCalled();
-    expect(publishUiEvent).not.toHaveBeenCalled();
-  });
-
   it("covers dynamic repo tools", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "tool-blip-"));
     await mkdir(path.join(repoRoot, ".dispatch"), { recursive: true });

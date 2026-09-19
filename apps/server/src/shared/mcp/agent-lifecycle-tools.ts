@@ -56,50 +56,6 @@ export function registerAgentLifecycleTools(
 ): void {
   const { agentId } = context;
 
-  // ── dispatch_event ────────────────────────────────────────────────
-  if (allowed.has("dispatch_event") && context.upsertEvent) {
-    const upsertEvent = context.upsertEvent;
-
-    server.registerTool(
-      "dispatch_event",
-      {
-        description:
-          "Report agent status to Dispatch. Must be called at the start of each turn (working), when stuck and unable to proceed (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
-        inputSchema: {
-          type: z
-            .enum(["working", "blocked", "waiting_user", "done", "idle"])
-            .describe("The status event type."),
-          message: z
-            .string()
-            .describe("A short description of what is happening."),
-          metadata: z
-            .record(z.string(), z.unknown())
-            .optional()
-            .describe("Optional metadata object."),
-        },
-      },
-      async (args) => {
-        try {
-          await upsertEvent(agentId, {
-            type: args.type,
-            message: args.message,
-            metadata: args.metadata as Record<string, unknown> | undefined,
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Updated ${agentId}: ${args.type} - ${args.message}`,
-              },
-            ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
   // ── dispatch_rename_session ───────────────────────────────────────
   if (allowed.has("dispatch_rename_session") && context.renameSession) {
     const renameSession = context.renameSession;
