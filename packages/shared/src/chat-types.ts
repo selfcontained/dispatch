@@ -315,8 +315,6 @@ export type ChatTurnEntry = {
   /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */
   interrupted: boolean;
   error?: string;
-  /** The turn in the agent's own words: its last `dispatch_event` message. */
-  label?: string;
   plan?: ChatTurnPlanEntry[];
   usage?: { used: number; size: number; costUsd: number | null };
   questions?: ChatTurnQuestionRef[];

@@ -134,13 +134,11 @@ function TurnEntryViewImpl({
 }: TurnEntryViewProps): JSX.Element {
   const trace = useMemo(() => turnTrace(entry), [entry]);
   const result = useMemo(() => resultTurnModel(entry, trace), [entry, trace]);
-  // The folded rail reads "<verb>, 12 steps, 1m 4s", and the verb is the
-  // agent's own last dispatch_event message when it sent one. An agent that
-  // sent none would fold to a bare "done", so the steps supply the verb
-  // instead: "edited turns.ts", "ran pnpm test", "read 3 files".
+  // The folded rail reads "<verb>, 12 steps, 1m 4s"; the verb is derived
+  // from the steps: "edited turns.ts", "ran pnpm test", "read 3 files".
   const foldLabel = useMemo(
-    () => entry.label ?? turnLabelFromSteps(trace.steps),
-    [entry.label, trace.steps]
+    () => turnLabelFromSteps(trace.steps),
+    [trace.steps]
   );
   const notice = useMemo(
     () => parseDispatchNotice(entry.prompt.text, entry.prompt.source),

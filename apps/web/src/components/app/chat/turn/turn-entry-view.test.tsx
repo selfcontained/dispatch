@@ -228,17 +228,10 @@ describe("TurnEntryView", () => {
 
   it("folds an unlabeled turn to a verb read off its steps, not to a bare done", () => {
     // The fixture's one step is a read of README.md and the turn carries no
-    // label, which is every turn whose agent sent no dispatch_event.
     renderTurn(turn());
     const summary = screen.getByTestId("harness-activity-summary");
     expect(summary.textContent).toContain("read README.md");
     expect(summary.getAttribute("aria-label")).toContain("read README.md");
   });
 
-  it("lets the agent's own label win over the step-derived one", () => {
-    renderTurn(turn({ label: "Answered the README question" }));
-    const summary = screen.getByTestId("harness-activity-summary");
-    expect(summary.textContent).toContain("Answered the README question");
-    expect(summary.textContent).not.toContain("read README.md");
-  });
 });

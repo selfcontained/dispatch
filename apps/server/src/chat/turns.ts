@@ -68,12 +68,6 @@ export type AssembledTurn = {
   error?: string;
   /** Questions the agent asked during this turn, oldest first. */
   questions?: AssembledQuestion[];
-  /**
-   * What the turn did, in the agent's own words: the message of the last
-   * dispatch_event it sent during the turn ("Answered README question").
-   * Absent when the agent sent none.
-   */
-  label?: string;
   /** The task list as the engine last published it during this turn. */
   plan?: ChatTurnPlanEntry[];
   /** Context used and, where the engine reports it, cost so far in this session. */
@@ -81,8 +75,6 @@ export type AssembledTurn = {
 };
 
 /** The agent's own status reports already show as status lines; in a trace they are noise. */
-const DROPPED_TOOL_TITLES = new Set(["mcp__dispatch__dispatch_event"]);
-
 function firstLine(text: string): string {
   const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
@@ -146,33 +138,9 @@ function locationsFromInput(
   return tagged ? [{ path: tagged[1] }] : [];
 }
 
-const LABEL_MAX = 80;
-
-/** A dispatch_event call's type and message, when the row is one. */
-function statusEventOf(
-  row: TurnSourceRow
-): { type: string; message: string } | null {
-  const p = row.payload as Partial<ToolPayload>;
-  if (p.title !== "mcp__dispatch__dispatch_event") return null;
-  const input = p.input;
-  if (typeof input !== "object" || input === null) return null;
-  const { type, message } = input as { type?: unknown; message?: unknown };
-  if (typeof type !== "string" || typeof message !== "string") return null;
-  const trimmed = message.replace(/\s+/g, " ").trim();
-  if (!trimmed) return null;
-  return {
-    type,
-    message:
-      trimmed.length > LABEL_MAX
-        ? `${trimmed.slice(0, LABEL_MAX - 1)}…`
-        : trimmed,
-  };
-}
-
 function toolStep(row: TurnSourceRow): ChatTurnStep | null {
   const p = row.payload as Partial<ToolPayload>;
   const title = p.title ?? "";
-  if (DROPPED_TOOL_TITLES.has(title)) return null;
   const settled = p.status === "completed" || p.status === "failed";
   return {
     id: `stream:${row.id}`,
@@ -348,18 +316,8 @@ export function assembleTurns(
       parent: string | null;
     }[] = [];
     let plan: ChatTurnPlanEntry[] | undefined;
-    let label: string | undefined;
-    let labelTerminal = false;
     for (const row of group.rows) {
       if (row.kind === "tool_call") {
-        const status = statusEventOf(row);
-        if (status) {
-          const terminal = status.type !== "working";
-          if (terminal || !labelTerminal) {
-            label = status.message;
-            labelTerminal = terminal;
-          }
-        }
         const step = toolStep(row);
         if (step) {
           flat.push({
@@ -426,7 +384,6 @@ export function assembleTurns(
       trace,
       result,
       ...(turnQuestions ? { questions: turnQuestions } : {}),
-      ...(label ? { label } : {}),
       ...(error ? { error } : {}),
       ...(plan ? { plan } : {}),
       ...(usage ? { usage } : {}),
@@ -479,7 +436,6 @@ export function toTurnEntry(
     settled,
     interrupted: trace.finalResult === "interrupted",
     ...(error ? { error } : {}),
-    ...(turn.label ? { label: turn.label } : {}),
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.usage ? { usage: turn.usage } : {}),
     ...(questions ? { questions } : {}),
