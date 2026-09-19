@@ -67,6 +67,7 @@ import {
 import { prepareWorkspace } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { DriverEvent } from "./acp/driver.js";
+import { parsePromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -456,7 +457,7 @@ export class AgentManager {
     if (event.state === "started") {
       await this.setSystemLatestEvent(agentId, {
         type: "working",
-        message: statusLine(event.text),
+        message: statusLine(await this.promptGist(agentId, event.text)),
         metadata: { source: "system", phase: "turn" },
       });
     } else if (event.error) {
@@ -474,6 +475,21 @@ export class AgentManager {
       });
     }
     this.eventBus.publish(await this.getRequiredAgent(agentId));
+  }
+
+  /**
+   * What a prompt says, without its envelope: a Chat prompt carries only
+   * the message id, so its text is read back; an agent or system prompt
+   * carries the text itself.
+   */
+  private async promptGist(agentId: string, prompt: string): Promise<string> {
+    const source = parsePromptSource(prompt);
+    if (source.source !== "chat") return source.text;
+    const result = await this.pool.query<{ text: string }>(
+      `SELECT text FROM agent_chat_messages WHERE id = $1 AND agent_id = $2`,
+      [source.chatMessageId, agentId]
+    );
+    return result.rows[0]?.text ?? "";
   }
 
   /** The newest question the agent asked in Chat that nobody has answered. */

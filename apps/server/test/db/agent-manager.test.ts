@@ -1347,7 +1347,8 @@ describe("AgentManager", () => {
         type: "idle",
       });
 
-      await new ChatStore(pool).insert({
+      const store = new ChatStore(pool);
+      await store.insert({
         agentId: agent.id,
         authorKind: "agent",
         kind: "question",
@@ -1356,11 +1357,30 @@ describe("AgentManager", () => {
         question: { options: [{ label: "Yes" }], allowFreeform: false },
         attachments: [],
       });
+      // A Chat prompt names its message by id; the status reads the text back.
+      const userMessage = await store.insert({
+        agentId: agent.id,
+        authorKind: "user",
+        kind: "reply",
+        text: "Please also update the docs",
+        replyTo: null,
+        question: null,
+        attachments: [],
+      });
       await runtime.emit(
         agent.id,
-        { type: "turn", agentId: agent.id, state: "started", text: "again" },
+        {
+          type: "turn",
+          agentId: agent.id,
+          state: "started",
+          text: `--- DISPATCH CHAT (id: ${userMessage.id}) ---\nPlease also update the docs\n--- END DISPATCH CHAT ---`,
+        },
         3
       );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "working",
+        message: "Please also update the docs",
+      });
       await runtime.emit(
         agent.id,
         { type: "turn", agentId: agent.id, state: "settled" },
