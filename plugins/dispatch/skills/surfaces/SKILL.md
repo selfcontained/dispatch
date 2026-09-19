@@ -11,8 +11,9 @@ The owning agent authors the document and handles every submitted interaction.
 ## When a surface is the right channel
 
 A surface earns its place when several related values need hierarchy, repeated
-updates, or user input. One small fact belongs in a pin, an artifact belongs in
-`share_file`, and explanation belongs in your reply — do not mirror the
+updates, or user input. One small fact belongs in a pin, an artifact is a
+`post` with a file attachment, a single question or form is a `post` with
+`question` or `form`, and explanation belongs in your reply — do not mirror the
 transcript into a surface. The full channel comparison lives in `communicate`.
 
 Prefer one useful tab over several narrow tabs. A surface is a fixed 400px

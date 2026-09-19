@@ -339,8 +339,7 @@ export type McpRequestContext = {
     "post" | "update" | "addReaction" | "removeReaction"
   >;
   /**
-   * The chat-surface flag (`chat_surface_enabled`) as of this request. Only
-   * `chat_post`'s description reads it — see `chat-tools.ts`. Left
+   * The chat-surface flag (`chat_surface_enabled`) as of this request. Left
    * unset by the job route, whose launch turn never carries a Chat envelope,
    * and by the token-less `/api/mcp` route, which has no agent at all.
    */

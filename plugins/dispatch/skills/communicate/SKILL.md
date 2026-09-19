@@ -1,13 +1,13 @@
 ---
 name: communicate
-description: Pick the channel for something you are about to tell the user — a reply, a question they answer in one click, a sidebar form, an artifact, or a pin. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
+description: Pick the shape for something you are about to tell the user — a plain reply, a question they answer in one click, a form, a file, a link, a checklist, or a pin. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
 ---
 
 # Reaching the user
 
 A Dispatch session has several ways to reach the person reading it, and the
 default — more prose in the reply — is the worst one for anything structured.
-Which channel to use is decided _before_ you know which tool you want, which is
+Which shape to use is decided _before_ you know which tool you want, which is
 why it lives here instead of inside any one of them.
 
 **The failure this prevents:** a five-field question asked as a paragraph, a
@@ -16,68 +16,64 @@ they must scroll a transcript to find again.
 
 ## The router
 
-One channel here is conditional and the rest are not. The Chat tab is an
-optional surface: where the installation has it off it is not rendered at all,
-so a message posted there is recorded and never seen. `chat_post`'s own
-description tells you which case you are in — it says the user is reading Chat
-only when that is true. Pins, surfaces, shared files and the whiteboard render
-either way, so when a control _must_ be reachable, reach for one of those.
+The user reads your stream. Your ordinary reply already appears there as you
+write it, so `post` is for what plain text cannot do. Everything below lands in
+the same stream; the rows differ in what the user can _do_ with it.
 
-| What you have                                                      | Send it as                                                                                      | Depth        |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------ |
-| An explanation, an answer, a short result                          | your ordinary reply — `chat_post` when its description says Chat is where the user is reading   | —            |
-| One small fact they will copy or return to — URL, port, branch, id | a pin (`pin`)                                                                                   | —            |
-| A question with a finite set of answers                            | `chat_post` with `kind: "question"` when Chat is the user's surface, a `shortcut` pin otherwise | below        |
-| A question whose answer is one obvious next move                   | a `shortcut` pin                                                                                | below        |
-| Several related values, or anything they must fill in              | a surface (`surface_create`)                                                                    | `surfaces`   |
-| A file, screenshot, log, or report                                 | `share_file`                                                                                    | `sharing`    |
-| Something a drawing explains better than prose                     | the whiteboard                                                                                  | `whiteboard` |
-| Something worth reaching them away from the session                | `notify` (Slack; needs a configured webhook)                                                    | —            |
-| State that keeps changing over a long task                         | one `kind: "update"` post, edited in place                                                      | below        |
+| What you have                                                      | Send it as                                                      | Depth       |
+| ------------------------------------------------------------------ | --------------------------------------------------------------- | ----------- |
+| An explanation, an answer, a short result                          | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A question with a finite set of answers                            | `post` with `question`                                          | below       |
+| Several related values, or anything they must fill in              | `post` with `form`                                              | below       |
+| A file, screenshot, log, or report                                 | `post` with a file attachment                                   | `sharing`   |
+| A link — a PR, a dev URL, a doc                                    | `post` with `link`                                              | —           |
+| A checklist they will watch you work through                       | `post` with `tasks`, ticked with `update`                       | below       |
+| Something worth reaching them away from the session                | `post` with `notify: true` (browser, and Slack when configured) | —           |
+| State that keeps changing over a long task                         | one `post`, revised with `update`                               | below       |
+| A message to another agent                                         | `post` with `to: <agentId>`                                     | `subagents` |
+| One small fact they will copy or return to — URL, port, branch, id | a pin (`pin`)                                                   | —           |
+| A structured status view or workflow that outlives one message     | a surface (`surface_create`)                                    | `surfaces`  |
 
 Take the narrowest row that fits. A pin is not a substitute for a form, and a
-surface is overkill for one URL.
+surface is overkill for one URL. When two rows could work, `post` is the
+default: it is where the user is already reading.
 
 ## Asking
 
 Ask through a control the user can click, not a sentence they have to answer in
 prose:
 
-- **A finite choice, with Chat as the user's surface** — `chat_post`
-  with `kind: "question"` and `question.options` (up to 10). Their pick comes
-  back as a message with `replyTo` set to your question, so you always know what
-  was answered. Add `allowFreeform` when a typed answer also makes sense. With
-  Chat off there is no tab to answer in; use a pin or a surface instead.
-- **One obvious next move** — a `shortcut` pin. The label is the button, the
-  value is the prompt you receive. Set `confirm` on anything destructive.
-- **More than one field, or a field with a real answer** — a surface. Its form
-  is the only channel that collects several values in one submission; an action
-  button labelled "Add explanation" with nowhere to type is not a form.
+- **A finite choice** — `post` with `question.options` (up to 10). The options
+  render as buttons; their pick comes back as a DISPATCH POST with `replyTo`
+  set to your question, so you always know what was answered. Add
+  `allowFreeform` when a typed answer also makes sense.
+- **More than one field, or a field with a real answer** — `post` with
+  `form`. Its fields are the only way to collect several values in one
+  submission; an option labelled "Add explanation" with nowhere to type is not
+  a form.
+- **One obvious next move** — a `question` with one option is fine, and a
+  `shortcut` pin still works where the button should sit in the sidebar. Set
+  `confirm` on anything destructive.
 
-Whichever you use, if the answer is blocking you, emit `waiting_user` alongside
-it. The control is how they answer; the event is what tells them you are
-stopped. Neither does the other's job. A blocking ask is also where guessing
-the channel wrong costs the most — if you are not certain Chat is where the
-user is reading, ask through a pin or a surface, which render either way.
+You do not need to say you are stopped. An open `question` or `form` addressed
+to the user is what shows you as Waiting; answering it is what clears it. Ask
+with a control and the status follows.
 
 Do not ask what you can determine yourself. A question costs the user a context
 switch; reading one more file costs you a tool call.
 
 ## Reporting
 
-Post a `kind: "update"` when work will run long, then keep editing that same
-message with `chat_update` as it progresses. One message that ends up
-describing the result beats a trail of notes that are each stale a minute after
-they land. Use `kind: "summary"` for the wrap-up when a task had enough moving
-parts that the outcome deserves its own card.
+When work will run long, `post` once, then keep revising that same block with
+`update` as it progresses. One block that ends up describing the result beats a
+trail of notes that are each stale a minute after they land. A `tasks` block
+does the same for a checklist: post the items, tick them as you go.
 
-Keep the prose and the evidence separate: the message says what happened, the
-shared artifact or surface carries the bulk.
+Keep the prose and the evidence separate: the reply says what happened, the
+file, link or surface carries the bulk.
 
 ## Not this skill's job
 
 - **How you sound** — tone, length, how much you narrate — is `personalities`.
-- **Whether the user is reading Chat or the terminal.** `chat_post`'s
-  own description settles that, and it changes with the installation's
-  chat-surface setting. This skill picks the shape of what you send and says
-  when that choice depends on the answer; it does not restate the answer.
+- **Talking to other agents.** `post` with `to` is the mechanism; when to
+  delegate, and what to put in a handoff, is `subagents`.

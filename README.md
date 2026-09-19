@@ -154,10 +154,11 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `create_pr`                | Create a GitHub pull request                                                               |
 | `get_pr_status`            | Check PR CI status and reviews                                                             |
 | `rename_session`           | Update the current session's display name                                                  |
-| `notify`                   | Send a Slack notification from the agent                                                   |
 | `pin`                      | Surface key info in the sidebar (URLs, ports, PRs, files)                                  |
 | `pins`                     | Write several sidebar pins in one atomic call (merge or replace a group)                   |
-| `share_file`               | Upload screenshots and media to the agent's media pane                                     |
+| `post`                     | Post a block into the stream: text, a question, a form, a link, a checklist, a file        |
+| `update`                   | Revise a posted block, or change the state of one addressed to you                         |
+| `react`                    | Put an emoji reaction on a block                                                           |
 | `list_media`               | List media files shared with or by this agent                                              |
 | `delete_media`             | Permanently remove a shared media file                                                     |
 | `list_pins`                | List current sidebar pins, or read one back in full by ID                                  |
@@ -225,7 +226,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `review_submit`, `review_add_feedback`, `review_list_feedback`, `review_get_feedback`, `review_add_message`, `review_resolve`, `pin`, `pins`, `delete_pin`, `list_pins`, `share_file`, `list_media`, `delete_media`, `whiteboard_get`, and the full `surface_*` family. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `review_submit`, `review_add_feedback`, `review_list_feedback`, `review_get_feedback`, `review_add_message`, `review_resolve`, `pin`, `pins`, `delete_pin`, `list_pins`, `post`, `update`, `react`, `list_media`, `delete_media`, `whiteboard_get`, and the full `surface_*` family. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 

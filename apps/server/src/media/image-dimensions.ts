@@ -33,7 +33,7 @@
  *
  * ## Buffers are complete
  *
- * Every caller passes the whole file — the upload route, `share_file`,
+ * Every caller passes the whole file — the upload route, `post` attachments,
  * agent startup media, browser-extension screenshots, and stream captures all
  * have the bytes in memory already. So "the walk ran off the end of the buffer"
  * means the file is truncated, not that we merely read too little of it, and

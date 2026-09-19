@@ -123,9 +123,9 @@ There is no per-job notification config to wire. The `notify` column exists in
 the data model, but nothing writes it — not the routes, not `create_job`, not
 `update_job` — so the per-job Slack path never fires.
 
-The ordinary per-agent path covers a job run only halfway: `done`,
-`waiting_user`, and `blocked` status changes raise the browser notifications the
+The ordinary per-agent path covers a job run only halfway: a job agent's
+derived status (waiting, blocked, idle) raises the browser notifications the
 user has configured, but the Slack send is skipped for any agent named `job-…`
-that has a job run. Nothing your status conveys will reach Slack. Call `notify`
-directly when a run needs to say something in Slack, or anything the status
-cannot carry.
+that has a job run. Nothing your status conveys will reach Slack. `post` with
+`notify: true` when a run needs to say something in Slack, or anything the
+status cannot carry.

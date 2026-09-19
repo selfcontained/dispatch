@@ -1,6 +1,6 @@
 /**
  * Runtime-free wire contract for the chat surface — the Chat tab that sits
- * above an agent's terminal. See docs/chat-surface-plan.md.
+ * above an agent's terminal. See docs/design/blocks.md.
  */
 
 export type ChatAuthorKind = "agent" | "user";

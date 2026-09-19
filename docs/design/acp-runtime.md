@@ -149,8 +149,8 @@ terminal pane, the Console/Terminal segment. Agent types `cursor`,
 One system prompt builder (`agents/acp/system-prompt.ts`) delivers the
 launch guidance plus the active personality through ACP
 `_meta.systemPrompt.append` (Claude) or as the first prompt's leading block
-(Codex). The agent's text _is_ its reply; `chat_post` is for
-questions with options only.
+(Codex). The agent's text _is_ its reply; `post` is for what plain text
+cannot do — a question with options, a form, a file, a link.
 
 ## Out of scope for the first milestone
 
