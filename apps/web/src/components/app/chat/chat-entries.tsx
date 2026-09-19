@@ -481,7 +481,7 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // Questions
 // ---------------------------------------------------------------------------
 
-function QuestionOptions({
+export function QuestionOptions({
   message,
   answering,
   answersDisabled,
@@ -533,7 +533,10 @@ function QuestionOptions({
               key={`${index}-${value}`}
               type="button"
               size="sm"
-              variant={chosen ? "primary" : "default"}
+              // Open choices carry the theme's accent so the ask stands out
+              // from everything else in the feed; once answered only the
+              // chosen one keeps it.
+              variant={chosen || open ? "primary" : "default"}
               className={cn(
                 "h-7 gap-1 text-xs",
                 // Phones and touch screens: a real tap target, with the label
@@ -794,6 +797,25 @@ export const StatusLine = memo(function StatusLine({
   collapsedCount?: number;
 }): JSX.Element {
   const type = asEventType(entry.eventType);
+  // A lifecycle mark Dispatch wrote (session started, stopped, resumed) reads
+  // as a seam across the feed, like the day divider, rather than a status
+  // post: no author gutter, hairlines to each side.
+  if (entry.system) {
+    return (
+      <div
+        className="my-1.5 flex items-center gap-3 px-4 text-[10.5px] text-muted-foreground/70"
+        data-testid="chat-status"
+        data-system="true"
+        title={formatDateTime(entry.at)}
+      >
+        <span className="h-px flex-1 bg-border/60" />
+        <span className="min-w-0 truncate">
+          {entry.message || latestEventLabel(type)}
+        </span>
+        <span className="h-px flex-1 bg-border/60" />
+      </div>
+    );
+  }
   return (
     <div
       className="flex items-center gap-2 px-4 py-px text-[10px] leading-4 text-muted-foreground/75"

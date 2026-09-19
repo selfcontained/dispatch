@@ -14,6 +14,7 @@ export type AgentEventHistoryRow = {
   agentId: string;
   eventType: string;
   message: string;
+  metadata: Record<string, unknown>;
   createdAt: string;
 };
 
@@ -54,6 +55,7 @@ function recordEventHistory(
           agentId: id,
           eventType: row.event_type,
           message: row.message,
+          metadata: input.metadata ?? {},
           createdAt: row.created_at.toISOString(),
         });
       }

@@ -171,6 +171,11 @@ export type ChatStatusEntry = {
   eventType: string;
   message: string;
   at: string;
+  /**
+   * Written by Dispatch itself (a lifecycle mark: started, stopped, resumed,
+   * a setup phase) rather than reported by the agent through dispatch_event.
+   */
+  system?: boolean;
 };
 
 /** A cross-agent message (`agent_messages`) in either direction. */

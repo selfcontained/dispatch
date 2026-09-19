@@ -366,8 +366,9 @@ describe("ChatPane", () => {
       {
         type: "status",
         id: "event:late",
-        eventType: "working",
-        message: "Late status",
+        eventType: "idle",
+        system: true,
+        message: "Session resumed",
         at: "2026-09-02T10:03:00.000Z",
       },
       last,
@@ -451,15 +452,18 @@ describe("ChatPane", () => {
       {
         type: "status",
         id: "event:1",
-        eventType: "working",
-        message: "Booting",
+        eventType: "idle",
+        system: true,
+        message: "Session started",
         at: "2026-09-02T10:00:00.000Z",
       },
     ];
     renderPane();
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
-    expect(screen.getByTestId("chat-status").textContent).toContain("Booting");
+    expect(screen.getByTestId("chat-status").textContent).toContain(
+      "Session started"
+    );
   });
 
   it("hides the empty state once a chat message exists", () => {

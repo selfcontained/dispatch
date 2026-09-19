@@ -391,7 +391,13 @@ agentManager.onEventRecorded((row) => {
   uiEventBroker.publish({
     type: "chat.entry",
     agentId: row.agentId,
-    entry: toStatusEntry(row.id, row.eventType, row.message, row.createdAt),
+    entry: toStatusEntry(
+      row.id,
+      row.eventType,
+      row.message,
+      row.createdAt,
+      row.metadata
+    ),
   });
 });
 const authRuntime = createAuthRuntime({

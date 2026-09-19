@@ -175,10 +175,11 @@ async function listStatusEntries(
     id: number;
     event_type: string;
     message: string;
+    metadata: Record<string, unknown> | null;
     created_at: Date;
     at_key: string;
   }>(
-    `SELECT id, event_type, message, created_at, ${AT_KEY_SQL} AS at_key
+    `SELECT id, event_type, message, metadata, created_at, ${AT_KEY_SQL} AS at_key
        FROM agent_events
       WHERE agent_id = $1 ${clause}
       ORDER BY created_at DESC, id DESC
@@ -186,7 +187,13 @@ async function listStatusEntries(
     params
   );
   return result.rows.map((row) => ({
-    entry: toStatusEntry(row.id, row.event_type, row.message, row.created_at),
+    entry: toStatusEntry(
+      row.id,
+      row.event_type,
+      row.message,
+      row.created_at,
+      row.metadata
+    ),
     atKey: row.at_key,
     rawId: String(row.id),
     idKey: intKey(row.id),
@@ -198,14 +205,17 @@ export function toStatusEntry(
   id: number,
   eventType: string,
   message: string,
-  createdAt: Date | string
+  createdAt: Date | string,
+  metadata?: Record<string, unknown> | null
 ): ChatStatusEntry {
+  const system = metadata?.source === "system";
   return {
     type: "status",
     id: `event:${id}`,
     eventType,
     message,
     at: new Date(createdAt).toISOString(),
+    ...(system ? { system: true } : {}),
   };
 }
 
