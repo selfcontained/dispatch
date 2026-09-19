@@ -6,7 +6,7 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentPinsViaDB,
+  seedBlockViaDB,
   uploadMediaViaAPI,
   uploadTextMediaViaAPI,
 } from "./helpers";
@@ -82,12 +82,15 @@ test.describe("Media sidebar", () => {
       cwd: process.cwd(),
     });
 
-    await setAgentPinsViaDB(firstAgent.id, [
-      { label: "First pin", type: "string", value: "Pinned for agent A" },
-    ]);
-    await setAgentPinsViaDB(secondAgent.id, [
-      { label: "Second pin", type: "string", value: "Pinned for agent B" },
-    ]);
+    // Agent B has an open question, so its Rail has something to show.
+    await seedBlockViaDB({
+      streamId: secondAgent.id,
+      authorKind: "agent",
+      kind: "question",
+      text: "Question for agent B",
+      data: { options: [{ label: "Yes" }, { label: "No" }] },
+      state: {},
+    });
     await uploadMediaViaAPI(
       request,
       firstAgent.id,
@@ -104,8 +107,8 @@ test.describe("Media sidebar", () => {
 
     await clickAgentRow(page, secondAgent.id);
     await page.getByTestId("toggle-media-sidebar").click();
-    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
-    await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
+    await mediaSidebar.getByTestId("sidebar-tab-rail").click();
+    await expect(mediaSidebar.getByText("Question for agent B")).toBeVisible();
 
     await clickAgentRow(page, firstAgent.id);
     await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
@@ -113,7 +116,7 @@ test.describe("Media sidebar", () => {
 
     await clickAgentRow(page, secondAgent.id);
     await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
-    await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
+    await expect(mediaSidebar.getByText("Question for agent B")).toBeVisible();
   });
 
   test("navigates between fullscreen media items", async ({
@@ -430,206 +433,7 @@ test.describe("Media sidebar", () => {
       .toBe(true);
   });
 
-  test("preserves string pin whitespace and splits filename pins", async ({
-    page,
-    request,
-  }) => {
-    const workspaceRoot = process.cwd();
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-pins-${Date.now()}`,
-      cwd: workspaceRoot,
-    });
-    await setAgentPinsViaDB(agent.id, [
-      { label: "Notes", type: "string", value: "line 1\n\n  line 2" },
-      {
-        label: "Summary",
-        type: "markdown",
-        value:
-          "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
-      },
-      { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
-      { label: "Workspace root", type: "filename", value: workspaceRoot },
-      {
-        label: "Long file",
-        type: "filename",
-        value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx`,
-      },
-      { label: "Ports", type: "port", value: "3000 4000,\n5000" },
-      {
-        label: "API",
-        type: "url",
-        value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins",
-      },
-      {
-        label: "Local URL",
-        type: "url",
-        value: "127.0.0.1:8788/api/v1/health",
-      },
-      { label: "Dev Web", type: "url", value: "  http://127.0.0.1:52804 \n" },
-      {
-        label: "PR",
-        type: "pr",
-        value: "https://github.com/selfcontained/dispatch/pull/123",
-      },
-      { label: "Review", type: "pr", value: "Review queue" },
-      { label: "Agent ID", type: "code", value: "DISPATCH_AGENT_ID=agt_123" },
-    ]);
-
-    await loadApp(page);
-
-    await openMediaSidebarForAgent(page, agent);
-
-    const mediaSidebar = page.getByTestId("media-sidebar");
-    await expect(mediaSidebar).toBeVisible();
-    await mediaSidebar
-      .getByRole("button", { name: "Pins" })
-      .evaluate((el) => (el as HTMLButtonElement).click());
-
-    const notesPre = mediaSidebar.locator("[data-pin-label='Notes'] pre");
-    await expect(notesPre).toHaveText("line 1\n\n  line 2");
-
-    const markdownPin = mediaSidebar.locator(
-      "[data-pin-label='Summary'] [data-testid='markdown-pin-body']"
-    );
-    await expect(
-      markdownPin.getByText("Status", { exact: true })
-    ).toBeVisible();
-    await expect(markdownPin.locator("strong").first()).toHaveText("Status");
-    await expect(
-      markdownPin.getByText("Ready for review", { exact: true })
-    ).toBeVisible();
-    await expect(markdownPin).toContainText("https://example.com/visible");
-    await expect(
-      markdownPin.getByText("feat/log-rotation", { exact: true })
-    ).toBeVisible();
-    await expect(markdownPin).toContainText("pnpm run check");
-    await expect(markdownPin).toContainText("pnpm run test");
-    await expect(markdownPin.getByRole("link")).toHaveCount(0);
-
-    const scrollMetrics = await mediaSidebar
-      .locator("[data-pin-label='Summary'] [data-testid='markdown-pin-scroll']")
-      .evaluate((el) => {
-        const container = el as HTMLElement;
-        return {
-          clientHeight: container.clientHeight,
-          scrollHeight: container.scrollHeight,
-        };
-      });
-    expect(scrollMetrics).not.toBeNull();
-    expect(scrollMetrics!.scrollHeight).toBeGreaterThan(
-      scrollMetrics!.clientHeight
-    );
-
-    await expect(
-      mediaSidebar.getByText("one.ts", { exact: true })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByText("two.ts", { exact: true })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByText("three.ts", { exact: true })
-    ).toBeVisible();
-    const workspaceRootPin = mediaSidebar.locator(
-      "[data-pin-label='Workspace root']"
-    );
-    await expect(workspaceRootPin).toContainText("./");
-    await expect(
-      workspaceRootPin.locator(`[title="${workspaceRoot}"]`)
-    ).toHaveText("./");
-    const longFilePin = mediaSidebar.locator("[data-pin-label='Long file']");
-    await expect(longFilePin).toContainText("pins-panel.tsx");
-    await expect(longFilePin).toContainText(
-      "apps/web/src/components/app/pins-panel.tsx"
-    );
-    await expect(longFilePin).not.toContainText(workspaceRoot);
-    await expect(longFilePin).not.toContainText("pins-panel.tsx/");
-    await expect(mediaSidebar.getByText("3000", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByText("4000", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();
-    await expect(
-      mediaSidebar.getByRole("link", {
-        name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins",
-      })
-    ).toBeVisible();
-    const localUrlPin = mediaSidebar.locator("[data-pin-label='Local URL']");
-    await expect(
-      localUrlPin.getByRole("link", { name: "127.0.0.1:8788/api/v1/health" })
-    ).toHaveAttribute("href", "http://127.0.0.1:8788/api/v1/health");
-    const devWebPin = mediaSidebar.locator("[data-pin-label='Dev Web']");
-    await expect(
-      devWebPin.getByRole("link", { name: "http://127.0.0.1:52804" })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByText("Review queue", { exact: true })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })
-    ).toBeVisible();
-  });
-
-  test("renders shortcut pins as buttons that send their prompt to the agent", async ({
-    page,
-    request,
-  }) => {
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-shortcut-pins-${Date.now()}`,
-      cwd: process.cwd(),
-    });
-    await setAgentPinsViaDB(agent.id, [
-      {
-        id: "pin_shortcut_plain",
-        label: "Re-run E2E suite",
-        type: "shortcut",
-        value: "Re-run the full Playwright suite and report failures.",
-      },
-      {
-        id: "pin_shortcut_captioned",
-        label: "Work on sse-reconnect",
-        type: "shortcut",
-        variant: "primary",
-        value: "work on sse-eventsource-reconnect",
-        caption: "High priority · 3 files",
-      },
-      {
-        id: "pin_shortcut_confirm",
-        label: "Reset the dev database",
-        type: "shortcut",
-        variant: "destructive",
-        confirm: true,
-        value: "Drop and reseed the dev database.",
-      },
-    ]);
-
-    await loadApp(page);
-    await openMediaSidebarForAgent(page, agent);
-    const mediaSidebar = page.getByTestId("media-sidebar");
-
-    // Render details (label, caption, variants, disabled states) are covered by
-    // pins-panel unit tests. What only E2E can prove is the wiring: a click in
-    // the real sidebar reaches the run endpoint for the right pin.
-    await mediaSidebar
-      .getByRole("button", { name: "Reset the dev database" })
-      .click();
-    const dialog = page.getByTestId("pin-shortcut-confirm-dialog");
-    await expect(dialog).toContainText("Drop and reseed the dev database.");
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toBeHidden();
-
-    const runResponse = page.waitForResponse((response) =>
-      response
-        .url()
-        .includes(`/api/v1/agents/${agent.id}/prompts/pin/pin_shortcut_plain`)
-    );
-    await mediaSidebar
-      .getByRole("button", { name: "Re-run E2E suite" })
-      .click();
-    expect((await runResponse).request().method()).toBe("POST");
-  });
-
-  test("groups a sub agent's media and pins under its parent", async ({
+  test("groups a sub agent's media under its parent", async ({
     page,
     request,
   }) => {
@@ -646,15 +450,6 @@ test.describe("Media sidebar", () => {
       "Child screenshot",
       "child-shot.png"
     );
-    await setAgentPinsViaDB(child.id, [
-      {
-        id: "child_pr",
-        label: "Child PR",
-        value: "https://github.com/example/repo/pull/1",
-        type: "pr",
-      },
-    ]);
-
     await loadApp(page);
     await openMediaSidebarForAgent(page, parent);
     const mediaSidebar = page.getByTestId("media-sidebar");
@@ -683,19 +478,6 @@ test.describe("Media sidebar", () => {
         return body.files[0]?.seen ?? false;
       })
       .toBe(true);
-
-    // Pins tab: a dropdown at the top picks whose pins show; the parent's own
-    // are the default and the child's are one pick away.
-    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
-    const ownerSwitch = mediaSidebar.getByTestId("pins-owner-switch");
-    await expect(ownerSwitch).toHaveAttribute("data-owner", parent.id);
-    await expect(mediaSidebar.getByText("Child PR")).toHaveCount(0);
-    await ownerSwitch.click();
-    const childOption = page.getByTestId(`pins-owner-option-${child.id}`);
-    await expect(childOption).toContainText("1");
-    await childOption.click();
-    await expect(ownerSwitch).toHaveAttribute("data-owner", child.id);
-    await expect(mediaSidebar.getByText("Child PR")).toBeVisible();
 
     // The child's own panel is unchanged: no groups, its file already seen.
     // Switching agents closes the drawer, so reopen it for the child.
@@ -744,52 +526,6 @@ test.describe("Media sidebar", () => {
     await expect(sheet).toBeVisible();
   });
 
-  test("remembers a collapsed pin group across a reload", async ({
-    page,
-    request,
-  }) => {
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-pin-groups-${Date.now()}`,
-      cwd: process.cwd(),
-    });
-    await setAgentPinsViaDB(
-      agent.id,
-      Array.from({ length: 3 }, (_, index) => ({
-        id: `pin_group_${index}`,
-        label: `Grouped pin ${index}`,
-        type: "shortcut" as const,
-        value: `prompt ${index}`,
-        group: "Ready to build",
-      }))
-    );
-
-    await loadApp(page);
-    await openMediaSidebarForAgent(page, agent);
-    const group = page.getByTestId("pin-group");
-
-    // The default and the toggle are unit-tested; only a real reload can show
-    // that the choice actually round-trips through localStorage.
-    await expect(group).toHaveAttribute("data-pin-group-collapsed", "false");
-    await expect(page.getByTestId("pin-group-count")).toHaveText("3");
-    await page.getByTestId("pin-group-toggle").click();
-    await expect(group).toHaveAttribute("data-pin-group-collapsed", "true");
-
-    // Collapsed hides the members but must keep the group findable.
-    await expect(page.getByTestId("pin-item")).toHaveCount(0);
-    await expect(page.getByTestId("pin-group-count")).toHaveText("3");
-
-    // What only a reload can prove is that the choice round-trips through
-    // localStorage rather than living in component state. Reopening the panel
-    // afterwards is its own can of worms (two sidebar instances, remembered
-    // tab), so assert the stored value directly — how a collapsed group
-    // renders is already covered by the pins-panel unit tests.
-    const key = `dispatch:pinGroupCollapsed:${agent.id}::ready to build`;
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() => page.evaluate((k) => localStorage.getItem(k), key))
-      .toBe("true");
-  });
-
   test("the closed unpinned drawer adds no scrollable overflow to the app row", async ({
     page,
     request,
@@ -798,10 +534,6 @@ test.describe("Media sidebar", () => {
       name: `e2e-agent-drawer-overflow-${Date.now()}`,
       cwd: process.cwd(),
     });
-    await setAgentPinsViaDB(agent.id, [
-      { id: "pin_overflow", label: "A pin", type: "string", value: "value" },
-    ]);
-
     await loadApp(page);
     await openMediaSidebarForAgent(page, agent);
     const wrapper = page.getByTestId("media-sidebar-wrapper");
@@ -834,8 +566,7 @@ test.describe("Media sidebar", () => {
 
     await page
       .getByTestId("media-sidebar")
-      .getByTestId("pin-item")
-      .first()
+      .getByTestId("stream-rail-empty")
       .evaluate((node) =>
         node.scrollIntoView({ block: "nearest", inline: "nearest" })
       );

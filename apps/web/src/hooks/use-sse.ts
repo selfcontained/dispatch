@@ -21,6 +21,7 @@ import {
   bumpReplyCount,
   type FeedCache,
   LIVE_HEAD_ROWS,
+  replaceThreadRoot,
   STREAM_QUERY_PREFIX,
   streamFeedQueryKey,
   threadQueryKey,
@@ -170,6 +171,13 @@ export function applyStreamEntry(
       bumpReplyCount(old, reply)
     );
     return;
+  }
+  if (entry.type === "block") {
+    // The panel shows a thread's root too; keep it in step with the feed.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, entry.block.id),
+      (old) => replaceThreadRoot(old, entry.block)
+    );
   }
   const state = queryClient.getQueryState<FeedCache>(key);
   if (!state?.data) return;

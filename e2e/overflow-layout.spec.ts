@@ -15,7 +15,7 @@ import {
   createAgentViaAPI,
   loadApp,
   setAgentLatestEventViaAPI,
-  setAgentPinsViaDB,
+  seedBlockViaDB,
   uploadMediaViaAPI,
 } from "./helpers";
 
@@ -129,14 +129,17 @@ test.describe("Overflow layout", () => {
     const agents = await seedOverflowAgents(request, 24, overflowCwd);
     const focusAgent = agents[0]!;
 
-    await setAgentPinsViaDB(
-      focusAgent.id,
-      Array.from({ length: 24 }, (_, index) => ({
-        label: `Overflow pin ${index + 1}`,
-        type: "string" as const,
-        value: `Pinned value ${index + 1}\n${"detail ".repeat(18)}`,
-      }))
-    );
+    // Open questions fill the sidebar's Rail the way pins used to.
+    for (let index = 0; index < 24; index += 1) {
+      await seedBlockViaDB({
+        streamId: focusAgent.id,
+        authorKind: "agent",
+        kind: "question",
+        text: `Overflow question ${index + 1}: ${"detail ".repeat(18)}`,
+        data: { options: [{ label: "Yes" }, { label: "No" }] },
+        state: {},
+      });
+    }
 
     await Promise.all(
       Array.from({ length: 14 }, (_, index) =>
@@ -154,32 +157,32 @@ test.describe("Overflow layout", () => {
     await page.getByTestId("toggle-media-sidebar").click();
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
-    const pinsPanelScroll = page.getByTestId("pins-panel-scroll");
+    const railScroll = page.getByTestId("stream-rail");
     const agentPane = page.getByTestId("agent-pane");
     const mediaSidebar = page.getByTestId("media-sidebar");
 
-    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
+    await mediaSidebar.getByTestId("sidebar-tab-rail").click();
 
     await expect(agentSidebarScroll).toBeVisible();
-    await expect(pinsPanelScroll).toBeVisible();
+    await expect(railScroll).toBeVisible();
     await expect(agentPane).toBeVisible();
     await expect(page.getByTestId("automations-button")).toBeVisible();
 
     await expectOverflow(agentSidebarScroll);
-    await expectOverflow(pinsPanelScroll);
+    await expectOverflow(railScroll);
 
     const agentBoxBefore = await agentPane.boundingBox();
     expect(agentBoxBefore).not.toBeNull();
     expect(agentBoxBefore!.height).toBeGreaterThan(280);
 
     await scrollToBottom(agentSidebarScroll);
-    await scrollToBottom(pinsPanelScroll);
+    await scrollToBottom(railScroll);
 
     await expect
       .poll(async () => (await getScrollMetrics(agentSidebarScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect
-      .poll(async () => (await getScrollMetrics(pinsPanelScroll)).scrollTop)
+      .poll(async () => (await getScrollMetrics(railScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 

@@ -1002,6 +1002,19 @@ export function optimisticStatePatch(
 }
 
 /**
+ * A top-level block's newest version into the thread cache that hangs off
+ * it, when that thread is loaded: the panel shows the root block too, and
+ * a finding resolved from either place must read the same in both.
+ */
+export function replaceThreadRoot(
+  thread: StreamThreadResponse | undefined,
+  block: Block
+): StreamThreadResponse | undefined {
+  if (!thread || thread.root.id !== block.id) return thread;
+  return { ...thread, root: block };
+}
+
+/**
  * `PATCH …/state`: resolve, dispute or reopen a finding. The patch
  * applies to the cached block at once; the response, and then the
  * `stream.entry`, carry the server's merge.
@@ -1023,18 +1036,24 @@ export function useSetBlockState(rootId: string | null) {
       }),
     onMutate: async ({ blockId, state }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
+      const patched = (block: Block): Block =>
+        ({
+          ...block,
+          state: mergeBlockState(
+            block.state as Record<string, unknown> | null,
+            optimisticStatePatch(state)
+          ),
+        }) as Block;
       let previous: Block | null = null;
       queryClient.setQueryData<FeedCache>(key, (old) =>
         mapBlock(old, blockId, (block) => {
           previous = block;
-          return {
-            ...block,
-            state: mergeBlockState(
-              block.state as Record<string, unknown> | null,
-              optimisticStatePatch(state)
-            ),
-          } as Block;
+          return patched(block);
         })
+      );
+      queryClient.setQueryData<StreamThreadResponse>(
+        threadQueryKey(rootId, blockId),
+        (old) => (old ? replaceThreadRoot(old, patched(old.root)) : old)
       );
       return { previous };
     },
@@ -1048,11 +1067,19 @@ export function useSetBlockState(rootId: string | null) {
         );
       }
       void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries({
+        queryKey: threadQueryKey(rootId, blockId),
+        exact: true,
+      });
     },
     onSuccess: (data) => {
       if (!data?.block) return;
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceBlock(old, data.block.id, data.block)
+      );
+      queryClient.setQueryData<StreamThreadResponse>(
+        threadQueryKey(rootId, data.block.id),
+        (old) => replaceThreadRoot(old, data.block)
       );
     },
   });

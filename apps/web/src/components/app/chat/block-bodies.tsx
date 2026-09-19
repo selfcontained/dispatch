@@ -44,6 +44,28 @@ import { cn } from "@/lib/utils";
 /** A state patch for `PATCH …/blocks/:id/state`. */
 export type BlockStatePatch = Record<string, unknown>;
 
+/**
+ * Whether a foldable block (a review, a task list) is open, kept by block
+ * and place rather than in the component: the feed remounts a row whenever
+ * the block behind it changes (to replay its fade-in), and resolving a
+ * finding must not fold the review the reader is working through.
+ */
+const openedByBlock = new Map<string, boolean>();
+
+function useOpened(
+  key: string,
+  fallback: boolean
+): [boolean, (next: boolean) => void] {
+  const [opened, setOpened] = useState<boolean>(
+    () => openedByBlock.get(key) ?? fallback
+  );
+  const set = (next: boolean) => {
+    openedByBlock.set(key, next);
+    setOpened(next);
+  };
+  return [opened, set];
+}
+
 // ---------------------------------------------------------------------------
 // Questions
 // ---------------------------------------------------------------------------
@@ -486,7 +508,10 @@ export function ReviewBlockBody({
   defaultExpanded?: boolean;
   showBodies?: boolean;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useOpened(
+    `review:${showBodies ? "panel" : "feed"}:${block.id}`,
+    defaultExpanded
+  );
   const verdict = VERDICT[block.data.verdict] ?? VERDICT.comment;
   const findings = block.data.findings;
   const setStatus = (findingId: string, status: BlockFindingStatus) =>
@@ -503,7 +528,7 @@ export function ReviewBlockBody({
         className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-left"
         aria-expanded={expanded}
         data-testid="chat-review-header"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded(!expanded)}
       >
         <ChevronRight
           className={cn(
@@ -730,8 +755,9 @@ export function TasksBlockBody({
   const items = block.data.items;
   const done = items.filter((i) => taskStatus(block, i.id) === "done").length;
   const allDone = items.length > 0 && done === items.length;
-  const [opened, setOpened] = useState<boolean | null>(null);
-  const expanded = opened ?? !allDone;
+  // Opens by default until every item is done; a reader's own fold or
+  // unfold wins over that, and survives the row's remount on an update.
+  const [expanded, setOpened] = useOpened(`tasks:${block.id}`, !allDone);
   return (
     <div
       className="mt-1"

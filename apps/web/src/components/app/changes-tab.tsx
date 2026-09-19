@@ -20,6 +20,7 @@ import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { ReviewModeBar } from "@/components/app/review-mode";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { type AgentType } from "@/lib/agent-types";
 import {
   findLastChangeKeyInRange,
@@ -52,37 +53,43 @@ function ChangesToolbar({
   onStartReview: () => void;
 }): JSX.Element {
   const isStopped = agent.status !== "running";
+  // The launcher's disabled and error states are tooltips, and the tab has
+  // no provider of its own above it (the sidebar card's footer does).
   return (
-    <div
-      className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
-      data-testid="changes-toolbar"
-    >
-      <span className="text-xs font-medium text-muted-foreground">Review</span>
-      <div className="flex-1" />
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        data-testid="changes-start-review"
-        onClick={onStartReview}
+    <TooltipProvider delayDuration={200}>
+      <div
+        className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
+        data-testid="changes-toolbar"
       >
-        <MessageSquarePlus className="h-3.5 w-3.5" />
-        Leave a review
-      </Button>
-      <PersonaLauncher
-        agent={agent}
-        enabledAgentTypes={enabledAgentTypes}
-        label="Launch personas"
-        disabled={isStopped || agent.status === "archiving"}
-        disabledReason={
-          isStopped
-            ? "Agent is stopped — start it before launching a persona."
-            : agent.status === "archiving"
-              ? "Agent is archiving."
-              : undefined
-        }
-      />
-    </div>
+        <span className="text-xs font-medium text-muted-foreground">
+          Review
+        </span>
+        <div className="flex-1" />
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          data-testid="changes-start-review"
+          onClick={onStartReview}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+          Leave a review
+        </Button>
+        <PersonaLauncher
+          agent={agent}
+          enabledAgentTypes={enabledAgentTypes}
+          label="Launch personas"
+          disabled={isStopped || agent.status === "archiving"}
+          disabledReason={
+            isStopped
+              ? "Agent is stopped — start it before launching a persona."
+              : agent.status === "archiving"
+                ? "Agent is archiving."
+                : undefined
+          }
+        />
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -350,15 +357,6 @@ export const ChangesTab = memo(function ChangesTab({
 
   if (!active) return <div />;
 
-  if (isLoading && !data) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        <span className="text-sm">Loading changes…</span>
-      </div>
-    );
-  }
-
   const toolbar =
     agent && agentId ? (
       reviewMode ? (
@@ -383,6 +381,18 @@ export const ChangesTab = memo(function ChangesTab({
         />
       )
     ) : null;
+
+  if (isLoading && !data) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {toolbar}
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <span className="text-sm">Loading changes…</span>
+        </div>
+      </div>
+    );
+  }
 
   if (files.length === 0) {
     return (
