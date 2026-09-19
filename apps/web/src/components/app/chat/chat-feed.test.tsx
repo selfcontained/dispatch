@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import type {
   ChatAttachment,
-  ChatFeedEntry,
-  ChatMessage,
   ChatStatusEntry,
   ChatTurnEntry,
+  StreamEntry,
 } from "@dispatch/shared";
 import {
   cleanup,
@@ -25,6 +24,15 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  answered,
+  block,
+  blockEntry,
+  FILE_BODY,
+  questionBody,
+  reaction,
+} from "@/test-utils/blocks";
+
+import {
   type FeedContext,
   POST_BODY_MEASURE,
   SIDE_POST_INDENT,
@@ -36,9 +44,9 @@ import {
   collapseFeed,
   entryGrowthKey,
   entryVersion,
-  latestAgentMessageId,
+  latestAgentBlockId,
   latestOpenFreeformQuestion,
-  latestUserMessageId,
+  latestUserBlockId,
   layoutFeed,
   useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
@@ -59,25 +67,6 @@ afterEach(() => {
 
 const AGENT_ID = "agt_1";
 
-function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
-  return {
-    id: overrides.id ?? `msg_${Math.random().toString(36).slice(2, 8)}`,
-    agentId: AGENT_ID,
-    authorKind: "agent",
-    kind: "reply",
-    text: "Hello **there**",
-    replyTo: null,
-    question: null,
-    answer: null,
-    attachments: [],
-    delivered: null,
-    readAt: null,
-    createdAt: "2026-09-02T10:00:00.000Z",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    ...overrides,
-  };
-}
-
 function fileAttachment(
   fields: Pick<
     Extract<ChatAttachment, { type: "file" }>,
@@ -85,10 +74,6 @@ function fileAttachment(
   >
 ): ChatAttachment {
   return { type: "file", ...fields };
-}
-
-function chat(m: ChatMessage): ChatFeedEntry {
-  return { type: "chat", id: m.id, at: m.createdAt, message: m };
 }
 
 function status(
@@ -114,7 +99,7 @@ function makeCtx(
 }
 
 function feedElement(
-  entries: ChatFeedEntry[],
+  entries: StreamEntry[],
   ctx: FeedContext,
   onAnswer: ReturnType<typeof vi.fn>,
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
@@ -126,8 +111,8 @@ function feedElement(
         <ChatFeed
           entries={entries}
           ctx={ctx}
-          heldMessageId={null}
-          answeringMessageId={null}
+          heldBlockId={null}
+          answeringBlockId={null}
           onAnswer={onAnswer}
           {...extra}
         />
@@ -137,7 +122,7 @@ function feedElement(
 }
 
 function renderFeed(
-  entries: ChatFeedEntry[],
+  entries: StreamEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
   ctxOverrides: Partial<FeedContext> = {},
   pinShortcuts: Partial<PinShortcutState> = {}
@@ -146,7 +131,7 @@ function renderFeed(
   const onOpenMedia = vi.fn();
   const ctx = makeCtx(ctxOverrides, onOpenMedia);
   const view = render(feedElement(entries, ctx, onAnswer, extra, pinShortcuts));
-  const rerenderWith = (next: ChatFeedEntry[]) =>
+  const rerenderWith = (next: StreamEntry[]) =>
     view.rerender(feedElement(next, ctx, onAnswer, extra, pinShortcuts));
   return { onAnswer, onOpenMedia, rerenderWith };
 }
@@ -177,7 +162,7 @@ describe("collapseFeed", () => {
   it("breaks a working run on any non-status entry", () => {
     const items = collapseFeed([
       status("s1", "working", "a"),
-      chat(message({ id: "m1" })),
+      blockEntry(block({ id: "m1" })),
       status("s2", "working", "b"),
     ]);
     expect(items.map((i) => i.kind)).toEqual(["status", "entry", "status"]);
@@ -191,10 +176,12 @@ describe("layoutFeed", () => {
   it("groups same-author posts within five minutes and breaks on author change", () => {
     const rows = layoutFeed(
       [
-        chat(message({ id: "a1", createdAt: at("10:00") })),
-        chat(message({ id: "a2", createdAt: at("10:03") })),
-        chat(message({ id: "u1", authorKind: "user", createdAt: at("10:04") })),
-        chat(message({ id: "a3", createdAt: at("10:05") })),
+        blockEntry(block({ id: "a1", createdAt: at("10:00") })),
+        blockEntry(block({ id: "a2", createdAt: at("10:03") })),
+        blockEntry(
+          block({ id: "u1", authorKind: "user", createdAt: at("10:04") })
+        ),
+        blockEntry(block({ id: "a3", createdAt: at("10:05") })),
       ],
       makeCtx(),
       now
@@ -213,10 +200,10 @@ describe("layoutFeed", () => {
   it("starts a new group after five minutes or a system line", () => {
     const rows = layoutFeed(
       [
-        chat(message({ id: "a1", createdAt: at("10:00") })),
-        chat(message({ id: "a2", createdAt: at("10:06") })),
+        blockEntry(block({ id: "a1", createdAt: at("10:00") })),
+        blockEntry(block({ id: "a2", createdAt: at("10:06") })),
         status("s1", "working", "x", at("10:07")),
-        chat(message({ id: "a3", createdAt: at("10:07") })),
+        blockEntry(block({ id: "a3", createdAt: at("10:07") })),
       ],
       makeCtx(),
       now
@@ -235,14 +222,16 @@ describe("layoutFeed", () => {
   it("draws a rule only where a new author group follows another post directly", () => {
     const rows = layoutFeed(
       [
-        chat(message({ id: "a1", createdAt: at("10:00") })),
-        chat(message({ id: "a2", createdAt: at("10:01") })),
-        chat(message({ id: "u1", authorKind: "user", createdAt: at("10:02") })),
+        blockEntry(block({ id: "a1", createdAt: at("10:00") })),
+        blockEntry(block({ id: "a2", createdAt: at("10:01") })),
+        blockEntry(
+          block({ id: "u1", authorKind: "user", createdAt: at("10:02") })
+        ),
         status("s1", "working", "x", at("10:03")),
-        chat(message({ id: "a3", createdAt: at("10:03") })),
-        chat(message({ id: "a4", createdAt: at("10:00", "03") })),
-        chat(
-          message({
+        blockEntry(block({ id: "a3", createdAt: at("10:03") })),
+        blockEntry(block({ id: "a4", createdAt: at("10:00", "03") })),
+        blockEntry(
+          block({
             id: "u2",
             authorKind: "user",
             createdAt: at("10:01", "03"),
@@ -271,19 +260,21 @@ describe("layoutFeed", () => {
     ]);
   });
 
-  it("groups media with the agent's posts but keeps a side conversation apart", () => {
+  it("groups a file block with the agent's posts but keeps a side conversation apart", () => {
     const rows = layoutFeed(
       [
-        chat(message({ id: "a1", createdAt: at("10:00") })),
-        {
-          type: "media",
-          id: "md1",
-          mediaId: 1,
-          fileName: "x.png",
-          sizeBytes: 1,
-          description: null,
-          at: at("10:01"),
-        },
+        blockEntry(block({ id: "a1", createdAt: at("10:00") })),
+        blockEntry(
+          block({
+            id: "md1",
+            text: "",
+            body: FILE_BODY,
+            attachments: [
+              fileAttachment({ mediaId: 1, fileName: "x.png", sizeBytes: 1 }),
+            ],
+            createdAt: at("10:01"),
+          })
+        ),
         {
           type: "agent_message",
           id: "am1",
@@ -329,9 +320,9 @@ describe("layoutFeed", () => {
   it("puts a labelled rule between days", () => {
     const rows = layoutFeed(
       [
-        chat(message({ id: "a1", createdAt: at("10:00", "01") })),
-        chat(message({ id: "a2", createdAt: at("10:00", "02") })),
-        chat(message({ id: "a3", createdAt: at("10:00", "03") })),
+        blockEntry(block({ id: "a1", createdAt: at("10:00", "01") })),
+        blockEntry(block({ id: "a2", createdAt: at("10:00", "02") })),
+        blockEntry(block({ id: "a3", createdAt: at("10:00", "03") })),
       ],
       makeCtx(),
       now
@@ -350,41 +341,35 @@ describe("layoutFeed", () => {
 describe("latest message helpers", () => {
   it("finds the newest user and agent message ids", () => {
     const entries = [
-      chat(message({ id: "a1" })),
-      chat(message({ id: "u1", authorKind: "user" })),
-      chat(message({ id: "a2" })),
+      blockEntry(block({ id: "a1" })),
+      blockEntry(block({ id: "u1", authorKind: "user" })),
+      blockEntry(block({ id: "a2" })),
       status("s1", "working", "x"),
     ];
-    expect(latestUserMessageId(entries)).toBe("u1");
-    expect(latestAgentMessageId(entries)).toBe("a2");
-    expect(latestUserMessageId([])).toBeNull();
+    expect(latestUserBlockId(entries)).toBe("u1");
+    expect(latestAgentBlockId(entries)).toBe("a2");
+    expect(latestUserBlockId([])).toBeNull();
   });
 });
 
 describe("latestOpenFreeformQuestion", () => {
-  const freeform = (id: string, answered = false) =>
-    chat(
-      message({
+  const freeform = (id: string, isAnswered = false) =>
+    blockEntry(
+      block({
         id,
-        kind: "question",
         text: `Q ${id}`,
-        question: { options: [{ label: "A" }], allowFreeform: true },
-        answer: answered
-          ? {
-              value: "A",
-              replyMessageId: "r",
-              answeredAt: "2026-09-02T10:01:00.000Z",
-            }
-          : null,
+        body: questionBody([{ label: "A" }], {
+          allowFreeform: true,
+          state: isAnswered ? answered("A") : {},
+        }),
       })
     );
   const fixed = (id: string) =>
-    chat(
-      message({
+    blockEntry(
+      block({
         id,
-        kind: "question",
         text: `Q ${id}`,
-        question: { options: [{ label: "A" }] },
+        body: questionBody([{ label: "A" }]),
       })
     );
 
@@ -405,14 +390,16 @@ describe("latestOpenFreeformQuestion", () => {
       latestOpenFreeformQuestion([freeform("q1"), fixed("q2")])
     ).toBeNull();
     expect(
-      latestOpenFreeformQuestion([chat(message({ id: "a1" }))])
+      latestOpenFreeformQuestion([blockEntry(block({ id: "a1" }))])
     ).toBeNull();
   });
 
   it("looks past later replies to the open question", () => {
     expect(
-      latestOpenFreeformQuestion([freeform("q1"), chat(message({ id: "a2" }))])
-        ?.id
+      latestOpenFreeformQuestion([
+        freeform("q1"),
+        blockEntry(block({ id: "a2" })),
+      ])?.id
     ).toBe("q1");
   });
 });
@@ -425,15 +412,15 @@ describe("ChatFeed", () => {
       value: { writeText },
     });
     renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "u1",
           authorKind: "user",
           text: "User message",
           delivered: true,
         })
       ),
-      chat(message({ id: "a1", text: "Hello **there**" })),
+      blockEntry(block({ id: "a1", text: "Hello **there**" })),
       {
         type: "agent_message",
         id: "p1",
@@ -465,8 +452,8 @@ describe("ChatFeed", () => {
 
   it("does not show a copy action for an attachment-only post", () => {
     renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "a1",
           text: "",
           attachments: [
@@ -480,8 +467,8 @@ describe("ChatFeed", () => {
 
   it('renders a user post under a "You" header with delivery failure marker', () => {
     renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "u1",
           authorKind: "user",
           text: "Ship it",
@@ -499,16 +486,16 @@ describe("ChatFeed", () => {
 
   it("collapses consecutive posts by one author under a single header", () => {
     renderFeed([
-      chat(message({ id: "a1", text: "first" })),
-      chat(
-        message({
+      blockEntry(block({ id: "a1", text: "first" })),
+      blockEntry(
+        block({
           id: "a2",
           text: "second",
           createdAt: "2026-09-02T10:02:00.000Z",
         })
       ),
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "u1",
           authorKind: "user",
           text: "reply",
@@ -551,7 +538,7 @@ describe("ChatFeed", () => {
       id: string,
       senderAgentId: string,
       minute: string
-    ): ChatFeedEntry => ({
+    ): StreamEntry => ({
       type: "agent_message",
       id,
       direction: "in",
@@ -652,7 +639,7 @@ describe("ChatFeed", () => {
   });
 
   it('labels a launch-context post "Launch context" and keeps it a You post', () => {
-    const launch = message({
+    const launch = block({
       id: "launch",
       authorKind: "user",
       origin: "launch",
@@ -664,14 +651,14 @@ describe("ChatFeed", () => {
       delivered: true,
       createdAt: "2026-09-02T10:00:00.000Z",
     });
-    const followUp = message({
+    const followUp = block({
       id: "follow",
       authorKind: "user",
       text: "Also add tests",
       delivered: true,
       createdAt: "2026-09-02T10:01:00.000Z",
     });
-    renderFeed([chat(launch), chat(followUp)]);
+    renderFeed([blockEntry(launch), blockEntry(followUp)]);
     const posts = screen.getAllByTestId("chat-message");
     expect(posts[0]?.getAttribute("data-origin")).toBe("launch");
     expect(posts[0]?.getAttribute("data-author-kind")).toBe("user");
@@ -708,7 +695,7 @@ describe("ChatFeed", () => {
         parentAgentId: null,
       },
     ]);
-    const launch = message({
+    const launch = block({
       id: "launch",
       authorKind: "user",
       origin: "launch",
@@ -717,7 +704,7 @@ describe("ChatFeed", () => {
       delivered: true,
       createdAt: "2026-09-02T10:00:00.000Z",
     });
-    renderFeed([chat(launch)], {}, { peers });
+    renderFeed([blockEntry(launch)], {}, { peers });
     let post = screen.getByTestId("chat-message");
     expect(post.getAttribute("data-author-kind")).toBe("peer");
     expect(post.getAttribute("data-launched-by")).toBe("agt_root");
@@ -735,7 +722,7 @@ describe("ChatFeed", () => {
     cleanup();
 
     // The launcher is gone from the list: still a peer post, generic name.
-    renderFeed([chat(launch)], {}, { peers: {} });
+    renderFeed([blockEntry(launch)], {}, { peers: {} });
     post = screen.getByTestId("chat-message");
     expect(screen.getByTestId("chat-post-author").textContent).toBe("Agent");
     expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
@@ -746,17 +733,17 @@ describe("ChatFeed", () => {
 
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
     renderFeed([
-      chat(message({ id: "a1", text: "agent one" })),
-      chat(
-        message({
+      blockEntry(block({ id: "a1", text: "agent one" })),
+      blockEntry(
+        block({
           id: "u1",
           authorKind: "user",
           text: "user one",
           createdAt: "2026-09-02T10:01:00.000Z",
         })
       ),
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "u2",
           authorKind: "user",
           text: "user two",
@@ -815,24 +802,24 @@ describe("ChatFeed", () => {
   });
 
   it("uses the agent's type for its avatar", () => {
-    renderFeed([chat(message({ id: "a1" }))], {}, { agentType: "codex" });
+    renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType: "codex" });
     const post = screen.getByTestId("chat-message");
     expect(post.querySelector("[aria-label='Codex agent']")).toBeTruthy();
   });
 
   it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
     renderFeed([
-      chat(
-        message({ id: "u1", authorKind: "user", text: "one", delivered: null })
+      blockEntry(
+        block({ id: "u1", authorKind: "user", text: "one", delivered: null })
       ),
-      chat(
-        message({ id: "u2", authorKind: "user", text: "two", delivered: true })
+      blockEntry(
+        block({ id: "u2", authorKind: "user", text: "two", delivered: true })
       ),
     ]);
     const pending = screen.getAllByTestId("chat-delivery-pending");
     expect(pending).toHaveLength(1);
     expect(
-      pending[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+      pending[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
     ).toBe("u1");
     expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
   });
@@ -840,8 +827,8 @@ describe("ChatFeed", () => {
   it("shows the hold hint instead of the sending hint on a held message", () => {
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "u1",
             authorKind: "user",
             text: "one",
@@ -849,7 +836,7 @@ describe("ChatFeed", () => {
           })
         ),
       ],
-      { heldMessageId: "u1" }
+      { heldBlockId: "u1" }
     );
     expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
@@ -858,51 +845,56 @@ describe("ChatFeed", () => {
   it("shows the hold hint on the held user message only", () => {
     renderFeed(
       [
-        chat(message({ id: "u1", authorKind: "user", text: "one" })),
-        chat(message({ id: "u2", authorKind: "user", text: "two" })),
+        blockEntry(block({ id: "u1", authorKind: "user", text: "one" })),
+        blockEntry(block({ id: "u2", authorKind: "user", text: "two" })),
       ],
-      { heldMessageId: "u2" }
+      { heldBlockId: "u2" }
     );
     const hints = screen.getAllByTestId("chat-held-hint");
     expect(hints).toHaveLength(1);
     expect(
-      hints[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+      hints[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
     ).toBe("u2");
   });
 
   it("renders agent markdown replies", () => {
-    renderFeed([chat(message({ id: "a1", text: "Hello **there**" }))]);
+    renderFeed([blockEntry(block({ id: "a1", text: "Hello **there**" }))]);
     const post = screen.getByTestId("chat-message");
     expect(post.getAttribute("data-author")).toBe("agent");
-    expect(post.getAttribute("data-kind")).toBe("reply");
+    expect(post.getAttribute("data-kind")).toBe("text");
     expect(post.querySelector("strong")?.textContent).toBe("there");
     expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
   });
 
-  it("renders a summary as an accented block and an update as a light post", () => {
+  it("renders every agent text block the same way: no summary or update treatment", () => {
     renderFeed([
-      chat(message({ id: "a1", kind: "summary", text: "Done: 3 files" })),
-      chat(message({ id: "a2", kind: "update", text: "Still going" })),
+      blockEntry(block({ id: "a1", text: "Done: 3 files" })),
+      blockEntry(
+        block({
+          id: "a2",
+          text: "Still going",
+          createdAt: "2026-09-02T10:20:00.000Z",
+        })
+      ),
     ]);
-    const [summary, update] = screen.getAllByTestId("chat-message");
-    expect(summary!.querySelector("[data-testid='chat-summary']")).toBeTruthy();
-    expect(summary!.textContent).toContain("Summary");
-    expect(summary!.textContent).toContain("Done: 3 files");
-    expect(update!.getAttribute("data-kind")).toBe("update");
-    expect(update!.textContent).toContain("Still going");
+    const [first, second] = screen.getAllByTestId("chat-message");
+    expect(first!.querySelector("[data-testid='chat-summary']")).toBeNull();
+    expect(first!.textContent).not.toContain("Summary");
+    expect(first!.textContent).toContain("Done: 3 files");
+    expect(second!.getAttribute("data-kind")).toBe("text");
+    expect(second!.textContent).toContain("Still going");
   });
 
   it("renders an unanswered question with clickable options", () => {
     const { onAnswer } = renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Which one?",
-          question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
-            allowFreeform: true,
-          },
+          body: questionBody(
+            [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            { allowFreeform: true }
+          ),
         })
       ),
     ]);
@@ -923,21 +915,14 @@ describe("ChatFeed", () => {
 
   it("marks the chosen option and disables the rest once answered", () => {
     const { onAnswer } = renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Which one?",
-          question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
-            allowFreeform: true,
-          },
-          answer: {
-            value: "a",
-            label: "Alpha",
-            replyMessageId: "u9",
-            answeredAt: "2026-09-02T10:01:00.000Z",
-          },
+          body: questionBody(
+            [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            { allowFreeform: true, state: answered("a", "Alpha", "u9") }
+          ),
         })
       ),
     ]);
@@ -957,12 +942,11 @@ describe("ChatFeed", () => {
   it("locks options and hides the freeform hint while answers are unavailable", () => {
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "q1",
-            kind: "question",
             text: "?",
-            question: { options: [{ label: "Yes" }], allowFreeform: true },
+            body: questionBody([{ label: "Yes" }], { allowFreeform: true }),
           })
         ),
       ],
@@ -977,16 +961,15 @@ describe("ChatFeed", () => {
   it("disables options while an answer is in flight", () => {
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "q1",
-            kind: "question",
             text: "?",
-            question: { options: [{ label: "Yes" }] },
+            body: questionBody([{ label: "Yes" }]),
           })
         ),
       ],
-      { answeringMessageId: "q1" }
+      { answeringBlockId: "q1" }
     );
     const [option] = screen.getAllByTestId("chat-question-option");
     expect((option as HTMLButtonElement).disabled).toBe(true);
@@ -994,8 +977,8 @@ describe("ChatFeed", () => {
 
   it("renders a file attachment as an image by its MIME type when the name has no extension", () => {
     renderFeed([
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "a0",
           attachments: [
             fileAttachment({
@@ -1027,8 +1010,8 @@ describe("ChatFeed", () => {
   it("renders every attachment type", () => {
     const { onOpenMedia } = renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "a1",
             attachments: [
               fileAttachment({
@@ -1250,7 +1233,7 @@ describe("ChatFeed", () => {
       second: string,
       content: string,
       delivered: boolean | null = true
-    ): ChatFeedEntry => ({
+    ): StreamEntry => ({
       type: "agent_message",
       id,
       direction,
@@ -1264,8 +1247,8 @@ describe("ChatFeed", () => {
     });
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "m1",
             text: "For you",
             createdAt: "2026-09-02T10:00:00.000Z",
@@ -1274,8 +1257,8 @@ describe("ChatFeed", () => {
         side("s1", "out", "01", "Can you take a look?", null),
         side("s2", "out", "02", "Second thought"),
         side("s3", "in", "03", "Looking now"),
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "m2",
             text: "Back to you",
             createdAt: "2026-09-02T10:00:04.000Z",
@@ -1443,32 +1426,39 @@ describe("ChatFeed", () => {
     expect(card.textContent).toContain("Resolved");
   });
 
-  it("renders media entries and opens them in the lightbox", () => {
+  it("renders a file block as the agent's post with its image, opening the lightbox", () => {
     const { onOpenMedia } = renderFeed([
-      {
-        type: "media",
-        id: "md1",
-        mediaId: 3,
-        fileName: "screen.png",
-        sizeBytes: 4096,
-        description: "Login page",
-        at: "2026-09-02T10:00:00.000Z",
-      },
+      blockEntry(
+        block({
+          id: "md1",
+          text: "Login page",
+          body: FILE_BODY,
+          attachments: [
+            fileAttachment({
+              mediaId: 3,
+              fileName: "screen.png",
+              sizeBytes: 4096,
+            }),
+          ],
+        })
+      ),
     ]);
-    const card = screen.getByTestId("chat-media");
+    const card = screen.getByTestId("chat-message");
+    expect(card.getAttribute("data-kind")).toBe("file");
     expect(
       card.querySelector("[data-testid='chat-post-author']")?.textContent
     ).toBe("builder");
     expect(card.textContent).toContain("Login page");
-    expect(card.querySelector("img")).toBeTruthy();
-    fireEvent.click(card.querySelector("button")!);
+    const image = screen.getByTestId("chat-attachment-image");
+    expect(image.querySelector("img")).toBeTruthy();
+    fireEvent.click(image.querySelector("button")!);
     expect(onOpenMedia).toHaveBeenCalledWith(3);
   });
 });
 
 describe("memoised rows still repaint when their data changes", () => {
   it("shows a pin's new value when a fresh ctx carries it", () => {
-    const entries: ChatFeedEntry[] = [
+    const entries: StreamEntry[] = [
       {
         type: "pin",
         id: "pin:1",
@@ -1520,8 +1510,8 @@ describe("ChatFeed enter animation", () => {
     el.closest('[data-testid="chat-entry-enter"]');
 
   it("fades in what arrives after the first render, never what was there or paged in above", () => {
-    const first = chat(
-      message({ id: "a1", text: "first", createdAt: at("10:00") })
+    const first = blockEntry(
+      block({ id: "a1", text: "first", createdAt: at("10:00") })
     );
     const { rerenderWith } = renderFeed([first]);
     expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
@@ -1530,7 +1520,7 @@ describe("ChatFeed enter animation", () => {
     rerenderWith([
       first,
       status("s1", "working", "Running tests", at("10:01")),
-      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+      blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const [one, two] = screen.getAllByTestId("chat-message");
     expect(enterOf(one!)).toBeNull();
@@ -1543,16 +1533,16 @@ describe("ChatFeed enter animation", () => {
     rerenderWith([
       first,
       status("s1", "working", "Running tests", at("10:01")),
-      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+      blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     expect(enterOf(screen.getAllByTestId("chat-message")[1]!)).not.toBeNull();
 
     // "Load older" puts an earlier page above: no animation for it.
     rerenderWith([
-      chat(message({ id: "a0", text: "older", createdAt: at("09:00") })),
+      blockEntry(block({ id: "a0", text: "older", createdAt: at("09:00") })),
       first,
       status("s1", "working", "Running tests", at("10:01")),
-      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+      blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const posts = screen.getAllByTestId("chat-message");
     expect(posts[0]!.textContent).toContain("older");
@@ -1564,11 +1554,11 @@ describe("ChatFeed enter animation", () => {
   it("fades in a live row that lands below the newest by time", () => {
     // A status event published late sorts under the newest post; it is
     // still an arrival, not a page of older rows.
-    const first = chat(
-      message({ id: "a1", text: "first", createdAt: at("10:00") })
+    const first = blockEntry(
+      block({ id: "a1", text: "first", createdAt: at("10:00") })
     );
-    const last = chat(
-      message({ id: "a2", text: "second", createdAt: at("10:05") })
+    const last = blockEntry(
+      block({ id: "a2", text: "second", createdAt: at("10:05") })
     );
     const { rerenderWith } = renderFeed([first, last]);
     rerenderWith([
@@ -1580,17 +1570,17 @@ describe("ChatFeed enter animation", () => {
   });
 
   it("fades a post edited in place in again", () => {
-    const original = message({
+    const original = block({
       id: "a1",
       text: "draft",
       createdAt: at("10:00"),
       updatedAt: at("10:00"),
     });
-    const { rerenderWith } = renderFeed([chat(original)]);
+    const { rerenderWith } = renderFeed([blockEntry(original)]);
     expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
 
     rerenderWith([
-      chat({ ...original, text: "final", updatedAt: at("10:05") }),
+      blockEntry({ ...original, text: "final", updatedAt: at("10:05") }),
     ]);
     const edited = screen.getByTestId("chat-message");
     expect(edited.textContent).toContain("final");
@@ -1599,24 +1589,12 @@ describe("ChatFeed enter animation", () => {
 });
 
 describe("reactions", () => {
-  const reaction = (
-    emoji: string,
-    delivered: boolean | null,
-    authorKind: "user" | "agent" = "user"
-  ): NonNullable<ChatMessage["reactions"]>[number] => ({
-    id: `r-${authorKind}-${emoji}`,
-    authorKind,
-    emoji,
-    delivered,
-    createdAt: "2026-09-02T10:01:00.000Z",
-  });
-
   it("shows a chip per reaction with its delivery state, and clicking one removes it", () => {
     const onToggleReaction = vi.fn();
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "m1",
             reactions: [
               reaction("👍", true),
@@ -1648,7 +1626,7 @@ describe("reactions", () => {
   it("adds a reaction from the picker, and takes back one the message already has", async () => {
     const onToggleReaction = vi.fn();
     renderFeed(
-      [chat(message({ id: "m1", reactions: [reaction("👍", true)] }))],
+      [blockEntry(block({ id: "m1", reactions: [reaction("👍", true)] }))],
       {},
       { onToggleReaction }
     );
@@ -1679,8 +1657,8 @@ describe("reactions", () => {
     const onToggleReaction = vi.fn();
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "u1",
             authorKind: "user",
             text: "Can you check the logs?",
@@ -1704,11 +1682,10 @@ describe("reactions", () => {
     const onToggleReaction = vi.fn();
     renderFeed(
       [
-        chat(message({ id: "u1", authorKind: "user", text: "mine" })),
-        chat(
-          message({
+        blockEntry(block({ id: "u1", authorKind: "user", text: "mine" })),
+        blockEntry(
+          block({
             id: "a1",
-            kind: "update",
             createdAt: "2026-09-02T10:10:00.000Z",
           })
         ),
@@ -1719,12 +1696,12 @@ describe("reactions", () => {
     const pickers = screen.getAllByTestId("chat-add-reaction");
     expect(pickers).toHaveLength(1);
     expect(
-      pickers[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+      pickers[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
     ).toBe("a1");
     cleanup();
 
     renderFeed(
-      [chat(message({ id: "a1", reactions: [reaction("👍", true)] }))],
+      [blockEntry(block({ id: "a1", reactions: [reaction("👍", true)] }))],
       { answersDisabled: true },
       { onToggleReaction }
     );
@@ -1746,8 +1723,8 @@ describe("reactions", () => {
     const onToggleReaction = vi.fn();
     renderFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "a1",
             reactions: [{ ...reaction("🎉", null), id: "optimistic:🎉" }],
           })
@@ -1812,8 +1789,8 @@ describe("turn entries", () => {
   it("keeps a turn out of every author group and resets the run behind it", () => {
     const rows = layoutFeed(
       [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "m1",
             authorKind: "agent",
             text: "before",
@@ -1822,8 +1799,8 @@ describe("turn entries", () => {
           })
         ),
         turnEntry(),
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "m2",
             authorKind: "agent",
             text: "after",
@@ -1866,8 +1843,7 @@ describe("turn entries", () => {
 
   it("does not re-enter a streaming turn as it grows", () => {
     const { result, rerender } = renderHook(
-      ({ entries }: { entries: ChatFeedEntry[] }) =>
-        useEnteringEntries(entries),
+      ({ entries }: { entries: StreamEntry[] }) => useEnteringEntries(entries),
       {
         initialProps: {
           entries: [
@@ -1875,7 +1851,7 @@ describe("turn entries", () => {
               settled: false,
               result: { text: "a", streaming: true },
             }),
-          ] as ChatFeedEntry[],
+          ] as StreamEntry[],
         },
       }
     );
@@ -1901,12 +1877,11 @@ describe("turn entries", () => {
   });
 
   it("takes a turn's word for a question its own chat row has not caught up on", () => {
-    const question = message({
+    const question = block({
       id: "q1",
       authorKind: "agent",
-      kind: "question",
       text: "Scope choice?",
-      question: { options: [{ label: "Narrow" }], allowFreeform: true },
+      body: questionBody([{ label: "Narrow" }], { allowFreeform: true }),
       createdAt: "2026-09-04T10:00:05.000Z",
       updatedAt: "2026-09-04T10:00:05.000Z",
     });
@@ -1914,7 +1889,7 @@ describe("turn entries", () => {
     expect(
       latestOpenFreeformQuestion([
         turnEntry({ questions: [{ messageId: "q1", answered: false }] }),
-        chat(question),
+        blockEntry(question),
       ])?.id
     ).toBe("q1");
     // The turn is republished on every flush, so its answered state is the
@@ -1922,12 +1897,12 @@ describe("turn entries", () => {
     expect(
       latestOpenFreeformQuestion([
         turnEntry({ questions: [{ messageId: "q1", answered: true }] }),
-        chat(question),
+        blockEntry(question),
       ])
     ).toBeNull();
     // A turn that names no question changes nothing.
-    expect(latestOpenFreeformQuestion([turnEntry(), chat(question)])?.id).toBe(
-      "q1"
-    );
+    expect(
+      latestOpenFreeformQuestion([turnEntry(), blockEntry(question)])?.id
+    ).toBe("q1");
   });
 });

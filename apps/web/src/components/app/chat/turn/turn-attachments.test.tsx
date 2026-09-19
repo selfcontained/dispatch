@@ -1,16 +1,17 @@
 // @vitest-environment jsdom
 import type {
   ChatAgentMessageEntry,
-  ChatFeedEntry,
-  ChatMediaEntry,
   ChatPinEntry,
   ChatTurnEntry,
+  StreamBlockEntry,
+  StreamEntry,
 } from "@dispatch/shared";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
+import { block, blockEntry, FILE_BODY } from "@/test-utils/blocks";
 import {
   INERT_PIN_SHORTCUTS,
   PinShortcutProvider,
@@ -46,16 +47,18 @@ function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
   };
 }
 
-function media(id: string, when: string): ChatMediaEntry {
-  return {
-    type: "media",
-    id,
-    mediaId: 7,
-    fileName: "shot.png",
-    sizeBytes: 2048,
-    description: "Login page",
-    at: when,
-  };
+function media(id: string, when: string): StreamBlockEntry {
+  return blockEntry(
+    block({
+      id,
+      text: "Login page",
+      body: FILE_BODY,
+      attachments: [
+        { type: "file", mediaId: 7, fileName: "shot.png", sizeBytes: 2048 },
+      ],
+      createdAt: when,
+    })
+  );
 }
 
 function pin(id: string, when: string): ChatPinEntry {
@@ -85,7 +88,7 @@ function sent(id: string, when: string): ChatAgentMessageEntry {
 
 describe("foldAttachments", () => {
   it("lifts files, pins and outgoing messages into the turn that produced them", () => {
-    const entries: ChatFeedEntry[] = [
+    const entries: StreamEntry[] = [
       turn(),
       media("md1", at("10:01")),
       pin("pn1", at("10:02")),
@@ -212,11 +215,11 @@ describe("TurnAttachments", () => {
     expect(block.textContent).toContain("please review");
     const order = Array.from(
       block.querySelectorAll(
-        '[data-testid="chat-turn-media"],[data-testid="chat-turn-pin"],[data-testid="chat-turn-sent-to"]'
+        '[data-testid="chat-turn-block"],[data-testid="chat-turn-pin"],[data-testid="chat-turn-sent-to"]'
       )
     ).map((el) => el.getAttribute("data-testid"));
     expect(order).toEqual([
-      "chat-turn-media",
+      "chat-turn-block",
       "chat-turn-pin",
       "chat-turn-sent-to",
     ]);

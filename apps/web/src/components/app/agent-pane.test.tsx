@@ -20,8 +20,8 @@ vi.mock("framer-motion", async (importOriginal) => {
 // The chat pane's data layer is covered in chat-pane.test; here it is inert
 // so the pane's hosting decisions — what is mounted, hidden, active — can
 // be read straight off the DOM.
-vi.mock("@/hooks/use-chat", () => ({
-  useChatFeed: () => ({
+vi.mock("@/hooks/use-stream", () => ({
+  useStreamFeed: () => ({
     entries: [],
     unreadCount: 0,
     hasOlder: false,
@@ -31,22 +31,33 @@ vi.mock("@/hooks/use-chat", () => ({
     loadOlder: vi.fn(),
     refetch: vi.fn(),
   }),
-  useSendChatMessage: () => ({
+  usePostBlock: () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
     isPending: false,
     variables: undefined,
   }),
-  useAnswerChatQuestion: () => ({
+  useAnswerQuestion: () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
     isPending: false,
     variables: undefined,
   }),
-  useMarkChatRead: () => vi.fn(),
+  useSubmitForm: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    variables: undefined,
+  }),
+  useSetBlockState: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    variables: undefined,
+  }),
+  useMarkStreamRead: () => vi.fn(),
   // One mutate for the whole file: the feed's rows are memoised on a context
   // built from it.
-  useToggleChatReaction: (() => {
+  useToggleReaction: (() => {
     const mutate = vi.fn();
     return () => ({ mutate });
   })(),

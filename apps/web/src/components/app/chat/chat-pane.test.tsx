@@ -1,9 +1,5 @@
 // @vitest-environment jsdom
-import type {
-  ChatFeedEntry,
-  ChatMessage,
-  ChatTurnEntry,
-} from "@dispatch/shared";
+import type { ChatTurnEntry, StreamEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -18,6 +14,13 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import {
+  answered,
+  block,
+  blockEntry,
+  FILE_BODY,
+  questionBody,
+} from "@/test-utils/blocks";
 import { api } from "@/lib/api";
 
 import {
@@ -54,8 +57,8 @@ vi.mock("@/lib/api", () => ({
   api: vi.fn(async () => ({ agents: [] })),
 }));
 
-vi.mock("@/hooks/use-chat", () => ({
-  useChatFeed: () => ({
+vi.mock("@/hooks/use-stream", () => ({
+  useStreamFeed: () => ({
     entries: H.entries,
     unreadCount: H.unreadCount,
     hasOlder: false,
@@ -65,22 +68,36 @@ vi.mock("@/hooks/use-chat", () => ({
     loadOlder: vi.fn(),
     refetch: H.refetch,
   }),
-  useSendChatMessage: () => ({
+  usePostBlock: () => ({
     mutate: H.sendNow,
     mutateAsync: H.send,
     isPending: false,
     variables: undefined,
   }),
-  useAnswerChatQuestion: () => ({
+  useAnswerQuestion: () => ({
     mutate: H.answerNow,
     mutateAsync: H.answer,
     isPending: false,
     variables: undefined,
   }),
-  useMarkChatRead: () => H.markRead,
+  useSubmitForm: (() => {
+    const mutate = vi.fn();
+    const mutateAsync = vi.fn();
+    return () => ({
+      mutate,
+      mutateAsync,
+      isPending: false,
+      variables: undefined,
+    });
+  })(),
+  useSetBlockState: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate, isPending: false, variables: undefined });
+  })(),
+  useMarkStreamRead: () => H.markRead,
   // One mutate for the whole file: the feed's rows are memoised on a context
   // built from it.
-  useToggleChatReaction: (() => {
+  useToggleReaction: (() => {
     const mutate = vi.fn();
     return () => ({ mutate });
   })(),
@@ -122,29 +139,6 @@ const agent: Agent = {
     metadata: null,
   },
 };
-
-function message(overrides: Partial<ChatMessage>): ChatMessage {
-  return {
-    id: "m",
-    agentId: "agt_1",
-    authorKind: "agent",
-    kind: "reply",
-    text: "hi",
-    replyTo: null,
-    question: null,
-    answer: null,
-    attachments: [],
-    delivered: null,
-    readAt: null,
-    createdAt: "2026-09-02T10:00:00.000Z",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function chat(m: ChatMessage): ChatFeedEntry {
-  return { type: "chat", id: m.id, at: m.createdAt, message: m };
-}
 
 function Wrapper({ children }: { children: ReactNode }) {
   // One client per mounted tree: a rerender must not hand the pane a fresh
@@ -216,7 +210,7 @@ describe("filterChildAgentMessages", () => {
     id: string,
     senderAgentId: string,
     recipientAgentId: string
-  ): ChatFeedEntry => ({
+  ): StreamEntry => ({
     type: "agent_message",
     id,
     direction: senderAgentId === "agt_1" ? "out" : "in",
@@ -233,7 +227,7 @@ describe("filterChildAgentMessages", () => {
     childMessage("from-child", "agt_child", "agt_1"),
     childMessage("to-child", "agt_1", "agt_child"),
     childMessage("other-agent", "agt_other", "agt_1"),
-    chat(message({ id: "human-chat" })),
+    blockEntry(block({ id: "human-chat" })),
   ];
 
   it("keeps all entries while child agents are shown", () => {
@@ -280,7 +274,7 @@ describe("ChatPane", () => {
         delivered: true,
         at: "2026-09-02T10:00:00.000Z",
       },
-      chat(message({ id: "human-chat", text: "visible reply" })),
+      blockEntry(block({ id: "human-chat", text: "visible reply" })),
     ];
 
     renderPane({ showChildAgents: false, childAgentIds: ["agt_child"] });
@@ -290,7 +284,7 @@ describe("ChatPane", () => {
   });
 
   it("does not treat filtering or hidden child messages as visible appends", () => {
-    const childEntry: ChatFeedEntry = {
+    const childEntry: StreamEntry = {
       type: "agent_message",
       id: "from-child",
       direction: "in",
@@ -303,7 +297,7 @@ describe("ChatPane", () => {
       at: "2026-09-02T10:01:00.000Z",
     };
     H.entries = [
-      chat(message({ id: "human-chat", text: "visible reply" })),
+      blockEntry(block({ id: "human-chat", text: "visible reply" })),
       childEntry,
     ];
     const baseProps = {
@@ -340,15 +334,15 @@ describe("ChatPane", () => {
   });
 
   it("offers the New messages pill for a live row that lands mid-feed", () => {
-    const first = chat(
-      message({
+    const first = blockEntry(
+      block({
         id: "a1",
         text: "first",
         createdAt: "2026-09-02T10:00:00.000Z",
       })
     );
-    const last = chat(
-      message({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
+    const last = blockEntry(
+      block({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
     );
     H.entries = [first, last];
     const { rerender } = renderPane();
@@ -389,7 +383,7 @@ describe("ChatPane", () => {
   });
 
   it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
-    H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
+    H.entries = [blockEntry(block({ id: "a", text: "**bold** body" }))];
     const stable = {
       onShowChildAgentsChange: vi.fn(),
       openLightbox: vi.fn(),
@@ -467,13 +461,13 @@ describe("ChatPane", () => {
   });
 
   it("hides the empty state once a chat message exists", () => {
-    H.entries = [chat(message({ id: "a1", text: "hello" }))];
+    H.entries = [blockEntry(block({ id: "a1", text: "hello" }))];
     renderPane();
     expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
   it("sends a plain message when no free-text question is open", () => {
-    H.entries = [chat(message({ id: "a1" }))];
+    H.entries = [blockEntry(block({ id: "a1" }))];
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("hello there");
@@ -493,19 +487,21 @@ describe("ChatPane", () => {
         message: "Booting",
         at: "2026-09-02T10:00:00.000Z",
       },
-      {
-        type: "media",
-        id: "media:1",
-        mediaId: 1,
-        fileName: "shot.png",
-        sizeBytes: 10,
-        description: null,
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      blockEntry(
+        block({
+          id: "media:1",
+          text: "",
+          body: FILE_BODY,
+          attachments: [
+            { type: "file", mediaId: 1, fileName: "shot.png", sizeBytes: 10 },
+          ],
+          createdAt: "2026-09-02T10:00:01.000Z",
+        })
+      ),
     ];
     renderPane();
     expect(screen.queryByTestId("chat-empty")).toBeNull();
-    expect(screen.getByTestId("chat-media")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-image")).toBeTruthy();
   });
 
   it("offers a retry and blocks sending while the feed failed to load", () => {
@@ -536,12 +532,11 @@ describe("ChatPane", () => {
 
   it("answers the newest open free-text question with what was typed", () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Which branch should I use?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
         })
       ),
     ];
@@ -551,7 +546,7 @@ describe("ChatPane", () => {
     );
     typeAndSend("release/2.0");
     expect(H.answer).toHaveBeenCalledWith({
-      messageId: "q1",
+      blockId: "q1",
       value: "release/2.0",
       attachments: [],
     });
@@ -560,12 +555,11 @@ describe("ChatPane", () => {
 
   it("answers a free-text question through the answer route even with attachments", async () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Which spec?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
         })
       ),
     ];
@@ -573,17 +567,14 @@ describe("ChatPane", () => {
       // The answered question comes back from the server; the pane then
       // has nothing left to reply to.
       H.entries = [
-        chat(
-          message({
+        blockEntry(
+          block({
             id: "q1",
-            kind: "question",
             text: "Which spec?",
-            question: { options: [{ label: "main" }], allowFreeform: true },
-            answer: {
-              value: "this one",
-              replyMessageId: "r1",
-              answeredAt: "2026-09-02T10:01:00.000Z",
-            },
+            body: questionBody([{ label: "main" }], {
+              allowFreeform: true,
+              state: answered("this one", undefined, "r1"),
+            }),
           })
         ),
       ];
@@ -597,7 +588,7 @@ describe("ChatPane", () => {
     expect(screen.getByTestId("chat-reply-context")).toBeTruthy();
     typeAndSend("this one");
     expect(H.answer).toHaveBeenCalledWith({
-      messageId: "q1",
+      blockId: "q1",
       value: "this one",
       attachments: [{ type: "link", url: "https://example.com/spec" }],
     });
@@ -626,12 +617,11 @@ describe("ChatPane", () => {
 
   it("sends a plain message after the reply context is dismissed", () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Which branch?",
-          question: { options: [{ label: "main" }], allowFreeform: true },
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
         })
       ),
     ];
@@ -648,12 +638,11 @@ describe("ChatPane", () => {
 
   it("does not offer the reply context for an option-only question", () => {
     H.entries = [
-      chat(
-        message({
+      blockEntry(
+        block({
           id: "q1",
-          kind: "question",
           text: "Pick one",
-          question: { options: [{ label: "A" }, { label: "B" }] },
+          body: questionBody([{ label: "A" }, { label: "B" }]),
         })
       ),
     ];
@@ -759,9 +748,9 @@ describe("ChatPane scroll memory", () => {
 
   it("records the rows on screen when the reader leaves", () => {
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
-      chat(message({ id: "m3", text: "three" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m3", text: "three" })),
     ];
     const { unmount } = renderPane();
     const scroll = stubLayout(250);
@@ -780,9 +769,9 @@ describe("ChatPane scroll memory", () => {
     vi.useFakeTimers();
     try {
       H.entries = [
-        chat(message({ id: "m1", text: "one" })),
-        chat(message({ id: "m2", text: "two" })),
-        chat(message({ id: "m3", text: "three" })),
+        blockEntry(block({ id: "m1", text: "one" })),
+        blockEntry(block({ id: "m2", text: "two" })),
+        blockEntry(block({ id: "m3", text: "three" })),
       ];
       const { unmount } = renderPane();
       // One unbroken fling: every event resets the trailing timer, so it
@@ -805,7 +794,7 @@ describe("ChatPane scroll memory", () => {
   });
 
   it("stays following when the reader leaves from the bottom", () => {
-    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    H.entries = [blockEntry(block({ id: "m1", text: "one" }))];
     const { unmount } = renderPane();
     const scroll = stubLayout(800);
     fireEvent.scroll(scroll);
@@ -820,8 +809,8 @@ describe("ChatPane scroll memory", () => {
       anchors: [{ entryId: "m2", offset: -50 }],
     });
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
     ];
 
     renderPane();
@@ -842,8 +831,8 @@ describe("ChatPane scroll memory", () => {
       ],
     });
     H.entries = [
-      chat(message({ id: "m1", text: "one" })),
-      chat(message({ id: "m2", text: "two" })),
+      blockEntry(block({ id: "m1", text: "one" })),
+      blockEntry(block({ id: "m2", text: "two" })),
     ];
 
     renderPane();
@@ -857,7 +846,7 @@ describe("ChatPane scroll memory", () => {
       following: false,
       anchors: [{ entryId: "rolled-off", offset: -50 }],
     });
-    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    H.entries = [blockEntry(block({ id: "m1", text: "one" }))];
 
     renderPane();
 

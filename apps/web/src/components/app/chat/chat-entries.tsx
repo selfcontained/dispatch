@@ -711,7 +711,9 @@ export const BlockView = memo(function BlockView({
     />
   );
 
-  if (author.kind === "user") {
+  // A person's block, whoever it reads as: a launch-context post made by
+  // another agent keeps the user-post layout under that agent's name.
+  if (block.author.kind === "user") {
     return (
       <Post
         author={author}
