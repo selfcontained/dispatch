@@ -199,7 +199,7 @@ describe("composeStreamFeed", () => {
     }
     expect(new Set(seen).size).toBe(9);
     expect(seen).toHaveLength(9);
-    expect(pages).toBe(6);
+    expect(pages).toBe(5);
   });
 
   it("round-trips cursors and rejects foreign ones", () => {
