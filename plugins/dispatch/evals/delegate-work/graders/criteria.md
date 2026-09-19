@@ -13,8 +13,8 @@ agent that has none of this context.
    Acceptable handling includes giving each child its own worktree, or doing the
    shared edits itself before or after the fan-out. Simply ignoring the overlap
    is a fail.
-4. The response says how it will collect results — `list_agents`,
-   `send_message`, or waiting for the children to report.
+4. The response says how it will collect results — `list_agents`, `post`
+   with `to`, or waiting for the children to post back into its stream.
 
 **Fail if:**
 

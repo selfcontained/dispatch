@@ -36,7 +36,7 @@ Templates take the full agent-type table (`AGENT_TYPES`); jobs take the CLI subs
 
 ### Runtime Arguments
 
-Templates support `{{D:Arg Name}}` placeholders in their prompt. Arguments are optional by default. Add `|required` to make one mandatory at launch, and `|multiline` (or `|textarea`) to render a textarea instead of a single-line input. Arguments are also pinned to the spawned agent's sidebar for reference.
+Templates support `{{D:Arg Name}}` placeholders in their prompt. Arguments are optional by default. Add `|required` to make one mandatory at launch, and `|multiline` (or `|textarea`) to render a textarea instead of a single-line input. Filled-in values are rendered into the prompt the agent receives.
 
 If you leave an optional argument blank, Dispatch removes that placeholder and leaves the surrounding text as-is. Write prompts so they still read naturally when optional values are omitted.
 
@@ -200,7 +200,7 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_needs_input` | Pause the run and ask a human a question.   |
 | `job_log`         | Append a progress log to a named task.      |
 
-Job agents may also call analytics tools (`get_activity_summary`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`), and `create_pr` / `get_pr_status` / `rename_session` / `post` (with `notify: true` for Slack).
+Job agents may also call analytics tools (`get_activity_summary`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (`post` with `notify: true` for Slack). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
 
 ## UI
 

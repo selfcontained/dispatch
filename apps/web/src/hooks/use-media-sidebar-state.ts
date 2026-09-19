@@ -3,6 +3,7 @@ import { useAtom } from "jotai";
 
 import { MEDIA_SIDEBAR_SETTLE_FALLBACK_MS } from "@/components/app/media-sidebar-constants";
 import {
+  asMediaSidebarTab,
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
   reconcileAgentScopedStorage,
@@ -42,7 +43,8 @@ export function useMediaSidebarState({
     ? mobileMediaOpen
     : desktopMediaSidebarState.isOpen;
   const mediaPanelOpen = mediaOpen;
-  const mediaActiveTab = desktopMediaSidebarState.activeTab;
+  // A stored value from before the sidebar's tabs changed falls back to the rail.
+  const mediaActiveTab = asMediaSidebarTab(desktopMediaSidebarState.activeTab);
   const mediaPinned = desktopMediaSidebarState.isPinned ?? false;
   const mediaShiftsLayout = !isMobile && mediaOpen && mediaPinned;
   const mediaResizeTimerRef = useRef<number | null>(null);

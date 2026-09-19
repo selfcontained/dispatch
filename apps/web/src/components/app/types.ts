@@ -1,5 +1,4 @@
 import type {
-  AgentPin,
   AgentRecord,
   AgentStatus,
   DiffStats as ServerDiffStats,
@@ -10,11 +9,7 @@ import type {
  * column added on one side can't be missed. Re-exported from here so the
  * components that already import them from this module keep resolving.
  */
-export type {
-  AgentPin,
-  AgentStatus,
-  PinShortcutVariant,
-} from "@dispatch/shared";
+export type { AgentStatus } from "@dispatch/shared";
 
 /**
  * Fields the client treats as optional even though the server always sends
@@ -32,7 +27,6 @@ type LenientAgentField =
   | "simulatorUdid"
   | "lastError"
   | "latestEvent"
-  | "pins"
   | "gitContext"
   | "gitContextStale"
   | "gitContextUpdatedAt"
@@ -76,9 +70,9 @@ export type MediaFile = {
 };
 
 /**
- * A sub agent whose pins and media are grouped under the selected agent.
- * Carries the child's own workspace root so its filename pins resolve
- * against the child's worktree, not the parent's.
+ * A sub agent whose media is grouped under the selected agent. Carries the
+ * child's own workspace root so paths resolve against the child's worktree,
+ * not the parent's.
  */
 export type SubAgentRef = {
   id: string;
@@ -93,7 +87,6 @@ export type SubAgentMedia = {
   /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
   status: "pending" | "error" | "success";
 };
-export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";

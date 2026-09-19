@@ -1,21 +1,11 @@
 import { type RefObject } from "react";
 import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
-import {
-  type AgentPin,
-  type MediaFile,
-  type SubAgentMedia,
-  type SubAgentPins,
-} from "@/components/app/types";
-import { isSystemSidebarTab, type MediaSidebarTab } from "@/lib/store";
+import { type MediaFile, type SubAgentMedia } from "@/components/app/types";
+import { type MediaSidebarTab } from "@/lib/store";
 import { MediaContent } from "@/components/app/media-content";
-import { PinsPanel } from "@/components/app/pins-panel";
-import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
-import { useAgentReviews } from "@/hooks/use-agent-reviews";
-import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
-import { SurfaceTabRow } from "@/components/app/agent-surfaces/surface-tab-row";
-import { SurfacePanel } from "@/components/app/agent-surfaces/surface-panel";
-import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
+import { StreamRailPanel } from "@/components/app/stream-rail";
+import { type StreamRail } from "@/hooks/use-stream-rail";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
@@ -34,11 +24,6 @@ type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
   selectedAgentName: string | null;
-  selectedAgentWorkspaceRoot: string | null;
-  selectedAgentPins: AgentPin[];
-  selectedAgentIsRunning?: boolean;
-  /** Direct children of the selected agent, grouped under its Pins tab. */
-  subAgentPins?: SubAgentPins[];
   /** Direct children of the selected agent, selectable in its Media tab. */
   subAgentMedia?: SubAgentMedia[];
   /** The selected agent's own files when `mediaFiles` is showing a sub agent's. */
@@ -52,13 +37,14 @@ type MediaSidebarSharedProps = {
   streamUrl: string | null;
   unseenMediaCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
-  onNavigateToFile?: (
-    filePath: string,
-    lineStart: number | null,
-    feedbackItemId?: number
-  ) => void;
-  /** Called after a shortcut successfully fires (mobile closes the sheet). */
-  onShortcutRun?: () => void;
+  /** The Rail tab: open inputs and links derived from the stream. */
+  rail: StreamRail;
+  /** Why the rail cannot send an answer right now, or null. */
+  railDisabledReason: string | null;
+  /** Names an agent in the selected agent's tree, for a child's question. */
+  agentNameById?: (agentId: string) => string;
+  /** Opens a block's thread in the Chat tab (mobile closes the sheet first). */
+  onOpenBlock?: (blockId: string) => void;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -79,18 +65,58 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   pinned?: boolean;
   onTogglePin?: () => void;
   className?: string;
-  /** Re-triggers active-surface scrolling when a drawer/sheet opens. */
-  isSidebarVisible?: boolean;
 };
+
+function SidebarTab({
+  label,
+  active,
+  onClick,
+  badge,
+  badgeClassName,
+  testId,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
+  badgeClassName?: string;
+  testId: string;
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testId}
+      aria-pressed={active}
+      className={cn(
+        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+        active
+          ? "text-foreground"
+          : "text-muted-foreground hover:text-foreground/80"
+      )}
+    >
+      {label}
+      {active ? (
+        <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
+      ) : null}
+      {badge !== undefined && badge > 0 ? (
+        <span
+          className={cn(
+            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-[8px]",
+            badgeClassName ?? "bg-primary text-primary-foreground"
+          )}
+          data-testid={`${testId}-badge`}
+        >
+          {badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 export function MediaSidebarContent({
   mediaFiles,
   selectedAgentId,
   selectedAgentName,
-  selectedAgentWorkspaceRoot,
-  selectedAgentPins,
-  selectedAgentIsRunning,
-  subAgentPins,
   subAgentMedia,
   ownMediaFiles,
   mediaOwnerId,
@@ -109,26 +135,13 @@ export function MediaSidebarContent({
   className,
   unseenMediaCount,
   onUploadFile,
-  onNavigateToFile,
-  onShortcutRun,
-  isSidebarVisible,
+  rail,
+  railDisabledReason,
+  agentNameById,
+  onOpenBlock,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
 }): JSX.Element {
-  const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
-  const runPinShortcut = useRunPinShortcut();
-  const reviewUnresolvedCount = reviews.reduce(
-    (sum, r) => sum + (r.itemCount - r.resolvedCount),
-    0
-  );
-  const {
-    surfaces,
-    isLoading: surfacesLoading,
-    isError: surfacesError,
-    refetch: refetchSurfaces,
-  } = useAgentSurfaces(selectedAgentId);
-  const isSystemTab = isSystemSidebarTab(activeTab);
-  const activeSurface = surfaces.find((s) => s.id === activeTab);
   return (
     <aside
       data-testid="media-sidebar"
@@ -140,63 +153,22 @@ export function MediaSidebarContent({
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex min-w-0 flex-1">
-          <button
-            onClick={() => setActiveTab("pins")}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "pins"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Pins
-            {activeTab === "pins" ? (
-              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
-            ) : null}
-            {selectedAgentPins.length > 0 && (
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
-                {selectedAgentPins.length}
-              </span>
-            )}
-          </button>
-          <button
+          <SidebarTab
+            label="Rail"
+            active={activeTab === "rail"}
+            onClick={() => setActiveTab("rail")}
+            badge={rail.inputs.length}
+            badgeClassName="bg-status-waiting text-white"
+            testId="sidebar-tab-rail"
+          />
+          <SidebarTab
+            label="Media"
+            active={activeTab === "media"}
             onClick={() => setActiveTab("media")}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "media"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Media
-            {activeTab === "media" ? (
-              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
-            ) : null}
-            {unseenMediaCount > 0 && (
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
-                {unseenMediaCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("reviews")}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "reviews"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Reviews
-            {activeTab === "reviews" ? (
-              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
-            ) : null}
-            {reviewUnresolvedCount > 0 && (
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] text-white">
-                {reviewUnresolvedCount}
-              </span>
-            )}
-          </button>
+            badge={unseenMediaCount}
+            badgeClassName="bg-destructive text-destructive-foreground"
+            testId="sidebar-tab-media"
+          />
         </div>
         <div className="flex items-center gap-1 px-2">
           {onTogglePin ? (
@@ -236,52 +208,19 @@ export function MediaSidebarContent({
         </div>
       </div>
 
-      <SurfaceTabRow
-        agentId={selectedAgentId}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        surfaces={surfaces}
-        isSidebarVisible={isSidebarVisible}
-      />
-
       {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col",
-          activeTab !== "pins" && "hidden"
+          activeTab !== "rail" && "hidden"
         )}
       >
-        <PinsPanel
-          pins={selectedAgentPins}
-          selectedAgentId={selectedAgentId}
-          selectedAgentName={selectedAgentName}
-          selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
-          agentIsRunning={selectedAgentIsRunning}
-          subAgentPins={subAgentPins}
-          collapseScope={selectedAgentId}
-          // A shortcut fires a real prompt into a live session, so an
-          // in-flight run blocks its own button until it settles — a
-          // double-click would otherwise send the prompt twice.
-          pendingPinId={
-            runPinShortcut.isPending
-              ? (runPinShortcut.variables?.pinId ?? null)
-              : null
-          }
-          onRunShortcut={
-            selectedAgentId
-              ? (pin, ownerAgentId) => {
-                  if (!pin.id || runPinShortcut.isPending) return;
-                  runPinShortcut.mutate(
-                    {
-                      agentId: ownerAgentId ?? selectedAgentId,
-                      pinId: pin.id,
-                      label: pin.label,
-                    },
-                    { onSuccess: () => onShortcutRun?.() }
-                  );
-                }
-              : undefined
-          }
+        <StreamRailPanel
+          rail={rail}
+          agentName={selectedAgentName}
+          agentNameById={agentNameById}
+          disabledReason={railDisabledReason}
+          onOpenBlock={onOpenBlock}
         />
       </div>
       <div
@@ -306,30 +245,6 @@ export function MediaSidebarContent({
           onUploadFile={onUploadFile}
         />
       </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeTab !== "reviews" && "hidden"
-        )}
-      >
-        <ReviewsSidebarContent
-          agentId={selectedAgentId}
-          onNavigateToFile={onNavigateToFile}
-        />
-      </div>
-      {!isSystemTab && selectedAgentId ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <SurfacePanel
-            agentId={selectedAgentId}
-            surface={activeSurface}
-            isLoading={surfacesLoading}
-            isError={surfacesError}
-            onRequestRefresh={async () => {
-              await refetchSurfaces();
-            }}
-          />
-        </div>
-      ) : null}
     </aside>
   );
 }
@@ -365,7 +280,6 @@ export function MediaSidebar({
         >
           <MediaSidebarContent
             {...props}
-            isSidebarVisible={mediaOpen}
             onRequestClose={() => setMediaOpen(false)}
             closeButtonIcon="chevron"
             pinned={pinned}
@@ -403,7 +317,6 @@ export function MediaSidebar({
     >
       <MediaSidebarContent
         {...props}
-        isSidebarVisible={mediaOpen}
         onRequestClose={() => setMediaOpen(false)}
         closeButtonIcon="chevron"
         pinned={pinned}

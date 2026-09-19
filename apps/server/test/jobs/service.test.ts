@@ -101,7 +101,6 @@ beforeEach(async () => {
   vi.mocked(mockAgentManager.getAgent).mockResolvedValue({
     id: "mock",
     status: "running",
-    tmuxSession: null,
   } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 
@@ -135,7 +134,7 @@ describe("JobService", () => {
       // Create a real agent record to satisfy FK constraint
       const agentId = `agt_cb_${Date.now()}`;
       await pool.query(
-        `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+        `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
          VALUES ($1, 'cb-test-agent', 'claude', 'running', '/tmp', '[]'::jsonb, false)`,
         [agentId]
       );
@@ -279,7 +278,7 @@ describe("JobService", () => {
       vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
         const createdAt = new Date().toISOString();
         await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+          `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
         );
         return {
@@ -288,7 +287,6 @@ describe("JobService", () => {
           type: "claude",
           status: "running",
           cwd: "/tmp/test-rename",
-          tmuxSession: null,
           createdAt,
           updatedAt: createdAt,
           metadata: null,
@@ -527,7 +525,7 @@ describe("JobService", () => {
       vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
         const createdAt = new Date().toISOString();
         await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+          `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ($1, 'wh-test-agent', 'claude', 'running', '/tmp/test-wh-run', '[]'::jsonb, false)`,
           [agentId]
         );
@@ -537,7 +535,6 @@ describe("JobService", () => {
           type: "claude",
           status: "running",
           cwd: "/tmp/test-wh-run",
-          tmuxSession: null,
           createdAt,
           updatedAt: createdAt,
           metadata: null,

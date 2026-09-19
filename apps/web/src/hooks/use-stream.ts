@@ -125,7 +125,7 @@ export function shareFeedByEntryId(
   next: FeedCache
 ): FeedCache {
   // Keyed by type as well as id: the server namespaces ids per source today
-  // (event:/review:/pin:, uuids for the rest), but nothing here should
+  // (event: for status rows, uuids for the rest), but nothing here should
   // depend on a source it does not control keeping that up.
   const previousById = new Map<string, StreamEntry>();
   for (const page of prev.pages) {
@@ -358,9 +358,9 @@ function newBlockId(): string {
 }
 
 /**
- * What the optimistic post can show before the server answers: links and
- * pins as given; files only once the response names them, since the feed
- * renders a file by its stored name and size.
+ * What the optimistic post can show before the server answers: links as
+ * given; files only once the response names them, since the feed renders a
+ * file by its stored name and size.
  */
 function optimisticAttachments(
   inputs: ChatUserAttachmentInput[]
@@ -368,7 +368,6 @@ function optimisticAttachments(
   const out: ChatAttachment[] = [];
   for (const input of inputs) {
     if (input.type === "link") out.push(input);
-    else if (input.type === "pin") out.push(input);
   }
   return out;
 }

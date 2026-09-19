@@ -155,12 +155,11 @@ export async function deleteOldFiles(
 
 export type DiagnosticsRecorder = {
   /**
-   * Rotate the inventory log + the dispatch server log when they exceed
-   * 10 MB, and prune diagnostic JSON / rotated log files older than the
-   * configured retention windows. Throttled to once every five minutes.
+   * Rotate the dispatch server log when it exceeds 10 MB, and prune
+   * diagnostic JSON / rotated log files older than the configured retention
+   * windows. Throttled to once every five minutes.
    */
   maybeMaintenanceLogs(): Promise<void>;
-
 };
 
 /**
@@ -183,13 +182,6 @@ export function createDiagnosticsRecorder(
       lastLogMaintenanceAt = now;
 
       try {
-        // Rotate tmux-inventory.jsonl (keep 1 backup)
-        const inventoryPath = path.join(
-          diagnosticsRoot(),
-          "tmux-inventory.jsonl"
-        );
-        await rotateFile(inventoryPath, 1);
-
         // Rotate dispatch.log via copytruncate (keep 3 backups)
         await copyTruncateFile(serverLogPath(), 3);
 
@@ -200,12 +192,7 @@ export function createDiagnosticsRecorder(
           DIAGNOSTICS_MAX_AGE_MS
         );
 
-        // Delete old rotated logs (inventory backups > 7 days, server log backups > 14 days)
-        await deleteOldFiles(
-          diagnosticsRoot(),
-          /tmux-inventory\.jsonl\.\d+$/,
-          DIAGNOSTICS_MAX_AGE_MS
-        );
+        // Delete old rotated server logs (> 14 days)
         await deleteOldFiles(
           path.join(os.homedir(), ".dispatch", "logs"),
           /dispatch\.log\.\d+$/,

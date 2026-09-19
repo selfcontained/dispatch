@@ -77,21 +77,11 @@
 
 `model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
 
-`useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch named `worktreeBranch` forks from `baseBranch`, or `baseBranch` itself is checked out in the worktree — in which case `worktreeBranch` is ignored. Placement (sibling vs. `.dispatch/worktrees/`) comes from the instance-wide setting at `/agents/settings`, not from this payload. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
+`useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch named `worktreeBranch` forks from `baseBranch`, or `baseBranch` itself is checked out in the worktree — in which case `worktreeBranch` is ignored. Placement (sibling vs. `.dispatch/worktrees/`) comes from the instance-wide setting at `/agents/settings`, not from this payload. `autoReview` adds the Autonomous Review rule to the agent's launch guidance: before finishing it opens a draft PR, launches reviewer personas with `launch_agent`, and works the `review` blocks they post back. `initialPrompt` is piped into the agent CLI as its first user turn.
 
 This endpoint also accepts `multipart/form-data` to attach up to 10 startup files (20 MB each); array/boolean fields like `agentArgs` and `fullAccess` are accepted as JSON-encoded strings in that form.
 
-For persona agents (launched via `launch_persona`):
-
-```json
-{
-  "cwd": "/path/to/repo",
-  "type": "claude",
-  "persona": "backend-security-review",
-  "parentAgentId": "agt_01abc2def345",
-  "personaContext": "Review the auth middleware changes..."
-}
-```
+Persona agents are not created through this endpoint. An agent launches one with the `launch_agent` MCP tool and `persona: <slug>` (or the UI does through `POST /agents/:id/launch-persona`); the record carries `persona`, `parentAgentId`, and the briefing as `personaContext`.
 
 ### `POST /agents/:id/stop`
 
@@ -151,7 +141,7 @@ Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"S
 }
 ```
 
-Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
+Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`. Status is derived on the server — a turn starting is `working`, a turn settling is `idle` unless the agent has an open `question` or `form` for the user (`waiting_user`), a failed turn or engine exit is `blocked` — so agents never report it themselves. This route is the internal write path the runtime uses.
 
 ### `GET /events` (SSE)
 
@@ -161,9 +151,7 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | ------------------------------ | ------------------------------------------------------------------- |
 | `snapshot`                     | Full agent list (sent on initial connection)                        |
 | `agent.upsert`                 | Single agent record (created or updated)                            |
-| `agent.terminal_state_changed` | Terminal UI state for an agent                                      |
 | `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                    |
-| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`) |
 | `agent.deleted`                | Agent ID that was deleted                                           |
 | `media.changed`                | Agent ID whose media list changed                                   |
 | `media.seen`                   | Agent ID + array of media keys marked seen                          |
@@ -173,43 +161,24 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | `agent.tool_invoked`           | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral)   |
 | `stream.started`               | Agent ID whose live stream started                                  |
 | `stream.stopped`               | Agent ID whose live stream stopped                                  |
-| `feedback.created`             | Agent ID + new feedback record                                      |
-| `feedback.updated`             | Agent ID + updated feedback record                                  |
 | `job.changed`                  | (no payload) — job config or run state changed                      |
 | `template.changed`             | (no payload) — template created, updated, or deleted                |
 | `notification`                 | Web notification payload (id, agent, event, message)                |
 | `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                            |
 
-## Terminal
-
-| Method | Path                                      | Description                                                        |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------ |
-| POST   | `/agents/:id/terminal/token`              | Issue short-lived terminal access token                            |
-| WS     | `/agents/:id/terminal/ws?token=...`       | WebSocket for interactive terminal I/O                             |
-| GET    | `/agents/:id/terminal/state`              | Current tmux terminal state (copy mode / live)                     |
-| POST   | `/agents/:id/terminal/copy-mode/exit`     | Leave tmux copy mode and return the pane to live input             |
-| POST   | `/agents/:id/terminal/interaction`        | Record a user terminal interaction (`{ "interaction": "scroll" }`) |
-| POST   | `/agents/:id/terminal/inject-text`        | Paste typed text into the session (mobile fullscreen input)        |
-| POST   | `/agents/:id/terminal/inject-pin/:pinId`  | Run a shortcut pin — delivers the prompt stored on that pin        |
-| POST   | `/agents/:id/terminal/release-injections` | Deliver every prompt currently held by the quiet gate              |
-
-The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session. Keystrokes and `interaction` messages also feed the injection quiet gate — see `/app/settings/injection-hold`. The state, copy-mode, interaction, and injection endpoints return `409` when the agent has no tmux session.
-
-`inject-text` takes `text` (required, max 10,000 characters) and optional `submit` (default `true` — sends Enter after pasting). `inject-pin` takes no body: the prompt is read server-side from the agent's own pin, so a client can only fire prompts the agent pinned. It returns `404` for an unknown pin id and `400` when the pin isn't a shortcut or has been disabled. Both deliver through the tmux paste buffer and, being user-initiated, skip the quiet gate while still serializing against in-flight automated injections.
-
 ## Quick Phrases
 
-Reusable text snippets that can be injected into agent terminal sessions.
+Reusable text snippets that can be sent to an agent as a prompt.
 
-| Method | Path                                 | Description                                         |
-| ------ | ------------------------------------ | --------------------------------------------------- |
-| GET    | `/quick-phrases`                     | List all phrases (with parsed template args)        |
-| POST   | `/quick-phrases`                     | Create a phrase (`text` required, `label` optional) |
-| PATCH  | `/quick-phrases/:id`                 | Update phrase `text` and/or `label`                 |
-| DELETE | `/quick-phrases/:id`                 | Delete a phrase                                     |
-| POST   | `/agents/:id/terminal/inject-phrase` | Inject a phrase into an agent's tmux session        |
+| Method | Path                         | Description                                                  |
+| ------ | ---------------------------- | ------------------------------------------------------------ |
+| GET    | `/quick-phrases`             | List all phrases (with parsed template args)                 |
+| POST   | `/quick-phrases`             | Create a phrase (`text` required, `label` optional)          |
+| PATCH  | `/quick-phrases/:id`         | Update phrase `text` and/or `label`                          |
+| DELETE | `/quick-phrases/:id`         | Delete a phrase                                              |
+| POST   | `/agents/:id/prompts/phrase` | Render a phrase with its args and queue it as the next turn  |
 
-The inject-phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true` — sends Enter after pasting; `false` pastes only). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
+The phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true`; `false` only renders the text and returns it). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
 
 ## Media
 
@@ -243,20 +212,11 @@ Agents write to the stream with the `post` / `update` / `react` MCP tools. `post
 
 Reactions go both ways: the user reacts to agent blocks through the routes above, and the agent reacts to user blocks with `react`. Each shows on its block as `reactions: [{ id, authorKind, emoji, delivered, createdAt }]`, one per author and emoji; every change republishes the block as a `stream.entry`. A user reaction is delivered like a user post — `delivered: null` while pending — in a `--- DISPATCH REACTION ---` envelope naming the block. Agent reactions are display-only. Adding an emoji already there is a no-op; removing a reaction never notifies the other side.
 
-Launching an agent with context records one launch post in its stream: a user block with `origin: "launch"`, the initial prompt as `text`, and attachments for each startup file (`file`), startup link (`link`), and initial pin (`pin`). When another agent created the agent (`launch_agent`), the post is attributed to that agent. The agent's first user turn is that post wrapped in the same `--- DISPATCH POST (id: …) ---` envelope any user post is delivered with, so an agent replies where it was launched. A launch with no prompt, files, links, or pins records nothing.
+Launching an agent with context records one launch post in its stream: a user block with `origin: "launch"`, the initial prompt as `text`, and attachments for each startup file (`file`) and startup link (`link`). When another agent created the agent (`launch_agent`), the post is attributed to that agent. The agent's first user turn is that post wrapped in the same `--- DISPATCH POST (id: …) ---` envelope any user post is delivered with, so an agent replies where it was launched. A launch with no prompt, files, or links records nothing.
 
-User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, `{ type: "pin", pinId }` for one of the agent's pins, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media or pins); `text` may be blank when at least one attachment is present. The injected envelope lists each attachment after the text.
+User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media); `text` may be blank when at least one attachment is present. The injected envelope lists each attachment after the text.
 
-## Messages
-
-Cross-agent messages sent with the `send_message` MCP tool.
-
-| Method | Path                        | Description                                                 |
-| ------ | --------------------------- | ----------------------------------------------------------- |
-| GET    | `/agents/:id/messages`      | `{ messages, unreadCount }` — both directions, oldest first |
-| POST   | `/agents/:id/messages/read` | Mark messages addressed to the agent as read                |
-
-`delivered` is `null` while the pane write is queued (possibly behind the injection quiet gate), then `true`/`false` once it settles; `message.created` is published for the sender/recipient pair at insert and again at settlement, so clients refetch both times. Rows still pending when the server starts were abandoned by the previous process and are swept to `false` (no replay).
+Agent-to-agent traffic is the same table: a block with `to_agent_id` set. There is no separate messages API.
 
 ## Streaming
 
@@ -270,10 +230,10 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path                        | Description                                                                              |
-| ------ | --------------------------- | ---------------------------------------------------------------------------------------- |
-| GET    | `/personas`                 | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins) |
-| POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `launch_persona` on its own work         |
+| Method | Path                         | Description                                                                              |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/personas`                  | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins) |
+| POST   | `/agents/:id/launch-persona` | Launch one or more persona agents as children of agent `:id`                             |
 
 ### `GET /personas`
 
@@ -281,7 +241,7 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 
 Dispatch's built-in personas are appended after the repo's own, so the list is never empty — currently just `code-review` ("General Code Review"). A repo persona with the same slug replaces the built-in rather than appearing alongside it.
 
-### `POST /agents/:id/launch-review`
+### `POST /agents/:id/launch-persona`
 
 ```json
 {
@@ -293,15 +253,9 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. `note` is optional free text (max 2,000 characters, `null` allowed) describing what to focus on; the server collapses it to one line, strips quote characters and DISPATCH markers, and folds it into the briefing instruction for every selected persona. Each launched agent creates its review through `review_submit` after completing its initial pass.
+Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, media). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
-### `PATCH /agents/:id/feedback/:feedbackId`
-
-```json
-{ "status": "fixed", "reason": "Resolved by tightening the JWT TTL check." }
-```
-
-Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`. `reason` is optional in general but **required** when `status` is `ignored` (max 10,000 characters). When `status` is `fixed` or `ignored`, the server captures the current HEAD SHA of the agent's working tree as `resolutionCommit` for round-trip review provenance.
+A reviewer persona finishes its pass by posting one `review` block (`{ verdict, summary, findings }`) to the parent; the parent (or a person, via `PATCH /streams/:rootId/blocks/:blockId/state`) resolves, disputes or reopens each finding in that block's `state`, and discussion is the block's thread. There is no separate review API.
 
 ## Personalities
 
@@ -406,12 +360,8 @@ Returns `204` regardless of whether the notification was still pending.
 | POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)             |
 | GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                              |
 | POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                              |
-| GET    | `/app/settings/cross-repo-messaging` | Whether agents may message agents in other repositories                                   |
-| POST   | `/app/settings/cross-repo-messaging` | Enable or disable cross-repo messaging (`{ "enabled": boolean }`)                         |
-| GET    | `/app/settings/injection-hold`       | Whether automated prompts wait for a typing pause (`{ "enabled": boolean }`)              |
-| POST   | `/app/settings/injection-hold`       | Enable or disable the injection quiet gate (`{ "enabled": boolean }`)                     |
-| GET    | `/app/settings/chat-surface`         | Whether the Chat tab is offered and the chat launch rule is on (`{ "enabled": boolean }`) |
-| POST   | `/app/settings/chat-surface`         | Enable or disable the chat surface (`{ "enabled": boolean }`)                             |
+| GET    | `/app/settings/launch-guidance-trim` | Whether launch guidance is trimmed to the short rules (the plugin skills carry the depth) |
+| POST   | `/app/settings/launch-guidance-trim` | Enable or disable trimmed launch guidance                                                 |
 | GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)                     |
 
 ## System
@@ -672,7 +622,7 @@ When `allowMedia` is enabled on the template, the launch endpoint accepts `multi
 - `agentType` — override agent type
 - `model` — override model; an empty string means the CLI default, and omitting the field keeps the template's saved model
 - `startupFiles` — up to 10 file uploads (images, video, documents, or text files)
-- `startupLinks` — JSON array of URLs to pin for the agent
+- `startupLinks` — JSON array of URLs, attached to the agent's launch post as links
 
 Returns `{ agent }` with the newly created agent record.
 

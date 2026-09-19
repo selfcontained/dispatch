@@ -99,8 +99,8 @@ export type AgentPaneProps = {
    */
   header: boolean;
   openLightbox: (mediaId: number) => void;
-  /** Opens a review in the Reviews sidebar; from a review card in the feed. */
-  onOpenReview?: (reviewId: number) => void;
+  /** Opens the Changes tab on a file (a review finding's path). */
+  onOpenPath?: (path: string, line: number | null) => void;
   isMobile: boolean;
 };
 
@@ -113,7 +113,7 @@ export function AgentPane({
   onShowChildAgentsChange,
   header,
   openLightbox,
-  onOpenReview,
+  onOpenPath,
   isMobile,
 }: AgentPaneProps): JSX.Element {
   return (
@@ -147,7 +147,7 @@ export function AgentPane({
           showChildAgents={showChildAgents}
           onShowChildAgentsChange={onShowChildAgentsChange}
           openLightbox={openLightbox}
-          onOpenReview={onOpenReview}
+          onOpenPath={onOpenPath}
           isMobile={isMobile}
         />
       </div>

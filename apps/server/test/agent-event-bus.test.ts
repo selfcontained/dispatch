@@ -18,7 +18,6 @@ const makeAgent = (
     cwd: "/tmp",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     simulatorUdid: null,
     mediaDir: null,
     agentArgs: [],

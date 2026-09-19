@@ -42,7 +42,7 @@ const config = {
 
 async function addAgent(id: string) {
   await pool.query(
-    `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+    `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
      VALUES ($1, $1, 'claude', 'running', '/tmp', '[]'::jsonb, false)`,
     [id]
   );
@@ -109,7 +109,6 @@ beforeEach(async () => {
   vi.mocked(agents.getAgent).mockResolvedValue({
     id: "mock",
     status: "running",
-    tmuxSession: null,
   } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 

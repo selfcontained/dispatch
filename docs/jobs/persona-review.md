@@ -2,7 +2,7 @@ Assess the effectiveness of persona-driven code reviews and tune the persona set
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona runs as an automated code reviewer on PRs, producing a tracked review via `review_submit`. The primary codebase conventions are documented in `CLAUDE.md`.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (verdict, summary, findings) to the agent that launched it, and each finding is resolved or disputed in that block's state. The primary codebase conventions are documented in `CLAUDE.md`.
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 
@@ -156,8 +156,8 @@ If persona files were changed:
 1. Run `pnpm run format:write` to fix formatting.
 2. Commit on a new branch. The PR should only contain persona prompt changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was assessed, what changed, what post-change evidence justified the adjustment, and what's queued for the next run.
-4. **Launch a reviewer.** Use `launch_persona` to launch `architecture-review`. Provide context about what persona changes were made and why. If the reviewer submits feedback, address each tracked item before proceeding.
-5. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
+4. **Launch a reviewer.** Launch `architecture-review` with `launch_agent` (`persona: "architecture-review"`); the `prompt` explains what persona changes were made and why. The reviewer posts a `review` block to you; address each finding and resolve it with `update` before proceeding.
+5. **Wait for CI.** Poll `gh pr checks <num>` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.
    - **`FAILURE`** — read the failed logs (`gh run view <id> --log-failed`). If caused by your diff, fix and push. If a pre-existing flake, try `gh run rerun <id> --failed`. If the retry also fails for unrelated reasons, call `job_needs_input`.

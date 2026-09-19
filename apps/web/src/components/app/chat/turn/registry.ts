@@ -71,32 +71,6 @@ export function hasChildren(step: Step): boolean {
   return (step.children?.length ?? 0) > 0;
 }
 
-/**
- * Labels of the shortcut pins a turn's pin / pins calls
- * wrote, in call order. The live pin list decides what to show for them.
- */
-export function shortcutLabelsFromSteps(steps: Step[]): string[] {
-  const labels: string[] = [];
-  const push = (pin: unknown) => {
-    const record = inputRecord(pin);
-    if (!record || typeof record.label !== "string") return;
-    // An update without a type keeps the pin's stored type; the caller
-    // filters against the live list, so keep those too.
-    if (record.type !== undefined && record.type !== "shortcut") return;
-    if (!labels.includes(record.label)) labels.push(record.label);
-  };
-  for (const step of steps) {
-    const name = stepToolName(step);
-    const input = inputRecord(stepDetailData(step).input);
-    if (!input) continue;
-    if (name === "pin") push(input);
-    else if (name === "pins" && Array.isArray(input.pins)) {
-      for (const pin of input.pins) push(pin);
-    }
-  }
-  return labels;
-}
-
 /** The row's label: the tool's own name, or the kind when there is none. */
 export function stepLabel(step: Step): string {
   const title = step.label?.trim();

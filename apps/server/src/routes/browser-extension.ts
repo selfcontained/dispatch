@@ -690,12 +690,8 @@ export async function registerBrowserExtensionRoutes(
     async () => {
       const agents = await deps.agentManager.listAgents();
       return {
-        // Review agents are automated reviewers, not feedback targets a user
-        // would send page comments to, so keep them out of the picker.
         agents: agents
-          .filter(
-            (agent) => agent.status === "running" && agent.role !== "review"
-          )
+          .filter((agent) => agent.status === "running")
           .map(sanitizeAgent),
       };
     }

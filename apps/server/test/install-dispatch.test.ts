@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 
 describe("install-dispatch systemd unit", () => {
-  it("keeps tmux-backed agents alive when Dispatch restarts", async () => {
+  it("keeps agent hosts alive when Dispatch restarts", async () => {
     const script = await readFile(
       path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
       "utf8"

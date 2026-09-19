@@ -37,10 +37,10 @@ import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
-import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
-import { useSurfaceSeen } from "@/components/app/agent-surfaces/use-surface-seen";
 import { useMedia } from "@/hooks/use-media";
+import { useStreamRail } from "@/hooks/use-stream-rail";
+import { THREAD_PARAM } from "@/components/app/chat/chat-pane";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
@@ -167,8 +167,8 @@ export function AgentsView({
     activeTab,
   });
 
-  // The focused agent's direct children, whose pins and media the sidebar
-  // groups under it. Direct children only — the same family the server's
+  // The focused agent's direct children, whose media the sidebar groups
+  // under it. Direct children only — the same family the server's
   // ownerAgentId reads allow — and live ones only, since this is the live
   // agent list; an archived child's media stays reachable from its history.
   const focusedSubAgents = useMemo(
@@ -185,15 +185,6 @@ export function AgentsView({
         : [],
     [agents, focusedAgentId]
   );
-  const focusedSubAgentPins = useMemo(
-    () =>
-      focusedSubAgents.map((agent) => ({
-        agent,
-        pins: agents.find((a) => a.id === agent.id)?.pins ?? [],
-      })),
-    [agents, focusedSubAgents]
-  );
-
   const {
     mediaFiles,
     visibleMediaFiles,
@@ -212,15 +203,19 @@ export function AgentsView({
 
   const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
 
-  // Closed-sidebar external signal for #2019: reuses the same surfaces query
-  // and seen-state atom the tab strip itself reads (see SurfaceTabRow), so a
-  // new agent-authored decision/input surface is visible from the header
-  // toggle without opening the sidebar first.
-  const { surfaces: agentSurfaces } = useAgentSurfaces(focusedAgentId);
-  const { isNew: isSurfaceNew } = useSurfaceSeen(focusedAgentId);
-  const unseenSurfaceCount = agentSurfaces.filter((surface) =>
-    isSurfaceNew(surface.id)
-  ).length;
+  // The rail: open questions and forms, derived from the stream feed the
+  // Chat tab holds. Its count shows on the closed sidebar's toggle so an
+  // agent waiting on the user is visible without opening the sidebar.
+  const rail = useStreamRail(focusedAgentId);
+  const railDisabledReason =
+    focusedAgent && focusedAgent.status !== "running"
+      ? "The agent is not running. Start it to answer."
+      : null;
+  const agentNameById = useCallback(
+    (agentId: string) =>
+      agents.find((agent) => agent.id === agentId)?.name ?? "Agent",
+    [agents]
+  );
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -253,15 +248,13 @@ export function AgentsView({
     await uploadAgentMedia(agentId, file);
   }, []);
 
-  const handleNavigateToFile = useCallback(
-    (filePath: string, lineStart: number | null, feedbackItemId?: number) => {
+  /** Opens the Changes tab on a file, at a line when one is given. */
+  const handleOpenPath = useCallback(
+    (filePath: string, line: number | null) => {
       if (!focusedAgentId) return;
       const params = new URLSearchParams();
       params.set("file", filePath);
-      if (lineStart != null) params.set("line", String(lineStart));
-      if (feedbackItemId != null) {
-        params.set("feedback", String(feedbackItemId));
-      }
+      if (line != null) params.set("line", String(line));
       navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
         replace: true,
       });
@@ -270,42 +263,25 @@ export function AgentsView({
     [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
   );
 
-  /**
-   * Show one review: the Reviews sidebar, opened on that review. Reached
-   * from the Changes tab after submitting one, and from a review card in
-   * the Chat feed.
-   */
-  const handleOpenReview = useCallback(
-    (reviewId: number) => {
+  /** Opens a block's thread in the Chat tab; from the rail. */
+  const handleOpenBlock = useCallback(
+    (blockId: string) => {
       if (!focusedAgentId) return;
-      navTo(`/agents/${focusedAgentId}?expandReview=${reviewId}`, {
-        replace: true,
-      });
-      setMediaOpen(true);
-      setMediaActiveTab("reviews");
+      navTo(`/agents/${focusedAgentId}?${THREAD_PARAM}=${blockId}`);
+      if (isMobile) setMobileMediaOpen(false);
     },
-    [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
+    [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
   );
 
-  const handleOpenSubmittedReview = useCallback(
-    (reviewer: Agent) => {
-      if (!reviewer.parentAgentId || reviewer.submittedReviewId == null) return;
-      navTo(
-        `/agents/${reviewer.parentAgentId}?expandReview=${reviewer.submittedReviewId}`
-      );
-      setExpandedAgentId(reviewer.parentAgentId);
-      setMediaOpen(true);
-      setMediaActiveTab("reviews");
-      if (isMobile) setMobileLeftOpen(false);
+  /** After a review is posted from the Changes tab, show it in the Chat. */
+  const handleReviewPosted = useCallback(
+    (blockId: string) => {
+      if (!focusedAgentId) return;
+      navTo(`/agents/${focusedAgentId}?${THREAD_PARAM}=${blockId}`, {
+        replace: true,
+      });
     },
-    [
-      isMobile,
-      navTo,
-      setExpandedAgentId,
-      setMediaActiveTab,
-      setMediaOpen,
-      setMobileLeftOpen,
-    ]
+    [focusedAgentId, navTo]
   );
 
   useExpandedAgentSync(
@@ -389,9 +365,11 @@ export function AgentsView({
   const changesElement = changesVisible ? (
     <ChangesTab
       agentId={focusedAgentId}
+      agent={focusedAgent}
+      enabledAgentTypes={enabledAgentTypes}
       active={true}
       isMobile={isMobile}
-      onReviewSubmitted={handleOpenReview}
+      onReviewPosted={handleReviewPosted}
     />
   ) : null;
 
@@ -404,7 +382,7 @@ export function AgentsView({
     showChildAgents,
     onShowChildAgentsChange: setShowChildAgents,
     openLightbox,
-    onOpenReview: handleOpenReview,
+    onOpenPath: handleOpenPath,
     isMobile,
   };
   // Only in a split: the single-pane Agent pane is always rendered (hidden
@@ -485,7 +463,6 @@ export function AgentsView({
               detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
-              openSubmittedReview={handleOpenSubmittedReview}
               connectedAgentId={validatedSelectedAgentId}
               onRequestClose={
                 isMobile ? () => setMobileLeftOpen(false) : undefined
@@ -523,7 +500,7 @@ export function AgentsView({
                 mediaPanelOpen={mediaPanelOpen}
                 setMediaOpen={setMediaOpen}
                 unseenMediaCount={unseenMediaCount}
-                unseenSurfaceCount={unseenSurfaceCount}
+                openInputCount={rail.inputs.length}
               />
               <div
                 className={cn(
@@ -578,12 +555,6 @@ export function AgentsView({
             mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            selectedAgentWorkspaceRoot={
-              focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
-            }
-            selectedAgentPins={focusedAgent?.pins ?? []}
-            selectedAgentIsRunning={focusedAgent?.status === "running"}
-            subAgentPins={focusedSubAgentPins}
             subAgentMedia={subAgentMedia}
             ownMediaFiles={mediaFiles}
             mediaOwnerId={mediaOwnerId}
@@ -601,7 +572,10 @@ export function AgentsView({
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
-            onNavigateToFile={handleNavigateToFile}
+            rail={rail}
+            railDisabledReason={railDisabledReason}
+            agentNameById={agentNameById}
+            onOpenBlock={handleOpenBlock}
           />
         </div>
       </div>
@@ -621,29 +595,24 @@ export function AgentsView({
             mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            selectedAgentWorkspaceRoot={
-              focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
-            }
-            selectedAgentPins={focusedAgent?.pins ?? []}
-            selectedAgentIsRunning={focusedAgent?.status === "running"}
-            subAgentPins={focusedSubAgentPins}
             subAgentMedia={subAgentMedia}
             ownMediaFiles={mediaFiles}
             mediaOwnerId={mediaOwnerId}
             onMediaOwnerChange={setMediaOwnerId}
-            onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
-            isSidebarVisible={mobileMediaOpen}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onRequestClose={() => setMobileMediaOpen(false)}
             onUploadFile={uploadFile}
-            onNavigateToFile={handleNavigateToFile}
+            rail={rail}
+            railDisabledReason={railDisabledReason}
+            agentNameById={agentNameById}
+            onOpenBlock={handleOpenBlock}
           />
         </GlassSidebar>
       ) : null}

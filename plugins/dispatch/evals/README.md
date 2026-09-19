@@ -31,7 +31,7 @@ once the runner is available, not as a passing suite.
 | `remember-decision` | `brain`          | Recording durable context in chat, where the next agent cannot find it     |
 | `delegate-work`     | `subagents`      | Doing independent parallelizable work serially in one session              |
 | `repo-script-tool`  | `repo-tools`     | Re-teaching each agent a shell command instead of publishing it as a tool  |
-| `present-decision`  | `surfaces`       | Reducing structured options and feedback to chat or shortcut pins          |
+| `present-decision`  | `communicate`    | Reducing a structured choice plus a written rationale to prose             |
 | `route-the-ask`     | `communicate`    | Handing back artifacts, a URL, and a blocking choice as one block of prose |
 
 `sharing` is the sharpest test in the set: the rule it encodes already exists in

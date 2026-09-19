@@ -22,7 +22,6 @@ import {
   latestOpenFreeformQuestion,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
-import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
 import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
 import { ThreadPanel } from "@/components/app/chat/thread-panel";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
@@ -59,8 +58,8 @@ export type ChatPaneProps = {
   showChildAgents: boolean;
   onShowChildAgentsChange: (show: boolean) => void;
   openLightbox: (mediaId: number) => void;
-  /** Opens a review in the Reviews sidebar, expanded; from a review card. */
-  onOpenReview?: (reviewId: number) => void;
+  /** Opens the Changes tab on a file (a review finding's path). */
+  onOpenPath?: (path: string, line: number | null) => void;
   isMobile: boolean;
 };
 
@@ -105,7 +104,7 @@ export function entryOwner(
     if (toAgentId !== null && descendants.has(toAgentId)) return "child";
     return isRoot ? "own" : "other";
   }
-  // Status marks, reviews and pins are the stream's, so the root's.
+  // Status marks are the stream's, so the root's.
   return isRoot ? "own" : "other";
 }
 
@@ -303,7 +302,7 @@ export function ChatPane({
   showChildAgents,
   onShowChildAgentsChange,
   openLightbox,
-  onOpenReview,
+  onOpenPath,
   isMobile,
 }: ChatPaneProps): JSX.Element {
   // The stream is the root's: a child agent's page reads its root's feed
@@ -511,8 +510,8 @@ export function ChatPane({
     }
     const last = visibleEntries[visibleEntries.length - 1];
     const lastId = last?.id ?? null;
-    // A turn is anchored where it started and never moves, so a pin or a
-    // review card written mid-turn lands below it and becomes the tail.
+    // A turn is anchored where it started and never moves, so a link or a
+    // review block written mid-turn lands below it and becomes the tail.
     // Reading growth off the tail alone would then stop following the turn
     // itself, which is the thing still getting taller.
     const liveTurn = newestTurnEntry(visibleEntries);
@@ -718,11 +717,11 @@ export function ChatPane({
     [toggleReactionNow]
   );
 
-  const { ctx, pinShortcuts, shortcutDialog } = useChatFeedContext({
+  const { ctx } = useChatFeedContext({
     agentId,
     agent,
     openLightbox,
-    onOpenReview,
+    onOpenPath,
     onToggleReaction,
     onOpenThread,
     onSubmitForm,
@@ -838,16 +837,14 @@ export function ChatPane({
                   </div>
                 ) : null}
                 {visibleEntries.length > 0 ? (
-                  <PinShortcutProvider value={pinShortcuts}>
-                    <ChatFeed
-                      entries={visibleEntries}
-                      ctx={ctx}
-                      answeringBlockId={answeringBlockId}
-                      submittingBlockId={submittingBlockId}
-                      answersDisabled={disabledReason !== null}
-                      onAnswer={onAnswer}
-                    />
-                  </PinShortcutProvider>
+                  <ChatFeed
+                    entries={visibleEntries}
+                    ctx={ctx}
+                    answeringBlockId={answeringBlockId}
+                    submittingBlockId={submittingBlockId}
+                    answersDisabled={disabledReason !== null}
+                    onAnswer={onAnswer}
+                  />
                 ) : null}
               </div>
             </div>
@@ -910,7 +907,6 @@ export function ChatPane({
               replyContext={replyContext}
             />
           </div>
-          {shortcutDialog}
         </div>
         {agentId && rootId && openThreadId ? (
           <ThreadPanel

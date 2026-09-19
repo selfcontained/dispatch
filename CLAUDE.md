@@ -13,17 +13,16 @@ dispatch/
 │   │   ├── src/               # backend source
 │   │   │   ├── agents/        # agent manager, lifecycle; acp/ holds the host, driver and runtime
 │   │   │   ├── brain/         # repo-scoped shared memory (objects + event log)
+│   │   │   ├── chat/          # the stream: blocks, threads, feed, delivery envelopes
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
 │   │   │   ├── media/         # media file storage
-│   │   │   ├── messages/      # cross-agent message store
 │   │   │   ├── notifications/ # Slack + job notifiers
 │   │   │   ├── observability/ # service resources sampling, subsystem tracker
-│   │   │   ├── personas/      # persona loader, review-diff builder
-│   │   │   ├── reviews/       # review injection prompts
+│   │   │   ├── personas/      # persona launch profiles: loader, authoring, review-diff builder
 │   │   │   ├── routes/        # HTTP route handlers
 │   │   │   ├── server/        # server runtime helpers (lifecycle, auth, prompts)
-│   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/, terminal/
+│   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/
 │   │   │   ├── templates/     # template service and storage
 │   │   └── test/              # unit tests (vitest)
 │   ├── site/                  # public website (Astro, deployed to Cloudflare)
@@ -151,9 +150,11 @@ the scenario to be exercised, expected resource/use impact, and whether the
 VM will be changed or cleaned up. Do not make VM validation a prerequisite for
 unrelated changes or CI.
 
-## Agent Pins
+## The Stream
 
-- Agents use `pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
+- Everything an agent hands the user goes into its stream with `post`: a `link` for a dev URL or doc, a `pr` attachment for a pull request, a `code` attachment for IDs, commands and env values, a `file` attachment for screenshots and reports, a `question` or `form` block for a decision.
+- Status is derived by the server (working, waiting, idle, blocked); there is nothing for an agent to report. An open `question` or `form` addressed to the user is what shows the agent as waiting.
+- `post` with `to: <agentId>` reaches another agent; children post into their parent's stream. Revise a block with `update`.
 
 ## Assisted Update Release Notes
 
@@ -166,9 +167,9 @@ unrelated changes or CI.
 
 ## Personas
 
-- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `launch_persona` MCP tool.
-- Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
-- Be explicit about scope in the context — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
+- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use `launch_agent` with `persona: <slug>`; the `prompt` is the persona's briefing.
+- Make the briefing thorough: what was built, key files changed, areas of concern, and any specific instructions from the user.
+- Be explicit about scope in the briefing — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
 - Available personas are defined in `.dispatch/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
-- When acting as a persona agent, use the `review_submit` MCP tool to submit structured findings instead of just reporting in prose.
+- A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread. The launcher resolves or disputes findings with `update` on that block's `state` and answers questions in the thread.
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.

@@ -1,6 +1,6 @@
 ---
 name: communicate
-description: Pick the shape for something you are about to tell the user — a plain reply, a question they answer in one click, a form, a file, a link, a checklist, or a pin. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
+description: Pick the shape for something you are about to tell the user — a plain reply, a question they answer in one click, a form, a file, a link, or a checklist. Use when you need a decision from them, have progress or a result to report, or produced something they should look at.
 ---
 
 # Reaching the user
@@ -26,17 +26,17 @@ the same stream; the rows differ in what the user can _do_ with it.
 | A question with a finite set of answers                            | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in              | `post` with `form`                                              | below       |
 | A file, screenshot, log, or report                                 | `post` with a file attachment                                   | `sharing`   |
-| A link — a PR, a dev URL, a doc                                    | `post` with `link`                                              | —           |
+| A link — a dev URL, a doc                                          | `post` with `link`                                              | —           |
+| A pull request                                                     | `post` with a `pr` attachment                                   | —           |
+| A value they will copy — an id, a command, an env var, a port      | `post` with a `code` attachment                                 | —           |
 | A checklist they will watch you work through                       | `post` with `tasks`, ticked with `update`                       | below       |
 | Something worth reaching them away from the session                | `post` with `notify: true` (browser, and Slack when configured) | —           |
 | State that keeps changing over a long task                         | one `post`, revised with `update`                               | below       |
 | A message to another agent                                         | `post` with `to: <agentId>`                                     | `subagents` |
-| One small fact they will copy or return to — URL, port, branch, id | a pin (`pin`)                                                   | —           |
-| A structured status view or workflow that outlives one message     | a surface (`surface_create`)                                    | `surfaces`  |
 
-Take the narrowest row that fits. A pin is not a substitute for a form, and a
-surface is overkill for one URL. When two rows could work, `post` is the
-default: it is where the user is already reading.
+Take the narrowest row that fits. A `code` attachment is not a substitute for a
+form, and a `tasks` block is overkill for one URL. When two rows could work, the
+plainer one wins: the user is already reading the stream.
 
 ## Asking
 
@@ -51,9 +51,7 @@ prose:
   `form`. Its fields are the only way to collect several values in one
   submission; an option labelled "Add explanation" with nowhere to type is not
   a form.
-- **One obvious next move** — a `question` with one option is fine, and a
-  `shortcut` pin still works where the button should sit in the sidebar. Set
-  `confirm` on anything destructive.
+- **One obvious next move** — a `question` with one option is fine.
 
 You do not need to say you are stopped. An open `question` or `form` addressed
 to the user is what shows you as Waiting; answering it is what clears it. Ask
@@ -70,7 +68,7 @@ trail of notes that are each stale a minute after they land. A `tasks` block
 does the same for a checklist: post the items, tick them as you go.
 
 Keep the prose and the evidence separate: the reply says what happened, the
-file, link or surface carries the bulk.
+file or link carries the bulk.
 
 ## Not this skill's job
 

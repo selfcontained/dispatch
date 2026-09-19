@@ -38,7 +38,7 @@ const JOBS: SeedJob[] = [
     timeoutMs: 10 * 60 * 1000,
     needsInputTimeoutMs: 5 * 60 * 1000,
     prompt:
-      "Vacuum orphaned tmux sessions and stale worktrees. Report anything unexpected.",
+      "Vacuum stale worktrees and orphaned agent hosts. Report anything unexpected.",
     agentType: "codex",
     useWorktree: false,
     branchName: null,

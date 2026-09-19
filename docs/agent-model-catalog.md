@@ -9,8 +9,8 @@ launch with the CLI default.
 
 Agents launching agents over MCP cannot see the catalog any other way, so
 `describeAgentModelCatalog()` renders it into the `model` parameter description
-of `launch_agent`, `launch_persona`, `create_job`,
-`update_job`, `create_template`, and `update_template`. That text is derived
+of `launch_agent`, `create_job`, `update_job`, `create_template`, and
+`update_template`. That text is derived
 from the catalog — editing the catalog updates it, no separate step.
 
 ## Maintenance sources

@@ -18,8 +18,8 @@ That difference decides when delegation is worth it:
   full CLI startup, and the child starts with none of your context — everything
   it needs has to be written into the prompt.
 
-For _review_ specifically, launch a persona rather than a plain agent — see the
-`review-workflow` and `personas` skills.
+For _review_ specifically, launch with `persona: <slug>` rather than a plain
+agent — see the `review-workflow` and `personas` skills.
 
 ## Launching
 
@@ -45,7 +45,7 @@ agent instead — same inherited directory, type, and access level, still yours 
 message and archive, but outside your lineage and owning a top-level card.
 
 Nesting stops at one level. If you were launched as a child yourself, you cannot
-launch children or persona reviews at all; `child: false` is the only launch
+launch children at all, personas included; `child: false` is the only launch
 available to you. Reach for it when the work you are handing off is substantial
 enough to deserve its own card, or when you need a reviewer and cannot launch
 one.
@@ -57,7 +57,6 @@ list_agents           — who exists, their IDs, names, statuses, latest activit
                         plus parentAgentId and relation (child, descendant, …),
                         and launchedByAgentId when that is not the parent
 post to: <agentId>, text   — a message delivered to that agent as a prompt
-send_message target, message — the older direct injection; prefer post
 ```
 
 The list is not flat. Each entry names the agent it is a child of, so a
@@ -76,23 +75,22 @@ from `parentAgentId`, and hold on to the ID of anyone you plan to contact later.
 it can reply the same way — its reply arrives as a DISPATCH POST naming the
 sender, and `replyTo` keeps an exchange in one thread. The user sees the traffic
 in the stream. `to` takes an agent ID (`agt_…`); names drift as agents rename
-themselves, so hold on to the ID. `send_message` still exists and accepts a
-fuzzy-matched name, but it bypasses the stream, so prefer `post`. **Delivery
-only works for agents that are currently running** — a post to a stopped agent
-is recorded but not delivered, so check `list_agents` when one goes
-unanswered rather than assuming it landed.
+themselves, so hold on to the ID. **Delivery only works for agents that are
+currently running** — a post to a stopped agent is recorded but not delivered,
+so check `list_agents` when one goes unanswered rather than assuming it
+landed.
 
 Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the
 final report.
 
-Artifacts do not travel by message. A child's shared media and pins are readable
-from the parent with `ownerAgentId` on `list_media` / `list_pins`,
-and the parent's are readable from the child the same way — so a child posts a
-screenshot as a file attachment and says so, rather than pasting the path,
-and reads the parent's pinned dev URL rather than asking for it. A child's posts
-land in the parent's stream already; re-posting them from the parent only
-duplicates the file.
+Artifacts do not travel by message. A child's shared media is readable from the
+parent with `ownerAgentId` on `list_media`, and the parent's from the child the
+same way — so a child posts a screenshot as a file attachment and says so,
+rather than pasting the path. A child's posts land in the parent's stream
+already, and the parent's links and PRs are in that same stream, so neither side
+needs to relay a URL. Re-posting a child's file from the parent only duplicates
+it.
 
 For results that need to outlive either session — a finding, a decision, an
 accumulating list — write to the brain instead of messaging it. See the `brain`
