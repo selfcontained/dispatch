@@ -338,7 +338,7 @@ describe("composeChatFeed", () => {
   });
 
   describe("attachment dimensions", () => {
-    // Nothing records a shape when the message is written: dispatch_share_file
+    // Nothing records a shape when the message is written: share_file
     // replaces a file's bytes under an unchanged URL, so anything frozen at
     // write time can end up describing bytes the post no longer serves. The
     // live media row is the only source, read when the page is composed.
@@ -375,7 +375,7 @@ describe("composeChatFeed", () => {
     });
 
     it("follows the row when the file is replaced with another shape", async () => {
-      // dispatch_share_file swaps the bytes in place and the post serves the
+      // share_file swaps the bytes in place and the post serves the
       // new ones from an unchanged URL. Rendering them against the old ratio
       // would reserve a box the image does not fit.
       const mediaId = await postWithAttachment("replaced.png");

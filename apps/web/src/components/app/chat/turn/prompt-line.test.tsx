@@ -8,7 +8,7 @@ import { parseDispatchNotice, PromptLine, splitKeyValue } from "./prompt-line";
 afterEach(cleanup);
 
 const block =
-  "--- DISPATCH: REVIEW ITEM RESOLVED ---\nReview ID: 293\nFeedback item ID: 1422\nState: resolved (dismissed)\nMessage: Verified: not applicable.\nCall dispatch_event with type 'working' before handling this update.\n--- END DISPATCH: REVIEW ITEM RESOLVED ---";
+  "--- DISPATCH: REVIEW ITEM RESOLVED ---\nReview ID: 293\nFeedback item ID: 1422\nState: resolved (dismissed)\nMessage: Verified: not applicable.\nReply with chat_post once you have handled this update.\n--- END DISPATCH: REVIEW ITEM RESOLVED ---";
 
 describe("parseDispatchNotice", () => {
   it("names the block and digests its key lines", () => {
@@ -42,9 +42,9 @@ describe("PromptLine", () => {
     render(<PromptLine turn={turn} />);
     const notice = screen.getByTestId("harness-notice");
     expect(notice.textContent).toContain("Review item resolved");
-    expect(notice.textContent).not.toContain("Call dispatch_event");
+    expect(notice.textContent).not.toContain("Reply with chat_post");
     fireEvent.click(notice.querySelector("button") as HTMLButtonElement);
-    expect(notice.textContent).toContain("Call dispatch_event");
+    expect(notice.textContent).toContain("Reply with chat_post");
   });
 
   it("renders nothing for a typed prompt", () => {
@@ -66,6 +66,6 @@ describe("splitKeyValue", () => {
       key: "Review ID",
       value: "293",
     });
-    expect(splitKeyValue("Call dispatch_event with type 'working'")).toBeNull();
+    expect(splitKeyValue("Reply with chat_post once handled")).toBeNull();
   });
 });

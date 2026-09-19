@@ -11,7 +11,7 @@ export function MediaContent() {
       <Section>
         <H3>Sharing files</H3>
         <P>
-          Agents call the <Code>dispatch_share_file</Code> tool with a{" "}
+          Agents call the <Code>share_file</Code> tool with a{" "}
           <Code>filePath</Code> and a <Code>description</Code> to publish an
           existing file. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF,
           and a wide range of text file extensions (txt, md, html, json, yaml,
@@ -33,18 +33,18 @@ export function MediaContent() {
       <Section>
         <H3>Updating shared media</H3>
         <P>
-          Every <Code>dispatch_share_file</Code> call returns a{" "}
-          <Code>fileName</Code>. Pass that back as the <Code>update</Code>{" "}
-          parameter on a later call to replace the existing file in place
-          instead of creating a new entry — useful for iterating on a screenshot
-          or snippet without cluttering the sidebar.
+          Every <Code>share_file</Code> call returns a <Code>fileName</Code>.
+          Pass that back as the <Code>update</Code> parameter on a later call to
+          replace the existing file in place instead of creating a new entry —
+          useful for iterating on a screenshot or snippet without cluttering the
+          sidebar.
         </P>
       </Section>
 
       <Section>
         <H3>Simulator screenshots</H3>
         <P>
-          When <Code>dispatch_share_file</Code> is called with{" "}
+          When <Code>share_file</Code> is called with{" "}
           <Code>source: "simulator"</Code>, it captures a screenshot from the
           iOS Simulator using <Code>xcrun simctl</Code> and shares the resulting
           PNG. <Code>simulatorUdid</Code> selects a specific simulator; it
@@ -66,9 +66,9 @@ export function MediaContent() {
       <Section>
         <H3>Listing shared media</H3>
         <P>
-          Agents can call <Code>dispatch_list_media</Code> to enumerate the
-          files they (or the user) have shared in the current session. An
-          optional <Code>source</Code> filter narrows the results — e.g.{" "}
+          Agents can call <Code>list_media</Code> to enumerate the files they
+          (or the user) have shared in the current session. An optional{" "}
+          <Code>source</Code> filter narrows the results — e.g.{" "}
           <Code>"user"</Code>, <Code>"screenshot"</Code>, <Code>"text"</Code>,{" "}
           <Code>"simulator"</Code>, or <Code>"stream"</Code>.
         </P>
@@ -76,16 +76,15 @@ export function MediaContent() {
           An optional <Code>ownerAgentId</Code> lists what the agent&apos;s
           parent or one of its direct children has shared instead, read-only and
           from that agent&apos;s own directory — an archived child still lists.{" "}
-          <Code>dispatch_list_pins</Code> accepts the same parameter. Nothing is
-          copied: a parent reads its child&apos;s screenshots by their original
-          path, and the user sees them grouped under the parent&apos;s card in
-          the sidebar.
+          <Code>list_pins</Code> accepts the same parameter. Nothing is copied:
+          a parent reads its child&apos;s screenshots by their original path,
+          and the user sees them grouped under the parent&apos;s card in the
+          sidebar.
         </P>
         <P>
           To remove an item that is no longer relevant, call{" "}
-          <Code>dispatch_delete_media</Code> with its exact{" "}
-          <Code>fileName</Code> from the listing. This permanently removes the
-          file and its media entry.
+          <Code>delete_media</Code> with its exact <Code>fileName</Code> from
+          the listing. This permanently removes the file and its media entry.
         </P>
       </Section>
 
@@ -142,28 +141,27 @@ export function MediaContent() {
         </P>
         <P>
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
-          <Code>dispatch_pin</Code> — URLs, ports, branch names, file paths, and
-          other key info. Setting a pin again with the same label updates it in
-          place, and <Code>dispatch_pins</Code> writes several at once: by
-          default it merges each entry in — updating or creating it without
-          touching anything else — or with <Code>mode: "replace"</Code> and a{" "}
-          <Code>group</Code>, it makes that group contain exactly the passed
-          entries, deleting any existing member left out. Agents can remove
-          stale pins with <Code>dispatch_list_pins</Code> +{" "}
-          <Code>dispatch_delete_pin</Code> — one, several, or a whole group at a
-          time. Agents can also pin a <strong>shortcut</strong> — a button that
-          injects a prompt into that agent's session when you click it, exactly
-          as if you had typed it yourself. Hovering shows the full prompt before
-          you commit, shortcuts the agent marks as risky ask you to confirm
-          first, and they're disabled while the agent isn't running. On a touch
-          device there is no hover, so every shortcut routes through the confirm
-          dialog — which shows the prompt in full — before it sends. An agent
-          can also grey out a shortcut of its own once the action no longer
-          applies, leaving the caption to explain why. Any pin can also carry a
-          one-line markdown caption, and pins sharing a <Code>group</Code>{" "}
-          render together under one collapsible heading with a member count —
-          groups of more than eight pins start collapsed, and your own
-          expand/collapse choice sticks per agent and group. The{" "}
+          <Code>pin</Code> — URLs, ports, branch names, file paths, and other
+          key info. Setting a pin again with the same label updates it in place,
+          and <Code>pins</Code> writes several at once: by default it merges
+          each entry in — updating or creating it without touching anything else
+          — or with <Code>mode: "replace"</Code> and a <Code>group</Code>, it
+          makes that group contain exactly the passed entries, deleting any
+          existing member left out. Agents can remove stale pins with{" "}
+          <Code>list_pins</Code> + <Code>delete_pin</Code> — one, several, or a
+          whole group at a time. Agents can also pin a <strong>shortcut</strong>{" "}
+          — a button that injects a prompt into that agent's session when you
+          click it, exactly as if you had typed it yourself. Hovering shows the
+          full prompt before you commit, shortcuts the agent marks as risky ask
+          you to confirm first, and they're disabled while the agent isn't
+          running. On a touch device there is no hover, so every shortcut routes
+          through the confirm dialog — which shows the prompt in full — before
+          it sends. An agent can also grey out a shortcut of its own once the
+          action no longer applies, leaving the caption to explain why. Any pin
+          can also carry a one-line markdown caption, and pins sharing a{" "}
+          <Code>group</Code> render together under one collapsible heading with
+          a member count — groups of more than eight pins start collapsed, and
+          your own expand/collapse choice sticks per agent and group. The{" "}
           <strong>Media</strong> tab shows shared files in reverse chronological
           order (most recent 50); click an item to open the full-screen
           lightbox. Items you haven't seen yet are highlighted, and the tab

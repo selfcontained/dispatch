@@ -41,7 +41,7 @@ which is what lets it survive the server: the systemd unit uses
 host is spawned through the user's login shell (`$SHELL -lc 'exec "$@"'`) so
 `gh`, ssh agents and PATH behave as they did under tmux.
 
-The host is the ACP *client*. It spawns the adapter, holds its stdio for its
+The host is the ACP _client_. It spawns the adapter, holds its stdio for its
 whole life, and journals every event. It does no queueing and no policy: one
 ACP session, one prompt at a time, and it says `busy` if asked for a second.
 
@@ -52,14 +52,14 @@ ACP session, one prompt at a time, and it says `busy` if asked for a second.
 (`~/.dispatch/agents` in production; the dev stack's media root keeps it out
 of `~/.dispatch`).
 
-| file | owner | purpose |
-| --- | --- | --- |
+| file                 | owner  | purpose                                                            |
+| -------------------- | ------ | ------------------------------------------------------------------ |
 | `launch.json` (0600) | server | engine, cwd, adapter binaries, system prompt, MCP url + token, env |
-| `host.sock` | host | control socket |
-| `host.pid` | host | liveness |
-| `journal.jsonl` | host | every event, with `seq`, for replay |
-| `session.json` | host | ACP session id, so a restarted host can `session/resume` |
-| `host.log` | host | stderr of host and adapter |
+| `host.sock`          | host   | control socket                                                     |
+| `host.pid`           | host   | liveness                                                           |
+| `journal.jsonl`      | host   | every event, with `seq`, for replay                                |
+| `session.json`       | host   | ACP session id, so a restarted host can `session/resume`           |
+| `host.log`           | host   | stderr of host and adapter                                         |
 
 `stop` removes the socket and pid; `archive` removes the directory.
 
@@ -70,22 +70,22 @@ connection replaces the first. The server is the only client.
 
 Client → host:
 
-| message | effect |
-| --- | --- |
-| `{type:"hello", fromSeq}` | host answers `welcome`, replays journal events with `seq > fromSeq`, then streams live |
+| message                     | effect                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `{type:"hello", fromSeq}`   | host answers `welcome`, replays journal events with `seq > fromSeq`, then streams live     |
 | `{type:"prompt", id, text}` | run one turn; `prompt_accepted {id}` once the adapter has it, `error {id}` if busy or dead |
-| `{type:"cancel"}` | ACP `session/cancel` |
-| `{type:"shutdown", force}` | close the ACP session, stop the adapter, exit |
-| `{type:"ping"}` | `pong` |
+| `{type:"cancel"}`           | ACP `session/cancel`                                                                       |
+| `{type:"shutdown", force}`  | close the ACP session, stop the adapter, exit                                              |
+| `{type:"ping"}`             | `pong`                                                                                     |
 
 Host → client:
 
-| message | content |
-| --- | --- |
-| `{type:"welcome", agentId, engine, sessionId, running, turn, journalSeq}` | `turn` is the open turn's `{seq, startedAt}` or null |
-| `{type:"event", seq, at, event}` | `event` is a `DriverEvent`: `update` (ACP `SessionUpdate`), `turn started/settled`, or `exit` |
-| `{type:"prompt_accepted", id}` | |
-| `{type:"error", id?, message}` | |
+| message                                                                   | content                                                                                       |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `{type:"welcome", agentId, engine, sessionId, running, turn, journalSeq}` | `turn` is the open turn's `{seq, startedAt}` or null                                          |
+| `{type:"event", seq, at, event}`                                          | `event` is a `DriverEvent`: `update` (ACP `SessionUpdate`), `turn started/settled`, or `exit` |
+| `{type:"prompt_accepted", id}`                                            |                                                                                               |
+| `{type:"error", id?, message}`                                            |                                                                                               |
 
 The server records `agents.host_seq` as it folds events into
 `agent_stream_events`, and reconnects with `hello {fromSeq: host_seq}`.
@@ -149,7 +149,7 @@ terminal pane, the Console/Terminal segment. Agent types `cursor`,
 One system prompt builder (`agents/acp/system-prompt.ts`) delivers the
 launch guidance plus the active personality through ACP
 `_meta.systemPrompt.append` (Claude) or as the first prompt's leading block
-(Codex). The agent's text *is* its reply; `dispatch_chat_post` is for
+(Codex). The agent's text _is_ its reply; `chat_post` is for
 questions with options only.
 
 ## Out of scope for the first milestone

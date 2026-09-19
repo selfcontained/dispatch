@@ -63,7 +63,7 @@ const chatAttachmentSchema = z.discriminatedUnion("type", [
         .max(255)
         .optional()
         .describe(
-          "The stored fileName returned by dispatch_share_file. Local paths are not accepted; share the file first."
+          "The stored fileName returned by share_file. Local paths are not accepted; share the file first."
         ),
       mediaId: z
         .number()
@@ -76,7 +76,7 @@ const chatAttachmentSchema = z.discriminatedUnion("type", [
     })
     .refine((file) => Boolean(file.fileName) !== (file.mediaId !== undefined), {
       message:
-        "file attachments take exactly one of fileName (from dispatch_share_file) or mediaId.",
+        "file attachments take exactly one of fileName (from share_file) or mediaId.",
     }),
   z.object({
     type: z.literal("link"),
@@ -108,7 +108,7 @@ const attachmentsSchema = z
   .array(chatAttachmentSchema)
   .max(CHAT_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${CHAT_ATTACHMENTS_MAX}. file (fileName returned by dispatch_share_file), link, pr, code (with optional language and path caption), or pin (one of your pin ids).`
+    `Up to ${CHAT_ATTACHMENTS_MAX}. file (fileName returned by share_file), link, pr, code (with optional language and path caption), or pin (one of your pin ids).`
   );
 
 const textSchema = z
@@ -118,7 +118,7 @@ const textSchema = z
   .describe(`Markdown body, up to ${CHAT_MESSAGE_MAX_CHARS} characters.`);
 
 /**
- * How `dispatch_chat_post` opens with the chat surface off — or unknown, as
+ * How `chat_post` opens with the chat surface off — or unknown, as
  * on the job route, where the launch turn never carries a Chat envelope. The
  * tool is registered for every agent regardless of the flag, so this wording
  * stays capability-neutral: it describes the mechanics and leaves the
@@ -154,8 +154,8 @@ const CHAT_POST_MECHANICS =
   '"question" to request a decision — supply question.options (rendered as buttons, up to ' +
   `${CHAT_QUESTION_OPTIONS_MAX}) for a finite choice, and allowFreeform when a typed answer also works; the choice comes back as a user message with replyTo set to the question. ` +
   `text is markdown (≤ ${CHAT_MESSAGE_MAX_CHARS} chars). attachments (≤ ${CHAT_ATTACHMENTS_MAX}): ` +
-  '{ type: "file", fileName } for a file already shared via dispatch_share_file (use the fileName it returned), { type: "link" | "pr", url, title? }, ' +
-  '{ type: "code", code, language?, path? }, or { type: "pin", pinId }. Returns { id, createdAt }; use the id with dispatch_chat_update to revise the message later. ' +
+  '{ type: "file", fileName } for a file already shared via share_file (use the fileName it returned), { type: "link" | "pr", url, title? }, ' +
+  '{ type: "code", code, language?, path? }, or { type: "pin", pinId }. Returns { id, createdAt }; use the id with chat_update to revise the message later. ' +
   'An "update" post edited in place as work progresses is the durable form of progress — one message that ends up describing the result, not a trail of stale notes.';
 
 export function buildChatPostDescription(chatSurface: boolean): string {
@@ -168,11 +168,11 @@ export function buildChatPostDescription(chatSurface: boolean): string {
 /**
  * What an agent can do with a reaction, and when one fits. Mechanics only:
  * where the user is reading is the launch guidance's business, as for
- * dispatch_chat_post's neutral description.
+ * chat_post's neutral description.
  */
 export const CHAT_REACT_DESCRIPTION =
   "React to one of the user's Chat messages with an emoji, shown under their message — a lightweight acknowledgement (👍 got it, 👀 looking into it, ✅ done) for a message that does not need a written reply. " +
-  "A reaction does not count as an unread message for the user, so anything they need to read still belongs in dispatch_chat_post. " +
+  "A reaction does not count as an unread message for the user, so anything they need to read still belongs in chat_post. " +
   "messageId is the id from the message's DISPATCH CHAT envelope. One of each emoji per message; set remove: true to take yours back. " +
   "Returns { messageId, emoji } with the emoji you now have on that message. " +
   "The user can react to your posts too; each of their reactions arrives as a DISPATCH CHAT REACTION envelope naming the message.";
@@ -186,9 +186,9 @@ export function registerChatTools(
   const chat = context.chat;
   const agentId = context.agentId;
 
-  if (allowed.has("dispatch_chat_post")) {
+  if (allowed.has("chat_post")) {
     server.registerTool(
-      "dispatch_chat_post",
+      "chat_post",
       {
         description: buildChatPostDescription(context.chatSurface === true),
         inputSchema: {
@@ -225,17 +225,17 @@ export function registerChatTools(
     );
   }
 
-  if (allowed.has("dispatch_chat_update")) {
+  if (allowed.has("chat_update")) {
     server.registerTool(
-      "dispatch_chat_update",
+      "chat_update",
       {
         description:
-          "Revise a Chat tab message you posted earlier with dispatch_chat_post — e.g. turn a progress update into the final result, or fix a typo. " +
+          "Revise a Chat tab message you posted earlier with chat_post — e.g. turn a progress update into the final result, or fix a typo. " +
           "Only your own messages on this agent can be edited. Supply only the fields to change; attachments, when given, replace the whole list. " +
           'Changing kind to "question" requires question; changing away from it clears the question. Returns { id, updatedAt }. ' +
           'Editing an "update" post in place is the durable form of progress: keep revising the same message rather than posting a new note for every step.',
         inputSchema: {
-          messageId: z.uuid().describe("Id returned by dispatch_chat_post."),
+          messageId: z.uuid().describe("Id returned by chat_post."),
           text: textSchema.optional(),
           kind: chatKindSchema.optional(),
           question: chatQuestionSchema.optional(),
@@ -262,9 +262,9 @@ export function registerChatTools(
     );
   }
 
-  if (allowed.has("dispatch_chat_react")) {
+  if (allowed.has("chat_react")) {
     server.registerTool(
-      "dispatch_chat_react",
+      "chat_react",
       {
         description: CHAT_REACT_DESCRIPTION,
         inputSchema: {

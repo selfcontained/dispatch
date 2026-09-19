@@ -7,9 +7,9 @@ import { getSetting, setSetting } from "./db/settings.js";
  * and the chat launch-guidance rule is included at agent launch. Off by
  * default: with the flag off nothing in the app changes.
  *
- * The routes and the dispatch_chat_* MCP tools work regardless of the flag —
+ * The routes and the chat_* MCP tools work regardless of the flag —
  * it is purely a UI switch, a launch-guidance switch, and the choice of which
- * description dispatch_chat_post announces itself with. Read per launch, per
+ * description chat_post announces itself with. Read per launch, per
  * settings request, and per agent MCP request; the last of those is not a
  * cold path, but the lookup is small beside the two git resolutions that
  * route already runs, so there is still no in-memory cache.

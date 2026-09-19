@@ -238,13 +238,13 @@ describe("useSSE reconnect", () => {
       FakeEventSource.instances[0].emit({
         type: "agent.tool_invoked",
         agentId: "agt_1",
-        tool: "dispatch_share_file",
+        tool: "share_file",
         at: "2026-09-03T09:59:00.000Z",
       })
     );
     // Stamped with local receipt time, not the server's clock.
     expect(getDefaultStore().get(agentToolBlipAtomFamily("agt_1"))).toEqual({
-      tool: "dispatch_share_file",
+      tool: "share_file",
       at: Date.now(),
     });
   });

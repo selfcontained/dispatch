@@ -216,7 +216,7 @@ Each child is a full agent session. Parents should be cost-aware — don't spawn
 
 ### Relationship to Personas
 
-Personas are a specialization of this pattern: a child agent with a pre-defined role, review-focused scope, and the unified `dispatch_review_*` tools. Subagent orchestration is the general mechanism; personas could be re-implemented on top of it as a "spawn a child with this persona's system prompt and review tools."
+Personas are a specialization of this pattern: a child agent with a pre-defined role, review-focused scope, and the unified `review_*` tools. Subagent orchestration is the general mechanism; personas could be re-implemented on top of it as a "spawn a child with this persona's system prompt and review tools."
 
 ### Relationship to Jobs
 

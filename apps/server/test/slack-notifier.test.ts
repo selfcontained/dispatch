@@ -199,7 +199,7 @@ describe("SlackNotifier focus suppression", () => {
   });
 });
 
-describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
+describe("SlackNotifier.sendNotification (notify)", () => {
   beforeEach(() => {
     fetchSpy.mockClear();
   });
@@ -339,7 +339,7 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     expect(messageText).toContain("&lt;!everyone&gt;");
   });
 
-  it("sanitizes renamed agent names in dispatch_notify payloads", async () => {
+  it("sanitizes renamed agent names in notify payloads", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     await notifier.sendNotification(makeAgent({ name: "<!channel>" }), {
       message: "safe body",

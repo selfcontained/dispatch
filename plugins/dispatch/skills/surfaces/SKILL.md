@@ -12,7 +12,7 @@ The owning agent authors the document and handles every submitted interaction.
 
 A surface earns its place when several related values need hierarchy, repeated
 updates, or user input. One small fact belongs in a pin, an artifact belongs in
-`dispatch_share_file`, and explanation belongs in your reply — do not mirror the
+`share_file`, and explanation belongs in your reply — do not mirror the
 transcript into a surface. The full channel comparison lives in `communicate`.
 
 Prefer one useful tab over several narrow tabs. A surface is a fixed 400px
@@ -65,16 +65,16 @@ The renderer owns styling — supply meaning, not layout:
 
 ## Authoring workflow
 
-1. Call `dispatch_surface_create` with a short title, optional icon, optional
+1. Call `surface_create` with a short title, optional icon, optional
    `header`/`footer`, and stable, unique block/item/action/field IDs.
 2. Keep the returned `tabId` and `revision`.
-3. Call `dispatch_surface_get` before an update if the current revision is not
-   known, then call `dispatch_surface_update` with `expectedRevision`. Updates
+3. Call `surface_get` before an update if the current revision is not
+   known, then call `surface_update` with `expectedRevision`. Updates
    replace the complete `blocks` array; `header` and `footer` accept `null` to
    clear the slot.
 4. Treat interaction notices as wake-ups only. Read durable values with
-   `dispatch_surface_interactions`, claim them with `dispatch_surface_claim`,
-   perform the work, then call `dispatch_surface_resolve`.
+   `surface_interactions`, claim them with `surface_claim`,
+   perform the work, then call `surface_resolve`.
 5. Update the surface after processing an interaction so the visible state
    reflects the outcome.
 
@@ -84,9 +84,9 @@ Footer actions arrive with the reserved `blockId` `"footer"`; section actions
 carry the section's id; item and row actions carry `blockId` + `itemId`.
 
 ```javascript
-dispatch_surface_interactions({ tabId: "<tab id>", status: "queued" });
-dispatch_surface_claim({ ids: ["<interaction id>"] });
-dispatch_surface_resolve({
+surface_interactions({ tabId: "<tab id>", status: "queued" });
+surface_claim({ ids: ["<interaction id>"] });
+surface_resolve({
   id: "<interaction id>",
   outcome: "completed",
   message: "Recorded the canary decision.",

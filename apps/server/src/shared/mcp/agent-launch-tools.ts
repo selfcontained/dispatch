@@ -41,20 +41,20 @@ export function registerAgentLaunchTools(
   allowed: Set<string>,
   context: AgentLaunchToolsContext
 ): void {
-  if (!allowed.has("dispatch_launch_agent") || !context.launchAgent) return;
+  if (!allowed.has("launch_agent") || !context.launchAgent) return;
 
   const agentId = context.agentId;
   const launchAgent = context.launchAgent;
 
   server.registerTool(
-    "dispatch_launch_agent",
+    "launch_agent",
     {
       description:
         "Launch a new agent to work on a task. The new agent runs independently " +
-        "— use dispatch_send_message to coordinate and list_agents to check status. " +
+        "— use send_message to coordinate and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
-        "A child's pins and media are readable here via ownerAgentId on dispatch_list_pins / dispatch_list_media, " +
+        "A child's pins and media are readable here via ownerAgentId on list_pins / list_media, " +
         "and it can read yours the same way — neither side needs to relay file paths or URLs.",
       inputSchema: {
         name: z

@@ -41,13 +41,13 @@ import {
 import { normalizeReactionEmoji } from "./validation.js";
 
 /**
- * An attachment as an agent supplies it to dispatch_chat_post: `file` carries
+ * An attachment as an agent supplies it to chat_post: `file` carries
  * only the path; the server fills in the media row fields.
  */
 export type ChatAttachmentInput =
   | {
       type: "file";
-      /** Stored name returned by dispatch_share_file. */
+      /** Stored name returned by share_file. */
       fileName?: string;
       /** Media row id, as an alternative to fileName. */
       mediaId?: number;
@@ -152,7 +152,7 @@ export type ChatLaunchContextInput = {
   files?: Array<{ mediaId: number }>;
   links?: string[];
   pins?: Array<{ id: string; type: string; value: string }>;
-  /** The agent that created this one via dispatch_launch_agent, if any. */
+  /** The agent that created this one via launch_agent, if any. */
   launchedByAgentId?: string | null;
 };
 
@@ -966,7 +966,7 @@ export class ChatService {
   // Agent-side workflows (MCP)
   // -------------------------------------------------------------------------
 
-  /** Agent-authored message from dispatch_chat_post. */
+  /** Agent-authored message from chat_post. */
   async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
     validateChatContent(input);
     if (input.replyTo != null) {
@@ -1004,7 +1004,7 @@ export class ChatService {
     return message;
   }
 
-  /** Edit an agent-authored message from dispatch_chat_update. */
+  /** Edit an agent-authored message from chat_update. */
   async update(
     agentId: string,
     messageId: string,
@@ -1012,7 +1012,7 @@ export class ChatService {
   ): Promise<ChatMessage> {
     if (!isChatMessageId(messageId)) {
       throw new ChatValidationError(
-        "messageId must be an id returned by dispatch_chat_post."
+        "messageId must be an id returned by chat_post."
       );
     }
     const existing = await this.store.getById(messageId);
@@ -1022,7 +1022,7 @@ export class ChatService {
       existing.authorKind !== "agent"
     ) {
       throw new ChatValidationError(
-        "Message not found — dispatch_chat_update only edits your own agent messages."
+        "Message not found — chat_update only edits your own agent messages."
       );
     }
     if (
@@ -1075,7 +1075,7 @@ export class ChatService {
   /**
    * Turn agent-supplied attachments into their stored form: `file` resolves
    * to this agent's media row by the stored fileName (or mediaId) that
-   * dispatch_share_file returned — never by a local path, so an unshared
+   * share_file returned — never by a local path, so an unshared
    * file cannot masquerade as an earlier share — and `pin` must name a pin
    * on this agent.
    */
@@ -1104,7 +1104,7 @@ export class ChatService {
       } else if (input.type === "pin") {
         if (!this.findPin(agent, input.pinId)) {
           throw new ChatValidationError(
-            `Unknown pin "${input.pinId}" — dispatch_list_pins shows the ids on this agent.`
+            `Unknown pin "${input.pinId}" — list_pins shows the ids on this agent.`
           );
         }
         out.push({ type: "pin", pinId: input.pinId });
@@ -1181,7 +1181,7 @@ export class ChatService {
         : undefined;
     if (!fileName && mediaId === undefined) {
       throw new ChatValidationError(
-        "file attachments need fileName (from dispatch_share_file) or mediaId."
+        "file attachments need fileName (from share_file) or mediaId."
       );
     }
     if (fileName && mediaId !== undefined) {
@@ -1205,7 +1205,7 @@ export class ChatService {
     const match = result.rows[0];
     if (!match) {
       throw new ChatValidationError(
-        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with dispatch_share_file and attach the fileName it returns.`
+        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with share_file and attach the fileName it returns.`
       );
     }
     // The same lookup GET /media serves the file with.
@@ -1217,7 +1217,7 @@ export class ChatService {
       mimeType: mimeType(match.file_name),
       // No dimensions here on purpose. The feed fills them in from the live
       // media row when it reads the page, which is the only thing that can be
-      // right: dispatch_share_file replaces a file's bytes under an unchanged
+      // right: share_file replaces a file's bytes under an unchanged
       // URL, so a shape frozen at write time can describe bytes the post no
       // longer serves.
     };

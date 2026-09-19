@@ -9,7 +9,7 @@ import {
   seedAgentMessageViaDB,
 } from "./helpers";
 
-// Agents run inert (no agent process) in E2E, so the real dispatch_send_message path
+// Agents run inert (no agent process) in E2E, so the real send_message path
 // cannot run here. Messages are seeded directly into `agent_messages` to
 // exercise the sidebar + history UI that reads them.
 
@@ -90,7 +90,7 @@ test.describe("Agent messages", () => {
     await expect(messagesUnreadBadge).toBeHidden();
 
     // Visual validation artifact for the sidebar Messages tab (published via
-    // dispatch_share_file since no browser MCP is available in this environment).
+    // share_file since no browser MCP is available in this environment).
     await page.screenshot({
       path: path.join(
         process.env.E2E_SCREENSHOT_DIR ?? "/tmp",

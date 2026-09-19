@@ -219,8 +219,8 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
   const reviewLifecycle = [
     "- Inspect the complete review target before submitting. Collect findings during the pass instead of sending direct messages to the parent.",
-    "- Call `dispatch_review_submit` exactly once when the initial pass is complete. Put actionable concerns in the `feedback` array. When findings are submitted, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; never repeat feedback-item details there. Use an empty array and a concise nonblank summary for a clean approval.",
-    "- After submission, use `dispatch_review_add_message` for a clarifying question or reply on an existing item. Use `dispatch_review_add_feedback` only for a genuinely new concern.",
+    "- Call `review_submit` exactly once when the initial pass is complete. Put actionable concerns in the `feedback` array. When findings are submitted, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; never repeat feedback-item details there. Use an empty array and a concise nonblank summary for a clean approval.",
+    "- After submission, use `review_add_message` for a clarifying question or reply on an existing item. Use `review_add_feedback` only for a genuinely new concern.",
     "- Keep all review discussion in feedback-item threads. Do not use direct agent messages for review content.",
     "- After submitting, later thread updates arrive as new prompts and may start a new turn; answer them in the tracked feedback thread.",
   ].join("\n");
@@ -234,7 +234,7 @@ ${inspectionSteps.join("\n")}
 4. Collect your findings and submit them as described below.
 
 ### How to submit feedback
-- Submit findings through the \`feedback\` array on \`dispatch_review_submit\`. Each item needs a concrete comment and may include a file path and line range.
+- Submit findings through the \`feedback\` array on \`review_submit\`. Each item needs a concrete comment and may include a file path and line range.
 ${scopeLine}
 
 ### Review lifecycle

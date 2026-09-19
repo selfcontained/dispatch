@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { getSetting, setSetting } from "./db/settings.js";
 
 /**
- * Whether agent-to-agent messaging (dispatch_send_message / list_agents) may
+ * Whether agent-to-agent messaging (send_message / list_agents) may
  * address agents in *other* repositories. By default the addressable peer set
  * is scoped to the sender's git repo root; enabling this lifts that scoping for
  * local multi-repo workflows. This is a single server-wide setting — the gate

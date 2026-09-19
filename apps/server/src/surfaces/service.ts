@@ -553,7 +553,7 @@ export class SurfaceService {
           agentId,
           surfaceNotice("SURFACE INTERACTION", [
             `Interaction ID: ${row.id}`,
-            "A user submitted an interaction. Use dispatch_surface_interactions or dispatch_surface_claim to read the durable record; do not infer values from this notice.",
+            "A user submitted an interaction. Use surface_interactions or surface_claim to read the durable record; do not infer values from this notice.",
           ])
         );
         const updated = await this.pool.query<InteractionRow>(
@@ -664,7 +664,7 @@ export class SurfaceService {
         agentId,
         surfaceNotice("SURFACE INTERACTIONS QUEUED", [
           `Queued interactions: ${queued.rows[0].count}`,
-          "Use dispatch_surface_interactions then dispatch_surface_claim to read the durable records.",
+          "Use surface_interactions then surface_claim to read the durable records.",
         ])
       );
       const changed = await this.pool.query<{ surface_id: string }>(

@@ -4,11 +4,10 @@ export function EventsContent() {
   return (
     <>
       <P>
-        Agents report their status throughout a task using the{" "}
-        <Code>dispatch_event</Code> tool. These events drive the status
-        indicators in the sidebar, and <Code>done</Code>,{" "}
-        <Code>waiting_user</Code>, and <Code>blocked</Code> also trigger browser
-        and Slack notifications.
+        Dispatch derives each agent's status from its live stream; agents do not
+        report it themselves. Status drives the indicators in the sidebar, and{" "}
+        <Code>done</Code>, <Code>waiting_user</Code>, and <Code>blocked</Code>{" "}
+        also trigger browser and Slack notifications.
       </P>
 
       <Section>
@@ -70,22 +69,6 @@ export function EventsContent() {
           with "No recent activity detected". A correction is skipped if the
           agent reported a new event in the meantime, so a live agent always
           wins over the check.
-        </P>
-      </Section>
-
-      <Section>
-        <H3>Configuring agent instructions</H3>
-        <P>
-          Dispatch already injects startup rules at launch telling the agent
-          what each event type means and when to emit them, so reporting works
-          without any setup. With <strong>Use short startup rules</strong> on
-          (Settings → Agents → Launch guidance), that rule keeps the timing and
-          the <Code>blocked</Code> distinction but leaves the list of types to
-          the <Code>dispatch_event</Code> tool description. To reinforce or
-          customize the behavior, add instructions to your repo's{" "}
-          <Code>CLAUDE.md</Code> (or equivalent config) covering the checkpoints
-          that matter to you: start of turn, phase transitions, and a terminal
-          event before the final response.
         </P>
       </Section>
     </>

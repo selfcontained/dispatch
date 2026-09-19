@@ -16,7 +16,7 @@ const WEB_ICON_MODULE = path.join(
 );
 
 /**
- * The server enumerates icon names for the dispatch_pin schema; the web maps
+ * The server enumerates icon names for the pin schema; the web maps
  * those names to components. They live in different packages with no shared
  * import path, so nothing but this test stops them drifting — and a drifted
  * name fails silently, rendering the fallback icon instead of the one the

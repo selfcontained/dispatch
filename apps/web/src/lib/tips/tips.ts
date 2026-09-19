@@ -14,7 +14,7 @@ export const tips: Tip[] = [
   {
     id: "agent-orchestration",
     title: "Agent Orchestration",
-    body: "Agents can now launch other agents using the dispatch_launch_agent tool. Delegate subtasks, run parallel workstreams, or hand off work — launched agents coordinate via messaging.",
+    body: "Agents can now launch other agents using the launch_agent tool. Delegate subtasks, run parallel workstreams, or hand off work — launched agents coordinate via messaging.",
     docsSection: "agents",
     since: "0.24.0",
     surfaces: ["ambient"],

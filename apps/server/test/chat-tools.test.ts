@@ -23,11 +23,7 @@ function createMockServer() {
 }
 
 const AGENT_ID = "agt_chat_tools";
-const ALL = new Set([
-  "dispatch_chat_post",
-  "dispatch_chat_update",
-  "dispatch_chat_react",
-]);
+const ALL = new Set(["chat_post", "chat_update", "chat_react"]);
 
 describe("registerChatTools", () => {
   let server: ReturnType<typeof createMockServer>;
@@ -70,32 +66,32 @@ describe("registerChatTools", () => {
 
   it("registers the tools only when allowed and a service is present", () => {
     expect(server.tools.map((t) => t.name)).toEqual([
-      "dispatch_chat_post",
-      "dispatch_chat_update",
-      "dispatch_chat_react",
+      "chat_post",
+      "chat_update",
+      "chat_react",
     ]);
     const none = createMockServer();
     registerChatTools(none as never, ALL, { agentId: AGENT_ID });
     expect(none.tools).toHaveLength(0);
     const onlyPost = createMockServer();
-    registerChatTools(onlyPost as never, new Set(["dispatch_chat_post"]), {
+    registerChatTools(onlyPost as never, new Set(["chat_post"]), {
       agentId: AGENT_ID,
       chat: { post, update } as never,
     });
-    expect(onlyPost.tools.map((t) => t.name)).toEqual(["dispatch_chat_post"]);
+    expect(onlyPost.tools.map((t) => t.name)).toEqual(["chat_post"]);
   });
 
   it("describes the mechanics without asserting the user is reading Chat", () => {
-    const description = tool("dispatch_chat_post").config.description;
+    const description = tool("chat_post").config.description;
     // With the flag off the tool is still registered, so the wording stays
     // capability-neutral and the directive lives in the launch rule alone.
     expect(description).not.toMatch(/user reads the Chat tab/i);
     expect(description).toContain("optional Chat tab");
     expect(description).toContain("replyTo");
     expect(description).toMatch(/"question"/);
-    expect(description).toContain("dispatch_share_file");
-    expect(description).toContain("dispatch_chat_update");
-    expect(Object.keys(tool("dispatch_chat_post").config.inputSchema)).toEqual([
+    expect(description).toContain("share_file");
+    expect(description).toContain("chat_update");
+    expect(Object.keys(tool("chat_post").config.inputSchema)).toEqual([
       "text",
       "kind",
       "replyTo",
@@ -111,8 +107,8 @@ describe("registerChatTools", () => {
       chat: { post, update } as never,
       chatSurface: true,
     });
-    const description = on.tools.find((t) => t.name === "dispatch_chat_post")
-      ?.config.description as string;
+    const description = on.tools.find((t) => t.name === "chat_post")?.config
+      .description as string;
     expect(description).toContain("where the user is reading this session");
     expect(description).toMatch(/never reaches them/);
     expect(description).toMatch(/do not end a turn without one/);
@@ -121,8 +117,8 @@ describe("registerChatTools", () => {
     expect(description).not.toContain("this tool only describes the mechanics");
     // …while everything after the lead-in is unchanged.
     expect(description).toContain("DISPATCH CHAT envelope");
-    expect(description).toContain("dispatch_share_file");
-    expect(description).toContain("dispatch_chat_update");
+    expect(description).toContain("share_file");
+    expect(description).toContain("chat_update");
   });
 
   it("keeps the neutral description for an explicit false and for the default", () => {
@@ -132,14 +128,13 @@ describe("registerChatTools", () => {
       chat: { post, update } as never,
       chatSurface: false,
     });
-    const offDescription = off.tools.find(
-      (t) => t.name === "dispatch_chat_post"
-    )?.config.description as string;
-    expect(offDescription).toBe(tool("dispatch_chat_post").config.description);
+    const offDescription = off.tools.find((t) => t.name === "chat_post")?.config
+      .description as string;
+    expect(offDescription).toBe(tool("chat_post").config.description);
     expect(offDescription).toContain("optional Chat tab");
   });
 
-  it("leaves dispatch_chat_update's description alone either way", () => {
+  it("leaves chat_update's description alone either way", () => {
     const on = createMockServer();
     registerChatTools(on as never, ALL, {
       agentId: AGENT_ID,
@@ -147,13 +142,12 @@ describe("registerChatTools", () => {
       chatSurface: true,
     });
     expect(
-      on.tools.find((t) => t.name === "dispatch_chat_update")?.config
-        .description
-    ).toBe(tool("dispatch_chat_update").config.description);
+      on.tools.find((t) => t.name === "chat_update")?.config.description
+    ).toBe(tool("chat_update").config.description);
   });
 
   it("reacts as the agent and returns only the agent's own emoji", async () => {
-    const result = await tool("dispatch_chat_react").handler({
+    const result = await tool("chat_react").handler({
       messageId: "msg_u",
       emoji: "👍",
     });
@@ -162,13 +156,13 @@ describe("registerChatTools", () => {
       messageId: "msg_u",
       emoji: ["👍"],
     });
-    expect(tool("dispatch_chat_react").config.description).toContain(
+    expect(tool("chat_react").config.description).toContain(
       "DISPATCH CHAT envelope"
     );
   });
 
   it("takes a reaction back with remove: true, and surfaces service errors", async () => {
-    const removed = await tool("dispatch_chat_react").handler({
+    const removed = await tool("chat_react").handler({
       messageId: "msg_u",
       emoji: "👍",
       remove: true,
@@ -185,7 +179,7 @@ describe("registerChatTools", () => {
     });
 
     addReaction.mockRejectedValueOnce(new Error("Message not found"));
-    const failed = await tool("dispatch_chat_react").handler({
+    const failed = await tool("chat_react").handler({
       messageId: "msg_u",
       emoji: "👍",
     });
@@ -194,7 +188,7 @@ describe("registerChatTools", () => {
   });
 
   it("posts a reply and returns id + createdAt", async () => {
-    const result = await tool("dispatch_chat_post").handler({ text: "done" });
+    const result = await tool("chat_post").handler({ text: "done" });
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toEqual({
       id: "msg_1",
@@ -214,7 +208,7 @@ describe("registerChatTools", () => {
       options: [{ label: "Yes", value: "y" }, { label: "No" }],
       allowFreeform: true,
     };
-    const result = await tool("dispatch_chat_post").handler({
+    const result = await tool("chat_post").handler({
       text: "Ship?",
       kind: "question",
       replyTo: "user_msg",
@@ -232,7 +226,7 @@ describe("registerChatTools", () => {
 
   it("surfaces service errors (e.g. unknown file) as tool errors", async () => {
     post.mockRejectedValueOnce(new Error('Unknown file "x.png"'));
-    const result = await tool("dispatch_chat_post").handler({
+    const result = await tool("chat_post").handler({
       text: "see",
       attachments: [{ type: "file", fileName: "x.png" }],
     });
@@ -241,8 +235,9 @@ describe("registerChatTools", () => {
   });
 
   it("declares file attachments by fileName or mediaId, not path", () => {
-    const schema = tool("dispatch_chat_post").config.inputSchema
-      .attachments as { safeParse: (v: unknown) => { success: boolean } };
+    const schema = tool("chat_post").config.inputSchema.attachments as {
+      safeParse: (v: unknown) => { success: boolean };
+    };
     expect(
       schema.safeParse([{ type: "file", fileName: "a.png" }]).success
     ).toBe(true);
@@ -258,7 +253,7 @@ describe("registerChatTools", () => {
   });
 
   it("updates a message and returns id + updatedAt", async () => {
-    const result = await tool("dispatch_chat_update").handler({
+    const result = await tool("chat_update").handler({
       messageId: "msg_1",
       text: "final",
       kind: "summary",
@@ -278,7 +273,7 @@ describe("registerChatTools", () => {
 
   it("returns a tool error when the update is rejected", async () => {
     update.mockRejectedValueOnce(new Error("Message not found"));
-    const result = await tool("dispatch_chat_update").handler({
+    const result = await tool("chat_update").handler({
       messageId: "nope",
       text: "x",
     });

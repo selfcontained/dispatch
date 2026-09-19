@@ -127,9 +127,8 @@ would ever read it. It was moved, not copied — two routing tables would be wor
 than one in the wrong place.
 
 **What is deliberately _not_ here.** Guidance that is always relevant cannot be
-a skill, because skills only load on a task match. Status reporting
-(`dispatch_event`), pin discipline, and session naming stay in Dispatch's
-injected launch guidance for that reason.
+a skill, because skills only load on a task match. Pin discipline and session
+naming stay in Dispatch's injected launch guidance for that reason.
 
 ## Layout
 

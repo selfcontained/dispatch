@@ -41,7 +41,7 @@ export type StartupTurnInput = {
  * recorded, the prompt is wrapped in the same `--- DISPATCH CHAT ---`
  * envelope a Chat message is injected with (id = the launch post, the
  * attachments listed the same way, the trailer pointing the agent at
- * dispatch_chat_post), so an agent started from the Chat tab knows to answer
+ * chat_post), so an agent started from the Chat tab knows to answer
  * there. Job runs never wrap (their prompt is a system-prompt append), and
  * with the flag off — or nothing recorded — the plain startup prompt is used.
  */
@@ -138,7 +138,7 @@ export function buildStartupPrompt(
  * and attachment schema.
  */
 export const CHAT_SURFACE_GUIDANCE_RULE =
-  "The user is reading Chat, not Console. Send every user-facing reply and question with dispatch_chat_post; use kind: question with options for finite choices.";
+  "The user is reading Chat, not Console. Send every user-facing reply and question with chat_post; use kind: question with options for finite choices.";
 
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.
@@ -146,7 +146,7 @@ export const CHAT_SURFACE_GUIDANCE_RULE =
  * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
  * different things carry the detail it drops, and the distinction matters:
  *
- * - **The MCP tool schemas.** `dispatch_pin`'s own description already lists
+ * - **The MCP tool schemas.** `pin`'s own description already lists
  *   every pin type, explains shortcut/confirm/disabled, and says to pair a
  *   blocking shortcut with `waiting_user`. Restating that here duplicated a
  *   description the agent already has, in every session, whether or not the flow ever comes up. The
@@ -160,7 +160,7 @@ export const CHAT_SURFACE_GUIDANCE_RULE =
  * What never trims is the rule with no replacement anywhere: the no-task
  * guardrail. Nothing else states it, and it has to fire before a task exists.
  *
- * A short `dispatch_share_file` nudge survives the trim on purpose. That habit was
+ * A short `share_file` nudge survives the trim on purpose. That habit was
  * already stated in two always-on places and agents still pasted file paths
  * into chat, so it's the one tool-routing rule with a demonstrated failure
  * history — the toggle tests `create_pr`, not this.
@@ -172,7 +172,7 @@ export const CHAT_SURFACE_GUIDANCE_RULE =
  * `buildLaunchPersonaResponseText` and `reviews/injection-prompts.ts`. What
  * remains is the part nothing can inject: the gate the agent must already know
  * before it decides it is done, plus a pointer to
- * `dispatch_review_list_feedback` — injection is best-effort and is dropped
+ * `review_list_feedback` — injection is best-effort and is dropped
  * when the parent has no live session, so the agent needs one durable way to
  * find a review that was submitted while it was down.
  */
@@ -187,7 +187,7 @@ export function buildLaunchGuidance(
     /**
      * The chat-surface flag (`chat_surface_enabled`). When on, the user is
      * reading the Chat tab, so one rule routes replies and questions through
-     * dispatch_chat_post. Same text trimmed or not: the tool description
+     * chat_post. Same text trimmed or not: the tool description
      * carries the schema.
      */
     chatSurface?: boolean;
@@ -216,7 +216,7 @@ export function buildLaunchGuidance(
     );
     if (suggestSessionRename) {
       rules.push(
-        "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
+        "Name the session. Once the topic of work is clear, call rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
       );
     }
     rules.push("Log task-level progress with job_log.");
@@ -230,8 +230,8 @@ export function buildLaunchGuidance(
     if (suggestSessionRename) {
       rules.push(
         trimmed
-          ? "Name the session with dispatch_rename_session once the topic is clear — a short label for what the session is about, not a live status."
-          : "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
+          ? "Name the session with rename_session once the topic is clear — a short label for what the session is about, not a live status."
+          : "Name the session. Once the topic of work is clear, call rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
     }
     if (chatSurface) {
@@ -241,20 +241,20 @@ export function buildLaunchGuidance(
       // One rule instead of two: surface values, and ask questions, with pins.
       // The tool schema carries the types, shortcut mechanics, and deletion.
       rules.push(
-        "Surface important data to the user with dispatch_pin — anything they may need to read or copy — and use shortcut pins to offer a next step. Route a structured decision, form, or status view to dispatch_surface_create instead."
+        "Surface important data to the user with pin — anything they may need to read or copy — and use shortcut pins to offer a next step. Route a structured decision, form, or status view to surface_create instead."
       );
     } else {
       rules.push(
-        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share_file and pin a reference."
+        "Pin key info with pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call list_pins then delete_pin with its id. For longer artifacts, write a file via share_file and pin a reference."
       );
       rules.push(
-        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you. For a structured decision, form, or status view — several related values, or something the user must fill in — use dispatch_surface_create instead of a shortcut pin."
+        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you. For a structured decision, form, or status view — several related values, or something the user must fill in — use surface_create instead of a shortcut pin."
       );
     }
     rules.push(
       trimmed
-        ? "Share artifacts with dispatch_share_file — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
-        : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share_file. Call browser_close when done."
+        ? "Share artifacts with share_file — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
+        : "Playwright: default headless. Capture at least one screenshot per UI flow via share_file. Call browser_close when done."
     );
     if (!trimmed) {
       rules.push(
@@ -263,7 +263,7 @@ export function buildLaunchGuidance(
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved — if a review prompt never arrived, check with dispatch_review_list_feedback."
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved — if a review prompt never arrived, check with review_list_feedback."
       );
     }
   }

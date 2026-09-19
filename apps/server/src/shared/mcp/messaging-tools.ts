@@ -54,12 +54,12 @@ export function registerMessagingTools(
       {
         description:
           "List other agents on this Dispatch server with their IDs, names, statuses, and latest activity. " +
-          "Use this to discover agents you can communicate with via dispatch_send_message. " +
+          "Use this to discover agents you can communicate with via send_message. " +
           "Each entry carries two separate things. Lineage: parentAgentId/parentName name the agent this one is a " +
           "child of, and relation says how it sits relative to you in that same parent tree (child, descendant, " +
           "parent, ancestor, sibling, unrelated). Provenance: launchedByAgentId/launchedByName name whoever created " +
           "the session, and appear only when that is not already the parent — i.e. the agent was launched with " +
-          "dispatch_launch_agent's child: false, so it is top-level and reports as unrelated to you even though you " +
+          "launch_agent's child: false, so it is top-level and reports as unrelated to you even though you " +
           "may have launched it. Build the delegation tree from parentAgentId rather than assuming the list is flat " +
           "— a 'descendant' is a grandchild or deeper, not something you launched yourself.",
         inputSchema: {},
@@ -78,12 +78,12 @@ export function registerMessagingTools(
     );
   }
 
-  if (allowed.has("dispatch_send_message") && context.sendMessage) {
+  if (allowed.has("send_message") && context.sendMessage) {
     const agentId = context.agentId;
     const sendMessage = context.sendMessage;
 
     server.registerTool(
-      "dispatch_send_message",
+      "send_message",
       {
         description:
           "Send a message to another running agent. The message is injected into the target agent's session. " +

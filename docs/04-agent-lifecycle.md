@@ -22,7 +22,7 @@ lifecycle contract the server implements on top of it.
 `AgentRole` (column added in migration `0018_agents-role.sql`):
 
 - `standard` — every agent created via the normal Create dialog or a job launch.
-- `review` — persona review agents launched via `dispatch_launch_persona` (see [Review Agent Lifecycle](#review-agent-lifecycle)).
+- `review` — persona review agents launched via `launch_persona` (see [Review Agent Lifecycle](#review-agent-lifecycle)).
 - `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
 Role is orthogonal to `AgentType`, which names the engine: `claude` or `codex`.
@@ -192,6 +192,6 @@ On server startup, `rehydrateActiveAssistedJob` reads the on-disk state and resu
 
 ## Review Agent Lifecycle
 
-Review agents are ordinary child agents with role `review`. Launching one does not create a review record. The review agent completes its initial pass by calling `dispatch_review_submit`; a review with no feedback items records a clean approval, while a review with items remains open until the parent resolves or dismisses each item.
+Review agents are ordinary child agents with role `review`. Launching one does not create a review record. The review agent completes its initial pass by calling `review_submit`; a review with no feedback items records a clean approval, while a review with items remains open until the parent resolves or dismisses each item.
 
 Questions and follow-up discussion use each feedback item's tracked thread. Review status is derived from the item states rather than a separate reviewer state machine.

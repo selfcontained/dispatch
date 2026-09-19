@@ -78,7 +78,7 @@ export function PersonalitiesContent() {
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
             <strong>Persona reviewers</strong> launched via{" "}
-            <Code>dispatch_launch_persona</Code> or the Reviewers UI.
+            <Code>launch_persona</Code> or the Reviewers UI.
           </li>
           <li>
             <strong>Job runs</strong> spawned by the scheduler or a manual{" "}

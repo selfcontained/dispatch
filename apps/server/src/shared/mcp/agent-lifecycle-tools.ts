@@ -56,12 +56,12 @@ export function registerAgentLifecycleTools(
 ): void {
   const { agentId } = context;
 
-  // ── dispatch_rename_session ───────────────────────────────────────
-  if (allowed.has("dispatch_rename_session") && context.renameSession) {
+  // ── rename_session ───────────────────────────────────────
+  if (allowed.has("rename_session") && context.renameSession) {
     const renameSession = context.renameSession;
 
     server.registerTool(
-      "dispatch_rename_session",
+      "rename_session",
       {
         description:
           "Update the current session's display name. Use this to rename a default-generated session to a short goal or topic, or when the user explicitly asks for a rename.",
@@ -89,12 +89,12 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  // ── dispatch_notify ───────────────────────────────────────────────
-  if (allowed.has("dispatch_notify") && context.sendNotify) {
+  // ── notify ───────────────────────────────────────────────
+  if (allowed.has("notify") && context.sendNotify) {
     const sendNotify = context.sendNotify;
 
     server.registerTool(
-      "dispatch_notify",
+      "notify",
       {
         description:
           "Send a Slack notification. Use this to proactively share summaries, results, or important updates " +
@@ -154,12 +154,12 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  // ── dispatch_list_media ──────────────────────────────────────────
-  if (allowed.has("dispatch_list_media") && context.listMedia) {
+  // ── list_media ──────────────────────────────────────────
+  if (allowed.has("list_media") && context.listMedia) {
     const listMedia = context.listMedia;
 
     server.registerTool(
-      "dispatch_list_media",
+      "list_media",
       {
         description:
           "List media files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
@@ -195,17 +195,17 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  if (allowed.has("dispatch_delete_media") && context.deleteMedia) {
+  if (allowed.has("delete_media") && context.deleteMedia) {
     const deleteMedia = context.deleteMedia;
     server.registerTool(
-      "dispatch_delete_media",
+      "delete_media",
       {
         description:
-          "Permanently remove one of this agent's shared media files. Call dispatch_list_media first to identify the exact fileName. This removes both the stored file and its Dispatch media record.",
+          "Permanently remove one of this agent's shared media files. Call list_media first to identify the exact fileName. This removes both the stored file and its Dispatch media record.",
         inputSchema: {
           fileName: z
             .string()
-            .describe("Exact fileName returned by dispatch_list_media."),
+            .describe("Exact fileName returned by list_media."),
         },
       },
       async (args) => {
@@ -223,13 +223,13 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  if (allowed.has("dispatch_list_pins") && context.listPins) {
+  if (allowed.has("list_pins") && context.listPins) {
     const listPins = context.listPins;
     server.registerTool(
-      "dispatch_list_pins",
+      "list_pins",
       {
         description:
-          "List this agent's current Dispatch sidebar pins, or — with ownerAgentId — the pins of its parent or one of its direct children, read-only. Use dispatch_delete_pin with a returned id to remove a stale pin of your own. " +
+          "List this agent's current Dispatch sidebar pins, or — with ownerAgentId — the pins of its parent or one of its direct children, read-only. Use delete_pin with a returned id to remove a stale pin of your own. " +
           `Pin values longer than ${LIST_STRING_MAX} characters are truncated (marked with the number of characters dropped). ` +
           "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
         inputSchema: {

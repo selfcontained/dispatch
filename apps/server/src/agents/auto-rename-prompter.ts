@@ -9,7 +9,7 @@ import type { AgentRecord } from "./types.js";
  * listener so both paths produce the same agent-facing message.
  */
 export const RENAME_PROMPT =
-  "Please set a short, descriptive name for this session that reflects the work you're doing — call the `dispatch_rename_session` MCP tool with the new name. Then continue with whatever you were doing.";
+  "Please set a short, descriptive name for this session that reflects the work you're doing — call the `rename_session` MCP tool with the new name. Then continue with whatever you were doing.";
 
 type InjectAgentPrompt = (
   agentId: string,

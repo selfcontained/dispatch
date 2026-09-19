@@ -382,15 +382,13 @@ export function AutomationsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
-            <Code>dispatch_pin</Code>, <Code>dispatch_pins</Code>,{" "}
-            <Code>dispatch_list_pins</Code>, <Code>dispatch_delete_pin</Code>,{" "}
-            <Code>dispatch_share_file</Code>, <Code>dispatch_list_media</Code>,{" "}
-            <Code>dispatch_delete_media</Code>,{" "}
-            <Code>dispatch_rename_session</Code>, and{" "}
-            <Code>dispatch_notify</Code> all behave the same as for standard
-            agents. Renaming the session is handy when the job's prompt is
-            generic but each run has a more specific topic.
+            <strong>Status &amp; comms</strong> — <Code>pin</Code>,{" "}
+            <Code>pins</Code>, <Code>list_pins</Code>, <Code>delete_pin</Code>,{" "}
+            <Code>share_file</Code>, <Code>list_media</Code>,{" "}
+            <Code>delete_media</Code>, <Code>rename_session</Code>, and{" "}
+            <Code>notify</Code> all behave the same as for standard agents.
+            Renaming the session is handy when the job's prompt is generic but
+            each run has a more specific topic.
           </li>
           <li>
             <strong>Pull requests</strong> — <Code>create_pr</Code> opens a PR
@@ -400,23 +398,20 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Discovery &amp; messaging</strong> —{" "}
-            <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
-            <Code>dispatch_launch_agent</Code>,{" "}
-            <Code>dispatch_archive_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>persona_templates</Code>, <Code>persona_upsert</Code>,{" "}
-            <Code>persona_validate</Code>, <Code>get_activity_summary</Code> and{" "}
+            <Code>list_agents</Code>, <Code>send_message</Code>,{" "}
+            <Code>launch_agent</Code>, <Code>archive_agent</Code>,{" "}
+            <Code>list_personas</Code>, <Code>persona_templates</Code>,{" "}
+            <Code>persona_upsert</Code>, <Code>persona_validate</Code>,{" "}
+            <Code>get_activity_summary</Code> and{" "}
             <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
           <li>
-            <strong>Tracked reviews</strong> —{" "}
-            <Code>dispatch_launch_persona</Code>,{" "}
-            <Code>dispatch_review_list_feedback</Code>,{" "}
-            <Code>dispatch_review_get_feedback</Code>,{" "}
-            <Code>dispatch_review_add_message</Code>,{" "}
-            <Code>dispatch_review_resolve</Code>, and{" "}
-            <Code>dispatch_review_reopen</Code>. The same family covers findings
-            a persona filed and feedback a human left on the Changes tab — read
+            <strong>Tracked reviews</strong> — <Code>launch_persona</Code>,{" "}
+            <Code>review_list_feedback</Code>, <Code>review_get_feedback</Code>,{" "}
+            <Code>review_add_message</Code>, <Code>review_resolve</Code>, and{" "}
+            <Code>review_reopen</Code>. The same family covers findings a
+            persona filed and feedback a human left on the Changes tab — read
             them, reply in the item thread, and set each outcome. See below.
           </li>
           <li>
@@ -448,10 +443,10 @@ export function AutomationsContent() {
           Because job agents can launch personas and act on their findings, a
           recurring job can self-review its own work without a human in the
           loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
-          <Code>dispatch_launch_persona</Code>, read any findings with{" "}
-          <Code>dispatch_review_list_feedback</Code>, converse in item threads,
-          and set each outcome with <Code>dispatch_review_resolve</Code>. A
-          clean approval is recorded with its summary and requires no follow-up.
+          <Code>launch_persona</Code>, read any findings with{" "}
+          <Code>review_list_feedback</Code>, converse in item threads, and set
+          each outcome with <Code>review_resolve</Code>. A clean approval is
+          recorded with its summary and requires no follow-up.
         </P>
       </Section>
 

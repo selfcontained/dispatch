@@ -58,15 +58,15 @@ describe("MCP login-link tool", () => {
   it("does not expose or invoke the tool on the root MCP endpoint", async () => {
     const listed = await mcpRequest("/api/mcp", authToken, "tools/list");
     expect(listed.statusCode).toBe(200);
-    expect(listed.body).not.toContain('"name":"dispatch_login_link"');
+    expect(listed.body).not.toContain('"name":"login_link"');
 
     const called = await mcpRequest("/api/mcp", authToken, "tools/call", {
-      name: "dispatch_login_link",
+      name: "login_link",
       arguments: {},
     });
     expect(called.statusCode).toBe(200);
     expect(called.body).toContain('"isError":true');
-    expect(called.body).toMatch(/tool.*dispatch_login_link.*not found/i);
+    expect(called.body).toMatch(/tool.*login_link.*not found/i);
   });
 
   it("lists and issues a 60-second login link for agent-scoped callers", async () => {
@@ -84,13 +84,13 @@ describe("MCP login-link tool", () => {
       "tools/list"
     );
     expect(listed.statusCode).toBe(200);
-    expect(listed.body).toContain('"name":"dispatch_login_link"');
+    expect(listed.body).toContain('"name":"login_link"');
 
     const issued = await mcpRequest(
       `/api/mcp/${agentId}`,
       agentToken,
       "tools/call",
-      { name: "dispatch_login_link", arguments: {} }
+      { name: "login_link", arguments: {} }
     );
     expect(issued.statusCode).toBe(200);
     const result = JSON.parse(parseToolText(issued.body)) as {
@@ -149,7 +149,7 @@ describe("MCP login-link tool", () => {
       "tools/list"
     );
     expect(review.statusCode).toBe(200);
-    expect(review.body).toContain('"name":"dispatch_login_link"');
+    expect(review.body).toContain('"name":"login_link"');
 
     const job = await mcpRequest(
       "/api/mcp/jobs/run_login_link/agt_login_link_job",
@@ -161,7 +161,7 @@ describe("MCP login-link tool", () => {
       "tools/list"
     );
     expect(job.statusCode).toBe(200);
-    expect(job.body).not.toContain('"name":"dispatch_login_link"');
+    expect(job.body).not.toContain('"name":"login_link"');
 
     await ctx.pool.query(
       "UPDATE job_runs SET status = 'timed_out' WHERE id = 'run_login_link'"
@@ -176,6 +176,6 @@ describe("MCP login-link tool", () => {
       "tools/list"
     );
     expect(completedJob.statusCode).toBe(200);
-    expect(completedJob.body).not.toContain('"name":"dispatch_login_link"');
+    expect(completedJob.body).not.toContain('"name":"login_link"');
   });
 });

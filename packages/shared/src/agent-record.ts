@@ -108,7 +108,7 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   /**
-   * The agent that ran dispatch_launch_agent / dispatch_launch_persona to
+   * The agent that ran launch_agent / launch_persona to
    * create this one. Set for every agent-originated launch, including
    * `child: false` launches whose `parentAgentId` is deliberately null.
    */

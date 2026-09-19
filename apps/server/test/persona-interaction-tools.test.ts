@@ -112,9 +112,9 @@ describe("buildLaunchPersonaResponseText", () => {
 
   it("explains the unified review flow", () => {
     const text = buildLaunchPersonaResponseText("ux", "agt_abc");
-    expect(text).toContain("dispatch_review_submit");
-    expect(text).toContain("dispatch_review_list_feedback");
-    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toContain("review_submit");
+    expect(text).toContain("review_list_feedback");
+    expect(text).toContain("review_resolve");
     expect(text).toContain("clean approval");
   });
 
@@ -165,14 +165,14 @@ describe("registerPersonaInteractionTools", () => {
       agentId,
       listPersonas: vi.fn(),
     };
-    const allowed = new Set(["list_personas", "dispatch_launch_persona"]);
+    const allowed = new Set(["list_personas", "launch_persona"]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
     expect(names).toContain("list_personas");
-    expect(names).not.toContain("dispatch_launch_persona");
+    expect(names).not.toContain("launch_persona");
   });
 
-  it("registers dispatch_launch_persona when allowed and callback provided", () => {
+  it("registers launch_persona when allowed and callback provided", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       launchPersona: vi.fn(async () => ({
@@ -180,10 +180,10 @@ describe("registerPersonaInteractionTools", () => {
         agentId: "agt_reviewer",
       })),
     };
-    const allowed = new Set(["dispatch_launch_persona"]);
+    const allowed = new Set(["launch_persona"]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     expect(server.tools).toHaveLength(1);
-    expect(server.tools[0].name).toBe("dispatch_launch_persona");
+    expect(server.tools[0].name).toBe("launch_persona");
   });
 
   it("registers all review tools when allowed and callbacks present", () => {
@@ -209,21 +209,21 @@ describe("registerPersonaInteractionTools", () => {
       })),
     };
     const allowed = new Set([
-      "dispatch_review_list_feedback",
-      "dispatch_review_submit",
-      "dispatch_review_add_feedback",
-      "dispatch_review_resolve",
-      "dispatch_review_reopen",
-      "dispatch_review_add_message",
+      "review_list_feedback",
+      "review_submit",
+      "review_add_feedback",
+      "review_resolve",
+      "review_reopen",
+      "review_add_message",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
-    expect(names).toContain("dispatch_review_list_feedback");
-    expect(names).toContain("dispatch_review_submit");
-    expect(names).toContain("dispatch_review_add_feedback");
-    expect(names).toContain("dispatch_review_resolve");
-    expect(names).toContain("dispatch_review_reopen");
-    expect(names).toContain("dispatch_review_add_message");
+    expect(names).toContain("review_list_feedback");
+    expect(names).toContain("review_submit");
+    expect(names).toContain("review_add_feedback");
+    expect(names).toContain("review_resolve");
+    expect(names).toContain("review_reopen");
+    expect(names).toContain("review_add_message");
   });
 
   it("normalizes summary whitespace before enforcing its length", () => {
@@ -233,7 +233,7 @@ describe("registerPersonaInteractionTools", () => {
     };
     registerPersonaInteractionTools(
       server as any,
-      new Set(["dispatch_review_submit"]),
+      new Set(["review_submit"]),
       callbacks
     );
 
@@ -262,7 +262,7 @@ describe("registerPersonaInteractionTools", () => {
     expect(tool.config.description).toContain("required for a clean approval");
   });
 
-  it("caps dispatch_review_add_message input at 600 characters", () => {
+  it("caps review_add_message input at 600 characters", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       addReviewThreadMessage: vi.fn(async () => ({
@@ -272,7 +272,7 @@ describe("registerPersonaInteractionTools", () => {
     };
     registerPersonaInteractionTools(
       server as any,
-      new Set(["dispatch_review_add_message"]),
+      new Set(["review_add_message"]),
       callbacks
     );
 
@@ -287,7 +287,7 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
-    it("requires a summary only when dispatch_review_submit has no feedback", async () => {
+    it("requires a summary only when review_submit has no feedback", async () => {
       const submitReview = vi.fn(async () => ({
         review: {
           id: 3,
@@ -298,7 +298,7 @@ describe("registerPersonaInteractionTools", () => {
       }));
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_submit"]),
+        new Set(["review_submit"]),
         { agentId, submitReview }
       );
       const tool = server.tools[0];
@@ -370,7 +370,7 @@ describe("registerPersonaInteractionTools", () => {
       expect(result.structuredContent.templates).toHaveLength(3);
     });
 
-    it("dispatch_review_list_feedback returns 'no items' when empty", async () => {
+    it("review_list_feedback returns 'no items' when empty", async () => {
       const listReviewFeedback = vi.fn(async () => []);
       const callbacks: PersonaInteractionCallbacks = {
         agentId,
@@ -378,7 +378,7 @@ describe("registerPersonaInteractionTools", () => {
       };
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_list_feedback"]),
+        new Set(["review_list_feedback"]),
         callbacks
       );
 
@@ -388,7 +388,7 @@ describe("registerPersonaInteractionTools", () => {
       );
     });
 
-    it("dispatch_review_list_feedback replaces threads with a count", async () => {
+    it("review_list_feedback replaces threads with a count", async () => {
       const listReviewFeedback = vi.fn(async () => [
         {
           id: 7,
@@ -408,7 +408,7 @@ describe("registerPersonaInteractionTools", () => {
       };
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_list_feedback"]),
+        new Set(["review_list_feedback"]),
         callbacks
       );
 
@@ -420,7 +420,7 @@ describe("registerPersonaInteractionTools", () => {
       expect(item.filePath).toBe("src/a.ts");
     });
 
-    it("dispatch_review_get_feedback returns one item in full", async () => {
+    it("review_get_feedback returns one item in full", async () => {
       const item = {
         id: 7,
         reviewId: 2,
@@ -438,7 +438,7 @@ describe("registerPersonaInteractionTools", () => {
       };
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_get_feedback"]),
+        new Set(["review_get_feedback"]),
         callbacks
       );
 
@@ -451,7 +451,7 @@ describe("registerPersonaInteractionTools", () => {
       expect(missing.isError).toBe(true);
     });
 
-    it("dispatch_review_resolve calls resolveReviewFeedback", async () => {
+    it("review_resolve calls resolveReviewFeedback", async () => {
       const resolveReviewFeedback = vi.fn(async () => ({
         item: { id: 7 },
         reviewId: 2,
@@ -463,7 +463,7 @@ describe("registerPersonaInteractionTools", () => {
       };
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_resolve"]),
+        new Set(["review_resolve"]),
         callbacks
       );
 
@@ -483,7 +483,7 @@ describe("registerPersonaInteractionTools", () => {
       expect(result.content[0].text).toContain("partially_resolved");
     });
 
-    it("dispatch_review_add_message calls addReviewThreadMessage", async () => {
+    it("review_add_message calls addReviewThreadMessage", async () => {
       const addReviewThreadMessage = vi.fn(async () => ({
         message: { id: 12 },
         reviewId: 3,
@@ -494,7 +494,7 @@ describe("registerPersonaInteractionTools", () => {
       };
       registerPersonaInteractionTools(
         server as any,
-        new Set(["dispatch_review_add_message"]),
+        new Set(["review_add_message"]),
         callbacks
       );
 

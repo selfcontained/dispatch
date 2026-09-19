@@ -533,7 +533,7 @@ describe("chat-surface setting", () => {
 });
 
 describe("agent MCP route exposes the chat tools", () => {
-  it("lists dispatch_chat_post, dispatch_chat_update and dispatch_chat_react", async () => {
+  it("lists chat_post, chat_update and chat_react", async () => {
     const authTokenResult = await ctx.pool.query<{ value: string }>(
       "SELECT value FROM settings WHERE key = 'auth_token'"
     );
@@ -555,9 +555,9 @@ describe("agent MCP route exposes the chat tools", () => {
       const parsed = JSON.parse(line.slice(5));
       for (const tool of parsed.result?.tools ?? []) names.push(tool.name);
     }
-    expect(names).toContain("dispatch_chat_post");
-    expect(names).toContain("dispatch_chat_update");
-    expect(names).toContain("dispatch_chat_react");
+    expect(names).toContain("chat_post");
+    expect(names).toContain("chat_update");
+    expect(names).toContain("chat_react");
   });
 });
 
@@ -756,7 +756,7 @@ describe("chat routes with a deliverable session", () => {
         `--- DISPATCH CHAT (id: ${body.message.id}) ---`,
         "please do X",
         "--- END DISPATCH CHAT ---",
-        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${body.message.id}").`,
+        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs chat_post (replyTo: "${body.message.id}").`,
       ].join("\n")
     );
     // Pending first, then the same row once delivery settled it.

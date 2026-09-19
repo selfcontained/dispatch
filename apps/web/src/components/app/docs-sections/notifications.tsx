@@ -115,9 +115,9 @@ export function NotificationsContent() {
         <H3>Agent-initiated notifications</H3>
         <P>
           Agents can push a Slack message mid-task by calling the{" "}
-          <Code>dispatch_notify</Code> MCP tool — useful for summarizing
-          intermediate results, flagging risks, or asking you to check something
-          specific. Parameters:
+          <Code>notify</Code> MCP tool — useful for summarizing intermediate
+          results, flagging risks, or asking you to check something specific.
+          Parameters:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>

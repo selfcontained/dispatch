@@ -51,7 +51,7 @@ const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const UNIQUE_AGENT_REVIEW_INDEX = "idx_reviews_unique_agent_reviewer";
 const REVIEW_ALREADY_SUBMITTED_MESSAGE =
-  "This reviewer has already submitted its review. Use dispatch_review_add_feedback for a new concern or dispatch_review_add_message for an existing thread.";
+  "This reviewer has already submitted its review. Use review_add_feedback for a new concern or review_add_message for an existing thread.";
 
 function isDuplicateAgentReviewError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -141,7 +141,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       const reviewer = await agentManager.getAgent(agentId);
       if (reviewer?.role !== "review" || !reviewer.parentAgentId) {
         throw new Error(
-          "dispatch_review_submit is only available to review agents."
+          "review_submit is only available to review agents."
         );
       }
       const summary = input.summary?.trim() || null;
@@ -471,14 +471,14 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
       const parent = await agentManager.getAgent(agentId);
       if (!parent) throw new Error("Parent agent not found.");
-      // Same depth cap as dispatch_launch_agent: a child renders as a row
+      // Same depth cap as launch_agent: a child renders as a row
       // inside its parent's card, and that row cannot host sub agents of its
       // own, so a reviewer launched from a child would be invisible in the UI.
       if (parent.parentAgentId) {
         throw new Error(
           "This agent was itself launched as a child agent, and child agents cannot launch persona reviews " +
             "(the UI only renders one level of sub agents). Ask the agent that launched you to run the review, " +
-            "or do this work in an independent agent (dispatch_launch_agent with child: false)."
+            "or do this work in an independent agent (launch_agent with child: false)."
         );
       }
 

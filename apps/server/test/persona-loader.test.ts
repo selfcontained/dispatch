@@ -270,7 +270,7 @@ describe("assemblePersonaPrompt", () => {
 
   it("guides reviewers to keep summaries short and non-duplicative", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("dispatch_review_submit");
+    expect(result).toContain("review_submit");
     expect(result).toContain("280 characters or fewer");
     expect(result).toContain("never repeat feedback-item details");
     expect(result).toContain("empty array and a concise nonblank summary");
@@ -278,14 +278,14 @@ describe("assemblePersonaPrompt", () => {
 
   it("keeps review discussion in tracked item threads", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("dispatch_review_add_message");
-    expect(result).toContain("dispatch_review_add_feedback");
+    expect(result).toContain("review_add_message");
+    expect(result).toContain("review_add_feedback");
     expect(result).toContain("Do not use direct agent messages");
   });
 
   it("does not include Cursor tool guidance by default", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Call `dispatch_review_submit`");
+    expect(result).toContain("Call `review_submit`");
     expect(result).not.toContain("dispatch-<tool_name>");
     expect(result).not.toContain("functions.dispatch-review_status");
   });

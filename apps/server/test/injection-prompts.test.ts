@@ -16,7 +16,7 @@ describe("buildPersonaKickoffPrompt", () => {
     expect(text).toMatch(/loaded into your context/i);
     expect(text).toContain("--- DISPATCH: REVIEW ASSIGNMENT ---");
     expect(text).toContain("--- END DISPATCH: REVIEW ASSIGNMENT ---");
-    expect(text).toContain("dispatch_review_submit");
+    expect(text).toContain("review_submit");
   });
 });
 
@@ -44,8 +44,8 @@ describe("unified review prompt blocks", () => {
     });
     expect(text).toContain("Review ID: 7");
     expect(text).toContain("Feedback item ID: 9");
-    expect(text).toContain("dispatch_review_add_message");
-    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toContain("review_add_message");
+    expect(text).toContain("review_resolve");
     expect(text).toMatch(/re-inspect/i);
   });
 
@@ -71,8 +71,8 @@ describe("unified review prompt blocks", () => {
       items: [{ id: 9, filePath: null, lineStart: null, body: "Finding" }],
     });
 
-    expect(text).toMatch(/dispatch_review_resolve when an item is fixed/i);
-    expect(text).toContain("dispatch_review_reopen");
+    expect(text).toMatch(/review_resolve when an item is fixed/i);
+    expect(text).toContain("review_reopen");
     expect(text).not.toMatch(/asking the reviewer to verify/i);
     expect(text).not.toMatch(
       /do not resolve persona-review feedback yourself/i

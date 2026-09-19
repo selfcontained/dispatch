@@ -120,7 +120,7 @@ function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
   const byLabel = new Map<string, AgentPin>();
   for (const pin of pins) {
     // Seeding is the second write path into agents.pins; it has to accept the
-    // same shapes as dispatch_pin, or a template could seed a pin the MCP tool
+    // same shapes as pin, or a template could seed a pin the MCP tool
     // would have rejected — which now matters, since a shortcut's value is
     // delivered to a terminal rather than just displayed.
     try {

@@ -887,7 +887,7 @@ export async function initializeApp(options?: {
         "Marked chat deliveries abandoned by the previous process as not delivered"
       );
     }
-    // Same for cross-agent messages queued by dispatch_send_message.
+    // Same for cross-agent messages queued by send_message.
     const staleMessages = await new MessageStore(pool).sweepPendingDeliveries();
     for (const pair of staleMessages) {
       uiEventBroker.publish({ type: "message.created", ...pair });

@@ -32,7 +32,7 @@ describe("buildReactionEnvelope", () => {
         "The user reacted 👍 to your latest question:",
         "> Palette Should I also bump the chart palette contrast for dark mode while I am in there? The…",
         "--- END DISPATCH CHAT REACTION ---",
-        `A reaction, not a new message — reply only if it calls for one (dispatch_chat_post, replyTo: "${ID}").`,
+        `A reaction, not a new message — reply only if it calls for one (chat_post, replyTo: "${ID}").`,
       ].join("\n")
     );
   });

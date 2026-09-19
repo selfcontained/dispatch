@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils";
 export const TOOL_BLIP_MS = 4_000;
 
 const TOOL_BLIP_LABELS: Readonly<Record<string, string>> = {
-  dispatch_share_file: "sharing a file",
-  dispatch_pin: "pinning",
-  dispatch_pins: "pinning",
-  dispatch_chat_post: "posting to chat",
-  dispatch_chat_update: "posting to chat",
-  dispatch_chat_react: "reacting in chat",
-  dispatch_launch_agent: "launching an agent",
-  dispatch_launch_persona: "launching an agent",
+  share_file: "sharing a file",
+  pin: "pinning",
+  pins: "pinning",
+  chat_post: "posting to chat",
+  chat_update: "posting to chat",
+  chat_react: "reacting in chat",
+  launch_agent: "launching an agent",
+  launch_persona: "launching an agent",
   brain_store_object: "saving notes",
   brain_append_event: "saving notes",
   brain_list_push: "saving notes",

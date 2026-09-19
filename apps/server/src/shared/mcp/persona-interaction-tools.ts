@@ -198,10 +198,10 @@ export function registerPersonaInteractionTools(
     comment: z.string().min(1).max(10_000),
   };
 
-  if (allowed.has("dispatch_review_submit") && callbacks.submitReview) {
+  if (allowed.has("review_submit") && callbacks.submitReview) {
     const submitReview = callbacks.submitReview;
     server.registerTool(
-      "dispatch_review_submit",
+      "review_submit",
       {
         description: `Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. When feedback items capture the findings, omit \`summary\` unless there is one non-duplicative overall takeaway. A summary is limited to ${AGENT_REVIEW_SUMMARY_MAX_CHARS} characters; a nonblank summary is required for a clean approval with no feedback.`,
         inputSchema: {
@@ -242,16 +242,13 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  if (
-    allowed.has("dispatch_review_add_feedback") &&
-    callbacks.addReviewFeedback
-  ) {
+  if (allowed.has("review_add_feedback") && callbacks.addReviewFeedback) {
     const addReviewFeedback = callbacks.addReviewFeedback;
     server.registerTool(
-      "dispatch_review_add_feedback",
+      "review_add_feedback",
       {
         description:
-          "Add one genuinely new concern to a review already submitted by this reviewer. Use dispatch_review_add_message instead when continuing an existing concern.",
+          "Add one genuinely new concern to a review already submitted by this reviewer. Use review_add_message instead when continuing an existing concern.",
         inputSchema: {
           reviewId: z.number().int().positive(),
           ...feedbackItemSchema,
@@ -285,7 +282,7 @@ export function registerPersonaInteractionTools(
       "list_personas",
       {
         description:
-          "List the persona reviewers available for this project. Returns each persona's slug, name, and description — the repo's own personas plus Dispatch's built-in generalist reviewer, which is always available. Use this to decide which personas to launch via dispatch_launch_persona.",
+          "List the persona reviewers available for this project. Returns each persona's slug, name, and description — the repo's own personas plus Dispatch's built-in generalist reviewer, which is always available. Use this to decide which personas to launch via launch_persona.",
         inputSchema: {},
       },
       async () => {
@@ -306,15 +303,15 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_launch_persona ───────────────────────────────────────
-  if (allowed.has("dispatch_launch_persona") && callbacks.launchPersona) {
+  // ── launch_persona ───────────────────────────────────────
+  if (allowed.has("launch_persona") && callbacks.launchPersona) {
     const launchPersona = callbacks.launchPersona;
 
     server.registerTool(
-      "dispatch_launch_persona",
+      "launch_persona",
       {
         description:
-          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions and submits one tracked review through dispatch_review_submit. Findings and follow-up discussion use review feedback item threads.",
+          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions and submits one tracked review through review_submit. Findings and follow-up discussion use review feedback item threads.",
         inputSchema: {
           persona: z
             .string()
@@ -371,24 +368,21 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_review_get_feedback ─────────────────────────────────
-  if (
-    allowed.has("dispatch_review_get_feedback") &&
-    callbacks.getReviewFeedbackItem
-  ) {
+  // ── review_get_feedback ─────────────────────────────────
+  if (allowed.has("review_get_feedback") && callbacks.getReviewFeedbackItem) {
     const getReviewFeedbackItem = callbacks.getReviewFeedbackItem;
 
     server.registerTool(
-      "dispatch_review_get_feedback",
+      "review_get_feedback",
       {
         description:
-          "Get one review feedback item in full — its complete message thread and the diff hunk captured when it was filed. Use this on the item you are about to work; dispatch_review_list_feedback is how you find its id.",
+          "Get one review feedback item in full — its complete message thread and the diff hunk captured when it was filed. Use this on the item you are about to work; review_list_feedback is how you find its id.",
         inputSchema: {
           itemId: z
             .number()
             .int()
             .positive()
-            .describe("Item id returned by dispatch_review_list_feedback."),
+            .describe("Item id returned by review_list_feedback."),
         },
       },
       async (args) => {
@@ -415,18 +409,15 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_review_list_feedback ────────────────────────────────
-  if (
-    allowed.has("dispatch_review_list_feedback") &&
-    callbacks.listReviewFeedback
-  ) {
+  // ── review_list_feedback ────────────────────────────────
+  if (allowed.has("review_list_feedback") && callbacks.listReviewFeedback) {
     const listReviewFeedback = callbacks.listReviewFeedback;
 
     server.registerTool(
-      "dispatch_review_list_feedback",
+      "review_list_feedback",
       {
         description:
-          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and each item's message count. Optionally filter by reviewId. Message threads and the stored diff hunk are not included — call dispatch_review_get_feedback with an item id for the full item.",
+          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and each item's message count. Optionally filter by reviewId. Message threads and the stored diff hunk are not included — call review_get_feedback with an item id for the full item.",
         inputSchema: {
           reviewId: z.number().int().positive().optional(),
         },
@@ -442,7 +433,7 @@ export function registerPersonaInteractionTools(
           // caller can read at filePath. Message threads are the bulk of a
           // listing — 71% of it on a five-item review — and an agent listing is
           // deciding which item to work, not reading every discussion; the one
-          // it picks comes back in full from dispatch_review_get_feedback.
+          // it picks comes back in full from review_get_feedback.
           const listing = items.map(
             ({ diffSnapshot: _diff, messages, ...item }) => ({
               ...item,
@@ -460,10 +451,10 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  if (allowed.has("dispatch_review_reopen") && callbacks.reopenReviewFeedback) {
+  if (allowed.has("review_reopen") && callbacks.reopenReviewFeedback) {
     const reopenReviewFeedback = callbacks.reopenReviewFeedback;
     server.registerTool(
-      "dispatch_review_reopen",
+      "review_reopen",
       {
         description:
           "Reopen a resolved review feedback item when the parent agent determines more work or discussion is needed. The review status is recomputed automatically.",
@@ -493,18 +484,15 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_review_resolve ──────────────────────────────────────
-  if (
-    allowed.has("dispatch_review_resolve") &&
-    callbacks.resolveReviewFeedback
-  ) {
+  // ── review_resolve ──────────────────────────────────────
+  if (allowed.has("review_resolve") && callbacks.resolveReviewFeedback) {
     const resolveReviewFeedback = callbacks.resolveReviewFeedback;
 
     server.registerTool(
-      "dispatch_review_resolve",
+      "review_resolve",
       {
         description:
-          "Resolve a review feedback item as fixed or dismissed. For persona reviews, the reviewer uses this only after re-inspecting the assignee's fix; the assignee should request verification with dispatch_review_add_message instead of resolving the item. Review status is automatically derived from the current feedback item states.",
+          "Resolve a review feedback item as fixed or dismissed. For persona reviews, the reviewer uses this only after re-inspecting the assignee's fix; the assignee should request verification with review_add_message instead of resolving the item. Review status is automatically derived from the current feedback item states.",
         inputSchema: {
           itemId: z
             .number()
@@ -548,15 +536,12 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_review_add_message ──────────────────────────────────
-  if (
-    allowed.has("dispatch_review_add_message") &&
-    callbacks.addReviewThreadMessage
-  ) {
+  // ── review_add_message ──────────────────────────────────
+  if (allowed.has("review_add_message") && callbacks.addReviewThreadMessage) {
     const addReviewThreadMessage = callbacks.addReviewThreadMessage;
 
     server.registerTool(
-      "dispatch_review_add_message",
+      "review_add_message",
       {
         description: `Add a concise message to a review feedback item's thread. For persona feedback, the assignee uses this after fixing an item to request reviewer verification; the reviewer uses it to give further instructions when a fix is incomplete. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
         inputSchema: {
@@ -605,11 +590,11 @@ export function buildLaunchPersonaResponseText(
 ): string {
   return `Launched persona "${persona}" as review agent ${agentId}.
 
-The reviewer will inspect the target and create a review only when it calls dispatch_review_submit. Dispatch will inject a structured REVIEW SUBMITTED block here with the review summary and any feedback item IDs.
+The reviewer will inspect the target and create a review only when it calls review_submit. Dispatch will inject a structured REVIEW SUBMITTED block here with the review summary and any feedback item IDs.
 
 Do not poll, sleep, call list_agents, or schedule a wakeup while waiting for the review. If you were asked to launch more reviewers, call this tool again for each one first. End this turn once every reviewer for this pass is launched; Dispatch will notify you with a new injected REVIEW SUBMITTED block as each reviewer submits.
 
-If the review has feedback, call dispatch_review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with dispatch_review_add_message. After fixing an item, post a concise message asking the reviewer to verify it; do not call dispatch_review_resolve on persona feedback yourself. The reviewer will re-inspect the fix and resolve it if complete, or leave it open and reply with further instructions.
+If the review has feedback, call review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with review_add_message. After fixing an item, post a concise message asking the reviewer to verify it; do not call review_resolve on persona feedback yourself. The reviewer will re-inspect the fix and resolve it if complete, or leave it open and reply with further instructions.
 
 A clean approval is also recorded: the reviewer submits a required summary with an empty feedback array, creating a resolved review with no items. No legacy round or recheck lifecycle is required.`;
 }

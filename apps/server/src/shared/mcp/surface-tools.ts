@@ -49,7 +49,7 @@ export function registerSurfaceTools(
     "Shapes: dashboard = header+table+footer · worklist = header+list(group, actions) · approval = text(tone warning)+form · board = section-per-column+check list · report = text+2-col table+list.";
 
   register(
-    "dispatch_surface_create",
+    "surface_create",
     'Create a custom sidebar tab (fixed 400px column): optional header { status?, progress? }, blocks (text, list, table, status, progress, form, section; up to 100 top-level and 100 nested), optional footer { actions }. Sections nest four levels, hold 20 direct children, take collapse: { initiallyCollapsed? } and an optional actions footer. Keep block, item, action, and field IDs stable; item/row action IDs are scoped to their item, and footer actions use the reserved block id "footer" in interactions. ' +
       designContract,
     {
@@ -72,8 +72,8 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_update",
-    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch. header and footer accept null to clear the slot. Same design contract as dispatch_surface_create.",
+    "surface_update",
+    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch. header and footer accept null to clear the slot. Same design contract as surface_create.",
     {
       tabId: z.string().min(1),
       expectedRevision: z.number().int().positive(),
@@ -108,7 +108,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_list",
+    "surface_list",
     "List owned surfaces, or direct-child surfaces read-only when ownerAgentId is supplied.",
     {
       ownerAgentId: z.string().min(1).optional(),
@@ -118,7 +118,7 @@ export function registerSurfaceTools(
       await service.assertReadable(context.agentId, owner);
       return {
         // List is the tab-summary projection: the complete document (slots
-        // included) comes from dispatch_surface_get.
+        // included) comes from surface_get.
         surfaces: (await service.list(owner)).map(
           ({ blocks: _blocks, header: _header, footer: _footer, ...surface }) =>
             surface
@@ -128,7 +128,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_get",
+    "surface_get",
     "Get one owned or direct-child surface with its complete document and unresolved interaction count.",
     {
       tabId: z.string().min(1),
@@ -142,7 +142,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_delete",
+    "surface_delete",
     "Delete an owned surface at expectedRevision. force cancels unresolved interactions first.",
     {
       tabId: z.string().min(1),
@@ -156,7 +156,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_reorder",
+    "surface_reorder",
     "Replace the canonical order of every active custom tab owned by this agent.",
     {
       surfaceIds: z.array(z.string().min(1)).max(8),
@@ -168,7 +168,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_interactions",
+    "surface_interactions",
     "List durable surface interactions for this agent. Use status filters to read queued work.",
     {
       tabId: z.string().min(1).optional(),
@@ -191,7 +191,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_claim",
+    "surface_claim",
     "Claim one or more queued/notified durable interactions before working them.",
     {
       ids: z.array(z.string().min(1)).min(1).max(100),
@@ -202,7 +202,7 @@ export function registerSurfaceTools(
   );
 
   register(
-    "dispatch_surface_resolve",
+    "surface_resolve",
     "Resolve a durable interaction after processing it.",
     {
       id: z.string().min(1),

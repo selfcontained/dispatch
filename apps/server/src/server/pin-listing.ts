@@ -2,7 +2,7 @@ import type { AgentPin } from "../agents/types.js";
 
 /**
  * The agent-facing shape of a pin. One declared projection governs both what
- * `dispatch_list_pins` returns and what `dispatch_pin` echoes back, so the two
+ * `list_pins` returns and what `pin` echoes back, so the two
  * tools speak the same vocabulary and internal bookkeeping fields added to
  * `AgentPin` never leak into tool output by accident.
  */

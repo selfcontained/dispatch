@@ -23,8 +23,8 @@ function step(partial: Partial<Step> & Pick<Step, "kind">): Step {
 
 describe("toolName", () => {
   it("splits an MCP tool title into server and name", () => {
-    expect(toolName("mcp__dispatch__dispatch_rename_session")).toEqual({
-      name: "dispatch_rename_session",
+    expect(toolName("mcp__dispatch__rename_session")).toEqual({
+      name: "rename_session",
       server: "dispatch",
     });
     expect(toolName("bash")).toEqual({ name: "bash" });
@@ -34,8 +34,8 @@ describe("toolName", () => {
 describe("stepLabel", () => {
   it("uses the tool's own name over the kind", () => {
     expect(
-      stepLabel(step({ kind: "other", label: "mcp__dispatch__dispatch_event" }))
-    ).toBe("dispatch_event");
+      stepLabel(step({ kind: "other", label: "mcp__dispatch__pin" }))
+    ).toBe("pin");
     expect(stepLabel(step({ kind: "execute", label: "bash" }))).toBe("bash");
     expect(stepLabel(step({ kind: "think", label: "" }))).toBe("thinking");
   });
@@ -91,10 +91,10 @@ describe("stepSummary", () => {
   it("digests the arguments of an unknown tool", () => {
     const s = step({
       kind: "other",
-      label: "mcp__dispatch__dispatch_event",
-      detail: { input: { type: "working", message: "Reading README.md" } },
+      label: "mcp__dispatch__notify",
+      detail: { input: { level: "info", message: "Reading README.md" } },
     });
-    expect(stepSummary(s)).toBe("type: working · message: Reading README.md");
+    expect(stepSummary(s)).toBe("level: info · message: Reading README.md");
     expect(argsSummary("not an object")).toBeUndefined();
   });
 });

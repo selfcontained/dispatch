@@ -65,7 +65,7 @@ describe("agent.tool_invoked", () => {
     const client = await connect({ publishUiEvent, renameSession });
 
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Renamed" },
     });
     expect(result.isError).toBeFalsy();
@@ -74,7 +74,7 @@ describe("agent.tool_invoked", () => {
     expect(publishUiEvent).toHaveBeenCalledWith({
       type: "agent.tool_invoked",
       agentId: AGENT.id,
-      tool: "dispatch_rename_session",
+      tool: "rename_session",
       at: "2026-09-03T12:00:00.000Z",
     });
   });
@@ -114,7 +114,7 @@ describe("agent.tool_invoked", () => {
     const client = await connect({ publishUiEvent, renameSession });
 
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Still works" },
     });
     expect(result.isError).toBeFalsy();
@@ -129,7 +129,7 @@ describe("agent.tool_invoked", () => {
     }));
     const client = await connect({ renameSession });
     const result = await client.callTool({
-      name: "dispatch_rename_session",
+      name: "rename_session",
       arguments: { name: "Quiet" },
     });
     expect(result.isError).toBeFalsy();

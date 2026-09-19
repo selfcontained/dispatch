@@ -81,7 +81,7 @@ export function buildChatEnvelope(
     `--- DISPATCH CHAT (id: ${messageId}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
     "--- END DISPATCH CHAT ---",
-    `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${messageId}").`,
+    `The user is reading Chat; your reply appears there as you write it. Only a question with options needs chat_post (replyTo: "${messageId}").`,
   ].join("\n");
 }
 
@@ -161,7 +161,7 @@ export function buildReactionEnvelope(input: {
     `--- DISPATCH CHAT REACTION (message id: ${messageId}) ---`,
     escapeEnvelopeMarkers(body),
     "--- END DISPATCH CHAT REACTION ---",
-    `A reaction, not a new message — reply only if it calls for one (dispatch_chat_post, replyTo: "${messageId}").`,
+    `A reaction, not a new message — reply only if it calls for one (chat_post, replyTo: "${messageId}").`,
   ].join("\n");
 }
 

@@ -12,9 +12,7 @@ const BUILTIN_TOOL_NAMES = new Set([
   "create_pr",
 
   "get_pr_status",
-  "dispatch_share_file",
-  // Reserved alongside its replacement: still routed for older clients.
-  "dispatch_share",
+  "share_file",
 ]);
 
 type RepoToolFile = {

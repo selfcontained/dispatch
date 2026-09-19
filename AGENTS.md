@@ -11,33 +11,14 @@ If you were started in a git worktree (check: does your working directory contai
 - Run `pnpm`, `vitest`, and other tools from the worktree root so they pick up your changes.
 - If you need to verify which tree you are in: `git rev-parse --show-toplevel`.
 
-## CRITICAL: Dispatch Status Events (Mandatory)
-
-- You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.
-- **Event types and when to use them:**
-  - `working` — You are actively making progress: reading files, writing code, running commands, researching. Use a short message describing the current activity (e.g., "Reading agent-sidebar.tsx", "Running E2E tests", "Refactoring auth middleware").
-  - `blocked` — You are stuck and unable to make progress without help or a change in approach. Do not use blocked for errors you are actively investigating or fixing — stay in `working` for those. Message should describe why you are stuck (e.g., "Cannot resolve missing API key", "Repeated test failure after 3 different approaches").
-  - `waiting_user` — You need a decision, clarification, or approval before continuing. Message should describe what you need (e.g., "Should I delete the legacy endpoint?", "Need confirmation on color palette").
-  - `done` — The task is complete and all checks pass. Message should summarize what was accomplished.
-  - `idle` — No meaningful action was taken this turn (e.g., an informational question was answered).
-- **Required checkpoints (minimum):**
-  1. **Start of turn**: `working` with what you are about to do.
-  2. **Phase transitions**: Call `working` again with an updated message whenever your activity shifts to a distinct phase (e.g., moving from research → implementation → testing → validation). This keeps the UI status current.
-  3. **When truly stuck**: Switch to `blocked` only when you cannot make further progress on your own.
-  4. **Before final response**: Emit a terminal event — `done`, `idle`, `waiting_user`, or `blocked`.
-- **Hard requirements:**
-  - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
-  - If `dispatch_event` fails, report that failure explicitly in the response.
-  - Keep messages short (under ~80 chars) — they are displayed in a narrow sidebar.
-
 ## UI Validation
 
 - For any UI/layout/style/feature change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).
-- Capture at least one screenshot per validation flow and publish it with the `dispatch_share_file` MCP tool. Never leave screenshots local-only.
+- Capture at least one screenshot per validation flow and publish it with the `share_file` MCP tool. Never leave screenshots local-only.
 - For pages with SSE/WebSocket activity, do not use Playwright `waitUntil: "networkidle"` for readiness checks.
 - Use `waitUntil: "domcontentloaded"` (or `"load"`) and wait for concrete UI-ready signals (visible control/text/state) instead.
-- **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Do this before your final `dispatch_event` call. Leaving browsers open wastes resources on headless VMs.
+- **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Leaving browsers open wastes resources on headless VMs.
 
 ## Component Preference
 
@@ -89,7 +70,7 @@ Before marking any task as done, run the following checks and fix any failures:
 
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
 - Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
-- Playwright screenshots should be published via the `dispatch_share_file` MCP tool, not saved locally.
+- Playwright screenshots should be published via the `share_file` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
 
@@ -127,7 +108,7 @@ unrelated changes or CI.
 
 ## Agent Pins
 
-- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
+- Agents use `pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
 
 ## Assisted Update Release Notes
 
@@ -140,9 +121,9 @@ unrelated changes or CI.
 
 ## Personas
 
-- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
+- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `launch_persona` MCP tool.
 - Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
 - Be explicit about scope in the context — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
 - Available personas are defined in `.dispatch/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
-- When acting as a persona agent, use the `dispatch_review_submit` MCP tool to submit structured findings instead of just reporting in prose.
+- When acting as a persona agent, use the `review_submit` MCP tool to submit structured findings instead of just reporting in prose.
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.

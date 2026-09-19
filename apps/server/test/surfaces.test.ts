@@ -191,15 +191,15 @@ describe("surface API", () => {
     );
     expect(names).toEqual(
       expect.arrayContaining([
-        "dispatch_surface_create",
-        "dispatch_surface_update",
-        "dispatch_surface_list",
-        "dispatch_surface_get",
-        "dispatch_surface_delete",
-        "dispatch_surface_reorder",
-        "dispatch_surface_interactions",
-        "dispatch_surface_claim",
-        "dispatch_surface_resolve",
+        "surface_create",
+        "surface_update",
+        "surface_list",
+        "surface_get",
+        "surface_delete",
+        "surface_reorder",
+        "surface_interactions",
+        "surface_claim",
+        "surface_resolve",
       ])
     );
   });
@@ -218,7 +218,7 @@ describe("surface API", () => {
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "dispatch_surface_list", arguments: {} },
+        params: { name: "surface_list", arguments: {} },
       },
     });
     expect(response.statusCode).toBe(200);

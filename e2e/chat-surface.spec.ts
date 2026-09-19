@@ -55,16 +55,8 @@ test.describe("Chat surface", () => {
     });
     await loadApp(page);
 
-    // Seed a feed the way an agent would: status events plus chat posts.
-    await callMcpTool(request, agent.id, "dispatch_event", {
-      type: "working",
-      message: "Reading the plan",
-    });
-    await callMcpTool(request, agent.id, "dispatch_event", {
-      type: "working",
-      message: "Running tests",
-    });
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+    // Seed a feed the way an agent would: chat posts.
+    await callMcpTool(request, agent.id, "chat_post", {
       text: "Tests are **green**. Two files changed.",
       kind: "reply",
       attachments: [
@@ -77,7 +69,7 @@ test.describe("Chat surface", () => {
         },
       ],
     });
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+    await callMcpTool(request, agent.id, "chat_post", {
       text: "Ship it now or wait for review?",
       kind: "question",
       question: {
@@ -85,7 +77,7 @@ test.describe("Chat surface", () => {
         allowFreeform: true,
       },
     });
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+    await callMcpTool(request, agent.id, "chat_post", {
       text: "## Done\n\nAll checks pass.",
       kind: "summary",
     });
@@ -103,17 +95,6 @@ test.describe("Chat surface", () => {
     await expect(pane).toBeVisible();
 
     // Every seeded entry renders.
-    // The server logs its own "Session started" event first; the two seeded
-    // working events collapse into the line after it.
-    const workingLine = pane
-      .getByTestId("chat-status")
-      .filter({ hasText: "Running tests" });
-    await expect(workingLine).toBeVisible();
-    await expect(workingLine).not.toContainText("Reading the plan");
-    await expect(pane.getByTestId("chat-status-collapsed-count")).toHaveText(
-      "×2"
-    );
-
     const messages = pane.getByTestId("chat-message");
     await expect(messages).toHaveCount(3);
     await expect(messages.nth(0).locator("strong")).toHaveText("green");
@@ -141,11 +122,6 @@ test.describe("Chat surface", () => {
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe("Tests are **green**. Two files changed.");
-
-    // The presence line reflects the latest event.
-    await expect(pane.getByTestId("chat-presence")).toContainText(
-      "Running tests"
-    );
 
     // Inert agents still accept posts for UI/demo inspection; the stream
     // marks them not delivered instead of pretending an engine received them.
@@ -398,7 +374,7 @@ test.describe("Chat surface", () => {
     });
     await page.getByTestId("center-tab-agent").waitFor({ state: "visible" });
 
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+    await callMcpTool(request, agent.id, "chat_post", {
       text: "Something new for you.",
     });
 
@@ -420,7 +396,7 @@ test.describe("Chat surface", () => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-table-${Date.now()}`,
     });
-    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+    await callMcpTool(request, agent.id, "chat_post", {
       text: [
         "| Alpha heading | Bravo heading | Charlie heading | Delta heading | Echo heading |",
         "| --- | --- | --- | --- | --- |",

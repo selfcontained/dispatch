@@ -1316,7 +1316,7 @@ describe("createMcpHandlers", () => {
           "--- DISPATCH CHAT (id: post-1) ---",
           created.initialPrompt,
           "--- END DISPATCH CHAT ---",
-          'The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "post-1").',
+          'The user is reading Chat; your reply appears there as you write it. Only a question with options needs chat_post (replyTo: "post-1").',
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');
@@ -2097,12 +2097,12 @@ describe("createMcpHandlers", () => {
           senderRelation: "unrelated",
           message: "hello",
           replyTarget: "agt_test1",
-        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`
+        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`
       );
       expect(deps.enqueueAgentPrompt).not.toHaveBeenCalledWith(
         "agt_target1",
         expect.stringContaining(
-          "Reply with dispatch_send_message using the replyTarget above."
+          "Reply with send_message using the replyTarget above."
         )
       );
       // The handler returns once the prompt is queued; it never waits on

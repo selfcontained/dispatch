@@ -53,22 +53,18 @@ describe("presenceState", () => {
   });
 
   it("overlays a tool blip for four seconds", () => {
-    const blip = { tool: "dispatch_share_file", at: NOW - TOOL_BLIP_MS + 1 };
+    const blip = { tool: "share_file", at: NOW - TOOL_BLIP_MS + 1 };
     expect(presenceState(agent(), blip, NOW).detail).toEqual({
       kind: "tool",
       text: "sharing a file",
     });
-    const expired = { tool: "dispatch_share_file", at: NOW - TOOL_BLIP_MS };
+    const expired = { tool: "share_file", at: NOW - TOOL_BLIP_MS };
     expect(presenceState(agent(), expired, NOW).detail.kind).toBe("phase");
   });
 
   it("falls back to the status text when the agent is not running", () => {
     const stopped = agent({ status: "stopped" });
-    const state = presenceState(
-      stopped,
-      { tool: "dispatch_pin", at: NOW },
-      NOW
-    );
+    const state = presenceState(stopped, { tool: "pin", at: NOW }, NOW);
     expect(state.label).toBe("Stopped");
     expect(state.detail).toEqual({ kind: "phase", text: null });
   });
@@ -76,12 +72,12 @@ describe("presenceState", () => {
 
 describe("toolBlipLabel", () => {
   it("maps the known tools and humanises the rest", () => {
-    expect(toolBlipLabel("dispatch_share_file")).toBe("sharing a file");
-    expect(toolBlipLabel("dispatch_pins")).toBe("pinning");
-    expect(toolBlipLabel("dispatch_chat_update")).toBe("posting to chat");
-    expect(toolBlipLabel("dispatch_launch_agent")).toBe("launching an agent");
+    expect(toolBlipLabel("share_file")).toBe("sharing a file");
+    expect(toolBlipLabel("pins")).toBe("pinning");
+    expect(toolBlipLabel("chat_update")).toBe("posting to chat");
+    expect(toolBlipLabel("launch_agent")).toBe("launching an agent");
     expect(toolBlipLabel("brain_store_object")).toBe("saving notes");
-    expect(toolBlipLabel("dispatch_surface_update")).toBe("surface update");
+    expect(toolBlipLabel("surface_update")).toBe("surface update");
     expect(toolBlipLabel("repo_dev_up")).toBe("dev up");
   });
 });
@@ -110,7 +106,7 @@ describe("ChatPresenceStrip", () => {
     const store = renderStrip();
     act(() => {
       store.set(agentToolBlipAtomFamily("agt_1"), {
-        tool: "dispatch_chat_post",
+        tool: "chat_post",
         at: Date.now(),
       });
     });

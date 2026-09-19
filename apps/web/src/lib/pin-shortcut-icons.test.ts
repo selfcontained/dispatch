@@ -6,7 +6,7 @@ import { resolvePinShortcutIcon } from "./pin-shortcut-icons";
 /**
  * The name allowlist itself is pinned by the server-side lockstep test
  * (apps/server/test/pin-shortcut-icons-lockstep.test.ts), which compares this
- * module's keys against the dispatch_pin schema. What is left uncovered — and
+ * module's keys against the pin schema. What is left uncovered — and
  * what this file covers — is the resolution step: an agent supplies an
  * arbitrary string, and every path out of it has to yield a real component,
  * because the caller renders the result directly (`<Icon />`) with no guard.

@@ -143,11 +143,11 @@ describe("MCP auth integration", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toContain("dispatch_await_recheck");
       expect(response.body).not.toContain("dispatch_await_review");
-      expect(response.body).toContain("dispatch_review_submit");
-      expect(response.body).toContain("dispatch_review_add_feedback");
-      expect(response.body).toContain("dispatch_review_list_feedback");
-      expect(response.body).toContain("dispatch_review_add_message");
-      expect(response.body).toContain("dispatch_review_resolve");
+      expect(response.body).toContain("review_submit");
+      expect(response.body).toContain("review_add_feedback");
+      expect(response.body).toContain("review_list_feedback");
+      expect(response.body).toContain("review_add_message");
+      expect(response.body).toContain("review_resolve");
       expect(response.body).not.toContain("get_parent_context");
       expect(response.body).not.toContain("dispatch_get_recheck_context");
       expect(response.body).not.toContain("dispatch_complete_review");
@@ -164,7 +164,7 @@ describe("MCP auth integration", () => {
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
     });
     expect(round2Response.statusCode).toBe(200);
-    expect(round2Response.body).toContain("dispatch_review_submit");
+    expect(round2Response.body).toContain("review_submit");
     expect(round2Response.body).not.toContain("dispatch_get_recheck_context");
     expect(round2Response.body).not.toContain("dispatch_await_recheck");
     expect(round2Response.body).not.toContain("dispatch_await_review");
@@ -190,8 +190,8 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("dispatch_rename_session");
-    expect(response.body).not.toContain('"name":"dispatch_review_submit"');
+    expect(response.body).toContain("rename_session");
+    expect(response.body).not.toContain('"name":"review_submit"');
   });
 
   it("exposes lifecycle and unified review tools on the job-scoped MCP route", async () => {
@@ -235,15 +235,15 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("dispatch_rename_session");
-    expect(response.body).toContain("dispatch_rename_session");
-    expect(response.body).toContain("dispatch_list_media");
+    expect(response.body).toContain("rename_session");
+    expect(response.body).toContain("rename_session");
+    expect(response.body).toContain("list_media");
     expect(response.body).toContain("list_personas");
-    expect(response.body).toContain("dispatch_launch_persona");
-    expect(response.body).toContain("dispatch_review_list_feedback");
-    expect(response.body).toContain("dispatch_review_resolve");
-    expect(response.body).toContain("dispatch_review_reopen");
-    expect(response.body).toContain("dispatch_review_add_message");
+    expect(response.body).toContain("launch_persona");
+    expect(response.body).toContain("review_list_feedback");
+    expect(response.body).toContain("review_resolve");
+    expect(response.body).toContain("review_reopen");
+    expect(response.body).toContain("review_add_message");
     expect(response.body).not.toContain("dispatch_submit_resolution");
     expect(response.body).not.toContain("dispatch_cancel_recheck");
     expect(response.body).toContain("job_complete");
@@ -291,9 +291,9 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain("dispatch_rename_session");
-    expect(response.body).toContain("dispatch_share_file");
-    expect(response.body).toContain("dispatch_launch_persona");
+    expect(response.body).toContain("rename_session");
+    expect(response.body).toContain("share_file");
+    expect(response.body).toContain("launch_persona");
     expect(response.body).not.toContain("job_complete");
     expect(response.body).not.toContain("job_log");
     expect(response.body).not.toContain("job_failed");

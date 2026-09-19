@@ -53,21 +53,21 @@ describe("registerAgentLifecycleTools", () => {
   describe("conditional registration", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
       const allowed = new Set([
-        "dispatch_rename_session",
-        "dispatch_notify",
-        "dispatch_list_media",
-        "dispatch_delete_media",
-        "dispatch_list_pins",
+        "rename_session",
+        "notify",
+        "list_media",
+        "delete_media",
+        "list_pins",
       ]);
       registerAgentLifecycleTools(server as never, allowed, baseContext());
 
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
-        "dispatch_rename_session",
-        "dispatch_notify",
-        "dispatch_list_media",
-        "dispatch_delete_media",
-        "dispatch_list_pins",
+        "rename_session",
+        "notify",
+        "list_media",
+        "delete_media",
+        "list_pins",
       ]);
     });
 
@@ -77,56 +77,56 @@ describe("registerAgentLifecycleTools", () => {
     });
 
 
-    it("skips dispatch_rename_session when renameSession is missing", () => {
+    it("skips rename_session when renameSession is missing", () => {
       const ctx = baseContext();
       delete ctx.renameSession;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_notify when sendNotify is missing", () => {
+    it("skips notify when sendNotify is missing", () => {
       const ctx = baseContext();
       delete ctx.sendNotify;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["notify"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_list_media when listMedia is missing", () => {
+    it("skips list_media when listMedia is missing", () => {
       const ctx = baseContext();
       delete ctx.listMedia;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_media"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_delete_media when deleteMedia is missing", () => {
+    it("skips delete_media when deleteMedia is missing", () => {
       const ctx = baseContext();
       delete ctx.deleteMedia;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_delete_media"]),
+        new Set(["delete_media"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips dispatch_list_pins when listPins is missing", () => {
+    it("skips list_pins when listPins is missing", () => {
       const ctx = baseContext();
       delete ctx.listPins;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_pins"]),
+        new Set(["list_pins"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
@@ -135,20 +135,20 @@ describe("registerAgentLifecycleTools", () => {
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify", "dispatch_list_media"]),
+        new Set(["notify", "list_media"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["dispatch_notify", "dispatch_list_media"]);
+      expect(names).toEqual(["notify", "list_media"]);
     });
   });
 
-  describe("dispatch_rename_session handler", () => {
+  describe("rename_session handler", () => {
     it("calls renameSession and returns result", async () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
       const handler = server.tools[0]!.handler;
@@ -169,7 +169,7 @@ describe("registerAgentLifecycleTools", () => {
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_rename_session"]),
+        new Set(["rename_session"]),
         ctx
       );
 
@@ -181,14 +181,14 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  // ── dispatch_notify handler ─────────────────────────────────────
+  // ── notify handler ─────────────────────────────────────
 
-  describe("dispatch_notify handler", () => {
+  describe("notify handler", () => {
     it("calls sendNotify and returns sent confirmation", async () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["notify"]),
         ctx
       );
       const handler = server.tools[0]!.handler;
@@ -219,7 +219,7 @@ describe("registerAgentLifecycleTools", () => {
       }));
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["notify"]),
         ctx
       );
 
@@ -246,7 +246,7 @@ describe("registerAgentLifecycleTools", () => {
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_notify"]),
+        new Set(["notify"]),
         ctx
       );
 
@@ -262,9 +262,9 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  // ── dispatch_list_media handler ─────────────────────────────────
+  // ── list_media handler ─────────────────────────────────
 
-  describe("dispatch_list_media handler", () => {
+  describe("list_media handler", () => {
     it("calls listMedia and returns JSON items", async () => {
       const items = [
         {
@@ -280,7 +280,7 @@ describe("registerAgentLifecycleTools", () => {
       ctx.listMedia = vi.fn(async () => items);
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_media"]),
         ctx
       );
 
@@ -299,7 +299,7 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_media"]),
         ctx
       );
 
@@ -314,7 +314,7 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_media"]),
         ctx
       );
 
@@ -332,7 +332,7 @@ describe("registerAgentLifecycleTools", () => {
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_media"]),
+        new Set(["list_media"]),
         ctx
       );
 
@@ -344,13 +344,13 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  describe("dispatch_delete_media handler", () => {
+  describe("delete_media handler", () => {
     it("deletes the named media file", async () => {
       const ctx = baseContext();
       ctx.deleteMedia = vi.fn(async () => {});
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_delete_media"]),
+        new Set(["delete_media"]),
         ctx
       );
 
@@ -365,7 +365,7 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  describe("dispatch_list_pins handler", () => {
+  describe("list_pins handler", () => {
     it("returns one pin untruncated when given its id", async () => {
       const value = "z".repeat(1200);
       const pins = [
@@ -376,7 +376,7 @@ describe("registerAgentLifecycleTools", () => {
       ctx.listPins = vi.fn(async () => pins);
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_pins"]),
+        new Set(["list_pins"]),
         ctx
       );
 
@@ -407,7 +407,7 @@ describe("registerAgentLifecycleTools", () => {
       ctx.listPins = vi.fn(async () => pins);
       registerAgentLifecycleTools(
         server as never,
-        new Set(["dispatch_list_pins"]),
+        new Set(["list_pins"]),
         ctx
       );
 

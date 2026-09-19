@@ -66,8 +66,8 @@ type McpPinInput = {
 };
 
 /**
- * The constrained field types every pin write shares. `dispatch_pin` and
- * `dispatch_pins` build their schemas from these and override only the
+ * The constrained field types every pin write shares. `pin` and
+ * `pins` build their schemas from these and override only the
  * `.describe()` text — duplicating the *constraints* is how a raised cap ends
  * up enforced on one tool and silently not the other.
  */
@@ -124,48 +124,48 @@ export type MediaResult = {
 const AGENT_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
-  "dispatch_login_link",
-  "dispatch_rename_session",
-  "dispatch_notify",
-  "dispatch_pin",
-  "dispatch_pins",
-  "dispatch_delete_pin",
-  "dispatch_share_file",
-  "dispatch_list_media",
-  "dispatch_delete_media",
-  "dispatch_list_pins",
+  "login_link",
+  "rename_session",
+  "notify",
+  "pin",
+  "pins",
+  "delete_pin",
+  "share_file",
+  "list_media",
+  "delete_media",
+  "list_pins",
   "list_personas",
   "persona_templates",
   "persona_upsert",
   "persona_validate",
-  "dispatch_launch_persona",
+  "launch_persona",
   "list_personalities",
   "create_personality",
   "update_personality",
   "delete_personality",
   "set_active_personality",
   "clear_active_personality",
-  "dispatch_review_list_feedback",
-  "dispatch_review_get_feedback",
-  "dispatch_review_resolve",
-  "dispatch_review_reopen",
-  "dispatch_review_add_message",
+  "review_list_feedback",
+  "review_get_feedback",
+  "review_resolve",
+  "review_reopen",
+  "review_add_message",
   "list_agents",
-  "dispatch_send_message",
-  "dispatch_launch_agent",
-  "dispatch_archive_agent",
-  "dispatch_surface_create",
-  "dispatch_surface_update",
-  "dispatch_surface_list",
-  "dispatch_surface_get",
-  "dispatch_surface_delete",
-  "dispatch_surface_reorder",
-  "dispatch_surface_interactions",
-  "dispatch_surface_claim",
-  "dispatch_surface_resolve",
-  "dispatch_chat_post",
-  "dispatch_chat_update",
-  "dispatch_chat_react",
+  "send_message",
+  "launch_agent",
+  "archive_agent",
+  "surface_create",
+  "surface_update",
+  "surface_list",
+  "surface_get",
+  "surface_delete",
+  "surface_reorder",
+  "surface_interactions",
+  "surface_claim",
+  "surface_resolve",
+  "chat_post",
+  "chat_update",
+  "chat_react",
   "get_activity_summary",
   "get_feedback_summary",
   "whiteboard_get",
@@ -202,41 +202,41 @@ const AGENT_TOOLS = new Set([
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
-  "dispatch_rename_session",
-  "dispatch_notify",
-  "dispatch_pin",
-  "dispatch_pins",
-  "dispatch_delete_pin",
-  "dispatch_share_file",
-  "dispatch_list_media",
-  "dispatch_delete_media",
-  "dispatch_list_pins",
-  "dispatch_launch_persona",
-  "dispatch_review_list_feedback",
-  "dispatch_review_get_feedback",
-  "dispatch_review_resolve",
-  "dispatch_review_reopen",
-  "dispatch_review_add_message",
+  "rename_session",
+  "notify",
+  "pin",
+  "pins",
+  "delete_pin",
+  "share_file",
+  "list_media",
+  "delete_media",
+  "list_pins",
+  "launch_persona",
+  "review_list_feedback",
+  "review_get_feedback",
+  "review_resolve",
+  "review_reopen",
+  "review_add_message",
   "job_complete",
   "job_failed",
   "job_needs_input",
   "job_log",
   "list_agents",
-  "dispatch_send_message",
-  "dispatch_launch_agent",
-  "dispatch_archive_agent",
-  "dispatch_surface_create",
-  "dispatch_surface_update",
-  "dispatch_surface_list",
-  "dispatch_surface_get",
-  "dispatch_surface_delete",
-  "dispatch_surface_reorder",
-  "dispatch_surface_interactions",
-  "dispatch_surface_claim",
-  "dispatch_surface_resolve",
-  "dispatch_chat_post",
-  "dispatch_chat_update",
-  "dispatch_chat_react",
+  "send_message",
+  "launch_agent",
+  "archive_agent",
+  "surface_create",
+  "surface_update",
+  "surface_list",
+  "surface_get",
+  "surface_delete",
+  "surface_reorder",
+  "surface_interactions",
+  "surface_claim",
+  "surface_resolve",
+  "chat_post",
+  "chat_update",
+  "chat_react",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -271,33 +271,33 @@ const JOB_TOOLS = new Set([
 ]);
 
 const REVIEW_AGENT_TOOLS = new Set([
-  "dispatch_login_link",
-  "dispatch_pin",
-  "dispatch_pins",
-  "dispatch_delete_pin",
-  "dispatch_share_file",
-  "dispatch_list_media",
-  "dispatch_delete_media",
-  "dispatch_list_pins",
-  "dispatch_review_submit",
-  "dispatch_review_add_feedback",
-  "dispatch_review_list_feedback",
-  "dispatch_review_get_feedback",
-  "dispatch_review_add_message",
-  "dispatch_review_resolve",
+  "login_link",
+  "pin",
+  "pins",
+  "delete_pin",
+  "share_file",
+  "list_media",
+  "delete_media",
+  "list_pins",
+  "review_submit",
+  "review_add_feedback",
+  "review_list_feedback",
+  "review_get_feedback",
+  "review_add_message",
+  "review_resolve",
   "whiteboard_get",
-  "dispatch_surface_create",
-  "dispatch_surface_update",
-  "dispatch_surface_list",
-  "dispatch_surface_get",
-  "dispatch_surface_delete",
-  "dispatch_surface_reorder",
-  "dispatch_surface_interactions",
-  "dispatch_surface_claim",
-  "dispatch_surface_resolve",
-  "dispatch_chat_post",
-  "dispatch_chat_update",
-  "dispatch_chat_react",
+  "surface_create",
+  "surface_update",
+  "surface_list",
+  "surface_get",
+  "surface_delete",
+  "surface_reorder",
+  "surface_interactions",
+  "surface_claim",
+  "surface_resolve",
+  "chat_post",
+  "chat_update",
+  "chat_react",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -338,14 +338,14 @@ export type McpRequestContext = {
    */
   publishUiEvent?: (event: ToolInvokedEvent) => void;
   surfaces?: SurfaceService;
-  /** Chat tab posting and reactions (dispatch_chat_post / _update / _react). */
+  /** Chat tab posting and reactions (chat_post / _update / _react). */
   chat?: Pick<
     ChatService,
     "post" | "update" | "addReaction" | "removeReaction"
   >;
   /**
    * The chat-surface flag (`chat_surface_enabled`) as of this request. Only
-   * `dispatch_chat_post`'s description reads it — see `chat-tools.ts`. Left
+   * `chat_post`'s description reads it — see `chat-tools.ts`. Left
    * unset by the job route, whose launch turn never carries a Chat envelope,
    * and by the token-less `/api/mcp` route, which has no agent at all.
    */
@@ -589,77 +589,6 @@ export type McpRequestContext = {
   publishBrainChanged?: (repoRoot: string) => void;
 };
 
-/**
- * Old tool names that still resolve to their current tool.
- *
- * A rename is invisible to an agent that already fetched `tools/list`: a
- * session started before the server was upgraded keeps calling the old name,
- * as does any agent following a stale copy of the shipped plugin's skills.
- * Rewriting the name on the way in keeps those calls working without listing
- * the old name — a deprecated duplicate in `tools/list` would cost every
- * agent context and split the model's choice, which is exactly what the
- * rename was meant to fix.
- *
- * Every entry carries its own removal trigger so the map cannot silently
- * accumulate: `lastVersionWithOldName` is the release that still advertised
- * the old name — anything at or below it can still be holding it — and
- * `reviewAfter` is the date by which someone should check whether that is
- * still plausible and drop the entry if not. Both are required, and
- * `mcp-legacy-tool-aliases.test.ts` fails a new alias that omits either.
- */
-type LegacyToolAlias = {
-  /** The tool the old name resolves to today. */
-  to: string;
-  /** Last Dispatch release whose `tools/list` still advertised the old name. */
-  lastVersionWithOldName: string;
-  /** ISO date after which this entry should be re-evaluated for removal. */
-  reviewAfter: string;
-};
-
-const LEGACY_TOOL_ALIASES = new Map<string, LegacyToolAlias>([
-  // Renamed so the name states the situation ("I have a file to share").
-  [
-    "dispatch_share",
-    {
-      to: "dispatch_share_file",
-      lastVersionWithOldName: "0.35.2",
-      reviewAfter: "2027-02-23",
-    },
-  ],
-]);
-
-/** The alias table, for tests and tooling that assert on its lifecycle fields. */
-export function legacyToolAliases(): ReadonlyMap<string, LegacyToolAlias> {
-  return LEGACY_TOOL_ALIASES;
-}
-
-/** Rewrites one JSON-RPC message, returning it unchanged when nothing applies. */
-function applyLegacyToolAliasesToMessage(message: unknown): unknown {
-  if (!message || typeof message !== "object") return message;
-  const request = message as { method?: unknown; params?: unknown };
-  if (request.method !== "tools/call") return message;
-  const params = request.params;
-  if (!params || typeof params !== "object") return message;
-  const name = (params as { name?: unknown }).name;
-  if (typeof name !== "string") return message;
-  // A Map, not an object literal: a plain-object lookup would resolve names
-  // like "constructor" through the prototype chain.
-  const alias = LEGACY_TOOL_ALIASES.get(name);
-  if (!alias) return message;
-  return { ...request, params: { ...(params as object), name: alias.to } };
-}
-
-/**
- * Rewrites legacy tool names in a `tools/call` request body. Accepts a single
- * JSON-RPC request or a batch, and leaves anything else untouched. A batch is
- * one level deep by the spec, so this does not recurse — a body nested to
- * arbitrary depth is data, not something to walk.
- */
-export function applyLegacyToolAliases(body: unknown): unknown {
-  if (Array.isArray(body)) return body.map(applyLegacyToolAliasesToMessage);
-  return applyLegacyToolAliasesToMessage(body);
-}
-
 export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -670,8 +599,6 @@ export async function handleMcpRequest(
     worktreeRoot: null,
   }
 ): Promise<void> {
-  const body =
-    parsedBody === undefined ? parsedBody : applyLegacyToolAliases(parsedBody);
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -682,7 +609,7 @@ export async function handleMcpRequest(
   });
 
   await server.connect(transport);
-  await transport.handleRequest(req, res, body);
+  await transport.handleRequest(req, res, parsedBody);
 }
 
 /**
@@ -775,11 +702,10 @@ export async function createDispatchMcpServer(
     clearActivePersonality: context.clearActivePersonality,
   });
 
-  if (allowed.has("dispatch_pin")) registerPinTool(server, context);
-  if (allowed.has("dispatch_pins")) registerBatchPinTool(server, context);
-  if (allowed.has("dispatch_delete_pin"))
-    registerDeletePinTool(server, context);
-  if (allowed.has("dispatch_share_file")) registerShareTool(server, context);
+  if (allowed.has("pin")) registerPinTool(server, context);
+  if (allowed.has("pins")) registerBatchPinTool(server, context);
+  if (allowed.has("delete_pin")) registerDeletePinTool(server, context);
+  if (allowed.has("share_file")) registerShareTool(server, context);
   // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
@@ -844,7 +770,7 @@ export async function createDispatchMcpServer(
   }
 
   // ── Chat tab tools (every agent, regardless of the chat-surface flag; the
-  //    flag only decides how dispatch_chat_post describes itself) ──
+  //    flag only decides how chat_post describes itself) ──
   if (context.agent) {
     registerChatTools(server, allowed, {
       agentId: context.agent.id,
@@ -943,10 +869,10 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
   const deletePinByLabel = context.deletePinByLabel;
 
   server.registerTool(
-    "dispatch_pin",
+    "pin",
     {
       description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To rename a pin, pass its id from dispatch_list_pins along with the new label. To write several pins at once, use dispatch_pins instead of calling this repeatedly. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To rename a pin, pass its id from list_pins along with the new label. To write several pins at once, use pins instead of calling this repeatedly. To remove a pin, use list_pins followed by delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
         "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert. " +
         "When a shortcut's action becomes temporarily or permanently unavailable but is still worth showing (e.g. its build already started elsewhere), set disabled: true instead of deleting it — the button greys out and stops accepting clicks. Set the caption to explain why (e.g. 'already building — agt_...'); it renders in place of the normal caption. Send disabled: false to re-enable it later.",
@@ -954,7 +880,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
         id: pinFields.id
           .optional()
           .describe(
-            "Exact pin id from dispatch_list_pins. Pass it to edit that pin specifically — this is the only way to change a pin's label, since without an id the label is what identifies the pin. Omit to match by label."
+            "Exact pin id from list_pins. Pass it to edit that pin specifically — this is the only way to change a pin's label, since without an id the label is what identifies the pin. Omit to match by label."
           ),
         label: pinFields.label.describe(
           "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port'). For shortcut pins this is the button text."
@@ -1031,7 +957,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
         // Acknowledge the write without echoing the stored pin: the caller just
         // sent every field it set, and an update merges rather than replaces, so
         // the only thing it cannot infer is whether this created or updated —
-        // which is exactly what it gets back. dispatch_list_pins remains the way
+        // which is exactly what it gets back. list_pins remains the way
         // to check what an update actually carried over.
         return {
           content: [
@@ -1049,14 +975,14 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
 }
 
 /**
- * The per-entry shape for `dispatch_pins`. Field semantics live on
- * `dispatch_pin` — restating them here would double what every agent pays in
+ * The per-entry shape for `pins`. Field semantics live on
+ * `pin` — restating them here would double what every agent pays in
  * context for the pin toolset, so this stays terse and points there.
  */
 const batchPinEntrySchema = z.object({
   id: pinFields.id
     .optional()
-    .describe("Pin id from dispatch_list_pins. Required to change a label."),
+    .describe("Pin id from list_pins. Required to change a label."),
   label: pinFields.label.describe("Display label, or button text."),
   value: pinFields.value
     .optional()
@@ -1066,7 +992,7 @@ const batchPinEntrySchema = z.object({
   type: pinFields.type
     .optional()
     .describe(
-      "Defaults to 'string' on a new pin; omit on an update to keep the stored type. See dispatch_pin."
+      "Defaults to 'string' on a new pin; omit on an update to keep the stored type. See pin."
     ),
   caption: pinFields.caption.optional().describe("One-line caption."),
   group: pinFields.group
@@ -1089,10 +1015,10 @@ function registerBatchPinTool(
   const upsertPins = context.upsertPins;
 
   server.registerTool(
-    "dispatch_pins",
+    "pins",
     {
       description:
-        "Write several sidebar pins in one atomic call — use this instead of calling dispatch_pin in a loop. Each entry behaves exactly like dispatch_pin: it updates the pin matching its id (or, with no id, its label) and creates one otherwise, keeping any field you omit. Because an id survives a relabel, relabelling a whole set is one call here rather than a delete and recreate per pin. " +
+        "Write several sidebar pins in one atomic call — use this instead of calling pin in a loop. Each entry behaves exactly like pin: it updates the pin matching its id (or, with no id, its label) and creates one otherwise, keeping any field you omit. Because an id survives a relabel, relabelling a whole set is one call here rather than a delete and recreate per pin. " +
         "Default mode 'merge' leaves pins you did not mention alone. Mode 'replace' requires a group and makes that group contain exactly the entries you pass, in the order you pass them — members you omit are deleted, and nothing outside the group is ever removed. Use replace to reorder a group or rewrite it wholesale; use merge for everything else. Returns the full resulting pin list.",
       inputSchema: {
         pins: z
@@ -1124,7 +1050,7 @@ function registerBatchPinTool(
         // the batch actually produced — order included — rather than assuming
         // its input round-tripped. upsertPins returns summaries (id, label,
         // group), so this stays thin however long the stored values are; read
-        // one back in full with dispatch_list_pins and its id.
+        // one back in full with list_pins and its id.
         return {
           content: [
             {
@@ -1148,16 +1074,16 @@ function registerDeletePinTool(
   const agentId = context.agent.id;
   const deletePin = context.deletePin;
   server.registerTool(
-    "dispatch_delete_pin",
+    "delete_pin",
     {
       description:
-        "Permanently remove sidebar pins. Pass exactly one of: 'id' for a single pin, 'ids' for several at once, or 'group' to clear an entire group. Call dispatch_list_pins first and pass exact returned ids.",
+        "Permanently remove sidebar pins. Pass exactly one of: 'id' for a single pin, 'ids' for several at once, or 'group' to clear an entire group. Call list_pins first and pass exact returned ids.",
       inputSchema: {
         id: z
           .string()
           .min(1)
           .optional()
-          .describe("Exact pin id returned by dispatch_list_pins."),
+          .describe("Exact pin id returned by list_pins."),
         ids: z
           .array(z.string().min(1))
           .min(1)
@@ -1197,7 +1123,7 @@ function registerShareTool(
   const shareMedia = context.shareMedia;
 
   server.registerTool(
-    "dispatch_share_file",
+    "share_file",
     {
       description:
         "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), documents (pdf), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
@@ -1239,7 +1165,7 @@ function registerShareTool(
           .string()
           .optional()
           .describe(
-            "fileName of an existing shared media file to update (returned from a previous dispatch_share_file call). When set, the file content is replaced instead of creating a new file."
+            "fileName of an existing shared media file to update (returned from a previous share_file call). When set, the file content is replaced instead of creating a new file."
           ),
       },
     },

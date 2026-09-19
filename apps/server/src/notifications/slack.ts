@@ -85,7 +85,7 @@ function sanitizeSlackMrkdwn(text: string): string {
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
-  /** Per-agent rate limit tracking for dispatch_notify calls. */
+  /** Per-agent rate limit tracking for notify calls. */
   private notifyTimestamps: Map<string, number[]> = new Map();
 
   constructor(
@@ -266,7 +266,7 @@ export class SlackNotifier {
   }
 
   /**
-   * Agent-initiated notification via the dispatch_notify MCP tool.
+   * Agent-initiated notification via the notify MCP tool.
    * Bypasses focus filtering by default (agents explicitly chose to notify).
    */
   async sendNotification(
@@ -344,7 +344,7 @@ export class SlackNotifier {
         const body = await res.text();
         this.log.warn(
           { status: res.status, body },
-          "Slack webhook returned error for dispatch_notify"
+          "Slack webhook returned error for notify"
         );
         return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
       }

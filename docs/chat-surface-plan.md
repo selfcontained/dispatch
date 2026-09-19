@@ -11,11 +11,11 @@ the two disagree.
 ## Decisions already made (do not relitigate)
 
 - **Agent replies come from an MCP tool, never from the CLI transcript.** An
-  agent that does not call `dispatch_chat_post` simply has no reply in the feed.
+  agent that does not call `chat_post` simply has no reply in the feed.
   No transcript scraping, no hooks, no "missed reply" detection.
-- **Status events (`dispatch_event`) are display-only.** They render as compact
-  feed entries and drive the presence line. Nothing about the chat surface
-  depends on agents calling `dispatch_event` correctly.
+- **Status is display-only.** It is derived from the agent's stream and drives
+  the presence line. Nothing about the chat surface depends on agents
+  reporting status themselves.
 - **Permission prompts and other terminal-only interactions are out of scope.**
   No detection, no banner.
 - **User → agent still goes through pane injection** (`injectAgentPrompt`),
@@ -45,7 +45,7 @@ the two disagree.
 | delivered   | boolean     | user messages only: pane injection succeeded                                     |
 | read_at     | timestamptz | agent messages only: when the user saw it                                        |
 | created_at  | timestamptz |                                                                                  |
-| updated_at  | timestamptz | bumped by `dispatch_chat_update`                                                 |
+| updated_at  | timestamptz | bumped by `chat_update`                                                          |
 
 Indexes: `(agent_id, created_at DESC)`; partial `(agent_id) WHERE author_kind = 'agent' AND read_at IS NULL`.
 
@@ -59,7 +59,7 @@ dual-written. Sources, all scoped to one agent, merged by timestamp ascending:
 | `chat`          | `agent_chat_messages`               | agent and user messages                |
 | `status`        | `agent_events`                      | one entry per event row                |
 | `agent_message` | `agent_messages` (either direction) | cross-agent messages, sender/recipient |
-| `media`         | `media`                             | files shared via `dispatch_share_file` |
+| `media`         | `media`                             | files shared via `share_file`          |
 
 Pins are **not** in the feed for v1 (no per-pin timestamp history). Notifications
 are not persisted and are not in the feed.
@@ -107,7 +107,7 @@ write to `agent_chat_messages`. The web also invalidates the feed on
 --- DISPATCH CHAT (id: <uuid>) ---
 <text>
 --- END DISPATCH CHAT ---
-Reply with dispatch_chat_post (replyTo: "<uuid>").
+Reply with chat_post (replyTo: "<uuid>").
 ```
 
 Answers to a question use the same envelope with the chosen label as text.
@@ -120,7 +120,7 @@ user message.
 Registered for every agent (no flag check). The tool descriptions carry the
 schema so the launch-guidance rule can stay short.
 
-### `dispatch_chat_post`
+### `chat_post`
 
 ```
 text          string   required, markdown, ≤ 20 000 chars
@@ -135,7 +135,7 @@ attachments   ChatAttachment[]   optional, ≤ 20
 `ChatAttachment` is a discriminated union:
 
 ```
-{ type: "file";  path: string }                 an absolute path already shared via dispatch_share_file;
+{ type: "file";  path: string }                 an absolute path already shared via share_file;
                                                 the server resolves it to the media row and returns 400 if unknown
 { type: "link";  url: string; title?: string }
 { type: "pr";    url: string; title?: string }
@@ -143,7 +143,7 @@ attachments   ChatAttachment[]   optional, ≤ 20
 { type: "pin";   pinId: string }                the server verifies the pin exists on this agent
 ```
 
-### `dispatch_chat_update`
+### `chat_update`
 
 ```
 messageId     string   required, must be an agent message on this agent
@@ -160,7 +160,7 @@ Added to `buildLaunchGuidance` only when the flag is on, in both trimmed and
 full variants (same text):
 
 > The user reads the Chat tab, not the terminal. Post your reply with
-> dispatch_chat_post whenever you finish a turn or have something to tell them,
+> chat_post whenever you finish a turn or have something to tell them,
 > and ask questions through it (kind: question, with options when the choice is
 > finite) instead of asking in the terminal.
 
@@ -259,7 +259,7 @@ POST /api/v1/agents/:id/chat/messages
 
 - User attachments are **files and links only**. The composer has no pin
   picker (dropped 2026-09-04: "I don't need to include already pinned things
-  in a message"). Agents can still attach pins via `dispatch_chat_post`, and
+  in a message"). Agents can still attach pins via `chat_post`, and
   the feed renders those; the server's schema keeps accepting a user-side
   `pin` for compatibility, but nothing in the web app sends one.
 - The stored user message carries `ChatAttachment[]` in the same shape agent
@@ -300,7 +300,7 @@ Attachments:
   agent; `injectAgentPrompt` becomes a wrapper over it.
 - The chat `ChatDeliveryAdapter` in `server.ts` is built from `enqueueAgentPrompt`
   (no more inline `new TmuxTerminal`).
-- `dispatch_send_message` (`server/mcp-handlers.ts handleSendMessage`) uses it
+- `send_message` (`server/mcp-handlers.ts handleSendMessage`) uses it
   too and records real delivery: migration `0046_agent-messages-delivered-null.sql`
   drops NOT NULL/DEFAULT on `agent_messages.delivered`; rows insert with `null`
   (pending), settle to true/false when the write completes, and republish
@@ -318,7 +318,7 @@ no pane-text parsing.
 string; at: string }`, published from one wrapper around `registerTool` in
   `createDispatchMcpServer` (covers dynamic repo tools too). `McpRequestContext`
   gains `publishUiEvent` threaded from `routes/mcp.ts`. Not persisted, not
-  fetched. Skip `dispatch_event` itself (it already drives the phase).
+  fetched. Skip status itself (it already drives the phase).
 - **Web:** `terminalOutputActivityAtomFamily(agentId)` in `lib/store.ts`
   (`{ lastOutputAt: number; bytesPerSecond: number }`), written from the
   terminal socket `onOutput` path in `use-terminal.ts` (throttled to ≤ 4
@@ -329,7 +329,7 @@ string; at: string }`, published from one wrapper around `registerTool` in
   message; not running → existing status text. A tool blip ("sharing a file",
   "pinning", "posting to chat", "launching an agent", "saving notes", default:
   humanised tool name) overlays for 4 s after `agent.tool_invoked`.
-- Tool descriptions for `dispatch_chat_post`/`dispatch_chat_update` mention
+- Tool descriptions for `chat_post`/`chat_update` mention
   that an `update` post edited in place is the durable form of progress.
 
 ### D. Small refactors (only if they stay small)
@@ -433,7 +433,7 @@ when the agent starts — otherwise it is only visible in the Console.
   through a `LaunchContextRecorder` attached post-construction
   (`ChatService.recordLaunchContext`), after the agent row and its media
   rows exist and alongside the runtime launch, so every launch path (create
-  dialog, `dispatch_launch_agent`, templates, jobs) gets it. The write is
+  dialog, `launch_agent`, templates, jobs) gets it. The write is
   best-effort: it never blocks the runtime launch, and `createAgent` waits
   for it at most 5s before returning (a late write still lands). The post is a user
   message, kind `reply`, `delivered: true` (the prompt reaches the CLI by the
@@ -453,7 +453,7 @@ when the agent starts — otherwise it is only visible in the Console.
 - **Agent-launched agents.** When another agent launched this one,
   `launched_by_agent_id` is the launcher — only the explicit
   `CreateAgentInput.launchedByAgentId` the agent-authenticated launch paths
-  (`dispatch_launch_agent`, persona launches) set, never a body-supplied
+  (`launch_agent`, persona launches) set, never a body-supplied
   `parentAgentId`, so a create-route caller cannot make the post read as
   another agent's. The post stays `authorKind:
 "user"` so unread and pending-question counts are unaffected; the web
@@ -481,7 +481,7 @@ launched from the Chat tab knows to answer there.
 attachmentLines)` — the `--- DISPATCH CHAT (id: …) ---` block, the
   `Attachments:` lines for the startup files (absolute media path, mime,
   size), links and pins, and the trailer telling the agent the user reads
-  the Chat tab and to reply with `dispatch_chat_post` (`replyTo` the launch
+  the Chat tab and to reply with `chat_post` (`replyTo` the launch
   post). The reply therefore threads onto the launch post. Composed by
   `buildStartupTurn` (`agents/tmux/command-builder.ts`) and delivered
   through each CLI's existing first-turn channel: a positional arg for
@@ -514,7 +514,7 @@ attachmentLines)` — the `--- DISPATCH CHAT (id: …) ---` block, the
   keeps the round-4 shape: resolve and write both run alongside the runtime
   start and are waited on (bounded) only after it, so a slow or hung recorder
   cannot delay a launch that was never going to name the post anyway.
-- **Agent-launched agents.** `dispatch_launch_agent` wraps the launcher's
+- **Agent-launched agents.** `launch_agent` wraps the launcher's
   prompt in a "You were launched by…" header for the CLI; the envelope wraps
   that whole thing, header included, while the feed post keeps the prompt as
   the launcher wrote it.
@@ -529,7 +529,7 @@ allowed) is prefixed with `> `. Without that, a prompt or an attachment could
 carry `--- END DISPATCH CHAT ---` followed by a forged
 `--- DISPATCH CHAT (id: …) ---` and make the agent thread its replies onto a
 message id of the author's choosing — newly reachable through
-`dispatch_launch_agent`, whose launcher knows real message ids. `> ` was
+`launch_agent`, whose launcher knows real message ids. `> ` was
 chosen over a look-alike code point so the line stays readable, survives
 copy/paste, and needs nothing zero-width. The second half of that fix is on
 the write side: `ChatService.post` rejects a `replyTo` that is not an
@@ -544,7 +544,7 @@ the CLI turn nor the launch itself:
 
 - A prompt longer than `CHAT_MESSAGE_MAX_CHARS` (20 000) is trimmed for the
   row and gets an explicit "truncated for Chat" line;
-  `dispatch_launch_agent` accepts five times that, and the CLI's first turn
+  `launch_agent` accepts five times that, and the CLI's first turn
   still carries all of it.
 - More than `CHAT_ATTACHMENTS_MAX` (20) startup files, links and pins are
   resolved and described in full for the turn, stored capped on the row, and

@@ -190,7 +190,7 @@ function peerAuthor(
 
 /**
  * Who a user post reads as. A launch-context post made by another agent
- * (dispatch_launch_agent) is that agent's, named from the agents list when
+ * (launch_agent) is that agent's, named from the agents list when
  * it is still there and "Agent" otherwise; every other user post is "You".
  */
 export function chatMessageAuthor(

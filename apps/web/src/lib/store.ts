@@ -664,7 +664,7 @@ export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
 // ---------------------------------------------------------------------------
 
 export type AgentToolBlip = {
-  /** MCP tool name as the server reported it, e.g. `dispatch_share_file`. */
+  /** MCP tool name as the server reported it, e.g. `share_file`. */
   tool: string;
   /** `Date.now()` on receipt — local time, so the blip's timer ignores clock skew. */
   at: number;

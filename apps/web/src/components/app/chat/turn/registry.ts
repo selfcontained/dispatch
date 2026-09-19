@@ -48,7 +48,7 @@ export function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-/** `mcp__dispatch__dispatch_event` → { name: "dispatch_event", server: "dispatch" }. */
+/** `mcp__dispatch__pin` → { name: "pin", server: "dispatch" }. */
 export function toolName(title: string): { name: string; server?: string } {
   const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(title);
   return m ? { name: m[2], server: m[1] } : { name: title };
@@ -72,7 +72,7 @@ export function hasChildren(step: Step): boolean {
 }
 
 /**
- * Labels of the shortcut pins a turn's dispatch_pin / dispatch_pins calls
+ * Labels of the shortcut pins a turn's pin / pins calls
  * wrote, in call order. The live pin list decides what to show for them.
  */
 export function shortcutLabelsFromSteps(steps: Step[]): string[] {
@@ -89,8 +89,8 @@ export function shortcutLabelsFromSteps(steps: Step[]): string[] {
     const name = stepToolName(step);
     const input = inputRecord(stepDetailData(step).input);
     if (!input) continue;
-    if (name === "dispatch_pin") push(input);
-    else if (name === "dispatch_pins" && Array.isArray(input.pins)) {
+    if (name === "pin") push(input);
+    else if (name === "pins" && Array.isArray(input.pins)) {
       for (const pin of input.pins) push(pin);
     }
   }

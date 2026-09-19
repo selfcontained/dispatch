@@ -639,10 +639,10 @@ function RunScene(): JSX.Element {
                   'git add hello.js NOTES.md && git commit -q -m "Add hello.js and NOTES.md"',
                 ms: 1313,
               },
-              { label: "dispatch_pin Commit", ms: 1312 },
-              { label: "dispatch_share_file NOTES.md", ms: 1682 },
-              { label: "dispatch_pin Preview", ms: 1143 },
-              { label: "dispatch_chat_post (question)", ms: 2260 },
+              { label: "pin Commit", ms: 1312 },
+              { label: "share_file NOTES.md", ms: 1682 },
+              { label: "pin Preview", ms: 1143 },
+              { label: "chat_post (question)", ms: 2260 },
             ]}
           />
         </Blocks>
@@ -759,7 +759,7 @@ function ChatScene(): JSX.Element {
             steps={[
               { label: "ls -a; cat README* 2>/dev/null | head -20", ms: 666 },
               { label: "read README.md", ms: 200 },
-              { label: "dispatch_send_message → startup ui", ms: 1300 },
+              { label: "send_message → startup ui", ms: 1300 },
             ]}
           />
         </Blocks>

@@ -2,14 +2,14 @@
 
 Dispatch exposes a source-controlled model catalog for its Codex and Claude
 launchers in `apps/server/src/shared/agent-models.ts`. The catalog is
-the allowlist used by the create-agent API and `dispatch_launch_agent` MCP tool.
+the allowlist used by the create-agent API and `launch_agent` MCP tool.
 Omitting a model uses the CLI default. Agent types with no catalog entry
 (currently Cursor and OpenCode) hide the model picker entirely and always
 launch with the CLI default.
 
 Agents launching agents over MCP cannot see the catalog any other way, so
 `describeAgentModelCatalog()` renders it into the `model` parameter description
-of `dispatch_launch_agent`, `dispatch_launch_persona`, `create_job`,
+of `launch_agent`, `launch_persona`, `create_job`,
 `update_job`, `create_template`, and `update_template`. That text is derived
 from the catalog — editing the catalog updates it, no separate step.
 

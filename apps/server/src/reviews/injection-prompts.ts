@@ -8,9 +8,9 @@ export function buildPersonaKickoffPrompt(): string {
   return buildReviewPromptBlock("REVIEW ASSIGNMENT", [
     "Begin your review now. Your persona instructions, the parent's context briefing, and the diff to review are already loaded into your context.",
     "Inspect the full review target before submitting. Do not use direct agent messages for review discussion.",
-    "When your initial pass is complete, call dispatch_review_submit exactly once with every actionable finding. When feedback items carry the review, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; do not repeat feedback-item details. A concise nonblank summary is required for a clean approval with an empty feedback array.",
-    "After submission, use dispatch_review_add_message for clarifying questions or replies on an existing feedback item. Use dispatch_review_add_feedback only for a genuinely new concern.",
-    "After dispatch_review_submit, later thread activity arrives as a new review block; handle it in the tracked feedback thread.",
+    "When your initial pass is complete, call review_submit exactly once with every actionable finding. When feedback items carry the review, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; do not repeat feedback-item details. A concise nonblank summary is required for a clean approval with an empty feedback array.",
+    "After submission, use review_add_message for clarifying questions or replies on an existing feedback item. Use review_add_feedback only for a genuinely new concern.",
+    "After review_submit, later thread activity arrives as a new review block; handle it in the tracked feedback thread.",
   ]);
 }
 
@@ -81,8 +81,8 @@ export function buildReviewSubmittedPrompt(input: {
     }
     lines.push(
       input.reviewerAgentId
-        ? "Call dispatch_review_list_feedback with this reviewId before acting. Use dispatch_review_add_message for questions and explanations. After fixing an item, post a concise message asking the reviewer to verify the fix; do not resolve persona-review feedback yourself. The reviewer will re-inspect the fix and resolve the item if complete, or leave it open and reply with further instructions. Keep all review discussion in its feedback-item thread."
-        : "Call dispatch_review_list_feedback with this reviewId before acting. Use dispatch_review_add_message for questions or explanations, dispatch_review_resolve when an item is fixed or dismissed, and dispatch_review_reopen if a resolved item needs more work. Keep all review discussion in its feedback-item thread."
+        ? "Call review_list_feedback with this reviewId before acting. Use review_add_message for questions and explanations. After fixing an item, post a concise message asking the reviewer to verify the fix; do not resolve persona-review feedback yourself. The reviewer will re-inspect the fix and resolve the item if complete, or leave it open and reply with further instructions. Keep all review discussion in its feedback-item thread."
+        : "Call review_list_feedback with this reviewId before acting. Use review_add_message for questions or explanations, review_resolve when an item is fixed or dismissed, and review_reopen if a resolved item needs more work. Keep all review discussion in its feedback-item thread."
     );
   }
   return buildReviewPromptBlock("REVIEW SUBMITTED", lines);
@@ -99,7 +99,7 @@ export function buildReviewFeedbackAddedPrompt(input: {
     `Feedback item ID: ${input.itemId}`,
     `From: ${input.reviewerName}`,
     `Finding: ${input.body}`,
-    "Call dispatch_review_list_feedback with this reviewId to refresh the review. Keep questions and explanations in this item's thread.",
+    "Call review_list_feedback with this reviewId to refresh the review. Keep questions and explanations in this item's thread.",
   ]);
 }
 
@@ -112,14 +112,14 @@ export function buildReviewThreadUpdatePrompt(input: {
 }): string {
   const nextStep =
     input.recipient === "reviewer"
-      ? "Re-inspect the claimed fix before deciding. If it fully addresses this item, call dispatch_review_resolve with resolution 'fixed'. If it is incomplete, leave the item open and reply with specific instructions using dispatch_review_add_message. Do not resolve based only on the assignee's claim."
-      : "Address any requested work, then use dispatch_review_add_message to ask the reviewer to verify the fix. Do not resolve persona-review feedback yourself.";
+      ? "Re-inspect the claimed fix before deciding. If it fully addresses this item, call review_resolve with resolution 'fixed'. If it is incomplete, leave the item open and reply with specific instructions using review_add_message. Do not resolve based only on the assignee's claim."
+      : "Address any requested work, then use review_add_message to ask the reviewer to verify the fix. Do not resolve persona-review feedback yourself.";
   return buildReviewPromptBlock("REVIEW THREAD UPDATE", [
     `Review ID: ${input.reviewId}`,
     `Feedback item ID: ${input.itemId}`,
     `From: ${input.from}`,
     `Message: ${input.body}`,
-    `Call dispatch_review_list_feedback with this reviewId for full context. ${nextStep} Do not move review discussion to direct agent messages.`,
+    `Call review_list_feedback with this reviewId for full context. ${nextStep} Do not move review discussion to direct agent messages.`,
   ]);
 }
 
@@ -141,7 +141,7 @@ export function buildReviewItemStatePrompt(input: {
   ];
   if (input.note) lines.push(`Message: ${input.note}`);
   lines.push(
-    "Call dispatch_review_list_feedback with this reviewId for the current thread. Use dispatch_review_add_message if clarification is needed."
+    "Call review_list_feedback with this reviewId for the current thread. Use review_add_message if clarification is needed."
   );
   return buildReviewPromptBlock(kind, lines);
 }
@@ -149,7 +149,7 @@ export function buildReviewItemStatePrompt(input: {
 /**
  * Build the single prompt injected into the author agent when a review is
  * launched from the UI. One request can select several personas; the agent
- * still calls dispatch_launch_persona once per persona so it can tailor each
+ * still calls launch_persona once per persona so it can tailor each
  * briefing, so the prompt has to make the "one call each" expectation explicit
  * and keep the end-of-turn instruction from cutting the sequence short.
  */
@@ -171,8 +171,8 @@ export function buildLaunchReviewPrompt({
   const authorNote = sanitizeLaunchReviewNote(note);
   return [
     multiple
-      ? `Use the dispatch_launch_persona MCP tool to launch all ${personas.length} of these personas on your current work: ${personaList}. Call the tool once per persona — one launch each, in that order — before ending your turn.`
-      : `Use the dispatch_launch_persona MCP tool to launch the ${personaList} persona on your current work.`,
+      ? `Use the launch_persona MCP tool to launch all ${personas.length} of these personas on your current work: ${personaList}. Call the tool once per persona — one launch each, in that order — before ending your turn.`
+      : `Use the launch_persona MCP tool to launch the ${personaList} persona on your current work.`,
     model
       ? `Use agentType: "${agentType}", model: "${model}", and includeDiff: ${includeDiff ? "true" : "false"}.`
       : `Use agentType: "${agentType}" and includeDiff: ${includeDiff ? "true" : "false"}.`,
@@ -180,7 +180,7 @@ export function buildLaunchReviewPrompt({
     multiple
       ? "After the last launch, do not poll, sleep, call list_agents, or schedule a wakeup."
       : "After launch, do not poll, sleep, call list_agents, or schedule a wakeup.",
-    "End the turn and wait for Dispatch to inject the structured REVIEW SUBMITTED prompt. Keep all review discussion in feedback-item threads with the dispatch_review_* tools. After fixing an item, ask the reviewer to verify it instead of resolving it yourself.",
+    "End the turn and wait for Dispatch to inject the structured REVIEW SUBMITTED prompt. Keep all review discussion in feedback-item threads with the review_* tools. After fixing an item, ask the reviewer to verify it instead of resolving it yourself.",
     multiple
       ? "Give each persona its own detailed context briefing covering what you built, key files changed, and any areas that need extra attention — tailor each briefing to what that persona reviews."
       : "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",

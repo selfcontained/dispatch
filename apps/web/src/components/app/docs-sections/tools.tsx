@@ -153,8 +153,8 @@ export function ToolsContent() {
           Dispatch also provides built-in tools that are always available,
           regardless of repo configuration. Standard agents see the set below.
           Persona reviewers and scheduled jobs get tailored subsets — for
-          example, review agents get <Code>dispatch_review_submit</Code> and{" "}
-          <Code>dispatch_review_add_feedback</Code>, and jobs get{" "}
+          example, review agents get <Code>review_submit</Code> and{" "}
+          <Code>review_add_feedback</Code>, and jobs get{" "}
           <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
           <Code>job_needs_input</Code>, and <Code>job_log</Code>.
         </P>
@@ -166,73 +166,65 @@ export function ToolsContent() {
             <Code>get_pr_status</Code> — check CI status on a pull request
           </li>
           <li>
-            <Code>dispatch_event</Code> — report agent status (working, blocked,
-            waiting_user, done, idle)
+            <Code>rename_session</Code> — rename the current agent session
           </li>
           <li>
-            <Code>dispatch_rename_session</Code> — rename the current agent
-            session
+            <Code>notify</Code> — send a Slack notification (rate limited,
+            supports mrkdwn)
           </li>
           <li>
-            <Code>dispatch_notify</Code> — send a Slack notification (rate
-            limited, supports mrkdwn)
-          </li>
-          <li>
-            <Code>dispatch_pin</Code> — pin a label/value pair to the sidebar
-            (URLs, ports, filenames, PRs, markdown summaries), or a{" "}
+            <Code>pin</Code> — pin a label/value pair to the sidebar (URLs,
+            ports, filenames, PRs, markdown summaries), or a{" "}
             <Code>shortcut</Code> button that injects a prompt into the agent’s
             session when clicked. Setting the same label again updates that pin;
             passing an <Code>id</Code> instead matches by id, so a rename is a
             single-field edit
           </li>
           <li>
-            <Code>dispatch_pins</Code> — write up to 50 pins in one atomic call.{" "}
+            <Code>pins</Code> — write up to 50 pins in one atomic call.{" "}
             <Code>merge</Code> (the default) leaves unmentioned pins alone;{" "}
             <Code>replace</Code> requires a <Code>group</Code> and rebuilds
             exactly that group in the order given, never touching anything
             outside it
           </li>
           <li>
-            <Code>dispatch_share_file</Code> — publish a screenshot, image,
-            video, or text snippet to the session's media stream
+            <Code>share_file</Code> — publish a screenshot, image, video, or
+            text snippet to the session's media stream
           </li>
           <li>
-            <Code>dispatch_list_media</Code> — list media shared with or by the
-            current agent, or by its parent or a direct child via{" "}
+            <Code>list_media</Code> — list media shared with or by the current
+            agent, or by its parent or a direct child via{" "}
             <Code>ownerAgentId</Code>
           </li>
           <li>
-            <Code>dispatch_delete_media</Code> — permanently remove a shared
-            media file by its listed file name
+            <Code>delete_media</Code> — permanently remove a shared media file
+            by its listed file name
           </li>
           <li>
-            <Code>dispatch_list_pins</Code> — list the current sidebar pins with
-            their stable IDs; long values are truncated in the listing, so pass
-            an <Code>id</Code> to read one pin back whole. Takes{" "}
+            <Code>list_pins</Code> — list the current sidebar pins with their
+            stable IDs; long values are truncated in the listing, so pass an{" "}
+            <Code>id</Code> to read one pin back whole. Takes{" "}
             <Code>ownerAgentId</Code> to read a parent&apos;s or direct
             child&apos;s pins
           </li>
           <li>
-            <Code>dispatch_delete_pin</Code> — permanently remove pins by{" "}
-            <Code>id</Code>, by a list of <Code>ids</Code>, or by clearing a
-            whole <Code>group</Code>
+            <Code>delete_pin</Code> — permanently remove pins by <Code>id</Code>
+            , by a list of <Code>ids</Code>, or by clearing a whole{" "}
+            <Code>group</Code>
           </li>
           <li>
-            <Code>dispatch_surface_create</Code>,{" "}
-            <Code>dispatch_surface_update</Code>,{" "}
-            <Code>dispatch_surface_list</Code>,{" "}
-            <Code>dispatch_surface_get</Code>,{" "}
-            <Code>dispatch_surface_delete</Code>,{" "}
-            <Code>dispatch_surface_reorder</Code> — author a custom sidebar tab
-            (up to 8 per agent) built from status, progress, list, table,
-            actions, form, and section blocks (see the Agent Surfaces section);
-            available to standard agents, jobs, and persona reviewers alike
+            <Code>surface_create</Code>, <Code>surface_update</Code>,{" "}
+            <Code>surface_list</Code>, <Code>surface_get</Code>,{" "}
+            <Code>surface_delete</Code>, <Code>surface_reorder</Code> — author a
+            custom sidebar tab (up to 8 per agent) built from status, progress,
+            list, table, actions, form, and section blocks (see the Agent
+            Surfaces section); available to standard agents, jobs, and persona
+            reviewers alike
           </li>
           <li>
-            <Code>dispatch_surface_interactions</Code>,{" "}
-            <Code>dispatch_surface_claim</Code>,{" "}
-            <Code>dispatch_surface_resolve</Code> — read, claim, and resolve the
-            durable interactions a surface's actions and forms produce
+            <Code>surface_interactions</Code>, <Code>surface_claim</Code>,{" "}
+            <Code>surface_resolve</Code> — read, claim, and resolve the durable
+            interactions a surface's actions and forms produce
           </li>
           <li>
             <Code>list_personas</Code> — list persona reviewers defined for the
@@ -245,55 +237,55 @@ export function ToolsContent() {
             Reviewers section)
           </li>
           <li>
-            <Code>dispatch_launch_persona</Code> — launch a persona agent as a
-            child of the current session, optionally pinned to a model from the
-            curated catalog
+            <Code>launch_persona</Code> — launch a persona agent as a child of
+            the current session, optionally pinned to a model from the curated
+            catalog
           </li>
           <li>
-            <Code>dispatch_review_submit</Code> and{" "}
-            <Code>dispatch_review_add_feedback</Code> — reviewer-agent tools to
-            create a summarized review and add a genuinely new concern
+            <Code>review_submit</Code> and <Code>review_add_feedback</Code> —
+            reviewer-agent tools to create a summarized review and add a
+            genuinely new concern
           </li>
           <li>
-            <Code>dispatch_review_list_feedback</Code> — list review feedback
-            items with their file locations, status, and message counts
+            <Code>review_list_feedback</Code> — list review feedback items with
+            their file locations, status, and message counts
           </li>
           <li>
-            <Code>dispatch_review_get_feedback</Code> — read one feedback item
-            in full, including its message thread and the diff hunk captured
-            when it was filed
+            <Code>review_get_feedback</Code> — read one feedback item in full,
+            including its message thread and the diff hunk captured when it was
+            filed
           </li>
           <li>
-            <Code>dispatch_review_resolve</Code> — resolve a review feedback
-            item as fixed or dismissed; persona reviewers use it after verifying
-            the parent's fix
+            <Code>review_resolve</Code> — resolve a review feedback item as
+            fixed or dismissed; persona reviewers use it after verifying the
+            parent's fix
           </li>
           <li>
-            <Code>dispatch_review_add_message</Code> — reply to a review
-            feedback thread (ask a clarifying question or explain an approach)
+            <Code>review_add_message</Code> — reply to a review feedback thread
+            (ask a clarifying question or explain an approach)
           </li>
           <li>
-            <Code>dispatch_review_reopen</Code> — reopen a resolved item that
-            needs more work
+            <Code>review_reopen</Code> — reopen a resolved item that needs more
+            work
           </li>
           <li>
-            <Code>dispatch_launch_agent</Code> — launch a new agent as a child
-            of the current session with a name, prompt, and optional agent type,
-            model, working directory, worktree settings, full access mode, or
-            template. Pass <Code>child: false</Code> to launch it outside the
-            caller's lineage as a top-level agent instead. With a{" "}
-            <Code>templateId</Code>, the template's own prompt is rendered and
-            its placeholders fill from <Code>templateArgs</Code> (the names come
-            back from <Code>list_templates</Code> / <Code>get_template</Code> as{" "}
+            <Code>launch_agent</Code> — launch a new agent as a child of the
+            current session with a name, prompt, and optional agent type, model,
+            working directory, worktree settings, full access mode, or template.
+            Pass <Code>child: false</Code> to launch it outside the caller's
+            lineage as a top-level agent instead. With a <Code>templateId</Code>
+            , the template's own prompt is rendered and its placeholders fill
+            from <Code>templateArgs</Code> (the names come back from{" "}
+            <Code>list_templates</Code> / <Code>get_template</Code> as{" "}
             <Code>promptArgs</Code>); anything left in the caller's prompt
             follows the rendered template
           </li>
           <li>
-            <Code>dispatch_archive_agent</Code> — archive an agent this session
-            launched, once its output has been consumed, or the session itself
-            by passing its own agent ID; optionally keeping or force-removing
-            the worktree. A session archiving itself stops a moment after the
-            call returns, so it belongs last in a turn
+            <Code>archive_agent</Code> — archive an agent this session launched,
+            once its output has been consumed, or the session itself by passing
+            its own agent ID; optionally keeping or force-removing the worktree.
+            A session archiving itself stops a moment after the call returns, so
+            it belongs last in a turn
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
@@ -303,10 +295,10 @@ export function ToolsContent() {
             is not the parent
           </li>
           <li>
-            <Code>dispatch_send_message</Code> — send a message to another
-            running agent by ID or name; the target can reply the same way. The
-            call returns once the message is queued for the target's terminal,
-            not once it has been typed in
+            <Code>send_message</Code> — send a message to another running agent
+            by ID or name; the target can reply the same way. The call returns
+            once the message is queued for the target's terminal, not once it
+            has been typed in
           </li>
           <li>
             <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
@@ -363,15 +355,14 @@ export function ToolsContent() {
           always an explicit way to read one entry in full: either a matching
           single-item tool (<Code>get_template</Code>,{" "}
           <Code>brain_get_object</Code>, <Code>brain_get_event</Code>,{" "}
-          <Code>brain_get_list_item</Code>,{" "}
-          <Code>dispatch_review_get_feedback</Code>) or an id on the list tool
-          itself (<Code>dispatch_list_pins</Code>). Writes confirm what changed
-          rather than echoing back the record.
+          <Code>brain_get_list_item</Code>, <Code>review_get_feedback</Code>) or
+          an id on the list tool itself (<Code>list_pins</Code>). Writes confirm
+          what changed rather than echoing back the record.
         </P>
         <P>
-          By default, <Code>list_agents</Code> and{" "}
-          <Code>dispatch_send_message</Code> only see agents in the same git
-          repository. To let agents coordinate across repos, enable{" "}
+          By default, <Code>list_agents</Code> and <Code>send_message</Code>{" "}
+          only see agents in the same git repository. To let agents coordinate
+          across repos, enable{" "}
           <strong>Allow messaging agents in other repositories</strong> in{" "}
           <strong>Settings → Agents</strong>.
         </P>
@@ -413,22 +404,22 @@ export function ToolsContent() {
       <Section>
         <H3 id="dispatch-launch-agent">Agent orchestration</H3>
         <P>
-          Agents can spawn other agents using <Code>dispatch_launch_agent</Code>
-          . The launched agent runs independently, and by default it is a child
-          of the launcher — nested in that card's <strong>Sub Agents</strong>{" "}
-          list, the same place persona reviewers render. Pass{" "}
-          <Code>child: false</Code> for a top-level agent outside the launcher's
-          lineage; that is the only launch a sub agent itself can make.
-          Archiving the parent cascades to its children — persona reviewers and
-          plain child agents alike. An agent launched with{" "}
-          <Code>child: false</Code> is independent and is left running.
+          Agents can spawn other agents using <Code>launch_agent</Code>. The
+          launched agent runs independently, and by default it is a child of the
+          launcher — nested in that card's <strong>Sub Agents</strong> list, the
+          same place persona reviewers render. Pass <Code>child: false</Code>{" "}
+          for a top-level agent outside the launcher's lineage; that is the only
+          launch a sub agent itself can make. Archiving the parent cascades to
+          its children — persona reviewers and plain child agents alike. An
+          agent launched with <Code>child: false</Code> is independent and is
+          left running.
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}
-          <Code>dispatch_send_message</Code> to coordinate between them.
-          Messages are persisted and visible in the <strong>Messages</strong>{" "}
-          tab of the media sidebar. The launched agent receives the launcher's
-          ID in its startup context so it can message back.
+          <Code>send_message</Code> to coordinate between them. Messages are
+          persisted and visible in the <strong>Messages</strong> tab of the
+          media sidebar. The launched agent receives the launcher's ID in its
+          startup context so it can message back.
         </P>
       </Section>
 

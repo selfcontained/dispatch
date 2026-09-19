@@ -307,9 +307,6 @@ export function assembleTurns(
     // being written now: it reads as a running step, not a finished one.
     const live = group.turn !== null && !settled;
     const newest = group.rows[group.rows.length - 1];
-    // The agent's own account of the turn: dispatch_event messages are
-    // dropped as steps but the last one names what happened. A terminal
-    // event (done, idle, …) wins over the last "working".
     const flat: {
       step: ChatTurnStep;
       key: string | null;

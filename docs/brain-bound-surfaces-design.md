@@ -11,7 +11,7 @@ Agent surfaces are static documents. A surface that mirrors live data — the
 motivating case is the Idea Inbox's "Ideas Kanban" tab mirroring the brain's
 `dispatch-ideas` collection — is a snapshot: every change to the underlying
 data requires the owning agent to wake up and rewrite the whole block list via
-`dispatch_surface_update`. Content drifts whenever the owner isn't running, and
+`surface_update`. Content drifts whenever the owner isn't running, and
 writes from _other_ agents to the same brain collection never reach the surface
 at all.
 
@@ -89,7 +89,7 @@ the server must run the transform anyway for three consumers:
 - **Interaction validation** — a click on a bound item must be validated
   against the hydrated document; the client cannot be trusted to assert which
   ids exist.
-- **Non-owner/agent readers** — `dispatch_surface_get` on a child's surface
+- **Non-owner/agent readers** — `surface_get` on a child's surface
   should show what the user sees.
 - **Freeze snapshots** (below).
 
@@ -100,7 +100,7 @@ normalization is server-side knowledge (`git-common-dir`).
 ### 3. Ownership: the owner authors the spec, never the bound content
 
 Bound content is a read-time view. Brain data changing does not touch the
-surface revision; `dispatch_surface_update`'s whole-document replace +
+surface revision; `surface_update`'s whole-document replace +
 `expectedRevision` works unchanged. Because bound content never enters the
 revision stream, a user acting on a live board never hits spurious
 "surface changed, reload" conflicts — `baseRevision` only trips on actual
@@ -109,7 +109,7 @@ spec edits.
 ### 4. Read-path rule: owners read the template; renderers read the hydration
 
 The owner's edit loop (`get` → modify → `update`) must be read-your-writes on
-the _authored spec_: `dispatch_surface_get`/`list` for the owner return the
+the _authored spec_: `surface_get`/`list` for the owner return the
 stored template — the thing `revision` refers to and the only thing `update`
 accepts. Otherwise the natural get→edit→update cycle would round-trip
 _hydrated_ content back in as authored spec, silently destroying the binding.

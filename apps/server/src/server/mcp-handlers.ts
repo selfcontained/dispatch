@@ -84,18 +84,18 @@ function buildLaunchedAgentInitialPrompt(
 ): string {
   const header = child
     ? [
-        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent.`,
-        "Use that parent agent ID when coordinating back with dispatch_send_message.",
+        `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent.`,
+        "Use that parent agent ID when coordinating back with send_message.",
         // Stated up front because the tool call fails at the point of use
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
-          "If you need to hand work off, launch an independent agent with dispatch_launch_agent's `child: false`.",
-        "Your parent's pins and media are readable: pass its id as ownerAgentId to dispatch_list_pins or " +
-          "dispatch_list_media. A dev-stack URL or PR link it pinned is there without asking for it.",
+          "If you need to hand work off, launch an independent agent with launch_agent's `child: false`.",
+        "Your parent's pins and media are readable: pass its id as ownerAgentId to list_pins or " +
+          "list_media. A dev-stack URL or PR link it pinned is there without asking for it.",
       ]
     : [
-        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent as an independent agent — you are not its child.`,
-        "Use that agent ID when coordinating back with dispatch_send_message.",
+        `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent as an independent agent — you are not its child.`,
+        "Use that agent ID when coordinating back with send_message.",
       ];
   return [...header, "", prompt].join("\n");
 }
@@ -115,7 +115,7 @@ type CreateMcpHandlersDeps = {
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
   /**
-   * Enqueue-and-settle delivery for dispatch_send_message: the row records
+   * Enqueue-and-settle delivery for send_message: the row records
    * the real outcome once the pane write completes instead of "enqueued".
    */
   enqueueAgentPrompt: EnqueueAgentPrompt;
@@ -156,7 +156,7 @@ export function mcpMethodNotAllowed(): {
 }
 
 /**
- * The set of agents a sender may address via dispatch_send_message and
+ * The set of agents a sender may address via send_message and
  * list_agents: every other agent (self excluded), scoped to the sender's git
  * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
  * relationships always bypass repo-root scoping so spawned agents can
@@ -263,7 +263,7 @@ type PinInput = {
  * Narrow one pin spec to a storable shape.
  *
  * Shared by the single and batch write paths so a pin the batch tool accepts
- * is exactly a pin `dispatch_pin` would have accepted — a batch must not
+ * is exactly a pin `pin` would have accepted — a batch must not
  * become a way to smuggle in a shape the single-pin validator rejects.
  *
  * An omitted `type` stays omitted rather than defaulting: the write layer
@@ -356,7 +356,7 @@ async function handleUpsertPins(
   });
   // A thin projection, not the full listing: the point of the echo is to show
   // what the batch produced and in what order, and 50 pins' worth of values
-  // (2000 chars each) would dwarf that. dispatch_list_pins serves full state.
+  // (2000 chars each) would dwarf that. list_pins serves full state.
   return (agent.pins ?? []).map(toPinSummary);
 }
 
@@ -692,7 +692,7 @@ async function handleArchiveAgent(
     target.launchedByAgentId !== agentId
   ) {
     throw new AgentError(
-      "You can only archive yourself or an agent you launched via dispatch_launch_agent or dispatch_launch_persona.",
+      "You can only archive yourself or an agent you launched via launch_agent or launch_persona.",
       403
     );
   }
@@ -944,7 +944,7 @@ async function handleSendMessage(
       : !recipientInChain && chain.length > 1
         ? `\nProvenance: ${formatDelegationChain(chain, target.id)}.`
         : "";
-  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
+  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
   // Record the message before delivering it: the recipient's turn is
   // anchored the moment the engine accepts the prompt, and the feed orders
@@ -967,7 +967,7 @@ async function handleSendMessage(
     .catch((err) => {
       deps.appLog.error(
         { err, senderId: agentId, targetId: target.id },
-        "dispatch_send_message: failed to persist message"
+        "send_message: failed to persist message"
       );
       return null;
     });
@@ -983,7 +983,7 @@ async function handleSendMessage(
     deliveryError = err;
     deps.appLog.error(
       { err, senderId: agentId, targetId: target.id },
-      "dispatch_send_message: delivery failed"
+      "send_message: delivery failed"
     );
   }
   // Attach the outcome handler at once so a fast rejection can never surface
@@ -994,7 +994,7 @@ async function handleSendMessage(
         (err: unknown) => {
           deps.appLog.warn(
             { err, senderId: agentId, targetId: target.id },
-            "dispatch_send_message: delivery failed — agent may have exited"
+            "send_message: delivery failed — agent may have exited"
           );
           return false;
         }
@@ -1025,7 +1025,7 @@ async function handleSendMessage(
       .catch((err: unknown) => {
         deps.appLog.error(
           { err, senderId: agentId, targetId: target.id },
-          "dispatch_send_message: failed to record delivery outcome"
+          "send_message: failed to record delivery outcome"
         );
       });
   }
@@ -1038,7 +1038,7 @@ async function handleSendMessage(
 
   deps.appLog.info(
     { senderId: agentId, targetId: target.id, held: enqueued.held },
-    "dispatch_send_message: queued for delivery"
+    "send_message: queued for delivery"
   );
   return {
     delivered: true,

@@ -206,7 +206,7 @@ describe("ChatService.prepareLaunchContext", () => {
   });
 
   it("says so in the post when the prompt is longer than a Chat message", async () => {
-    // dispatch_launch_agent accepts 100 000 chars; a Chat row holds 20 000.
+    // launch_agent accepts 100 000 chars; a Chat row holds 20 000.
     // The CLI still gets the whole prompt, so the row has to admit it is
     // showing less rather than quietly disagreeing with it.
     const prompt = "x".repeat(CHAT_MESSAGE_MAX_CHARS + 5_000);
@@ -411,7 +411,7 @@ describe("ChatService.post", () => {
 
   it("stores no dimensions on a file attachment, even for a measured image", async () => {
     // The shape is filled in when the feed is composed, from the live media
-    // row. Freezing it here would let dispatch_share_file replace the bytes
+    // row. Freezing it here would let share_file replace the bytes
     // under an unchanged URL and leave the post reserving the old ratio — a
     // wrong box, where absent merely means the plain one.
     await pool.query(
@@ -434,7 +434,7 @@ describe("ChatService.post", () => {
         text: "see",
         attachments: [{ type: "file", fileName: "never-shared.png" }],
       })
-    ).rejects.toThrow(/Unknown file .* dispatch_share_file/);
+    ).rejects.toThrow(/Unknown file .* share_file/);
     await expect(
       service.post(A, {
         text: "see",
@@ -758,7 +758,7 @@ describe("ChatService user workflows", () => {
         "- pin: URL — http://x",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH CHAT ---",
-        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${res.message.id}").`,
+        `The user is reading Chat; your reply appears there as you write it. Only a question with options needs chat_post (replyTo: "${res.message.id}").`,
       ].join("\n")
     );
   });

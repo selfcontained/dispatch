@@ -15,7 +15,7 @@ import { toToolError } from "./tool-error.js";
 
 /**
  * Annotates a template with the args parsed out of its prompt, so a caller can
- * see what to pass as dispatch_launch_agent's templateArgs without having to
+ * see what to pass as launch_agent's templateArgs without having to
  * recognise `{{D:...}}` syntax in the prompt text itself. Named promptArgs
  * rather than args so it cannot be shadowed by a future column of that name.
  */
@@ -661,7 +661,7 @@ export function registerCrudTools(
       "get_template",
       {
         description:
-          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory. The `promptArgs` field lists the args its prompt expects — pass values for them as dispatch_launch_agent's templateArgs.",
+          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory. The `promptArgs` field lists the args its prompt expects — pass values for them as launch_agent's templateArgs.",
         inputSchema: {
           templateId: z
             .string()

@@ -248,7 +248,7 @@ export function ChatPane({
   const visibleEntries = useMemo(
     () =>
       filterChildAgentMessages(entries, childAgentIdSet, showChildAgents).filter(
-        // Agent-reported status (dispatch_event) is noise in the feed and is
+        // Agent-reported status is noise in the feed and is
         // not dependable; the presence line carries the live status. Only
         // Dispatch's own lifecycle marks (started, stopped, resumed) stay,
         // rendered as hairlines.

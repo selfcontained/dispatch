@@ -254,7 +254,7 @@ describe("useAgentHotkeys", () => {
 
     it("skips plain children, not just review agents", () => {
       // The sidebar renders every child inside its parent's card, so cycling
-      // must skip a child launched by dispatch_launch_agent too.
+      // must skip a child launched by launch_agent too.
       const plainChild = makeAgent("agt_plain_child", {
         parentAgentId: "agt_1",
       });

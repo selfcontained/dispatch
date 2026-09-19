@@ -14,9 +14,9 @@ describe("buildLaunchPersonaResponseText", () => {
 
   it("includes unified review guidance", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain("dispatch_review_submit");
-    expect(text).toContain("dispatch_review_list_feedback");
-    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toContain("review_submit");
+    expect(text).toContain("review_list_feedback");
+    expect(text).toContain("review_resolve");
     expect(text).toMatch(/asking the reviewer to verify/i);
   });
 
@@ -47,7 +47,7 @@ describe("buildLaunchPersonaResponseText", () => {
 
   it("keeps persona feedback open until the reviewer verifies it", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toMatch(/do not call dispatch_review_resolve/i);
+    expect(text).toMatch(/do not call review_resolve/i);
     expect(text).toMatch(/reviewer will re-inspect/i);
   });
 

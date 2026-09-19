@@ -60,7 +60,7 @@ it at the moment of use.
 
 `repo_` prefixing is automatic and keeps repo tools in their own namespace, so a
 repo tool can never shadow a built-in Dispatch tool like `create_pr` or
-`dispatch_event`.
+`notify`.
 
 Scope values Dispatch doesn't recognize are dropped from the array, and a `scope`
 left with nothing recognizable falls back to no scope at all — so a misspelled

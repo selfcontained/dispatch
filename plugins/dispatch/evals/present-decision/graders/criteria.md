@@ -3,7 +3,7 @@ user input belongs in an agent-authored surface.
 
 **Pass criteria:**
 
-1. It calls `dispatch_surface_create`, rather than only describing a possible
+1. It calls `surface_create`, rather than only describing a possible
    surface.
 2. The surface includes a compact comparison of the two rollout plans using a
    table or similarly structured blocks.

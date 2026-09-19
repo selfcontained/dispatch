@@ -34,7 +34,7 @@ export type ChatAttachment =
   | {
       type: "file";
       /**
-       * A file previously shared via dispatch_share_file, referenced by the
+       * A file previously shared via share_file, referenced by the
        * stored `fileName` (or `mediaId`) that tool returned. The server fills
        * these fields from the media row; the agent's local path is never
        * stored.
@@ -99,7 +99,7 @@ export type ChatAnswerRequest = {
 /**
  * An emoji reaction on a Chat message. Each side reacts to the other's
  * posts: the user to the agent's (the reaction is injected into the agent's
- * pane), the agent to the user's via dispatch_chat_react (shown only).
+ * pane), the agent to the user's via chat_react (shown only).
  * Removing a reaction only removes the chip.
  */
 export type ChatReaction = {
@@ -151,7 +151,7 @@ export type ChatMessage = {
   origin?: ChatMessageOrigin;
   /**
    * Launch-context posts only: the agent that created this one via
-   * dispatch_launch_agent, when it was not launched by a person. The web
+   * launch_agent, when it was not launched by a person. The web
    * attributes the post to that agent instead of to "You". Absent otherwise.
    */
   launchedByAgentId?: string;
@@ -173,7 +173,7 @@ export type ChatStatusEntry = {
   at: string;
   /**
    * Written by Dispatch itself (a lifecycle mark: started, stopped, resumed,
-   * a setup phase) rather than reported by the agent through dispatch_event.
+   * a setup phase) rather than reported by the agent.
    */
   system?: boolean;
 };
@@ -195,7 +195,7 @@ export type ChatAgentMessageEntry = {
   at: string;
 };
 
-/** A file the agent shared via dispatch_share_file. */
+/** A file the agent shared via share_file. */
 export type ChatMediaEntry = {
   type: "media";
   id: string;

@@ -315,9 +315,7 @@ describe("StreamRecorder", () => {
     expect(inferToolKind(undefined, "str_replace_editor")).toBe("edit");
     expect(inferToolKind(undefined, "grep")).toBe("search");
     expect(inferToolKind(undefined, "web_fetch")).toBe("fetch");
-    expect(inferToolKind(undefined, "mcp__dispatch__dispatch_notify")).toBe(
-      "other"
-    );
+    expect(inferToolKind(undefined, "mcp__dispatch__notify")).toBe("other");
     expect(inferToolKind("delete", "bash")).toBe("delete");
     expect(inferToolKind("other", "bash")).toBe("execute");
   });

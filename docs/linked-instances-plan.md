@@ -231,10 +231,10 @@ it, like `cwd` or `type`, not a namespace boundary.
 
 - **Global ids, no qualified addressing.** `agt_` ids are `randomUUID()` truncated
   to 12 hex — 48 bits, effectively globally unique. A spoke's ids can be stored
-  verbatim, so `dispatch_send_message` takes a bare id and the host is a lookup,
+  verbatim, so `send_message` takes a bare id and the host is a lookup,
   not part of the name. #978's `inst_x:agt_y` scheme disappears, and with it the
   regex that broke on agent names containing colons.
-- **Host is a placement constraint, not a different API.** `dispatch_launch_agent`
+- **Host is a placement constraint, not a different API.** `launch_agent`
   gains a host parameter the way it has `fullAccess` — one pipeline, one tool. The
   interesting long-term version is capability-based ("needs a GPU", "has the prod
   credentials") rather than name-based.
@@ -360,6 +360,6 @@ is read-only for humans. The terminal is inert by design, but `inject-text`,
 `inject-phrase`, and `inject-pin` all call `getTerminalAccess` and return 409, so
 quick phrases, pin shortcuts, and the mobile keyboard break too; the messages UI
 is read-only with no compose box. The only channel into a remote agent is another
-_agent_ calling `dispatch_send_message`. Nobody chose this — those routes branch on
+_agent_ calling `send_message`. Nobody chose this — those routes branch on
 the mechanism (is there a tmux session?) instead of the capability (can I deliver
 text to this agent?). Moot under the proxy design.

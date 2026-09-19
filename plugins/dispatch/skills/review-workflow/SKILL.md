@@ -11,7 +11,7 @@ Dispatch has its own PR and review path. Two habits it overrides:
    `gh` CLI. `create_pr` is what registers the PR with Dispatch, so it shows up
    in the UI and in review tracking.
 2. **Get reviewed by launching a persona**, not by re-reading your own diff.
-   Reviews launched with `dispatch_launch_persona` come back as structured,
+   Reviews launched with `launch_persona` come back as structured,
    trackable feedback items with their own discussion threads.
 
 ## Opening the PR
@@ -33,7 +33,7 @@ user can reach it from the sidebar.
 
 ```
 list_personas          — what reviewers exist here, with their descriptions
-dispatch_launch_persona persona, context, includeDiff?, agentType?, model?
+launch_persona persona, context, includeDiff?, agentType?, model?
 ```
 
 Call `list_personas` first and **launch one reviewer per distinct scope the
@@ -71,14 +71,14 @@ itself, since it is already in the worktree.
 ## Working the feedback
 
 ```
-dispatch_review_list_feedback  reviewId? — item ids, locations, status
-dispatch_review_get_feedback   id — full thread plus the captured diff hunk
-dispatch_review_add_message    id, message — reply in the item's thread
-dispatch_review_resolve        id — reviewer-side: mark fixed or dismissed
-dispatch_review_reopen         id — more work or discussion needed
+review_list_feedback  reviewId? — item ids, locations, status
+review_get_feedback   id — full thread plus the captured diff hunk
+review_add_message    id, message — reply in the item's thread
+review_resolve        id — reviewer-side: mark fixed or dismissed
+review_reopen         id — more work or discussion needed
 ```
 
-`dispatch_review_list_feedback` finds items; `dispatch_review_get_feedback` gives
+`review_list_feedback` finds items; `review_get_feedback` gives
 you the one you are about to work, including the diff hunk captured when it was
 filed.
 
@@ -87,7 +87,7 @@ listening, and it keeps the finding, the fix, and the verification attached to
 each other.
 
 **After fixing an item, ask the reviewer to verify it — do not resolve it
-yourself.** Post a short `dispatch_review_add_message` saying what you changed;
+yourself.** Post a short `review_add_message` saying what you changed;
 the reviewer re-inspects and resolves, or replies with what is still missing.
 Replies are capped around 600 characters: state the decision or result, and skip
 restating the feedback or narrating the work.
@@ -115,5 +115,5 @@ until every submitted review is resolved.
 
 ## Cleaning up
 
-Once a reviewer's output is consumed, `dispatch_archive_agent` retires it. See
+Once a reviewer's output is consumed, `archive_agent` retires it. See
 the `subagents` skill.

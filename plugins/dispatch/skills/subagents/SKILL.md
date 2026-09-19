@@ -24,7 +24,7 @@ For _review_ specifically, launch a persona rather than a plain agent — see th
 ## Launching
 
 ```
-dispatch_launch_agent  prompt, ... (see the tool schema for the full option set)
+launch_agent  prompt, ... (see the tool schema for the full option set)
 ```
 
 The prompt is the child's entire world. Write it as a standalone briefing:
@@ -56,7 +56,7 @@ one.
 list_agents           — who exists, their IDs, names, statuses, latest activity,
                         plus parentAgentId and relation (child, descendant, …),
                         and launchedByAgentId when that is not the parent
-dispatch_send_message target, message
+send_message target, message
 ```
 
 The list is not flat. Each entry names the agent it is a child of, so a
@@ -71,7 +71,7 @@ Lineage is keyed by agent ID. Agents rename themselves as their work shifts, so
 a name is a label for reading, not a handle for remembering — build the tree
 from `parentAgentId`, and hold on to the ID of anyone you plan to contact later.
 
-`dispatch_send_message` injects a message directly into the target's session, and
+`send_message` injects a message directly into the target's session, and
 it can reply the same way. `target` accepts an agent ID (`agt_…`) or a name, which
 is fuzzy-matched. A remembered name can drift onto a different agent or match
 nothing at all, so prefer the ID whenever you have it. **It only works for agents
@@ -83,9 +83,9 @@ start and an end does not want twelve interim pings; fold the detail into the
 final report.
 
 Artifacts do not travel by message. A child's shared media and pins are readable
-from the parent with `ownerAgentId` on `dispatch_list_media` / `dispatch_list_pins`,
+from the parent with `ownerAgentId` on `list_media` / `list_pins`,
 and the parent's are readable from the child the same way — so a child shares a
-screenshot with `dispatch_share_file` and says so, rather than pasting the path,
+screenshot with `share_file` and says so, rather than pasting the path,
 and reads the parent's pinned dev URL rather than asking for it. The user sees a
 child's media and pins grouped under the parent's card already; re-sharing them
 from the parent only duplicates the file.
@@ -97,7 +97,7 @@ skill.
 ## Cleaning up
 
 ```
-dispatch_archive_agent  agentId
+archive_agent  agentId
 ```
 
 Archive a child once you have consumed its output. This is scoped to agents you

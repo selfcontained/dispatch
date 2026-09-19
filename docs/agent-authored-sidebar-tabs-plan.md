@@ -245,13 +245,13 @@ A title and description on every block provides enough visual grouping for V1. I
 ## Authoring tools
 
 ```ts
-dispatch_surface_create({
+surface_create({
   title,
   icon?,
   blocks
 }) -> { tabId, revision }
 
-dispatch_surface_update({
+surface_update({
   tabId,
   expectedRevision,
   title?,
@@ -264,12 +264,12 @@ dispatch_surface_update({
   }
 }) -> { revision }
 
-dispatch_surface_list({ ownerAgentId? }) -> tab summaries
-dispatch_surface_get({ tabId }) -> tab plus unresolved-interaction count
-dispatch_surface_delete({ tabId, expectedRevision, force? })
+surface_list({ ownerAgentId? }) -> tab summaries
+surface_get({ tabId }) -> tab plus unresolved-interaction count
+surface_delete({ tabId, expectedRevision, force? })
 ```
 
-V1 uses whole-document replacement, not JSON Patch. Documents are tightly capped, and one `expectedRevision` is easier for an agent to reason about than paths inside a mutable tree. `dispatch_surface_update` may atomically change the document and resolve one interaction.
+V1 uses whole-document replacement, not JSON Patch. Documents are tightly capped, and one `expectedRevision` is easier for an agent to reason about than paths inside a mutable tree. `surface_update` may atomically change the document and resolve one interaction.
 
 ## Drafts and persisted input
 
@@ -347,9 +347,9 @@ Delivery behavior:
 Receiving tools:
 
 ```ts
-dispatch_surface_interactions({ tabId?, status?, limit? })
-dispatch_surface_claim({ ids })
-dispatch_surface_resolve({
+surface_interactions({ tabId?, status?, limit? })
+surface_claim({ ids })
+surface_resolve({
   id,
   outcome: "completed" | "rejected",
   message?
@@ -373,7 +373,7 @@ This is an inbox model, not RPC. Nothing depends on a three-second agent acknowl
 
 ## Pins and system tabs
 
-Pins remains a fixed permanent system tab. `dispatch_pin` and `dispatch_pins` continue writing only to Pins. Custom tabs use `dispatch_surface_*`. Storage and API contracts stay separate, though rendering and validation helpers may be reused internally.
+Pins remains a fixed permanent system tab. `pin` and `pins` continue writing only to Pins. Custom tabs use `surface_*`. Storage and API contracts stay separate, though rendering and validation helpers may be reused internally.
 
 Media, Reviews, and Messages also remain system-owned. System tabs cannot be renamed or deleted; custom tabs can be hidden and reordered by the user.
 

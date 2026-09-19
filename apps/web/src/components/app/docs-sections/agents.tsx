@@ -230,7 +230,7 @@ export function AgentsContent() {
           <strong>Submit review</strong> button. Keep adding draft comments
           across different files, then submit them all at once with an optional
           summary. Each comment becomes a feedback item the agent can see via
-          its <Code>dispatch_review_list_feedback</Code> tool.
+          its <Code>review_list_feedback</Code> tool.
         </P>
         <P>
           Feedback threads are interactive from both sides. The agent can reply,
@@ -361,10 +361,10 @@ export function AgentsContent() {
           <Code>agent-&lt;last6&gt;</Code>). The first time the agent
           transitions into a working state, Dispatch automatically sends a
           prompt asking it to set a descriptive session name via the{" "}
-          <Code>dispatch_rename_session</Code> tool. You can also trigger this
-          manually by clicking the <strong>Tag</strong> icon that appears next
-          to a running agent that still has a default name. Terminal agents,
-          persona agents, and job agents are excluded from both paths.
+          <Code>rename_session</Code> tool. You can also trigger this manually
+          by clicking the <strong>Tag</strong> icon that appears next to a
+          running agent that still has a default name. Terminal agents, persona
+          agents, and job agents are excluded from both paths.
         </P>
         <P>
           To rename any agent yourself, expand its sidebar card and click the
@@ -392,17 +392,17 @@ export function AgentsContent() {
       <Section>
         <H3 id="sub-agents">Agent orchestration</H3>
         <P>
-          Agents can launch other agents using the{" "}
-          <Code>dispatch_launch_agent</Code> tool. By default the new agent is a
-          child of the one that launched it: it inherits the parent's working
-          directory and full-access mode, and renders as a row in the{" "}
-          <strong>Sub Agents</strong> list inside the parent's expanded card
-          rather than as a card of its own. Persona reviewers appear in the same
-          list, marked with a clipboard icon that turns into a green checkmark
-          once its review is submitted — click it to open the review directly.
-          Passing <Code>child: false</Code> launches an independent agent
-          instead — it gets its own top-level card, but Dispatch still records
-          who launched it, so the launcher can message and archive it.
+          Agents can launch other agents using the <Code>launch_agent</Code>{" "}
+          tool. By default the new agent is a child of the one that launched it:
+          it inherits the parent's working directory and full-access mode, and
+          renders as a row in the <strong>Sub Agents</strong> list inside the
+          parent's expanded card rather than as a card of its own. Persona
+          reviewers appear in the same list, marked with a clipboard icon that
+          turns into a green checkmark once its review is submitted — click it
+          to open the review directly. Passing <Code>child: false</Code>{" "}
+          launches an independent agent instead — it gets its own top-level
+          card, but Dispatch still records who launched it, so the launcher can
+          message and archive it.
         </P>
         <P>
           Nesting stops at one level: a sub agent can only launch independent
@@ -417,16 +417,16 @@ export function AgentsContent() {
         </P>
         <P>
           Each child is told which agent launched it and can coordinate back
-          using <Code>dispatch_send_message</Code>. Messages are persisted and
-          visible in the <strong>Messages</strong> tab of the media sidebar,
-          grouped by conversation partner.
+          using <Code>send_message</Code>. Messages are persisted and visible in
+          the <strong>Messages</strong> tab of the media sidebar, grouped by
+          conversation partner.
         </P>
         <P>
           Archiving a parent does not archive its launched children — they keep
           running and are promoted to their own top-level cards. This differs
           from persona reviewers, which are always archived alongside their
           parent. An agent can also retire itself once its work is reported, by
-          calling <Code>dispatch_archive_agent</Code> with its own ID.
+          calling <Code>archive_agent</Code> with its own ID.
         </P>
       </Section>
     </>

@@ -1,9 +1,9 @@
 /**
  * Integration tests for human review feedback operations:
  * - Creating reviews with feedback items
- * - Resolving feedback items (dispatch_review_resolve)
- * - Adding thread messages (dispatch_review_add_message)
- * - Listing feedback items (dispatch_review_list_feedback)
+ * - Resolving feedback items (review_resolve)
+ * - Adding thread messages (review_add_message)
+ * - Listing feedback items (review_list_feedback)
  * - Ownership checks (agent_id and assigned_agent_id)
  */
 import { beforeEach, describe, expect, it } from "vitest";

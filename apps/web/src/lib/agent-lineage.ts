@@ -12,12 +12,12 @@
  * The sidebar card an agent renders in, or its own id when it owns a card.
  *
  * Every agent with a parent renders as a row in the Sub Agents section of a
- * card — review agents from dispatch_launch_persona and plain children from
- * dispatch_launch_agent alike. Agents launched with `child: false` carry no
+ * card — review agents from launch_persona and plain children from
+ * launch_agent alike. Agents launched with `child: false` carry no
  * parent and own a card.
  *
  * The walk goes all the way to the root rather than stopping at the direct
- * parent. dispatch_launch_agent now caps new trees at one level of children,
+ * parent. launch_agent now caps new trees at one level of children,
  * but trees launched before that cap exist, and a sub agent row cannot host
  * rows of its own — so a grandchild resolved to its direct parent would render
  * nowhere at all. Resolving to the root flattens any depth into one list.

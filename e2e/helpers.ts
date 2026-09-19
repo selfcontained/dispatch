@@ -258,7 +258,7 @@ export async function setAgentRoleViaDB(
 
 /**
  * Seed a row directly into `agent_messages`, bypassing the real
- * dispatch_send_message path (which requires two running agents and cannot
+ * send_message path (which requires two running agents and cannot
  * run in the inert-runtime E2E stack). `agent_messages` has no FK
  * constraints, so the "other" participant id can be any string.
  */

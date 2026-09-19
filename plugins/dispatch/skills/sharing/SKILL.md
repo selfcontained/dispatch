@@ -6,13 +6,9 @@ description: Give the user a file, screenshot, log, or snippet they can actually
 # Sharing artifacts with the user
 
 When you produce something the user should see — a screenshot, a diff, a
-generated config, a log excerpt, a report — hand it over with `dispatch_share_file`.
+generated config, a log excerpt, a report — hand it over with `share_file`.
 It uploads the artifact into the Dispatch session, where it renders inline and
 stays attached to the conversation.
-
-If `dispatch_share_file` is not in your tool list, you are talking to a Dispatch
-server from before the rename — the same tool is registered there as
-`dispatch_share`, and everything below applies unchanged.
 
 **The failure this prevents:** writing the file to `/tmp` and pasting the path.
 That path is meaningless to a user reading the session in a browser, on a phone,
@@ -24,14 +20,14 @@ not a deliverable.
 **Share a file that already exists:**
 
 ```
-dispatch_share_file  filePath: "/tmp/login-flow.png",
+share_file  filePath: "/tmp/login-flow.png",
                      description: "Login flow after the redirect fix"
 ```
 
 **Share text you are generating right now** — no temp file needed:
 
 ```
-dispatch_share_file  content: "…",
+share_file  content: "…",
                      name: "migration-plan.md",
                      description: "Proposed migration order"
 ```
@@ -52,7 +48,7 @@ Every share returns a `fileName`. Pass it back as `update` to replace the
 contents in place:
 
 ```
-dispatch_share_file  filePath: "/tmp/report.md",
+share_file  filePath: "/tmp/report.md",
                      description: "Report — second pass",
                      update: "<fileName from the first call>"
 ```
@@ -64,18 +60,18 @@ not more thorough.
 ## Managing what you've shared
 
 ```
-dispatch_list_media    — metadata for this agent's shared files, including filePath
-dispatch_delete_media  fileName — permanently removes the file and its record
+list_media    — metadata for this agent's shared files, including filePath
+delete_media  fileName — permanently removes the file and its record
 ```
 
-`dispatch_list_media` returns metadata only; read the content through `filePath`
+`list_media` returns metadata only; read the content through `filePath`
 with normal file tools.
 
 Pass `ownerAgentId` to list what your parent or one of your direct children has
 shared instead — same shape, read-only, and the `filePath` points into their
 directory. A child that has shared its screenshots does not need to message you
 the paths, and you do not need to re-share them: they already show under your
-card for the user. `dispatch_list_pins` takes `ownerAgentId` the same way, so a
+card for the user. `list_pins` takes `ownerAgentId` the same way, so a
 child can read the dev-stack URL or PR link you pinned rather than being told.
 
 ## Write a description that earns the click

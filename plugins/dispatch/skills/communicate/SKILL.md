@@ -18,22 +18,22 @@ they must scroll a transcript to find again.
 
 One channel here is conditional and the rest are not. The Chat tab is an
 optional surface: where the installation has it off it is not rendered at all,
-so a message posted there is recorded and never seen. `dispatch_chat_post`'s own
+so a message posted there is recorded and never seen. `chat_post`'s own
 description tells you which case you are in — it says the user is reading Chat
 only when that is true. Pins, surfaces, shared files and the whiteboard render
 either way, so when a control _must_ be reachable, reach for one of those.
 
-| What you have                                                      | Send it as                                                                                               | Depth        |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------ |
-| An explanation, an answer, a short result                          | your ordinary reply — `dispatch_chat_post` when its description says Chat is where the user is reading   | —            |
-| One small fact they will copy or return to — URL, port, branch, id | a pin (`dispatch_pin`)                                                                                   | —            |
-| A question with a finite set of answers                            | `dispatch_chat_post` with `kind: "question"` when Chat is the user's surface, a `shortcut` pin otherwise | below        |
-| A question whose answer is one obvious next move                   | a `shortcut` pin                                                                                         | below        |
-| Several related values, or anything they must fill in              | a surface (`dispatch_surface_create`)                                                                    | `surfaces`   |
-| A file, screenshot, log, or report                                 | `dispatch_share_file`                                                                                    | `sharing`    |
-| Something a drawing explains better than prose                     | the whiteboard                                                                                           | `whiteboard` |
-| Something worth reaching them away from the session                | `dispatch_notify` (Slack; needs a configured webhook)                                                    | —            |
-| State that keeps changing over a long task                         | one `kind: "update"` post, edited in place                                                               | below        |
+| What you have                                                      | Send it as                                                                                      | Depth        |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------ |
+| An explanation, an answer, a short result                          | your ordinary reply — `chat_post` when its description says Chat is where the user is reading   | —            |
+| One small fact they will copy or return to — URL, port, branch, id | a pin (`pin`)                                                                                   | —            |
+| A question with a finite set of answers                            | `chat_post` with `kind: "question"` when Chat is the user's surface, a `shortcut` pin otherwise | below        |
+| A question whose answer is one obvious next move                   | a `shortcut` pin                                                                                | below        |
+| Several related values, or anything they must fill in              | a surface (`surface_create`)                                                                    | `surfaces`   |
+| A file, screenshot, log, or report                                 | `share_file`                                                                                    | `sharing`    |
+| Something a drawing explains better than prose                     | the whiteboard                                                                                  | `whiteboard` |
+| Something worth reaching them away from the session                | `notify` (Slack; needs a configured webhook)                                                    | —            |
+| State that keeps changing over a long task                         | one `kind: "update"` post, edited in place                                                      | below        |
 
 Take the narrowest row that fits. A pin is not a substitute for a form, and a
 surface is overkill for one URL.
@@ -43,7 +43,7 @@ surface is overkill for one URL.
 Ask through a control the user can click, not a sentence they have to answer in
 prose:
 
-- **A finite choice, with Chat as the user's surface** — `dispatch_chat_post`
+- **A finite choice, with Chat as the user's surface** — `chat_post`
   with `kind: "question"` and `question.options` (up to 10). Their pick comes
   back as a message with `replyTo` set to your question, so you always know what
   was answered. Add `allowFreeform` when a typed answer also makes sense. With
@@ -66,7 +66,7 @@ switch; reading one more file costs you a tool call.
 ## Reporting
 
 Post a `kind: "update"` when work will run long, then keep editing that same
-message with `dispatch_chat_update` as it progresses. One message that ends up
+message with `chat_update` as it progresses. One message that ends up
 describing the result beats a trail of notes that are each stale a minute after
 they land. Use `kind: "summary"` for the wrap-up when a task had enough moving
 parts that the outcome deserves its own card.
@@ -77,9 +77,7 @@ shared artifact or surface carries the bulk.
 ## Not this skill's job
 
 - **How you sound** — tone, length, how much you narrate — is `personalities`.
-- **Whether the user is reading Chat or the terminal.** `dispatch_chat_post`'s
+- **Whether the user is reading Chat or the terminal.** `chat_post`'s
   own description settles that, and it changes with the installation's
   chat-surface setting. This skill picks the shape of what you send and says
   when that choice depends on the answer; it does not restate the answer.
-- **Status events.** `dispatch_event` is always relevant, so it lives in the
-  launch guidance rather than in a skill that only loads on a match.

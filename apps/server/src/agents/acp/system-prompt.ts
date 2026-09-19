@@ -6,7 +6,7 @@ const SLASH_RULE =
   'A user message that begins with "/<name>" names a slash command or skill: run it, treating the rest of the message as its input. If none has that name, say so briefly.';
 
 export const CHAT_RULE =
-  "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through dispatch_chat_post. Use dispatch_chat_post only for a question that needs a choice (kind: question with options).";
+  "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through chat_post. Use chat_post only for a question that needs a choice (kind: question with options).";
 
 /**
  * Pull a `--append-system-prompt <value>` pair out of stored agent args.
@@ -46,7 +46,7 @@ export function buildSystemPrompt(input: {
     autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,
     // The chat-surface rule tells a CLI agent to re-post replies through
-    // dispatch_chat_post; a streamed reply already lands in Chat.
+    // chat_post; a streamed reply already lands in Chat.
     chatSurface: false,
   });
   const appended = extractAppendedSystemPrompt(agent.agentArgs ?? []);

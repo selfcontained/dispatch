@@ -15,7 +15,7 @@ function trimTrailingWhitespace(value: string): string {
 /**
  * A file-level map of the review target — never the diff itself.
  *
- * Reviewers run in the worktree (`dispatch_launch_persona` uses the
+ * Reviewers run in the worktree (`launch_persona` uses the
  * parent's cwd), so they can read any hunk they want with the git
  * commands the prompt hands them. Embedding the diff bought nothing a
  * `git diff` couldn't, went stale the moment it was assembled, and was

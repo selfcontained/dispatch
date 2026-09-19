@@ -73,7 +73,7 @@ blank optional argument has its placeholder removed and the surrounding text lef
 as-is, so `focus on {{D:Review Focus}}.` becomes a dangling `focus on .` Phrase it
 so the sentence survives — or make the argument required.
 
-`dispatch_launch_agent` accepts `templateArgs` for launching a template
+`launch_agent` accepts `templateArgs` for launching a template
 programmatically; `get_template`'s `promptArgs` field tells you which argument
 names it expects.
 

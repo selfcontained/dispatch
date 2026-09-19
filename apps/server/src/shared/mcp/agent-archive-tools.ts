@@ -34,16 +34,16 @@ export function registerAgentArchiveTools(
   allowed: Set<string>,
   context: AgentArchiveToolsContext
 ): void {
-  if (!allowed.has("dispatch_archive_agent") || !context.archiveAgent) return;
+  if (!allowed.has("archive_agent") || !context.archiveAgent) return;
 
   const agentId = context.agentId;
   const archiveAgent = context.archiveAgent;
 
   server.registerTool(
-    "dispatch_archive_agent",
+    "archive_agent",
     {
       description:
-        "Archive an agent you launched (via dispatch_launch_agent or dispatch_launch_persona), " +
+        "Archive an agent you launched (via launch_agent or launch_persona), " +
         "or yourself by passing your own agent ID. " +
         "Use this to clean up a sub-agent or review persona once its output has been consumed, or to " +
         "retire your own session once your work is finished and reported rather than idling until " +

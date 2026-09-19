@@ -81,7 +81,7 @@
 
 This endpoint also accepts `multipart/form-data` to attach up to 10 startup files (20 MB each); array/boolean fields like `agentArgs` and `fullAccess` are accepted as JSON-encoded strings in that form.
 
-For persona agents (launched via `dispatch_launch_persona`):
+For persona agents (launched via `launch_persona`):
 
 ```json
 {
@@ -157,27 +157,27 @@ Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
 
 Server-Sent Events stream. Used by the frontend for real-time UI updates. Event types:
 
-| Event type                     | Payload                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------- |
-| `snapshot`                     | Full agent list (sent on initial connection)                                            |
-| `agent.upsert`                 | Single agent record (created or updated)                                                |
-| `agent.terminal_state_changed` | Terminal UI state for an agent                                                          |
-| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                                        |
-| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`)                     |
-| `agent.deleted`                | Agent ID that was deleted                                                               |
-| `media.changed`                | Agent ID whose media list changed                                                       |
-| `media.seen`                   | Agent ID + array of media keys marked seen                                              |
-| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                                     |
-| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)                      |
-| `agent.tool_invoked`           | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral; not `dispatch_event`) |
-| `stream.started`               | Agent ID whose live stream started                                                      |
-| `stream.stopped`               | Agent ID whose live stream stopped                                                      |
-| `feedback.created`             | Agent ID + new feedback record                                                          |
-| `feedback.updated`             | Agent ID + updated feedback record                                                      |
-| `job.changed`                  | (no payload) — job config or run state changed                                          |
-| `template.changed`             | (no payload) — template created, updated, or deleted                                    |
-| `notification`                 | Web notification payload (id, agent, event, message)                                    |
-| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                                                |
+| Event type                     | Payload                                                             |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `snapshot`                     | Full agent list (sent on initial connection)                        |
+| `agent.upsert`                 | Single agent record (created or updated)                            |
+| `agent.terminal_state_changed` | Terminal UI state for an agent                                      |
+| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                    |
+| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`) |
+| `agent.deleted`                | Agent ID that was deleted                                           |
+| `media.changed`                | Agent ID whose media list changed                                   |
+| `media.seen`                   | Agent ID + array of media keys marked seen                          |
+| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                 |
+| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)  |
+| `agent.tool_invoked`           | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral)   |
+| `stream.started`               | Agent ID whose live stream started                                  |
+| `stream.stopped`               | Agent ID whose live stream stopped                                  |
+| `feedback.created`             | Agent ID + new feedback record                                      |
+| `feedback.updated`             | Agent ID + updated feedback record                                  |
+| `job.changed`                  | (no payload) — job config or run state changed                      |
+| `template.changed`             | (no payload) — template created, updated, or deleted                |
+| `notification`                 | Web notification payload (id, agent, event, message)                |
+| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                            |
 
 ## Terminal
 
@@ -233,17 +233,17 @@ The Chat tab feed (`docs/chat-surface-plan.md`). Wire types live in `packages/sh
 | POST   | `/agents/:id/chat/messages/:messageId/reactions`        | React to an agent message (`{ emoji }`); injects a reaction envelope into the pane           |
 | DELETE | `/agents/:id/chat/messages/:messageId/reactions/:emoji` | Take the user's reaction back off (chip only; nothing is injected)                           |
 
-The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; its optional `attachments` take the same shape and cap (`CHAT_ATTACHMENTS_MAX`, 20) as `messages`, are resolved the same way (`400` for an unknown `mediaId` or pin), and are stored on the reply message and listed in its envelope. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `dispatch_chat_post` / `dispatch_chat_update` MCP tools; `file` attachments name a `fileName` returned by `dispatch_share_file`.
+The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; its optional `attachments` take the same shape and cap (`CHAT_ATTACHMENTS_MAX`, 20) as `messages`, are resolved the same way (`400` for an unknown `mediaId` or pin), and are stored on the reply message and listed in its envelope. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `chat_post` / `chat_update` MCP tools; `file` attachments name a `fileName` returned by `share_file`.
 
-Reactions go both ways: the user reacts to agent messages through the routes above, and the agent reacts to user messages with the `dispatch_chat_react` MCP tool (`{ messageId, emoji, remove? }`). Each shows on its message as `reactions: [{ id, authorKind, emoji, delivered, createdAt }]` (absent when there are none), one per author and emoji, capped at `CHAT_REACTIONS_MAX` (20) per message; every change republishes the message as a `chat.entry`. A user reaction is delivered like a user message — `delivered: null` while pending, `false` with no pane — in a `--- DISPATCH CHAT REACTION (message id: …) ---` envelope that names the message by id, kind, and position among the agent's posts ("latest", or "3 posts ago"), and quotes its opening — about 100 characters for the latest post, up to 300 for an older one — rather than the whole post. Agent reactions are display-only (`delivered` is always `null`). Adding an emoji already there is a no-op; removing a reaction never notifies the other side. Reacting to your own side's message, or a message on another agent's feed, is `404`; an `emoji` that is not a single emoji sequence is `400`.
+Reactions go both ways: the user reacts to agent messages through the routes above, and the agent reacts to user messages with the `chat_react` MCP tool (`{ messageId, emoji, remove? }`). Each shows on its message as `reactions: [{ id, authorKind, emoji, delivered, createdAt }]` (absent when there are none), one per author and emoji, capped at `CHAT_REACTIONS_MAX` (20) per message; every change republishes the message as a `chat.entry`. A user reaction is delivered like a user message — `delivered: null` while pending, `false` with no pane — in a `--- DISPATCH CHAT REACTION (message id: …) ---` envelope that names the message by id, kind, and position among the agent's posts ("latest", or "3 posts ago"), and quotes its opening — about 100 characters for the latest post, up to 300 for an older one — rather than the whole post. Agent reactions are display-only (`delivered` is always `null`). Adding an emoji already there is a no-op; removing a reaction never notifies the other side. Reacting to your own side's message, or a message on another agent's feed, is `404`; an `emoji` that is not a single emoji sequence is `400`.
 
-Launching an agent with context records one launch post in its feed: a user message with `origin: "launch"`, `delivered: true`, the initial prompt as `text`, and attachments for each startup file (`file`), startup link (`link`), and initial pin (`pin`; a url pin made from one of the links is not repeated). Both `origin` and `launchedByAgentId` are absent on every other message. When another agent created the agent (`dispatch_launch_agent`), `launchedByAgentId` names it and the web attributes the post to that agent; the MCP path stores the prompt as the launcher wrote it, without the launch header the CLI receives. A launch with no prompt, files, links, or pins, and any terminal agent, records nothing. With the `chat_surface_enabled` flag on, the CLI's first user turn is that post wrapped in the same `--- DISPATCH CHAT (id: …) ---` envelope a Chat message is injected with — the post's id, its attachment lines, and the trailer pointing the agent at `dispatch_chat_post` — so an agent launched from the Chat tab replies there. With the flag off, on a job run (whose prompt is a system-prompt append), or with no launch context, the first turn is the plain startup prompt as before.
+Launching an agent with context records one launch post in its feed: a user message with `origin: "launch"`, `delivered: true`, the initial prompt as `text`, and attachments for each startup file (`file`), startup link (`link`), and initial pin (`pin`; a url pin made from one of the links is not repeated). Both `origin` and `launchedByAgentId` are absent on every other message. When another agent created the agent (`launch_agent`), `launchedByAgentId` names it and the web attributes the post to that agent; the MCP path stores the prompt as the launcher wrote it, without the launch header the CLI receives. A launch with no prompt, files, links, or pins, and any terminal agent, records nothing. With the `chat_surface_enabled` flag on, the CLI's first user turn is that post wrapped in the same `--- DISPATCH CHAT (id: …) ---` envelope a Chat message is injected with — the post's id, its attachment lines, and the trailer pointing the agent at `chat_post` — so an agent launched from the Chat tab replies there. With the flag off, on a job run (whose prompt is a system-prompt append), or with no launch context, the first turn is the plain startup prompt as before.
 
 User messages take up to 20 `attachments` (`ChatUserAttachmentInput`): `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, `{ type: "pin", pinId }` for one of the agent's pins, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media or pins); `text` may be blank when at least one attachment is present. The stored message carries the resolved `ChatAttachment[]`, and the injected envelope lists each one after the text (`- file: <absolute media path> (<mime>, <size>)`, `- pin: <label> — <value>`, `- link: <url>`).
 
 ## Messages
 
-Cross-agent messages sent with the `dispatch_send_message` MCP tool.
+Cross-agent messages sent with the `send_message` MCP tool.
 
 | Method | Path                        | Description                                                 |
 | ------ | --------------------------- | ----------------------------------------------------------- |
@@ -277,10 +277,10 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path                        | Description                                                                               |
-| ------ | --------------------------- | ----------------------------------------------------------------------------------------- |
-| GET    | `/personas`                 | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins)  |
-| POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
+| Method | Path                        | Description                                                                              |
+| ------ | --------------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/personas`                 | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins) |
+| POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `launch_persona` on its own work         |
 
 ### `GET /personas`
 
@@ -300,7 +300,7 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. `note` is optional free text (max 2,000 characters, `null` allowed) describing what to focus on; the server collapses it to one line, strips quote characters and DISPATCH markers, and folds it into the briefing instruction for every selected persona. Each launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. `note` is optional free text (max 2,000 characters, `null` allowed) describing what to focus on; the server collapses it to one line, strips quote characters and DISPATCH markers, and folds it into the briefing instruction for every selected persona. Each launched agent creates its review through `review_submit` after completing its initial pass.
 
 ### `PATCH /agents/:id/feedback/:feedbackId`
 
