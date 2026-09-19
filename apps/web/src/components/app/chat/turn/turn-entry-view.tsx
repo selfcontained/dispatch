@@ -1,24 +1,32 @@
 import { memo, useMemo } from "react";
 import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import {
   agentAuthor,
+  agentDisplayName,
   BlockView,
   type FeedContext,
   MessageCopyButton,
+  peerAuthor,
   Post,
   POST_BODY_MEASURE,
+  type PostAuthor,
   SIDE_POST_INDENT,
 } from "@/components/app/chat/chat-entries";
 import { cn } from "@/lib/utils";
 
-import { ActivityBlock } from "./activity-block";
+import { useChatRowState } from "../chat-row-state";
+import { ActivityBlock, TurnGlyph, turnSummary } from "./activity-block";
 import { AutoHeight } from "./auto-height";
 import type { Step, Trace, Turn } from "./contracts";
+import { formatStepDuration } from "./format";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
+import { useStreamTicker } from "./use-stream-ticker";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
@@ -116,7 +124,7 @@ export type TurnEntryViewProps = {
   /** A hairline above the prompt post: this entry follows another directly. */
   rule?: boolean;
   ctx: FeedContext;
-  /** Files, pins and peer messages the agent produced during this turn. */
+  /** Files, pins and posts to other agents the agent produced during this turn. */
   folded?: readonly FoldedEntry[];
 };
 
@@ -125,13 +133,125 @@ export type TurnEntryViewProps = {
  * rail, and the answer it ended with. The rail sits inside the agent post so
  * the work and the answer read under one header. No scroll follow of its
  * own: the feed owns that, keyed on `entryGrowthKey`.
+ *
+ * The feed is the root agent's stream, which carries the turns of every
+ * agent in its tree: a turn run by another agent than the page's folds to
+ * one row under that agent's name (see {@link ChildTurnView}).
  */
-function TurnEntryViewImpl({
+function TurnEntryViewImpl(props: TurnEntryViewProps): JSX.Element {
+  const { entry, ctx } = props;
+  if (entry.agentId !== ctx.agentId) return <ChildTurnView {...props} />;
+  return <TurnBody {...props} author={agentAuthor(ctx, "Agent")} />;
+}
+
+/**
+ * A turn run by an agent under this one, folded to one row: the child's
+ * icon and name, then what the rail's own summary row would say of the
+ * turn (its verb, step count and time). Open, it is the child's turn in
+ * full, its answer posted under the child's name.
+ */
+function ChildTurnView({
   entry,
   rule = false,
   ctx,
   folded = NO_FOLDED,
 }: TurnEntryViewProps): JSX.Element {
+  const [open, setOpen] = useChatRowState<boolean>("child-turn-open", false);
+  const trace = useMemo(() => turnTrace(entry), [entry]);
+  const label = useMemo(() => turnLabelFromSteps(trace.steps), [trace.steps]);
+  const done = trace.endedAt != null;
+  // Re-render on the shared tick while the turn runs, so the time counts.
+  useStreamTicker(!done);
+  const summary = turnSummary(trace, label);
+  const name = agentDisplayName(entry.agentId, ctx);
+  const author = peerAuthor(entry.agentId, name, ctx);
+  const duration = formatStepDuration(summary.ms);
+  return (
+    <div
+      data-testid="chat-child-turn"
+      data-turn-id={entry.id}
+      data-agent-id={entry.agentId}
+      data-open={open ? "true" : "false"}
+      data-settled={entry.settled ? "true" : undefined}
+      className={cn(rule && "border-t border-border/40")}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label={`${name}, ${summary.verb}, ${summary.steps}, ${duration}, ${open ? "collapse" : "expand"} turn`}
+        data-testid="chat-child-turn-summary"
+        className={cn(
+          "group flex w-full min-w-0 items-center gap-3 px-4 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/30",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
+          open ? "mt-3" : "mt-1"
+        )}
+      >
+        <span className="flex w-8 shrink-0 justify-end">
+          <AgentTypeIcon
+            type={author.agentType ?? null}
+            className="h-5 w-5 rounded [&>svg]:h-3 [&>svg]:w-3"
+          />
+        </span>
+        <span
+          className="flex w-3 shrink-0 justify-center leading-none"
+          aria-hidden="true"
+        >
+          <TurnGlyph summary={summary} />
+        </span>
+        <span
+          className="min-w-0 max-w-[40%] truncate font-semibold text-foreground"
+          data-testid="chat-child-turn-agent"
+        >
+          {name}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            summary.done ? "text-foreground" : "font-medium text-status-working"
+          )}
+          title={summary.verb}
+        >
+          {summary.verb}
+        </span>
+        {summary.thinking ? null : (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {summary.steps} · {duration}
+          </span>
+        )}
+        <span
+          aria-hidden="true"
+          className="ml-auto shrink-0 text-[9px] text-muted-foreground/70"
+        >
+          {open ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+        </span>
+      </button>
+      {open ? (
+        <TurnBody
+          entry={entry}
+          grouped={false}
+          rule={false}
+          ctx={ctx}
+          folded={folded}
+          author={author}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** The turn in full: prompt post, rail, folded side effects, answer. */
+function TurnBody({
+  entry,
+  rule = false,
+  ctx,
+  folded = NO_FOLDED,
+  author,
+}: TurnEntryViewProps & { author: PostAuthor }): JSX.Element {
   const trace = useMemo(() => turnTrace(entry), [entry]);
   const result = useMemo(() => resultTurnModel(entry, trace), [entry, trace]);
   // The folded rail reads "<verb>, 12 steps, 1m 4s"; the verb is derived
@@ -145,11 +265,11 @@ function TurnEntryViewImpl({
     [entry.prompt.source, entry.prompt.text]
   );
   /**
-   * A message from another agent is already a feed row of its own, written
-   * when it was sent rather than when its turn ran, and that row carries the
-   * sender's relation badge and id. Rendering it here too showed the same
-   * words twice, in two cards that did not even match, and minutes apart
-   * whenever the prompt had queued.
+   * A post from another agent is already a feed row of its own (the block
+   * it posted, under its name and with its relation badge), written when it
+   * was sent rather than when its turn ran. Rendering it here too showed the
+   * same words twice, in two cards that did not even match, and minutes
+   * apart whenever the prompt had queued.
    */
   // A reply in a thread (an answer to a question) is already shown by the
   // block it answers, so the turn it opened draws no prompt post either.
@@ -183,7 +303,7 @@ function TurnEntryViewImpl({
       ) : null}
       <div className="mt-3">
         <Post
-          author={agentAuthor(ctx, "Agent")}
+          author={author}
           at={entry.updatedAt}
           grouped={true}
           // The answer is the half a reader wants to lift out, and the prompt

@@ -34,7 +34,6 @@ type AgentsViewHeaderProps = {
   mediaPanelOpen: boolean;
   setMediaOpen: (open: boolean) => void;
   unseenMediaCount: number;
-  unreadMessageCount: number;
   unseenSurfaceCount: number;
 };
 
@@ -56,7 +55,6 @@ export function AgentsViewHeader({
   mediaPanelOpen,
   setMediaOpen,
   unseenMediaCount,
-  unreadMessageCount,
   unseenSurfaceCount,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
@@ -141,9 +139,9 @@ export function AgentsViewHeader({
             data-testid="toggle-media-sidebar"
           >
             <PanelLeftOpen className="h-4 w-4" />
-            {unseenMediaCount + unreadMessageCount + unseenSurfaceCount > 0 ? (
+            {unseenMediaCount + unseenSurfaceCount > 0 ? (
               <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                {unseenMediaCount + unreadMessageCount + unseenSurfaceCount}
+                {unseenMediaCount + unseenSurfaceCount}
               </span>
             ) : null}
           </Button>

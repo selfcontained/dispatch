@@ -36,10 +36,6 @@ import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
-import {
-  useAgentUnreadCount,
-  useMarkMessagesRead,
-} from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
@@ -189,10 +185,6 @@ export function AgentsView({
         : [],
     [agents, focusedAgentId]
   );
-  const focusedSubAgentIds = useMemo(
-    () => focusedSubAgents.map((agent) => agent.id),
-    [focusedSubAgents]
-  );
   const focusedSubAgentPins = useMemo(
     () =>
       focusedSubAgents.map((agent) => ({
@@ -218,9 +210,7 @@ export function AgentsView({
     refreshMedia,
   } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
 
-  const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
   const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
-  const markMessagesRead = useMarkMessagesRead(focusedAgentId);
 
   // Closed-sidebar external signal for #2019: reuses the same surfaces query
   // and seen-state atom the tab strip itself reads (see SurfaceTabRow), so a
@@ -231,14 +221,6 @@ export function AgentsView({
   const unseenSurfaceCount = agentSurfaces.filter((surface) =>
     isSurfaceNew(surface.id)
   ).length;
-
-  // Only mark read when the sidebar is actually open on the Messages tab.
-  // MediaSidebarContent stays mounted while closed and the active tab is
-  // persisted per-agent, so gating on the tab alone would silently clear
-  // unread state for agents whose last-used tab was Messages.
-  useEffect(() => {
-    if (mediaPanelOpen && mediaActiveTab === "messages") markMessagesRead();
-  }, [mediaPanelOpen, mediaActiveTab, markMessagesRead]);
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -421,7 +403,6 @@ export function AgentsView({
     agent: focusedAgent,
     showChildAgents,
     onShowChildAgentsChange: setShowChildAgents,
-    childAgentIds: focusedSubAgentIds,
     openLightbox,
     onOpenReview: handleOpenReview,
     isMobile,
@@ -542,7 +523,6 @@ export function AgentsView({
                 mediaPanelOpen={mediaPanelOpen}
                 setMediaOpen={setMediaOpen}
                 unseenMediaCount={unseenMediaCount}
-                unreadMessageCount={unreadMessageCount}
                 unseenSurfaceCount={unseenSurfaceCount}
               />
               <div
@@ -610,7 +590,6 @@ export function AgentsView({
             onMediaOwnerChange={setMediaOwnerId}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
-            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             activeTab={mediaActiveTab}
@@ -655,7 +634,6 @@ export function AgentsView({
             onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
-            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}

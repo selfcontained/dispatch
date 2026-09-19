@@ -398,7 +398,7 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Discovery &amp; messaging</strong> —{" "}
-            <Code>list_agents</Code>, <Code>send_message</Code>,{" "}
+            <Code>list_agents</Code>, <Code>post</Code>,{" "}
             <Code>launch_agent</Code>, <Code>archive_agent</Code>,{" "}
             <Code>list_personas</Code>, <Code>persona_templates</Code>,{" "}
             <Code>persona_upsert</Code>, <Code>persona_validate</Code>,{" "}

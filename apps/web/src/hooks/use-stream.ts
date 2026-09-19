@@ -50,7 +50,7 @@ export const LIVE_HEAD_ROWS = PAGE_SIZE * 2;
 /** Prefix shared by every stream's feed key, for bulk invalidation. */
 export const STREAM_QUERY_PREFIX = ["stream"] as const;
 
-/** The feed of one stream. Step 1: the root is the agent's own id. */
+/** The feed of one stream, keyed by the root agent whose stream it is. */
 export function streamFeedQueryKey(rootId: string | null) {
   return [...STREAM_QUERY_PREFIX, rootId] as const;
 }
@@ -379,14 +379,16 @@ export function optimisticUserBlock(
   streamId: string,
   text: string,
   attachments: ChatAttachment[] = [],
-  thread: { threadId: string; replyTo: string } | null = null
+  thread: { threadId: string; replyTo: string } | null = null,
+  /** The agent it is for; the stream's root when not given. */
+  to?: string
 ): Block {
   const now = new Date().toISOString();
   return {
     id,
     streamId,
     author: { kind: "user" },
-    toAgentId: streamId,
+    toAgentId: to ?? streamId,
     threadId: thread?.threadId ?? null,
     replyTo: thread?.replyTo ?? null,
     kind: "text",
@@ -669,9 +671,10 @@ export function removeBlock(
 export type StreamPostInput = StreamPostRequest;
 
 /**
- * A person's post: to the agent (a prompt), or a reply under a top-level
- * block when `replyTo` is set. A top-level post shows in the feed at once;
- * a reply shows in its thread, and the root's reply line counts it.
+ * A person's post: to the root agent (a prompt), to another agent in its
+ * tree when `to` is set, or a reply under a top-level block when `replyTo`
+ * is set. A top-level post shows in the feed at once; a reply shows in its
+ * thread, and the root's reply line counts it.
  */
 export function usePostBlock(rootId: string | null) {
   const queryClient = useQueryClient();
@@ -693,13 +696,14 @@ export function usePostBlock(rootId: string | null) {
         body: JSON.stringify(body),
       });
     },
-    onMutate: async ({ id, text, replyTo, attachments }) => {
+    onMutate: async ({ id, to, text, replyTo, attachments }) => {
       const placeholder = optimisticUserBlock(
         id,
         rootId ?? "",
         text,
         optimisticAttachments(attachments ?? []),
-        replyTo ? { threadId: replyTo, replyTo } : null
+        replyTo ? { threadId: replyTo, replyTo } : null,
+        to
       );
       if (replyTo) {
         const threadKey = threadQueryKey(rootId, replyTo);

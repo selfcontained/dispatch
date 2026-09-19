@@ -99,6 +99,7 @@ function renderPanel(props: Partial<Parameters<typeof ThreadPanel>[0]> = {}) {
   const view = render(
     <ThreadPanel
       agentId="agt_1"
+      rootId="agt_1"
       blockId="root"
       ctx={ctx}
       disabledReason={null}

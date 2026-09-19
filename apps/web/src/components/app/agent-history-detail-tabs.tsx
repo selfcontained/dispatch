@@ -14,18 +14,15 @@ import {
   EventTimeline,
   FeedbackTimeline,
 } from "@/components/app/agent-history-timeline";
-import { HistoryMessages } from "@/components/app/agent-history-messages";
-import { type AgentMessage } from "@/hooks/use-agent-messages";
 import { mediaItemQueryKey } from "@/hooks/use-media";
 
-type DetailTab = "events" | "media" | "pins" | "feedback" | "messages";
+type DetailTab = "events" | "media" | "pins" | "feedback";
 
 export function DetailTabs({
   events,
   media,
   pins,
   feedback,
-  messages,
   agentId,
   workspaceRoot,
 }: {
@@ -33,7 +30,6 @@ export function DetailTabs({
   media: HistoryMedia[];
   pins: AgentPin[];
   feedback: HistoryFeedbackItem[];
-  messages: AgentMessage[];
   agentId: string;
   workspaceRoot: string | null;
 }) {
@@ -62,7 +58,6 @@ export function DetailTabs({
     { key: "media", label: "Media", count: media.length },
     { key: "pins", label: "Pins", count: pins.length },
     { key: "feedback", label: "Feedback", count: feedback.length },
-    { key: "messages", label: "Messages", count: messages.length },
   ];
 
   return (
@@ -166,15 +161,6 @@ export function DetailTabs({
           {tab === "feedback" && feedback.length === 0 && (
             <p className="py-6 text-center text-xs text-muted-foreground">
               No feedback received.
-            </p>
-          )}
-
-          {tab === "messages" && messages.length > 0 && (
-            <HistoryMessages messages={messages} agentId={agentId} />
-          )}
-          {tab === "messages" && messages.length === 0 && (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              No messages recorded.
             </p>
           )}
         </div>

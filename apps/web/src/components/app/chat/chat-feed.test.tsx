@@ -67,6 +67,39 @@ afterEach(() => {
 
 const AGENT_ID = "agt_1";
 
+/** An agent's post to another agent: a block with `toAgentId` set. */
+function peerPost(fields: {
+  id: string;
+  from: string;
+  to: string;
+  text: string;
+  at: string;
+  delivered?: boolean | null;
+}): StreamEntry {
+  return blockEntry(
+    block({
+      id: fields.id,
+      author: { kind: "agent", agentId: fields.from },
+      toAgentId: fields.to,
+      text: fields.text,
+      delivered: fields.delivered === undefined ? true : fields.delivered,
+      createdAt: fields.at,
+    })
+  );
+}
+
+/** The rendered posts addressed to another agent, whoever wrote them. */
+function sidePosts(): HTMLElement[] {
+  return screen
+    .getAllByTestId("chat-message")
+    .filter((el) => el.hasAttribute("data-to-agent"));
+}
+
+/** Peers as the feed names them. */
+const REVIEWER_PEER = {
+  agt_2: { name: "Reviewer", agentType: "codex", relation: "child" as const },
+};
+
 function fileAttachment(
   fields: Pick<
     Extract<ChatAttachment, { type: "file" }>,
@@ -275,30 +308,20 @@ describe("layoutFeed", () => {
             createdAt: at("10:01"),
           })
         ),
-        {
-          type: "agent_message",
+        peerPost({
           id: "am1",
-          direction: "out",
-          senderAgentId: AGENT_ID,
-          senderName: "builder",
-          recipientAgentId: "agt_2",
-          recipientName: "Reviewer",
-          content: "ping",
-          delivered: true,
+          from: AGENT_ID,
+          to: "agt_2",
+          text: "ping",
           at: at("10:02"),
-        },
-        {
-          type: "agent_message",
+        }),
+        peerPost({
           id: "am2",
-          direction: "in",
-          senderAgentId: "agt_2",
-          senderName: "Reviewer",
-          recipientAgentId: AGENT_ID,
-          recipientName: "builder",
-          content: "pong",
-          delivered: true,
+          from: "agt_2",
+          to: AGENT_ID,
+          text: "pong",
           at: at("10:03"),
-        },
+        }),
       ],
       makeCtx(),
       now
@@ -421,18 +444,13 @@ describe("ChatFeed", () => {
         })
       ),
       blockEntry(block({ id: "a1", text: "Hello **there**" })),
-      {
-        type: "agent_message",
+      peerPost({
         id: "p1",
-        direction: "in",
-        senderAgentId: "agt_2",
-        senderName: "Reviewer",
-        recipientAgentId: AGENT_ID,
-        recipientName: "builder",
-        content: "Peer message",
-        delivered: true,
+        from: "agt_2",
+        to: AGENT_ID,
+        text: "Peer message",
         at: "2026-09-02T10:01:00.000Z",
-      },
+      }),
     ]);
 
     const copyButtons = screen.getAllByTestId("chat-copy-message");
@@ -534,34 +552,26 @@ describe("ChatFeed", () => {
       { id: "agt_far", name: "far", type: "claude", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
-    const peerPost = (
-      id: string,
-      senderAgentId: string,
-      minute: string
-    ): StreamEntry => ({
-      type: "agent_message",
-      id,
-      direction: "in",
-      senderAgentId,
-      senderName: senderAgentId,
-      recipientAgentId: AGENT_ID,
-      recipientName: "builder",
-      content: `from ${senderAgentId}`,
-      delivered: true,
-      at: `2026-09-02T10:${minute}:00.000Z`,
-    });
+    const from = (id: string, senderAgentId: string, minute: string) =>
+      peerPost({
+        id,
+        from: senderAgentId,
+        to: AGENT_ID,
+        text: `from ${senderAgentId}`,
+        at: `2026-09-02T10:${minute}:00.000Z`,
+      });
     renderFeed(
       [
-        peerPost("p1", "agt_kid", "00"),
-        peerPost("p2", "agt_root", "10"),
-        peerPost("p3", "agt_sib", "20"),
-        peerPost("p4", "agt_far", "30"),
-        peerPost("p5", "agt_gone", "40"),
+        from("p1", "agt_kid", "00"),
+        from("p2", "agt_root", "10"),
+        from("p3", "agt_sib", "20"),
+        from("p4", "agt_far", "30"),
+        from("p5", "agt_gone", "40"),
       ],
       {},
       { peers }
     );
-    const posts = screen.getAllByTestId("chat-agent-message");
+    const posts = sidePosts();
     expect(
       posts.map(
         (post) =>
@@ -581,29 +591,25 @@ describe("ChatFeed", () => {
       // Not in the list any more: the generic agent icon.
       "Agent agent",
     ]);
-    // Still a peer post: muted side-conversation treatment, sender's name.
+    // Still a peer post: muted side-conversation treatment, the sender's
+    // name as the agents list knows it.
     expect(posts[0]!.className).toContain(POST_TINT.peer);
     expect(
       posts[0]!.querySelector('[data-testid="chat-post-author"]')?.textContent
-    ).toBe("agt_kid");
+    ).toBe("kid");
   });
 
   it("falls back to a plain agent for a peer before the agent list has loaded", () => {
     renderFeed([
-      {
-        type: "agent_message",
+      peerPost({
         id: "p1",
-        direction: "in",
-        senderAgentId: "agt_2",
-        senderName: "Reviewer",
-        recipientAgentId: AGENT_ID,
-        recipientName: "builder",
-        content: "hi",
-        delivered: true,
+        from: "agt_2",
+        to: AGENT_ID,
+        text: "hi",
         at: "2026-09-02T10:00:00.000Z",
-      },
+      }),
     ]);
-    const post = screen.getByTestId("chat-agent-message");
+    const post = sidePosts()[0]!;
     expect(
       post.querySelector('[data-testid="agent-relation-badge"]')?.textContent
     ).toBe("agent");
@@ -612,21 +618,20 @@ describe("ChatFeed", () => {
   });
 
   it("gives the agent's own outgoing message its icon and no relation badge", () => {
-    renderFeed([
-      {
-        type: "agent_message",
-        id: "o1",
-        direction: "out",
-        senderAgentId: AGENT_ID,
-        senderName: "builder",
-        recipientAgentId: "agt_2",
-        recipientName: "Reviewer",
-        content: "ping",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ]);
-    const post = screen.getByTestId("chat-agent-message");
+    renderFeed(
+      [
+        peerPost({
+          id: "o1",
+          from: AGENT_ID,
+          to: "agt_2",
+          text: "ping",
+          at: "2026-09-02T10:00:00.000Z",
+        }),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const post = sidePosts()[0]!;
     expect(
       post.querySelector('[data-testid="agent-relation-badge"]')
     ).toBeNull();
@@ -750,21 +755,16 @@ describe("ChatFeed", () => {
           createdAt: "2026-09-02T10:02:00.000Z",
         })
       ),
-      {
-        type: "agent_message",
+      peerPost({
         id: "am1",
-        direction: "in",
-        senderAgentId: "agt_2",
-        senderName: "Reviewer",
-        recipientAgentId: AGENT_ID,
-        recipientName: "Me",
-        content: "peer",
-        delivered: true,
+        from: "agt_2",
+        to: AGENT_ID,
+        text: "peer",
         at: "2026-09-02T10:03:00.000Z",
-      },
+      }),
     ]);
     const [agentPost, userOne, userTwo] = screen.getAllByTestId("chat-message");
-    const peer = screen.getByTestId("chat-agent-message");
+    const peer = sidePosts()[0]!;
 
     expect(agentPost!.getAttribute("data-author-kind")).toBe("agent");
     expect(agentPost!.className).not.toMatch(/bg-primary|bg-violet/);
@@ -1184,33 +1184,28 @@ describe("ChatFeed", () => {
   });
 
   it("renders cross-agent messages as posts by the other agent, or by this one addressed to it", () => {
-    renderFeed([
-      {
-        type: "agent_message",
-        id: "am1",
-        direction: "in",
-        senderAgentId: "agt_2",
-        senderName: "Reviewer",
-        recipientAgentId: AGENT_ID,
-        recipientName: "Me",
-        content: "LGTM",
-        delivered: true,
-        at: "2026-09-02T10:00:00.000Z",
-      },
-      {
-        type: "agent_message",
-        id: "am2",
-        direction: "out",
-        senderAgentId: AGENT_ID,
-        senderName: "Me",
-        recipientAgentId: "agt_2",
-        recipientName: "Reviewer",
-        content: "Thanks",
-        delivered: false,
-        at: "2026-09-02T10:00:01.000Z",
-      },
-    ]);
-    const [incoming, outgoing] = screen.getAllByTestId("chat-agent-message");
+    renderFeed(
+      [
+        peerPost({
+          id: "am1",
+          from: "agt_2",
+          to: AGENT_ID,
+          text: "LGTM",
+          at: "2026-09-02T10:00:00.000Z",
+        }),
+        peerPost({
+          id: "am2",
+          from: AGENT_ID,
+          to: "agt_2",
+          text: "Thanks",
+          delivered: false,
+          at: "2026-09-02T10:00:01.000Z",
+        }),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const [incoming, outgoing] = sidePosts();
     expect(
       incoming!.querySelector("[data-testid='chat-post-author']")?.textContent
     ).toBe("Reviewer");
@@ -1233,18 +1228,15 @@ describe("ChatFeed", () => {
       second: string,
       content: string,
       delivered: boolean | null = true
-    ): StreamEntry => ({
-      type: "agent_message",
-      id,
-      direction,
-      senderAgentId: direction === "in" ? "agt_2" : AGENT_ID,
-      senderName: direction === "in" ? "Reviewer" : "builder",
-      recipientAgentId: direction === "in" ? AGENT_ID : "agt_2",
-      recipientName: direction === "in" ? "builder" : "Reviewer",
-      content,
-      delivered,
-      at: `2026-09-02T10:00:${second}.000Z`,
-    });
+    ): StreamEntry =>
+      peerPost({
+        id,
+        from: direction === "in" ? "agt_2" : AGENT_ID,
+        to: direction === "in" ? AGENT_ID : "agt_2",
+        text: content,
+        delivered,
+        at: `2026-09-02T10:00:${second}.000Z`,
+      });
     renderFeed(
       [
         blockEntry(
@@ -1272,7 +1264,7 @@ describe("ChatFeed", () => {
         },
       }
     );
-    const posts = screen.getAllByTestId("chat-agent-message");
+    const posts = sidePosts();
     expect(posts).toHaveLength(3);
     const [first, second, third] = posts as [
       HTMLElement,
@@ -1344,12 +1336,14 @@ describe("ChatFeed", () => {
       second.querySelector("[data-testid='chat-avatar-side-badge']")
     ).toBeNull();
     expect(third.getAttribute("data-grouped")).toBeNull();
-    const userPosts = screen.getAllByTestId("chat-message");
-    expect(userPosts[1]!.getAttribute("data-grouped")).toBeNull();
+    const ownPosts = screen
+      .getAllByTestId("chat-message")
+      .filter((el) => !el.hasAttribute("data-to-agent"));
+    expect(ownPosts[1]!.getAttribute("data-grouped")).toBeNull();
 
     // Delivery markers stay.
     expect(
-      first.querySelector("[data-testid='chat-agent-message-pending']")
+      first.querySelector("[data-testid='chat-delivery-pending']")
     ).not.toBeNull();
     expect(first.textContent).toContain("Sending");
   });

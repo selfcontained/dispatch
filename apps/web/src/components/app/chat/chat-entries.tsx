@@ -2,7 +2,6 @@ import { memo, type ReactNode } from "react";
 import type {
   Block,
   BlockOption,
-  ChatAgentMessageEntry,
   ChatPinEntry,
   ChatReviewEntry,
   ChatStatusEntry,
@@ -181,7 +180,7 @@ export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
  * lineage when the list knows it, a generic agent otherwise (archived, or
  * from another repository).
  */
-function peerAuthor(
+export function peerAuthor(
   agentId: string,
   name: string,
   ctx: FeedContext
@@ -214,6 +213,27 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     return peerAuthor(block.launchedByAgentId, peer?.name ?? "Agent", ctx);
   }
   return userAuthor();
+}
+
+/** An agent's name as this feed knows it: the page's agent, a peer, or "Agent". */
+export function agentDisplayName(agentId: string, ctx: FeedContext): string {
+  if (agentId === ctx.agentId) return ctx.agentName || "Agent";
+  return ctx.peers?.[agentId]?.name ?? "Agent";
+}
+
+/**
+ * An agent's block addressed to another agent is a side conversation the
+ * user is overhearing: its header reads "sender → recipient". A person's
+ * block, and an agent's block for people, have no other side.
+ */
+export function blockSide(
+  block: Block,
+  ctx: FeedContext
+): { recipientName: string } | undefined {
+  if (block.author.kind !== "agent" || block.toAgentId === null) {
+    return undefined;
+  }
+  return { recipientName: agentDisplayName(block.toAgentId, ctx) };
 }
 
 const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
@@ -490,8 +510,8 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 /**
- * Delivery state of a block addressed to an agent; nothing once it has
- * landed, and nothing on a block for people.
+ * Delivery state of a block addressed to an agent (a person's, or another
+ * agent's); nothing once it has landed, and nothing on a block for people.
  */
 function DeliveryMeta({
   block,
@@ -500,8 +520,8 @@ function DeliveryMeta({
   block: Block;
   held: boolean;
 }): JSX.Element | null {
-  if (block.author.kind !== "user" || block.toAgentId === null) return null;
-  if (held) {
+  if (block.toAgentId === null) return null;
+  if (held && block.author.kind === "user") {
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
@@ -691,6 +711,7 @@ export const BlockView = memo(function BlockView({
   highlightFindingId = null,
 }: BlockViewProps): JSX.Element {
   const author = blockAuthor(block, ctx);
+  const side = blockSide(block, ctx);
   const copyAction = block.text ? (
     <MessageCopyButton text={block.text} />
   ) : undefined;
@@ -782,15 +803,29 @@ export const BlockView = memo(function BlockView({
       at={block.createdAt}
       grouped={grouped}
       rule={rule}
+      side={side}
       data-testid="chat-message"
       data-author={author.kind === "peer" ? "peer" : "agent"}
       data-kind={block.kind}
+      data-origin={block.origin}
+      data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
       action={agentAction}
     >
+      {block.origin === "launch" ? (
+        <div
+          className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+          title="What the agent this is addressed to was started with."
+          data-testid="chat-launch-context"
+        >
+          <Rocket className="h-3 w-3" aria-hidden="true" />
+          Launch context
+        </div>
+      ) : null}
       {block.text ? <Markdown>{block.text}</Markdown> : null}
       {body}
       <AttachmentList attachments={block.attachments} ctx={ctx} />
+      <DeliveryMeta block={block} held={false} />
       <ReactionBar
         reactions={reactions}
         agentName={author.name}
@@ -864,72 +899,6 @@ export const StatusLine = memo(function StatusLine({
         </span>
       ) : null}
     </div>
-  );
-});
-
-/**
- * Who an agent-to-agent message reads as. Its group key names both ends of
- * the conversation, so a run of messages between the same two agents
- * collapses under one header while a message to a different agent — or
- * this agent's next post to the user — starts a new one.
- */
-export function agentMessageAuthor(
-  entry: ChatAgentMessageEntry,
-  ctx: FeedContext
-): PostAuthor {
-  const author =
-    entry.direction === "out"
-      ? agentAuthor(ctx, entry.senderName)
-      : peerAuthor(entry.senderAgentId, entry.senderName, ctx);
-  return {
-    ...author,
-    key: `side:${entry.senderAgentId}>${entry.recipientAgentId}`,
-  };
-}
-
-export const AgentMessageView = memo(function AgentMessageView({
-  entry,
-  grouped,
-  rule = false,
-  ctx,
-}: {
-  entry: ChatAgentMessageEntry;
-  grouped: boolean;
-  rule?: boolean;
-  ctx: FeedContext;
-}): JSX.Element {
-  const { delivered } = entry;
-  return (
-    <Post
-      author={agentMessageAuthor(entry, ctx)}
-      at={entry.at}
-      grouped={grouped}
-      rule={rule}
-      side={{ recipientName: entry.recipientName }}
-      data-testid="chat-agent-message"
-      data-direction={entry.direction}
-      action={<MessageCopyButton text={entry.content} />}
-    >
-      <div className="whitespace-pre-wrap break-words">{entry.content}</div>
-      {delivered === null ? (
-        <div
-          className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-          title="Delivering to the recipient agent's terminal."
-          data-testid="chat-agent-message-pending"
-        >
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Sending
-        </div>
-      ) : delivered === false ? (
-        <div
-          className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
-          title="The recipient agent wasn't running, so it never received this message."
-        >
-          <AlertTriangle className="h-3 w-3" />
-          Not delivered
-        </div>
-      ) : null}
-    </Post>
   );
 });
 

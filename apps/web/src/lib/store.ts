@@ -138,16 +138,6 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "vscode"
 );
 
-// Cached view of the server-wide cross-repo messaging gate (lets agents
-// message/list agents in OTHER repositories). The server enforces and owns the
-// value; CrossRepoMessagingSettings hydrates this atom from the GET endpoint on
-// mount and writes back only on an explicit toggle. localStorage just gives an
-// instant first paint before the GET resolves. Default off.
-export const crossRepoMessagingEnabledAtom = atomWithLocalStorage<boolean>(
-  "dispatch:crossRepoMessaging",
-  false
-);
-
 // Per-cwd preferences for the Create Agent dialog. Each cwd gets its own
 // atom backed by localStorage; the family caches them by trimmed cwd.
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
@@ -262,12 +252,7 @@ export function reconcileAgentSidebarOrder(
   return nextOrder;
 }
 
-export const SYSTEM_SIDEBAR_TABS = [
-  "pins",
-  "media",
-  "reviews",
-  "messages",
-] as const;
+export const SYSTEM_SIDEBAR_TABS = ["pins", "media", "reviews"] as const;
 
 export type SystemSidebarTab = (typeof SYSTEM_SIDEBAR_TABS)[number];
 

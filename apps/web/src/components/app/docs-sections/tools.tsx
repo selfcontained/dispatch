@@ -295,10 +295,10 @@ export function ToolsContent() {
             is not the parent
           </li>
           <li>
-            <Code>send_message</Code> — send a message to another running agent
-            by ID or name; the target can reply the same way. The call returns
-            once the message is queued for the target's terminal, not once it
-            has been typed in
+            <Code>post</Code> with <Code>to</Code> — post a block to another
+            running agent by ID; the target can reply the same way. The block is
+            delivered to that agent as a prompt, and a parent&apos;s post to a
+            child threads under the child&apos;s launch post
           </li>
           <li>
             <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
@@ -352,11 +352,8 @@ export function ToolsContent() {
           what changed rather than echoing back the record.
         </P>
         <P>
-          By default, <Code>list_agents</Code> and <Code>send_message</Code>{" "}
-          only see agents in the same git repository. To let agents coordinate
-          across repos, enable{" "}
-          <strong>Allow messaging agents in other repositories</strong> in{" "}
-          <strong>Settings → Agents</strong>.
+          <Code>list_agents</Code> and <Code>post</Code> see agents in the same
+          git repository.
         </P>
       </Section>
 
@@ -408,10 +405,10 @@ export function ToolsContent() {
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}
-          <Code>send_message</Code> to coordinate between them. Messages are
-          persisted and visible in the <strong>Messages</strong> tab of the
-          media sidebar. The launched agent receives the launcher's ID in its
-          startup context so it can message back.
+          <Code>post</Code> with <Code>to</Code> to coordinate between them. A
+          post to another agent is a block in the root agent&apos;s stream,
+          shown on both agents&apos; pages. The launched agent receives the
+          launcher&apos;s ID in its startup context so it can post back.
         </P>
       </Section>
 

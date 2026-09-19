@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import type {
-  ChatAgentMessageEntry,
   ChatPinEntry,
   ChatTurnEntry,
   StreamBlockEntry,
@@ -71,30 +70,37 @@ function pin(id: string, when: string): ChatPinEntry {
   };
 }
 
-function sent(id: string, when: string): ChatAgentMessageEntry {
-  return {
-    type: "agent_message",
-    id,
-    direction: "out",
-    senderAgentId: AGENT_ID,
-    senderName: "builder",
-    recipientAgentId: "agt_2",
-    recipientName: "Reviewer",
-    content: "please review",
-    delivered: true,
-    at: when,
-  };
+/** A post from one agent to another: a block with `toAgentId` set. */
+function sent(
+  id: string,
+  when: string,
+  from = AGENT_ID,
+  to = "agt_2"
+): StreamBlockEntry {
+  return blockEntry(
+    block({
+      id,
+      author: { kind: "agent", agentId: from },
+      toAgentId: to,
+      // A parent's post to a child threads under the child's launch post.
+      threadId: "launch_2",
+      replyTo: "launch_2",
+      text: "please review",
+      delivered: true,
+      createdAt: when,
+    })
+  );
 }
 
 describe("foldAttachments", () => {
-  it("lifts files, pins and outgoing messages into the turn that produced them", () => {
+  it("lifts files, pins and posts to other agents into the turn that produced them", () => {
     const entries: StreamEntry[] = [
       turn(),
       media("md1", at("10:01")),
       pin("pn1", at("10:02")),
       sent("am1", at("10:03")),
     ];
-    const out = foldAttachments(entries);
+    const out = foldAttachments(entries, AGENT_ID);
     expect(out.entries.map((e) => e.id)).toEqual(["turn:1"]);
     expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual([
       "md1",
@@ -103,18 +109,63 @@ describe("foldAttachments", () => {
     ]);
   });
 
-  it("leaves an incoming peer message and anything after the turn ended in the feed", () => {
-    const incoming: ChatAgentMessageEntry = {
-      ...sent("am2", at("10:02")),
-      direction: "in",
-      senderAgentId: "agt_2",
-      senderName: "Reviewer",
-      recipientAgentId: AGENT_ID,
-      recipientName: "builder",
-    };
-    const out = foldAttachments([turn(), incoming, media("late", at("10:06"))]);
+  it("leaves another agent's post to this one, and anything after the turn ended, in the feed", () => {
+    const incoming = sent("am2", at("10:02"), "agt_2", AGENT_ID);
+    const out = foldAttachments(
+      [turn(), incoming, media("late", at("10:06"))],
+      AGENT_ID
+    );
     expect(out.entries.map((e) => e.id)).toEqual(["turn:1", "am2", "late"]);
     expect(out.folded.size).toBe(0);
+  });
+
+  it("folds only the page agent's rows, under its own turns, when a child's turn interleaves", () => {
+    const childTurn = turn({
+      id: "turn:child",
+      agentId: "agt_2",
+      at: at("10:01"),
+      updatedAt: at("10:04"),
+      trace: {
+        startedAt: at("10:01"),
+        endedAt: at("10:04"),
+        finalResult: "ok",
+        steps: [],
+      },
+    });
+    const childFile = blockEntry(
+      block({
+        id: "child-file",
+        author: { kind: "agent", agentId: "agt_2" },
+        text: "Report",
+        body: FILE_BODY,
+        attachments: [
+          { type: "file", mediaId: 8, fileName: "r.md", sizeBytes: 10 },
+        ],
+        createdAt: at("10:02"),
+      })
+    );
+    const out = foldAttachments(
+      [
+        turn(),
+        childTurn,
+        childFile,
+        // The child's reply to its parent: a post of its own in the feed.
+        sent("reply", at("10:03"), "agt_2", AGENT_ID),
+        media("md1", at("10:03")),
+        pin("pn1", at("10:04")),
+      ],
+      AGENT_ID
+    );
+    // The child's file and its reply stay posts by the child; the child's
+    // turn between does not close the parent's window.
+    expect(out.entries.map((e) => e.id)).toEqual([
+      "turn:1",
+      "turn:child",
+      "child-file",
+      "reply",
+    ]);
+    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["md1", "pn1"]);
+    expect(out.folded.has("turn:child")).toBe(false);
   });
 
   it("keeps a live turn's window open", () => {
@@ -187,9 +238,11 @@ describe("TurnAttachments", () => {
     agentId: AGENT_ID,
     agentName: "builder",
     agentType: "claude",
-    agents: [],
+    peers: {
+      agt_2: { name: "Reviewer", agentType: "codex", relation: "child" },
+    },
     onOpenMedia: () => undefined,
-  } as unknown as FeedContext;
+  };
 
   it("renders each folded item in order with its own block", () => {
     render(

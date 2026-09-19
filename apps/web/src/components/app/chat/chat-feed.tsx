@@ -7,8 +7,6 @@ import type {
 } from "@dispatch/shared";
 
 import {
-  AgentMessageView,
-  agentMessageAuthor,
   blockAuthor,
   BlockView,
   DayDivider,
@@ -54,8 +52,9 @@ export type ChatFeedRow =
        */
       rule: boolean;
       /**
-       * A turn only: the files, pins and peer messages the agent produced
-       * while it ran, lifted out of the feed and into the turn's post.
+       * A turn only: the files, pins and posts to other agents the agent
+       * produced while it ran, lifted out of the feed and into the turn's
+       * post.
        */
       folded?: FoldedEntry[];
     };
@@ -248,10 +247,16 @@ function authorKey(
   ctx: FeedContext
 ): string {
   switch (entry.type) {
-    case "block":
-      return blockAuthor(entry.block, ctx).key;
-    case "agent_message":
-      return agentMessageAuthor(entry, ctx).key;
+    case "block": {
+      // A post to another agent groups by both ends, so a run between the
+      // same two agents shares a header and the next post to people starts
+      // a new one.
+      const { key } = blockAuthor(entry.block, ctx);
+      const to = entry.block.toAgentId;
+      return entry.block.author.kind === "agent" && to !== null
+        ? `${key}>${to}`
+        : key;
+    }
     case "pin":
       return "agent";
     case "turn":
@@ -282,7 +287,7 @@ export function layoutFeed(
   const rows: ChatFeedRow[] = [];
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
-  const fold = foldAttachments(entries);
+  const fold = foldAttachments(entries, ctx.agentId);
   for (const item of collapseFeed(fold.entries)) {
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
@@ -518,15 +523,6 @@ export function ChatFeed({
                   submitting={submittingBlockId === entry.block.id}
                   answersDisabled={answersDisabled}
                   onAnswer={onAnswer}
-                />
-              );
-            case "agent_message":
-              return (
-                <AgentMessageView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
                 />
               );
             case "review":
