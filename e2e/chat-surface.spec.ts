@@ -56,9 +56,8 @@ test.describe("Chat surface", () => {
     await loadApp(page);
 
     // Seed a feed the way an agent would: chat posts.
-    await callMcpTool(request, agent.id, "chat_post", {
+    await callMcpTool(request, agent.id, "post", {
       text: "Tests are **green**. Two files changed.",
-      kind: "reply",
       attachments: [
         { type: "link", url: "https://example.com/report", title: "Report" },
         {
@@ -69,17 +68,15 @@ test.describe("Chat surface", () => {
         },
       ],
     });
-    await callMcpTool(request, agent.id, "chat_post", {
+    await callMcpTool(request, agent.id, "post", {
       text: "Ship it now or wait for review?",
-      kind: "question",
       question: {
         options: [{ label: "Ship it" }, { label: "Wait", value: "wait" }],
         allowFreeform: true,
       },
     });
-    await callMcpTool(request, agent.id, "chat_post", {
+    await callMcpTool(request, agent.id, "post", {
       text: "## Done\n\nAll checks pass.",
-      kind: "summary",
     });
 
     // Opening the agent lands on the Agent tab, which is the Chat.
@@ -107,7 +104,7 @@ test.describe("Chat surface", () => {
     );
     await expect(pane.getByTestId("chat-needs-reply")).toBeVisible();
     await expect(pane.getByTestId("chat-question-option")).toHaveCount(2);
-    await expect(messages.nth(2)).toContainText("Summary");
+    await expect(messages.nth(2)).toContainText("Done");
     await expect(messages.nth(2)).toContainText("All checks pass.");
 
     // A post exposes a compact copy action and copies its raw Markdown text.
@@ -143,7 +140,7 @@ test.describe("Chat surface", () => {
     // Reading the tab marks the agent's messages read.
     await expect
       .poll(async () => {
-        const res = await request.get(`/api/v1/agents/${agent.id}/chat`, {
+        const res = await request.get(`/api/v1/streams/${agent.id}/blocks`, {
           headers: authHeaders(),
         });
         return ((await res.json()) as { unreadCount: number }).unreadCount;
@@ -344,18 +341,18 @@ test.describe("Chat surface", () => {
     // The server stored the attachment on the message.
     await expect
       .poll(async () => {
-        const res = await request.get(`/api/v1/agents/${agent.id}/chat`, {
+        const res = await request.get(`/api/v1/streams/${agent.id}/blocks`, {
           headers: authHeaders(),
         });
         const body = (await res.json()) as {
           entries: Array<{
             type: string;
-            message?: { attachments: Array<{ type: string; url?: string }> };
+            block?: { attachments: Array<{ type: string; url?: string }> };
           }>;
         };
         return body.entries
-          .filter((entry) => entry.type === "chat")
-          .flatMap((entry) => entry.message?.attachments ?? [])
+          .filter((entry) => entry.type === "block")
+          .flatMap((entry) => entry.block?.attachments ?? [])
           .map((attachment) => `${attachment.type}:${attachment.url ?? ""}`);
       })
       .toEqual(["link:https://example.com/design"]);
@@ -374,7 +371,7 @@ test.describe("Chat surface", () => {
     });
     await page.getByTestId("center-tab-agent").waitFor({ state: "visible" });
 
-    await callMcpTool(request, agent.id, "chat_post", {
+    await callMcpTool(request, agent.id, "post", {
       text: "Something new for you.",
     });
 
@@ -396,7 +393,7 @@ test.describe("Chat surface", () => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-table-${Date.now()}`,
     });
-    await callMcpTool(request, agent.id, "chat_post", {
+    await callMcpTool(request, agent.id, "post", {
       text: [
         "| Alpha heading | Bravo heading | Charlie heading | Delta heading | Echo heading |",
         "| --- | --- | --- | --- | --- |",
