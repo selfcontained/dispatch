@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
   CLI_AGENT_TYPES,
-  getEnabledAgentTypes,
+  getOfferedAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
 import { getBuiltInPersona } from "../personas/built-in.js";
@@ -31,7 +31,12 @@ import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import {
+  downshiftedSubtaskModel,
+  inheritedHarnessModel,
+  validateAgentModel,
+} from "../shared/agent-models.js";
+import { isSubtaskModelDownshiftEnabled } from "../subtask-model-settings.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
@@ -486,10 +491,10 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
         ? parent.reviewAgentType
         : null;
-      const fallbackParentType =
-        parent.type === "claude" || parent.type === "opencode"
-          ? parent.type
-          : "codex";
+      // A persona runs as its parent's own kind unless told otherwise.
+      const fallbackParentType = isCliAgentType(parent.type)
+        ? parent.type
+        : "codex";
       const personaAgentType: (typeof CLI_AGENT_TYPES)[number] =
         opts.agentType ?? fallbackReviewType ?? fallbackParentType;
       if (!CLI_AGENT_TYPES.includes(personaAgentType)) {
@@ -498,12 +503,23 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         );
       }
 
-      const enabledAgentTypes = await getEnabledAgentTypes(pool);
-      if (!enabledAgentTypes.includes(personaAgentType)) {
+      // A persona runs as its parent's kind by default, so a harness parent
+      // launches a harness persona. That needs the offered list, which adds
+      // `dispatch` while the Dispatch Harness flag is on.
+      const offeredAgentTypes = await getOfferedAgentTypes(pool);
+      if (!offeredAgentTypes.includes(personaAgentType)) {
         throw new Error(`${personaAgentType} agents are disabled in settings.`);
       }
 
-      const personaModel = validateAgentModel(personaAgentType, opts.model);
+      // A harness persona inherits its parent's engine along with its kind:
+      // the engine is half the model id, so "no model" would otherwise mean
+      // Claude Code no matter what the parent runs on. With the downshift on,
+      // it also drops a tier — a reviewer reads a diff that already exists.
+      const personaModel =
+        validateAgentModel(personaAgentType, opts.model) ??
+        ((await isSubtaskModelDownshiftEnabled(pool))
+          ? downshiftedSubtaskModel(personaAgentType, parent)
+          : inheritedHarnessModel(personaAgentType, parent));
 
       const parentCwd = parent.worktreePath ?? parent.cwd;
       let personaRoot: string;

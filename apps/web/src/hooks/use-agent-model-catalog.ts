@@ -4,7 +4,7 @@ import { useCallback, useMemo } from "react";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = { id: string; label: string; group?: string };
 export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 /**
@@ -36,10 +36,13 @@ export function useAgentModelCatalog(agentType: AgentType): {
   });
 
   const loaded = data !== undefined;
-  const options = useMemo(
-    () => data?.models?.[agentType] ?? [],
-    [agentType, data]
-  );
+  const options = useMemo(() => {
+    const catalog = data?.models?.[agentType] ?? [];
+    // Keep backend Gemini support while its sign-in UX is unavailable.
+    return agentType === "dispatch"
+      ? catalog.filter((option) => !option.id.startsWith("gemini/"))
+      : catalog;
+  }, [agentType, data]);
 
   const normalizeModel = useCallback(
     (value: string | null): string | null =>

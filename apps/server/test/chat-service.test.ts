@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
@@ -49,7 +50,9 @@ beforeAll(async () => {
     pool,
     publishUiEvent: (event) => published.push(event),
     getAgent: async (id) =>
-      id === A ? { id, mediaDir: null, pins: PINS as never } : null,
+      id === A
+        ? { id, type: "claude", mediaDir: null, pins: PINS as never }
+        : null,
     mediaRoot: "/media-root",
   });
 });
@@ -620,6 +623,7 @@ describe("ChatService user workflows", () => {
       /** Resolve to release deliveries; absent = deliver immediately. */
       gate?: Promise<void>;
       fail?: boolean;
+      agentType?: "claude" | "dispatch";
     } = {}
   ) {
     const events: unknown[] = [];
@@ -629,7 +633,12 @@ describe("ChatService user workflows", () => {
       publishUiEvent: (event) => events.push(event),
       getAgent: async (id) =>
         id === A
-          ? { id, mediaDir: "/custom/media", pins: PINS as never }
+          ? {
+              id,
+              type: opts.agentType ?? "claude",
+              mediaDir: "/custom/media",
+              pins: PINS as never,
+            }
           : null,
       mediaRoot: "/media-root",
       delivery: {
@@ -762,6 +771,18 @@ describe("ChatService user workflows", () => {
         "--- END DISPATCH CHAT ---",
         `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${res.message.id}").`,
       ].join("\n")
+    );
+  });
+
+  it("tells a stream-driven (harness) agent its replies land in Chat by themselves", async () => {
+    const { svc, injected } = build({ agentType: "dispatch" });
+    const res = await svc.sendUserMessage(A, "hello harness");
+    await settled(svc, res.message.id);
+    expect(injected[0].text).toContain("--- DISPATCH CHAT");
+    expect(injected[0].text).toContain("hello harness");
+    expect(injected[0].text).not.toContain("The user only sees Chat");
+    expect(injected[0].text).toContain(
+      `Only a question with options needs dispatch_chat_post (replyTo: "${res.message.id}")`
     );
   });
 
@@ -981,6 +1002,24 @@ describe("ChatService user workflows", () => {
     expect(injected).toHaveLength(0);
   });
 
+  it("redeliverPending abandons the queue when the resumed harness has no pane", async () => {
+    // A Dispatch Harness agent that came back on an inert runtime: nothing
+    // to inject into, and the boot sweep skipped it as a running harness.
+    const { svc, events } = build({
+      agentType: "dispatch",
+      access: async () => ({ mode: "inert", message: "No pane." }),
+    });
+    const pending = await svc.store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "waiting since before the restart",
+      delivered: null,
+    });
+    expect(await svc.redeliverPending(A)).toBe(0);
+    expect((await svc.store.getById(pending.id))?.delivered).toBe(false);
+    expect(events).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+
   it("recoverPendingDeliveries sweeps pending user rows and announces each feed", async () => {
     const { svc, events } = build();
     const pending = await svc.store.insert({
@@ -1030,6 +1069,114 @@ describe("ChatService user workflows", () => {
   });
 });
 
+describe("ChatService.launchPromptFor", () => {
+  it("delivers the launch post's delivery text when one was stored", async () => {
+    const prepared = await service.prepareLaunchContext({
+      id: "8a4f9e60-aaaa-4222-8333-444455556666",
+      agentId: A,
+      text: "Summarise the README",
+      deliveryText:
+        "You were launched by agent agt_parent.\n\nSummarise the README",
+    });
+    await prepared!.record();
+    const first = await service.launchPromptFor(A);
+    expect(first).toContain("You were launched by agent agt_parent.");
+    expect(first).toContain("8a4f9e60-aaaa-4222-8333-444455556666");
+    // Chat shows the prompt as written.
+    const rows = await pool.query<{ text: string; delivery_text: string }>(
+      "SELECT text, delivery_text FROM agent_chat_messages WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows[0].text).toBe("Summarise the README");
+    expect(rows.rows[0].delivery_text).toContain("You were launched");
+  });
+
+  it("falls back to the post text", async () => {
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: "Just this",
+    });
+    await prepared!.record();
+    expect(await service.launchPromptFor(A)).toContain("Just this");
+  });
+});
+
+describe("publishTurnEntry", () => {
+  const at = (s: number) => new Date(Date.UTC(2026, 8, 8, 10, 0, s));
+
+  it("publishes the newest turn as one feed entry", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 1, 'turn', $2::jsonb, $3, $4),
+              ($1, 2, 'assistant', $5::jsonb, $4, $6)`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "system", text: "go" },
+        }),
+        at(1),
+        at(2),
+        JSON.stringify({ text: "working on it", streaming: true }),
+        at(5),
+      ]
+    );
+    published.length = 0;
+    await service.publishTurnEntry(A);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({
+      type: "chat.entry",
+      agentId: A,
+      entry: {
+        type: "turn",
+        agentId: A,
+        at: at(1).toISOString(),
+        updatedAt: at(5).toISOString(),
+        settled: false,
+        result: { text: "working on it", streaming: true },
+      },
+    });
+  });
+
+  it("publishes nothing for an agent with no stream rows", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    published.length = 0;
+    await service.publishTurnEntry(A);
+    expect(published).toEqual([]);
+  });
+
+  it("runs one compose at a time and collapses the rest into one re-run", async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+    await pool.query(
+      `INSERT INTO agent_stream_events
+         (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 1, 'turn', $2::jsonb, $3, $4)`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "system", text: "go" },
+        }),
+        at(1),
+        at(2),
+      ]
+    );
+    published.length = 0;
+    // The recorder flushes about ten times a second; each of these is one
+    // flush arriving while the compose before it is still reading.
+    await Promise.all([
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+      service.publishTurnEntry(A),
+    ]);
+    // The first call composes; the other three collapse into one re-run,
+    // because only the newest state is worth sending.
+    expect(published).toHaveLength(2);
+  });
+});
 describe("ChatService reactions", () => {
   type Injected = { agentId: string; text: string };
 
@@ -1306,5 +1453,108 @@ describe("ChatService reactions", () => {
     expect(await svc.store.listReactions(agentMessage.id)).toEqual([
       expect.objectContaining({ authorKind: "user", emoji: "👍" }),
     ]);
+  });
+});
+
+describe("ChatService.recallOpenTurn", () => {
+  beforeEach(async () => {
+    await pool.query("DELETE FROM agent_stream_events");
+  });
+
+  /** A user message plus the open turn that claims it as its prompt. */
+  async function seedOpenTurn(text: string): Promise<string> {
+    const messageId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES ($1, $2, 'user', 'reply', $3, '[]'::jsonb, true)`,
+      [messageId, A, text]
+    );
+    published.length = 0;
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       SELECT $1, COALESCE(MAX(seq), 0) + 1, 'turn', NULL, $2::jsonb
+         FROM agent_stream_events WHERE agent_id = $1`,
+      [
+        A,
+        JSON.stringify({
+          state: "started",
+          prompt: { source: "chat", chatMessageId: messageId },
+        }),
+      ]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       SELECT $1, COALESCE(MAX(seq), 0) + 1, 'assistant', NULL, $2::jsonb
+         FROM agent_stream_events WHERE agent_id = $1`,
+      [A, JSON.stringify({ text: "half an answer", streaming: true })]
+    );
+    return messageId;
+  }
+
+  it("returns the prompt and leaves no trace of the turn", async () => {
+    const messageId = await seedOpenTurn("run the wrong thing");
+
+    await expect(service.recallOpenTurn(A)).resolves.toMatchObject({
+      text: "run the wrong thing",
+    });
+
+    // The chat row goes too. The feed hides a message its turn claims, so
+    // deleting only the stream rows would hand it back as a loose message.
+    const message = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE id = $1",
+      [messageId]
+    );
+    expect(message.rowCount).toBe(0);
+    const stream = await pool.query(
+      "SELECT 1 FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    expect(stream.rowCount).toBe(0);
+  });
+
+  it("tells clients the feed changed", async () => {
+    await seedOpenTurn("oops");
+    await service.recallOpenTurn(A);
+    expect(published).toContainEqual({ type: "chat.changed", agentId: A });
+  });
+
+  it("keeps earlier turns and their messages", async () => {
+    const keptId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES ($1, $2, 'user', 'reply', 'the good one', '[]'::jsonb, true)`,
+      [keptId, A]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+       VALUES ($1, 1, 'turn', NULL, $2::jsonb)`,
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          prompt: { source: "chat", chatMessageId: keptId },
+        }),
+      ]
+    );
+    await seedOpenTurn("the bad one");
+
+    await service.recallOpenTurn(A);
+
+    const rows = await pool.query(
+      "SELECT payload->>'state' AS state FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows).toEqual([{ state: "settled" }]);
+    const still = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE id = $1",
+      [keptId]
+    );
+    expect(still.rowCount).toBe(1);
+  });
+
+  it("is null when no turn is open", async () => {
+    await expect(service.recallOpenTurn(A)).resolves.toBeNull();
   });
 });

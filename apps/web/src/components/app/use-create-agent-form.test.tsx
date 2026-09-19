@@ -386,6 +386,21 @@ describe("handleSubmit", () => {
     });
   });
 
+  it("sends full access for a harness agent whatever the stored preference", async () => {
+    // Every engine launches in its most permissive mode, so the dialog shows
+    // a fixed note in place of the checkbox and the request has to agree, or
+    // the sidebar card reads "Sandboxed" for the most permissive agent.
+    const { result } = await setup({
+      enabledAgentTypes: ["dispatch"] as AgentType[],
+      initialAgentType: "dispatch",
+    });
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+    act(() => result.current.setCreateFullAccess(() => false));
+
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson().fullAccess).toBe(true);
+  });
+
   it("forces useWorktree off when the cwd is not a git repo", async () => {
     const { result } = await setup();
     act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));

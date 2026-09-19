@@ -636,6 +636,22 @@ describe("POST /api/v1/app/settings/agent-types", () => {
     expect(res.json().enabledAgentTypes).toEqual(["claude", "codex"]);
   });
 
+  // A body naming the harness used to be accepted and then silently
+  // sanitized away, so a stale caller looked like it had worked. Say no,
+  // and say where the switch actually is.
+  it("rejects a body that names the harness, pointing at its own endpoint", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/agent-types",
+      headers: { cookie: sessionCookie },
+      payload: { enabledAgentTypes: ["claude", "dispatch"] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe(
+      "dispatch is not set here. Turn the Dispatch Harness on or off at POST /api/v1/app/settings/dispatch-harness."
+    );
+  });
+
   it("rejects duplicate-inflated array with unknown entries", async () => {
     const res = await ctx.app.inject({
       method: "POST",
@@ -650,6 +666,81 @@ describe("POST /api/v1/app/settings/agent-types", () => {
     const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
+      headers: { cookie: sessionCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("/api/v1/app/settings/dispatch-harness", () => {
+  // Order-independent: other tests in this file persist settings rows, and
+  // this one owns its key.
+  beforeEach(async () => {
+    await ctx.pool.query(
+      "DELETE FROM settings WHERE key = 'dispatch_harness_enabled'"
+    );
+  });
+
+  it("reads false before anyone has set it", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: false });
+  });
+
+  it("round trips a POST through the GET", async () => {
+    const post = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    expect(post.statusCode).toBe(200);
+    expect(post.json()).toEqual({ enabled: true });
+
+    const get = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+    });
+    expect(get.json()).toEqual({ enabled: true });
+  });
+
+  it("turns the flag back off", async () => {
+    await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    const off = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: false },
+    });
+    expect(off.json()).toEqual({ enabled: false });
+  });
+
+  it("rejects a non-boolean enabled", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: "true" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("enabled must be a boolean.");
+  });
+
+  it("rejects a body with no enabled at all", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/dispatch-harness",
       headers: { cookie: sessionCookie },
       payload: {},
     });
@@ -836,5 +927,57 @@ describe("POST /api/v1/energy-report", () => {
       payload: { cpu: 42, memory: 100 },
     });
     expect(res.statusCode).toBe(204);
+  });
+});
+
+describe("usage budgets settings", () => {
+  const url = "/api/v1/app/settings/usage-budgets";
+  it("starts empty, stores known providers, and rejects the rest", async () => {
+    const empty = await ctx.app.inject({
+      method: "GET",
+      url,
+      headers: { cookie: sessionCookie },
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ budgets: {} });
+
+    const saved = await ctx.app.inject({
+      method: "POST",
+      url,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { budgets: { claude: 50, opencode: 12.345 } },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ budgets: { claude: 50, opencode: 12.35 } });
+    const read = await ctx.app.inject({
+      method: "GET",
+      url,
+      headers: { cookie: sessionCookie },
+    });
+    expect(read.json()).toEqual({ budgets: { claude: 50, opencode: 12.35 } });
+
+    for (const payload of [
+      { budgets: [] },
+      { budgets: { nope: 5 } },
+      { budgets: { claude: -1 } },
+      { budgets: { claude: "50" } },
+    ]) {
+      const bad = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload,
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+
+    // An empty object clears every row.
+    const cleared = await ctx.app.inject({
+      method: "POST",
+      url,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { budgets: {} },
+    });
+    expect(cleared.json()).toEqual({ budgets: {} });
   });
 });

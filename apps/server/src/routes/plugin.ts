@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
-import { getEnabledAgentTypes } from "../agent-type-settings.js";
+import { getOfferedAgentTypes } from "../agent-type-settings.js";
 import { CLI_BY_AGENT_TYPE } from "../agents/tmux/command-builder.js";
 import type { AppConfig } from "../config.js";
 import {
@@ -30,9 +30,12 @@ export async function registerPluginRoutes(
     const query = request.query as { refresh?: unknown };
     const forceRefresh = query?.refresh === "true" || query?.refresh === "1";
 
-    const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+    // The offered list, like every other gate. `PLUGIN_AGENT_TYPES` is claude
+    // and codex, so the harness can never be one of these either way; reading
+    // one list everywhere is what stops a later reader having to check which.
+    const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
     const applicableTypes = PLUGIN_AGENT_TYPES.filter((type) =>
-      enabledAgentTypes.includes(type)
+      offeredAgentTypes.includes(type)
     );
 
     const statuses = await Promise.all(
@@ -53,8 +56,8 @@ export async function registerPluginRoutes(
     }
     const agentType = body.agentType;
 
-    const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-    if (!enabledAgentTypes.includes(agentType)) {
+    const offeredAgentTypes = await getOfferedAgentTypes(deps.pool);
+    if (!offeredAgentTypes.includes(agentType)) {
       return reply
         .code(400)
         .send({ error: `${agentType} is not an enabled agent type.` });

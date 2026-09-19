@@ -18,6 +18,13 @@ import Fastify from "fastify";
 import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
+import {
+  harnessSearchPath,
+  HarnessSupervisor,
+} from "./agents/harness/supervisor.js";
+import { loadUsageReport } from "./agents/harness/usage.js";
+import { createHarnessAuthReporter } from "./agents/harness/auth-status.js";
+import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
   validateSession,
@@ -95,6 +102,7 @@ import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  gitSha,
   packageVersion,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
@@ -124,6 +132,7 @@ import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { createHarnessProviderUsageReporter } from "./agents/harness/provider-usage.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import { SurfaceService } from "./surfaces/service.js";
@@ -454,6 +463,7 @@ const surfaceService = new SurfaceService(pool, {
 const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
+  hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   mediaRoot: config.mediaRoot,
   delivery: {
@@ -463,11 +473,52 @@ const chatService = new ChatService({
     // failed delivery rather than a stale session name.
     inject: async (agentId, _sessionName, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
-    held: (agentId) => injectionCoordinator.holdState(agentId).held,
+    // A harness prompt waits in the supervisor's turn queue, not the
+    // injection gate; report that so Chat and MCP messages agree on "held".
+    held: (agentId): boolean =>
+      harnessSupervisor.isRunning(agentId)
+        ? harnessSupervisor.isBusy(agentId)
+        : injectionCoordinator.holdState(agentId).held,
   },
   log: app.log,
 });
 agentManager.attachLaunchContextRecorder(chatService);
+const harnessSupervisor = new HarnessSupervisor({
+  pool,
+  config,
+  logger: app.log,
+  getAgent: (agentId) => agentManager.getAgent(agentId),
+  setCliSessionId: (agentId, sessionId) =>
+    agentManager.setCliSessionId(agentId, sessionId),
+  setLatestEvent: async (agentId, input) => {
+    await agentManager.upsertLatestEvent(agentId, input);
+  },
+  // Every flush announces itself twice, and the halves carry different
+  // things: harness.changed carries the queue (and the session config when
+  // the write changed it), and the affected turn goes out as one feed row.
+  publishHarness: (agentId, config) => {
+    chatService.publishHarnessChanged(agentId, config);
+    void chatService.publishTurnEntry(agentId);
+  },
+  personaPromptFor: (agent, jobRunId) =>
+    agentManager.buildHarnessPersonaFor(agent, jobRunId ?? undefined),
+  activeJobRunIdFor: async (agentId) =>
+    (await jobService.getActiveRunForAgent(agentId))?.id ?? null,
+  launchPromptFor: (agentId): Promise<string | null> =>
+    chatService.launchPromptFor(agentId),
+  listRunningAgentIds: () => agentManager.listRunningHarnessAgentIds(),
+  markStartFailed: (agentId, message) =>
+    agentManager.markHarnessStartFailed(agentId, message),
+  markExited: (agentId, message) =>
+    agentManager.markHarnessExited(agentId, message),
+  setAgentModel: async (agentId, model) => {
+    await pool.query("UPDATE agents SET model = $2 WHERE id = $1", [
+      agentId,
+      model,
+    ]);
+  },
+});
+agentManager.attachHarnessSupervisor(harnessSupervisor);
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -544,9 +595,16 @@ async function registerRoutes() {
   // Stamp every API response with the build-time package version so the
   // client can detect a server upgrade (e.g. after a self-update) and
   // surface a "reload" banner without polling a version endpoint.
+  //
+  // The build id rides alongside because the version cannot see a redeploy
+  // that kept the same semver: every branch build of 0.38.14 reports
+  // 0.38.14, so an open tab kept serving stale code with no banner. Its own
+  // header rather than a richer X-Dispatch-Version, which release-checks.ts
+  // parses to prove which executable is running.
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/")) {
       reply.header("X-Dispatch-Version", packageVersion);
+      if (gitSha) reply.header("X-Dispatch-Build", gitSha);
     }
     return payload;
   });
@@ -676,6 +734,50 @@ async function registerRoutes() {
     validateAgentMcpToken,
     mcpSendNotify: mcpHandlers.sendNotify,
     mcpUpsertEvent: mcpHandlers.upsertEvent,
+    mcpUpdateTasks: (
+      agentId: string,
+      entries: Parameters<typeof harnessSupervisor.updateTasks>[1]
+    ) => harnessSupervisor.updateTasks(agentId, entries),
+    mcpBackgroundProcess: async (
+      agentId: string,
+      input: {
+        action: string;
+        processId?: string;
+        command?: string;
+        title?: string;
+        timeoutSeconds?: number;
+      }
+    ) => {
+      if (input.action === "start") {
+        if (!input.command || !input.title)
+          throw new Error("Start requires command and title.");
+        return harnessSupervisor.startBackgroundProcess(agentId, {
+          command: input.command,
+          title: input.title,
+          timeoutSeconds: input.timeoutSeconds,
+        });
+      }
+      if (input.action === "stop") {
+        if (
+          !input.processId ||
+          !(await harnessSupervisor.backgroundProcesses.stop(
+            agentId,
+            input.processId
+          ))
+        )
+          throw new Error(
+            "Process is not running or does not belong to this session."
+          );
+        return { stopped: true };
+      }
+      const processes =
+        await harnessSupervisor.backgroundProcesses.list(agentId);
+      if (input.action === "list")
+        return processes.map(({ output: _output, ...process }) => process);
+      const process = processes.find((p) => p.id === input.processId);
+      if (!process) throw new Error("Process not found in this session.");
+      return process;
+    },
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
@@ -716,6 +818,18 @@ async function registerRoutes() {
     chat: chatService,
   });
 
+  const harnessAuthReport = createHarnessAuthReporter(
+    {
+      claude: config.claudeBin,
+      codex: config.codexBin,
+      gemini: config.geminiBin,
+      opencode: config.opencodeBin,
+    },
+    undefined,
+    // The probes must find a bare engine name where the harness spawn does.
+    { PATH: harnessSearchPath(config) }
+  );
+  const harnessProviderUsageReport = createHarnessProviderUsageReporter();
   await registerSystemRoutes(app, {
     pool,
     appLog: app.log,
@@ -724,6 +838,9 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
+    usageReport: async () => loadUsageReport(pool, await getUsageBudgets(pool)),
+    authReport: harnessAuthReport,
+    providerUsageReport: harnessProviderUsageReport,
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -820,6 +937,25 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     pool,
+    harness: {
+      listProcesses: (agentId) =>
+        harnessSupervisor.backgroundProcesses.list(agentId),
+      stopProcess: (agentId, id) =>
+        harnessSupervisor.backgroundProcesses.stop(agentId, id),
+      getConfigOptions: (agentId) =>
+        harnessSupervisor.getConfigOptions(agentId),
+      getSessionStartedAt: (agentId) =>
+        harnessSupervisor.getSessionStartedAt(agentId),
+      setConfigOption: (agentId, configId, value) =>
+        harnessSupervisor.setConfigOption(agentId, configId, value),
+      getCommands: (agentId) => harnessSupervisor.getCommands(agentId),
+      listQueued: (agentId) => harnessSupervisor.listQueued(agentId),
+      sendQueuedNow: (agentId, id) =>
+        harnessSupervisor.sendQueuedNow(agentId, id),
+      removeQueued: (agentId, id) =>
+        harnessSupervisor.removeQueued(agentId, id),
+      interrupt: (agentId) => harnessSupervisor.interrupt(agentId),
+    },
     appLog: app.log,
     agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event),
@@ -919,6 +1055,7 @@ export async function initializeApp(options?: {
     await readServiceResourcesCollectionEnabled(pool)
   );
   const shouldReconcileState = options?.reconcileState ?? true;
+  reconcileOnStart = shouldReconcileState;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();
     // Chat deliveries queued in the previous process died with it; flip their
@@ -972,10 +1109,14 @@ export async function closeApp(): Promise<void> {
   await cleanupAppResources();
 }
 
+/** Whether initializeApp reconciled state; start() finishes that work after listen. */
+let reconcileOnStart = true;
+
 export async function start() {
   await initializeApp();
 
   const protocol = config.tls ? "https" : "http";
+  await harnessSupervisor.backgroundProcesses.reconcile();
   await app.listen({
     host: config.host,
     port: config.port,
@@ -986,6 +1127,12 @@ export async function start() {
 
   // The process that activated a new binary exits during the service restart,
   // so only this newly healthy process can truthfully promote the candidate.
+  // It goes before the harness restore below and never behind it: promotion
+  // only needs a listening, healthy process, while the restore starts agents
+  // one at a time under a 30 s handshake ceiling each. Behind the restore,
+  // release.json still named the previous tag for minutes on a busy install,
+  // and an assisted update checking version convergence in that window
+  // blocked against a perfectly healthy server.
   try {
     const promoted = await promoteHealthyReleaseCandidate({
       expectedTag: `v${packageVersion}`,
@@ -994,6 +1141,33 @@ export async function start() {
     if (promoted) app.log.info("Promoted healthy release candidate");
   } catch (err) {
     app.log.error({ err }, "Failed to promote healthy release candidate");
+  }
+
+  // Harness children died with the previous process while their agents
+  // stayed "running"; bring them back on their stored session ids. This has
+  // to run after listen: the harness attaches Dispatch's MCP endpoint at
+  // resume.
+  if (reconcileOnStart) {
+    const harnessRestore = await harnessSupervisor.restoreRunning();
+    // Chat messages that were queued behind a running turn when the last
+    // process stopped: the boot sweep left them pending for these agents.
+    for (const id of harnessRestore.restored) {
+      try {
+        const count = await chatService.redeliverPending(id);
+        if (count > 0) {
+          app.log.info(
+            { agentId: id, count },
+            "Redelivered queued chat messages"
+          );
+        }
+      } catch (err) {
+        app.log.warn({ err, agentId: id }, "Redelivering queued chat failed");
+      }
+    }
+    await chatService.abandonPending(harnessRestore.failed).catch(() => []);
+    if (harnessRestore.restored.length + harnessRestore.failed.length > 0) {
+      app.log.info(harnessRestore, "Restored harness agents after restart");
+    }
   }
 }
 
@@ -1015,6 +1189,17 @@ async function cleanupAppResources(): Promise<void> {
   notificationRuntime.clearPendingWebNotifications();
 
   await jobService.shutdown();
+  // Stop harness children through their teardown ladder first: it is
+  // bounded (a few seconds) and must finish before the pool goes away (the
+  // exit rows need it), while the archive and delivery waits below can each
+  // run to their full budget. launchd's default ExitTimeOut is 20 s on an
+  // install that predates the installer's 30 s, and a SIGKILL partway
+  // through the ladder leaves engine children running with full-access
+  // permissions and a stale MCP token. A prompt still in flight to a
+  // harness agent is marked interrupted here and redelivered at boot.
+  await harnessSupervisor.stopAll().catch((err: unknown) => {
+    app.log.warn({ err }, "Stopping harness agents on shutdown failed");
+  });
   await agentLifecycleRuntime.waitForActiveArchives(10_000);
   // Let deliveries that are about to settle record their outcome; anything
   // still waiting on the quiet gate is swept to not-delivered at next start.

@@ -70,6 +70,58 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   return out;
 }
 
+/**
+ * Move the pins an agent wrote mid-turn above the turn that wrote them.
+ *
+ * The feed is chronological and a turn is anchored at its start for its whole
+ * life, so a pin written during a turn sorts below it. A working agent that
+ * pins as it goes therefore pushes its own live turn off the top of the
+ * screen. This is presentation only — the server's order still backs the
+ * cursors.
+ *
+ * A pin is claimed by the turn whose span contains it, and the span comes
+ * from the turn's own trace rather than from whether it is still open, so a
+ * pin sits in the same place before and after the turn settles.
+ */
+export function hoistTurnPins(entries: ChatFeedEntry[]): ChatFeedEntry[] {
+  const claimed = new Map<string, ChatFeedEntry[]>();
+  const moved = new Set<string>();
+  // Ascending by time, so the most recent turn is the only span a pin can
+  // fall in — one pass, rather than a scan of the turns per pin.
+  let span: { id: string; start: number; end: number } | null = null;
+  for (const entry of entries) {
+    if (entry.type === "turn") {
+      span = {
+        id: entry.id,
+        start: Date.parse(entry.trace.startedAt),
+        end: entry.trace.endedAt
+          ? Date.parse(entry.trace.endedAt)
+          : Number.POSITIVE_INFINITY,
+      };
+      continue;
+    }
+    if (entry.type !== "pin" || !span) continue;
+    const at = Date.parse(entry.at);
+    if (at < span.start || at > span.end) continue;
+    const bucket = claimed.get(span.id);
+    if (bucket) bucket.push(entry);
+    else claimed.set(span.id, [entry]);
+    moved.add(entry.id);
+  }
+  if (moved.size === 0) return entries;
+
+  const out: ChatFeedEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "pin" && moved.has(entry.id)) continue;
+    if (entry.type === "turn") {
+      const pins = claimed.get(entry.id);
+      if (pins) out.push(...pins);
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
 function withoutEntries(
   page: ChatFeedResponse
 ): Omit<ChatFeedResponse, "entries"> {
@@ -187,7 +239,7 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
   });
 
   const entries = useMemo(
-    () => (query.data ? flattenFeedPages(query.data.pages) : []),
+    () => (query.data ? hoistTurnPins(flattenFeedPages(query.data.pages)) : []),
     [query.data]
   );
 
@@ -374,6 +426,29 @@ export type FeedUpsert = {
 };
 
 /**
+ * The chat row a turn names as its prompt is rendered by the turn, and the
+ * server stops listing it as a `chat` entry once the turn row exists. A
+ * client that saw the row first, from its own send, holds both, so the
+ * turn's arrival is where the duplicate goes. The unread count is left
+ * alone: a prompt row is the user's own and was never counted.
+ */
+function withoutTurnPrompt(cache: FeedCache, entry: ChatFeedEntry): FeedCache {
+  if (entry.type !== "turn") return cache;
+  const promptId = entry.prompt.chatMessageId;
+  if (promptId === undefined) return cache;
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    const entries = page.entries.filter(
+      (existing) => !(existing.type === "chat" && existing.id === promptId)
+    );
+    if (entries.length === page.entries.length) return page;
+    changed = true;
+    return { ...page, entries };
+  });
+  return changed ? { ...cache, pages } : cache;
+}
+
+/**
  * Put one feed row (from a `chat.entry` event) into the cached pages: in
  * place when its id is already here, otherwise into the newest page at its
  * position by time. The unread count follows agent messages that arrive
@@ -384,6 +459,10 @@ export function upsertFeedEntry(
   cache: FeedCache,
   entry: ChatFeedEntry
 ): FeedUpsert {
+  return placeEntry(withoutTurnPrompt(cache, entry), entry);
+}
+
+function placeEntry(cache: FeedCache, entry: ChatFeedEntry): FeedUpsert {
   const newest = cache.pages[0];
   if (!newest) return { cache, placed: false };
   const key = `${entry.type}:${entry.id}`;
@@ -394,6 +473,17 @@ export function upsertFeedEntry(
     );
     if (index === -1) continue;
     const previous = page.entries[index]!;
+    // A turn is republished on every recorder flush, and two composes of the
+    // same turn can finish out of order. Without this the older one would
+    // land last and leave the turn short, and often still streaming, with
+    // nothing to correct it: its own event no longer refetches the feed.
+    if (
+      entry.type === "turn" &&
+      previous.type === "turn" &&
+      entry.updatedAt < previous.updatedAt
+    ) {
+      return { cache, placed: true };
+    }
     const shared = replaceEqualDeep(previous, entry);
     if (shared === previous) return { cache, placed: true };
     const entries = page.entries.slice();

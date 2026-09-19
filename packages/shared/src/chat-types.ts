@@ -226,6 +226,97 @@ export type ChatReviewEntry = {
   at: string;
 };
 
+export type ChatTurnStepStatus = "running" | "ok" | "error";
+
+/**
+ * One unit of work inside a turn's trace: a tool call, a thought, or a
+ * piece of assistant text that was not the turn's answer.
+ */
+export type ChatTurnStep = {
+  id: string;
+  /** execute | edit | read | search | fetch | think | note | other */
+  kind: string;
+  label: string;
+  status: ChatTurnStepStatus;
+  startedAt: string;
+  endedAt?: string;
+  durMs?: number;
+  detail: {
+    toolKind?: string;
+    locations?: { path: string; line?: number }[];
+    diff?: { path: string; oldText: string | null; newText: string } | null;
+    terminalOutput?: string | null;
+    truncated?: boolean;
+    /** The tool call's raw input (the harness sends the model's arguments). */
+    input?: unknown;
+    /** note and think steps: the full text. */
+    text?: string;
+    /** A `subagent` step: the child session it started. */
+    subagentSessionId?: string;
+    /** A nested call: the toolCallId of the step it runs under. */
+    parentToolCallId?: string;
+  };
+  /** Steps a subagent ran under this one (Claude Task calls). */
+  children?: ChatTurnStep[];
+};
+
+export type ChatTurnPlanEntry = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
+};
+
+/** What opened a turn, in the reader's terms rather than the wire envelope's. */
+export type ChatTurnPrompt = {
+  source: "chat" | "launch" | "agent" | "system";
+  text: string;
+  /** The `agent_chat_messages` row behind a chat or launch prompt. */
+  chatMessageId?: string;
+  /** A prompt from another agent: who sent it. */
+  senderName?: string;
+  /**
+   * A prompt from another agent: which one. The child-agent filter needs the
+   * id, not the name, to decide whether a turn belongs to a child.
+   */
+  senderAgentId?: string;
+  attachments: ChatAttachment[];
+};
+
+export type ChatTurnQuestionRef = { messageId: string; answered: boolean };
+
+/**
+ * One turn of a stream-driven harness, whole: the prompt that opened it, the
+ * activity behind it, the answer it ended with. It takes the position of its
+ * anchor `turn` row and grows in place while the turn runs, so it belongs
+ * wholly to the page that anchor falls on and no page boundary splits it.
+ */
+export type ChatTurnEntry = {
+  type: "turn";
+  id: string;
+  agentId: string;
+  /** The anchor row's `created_at`: the turn's place in the feed, fixed for its life. */
+  at: string;
+  updatedAt: string;
+  prompt: ChatTurnPrompt;
+  trace: {
+    startedAt: string;
+    endedAt?: string;
+    finalResult?: "ok" | "error" | "interrupted";
+    steps: ChatTurnStep[];
+  };
+  result: { text: string; streaming: boolean; truncated?: boolean } | null;
+  /** False while the turn is open: the rail is live and the result may grow. */
+  settled: boolean;
+  /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */
+  interrupted: boolean;
+  error?: string;
+  /** The turn in the agent's own words: its last `dispatch_event` message. */
+  label?: string;
+  plan?: ChatTurnPlanEntry[];
+  usage?: { used: number; size: number; costUsd: number | null };
+  questions?: ChatTurnQuestionRef[];
+};
+
 /**
  * Pins the agent created, updated, or deleted in one write (`pin_events`),
  * surfaced as a post in the feed. Entries carry ids, not values: the web
@@ -255,6 +346,7 @@ export type ChatFeedEntry =
   | ChatAgentMessageEntry
   | ChatMediaEntry
   | ChatReviewEntry
+  | ChatTurnEntry
   | ChatPinEntry;
 
 export type ChatFeedResponse = {
@@ -293,6 +385,20 @@ export type ChatAnswerResponse = {
 };
 
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
+
+/**
+ * A Dispatch Harness stream write: an assistant chunk, a tool call, a
+ * turn boundary, a queue change. The turn it changed is published as its
+ * own `chat.entry`, so this event only refetches the queue; `config`
+ * marks the writes that also change the session's model, effort, or
+ * running state (a session start, a settle, a switch), so a client
+ * refetches that only then, not on every chunk.
+ */
+export type HarnessChangedEvent = {
+  type: "harness.changed";
+  agentId: string;
+  config?: boolean;
+};
 
 /**
  * One feed row, exactly as `GET /agents/:id/chat` would return it, published

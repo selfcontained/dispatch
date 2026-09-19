@@ -315,6 +315,8 @@ export async function harvestTokenUsage(
   agent: HarvestAgent,
   logger?: HarvestLogger
 ): Promise<void> {
+  // Harness usage arrives on the ACP stream (agents/harness/usage-recorder.ts).
+  if (agent.type === "dispatch") return;
   if (agent.type === "codex") {
     await harvestCodexTokenUsage(pool, agent, logger);
   } else if (agent.type === "claude") {

@@ -496,6 +496,31 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.queryByText("Sandboxed")).toBeNull();
   });
 
+  it("names the engine a harness agent runs, and nothing for other kinds", () => {
+    // Outside the pane nothing said which engine: the type label is the
+    // product name and the icon is the same for all four, so a Claude and a
+    // Codex harness agent were indistinguishable in the sidebar.
+    const { rerender } = renderCard({
+      agent: makeAgent({ type: "dispatch", model: "codex/gpt-5.6-sol" }),
+      expandedAgentId: AGENT_ID,
+    });
+    expect(screen.getByTestId("agent-card-engine").textContent).toContain(
+      "Codex"
+    );
+    expect(screen.getByTestId("agent-card-engine").textContent).toContain(
+      "gpt-5.6-sol"
+    );
+
+    // An engine that fixes its model at launch still names the engine.
+    rerender({ agent: makeAgent({ type: "dispatch", model: null }) });
+    expect(screen.getByTestId("agent-card-engine").textContent).toContain(
+      "Claude Code"
+    );
+
+    rerender({ agent: makeAgent({ type: "claude", model: "opus" }) });
+    expect(screen.queryByTestId("agent-card-engine")).toBeNull();
+  });
+
   it("keeps the worktree-path copy confirmation across a collapse and reopen", async () => {
     const { rerender } = renderCard({
       agent: worktreeAgent,

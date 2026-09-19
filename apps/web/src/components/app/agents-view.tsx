@@ -240,9 +240,11 @@ export function AgentsView({
   // CLI to chat with, so it keeps the plain Terminal tab and Console-only
   // pane however the flag is set. An empty workspace likewise has no Chat
   // target and should not render the Agent-pane view switch.
+  // A harness agent's engine streams into Chat and has no CLI in its pane, so
+  // Chat is on for it whether or not the global surface flag is.
   const chatEnabled =
-    chatSurfaceEnabled &&
     focusedAgent !== null &&
+    (chatSurfaceEnabled || focusedAgent.type === "dispatch") &&
     agentSupportsChat(focusedAgent.type);
   const activeTab: CenterTab = changesMatch
     ? "changes"
@@ -673,6 +675,9 @@ export function AgentsView({
       <AgentViewToggle
         view={agentView}
         onViewChange={setAgentView}
+        terminalLabel={
+          focusedAgent?.type === "dispatch" ? "Terminal" : "Console"
+        }
         chatUnreadCount={chatUnreadCount}
         showChildAgents={showChildAgents}
         onShowChildAgentsChange={setShowChildAgents}

@@ -5,6 +5,7 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMessage,
+  ChatTurnEntry,
 } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -16,6 +17,7 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   appendToNewestPage,
+  hoistTurnPins,
   applyChatRead,
   chatFeedQueryKey,
   type FeedCache,
@@ -422,6 +424,26 @@ describe("upsertFeedEntry", () => {
     message: id,
     at: when,
   });
+  const turnEntry = (
+    chatMessageId: string | undefined,
+    when: string
+  ): ChatTurnEntry => ({
+    type: "turn",
+    id: "turn:12",
+    agentId: "agt_1",
+    at: when,
+    updatedAt: when,
+    prompt: {
+      source: "chat",
+      text: "read the readme",
+      ...(chatMessageId ? { chatMessageId } : {}),
+      attachments: [],
+    },
+    trace: { startedAt: when, steps: [] },
+    result: null,
+    settled: false,
+    interrupted: false,
+  });
 
   it("appends a newer entry to the newest page and bumps unread for agent posts", () => {
     const a = chat(message({ id: "a", createdAt: at(1) }));
@@ -547,6 +569,98 @@ describe("upsertFeedEntry", () => {
       upsertFeedEntry({ pageParams: [], pages: [] }, status("event:1", at(1)))
         .placed
     ).toBe(false);
+  });
+
+  it("drops the chat row a turn claims as its prompt", () => {
+    const prompt = chat(
+      message({ id: "p1", authorKind: "user", createdAt: at(1) })
+    );
+    const other = status("event:2", at(2));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([prompt, other])],
+    };
+    const result = upsertFeedEntry(cache, turnEntry("p1", at(3)));
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "event:2",
+      "turn:12",
+    ]);
+  });
+
+  it("drops a prompt row from an older page as its turn grows", () => {
+    const prompt = chat(
+      message({ id: "p1", authorKind: "user", createdAt: at(1) })
+    );
+    const live = turnEntry("p1", at(3));
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([live], { hasMore: true, nextCursor: "c1" }),
+        page([prompt]),
+      ],
+    };
+    const result = upsertFeedEntry(cache, {
+      ...live,
+      updatedAt: at(9),
+      result: { text: "It documents the CLI.", streaming: false },
+    });
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[1]!.entries).toEqual([]);
+    const grown = result.cache.pages[0]!.entries[0]!;
+    expect(grown.type === "turn" ? grown.result?.text : null).toBe(
+      "It documents the CLI."
+    );
+  });
+
+  it("leaves every other chat row alone, and a turn with no chat prompt", () => {
+    const keep = chat(
+      message({ id: "p2", authorKind: "user", createdAt: at(1) })
+    );
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([keep])],
+    };
+    const injected = upsertFeedEntry(cache, {
+      ...turnEntry(undefined, at(3)),
+      prompt: {
+        source: "system",
+        text: "Rename yourself to match the work you are doing.",
+        attachments: [],
+      },
+    });
+    expect(injected.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "p2",
+      "turn:12",
+    ]);
+  });
+
+  it("ignores a turn compose that finished out of order", () => {
+    const live = turnEntry("p1", at(3));
+    const grown = {
+      ...live,
+      updatedAt: at(9),
+      result: { text: "the whole answer", streaming: false },
+      settled: true,
+    };
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([grown])],
+    };
+    // The older compose of the same turn, arriving last.
+    const stale = {
+      ...live,
+      updatedAt: at(6),
+      result: { text: "the whole", streaming: true },
+    };
+    const result = upsertFeedEntry(cache, stale);
+    expect(result.placed).toBe(true);
+    expect(result.cache).toBe(cache);
+    const kept = result.cache.pages[0]!.entries[0]!;
+    expect(kept.type === "turn" ? kept.settled : null).toBe(true);
+    expect(kept.type === "turn" ? kept.result?.text : null).toBe(
+      "the whole answer"
+    );
   });
 });
 
@@ -965,5 +1079,86 @@ describe("useToggleChatReaction", () => {
       queryKey: chatFeedQueryKey("agt_1"),
       exact: true,
     });
+  });
+});
+
+describe("hoistTurnPins", () => {
+  const turn = (
+    id: string,
+    startedAt: string,
+    endedAt?: string
+  ): ChatFeedEntry =>
+    ({
+      type: "turn",
+      id,
+      agentId: "agt_1",
+      at: startedAt,
+      updatedAt: endedAt ?? startedAt,
+      prompt: { text: "go" },
+      trace: { startedAt, ...(endedAt ? { endedAt } : {}), steps: [] },
+      result: null,
+      settled: endedAt !== undefined,
+      interrupted: false,
+    }) as unknown as ChatTurnEntry;
+
+  const pin = (id: string, at: string): ChatFeedEntry => ({
+    type: "pin",
+    id,
+    action: "created",
+    pins: [{ id: `p${id}`, label: `Pin ${id}` }],
+    at,
+  });
+
+  const ids = (entries: ChatFeedEntry[]) => entries.map((e) => e.id);
+
+  it("lifts a pin written during a live turn above that turn", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+      pin("b", "2026-09-17T10:01:00.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a", "b", "t1"]);
+  });
+
+  it("does not move when the turn settles, so nothing jumps", () => {
+    const live = [
+      turn("t1", "2026-09-17T10:00:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+    ];
+    const settled = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:02:00.000Z"),
+      pin("a", "2026-09-17T10:00:30.000Z"),
+    ];
+    expect(ids(hoistTurnPins(live))).toEqual(ids(hoistTurnPins(settled)));
+  });
+
+  it("leaves a pin written between turns where it is", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:01:00.000Z"),
+      pin("a", "2026-09-17T10:05:00.000Z"),
+      turn("t2", "2026-09-17T10:06:00.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["t1", "a", "t2"]);
+  });
+
+  it("keeps each turn's pins with their own turn, in order", () => {
+    const entries = [
+      turn("t1", "2026-09-17T10:00:00.000Z", "2026-09-17T10:01:00.000Z"),
+      pin("a", "2026-09-17T10:00:10.000Z"),
+      pin("b", "2026-09-17T10:00:20.000Z"),
+      turn("t2", "2026-09-17T10:02:00.000Z"),
+      pin("c", "2026-09-17T10:02:30.000Z"),
+    ];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a", "b", "t1", "c", "t2"]);
+  });
+
+  it("leaves a pin alone when its turn is not in the loaded window", () => {
+    const entries = [pin("a", "2026-09-17T10:00:30.000Z")];
+    expect(ids(hoistTurnPins(entries))).toEqual(["a"]);
+  });
+
+  it("returns the same array when nothing moves", () => {
+    const entries = [turn("t1", "2026-09-17T10:00:00.000Z")];
+    expect(hoistTurnPins(entries)).toBe(entries);
   });
 });

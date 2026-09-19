@@ -14,6 +14,18 @@ describe("install-dispatch systemd unit", () => {
     expect(script).toContain("KillMode=process");
   });
 
+  it("gives the macOS service longer than launchd's default to shut down", async () => {
+    // The shutdown budget is archives 10 s, in-flight deliveries 5 s,
+    // harness reconcile 2 s and the harness stop ladder 7 s: past launchd's
+    // 20 s default, at which point it SIGKILLs the server mid-teardown and
+    // the engine children survive as orphans.
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).toContain("<key>ExitTimeOut</key><integer>30</integer>");
+  });
+
   it("does not add a shell-environment marker to either service", async () => {
     const script = await readFile(
       path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
