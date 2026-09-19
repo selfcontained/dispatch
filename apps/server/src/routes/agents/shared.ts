@@ -48,7 +48,6 @@ export type AgentRouteDeps = {
    */
   chat: StreamService;
   /** Read per click: the flag is a cold path and must not be cached stale. */
-  isChatSurfaceEnabled: () => Promise<boolean>;
 };
 
 export function escapeHtml(s: string): string {

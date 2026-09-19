@@ -22,9 +22,8 @@ interface ToggleSettingCardProps {
 /**
  * Presentational shell for a single server-owned boolean setting: eyebrow,
  * copy, one bordered checkbox row and an error line. Deliberately does not own
- * the state — callers bring their own hook, because they do not all use the
- * same one (`useOptimisticToggleSetting` for the atom/fetch-backed flags,
- * `useChatSurfaceSetting` for the React Query-backed one the tab bar reads).
+ * the state — callers bring their own hook (`useOptimisticToggleSetting` for
+ * the atom/fetch-backed flags).
  */
 export function ToggleSettingCard({
   eyebrow,

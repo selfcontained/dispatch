@@ -109,7 +109,6 @@ import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
-import { isChatSurfaceEnabled } from "./chat-surface-settings.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
@@ -813,7 +812,6 @@ async function registerRoutes() {
     onAgentStarted: (agentId) =>
       surfaceService.notifyQueuedAfterResume(agentId),
     chat: streamService,
-    isChatSurfaceEnabled: () => isChatSurfaceEnabled(pool),
   });
 
   // --- Personas ---

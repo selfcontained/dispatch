@@ -50,9 +50,6 @@ export function buildSystemPrompt(input: {
     suggestSessionRename: input.suggestSessionRename,
     autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,
-    // The chat-surface rule told a CLI agent to re-post replies through a
-    // tool; a streamed reply already lands in the stream.
-    chatSurface: false,
   });
   const appended = extractAppendedSystemPrompt(agent.agentArgs ?? []);
   const sections = [guidance.trim(), CHAT_RULE, SLASH_RULE];

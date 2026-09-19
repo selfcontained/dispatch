@@ -14,10 +14,6 @@ import {
   isTrimmedLaunchGuidanceEnabled,
   setTrimmedLaunchGuidanceEnabled,
 } from "../launch-guidance-settings.js";
-import {
-  isChatSurfaceEnabled,
-  setChatSurfaceEnabled,
-} from "../chat-surface-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -420,20 +416,6 @@ export async function registerSystemRoutes(
     }
 
     return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
-  });
-
-
-  app.get("/api/v1/app/settings/chat-surface", async () => {
-    return { enabled: await isChatSurfaceEnabled(deps.pool) };
-  });
-
-  app.post("/api/v1/app/settings/chat-surface", async (request, reply) => {
-    const body = request.body as { enabled?: unknown } | null;
-    if (typeof body?.enabled !== "boolean") {
-      return reply.code(400).send({ error: "enabled must be a boolean." });
-    }
-    await setChatSurfaceEnabled(deps.pool, body.enabled);
-    return { enabled: body.enabled };
   });
 
   app.get("/api/v1/app/settings/launch-guidance-trim", async () => {

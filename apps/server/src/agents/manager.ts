@@ -24,7 +24,6 @@ import {
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
-import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   beginArchive as beginArchiveImpl,
@@ -280,12 +279,11 @@ export type LaunchContextRecorder = {
 /** The two settings-backed switches the launch guidance is built from. */
 async function readLaunchGuidanceFlags(
   pool: Pool
-): Promise<{ trimmedGuidance: boolean; chatSurface: boolean }> {
-  const [trimmedGuidance, chatSurface] = await Promise.all([
+): Promise<{ trimmedGuidance: boolean }> {
+  const [trimmedGuidance] = await Promise.all([
     isTrimmedLaunchGuidanceEnabled(pool),
-    isChatSurfaceEnabled(pool),
   ]);
-  return { trimmedGuidance, chatSurface };
+  return { trimmedGuidance };
 }
 
 /** Upper bound on how long a launch waits for its Chat launch post. */
@@ -826,7 +824,7 @@ export class AgentManager {
     // try/catch, so a rejecting query would otherwise leave the row stuck in
     // `creating`. Route it through the same failure handling the launch uses.
     const launchGuidanceFlags = input.jobRunId
-      ? { trimmedGuidance: false, chatSurface: false }
+      ? { trimmedGuidance: false }
       : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
           this.failCreate(p.id, error)
         );
@@ -1190,7 +1188,7 @@ export class AgentManager {
     initialMedia: SeededMedia[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
-    launchGuidanceFlags: { trimmedGuidance: boolean; chatSurface: boolean };
+    launchGuidanceFlags: { trimmedGuidance: boolean };
     jobRunId: string | undefined;
   }): Promise<void> {
     const { id } = opts;
@@ -1245,7 +1243,7 @@ export class AgentManager {
           initialMedia: opts.initialMedia,
           chatLaunchPost,
         },
-        { chatSurface: true, jobRunId: opts.jobRunId }
+        { jobRunId: opts.jobRunId }
       );
       if (firstTurn) this.sendPromptDetached(id, firstTurn, "first turn");
     } catch (error) {

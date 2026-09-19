@@ -328,12 +328,6 @@ export type McpRequestContext = {
     StreamService,
     "post" | "update" | "addReaction" | "removeReaction"
   >;
-  /**
-   * The chat-surface flag (`chat_surface_enabled`) as of this request. Left
-   * unset by the job route, whose launch turn never carries a Chat envelope,
-   * and by the token-less `/api/mcp` route, which has no agent at all.
-   */
-  chatSurface?: boolean;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
   upsertEvent?: (

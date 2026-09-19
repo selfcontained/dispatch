@@ -47,10 +47,10 @@ export type StartupTurnInput = {
  */
 export function buildStartupTurn(
   startup: StartupTurnInput,
-  opts: { chatSurface?: boolean; jobRunId?: string }
+  opts: { jobRunId?: string }
 ): string | undefined {
   const post = startup.chatLaunchPost;
-  if (opts.chatSurface && !opts.jobRunId && post) {
+  if (!opts.jobRunId && post) {
     return buildPostEnvelope({
       blockId: post.messageId,
       from: { kind: "user" },
@@ -132,16 +132,6 @@ export function buildStartupPrompt(
 }
 
 /**
- * The one chat-surface rule, added only when the flag is on. This is the only
- * place that tells an agent to *prefer* Chat: the tool description stays
- * capability-neutral because the tool is registered whether or not the user
- * can see the Chat tab. The description carries the kinds, question options,
- * and attachment schema.
- */
-export const CHAT_SURFACE_GUIDANCE_RULE =
-  "The user is reading your stream, not a console. Send every user-facing reply and question with post; use question with options for finite choices.";
-
-/**
  * Build the numbered launch guidance text shared by all CLI agent types.
  *
  * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
@@ -185,13 +175,6 @@ export function buildLaunchGuidance(
     suggestSessionRename?: boolean;
     autoReview?: boolean;
     trimmedGuidance?: boolean;
-    /**
-     * The chat-surface flag (`chat_surface_enabled`). When on, the user is
-     * reading the Chat tab, so one rule routes replies and questions through
-     * post. Same text trimmed or not: the tool description
-     * carries the schema.
-     */
-    chatSurface?: boolean;
   }
 ): string {
   const {
@@ -200,7 +183,6 @@ export function buildLaunchGuidance(
     suggestSessionRename,
     autoReview,
     trimmedGuidance,
-    chatSurface,
   } = opts;
   const trimmed =
     trimmedGuidance === true &&
@@ -234,9 +216,6 @@ export function buildLaunchGuidance(
           ? "Name the session with rename_session once the topic is clear — a short label for what the session is about, not a live status."
           : "Name the session. Once the topic of work is clear, call rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
-    }
-    if (chatSurface) {
-      rules.push(CHAT_SURFACE_GUIDANCE_RULE);
     }
     if (trimmed) {
       // One rule instead of two: surface values, and ask questions, with pins.

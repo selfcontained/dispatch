@@ -1309,7 +1309,7 @@ describe("createMcpHandlers", () => {
           initialPrompt: created.initialPrompt,
           chatLaunchPost: { messageId: "post-1", attachmentLines: [] },
         },
-        { chatSurface: true }
+        {}
       );
       expect(turn).toBe(
         [
