@@ -67,6 +67,58 @@ export type {
   ChatUnreadSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";
+export {
+  BLOCK_ATTACHMENTS_MAX,
+  BLOCK_FORM_FIELDS_MAX,
+  BLOCK_KINDS,
+  BLOCK_OPTIONS_MAX,
+  BLOCK_REACTIONS_MAX,
+  BLOCK_REVIEW_FINDINGS_MAX,
+  BLOCK_TASKS_MAX,
+  BLOCK_TEXT_MAX_CHARS,
+} from "./block-types.js";
+export type {
+  Block,
+  BlockActor,
+  BlockAuthor,
+  BlockAuthorKind,
+  BlockBody,
+  BlockFindingStatus,
+  BlockFormData,
+  BlockFormField,
+  BlockFormFieldType,
+  BlockFormState,
+  BlockKind,
+  BlockLinkData,
+  BlockOption,
+  BlockOrigin,
+  BlockQuestionData,
+  BlockQuestionState,
+  BlockReaction,
+  BlockReviewData,
+  BlockReviewFinding,
+  BlockReviewSeverity,
+  BlockReviewState,
+  BlockReviewVerdict,
+  BlockTaskStatus,
+  BlockTasksData,
+  BlockTasksState,
+  StreamAnswerRequest,
+  StreamAnswerResponse,
+  StreamBlockEntry,
+  StreamChangedEvent,
+  StreamEntry,
+  StreamEntryEvent,
+  StreamFeedResponse,
+  StreamPostRequest,
+  StreamPostResponse,
+  StreamReactionRequest,
+  StreamReactionResponse,
+  StreamReadEvent,
+  StreamStateRequest,
+  StreamSubmitRequest,
+  StreamThreadResponse,
+} from "./block-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,
@@ -114,6 +166,4 @@ export {
   SURFACE_FOOTER_BLOCK_ID,
   SURFACE_SCHEMA_VERSION,
 } from "./surface-types.js";
-export type {
-  SharedUiEvent,
-} from "./ui-event-types.js";
+export type { SharedUiEvent } from "./ui-event-types.js";
