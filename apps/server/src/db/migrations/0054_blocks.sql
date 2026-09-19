@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS block_reactions (
   -- User reactions on an agent's block: delivery outcome; NULL while pending.
   delivered boolean,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (block_id, author_kind, author_agent_id, emoji)
+  UNIQUE NULLS NOT DISTINCT (block_id, author_kind, author_agent_id, emoji)
 );
 
 CREATE INDEX IF NOT EXISTS block_reactions_pending_idx

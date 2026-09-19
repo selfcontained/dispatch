@@ -284,8 +284,14 @@ export type ChatTurnPlanEntry = {
 export type ChatTurnPrompt = {
   source: "chat" | "launch" | "agent" | "system";
   text: string;
-  /** The `agent_chat_messages` row behind a chat or launch prompt. */
+  /** The block behind a chat or launch prompt. */
   chatMessageId?: string;
+  /**
+   * A chat prompt that is a thread reply (an answer to a question, a reply
+   * under a block): the thread's root. The block already shows the reply
+   * (an answered question, a reply count), so the turn draws no prompt post.
+   */
+  threadId?: string;
   /** A prompt from another agent: who sent it. */
   senderName?: string;
   /**

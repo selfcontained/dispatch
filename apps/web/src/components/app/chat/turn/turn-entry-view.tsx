@@ -151,7 +151,9 @@ function TurnEntryViewImpl({
    * words twice, in two cards that did not even match, and minutes apart
    * whenever the prompt had queued.
    */
-  const showsPrompt = entry.prompt.source !== "agent";
+  // A reply in a thread (an answer to a question) is already shown by the
+  // block it answers, so the turn it opened draws no prompt post either.
+  const showsPrompt = entry.prompt.source !== "agent" && !entry.prompt.threadId;
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const prompt = useMemo(() => promptBlock(entry), [entry]);
   return (

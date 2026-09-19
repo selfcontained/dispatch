@@ -90,6 +90,7 @@ function promptFor(
       source: block?.origin === "launch" ? "launch" : "chat",
       text: block?.text ?? "",
       chatMessageId: source.chatMessageId,
+      ...(block?.threadId ? { threadId: block.threadId } : {}),
       attachments: block?.attachments ?? [],
     };
   }
