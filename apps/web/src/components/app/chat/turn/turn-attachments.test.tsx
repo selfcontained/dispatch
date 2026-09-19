@@ -16,7 +16,11 @@ import {
   PinShortcutProvider,
 } from "@/components/app/chat/pin-shortcut-context";
 
-import { foldAttachments, TurnAttachments } from "./turn-attachments";
+import {
+  foldAttachments,
+  mergePinRuns,
+  TurnAttachments,
+} from "./turn-attachments";
 
 const AGENT_ID = "agt_1";
 const at = (hhmm: string): string => `2026-09-08T${hhmm}:00.000Z`;
@@ -148,6 +152,28 @@ describe("foldAttachments", () => {
     ]);
     expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["a"]);
     expect(out.folded.get("turn:2")?.map((e) => e.id)).toEqual(["b"]);
+  });
+});
+
+describe("mergePinRuns", () => {
+  it("collapses adjacent pin writes with one action, and nothing else", () => {
+    const a = pin("p1", at("10:01"));
+    const b = {
+      ...pin("p2", at("10:02")),
+      pins: [{ id: "pin_2", label: "B" }],
+    };
+    const removed = { ...pin("p3", at("10:03")), action: "deleted" as const };
+    const m = media("md1", at("10:04"));
+    const c = {
+      ...pin("p4", at("10:05")),
+      pins: [{ id: "pin_4", label: "C" }],
+    };
+    const out = mergePinRuns([a, b, removed, m, c]);
+    expect(out.map((e) => e.id)).toEqual(["p1", "p3", "md1", "p4"]);
+    expect(out[0]!.type === "pin" && out[0].pins.map((p) => p.label)).toEqual([
+      "Dev URL",
+      "B",
+    ]);
   });
 });
 

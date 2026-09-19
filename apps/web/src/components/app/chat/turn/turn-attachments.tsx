@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type {
   ChatAgentMessageEntry,
   ChatFeedEntry,
@@ -269,6 +269,28 @@ function PinLine({
 }
 
 /**
+ * Adjacent pin writes with the same action collapse into one entry: an
+ * agent that pins three things in a row made one gesture, and "Pinned"
+ * three times over three single chips read as three gestures.
+ */
+export function mergePinRuns(items: readonly FoldedEntry[]): FoldedEntry[] {
+  const out: FoldedEntry[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (
+      item.type === "pin" &&
+      last?.type === "pin" &&
+      last.action === item.action
+    ) {
+      out[out.length - 1] = { ...last, pins: [...last.pins, ...item.pins] };
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/**
  * What the agent produced along the way, in the order it produced it,
  * between the rail and the answer: the answer still reads last, and the
  * things it refers to sit right above it.
@@ -280,13 +302,14 @@ export const TurnAttachments = memo(function TurnAttachments({
   items: readonly FoldedEntry[];
   ctx: FeedContext;
 }): JSX.Element | null {
-  if (items.length === 0) return null;
+  const merged = useMemo(() => mergePinRuns(items), [items]);
+  if (merged.length === 0) return null;
   return (
     <div
       className="mb-2 flex min-w-0 flex-col gap-2.5 font-sans"
       data-testid="chat-turn-attachments"
     >
-      {items.map((item) => {
+      {merged.map((item) => {
         switch (item.type) {
           case "media":
             return (
