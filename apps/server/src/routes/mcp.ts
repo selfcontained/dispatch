@@ -73,7 +73,6 @@ type McpRouteDeps = {
   mcpDeleteMedia: unknown;
   mcpListPins: unknown;
   mcpListPersonas: unknown;
-  mcpLaunchPersona: unknown;
   mcpListPersonalities: unknown;
   mcpCreatePersonality: unknown;
   mcpUpdatePersonality: unknown;
@@ -82,13 +81,6 @@ type McpRouteDeps = {
   mcpClearActivePersonality: unknown;
   mcpLaunchAgent: unknown;
   mcpArchiveAgent: unknown;
-  mcpResolveReviewFeedback: unknown;
-  mcpReopenReviewFeedback: unknown;
-  mcpSubmitReview: unknown;
-  mcpAddReviewFeedback: unknown;
-  mcpAddReviewThreadMessage: unknown;
-  mcpListReviewFeedback: unknown;
-  mcpGetReviewFeedbackItem: unknown;
   mcpUpsertPin: unknown;
   mcpUpsertPins: unknown;
   mcpDeletePin: unknown;
@@ -243,7 +235,6 @@ export async function registerMcpRoutes(
       deletePinByLabel: deps.mcpDeletePinByLabel,
       listPins: deps.mcpListPins,
       listPersonas: deps.mcpListPersonas,
-      launchPersona: deps.mcpLaunchPersona,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,
@@ -252,13 +243,6 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      resolveReviewFeedback: deps.mcpResolveReviewFeedback,
-      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
-      submitReview: deps.mcpSubmitReview,
-      addReviewFeedback: deps.mcpAddReviewFeedback,
-      addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
-      listReviewFeedback: deps.mcpListReviewFeedback,
-      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
@@ -335,7 +319,6 @@ export async function registerMcpRoutes(
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
       listPersonas: deps.mcpListPersonas,
-      launchPersona: deps.mcpLaunchPersona,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,
@@ -344,13 +327,6 @@ export async function registerMcpRoutes(
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
-      resolveReviewFeedback: deps.mcpResolveReviewFeedback,
-      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
-      submitReview: deps.mcpSubmitReview,
-      addReviewFeedback: deps.mcpAddReviewFeedback,
-      addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
-      listReviewFeedback: deps.mcpListReviewFeedback,
-      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       issueLoginLink: () => deps.loginLinkStore.issue(),
       upsertPin: deps.mcpUpsertPin,

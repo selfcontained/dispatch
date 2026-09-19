@@ -304,7 +304,7 @@ export async function getFeedbackSummary(
   const rangeStart = params.start;
   const rangeEnd = params.end;
 
-  const feedbackConditions = ["f.created_at >= $1", "f.created_at <= $2"];
+  const feedbackConditions = ["b.created_at >= $1", "b.created_at <= $2"];
   const feedbackParams: unknown[] = [rangeStart, rangeEnd];
   if (params.project) {
     feedbackParams.push(params.project);
@@ -313,7 +313,7 @@ export async function getFeedbackSummary(
     );
   }
 
-  const verdictConditions = ["r.created_at >= $1", "r.created_at <= $2"];
+  const verdictConditions = ["b.created_at >= $1", "b.created_at <= $2"];
   const verdictParams: unknown[] = [rangeStart, rangeEnd];
   if (params.project) {
     verdictParams.push(params.project);
@@ -332,30 +332,28 @@ export async function getFeedbackSummary(
       status: string;
       projectRoot: string;
     }>(
-      `SELECT COALESCE(ra.persona, r.reviewer_type, 'unknown') AS persona,
-                'info' AS severity,
-                COALESCE(first_message.content->>'body', '') AS description,
-                f.file_path AS "filePath",
-                CASE
-                  WHEN f.status = 'open' THEN 'open'
-                  WHEN f.resolution = 'fixed' THEN 'fixed'
-                  WHEN f.resolution = 'dismissed' THEN 'dismissed'
-                  ELSE f.status
+      `SELECT COALESCE(ra.persona, ra.name, 'you') AS persona,
+                CASE fd->>'severity'
+                  WHEN 'blocker' THEN 'critical'
+                  WHEN 'major' THEN 'high'
+                  WHEN 'minor' THEN 'medium'
+                  WHEN 'nit' THEN 'low'
+                  ELSE 'info'
+                END AS severity,
+                COALESCE(fd->>'title', '') AS description,
+                fd->>'path' AS "filePath",
+                CASE COALESCE(b.state->'findings'->(fd->>'id')->>'status', 'open')
+                  WHEN 'resolved' THEN 'fixed'
+                  WHEN 'disputed' THEN 'dismissed'
+                  ELSE 'open'
                 END AS status,
                 COALESCE(pa.git_context->>'repoRoot', pa.cwd) AS "projectRoot"
-         FROM review_feedback_items f
-         JOIN reviews r ON r.id = f.review_id
-         JOIN agents pa ON pa.id = r.agent_id
-         LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
-         LEFT JOIN LATERAL (
-           SELECT content
-           FROM review_thread_messages
-           WHERE feedback_item_id = f.id
-           ORDER BY created_at ASC, id ASC
-           LIMIT 1
-         ) first_message ON TRUE
-         WHERE ${feedbackConditions.join(" AND ")}
-         ORDER BY f.created_at ASC`,
+         FROM blocks b
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(b.data->'findings', '[]'::jsonb)) AS fd
+         JOIN agents pa ON pa.id = b.stream_id
+         LEFT JOIN agents ra ON ra.id = b.author_agent_id
+         WHERE b.kind = 'review' AND ${feedbackConditions.join(" AND ")}
+         ORDER BY b.created_at ASC`,
       feedbackParams
     ),
 
@@ -366,15 +364,11 @@ export async function getFeedbackSummary(
     }>(
       `SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE NOT EXISTS (
-            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
-          ))::int AS approved,
-          COUNT(*) FILTER (WHERE EXISTS (
-            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
-          ))::int AS "changesRequested"
-         FROM reviews r
-         JOIN agents pa ON pa.id = r.agent_id
-         WHERE ${verdictConditions.join(" AND ")}`,
+          COUNT(*) FILTER (WHERE b.data->>'verdict' = 'approve')::int AS approved,
+          COUNT(*) FILTER (WHERE b.data->>'verdict' = 'request_changes')::int AS "changesRequested"
+         FROM blocks b
+         JOIN agents pa ON pa.id = b.stream_id
+         WHERE b.kind = 'review' AND ${verdictConditions.join(" AND ")}`,
       verdictParams
     ),
   ]);

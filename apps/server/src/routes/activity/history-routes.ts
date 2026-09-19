@@ -7,7 +7,6 @@ import {
 import type {
   HistoryChildAgent,
   HistoryEvent,
-  HistoryFeedbackItem,
   HistoryMedia,
   HistoryTokenByModel,
   HistoryTokenTotals,
@@ -275,71 +274,37 @@ async function handleHistoryAgentDetail(
     return reply.code(404).send({ error: "Agent not found" });
   }
 
-  const [
-    eventsResult,
-    tokenResult,
-    tokenByModelResult,
-    mediaResult,
-    feedbackResult,
-  ] = await Promise.all([
-    deps.pool.query<HistoryEvent>(
-      `SELECT id, event_type, message, metadata, created_at
+  const [eventsResult, tokenResult, tokenByModelResult, mediaResult] =
+    await Promise.all([
+      deps.pool.query<HistoryEvent>(
+        `SELECT id, event_type, message, metadata, created_at
            FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
-      [id]
-    ),
-    deps.pool.query<HistoryTokenTotals>(
-      `SELECT
+        [id]
+      ),
+      deps.pool.query<HistoryTokenTotals>(
+        `SELECT
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
             COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(message_count), 0) AS total_messages
            FROM agent_token_usage WHERE agent_id = $1`,
-      [id]
-    ),
-    deps.pool.query<HistoryTokenByModel>(
-      `SELECT model,
+        [id]
+      ),
+      deps.pool.query<HistoryTokenByModel>(
+        `SELECT model,
             SUM(input_tokens + cache_creation_tokens + cache_read_tokens) AS input_tokens,
             SUM(output_tokens) AS output_tokens
            FROM agent_token_usage WHERE agent_id = $1
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
-      [id]
-    ),
-    deps.pool.query<HistoryMedia>(
-      `SELECT id, file_name, source, size_bytes, description, created_at
+        [id]
+      ),
+      deps.pool.query<HistoryMedia>(
+        `SELECT id, file_name, source, size_bytes, description, created_at
            FROM media WHERE agent_id = $1 ORDER BY created_at`,
-      [id]
-    ),
-    deps.pool.query<HistoryFeedbackItem>(
-      `SELECT f.id, r.reviewer_agent_id AS "agentId",
-                  COALESCE(ra.persona, r.reviewer_type) AS persona,
-                  'info' AS severity,
-                  f.file_path AS "filePath", f.line_start AS "lineNumber",
-                  COALESCE(first_message.content->>'body', '') AS description,
-                  NULL::text AS suggestion, NULL::text AS "mediaRef",
-                  CASE
-                    WHEN f.status = 'open' THEN 'open'
-                    WHEN f.resolution = 'fixed' THEN 'fixed'
-                    WHEN f.resolution = 'dismissed' THEN 'dismissed'
-                    ELSE f.status
-                  END AS status,
-                  f.created_at AS "createdAt"
-           FROM review_feedback_items f
-           JOIN reviews r ON r.id = f.review_id
-           LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
-           LEFT JOIN LATERAL (
-             SELECT content
-             FROM review_thread_messages
-             WHERE feedback_item_id = f.id
-             ORDER BY created_at ASC, id ASC
-             LIMIT 1
-           ) first_message ON TRUE
-           WHERE r.agent_id = $1
-           ORDER BY f.created_at ASC
-           LIMIT 500`,
-      [id]
-    ),
-  ]);
+        [id]
+      ),
+    ]);
 
   const eventRows: ActivityEventRow[] = eventsResult.rows.map((row) => ({
     agent_id: id,
@@ -353,7 +318,6 @@ async function handleHistoryAgentDetail(
     events: eventsResult.rows,
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
     media: mediaResult.rows,
-    feedback: feedbackResult.rows,
     stateDurations: stats.stateDurations,
   };
 }

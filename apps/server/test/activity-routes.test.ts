@@ -140,9 +140,6 @@ async function seedTokenUsage(
 }
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM review_thread_messages");
-  await ctx.pool.query("DELETE FROM review_feedback_items");
-  await ctx.pool.query("DELETE FROM reviews");
   await ctx.pool.query("DELETE FROM media");
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
@@ -1145,7 +1142,7 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("returns full agent detail with events, tokens, media, and feedback", async () => {
+  it("returns full agent detail with events, tokens, and media", async () => {
     const agentId = await createAgent({ name: "detail-agent" });
     const today = new Date().toISOString().slice(0, 10);
     await seedEvent(agentId, "working", `${today}T10:00:00Z`, "starting work");
@@ -1167,7 +1164,6 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(body.tokenUsage.by_model.length).toBe(1);
     expect(body.tokenUsage.by_model[0].model).toBe("claude-sonnet-4-20250514");
     expect(body.media).toEqual([]);
-    expect(body.feedback).toEqual([]);
     expect(body.stateDurations).toBeDefined();
   });
 
@@ -1183,44 +1179,6 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().media.length).toBe(1);
     expect(res.json().media[0].file_name).toBe("screenshot.png");
-  });
-
-  it("includes feedback from child agents", async () => {
-    const parentId = await createAgent({ name: "parent" });
-    const childId = await createAgent({
-      name: "reviewer",
-      parentAgentId: parentId,
-    });
-    await ctx.pool.query(
-      `UPDATE agents SET persona = 'security-review' WHERE id = $1`,
-      [childId]
-    );
-    const review = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO reviews (
-         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status
-       ) VALUES ($1, $1, 'agent', $2, 'open')
-       RETURNING id`,
-      [parentId, childId]
-    );
-    const item = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO review_feedback_items (review_id, status)
-       VALUES ($1, 'open') RETURNING id`,
-      [review.rows[0]!.id]
-    );
-    await ctx.pool.query(
-      `INSERT INTO review_thread_messages (
-         feedback_item_id, author_type, author_agent_id, content
-       ) VALUES ($1, 'agent', $2, $3)`,
-      [item.rows[0]!.id, childId, JSON.stringify({ body: "potential XSS" })]
-    );
-
-    const res = await authedInject("GET", `/api/v1/history/agents/${parentId}`);
-    expect(res.statusCode).toBe(200);
-    const { feedback } = res.json();
-    expect(feedback.length).toBe(1);
-    expect(feedback[0].severity).toBe("info");
-    expect(feedback[0].description).toBe("potential XSS");
-    expect(feedback[0].persona).toBe("security-review");
   });
 
   it("computes stateDurations from events", async () => {

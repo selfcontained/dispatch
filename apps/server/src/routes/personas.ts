@@ -5,26 +5,34 @@ import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { loadPersonasFromRoots } from "../personas/loader.js";
 import {
-  buildLaunchReviewPrompt,
-  MAX_LAUNCH_REVIEW_NOTE_LENGTH,
-} from "../reviews/injection-prompts.js";
-import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
-  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
+  /** Launch a child running as a persona; see mcp-persona-handlers. */
+  launchPersonaAgent: (
+    parentId: string,
+    opts: {
+      persona: string;
+      context: string;
+      agentType?: (typeof CLI_AGENT_TYPES)[number];
+      includeDiff?: boolean;
+      model?: string;
+    }
+  ) => Promise<{ agentId: string; name: string; persona: string }>;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
 
+const MAX_LAUNCH_NOTE_LENGTH = 2000;
+
 const PERSONA_SLUG_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
 
-// Every selected persona lands in one prompt typed into the author's tmux
-// session, so the request has to be bounded independently of the body limit —
-// slugs aren't checked against files on disk at this layer.
-const MAX_LAUNCH_REVIEW_PERSONAS = 20;
+// Each selected persona becomes a child agent, so the request is bounded
+// independently of the body limit; slugs are resolved against files on disk
+// by the launcher, not here.
+const MAX_LAUNCH_PERSONAS = 20;
 
 const PERSONAS_REQUIRED_ERROR =
   "persona (string) or personas (non-empty array of strings) is required.";
@@ -68,7 +76,7 @@ export async function registerPersonaRoutes(
     }
   });
 
-  app.post("/api/v1/agents/:id/launch-review", async (request, reply) => {
+  app.post("/api/v1/agents/:id/launch-persona", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as {
       persona?: unknown;
@@ -101,9 +109,9 @@ export async function registerPersonaRoutes(
     const personas = Array.from(
       new Set((rawPersonas as string[]).map((entry) => entry.trim()))
     );
-    if (personas.length > MAX_LAUNCH_REVIEW_PERSONAS) {
+    if (personas.length > MAX_LAUNCH_PERSONAS) {
       return reply.code(400).send({
-        error: `personas must contain at most ${MAX_LAUNCH_REVIEW_PERSONAS} unique slugs.`,
+        error: `personas must contain at most ${MAX_LAUNCH_PERSONAS} unique slugs.`,
       });
     }
     if (personas.some((persona) => !PERSONA_SLUG_PATTERN.test(persona))) {
@@ -150,14 +158,13 @@ export async function registerPersonaRoutes(
     }
     if (
       typeof body.note === "string" &&
-      body.note.length > MAX_LAUNCH_REVIEW_NOTE_LENGTH
+      body.note.length > MAX_LAUNCH_NOTE_LENGTH
     ) {
       return reply.code(400).send({
-        error: `note must be at most ${MAX_LAUNCH_REVIEW_NOTE_LENGTH} characters.`,
+        error: `note must be at most ${MAX_LAUNCH_NOTE_LENGTH} characters.`,
       });
     }
-    // The model id is interpolated into the injected prompt, so it has to clear
-    // the catalog for this runtime before it gets anywhere near the terminal.
+    // Validate the model against this runtime's catalog before launching.
     let model: string | undefined;
     try {
       model = validateAgentModel(
@@ -171,23 +178,27 @@ export async function registerPersonaRoutes(
     }
 
     try {
-      const access = await deps.agentManager.getTerminalAccess(agentId);
-      if (access.mode !== "live") {
-        return reply
-          .code(409)
-          .send({ error: "Agent does not have a live session." });
+      const parent = await deps.agentManager.getAgent(agentId);
+      if (!parent) return reply.code(404).send({ error: "Agent not found." });
+      const context =
+        typeof body.note === "string" && body.note.trim().length > 0
+          ? body.note.trim()
+          : "Review the agent's current work in this worktree.";
+      const launched = [];
+      for (const persona of personas) {
+        launched.push(
+          await deps.launchPersonaAgent(agentId, {
+            persona,
+            context,
+            agentType: body.agentType as (typeof CLI_AGENT_TYPES)[number],
+            ...(body.includeDiff !== undefined
+              ? { includeDiff: body.includeDiff }
+              : {}),
+            ...(model !== undefined ? { model } : {}),
+          })
+        );
       }
-
-      const prompt = buildLaunchReviewPrompt({
-        personas,
-        agentType: body.agentType,
-        includeDiff: body.includeDiff !== false,
-        model,
-        note: typeof body.note === "string" ? body.note : null,
-      });
-
-      await deps.sendAgentPrompt(agentId, prompt);
-      return { ok: true };
+      return { ok: true, launched };
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }

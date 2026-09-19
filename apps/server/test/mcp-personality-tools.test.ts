@@ -82,21 +82,10 @@ describe("MCP personality tools", () => {
     );
   });
 
-  it("exposes personality tools to standard agents, not review agents", async () => {
+  it("exposes personality tools to agents, not job runs", async () => {
     const standardResponse = await mcpToolsList(agentId);
     expect(standardResponse.statusCode).toBe(200);
     for (const name of toolNames) expect(standardResponse.body).toContain(name);
-
-    await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
-       VALUES ('agt_personality_review', 'reviewer', 'claude', 'review', 'running', '/tmp', 'security-review', $1, false)`,
-      [agentId]
-    );
-    const reviewResponse = await mcpToolsList("agt_personality_review");
-    expect(reviewResponse.statusCode).toBe(200);
-    for (const name of toolNames) {
-      expect(reviewResponse.body).not.toContain(`\"${name}\"`);
-    }
 
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)

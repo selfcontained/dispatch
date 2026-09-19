@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   describe,
   it,
@@ -62,9 +63,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query("DELETE FROM agent_token_usage");
-  await pool.query("DELETE FROM review_thread_messages");
-  await pool.query("DELETE FROM review_feedback_items");
-  await pool.query("DELETE FROM reviews");
+  await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
@@ -126,67 +125,71 @@ async function insertEvent(
   );
 }
 
+/**
+ * A finding on the reviewer's `review` block, which is created on first use
+ * (one review per reviewer, addressed to its parent, asking for changes).
+ * Statuses use the summary's vocabulary: open, fixed, dismissed/ignored.
+ */
 async function insertFeedback(
   reviewerAgentId: string,
   opts: {
-    severity?: string;
+    severity?: "blocker" | "major" | "minor" | "nit";
     filePath?: string | null;
     description?: string;
     status?: string;
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  let reviewResult = await pool.query<{ id: number }>(
-    `SELECT id FROM reviews
-     WHERE reviewer_type = 'agent' AND reviewer_agent_id = $1`,
+  let block = await pool.query<{ id: string }>(
+    `SELECT id FROM blocks
+     WHERE kind = 'review' AND author_kind = 'agent' AND author_agent_id = $1`,
     [reviewerAgentId]
   );
-  if (!reviewResult.rows[0]) {
-    reviewResult = await pool.query<{ id: number }>(
-      `INSERT INTO reviews (
-         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status,
-         created_at, updated_at
+  if (!block.rows[0]) {
+    block = await pool.query<{ id: string }>(
+      `INSERT INTO blocks (
+         id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
+         data, state, created_at, updated_at
        )
-       SELECT parent_agent_id, parent_agent_id, 'agent', id, 'open', $2, $2
+       SELECT gen_random_uuid(), parent_agent_id, 'agent', id, parent_agent_id,
+              'review',
+              '{"verdict":"request_changes","summary":"Needs work","findings":[]}'::jsonb,
+              '{"findings":{}}'::jsonb, $2, $2
        FROM agents
        WHERE id = $1
        RETURNING id`,
       [reviewerAgentId, opts.createdAt ?? new Date()]
     );
   }
-  const status = opts.status ?? "open";
-  const resolution =
-    status === "fixed"
-      ? "fixed"
-      : status === "ignored" || status === "dismissed"
-        ? "dismissed"
-        : null;
-  const itemResult = await pool.query<{ id: number }>(
-    `INSERT INTO review_feedback_items (
-       review_id, file_path, status, resolution, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $5)
-     RETURNING id`,
-    [
-      reviewResult.rows[0]!.id,
-      opts.filePath ?? null,
-      resolution ? "resolved" : "open",
-      resolution,
-      opts.createdAt ?? new Date(),
-    ]
-  );
+  const findingId = randomUUID().slice(0, 8);
+  const finding = {
+    id: findingId,
+    severity: opts.severity ?? "minor",
+    title: opts.description ?? "Test finding",
+    body: opts.description ?? "Test finding",
+    ...(opts.filePath ? { path: opts.filePath } : {}),
+  };
+  const status =
+    opts.status === "fixed"
+      ? "resolved"
+      : opts.status === "dismissed" || opts.status === "ignored"
+        ? "disputed"
+        : "open";
   await pool.query(
-    `INSERT INTO review_thread_messages (
-       feedback_item_id, author_type, author_agent_id, content, created_at
-     ) VALUES ($1, 'agent', $2, $3, $4)`,
+    `UPDATE blocks
+        SET data = jsonb_set(data, '{findings}', data->'findings' || $2::jsonb),
+            state = jsonb_set(state, ARRAY['findings', $3], $4::jsonb)
+      WHERE id = $1`,
     [
-      itemResult.rows[0]!.id,
-      reviewerAgentId,
-      JSON.stringify({ body: opts.description ?? "Test finding" }),
-      opts.createdAt ?? new Date(),
+      block.rows[0]!.id,
+      JSON.stringify([finding]),
+      findingId,
+      JSON.stringify({ status, by: "user", at: new Date().toISOString() }),
     ]
   );
 }
 
+/** A reviewer's `review` block with a verdict; request_changes carries one finding. */
 async function insertReview(
   agentId: string,
   parentAgentId: string,
@@ -194,31 +197,40 @@ async function insertReview(
   opts: {
     verdict?: string | null;
     summary?: string | null;
-    status?: string;
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  const result = await pool.query<{ id: number }>(
-    `INSERT INTO reviews (
-       agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id,
-       status, summary, created_at, updated_at
-     ) VALUES ($1, $1, 'agent', $2, $3, $4, $5, $5)
-     RETURNING id`,
+  const changes = opts.verdict === "request_changes";
+  await pool.query(
+    `INSERT INTO blocks (
+       id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
+       data, state, created_at, updated_at
+     ) VALUES (gen_random_uuid(), $1, 'agent', $2, $1, 'review', $3, $4, $5, $5)`,
     [
       parentAgentId,
       agentId,
-      opts.verdict === "request_changes" ? "open" : "resolved",
-      opts.summary ?? "Looks good",
+      JSON.stringify({
+        verdict: opts.verdict ?? "approve",
+        summary: opts.summary ?? "Looks good",
+        findings: changes
+          ? [
+              {
+                id: "f1",
+                severity: "major",
+                title: "Fix this",
+                body: "Fix this",
+              },
+            ]
+          : [],
+      }),
+      JSON.stringify({
+        findings: changes
+          ? { f1: { status: "open", by: "user", at: new Date().toISOString() } }
+          : {},
+      }),
       opts.createdAt ?? new Date(),
     ]
   );
-  if (opts.verdict === "request_changes") {
-    await pool.query(
-      `INSERT INTO review_feedback_items (review_id, status, created_at, updated_at)
-       VALUES ($1, 'open', $2, $2)`,
-      [result.rows[0]!.id, opts.createdAt ?? new Date()]
-    );
-  }
 }
 
 function daysAgo(days: number): Date {
@@ -411,11 +423,11 @@ describe("getFeedbackSummary", () => {
     await insertAgent("parent");
     await insertAgent("reviewer", { persona: "sec", parentAgentId: "parent" });
 
-    await insertFeedback("reviewer", { severity: "critical", status: "fixed" });
-    await insertFeedback("reviewer", { severity: "high", status: "open" });
-    await insertFeedback("reviewer", { severity: "medium", status: "open" });
-    await insertFeedback("reviewer", { severity: "low", status: "ignored" });
-    await insertFeedback("reviewer", { severity: "info", status: "open" });
+    await insertFeedback("reviewer", { severity: "blocker", status: "fixed" });
+    await insertFeedback("reviewer", { severity: "major", status: "open" });
+    await insertFeedback("reviewer", { severity: "minor", status: "open" });
+    await insertFeedback("reviewer", { severity: "nit", status: "ignored" });
+    await insertFeedback("reviewer", { severity: "nit", status: "open" });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
@@ -425,11 +437,11 @@ describe("getFeedbackSummary", () => {
 
     expect(result.totalFindings).toBe(5);
     expect(result.bySeverity).toEqual({
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
-      info: 5,
+      critical: 1,
+      high: 1,
+      medium: 1,
+      low: 2,
+      info: 0,
     });
     expect(result.byStatus.open).toBe(3);
     expect(result.byStatus.fixed).toBe(1);
@@ -470,9 +482,9 @@ describe("getFeedbackSummary", () => {
     await insertAgent("parent");
     await insertAgent("rev", { persona: "sec", parentAgentId: "parent" });
 
-    await insertFeedback("rev", { severity: "high" });
-    await insertFeedback("rev", { severity: "high" });
-    await insertFeedback("rev", { severity: "low" });
+    await insertFeedback("rev", { severity: "major" });
+    await insertFeedback("rev", { severity: "major" });
+    await insertFeedback("rev", { severity: "nit" });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
@@ -480,9 +492,9 @@ describe("getFeedbackSummary", () => {
       groupBy: "severity",
     });
 
-    expect(result.groups).toHaveLength(1);
-    const infoGroup = result.groups.find((g) => g.key === "info");
-    expect(infoGroup!.count).toBe(3);
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups.find((g) => g.key === "high")!.count).toBe(2);
+    expect(result.groups.find((g) => g.key === "low")!.count).toBe(1);
   });
 
   it("groups by directory relative to project root", async () => {
@@ -526,19 +538,19 @@ describe("getFeedbackSummary", () => {
     // Same description repeated 3 times
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Unused import",
-      severity: "low",
+      severity: "nit",
     });
     await insertFeedback("rev", {
       description: "Missing error handling",
-      severity: "high",
+      severity: "major",
     });
 
     const result = await telemetry.getFeedbackSummary(pool, {
@@ -610,14 +622,17 @@ describe("getFeedbackSummary", () => {
   });
 
   it("respects date range boundaries", async () => {
+    // A review block carries its findings' date, so the old one is a
+    // separate review from a second pass.
     await insertAgent("parent");
     await insertAgent("rev", { persona: "sec", parentAgentId: "parent" });
+    await insertAgent("rev-old", { persona: "sec", parentAgentId: "parent" });
 
     await insertFeedback("rev", {
       description: "Recent",
       createdAt: hoursAgo(1),
     });
-    await insertFeedback("rev", {
+    await insertFeedback("rev-old", {
       description: "Old",
       createdAt: daysAgo(30),
     });

@@ -101,75 +101,6 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("exposes only unified review tools to review-role sessions", async () => {
-    await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
-       VALUES
-       ('agt_parentreview', 'parent', 'codex', 'standard', 'running', '/tmp', null, null, false),
-       ('agt_persona_plain', 'plain-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
-       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
-       ('agt_persona_round2', 'round2-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
-    );
-    const authTokenResult = await ctx.pool.query<{ value: string }>(
-      "SELECT value FROM settings WHERE key = 'auth_token'"
-    );
-    const authToken = authTokenResult.rows[0]!.value;
-
-    const parentResponse = await ctx.app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_parentreview",
-      headers: {
-        authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, "agt_parentreview")}`,
-        accept: "application/json, text/event-stream",
-        "content-type": "application/json",
-      },
-      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
-    });
-    expect(parentResponse.statusCode).toBe(200);
-    expect(parentResponse.body).not.toContain("dispatch_await_review");
-    expect(parentResponse.body).not.toContain("dispatch_await_recheck");
-
-    for (const personaAgentId of ["agt_persona_plain", "agt_persona_recheck"]) {
-      const response = await ctx.app.inject({
-        method: "POST",
-        url: `/api/mcp/${personaAgentId}`,
-        headers: {
-          authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, personaAgentId)}`,
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-        },
-        payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
-      });
-      expect(response.statusCode).toBe(200);
-      expect(response.body).not.toContain("dispatch_await_recheck");
-      expect(response.body).not.toContain("dispatch_await_review");
-      expect(response.body).toContain("review_submit");
-      expect(response.body).toContain("review_add_feedback");
-      expect(response.body).toContain("review_list_feedback");
-      expect(response.body).toContain("review_add_message");
-      expect(response.body).toContain("review_resolve");
-      expect(response.body).not.toContain("get_parent_context");
-      expect(response.body).not.toContain("dispatch_get_recheck_context");
-      expect(response.body).not.toContain("dispatch_complete_review");
-    }
-
-    const round2Response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_persona_round2",
-      headers: {
-        authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, "agt_persona_round2")}`,
-        accept: "application/json, text/event-stream",
-        "content-type": "application/json",
-      },
-      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
-    });
-    expect(round2Response.statusCode).toBe(200);
-    expect(round2Response.body).toContain("review_submit");
-    expect(round2Response.body).not.toContain("dispatch_get_recheck_context");
-    expect(round2Response.body).not.toContain("dispatch_await_recheck");
-    expect(round2Response.body).not.toContain("dispatch_await_review");
-  });
-
   it("does not infer review tools from persona metadata", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
@@ -194,7 +125,7 @@ describe("MCP auth integration", () => {
     expect(response.body).not.toContain('"name":"review_submit"');
   });
 
-  it("exposes lifecycle and unified review tools on the job-scoped MCP route", async () => {
+  it("exposes lifecycle and persona tools on the job-scoped MCP route", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)
        VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`
@@ -239,11 +170,9 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("rename_session");
     expect(response.body).toContain("list_media");
     expect(response.body).toContain("list_personas");
-    expect(response.body).toContain("launch_persona");
-    expect(response.body).toContain("review_list_feedback");
-    expect(response.body).toContain("review_resolve");
-    expect(response.body).toContain("review_reopen");
-    expect(response.body).toContain("review_add_message");
+    expect(response.body).toContain("launch_agent");
+    expect(response.body).not.toContain("launch_persona");
+    expect(response.body).not.toContain("review_submit");
     expect(response.body).not.toContain("dispatch_submit_resolution");
     expect(response.body).not.toContain("dispatch_cancel_recheck");
     expect(response.body).toContain("job_complete");
@@ -294,7 +223,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("rename_session");
     expect(response.body).toContain('"post"');
     expect(response.body).not.toContain("share_file");
-    expect(response.body).toContain("launch_persona");
+    expect(response.body).toContain("launch_agent");
     expect(response.body).not.toContain("job_complete");
     expect(response.body).not.toContain("job_log");
     expect(response.body).not.toContain("job_failed");

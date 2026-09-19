@@ -43,7 +43,7 @@ export function registerAgentArchiveTools(
     "archive_agent",
     {
       description:
-        "Archive an agent you launched (via launch_agent or launch_persona), " +
+        "Archive an agent you launched (via launch_agent), " +
         "or yourself by passing your own agent ID. " +
         "Use this to clean up a sub-agent or review persona once its output has been consumed, or to " +
         "retire your own session once your work is finished and reported rather than idling until " +

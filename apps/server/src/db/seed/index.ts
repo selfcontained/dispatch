@@ -9,7 +9,6 @@ import { seedActivityEvents } from "./activity.js";
 import { seedTokenUsage } from "./token-usage.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
-import { seedReviews } from "./reviews.js";
 import { seedSurfaces } from "./surfaces.js";
 import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
 
@@ -55,7 +54,6 @@ async function clearSeeded(client: PoolClient): Promise<void> {
     SEED_TAG,
   ]);
   await client.query(`DELETE FROM jobs WHERE id LIKE 'seed-job-%'`);
-  await client.query(`DELETE FROM reviews WHERE agent_id LIKE 'seed-%'`);
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     SEED_TAG,
   ]);
@@ -82,7 +80,6 @@ export async function seedDevData(
     await seedSurfaces(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
-    await seedReviews(client);
     await seedMedia(client);
     await seedJobs(client);
     await client.query("COMMIT");

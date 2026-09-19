@@ -45,7 +45,6 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agent_stream_events");
   await pool.query("DELETE FROM media");
-  await pool.query("DELETE FROM reviews");
   await pool.query("DELETE FROM pin_events");
 });
 
@@ -64,7 +63,7 @@ const blockEntries = (feed: { entries: unknown[] }) =>
   );
 
 async function seedAll() {
-  // t=1 status, t=2 block(agent), t=3 review, t=5 block(user), t=7 status
+  // t=1 status, t=2 block(agent), t=3 block(agent), t=5 block(user), t=7 status
   await pool.query(
     `INSERT INTO agent_events (agent_id, event_type, message, created_at)
      VALUES ($1, 'working', 'reading', $2), ($1, 'done', 'finished', $3),
@@ -73,11 +72,12 @@ async function seedAll() {
   );
   const m1 = await store.insert({ streamId: A, author: agent(A), text: "hi" });
   await stamp(m1.id, at(2));
-  await pool.query(
-    `INSERT INTO reviews (agent_id, reviewer_type, summary, status, created_at)
-     VALUES ($1, 'human', 'Looks good', 'resolved', $2)`,
-    [A, at(3)]
-  );
+  const m3 = await store.insert({
+    streamId: A,
+    author: agent(A),
+    text: "Looks good",
+  });
+  await stamp(m3.id, at(3));
   const m2 = await store.insert({
     streamId: A,
     author: USER,
@@ -86,26 +86,26 @@ async function seedAll() {
     delivered: true,
   });
   await stamp(m2.id, at(5));
-  return { m1, m2 };
+  return { m1, m2, m3 };
 }
 
 describe("composeStreamFeed", () => {
   it("merges every source for one stream in ascending time order", async () => {
-    const { m1, m2 } = await seedAll();
+    const { m1, m2, m3 } = await seedAll();
     const feed = await composeStreamFeed(store, A);
     expect(feed.hasMore).toBe(false);
-    expect(feed.unreadCount).toBe(1);
+    expect(feed.unreadCount).toBe(2);
     expect(feed.entries.map((e) => e.type)).toEqual([
       "status",
       "block",
-      "review",
+      "block",
       "block",
       "status",
     ]);
     expect(feed.entries.map((e) => e.at)).toEqual(
       [1, 2, 3, 5, 7].map((s) => at(s).toISOString())
     );
-    const [status, block, review, userBlock] = feed.entries;
+    const [status, block, second, userBlock] = feed.entries;
     expect(status).toMatchObject({ eventType: "working", message: "reading" });
     expect(block).toEqual({
       type: "block",
@@ -118,7 +118,7 @@ describe("composeStreamFeed", () => {
         lastReplyAt: null,
       },
     });
-    expect(review).toMatchObject({ type: "review", reviewerType: "human" });
+    expect(second).toMatchObject({ type: "block", id: m3.id });
     expect(userBlock).toMatchObject({
       block: {
         id: m2.id,
@@ -157,15 +157,16 @@ describe("composeStreamFeed", () => {
   });
 
   it("never drops or repeats rows that share a timestamp across sources", async () => {
-    // Nine rows at the same instant (three per source kind) with
+    // Nine rows at the same instant (status rows and blocks) with
     // microsecond-identical created_at, paged two at a time.
     const t = at(10);
     for (let i = 0; i < 3; i++) {
-      await pool.query(
-        `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
-         VALUES ($1, 'human', $2, $3)`,
-        [A, `review ${i}`, t]
-      );
+      const extra = await store.insert({
+        streamId: A,
+        author: agent(A),
+        text: `b${i}`,
+      });
+      await stamp(extra.id, t);
       await pool.query(
         `INSERT INTO agent_events (agent_id, event_type, message, created_at)
          VALUES ($1, 'working', $2, $3)`,
@@ -232,7 +233,7 @@ describe("composeStreamFeed", () => {
       type: "status",
       id: "12",
     });
-    for (const type of ["review", "turn", "pin"]) {
+    for (const type of ["turn", "pin"]) {
       expect(forged({ ...cursor, type, id: "7" })).toMatchObject({
         type,
         id: "7",
@@ -564,49 +565,6 @@ describe("composeStreamFeed", () => {
       const attachment = await attachmentOf();
       expect(attachment.width).toBeUndefined();
       expect(attachment.height).toBeUndefined();
-    });
-  });
-
-  it("surfaces a review with its reviewer and live counts", async () => {
-    const reviewer = "agt_feed_reviewer";
-    await pool.query(
-      `INSERT INTO agents (id, name, cwd, status, persona)
-       VALUES ($1, 'Reviewer', '/tmp', 'stopped', 'backend-security')
-       ON CONFLICT (id) DO NOTHING`,
-      [reviewer]
-    );
-    const review = await pool.query<{ id: number }>(
-      `INSERT INTO reviews
-         (agent_id, reviewer_type, reviewer_agent_id, summary, status, created_at)
-       VALUES ($1, 'agent', $2, 'Two things to fix', 'partially_resolved', $3)
-       RETURNING id`,
-      [A, reviewer, at(3)]
-    );
-    const reviewId = review.rows[0]!.id;
-    await pool.query(
-      `INSERT INTO review_feedback_items (review_id, status)
-       VALUES ($1, 'resolved'), ($1, 'open')`,
-      [reviewId]
-    );
-    await pool.query(
-      `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
-       VALUES ($1, 'human', 'not mine', $2)`,
-      [OTHER, at(4)]
-    );
-    const feed = await composeStreamFeed(store, A);
-    expect(feed.entries).toHaveLength(1);
-    expect(feed.entries[0]).toEqual({
-      type: "review",
-      id: `review:${reviewId}`,
-      reviewId,
-      reviewerType: "agent",
-      reviewerAgentId: reviewer,
-      reviewerName: "backend-security",
-      summary: "Two things to fix",
-      status: "partially_resolved",
-      itemCount: 2,
-      resolvedCount: 1,
-      at: at(3).toISOString(),
     });
   });
 

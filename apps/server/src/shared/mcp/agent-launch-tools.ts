@@ -26,6 +26,14 @@ export type LaunchAgentInput = {
   templateArgs?: Record<string, string>;
   cwd?: string;
   child?: boolean;
+  /**
+   * A persona slug: the new agent runs with that persona's instructions
+   * appended to its system prompt and `prompt` as the briefing it is given.
+   * `list_personas` names the available ones.
+   */
+  persona?: string;
+  /** With `persona`: include a map of your changes vs the base branch (default true). */
+  includeDiff?: boolean;
 };
 
 export type AgentLaunchToolsContext = {
@@ -55,8 +63,22 @@ export function registerAgentLaunchTools(
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
         "A child's pins and media are readable here via ownerAgentId on list_pins / list_media, " +
-        "and it can read yours the same way — neither side needs to relay file paths or URLs.",
+        "and it can read yours the same way — neither side needs to relay file paths or URLs. " +
+        "Pass persona (a slug from list_personas) to launch it as that persona — a reviewer, a QA tester, whatever the persona defines — " +
+        "with prompt as its briefing; a reviewer persona posts one review block back to you when done.",
       inputSchema: {
+        persona: z
+          .string()
+          .optional()
+          .describe(
+            "Persona slug from list_personas. The agent gets the persona's instructions; prompt becomes its briefing (what was built, what to look at, what is out of scope)."
+          ),
+        includeDiff: z
+          .boolean()
+          .optional()
+          .describe(
+            "With persona: include a file-level map of your changes against the base branch (default true)."
+          ),
         name: z
           .string()
           .min(1)

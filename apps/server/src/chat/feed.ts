@@ -1,6 +1,5 @@
 import type {
   ChatPinEntry,
-  ChatReviewEntry,
   ChatStatusEntry,
   StreamBlockEntry,
   StreamEntry,
@@ -252,69 +251,6 @@ export function toStatusEntry(
 }
 
 /**
- * Reviews left on this agent's work. Counts and status are read live rather
- * than frozen at submission time, so the card in the feed says the same
- * thing as the row in the Reviews sidebar it links to.
- */
-async function listReviewEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatReviewEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("review", "int", cursor, params, "r");
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    reviewer_type: string;
-    reviewer_agent_id: string | null;
-    reviewer_name: string | null;
-    summary: string | null;
-    status: string;
-    item_count: number;
-    resolved_count: number;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT r.id, r.reviewer_type, r.reviewer_agent_id, r.summary, r.status,
-            r.created_at,
-            COALESCE(reviewer.persona, reviewer.name) AS reviewer_name,
-            COUNT(fi.id)::int AS item_count,
-            COUNT(fi.id) FILTER (WHERE fi.status = 'resolved')::int
-              AS resolved_count,
-            to_char(r.created_at AT TIME ZONE 'UTC',
-                    'YYYY-MM-DD HH24:MI:SS.US') AS at_key
-       FROM reviews r
-       LEFT JOIN agents reviewer ON reviewer.id = r.reviewer_agent_id
-       LEFT JOIN review_feedback_items fi ON fi.review_id = r.id
-      WHERE r.agent_id = $1 ${clause}
-      GROUP BY r.id, reviewer.persona, reviewer.name
-      ORDER BY r.created_at DESC, r.id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "review",
-      id: `review:${row.id}`,
-      reviewId: row.id,
-      reviewerType: row.reviewer_type === "agent" ? "agent" : "human",
-      reviewerAgentId: row.reviewer_agent_id,
-      reviewerName: row.reviewer_name,
-      summary: row.summary,
-      status: row.status,
-      itemCount: row.item_count,
-      resolvedCount: row.resolved_count,
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
-}
-
-/**
  * Pin activity, one entry per write: every row of a batch write shares the
  * transaction's `now()`, so grouping by (created_at, action) turns "replace
  * group Build with five pins" into one post rather than five.
@@ -366,7 +302,7 @@ async function listPinEntries(
 
 /**
  * Compose one stream's feed at read time from blocks, system status marks,
- * reviews, pin activity, and the turns of every agent in the root's tree
+ * pin activity, and the turns of every agent in the root's tree
  * (a child's turns show in its parent's stream, folded by the client).
  * Each source contributes its newest `limit + 1` rows past the cursor; the
  * merge keeps the newest `limit` overall, so any row that belongs on the
@@ -381,22 +317,19 @@ export async function composeStreamFeed(
   const cursor = opts.cursor ?? null;
   const { db } = store;
   const tree = await agentTree(db, streamId);
-  const [blocks, status, reviews, turnsByAgent, pins, unreadCount] =
-    await Promise.all([
-      listBlockEntries(db, streamId, cursor, limit + 1),
-      listStatusEntries(db, streamId, cursor, limit + 1),
-      listReviewEntries(db, streamId, cursor, limit + 1),
-      Promise.all(
-        tree.map((agentId) => listTurnEntries(db, agentId, cursor, limit + 1))
-      ),
-      listPinEntries(db, streamId, cursor, limit + 1),
-      store.countUnread(streamId),
-    ]);
+  const [blocks, status, turnsByAgent, pins, unreadCount] = await Promise.all([
+    listBlockEntries(db, streamId, cursor, limit + 1),
+    listStatusEntries(db, streamId, cursor, limit + 1),
+    Promise.all(
+      tree.map((agentId) => listTurnEntries(db, agentId, cursor, limit + 1))
+    ),
+    listPinEntries(db, streamId, cursor, limit + 1),
+    store.countUnread(streamId),
+  ]);
 
   const merged: Keyed<StreamEntry>[] = [
     ...blocks,
     ...status,
-    ...reviews,
     ...turnsByAgent.flat(),
     ...pins,
   ].sort(compareNewestFirst);

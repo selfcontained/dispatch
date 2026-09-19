@@ -23,7 +23,6 @@ const SOURCE_RANK: Record<StreamEntry["type"], number> = {
   // Turns come from agent_stream_events; the rank keeps the cursor's id
   // tie-break exact against every other source.
   turn: 6,
-  review: 5,
   block: 4,
   status: 3,
   pin: 2,
@@ -43,7 +42,6 @@ function isValidCursorId(type: StreamEntry["type"], id: string): boolean {
     case "block":
       return isBlockId(id);
     case "status":
-    case "review":
     case "turn":
     case "pin":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;

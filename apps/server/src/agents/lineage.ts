@@ -2,7 +2,7 @@
  * Delegation lineage: who launched whom.
  *
  * `agents.parent_agent_id` already records the launcher of every agent spawned
- * via launch_agent / launch_persona, but nothing surfaced it,
+ * via launch_agent, but nothing surfaced it,
  * so an orchestrator saw a flat list of agents and a message that carried only a
  * sender name. A message from a grandchild was indistinguishable from a message
  * from a direct child until someone said so out of band.

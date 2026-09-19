@@ -59,7 +59,6 @@ export type {
   ChatReaction,
   ChatReactionRequest,
   ChatReactionResponse,
-  ChatReviewEntry,
   ChatSendRequest,
   ChatSendResponse,
   ChatStatusEntry,

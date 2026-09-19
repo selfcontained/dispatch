@@ -39,14 +39,6 @@ vi.mock("../src/personas/review-diff.js", () => ({
   })),
 }));
 
-vi.mock("../src/reviews/injection-prompts.js", () => ({
-  buildPersonaKickoffPrompt: vi.fn(() => "kickoff-prompt"),
-  buildReviewSubmittedPrompt: vi.fn(() => "submitted-prompt"),
-  buildReviewFeedbackAddedPrompt: vi.fn(() => "feedback-added-prompt"),
-  buildReviewItemStatePrompt: vi.fn(() => "item-state-prompt"),
-  buildReviewThreadUpdatePrompt: vi.fn(() => "thread-update-prompt"),
-}));
-
 vi.mock("../src/agent-type-settings.js", () => ({
   CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
   getEnabledAgentTypes: vi.fn(async () => [
@@ -62,38 +54,6 @@ vi.mock("../src/agent-type-settings.js", () => ({
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
-}));
-
-vi.mock("../src/agents/reviews.js", () => ({
-  createReview: vi.fn(),
-  getReviewByReviewerAgent: vi.fn(async () => null),
-  getReviewRecord: vi.fn(async () => null),
-  addReviewFeedbackItem: vi.fn(),
-  reopenReviewFeedbackItem: vi.fn(),
-  listFeedbackItemsForAgent: vi.fn(async () => []),
-  resolveReviewFeedbackItem: vi.fn(async () => ({
-    item: {
-      id: 10,
-      reviewId: 5,
-      status: "resolved",
-      resolution: "fixed",
-      resolutionNote: null,
-    },
-    reviewId: 5,
-    reviewStatus: "partially_resolved",
-  })),
-  addThreadMessage: vi.fn(async () => ({
-    message: {
-      id: 20,
-      feedbackItemId: 10,
-      authorType: "agent",
-      authorAgentId: "agt_test1",
-      type: "text",
-      content: { body: "I fixed this" },
-      createdAt: "2026-01-01T00:00:00Z",
-    },
-    reviewId: 5,
-  })),
 }));
 
 vi.mock("../src/shared/media.js", () => ({
@@ -144,10 +104,6 @@ import {
   isTextFile,
   resolveMediaDir,
 } from "../src/shared/media.js";
-import {
-  resolveReviewFeedbackItem,
-  addThreadMessage,
-} from "../src/agents/reviews.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -857,15 +813,14 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("launchPersona", () => {
-    it("launches a persona agent without creating a review yet", async () => {
-      const result = await handlers.launchPersona("agt_test1", {
+  describe("launchPersonaAgent", () => {
+    it("launches a persona child in the parent's worktree and stream", async () => {
+      const result = await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review this PR",
       });
       expect(result).toHaveProperty("agentId", "agt_new1");
       expect(result).toHaveProperty("persona", "security");
-      expect(result).toHaveProperty("parentAgentId", "agt_test1");
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           persona: "security",
@@ -874,12 +829,12 @@ describe("createMcpHandlers", () => {
           // from parentAgentId.
           launchedByAgentId: "agt_test1",
           type: "claude",
-          role: "review",
+          useWorktree: false,
         })
       );
     });
 
-    it("refuses a persona review launched from a child agent", async () => {
+    it("refuses a persona launched from a child agent", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_child",
         name: "child-agent",
@@ -891,11 +846,11 @@ describe("createMcpHandlers", () => {
       } as any);
 
       await expect(
-        handlers.launchPersona("agt_child", {
+        handlers.launchPersonaAgent("agt_child", {
           persona: "security",
           context: "review this PR",
         })
-      ).rejects.toThrow("cannot launch persona reviews");
+      ).rejects.toThrow("cannot launch persona agents");
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
@@ -913,7 +868,7 @@ describe("createMcpHandlers", () => {
         status: "running",
       });
 
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review this PR",
       });
@@ -932,7 +887,7 @@ describe("createMcpHandlers", () => {
     it("throws when parent not found", async () => {
       deps.agentManager.getAgent.mockResolvedValue(null);
       await expect(
-        handlers.launchPersona("agt_missing", {
+        handlers.launchPersonaAgent("agt_missing", {
           persona: "security",
           context: "review",
         })
@@ -942,7 +897,7 @@ describe("createMcpHandlers", () => {
     it("throws when persona not found", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
       await expect(
-        handlers.launchPersona("agt_test1", {
+        handlers.launchPersonaAgent("agt_test1", {
           persona: "unknown",
           context: "review",
         })
@@ -952,7 +907,7 @@ describe("createMcpHandlers", () => {
     it("falls back to the built-in reviewer when no repo file defines it", async () => {
       vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
 
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: GENERIC_REVIEW_PERSONA_SLUG,
         context: "review",
       });
@@ -974,7 +929,7 @@ describe("createMcpHandlers", () => {
     it("throws when agent type is disabled", async () => {
       vi.mocked(getEnabledAgentTypes).mockResolvedValue([]);
       await expect(
-        handlers.launchPersona("agt_test1", {
+        handlers.launchPersonaAgent("agt_test1", {
           persona: "security",
           context: "review",
         })
@@ -1004,7 +959,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1038,7 +993,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1074,7 +1029,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1087,7 +1042,7 @@ describe("createMcpHandlers", () => {
     it("skips diff when includeDiff is false", async () => {
       const { buildPersonaReviewDiff } =
         await import("../src/personas/review-diff.js");
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
         includeDiff: false,
@@ -1114,7 +1069,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1136,7 +1091,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: "claude",
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
         agentType: "codex",
@@ -1159,7 +1114,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: "codex",
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -1181,7 +1136,7 @@ describe("createMcpHandlers", () => {
         reviewAgentType: null,
         status: "running",
       });
-      await handlers.launchPersona("agt_test1", {
+      await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review",
       });
@@ -2544,99 +2499,6 @@ describe("createMcpHandlers", () => {
           update: "missing.png",
         })
       ).rejects.toThrow("No media file found");
-    });
-  });
-
-  describe("resolveReviewFeedback", () => {
-    it("resolves item and publishes both feedback and review events", async () => {
-      const result = await handlers.resolveReviewFeedback(
-        "agt_test1",
-        10,
-        "fixed",
-        { note: "addressed in latest commit" }
-      );
-      expect(result.item.id).toBe(10);
-      expect(result.reviewStatus).toBe("partially_resolved");
-      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "fixed",
-        {
-          authorType: "agent",
-          note: "addressed in latest commit",
-          resolverRole: "assignee",
-          resolvedBy: "agt_test1",
-        }
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "review_feedback.updated",
-        agentId: "agt_test1",
-        feedbackItemId: 10,
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "review.updated",
-          agentId: "agt_test1",
-          reviewId: 5,
-          status: "partially_resolved",
-        })
-      );
-    });
-
-    it("throws when item not found", async () => {
-      vi.mocked(resolveReviewFeedbackItem).mockResolvedValueOnce(null);
-      await expect(
-        handlers.resolveReviewFeedback("agt_test1", 99, "fixed")
-      ).rejects.toThrow("Review feedback item #99 not found");
-    });
-
-    it("defaults note to null when omitted", async () => {
-      await handlers.resolveReviewFeedback("agt_test1", 10, "ignored");
-      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "ignored",
-        {
-          authorType: "agent",
-          note: null,
-          resolverRole: "assignee",
-          resolvedBy: "agt_test1",
-        }
-      );
-    });
-  });
-
-  describe("addReviewThreadMessage", () => {
-    it("adds message and publishes feedback event", async () => {
-      const result = await handlers.addReviewThreadMessage(
-        "agt_test1",
-        10,
-        "I fixed this"
-      );
-      expect(result.message.id).toBe(20);
-      expect(result.reviewId).toBe(5);
-      expect(addThreadMessage).toHaveBeenCalledWith(
-        deps.pool,
-        10,
-        "agt_test1",
-        "agent",
-        "I fixed this",
-        "agt_test1"
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "review_feedback.updated",
-        agentId: "agt_test1",
-        feedbackItemId: 10,
-      });
-    });
-
-    it("throws when item not found", async () => {
-      vi.mocked(addThreadMessage).mockResolvedValueOnce(null);
-      await expect(
-        handlers.addReviewThreadMessage("agt_test1", 99, "hello")
-      ).rejects.toThrow("Review feedback item #99 not found");
     });
   });
 

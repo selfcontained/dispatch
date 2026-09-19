@@ -61,7 +61,7 @@ import type {
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
-import { createReviewHandlers } from "./mcp-review-handlers.js";
+import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
   createPersonality,
@@ -524,6 +524,29 @@ async function handleLaunchAgent(
 ): Promise<LaunchAgentResult> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  if (input.persona) {
+    // A persona launch is an ordinary child launch with a profile applied:
+    // the persona's instructions ride in the system prompt, the caller's
+    // prompt is its briefing, and it works in the parent's worktree.
+    const launched = await createPersonaHandlers({
+      pool: deps.pool,
+      agentManager: deps.agentManager,
+      publishUiEvent: deps.publishUiEvent,
+      withStreamFlag: deps.withStreamFlag,
+    }).launchPersonaAgent(agentId, {
+      persona: input.persona,
+      context: input.prompt,
+      name: input.name,
+      ...(input.type
+        ? { agentType: input.type as (typeof CLI_AGENT_TYPES)[number] }
+        : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.includeDiff !== undefined
+        ? { includeDiff: input.includeDiff }
+        : {}),
+    });
+    return { agentId: launched.agentId, name: launched.name };
+  }
   const child = input.child !== false;
   // Depth cap: the sidebar renders a child as a row inside its parent's card,
   // and that row has nowhere to render children of its own — a grandchild would
@@ -689,7 +712,7 @@ async function handleArchiveAgent(
     target.launchedByAgentId !== agentId
   ) {
     throw new AgentError(
-      "You can only archive yourself or an agent you launched via launch_agent or launch_persona.",
+      "You can only archive yourself or an agent you launched via launch_agent.",
       403
     );
   }
@@ -1032,17 +1055,16 @@ async function handleDeleteMedia(
 // ---------------------------------------------------------------------------
 
 export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
-  const reviewHandlers = createReviewHandlers({
+  const personaHandlers = createPersonaHandlers({
     pool: deps.pool,
     agentManager: deps.agentManager,
     publishUiEvent: deps.publishUiEvent,
     withStreamFlag: deps.withStreamFlag,
-    sendAgentPrompt: deps.sendAgentPrompt,
-    appLog: deps.appLog,
   });
 
   return {
-    ...reviewHandlers,
+    listPersonas: personaHandlers.listPersonas,
+    launchPersonaAgent: personaHandlers.launchPersonaAgent,
 
     listPersonalities: async () => {
       const [personalities, activeId] = await Promise.all([

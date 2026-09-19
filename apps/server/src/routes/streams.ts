@@ -37,9 +37,28 @@ const userAttachmentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+const reviewBodySchema = z.object({
+  verdict: z.enum(["approve", "request_changes", "comment"]),
+  summary: z.string().min(1).max(4000),
+  findings: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        severity: z.enum(["blocker", "major", "minor", "nit"]),
+        title: z.string().min(1).max(300),
+        body: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
+        path: z.string().max(1000).optional(),
+        line: z.int().positive().optional(),
+      })
+    )
+    .max(50),
+});
+
 const postBodySchema = z.object({
   id: z.uuid().optional(),
   to: z.string().min(1).optional(),
+  /** A review left by hand (the Changes tab): the block is a `review`. */
+  review: reviewBodySchema.optional(),
   text: z
     .string()
     .max(
@@ -162,6 +181,7 @@ export async function registerStreamRoutes(
         text: parsed.data.text,
         replyTo: parsed.data.replyTo ?? null,
         attachments: parsed.data.attachments ?? [],
+        ...(parsed.data.review ? { review: parsed.data.review } : {}),
         allowInert: true,
       });
     } catch (error) {

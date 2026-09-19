@@ -5,10 +5,6 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import * as z from "zod/v4";
 
 import type {
-  ReviewFeedbackItemRecord,
-  ReviewThreadMessageRecord,
-} from "../../agents/reviews.js";
-import type {
   AgentRole,
   AgentType as CliAgentType,
 } from "../../agents/types.js";
@@ -131,18 +127,12 @@ const AGENT_TOOLS = new Set([
   "persona_templates",
   "persona_upsert",
   "persona_validate",
-  "launch_persona",
   "list_personalities",
   "create_personality",
   "update_personality",
   "delete_personality",
   "set_active_personality",
   "clear_active_personality",
-  "review_list_feedback",
-  "review_get_feedback",
-  "review_resolve",
-  "review_reopen",
-  "review_add_message",
   "list_agents",
   "launch_agent",
   "archive_agent",
@@ -197,12 +187,6 @@ const JOB_TOOLS = new Set([
   "list_media",
   "delete_media",
   "list_pins",
-  "launch_persona",
-  "review_list_feedback",
-  "review_get_feedback",
-  "review_resolve",
-  "review_reopen",
-  "review_add_message",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -255,39 +239,10 @@ const JOB_TOOLS = new Set([
   "delete_template",
 ]);
 
-const REVIEW_AGENT_TOOLS = new Set([
-  "login_link",
-  "pin",
-  "pins",
-  "delete_pin",
-  "list_media",
-  "delete_media",
-  "list_pins",
-  "review_submit",
-  "review_add_feedback",
-  "review_list_feedback",
-  "review_get_feedback",
-  "review_add_message",
-  "review_resolve",
-  "surface_create",
-  "surface_update",
-  "surface_list",
-  "surface_get",
-  "surface_delete",
-  "surface_reorder",
-  "surface_interactions",
-  "surface_claim",
-  "surface_resolve",
-  "post",
-  "update",
-  "react",
-]);
-
-type AgentCapabilityType = "agent" | "job" | "review";
+type AgentCapabilityType = "agent" | "job";
 const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   agent: AGENT_TOOLS,
   job: JOB_TOOLS,
-  review: REVIEW_AGENT_TOOLS,
 };
 
 export type NotifyInput = {
@@ -370,16 +325,6 @@ export type McpRequestContext = {
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
-  launchPersona?: (
-    agentId: string,
-    opts: {
-      persona: string;
-      context: string;
-      agentType?: LaunchPersonaAgentType;
-      includeDiff?: boolean;
-      model?: string;
-    }
-  ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   listPersonalities?: () => Promise<{
     personalities: Array<{
       id: string;
@@ -442,79 +387,6 @@ export type McpRequestContext = {
    * has read the result.
    */
   whenResponseFinished?: () => Promise<void>;
-  resolveReviewFeedback?: (
-    agentId: string,
-    itemId: number,
-    resolution: "fixed" | "dismissed",
-    opts?: { note?: string | null }
-  ) => Promise<{
-    item: { id: number; reviewId: number; status: string; resolution: string };
-    reviewStatus: string;
-  }>;
-  reopenReviewFeedback?: (
-    agentId: string,
-    itemId: number,
-    opts?: { note?: string | null }
-  ) => Promise<{
-    item: { id: number; reviewId: number; status: string; resolution: null };
-    reviewStatus: string;
-  }>;
-  submitReview?: (
-    agentId: string,
-    input: {
-      summary?: string;
-      feedback: Array<{
-        filePath?: string;
-        startLine?: number;
-        endLine?: number;
-        comment: string;
-      }>;
-    }
-  ) => Promise<{
-    review: {
-      id: number;
-      status: string;
-      summary: string | null;
-      items: Array<{ id: number }>;
-    };
-  }>;
-  addReviewFeedback?: (
-    agentId: string,
-    input: {
-      reviewId: number;
-      filePath?: string;
-      startLine?: number;
-      endLine?: number;
-      comment: string;
-    }
-  ) => Promise<{
-    item: { id: number; reviewId: number };
-    reviewStatus: string;
-  }>;
-  addReviewThreadMessage?: (
-    agentId: string,
-    itemId: number,
-    body: string
-  ) => Promise<{
-    message: { id: number; feedbackItemId: number; content: { body: string } };
-    reviewId: number;
-  }>;
-  listReviewFeedback?: (
-    agentId: string,
-    reviewId?: number
-  ) => Promise<
-    Array<ReviewFeedbackItemRecord & { messages: ReviewThreadMessageRecord[] }>
-  >;
-  getReviewFeedbackItem?: (
-    agentId: string,
-    itemId: number
-  ) => Promise<
-    | (ReviewFeedbackItemRecord & {
-        reviewId: number;
-        messages: ReviewThreadMessageRecord[];
-      })
-    | null
-  >;
   upsertPin?: (
     agentId: string,
     pin: McpPinInput
@@ -545,7 +417,7 @@ export type McpRequestContext = {
   }) => Promise<Record<string, unknown>>;
   jobTools?: JobTools;
   crudTools?: CrudToolCallbacks;
-  toolScope?: "agent" | "reviewer" | "job";
+  toolScope?: "agent" | "job";
   brainStore?: BrainStore;
   publishBrainChanged?: (repoRoot: string) => void;
 };
@@ -621,12 +493,7 @@ export async function createDispatchMcpServer(
     instrumentToolInvocations(server, context.agent.id, context.publishUiEvent);
   }
   const defaultCwd = context.agent?.cwd ?? undefined;
-  const agentType: AgentCapabilityType =
-    context.agent?.role === "review"
-      ? "review"
-      : context.jobTools
-        ? "job"
-        : "agent";
+  const agentType: AgentCapabilityType = context.jobTools ? "job" : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
 
   // ── Agent browser login link ─────────────────────────────────────
@@ -666,7 +533,7 @@ export async function createDispatchMcpServer(
   if (allowed.has("pin")) registerPinTool(server, context);
   if (allowed.has("pins")) registerBatchPinTool(server, context);
   if (allowed.has("delete_pin")) registerDeletePinTool(server, context);
-  // ── Persona launch and unified review tools ───────────────────────
+  // ── Persona tools (list, templates, authoring) ─────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
       agentId: context.agent.id,
@@ -674,14 +541,6 @@ export async function createDispatchMcpServer(
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
       listPersonas: context.listPersonas,
-      launchPersona: context.launchPersona,
-      resolveReviewFeedback: context.resolveReviewFeedback,
-      reopenReviewFeedback: context.reopenReviewFeedback,
-      submitReview: context.submitReview,
-      addReviewFeedback: context.addReviewFeedback,
-      addReviewThreadMessage: context.addReviewThreadMessage,
-      listReviewFeedback: context.listReviewFeedback,
-      getReviewFeedbackItem: context.getReviewFeedbackItem,
     });
   }
 

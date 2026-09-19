@@ -157,24 +157,6 @@ describe("MCP CRUD tools", () => {
         expect(response.body).toContain(tool);
       }
     });
-
-    it("does NOT expose CRUD tools for review agents", async () => {
-      await ctx.pool.query(
-        `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
-         VALUES
-         ('agt_crud_parent', 'parent', 'claude', 'standard', 'running', '/tmp', null, null, false),
-         ('agt_crud_persona', 'persona', 'claude', 'review', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
-      );
-      const response = await mcpToolsList(
-        "/api/mcp/agt_crud_persona",
-        ctx.auth.createAgentMcpToken(authToken, "agt_crud_persona")
-      );
-
-      expect(response.statusCode).toBe(200);
-      for (const tool of CRUD_TOOL_NAMES) {
-        expect(response.body).not.toContain(`"${tool}"`);
-      }
-    });
   });
 
   // ── Job-scoped route CRUD ────────────────────────────────────────

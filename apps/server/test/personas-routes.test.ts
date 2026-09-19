@@ -29,9 +29,14 @@ function createMockDeps() {
         name: "test-agent",
         cwd: "/tmp",
       })),
-      getTerminalAccess: vi.fn(async () => ({ mode: "none" as const })),
     },
-    sendAgentPrompt: vi.fn(async () => {}),
+    launchPersonaAgent: vi.fn(
+      async (_parentId: string, opts: { persona: string }) => ({
+        agentId: `agt_${opts.persona}`,
+        name: `${opts.persona}-parent`,
+        persona: opts.persona,
+      })
+    ),
     handleAgentError: vi.fn((reply: FastifyReply, error: unknown) =>
       reply.code(500).send({ error: String(error) })
     ),
@@ -59,10 +64,6 @@ beforeEach(() => {
     id: "agt_parent",
     name: "test-agent",
     cwd: "/tmp",
-  });
-  deps.agentManager.getTerminalAccess.mockResolvedValue({
-    mode: "inert" as const,
-    message: "Agent is stopped.",
   });
 });
 
@@ -93,48 +94,81 @@ describe("GET /api/v1/personas", () => {
   });
 });
 
-describe("POST /api/v1/agents/:id/launch-review", () => {
+describe("POST /api/v1/agents/:id/launch-persona", () => {
   it("validates persona, agent type, and includeDiff", async () => {
     const invalidPayloads = [
       { agentType: "codex" },
       { persona: "bad slug!", agentType: "codex" },
       { persona: "security-review", agentType: "invalid" },
       { persona: "security-review", agentType: "codex", includeDiff: "yes" },
+      { personas: [], agentType: "codex" },
     ];
     for (const payload of invalidPayloads) {
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/agents/agt_parent/launch-review",
+        url: "/api/v1/agents/agt_parent/launch-persona",
         payload,
       });
       expect(response.statusCode).toBe(400);
     }
+    expect(deps.launchPersonaAgent).not.toHaveBeenCalled();
   });
 
-  it("requires a live session", async () => {
+  it("404s an unknown parent", async () => {
+    deps.agentManager.getAgent.mockResolvedValueOnce(null as never);
     const response = await app.inject({
       method: "POST",
-      url: "/api/v1/agents/agt_parent/launch-review",
+      url: "/api/v1/agents/agt_missing/launch-persona",
       payload: { persona: "security-review", agentType: "codex" },
     });
-    expect(response.statusCode).toBe(409);
+    expect(response.statusCode).toBe(404);
   });
 
-  it("prompts the parent for every supported agent type", async () => {
+  it("launches one child per persona, with the note as the briefing", async () => {
     for (const agentType of CLI_AGENT_TYPES) {
-      deps.agentManager.getTerminalAccess.mockResolvedValueOnce({
-        mode: "live" as const,
-      });
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/agents/agt_parent/launch-review",
+        url: "/api/v1/agents/agt_parent/launch-persona",
         payload: { persona: "security-review", agentType, includeDiff: false },
       });
       expect(response.statusCode).toBe(200);
     }
-    expect(deps.sendAgentPrompt).toHaveBeenLastCalledWith(
-      "agt_parent",
-      expect.stringContaining("includeDiff: false")
-    );
+    expect(deps.launchPersonaAgent).toHaveBeenLastCalledWith("agt_parent", {
+      persona: "security-review",
+      context: "Review the agent's current work in this worktree.",
+      agentType: CLI_AGENT_TYPES[CLI_AGENT_TYPES.length - 1],
+      includeDiff: false,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: {
+        personas: ["security-review", "ux-review", "security-review"],
+        agentType: "codex",
+        note: "  Focus on the auth changes.  ",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      launched: [
+        {
+          agentId: "agt_security-review",
+          name: "security-review-parent",
+          persona: "security-review",
+        },
+        {
+          agentId: "agt_ux-review",
+          name: "ux-review-parent",
+          persona: "ux-review",
+        },
+      ],
+    });
+    expect(deps.launchPersonaAgent).toHaveBeenCalledWith("agt_parent", {
+      persona: "ux-review",
+      context: "Focus on the auth changes.",
+      agentType: "codex",
+    });
   });
 });

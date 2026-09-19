@@ -10,7 +10,6 @@
 import type {
   ChatAttachment,
   ChatPinEntry,
-  ChatReviewEntry,
   ChatStatusEntry,
   ChatTurnEntry,
   ChatUserAttachmentInput,
@@ -199,13 +198,12 @@ export type StreamBlockEntry = {
 
 /**
  * One row of `GET /streams/:rootId/blocks`: a block, a turn, a system status
- * mark, or (until their own steps land) a review card or a pin write.
+ * mark, or (until its own step lands) a pin write.
  */
 export type StreamEntry =
   | StreamBlockEntry
   | ChatTurnEntry
   | ChatStatusEntry
-  | ChatReviewEntry
   | ChatPinEntry;
 
 export type StreamFeedResponse = {
@@ -251,6 +249,8 @@ export type StreamPostRequest = {
   /** Reply under this top-level block (or a reply in its thread). */
   replyTo?: string;
   attachments?: ChatUserAttachmentInput[];
+  /** A review left by hand (the Changes tab): the block becomes a `review`. */
+  review?: BlockReviewData;
 };
 
 /** Body of `POST /streams/:rootId/blocks/:id/answer` (question blocks). */

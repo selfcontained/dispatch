@@ -268,24 +268,27 @@ describe("assemblePersonaPrompt", () => {
     );
   });
 
-  it("guides reviewers to keep summaries short and non-duplicative", () => {
-    const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("review_submit");
-    expect(result).toContain("280 characters or fewer");
-    expect(result).toContain("never repeat feedback-item details");
-    expect(result).toContain("empty array and a concise nonblank summary");
+  it("tells the reviewer to post one review block to its launcher", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null, {
+      parentAgentId: "agt_parent",
+    });
+    expect(result).toContain("post exactly one `review` block");
+    expect(result).toContain('to: "agt_parent"');
+    expect(result).toContain("empty findings list for a clean approval");
+    expect(result).not.toContain("review_submit");
   });
 
-  it("keeps review discussion in tracked item threads", () => {
+  it("keeps review discussion in the finding's thread", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("review_add_message");
-    expect(result).toContain("review_add_feedback");
-    expect(result).toContain("Do not use direct agent messages");
+    expect(result).toContain("answer in the thread");
+    expect(result).toContain("replyTo");
+    expect(result).toContain("never as a loose message");
+    expect(result).not.toContain("review_add_message");
   });
 
   it("does not include Cursor tool guidance by default", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Call `review_submit`");
+    expect(result).toContain("post exactly one `review` block");
     expect(result).not.toContain("dispatch-<tool_name>");
     expect(result).not.toContain("functions.dispatch-review_status");
   });
@@ -360,9 +363,9 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain(
       "include a concrete suggestion for what to change"
     );
-    expect(result).toContain("approve with an empty feedback array");
+    expect(result).toContain("empty findings list for a clean approval");
     expect(result).toContain(
-      "an actionable concern or clarifying question that needs a tracked response"
+      "actionable concerns or clarifying questions that need a tracked response"
     );
   });
 

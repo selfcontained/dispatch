@@ -204,7 +204,10 @@ export async function loadPersonaBySlug(
  * This keeps submission and thread behavior predictable regardless of what
  * the repo-specific persona markdown contains.
  */
-function buildStandardFeedbackGuidance(includeDiff: boolean): string {
+function buildStandardFeedbackGuidance(
+  includeDiff: boolean,
+  parentAgentId: string | null
+): string {
   const inspectionSteps = includeDiff
     ? [
         "1. Read the diff carefully first to understand exactly what changed.",
@@ -217,13 +220,9 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
-  const reviewLifecycle = [
-    "- Inspect the complete review target before submitting. Collect findings during the pass instead of sending direct messages to the parent.",
-    "- Call `review_submit` exactly once when the initial pass is complete. Put actionable concerns in the `feedback` array. When findings are submitted, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; never repeat feedback-item details there. Use an empty array and a concise nonblank summary for a clean approval.",
-    "- After submission, use `review_add_message` for a clarifying question or reply on an existing item. Use `review_add_feedback` only for a genuinely new concern.",
-    "- Keep all review discussion in feedback-item threads. Do not use direct agent messages for review content.",
-    "- After submitting, later thread updates arrive as new prompts and may start a new turn; answer them in the tracked feedback thread.",
-  ].join("\n");
+  const target = parentAgentId
+    ? `the agent that launched you (post with to: "${parentAgentId}")`
+    : "the agent that launched you (post with to set to its id)";
 
   return `
 ## Feedback Guidelines (from Dispatch)
@@ -231,19 +230,19 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
 ### How to review
 ${inspectionSteps.join("\n")}
 3. Perform any domain-specific investigation described in your persona instructions above.
-4. Collect your findings and submit them as described below.
+4. Collect your findings and post them as described below.
 
 ### How to submit feedback
-- Submit findings through the \`feedback\` array on \`review_submit\`. Each item needs a concrete comment and may include a file path and line range.
+- When the pass is complete, post exactly one \`review\` block to ${target}: \`post({ to, review: { verdict, summary, findings: [{ id, severity, title, body, path, line }] } })\`. Each finding needs a concrete comment and may name a file path and line. Use \`verdict: "approve"\` with an empty findings list for a clean approval; the summary then carries the assessment.
 ${scopeLine}
 
-### Review lifecycle
-${reviewLifecycle}
+### After posting
+- The builder resolves or disputes findings on that block; each finding is a thread. A reply in the thread reaches you as a new prompt: answer in the thread (post with replyTo set to the review block id), never as a loose message.
+- To reopen a finding the builder resolved wrongly, update the block's state: \`update({ id, state: { findings: { <findingId>: "open" } } })\`. A genuinely new concern is a reply in the thread, not a second review.
 
 ### Feedback hygiene
-- Submit only actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational feedback items. Put the overall assessment and useful positive context in the review summary instead.
+- Findings are actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational findings. Put the overall assessment and useful positive context in the summary instead.
 - Make each finding actionable: include a concrete suggestion for what to change. Avoid abstract observations like "this could be cleaner" — specify what the better structure looks like and where to apply it.
-- If everything looks good, say so in the review summary and approve with an empty feedback array. Every feedback item should identify an actionable concern or clarifying question that needs a tracked response.
 `.trim();
 }
 
@@ -252,6 +251,8 @@ export type AssemblePersonaPromptOptions = {
   includeDiff?: boolean;
   /** Runtime that will execute this persona prompt. Cursor gets tool-call hardening. */
   agentType?: Exclude<AgentType, "terminal">;
+  /** The launcher, so the guidance can say where to post the result. */
+  parentAgentId?: string | null;
 };
 
 function buildDiffCommands(baseRef: string): string {
@@ -339,7 +340,9 @@ export function assemblePersonaPrompt(
     .replace(/\{\{diff\}\}/g, "");
 
   const sections: string[] = [personaBody.trimEnd()];
-  sections.push(buildStandardFeedbackGuidance(includeDiff));
+  sections.push(
+    buildStandardFeedbackGuidance(includeDiff, options.parentAgentId ?? null)
+  );
   sections.push(
     `## Context from parent agent\n${capText(context, MAX_PERSONA_PROMPT_BYTES / 2, "Briefing")}`
   );

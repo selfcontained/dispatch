@@ -1867,14 +1867,6 @@ export class AgentManager {
           LIMIT 1
         ) AS "jobRun",
         cli_session_id AS "cliSessionId",
-        (
-          SELECT unified_review.id
-          FROM reviews unified_review
-          WHERE unified_review.reviewer_type = 'agent'
-            AND unified_review.reviewer_agent_id = agents.id
-          ORDER BY unified_review.created_at DESC, unified_review.id DESC
-          LIMIT 1
-        ) AS "submittedReviewId",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

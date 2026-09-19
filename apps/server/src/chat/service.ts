@@ -572,12 +572,17 @@ export class StreamService {
       text: string;
       replyTo?: string | null;
       attachments?: ChatUserAttachmentInput[];
+      /** A review left by hand: the block is a `review` with these findings. */
+      review?: BlockReviewData | null;
       allowInert?: boolean;
     }
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
-    if (!text.trim() && attachments.length === 0) {
+    const review = input.review
+      ? (resolveKindAndData({ review: input.review }).data as BlockReviewData)
+      : null;
+    if (!text.trim() && attachments.length === 0 && !review) {
       throw new StreamValidationError("text is required.");
     }
     if (attachments.length > BLOCK_ATTACHMENTS_MAX) {
@@ -604,10 +609,13 @@ export class StreamService {
       streamId,
       author: USER,
       toAgentId,
-      kind: "text" as const,
+      kind: review ? ("review" as const) : ("text" as const),
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
       text,
+      ...(review
+        ? { data: review, state: initialState("review", review) }
+        : {}),
       attachments: resolved,
       delivered: live ? null : false,
     };

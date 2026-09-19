@@ -101,7 +101,6 @@ function review(streamId: string) {
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM blocks");
-  await ctx.pool.query("DELETE FROM agent_messages");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agent_stream_events");
   await ctx.pool.query("DELETE FROM media");

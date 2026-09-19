@@ -54,23 +54,6 @@ export type SharedUiEvent =
   | StreamReadEvent
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | {
-      type: "review.created";
-      agentId: string;
-      reviewId: number;
-      reviewerAgentId?: string | null;
-    }
-  | {
-      type: "review.updated";
-      agentId: string;
-      reviewId: number;
-      status: string;
-    }
-  | {
-      type: "review_feedback.updated";
-      agentId: string;
-      feedbackItemId: number;
-    }
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }

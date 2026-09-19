@@ -112,7 +112,6 @@ import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
-import { registerReviewRoutes } from "./routes/reviews.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
@@ -648,7 +647,6 @@ async function registerRoutes() {
     mcpListMedia: mcpHandlers.listMedia,
     mcpDeleteMedia: mcpHandlers.deleteMedia,
     mcpListPersonas: mcpHandlers.listPersonas,
-    mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpListPersonalities: mcpHandlers.listPersonalities,
     mcpCreatePersonality: mcpHandlers.createPersonality,
     mcpUpdatePersonality: mcpHandlers.updatePersonality,
@@ -657,13 +655,6 @@ async function registerRoutes() {
     mcpClearActivePersonality: mcpHandlers.clearActivePersonality,
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpArchiveAgent: mcpHandlers.archiveAgent,
-    mcpResolveReviewFeedback: mcpHandlers.resolveReviewFeedback,
-    mcpReopenReviewFeedback: mcpHandlers.reopenReviewFeedback,
-    mcpSubmitReview: mcpHandlers.submitReview,
-    mcpAddReviewFeedback: mcpHandlers.addReviewFeedback,
-    mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
-    mcpListReviewFeedback: mcpHandlers.listReviewFeedback,
-    mcpGetReviewFeedbackItem: mcpHandlers.getReviewFeedbackItem,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
     mcpUpsertPins: mcpHandlers.upsertPins,
@@ -809,19 +800,7 @@ async function registerRoutes() {
   // --- Personas ---
   await registerPersonaRoutes(app, {
     agentManager,
-    sendAgentPrompt: (agentId, prompt) =>
-      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
-    handleAgentError,
-  });
-
-  // --- Reviews ---
-
-  await registerReviewRoutes(app, {
-    pool,
-    agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event),
-    sendAgentPrompt: (agentId, prompt) =>
-      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
+    launchPersonaAgent: mcpHandlers.launchPersonaAgent,
     handleAgentError,
   });
 

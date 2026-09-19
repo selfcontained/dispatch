@@ -47,7 +47,6 @@ const actionDocument = {
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agent_surface_interactions");
   await ctx.pool.query("DELETE FROM agent_surfaces");
-  await ctx.pool.query("DELETE FROM agent_messages");
   await ctx.pool.query("DELETE FROM media_seen");
   await ctx.pool.query("DELETE FROM media");
   await ctx.pool.query("DELETE FROM job_runs");

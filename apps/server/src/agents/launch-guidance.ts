@@ -243,7 +243,7 @@ export function buildLaunchGuidance(
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via launch_persona. Dispatch will guide the rest as it happens. Don't finish until all submitted reviews are resolved — if a review prompt never arrived, check with review_list_feedback."
+        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; resolve or dispute its findings with update state and answer questions in the block's thread. Don't finish until every finding is resolved."
       );
     }
   }
