@@ -869,7 +869,8 @@ async function handleListAgentsForAgent(
     relation: AgentRelation;
   }>
 > {
-  const crossRepo = true;
+  // Listing stays scoped to the caller's repo and lineage; posting is not.
+  const crossRepo = false;
 
   const allAgents = await deps.agentManager.listAgents();
   const agents = await addressableAgents(

@@ -43,7 +43,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM agent_messages");
   await pool.query("DELETE FROM agent_stream_events");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM reviews");
@@ -65,8 +64,7 @@ const blockEntries = (feed: { entries: unknown[] }) =>
   );
 
 async function seedAll() {
-  // t=1 status, t=2 block(agent), t=3 review, t=4 agent_message in,
-  // t=5 block(user), t=6 agent_message out, t=7 status
+  // t=1 status, t=2 block(agent), t=3 review, t=5 block(user), t=7 status
   await pool.query(
     `INSERT INTO agent_events (agent_id, event_type, message, created_at)
      VALUES ($1, 'working', 'reading', $2), ($1, 'done', 'finished', $3),
@@ -79,14 +77,6 @@ async function seedAll() {
     `INSERT INTO reviews (agent_id, reviewer_type, summary, status, created_at)
      VALUES ($1, 'human', 'Looks good', 'resolved', $2)`,
     [A, at(3)]
-  );
-  await pool.query(
-    `INSERT INTO agent_messages
-       (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
-        content, delivered, created_at)
-     VALUES (gen_random_uuid(), $2, $1, 'Other', 'Feed A', 'ping', true, $3),
-            (gen_random_uuid(), $1, $2, 'Feed A', 'Other', 'pong', false, $4)`,
-    [A, OTHER, at(4), at(6)]
   );
   const m2 = await store.insert({
     streamId: A,
@@ -109,15 +99,13 @@ describe("composeStreamFeed", () => {
       "status",
       "block",
       "review",
-      "agent_message",
       "block",
-      "agent_message",
       "status",
     ]);
     expect(feed.entries.map((e) => e.at)).toEqual(
-      [1, 2, 3, 4, 5, 6, 7].map((s) => at(s).toISOString())
+      [1, 2, 3, 5, 7].map((s) => at(s).toISOString())
     );
-    const [status, block, review, inbound, userBlock, outbound] = feed.entries;
+    const [status, block, review, userBlock] = feed.entries;
     expect(status).toMatchObject({ eventType: "working", message: "reading" });
     expect(block).toEqual({
       type: "block",
@@ -131,18 +119,6 @@ describe("composeStreamFeed", () => {
       },
     });
     expect(review).toMatchObject({ type: "review", reviewerType: "human" });
-    expect(inbound).toMatchObject({
-      direction: "in",
-      senderAgentId: OTHER,
-      content: "ping",
-      delivered: true,
-    });
-    expect(outbound).toMatchObject({
-      direction: "out",
-      recipientAgentId: OTHER,
-      content: "pong",
-      delivered: false,
-    });
     expect(userBlock).toMatchObject({
       block: {
         id: m2.id,
@@ -155,24 +131,24 @@ describe("composeStreamFeed", () => {
 
   it("pages backwards with cursor/limit and reports hasMore across sources", async () => {
     await seedAll();
-    const page1 = await composeStreamFeed(store, A, { limit: 3 });
+    const page1 = await composeStreamFeed(store, A, { limit: 2 });
     expect(page1.hasMore).toBe(true);
     expect(page1.nextCursor).toBeTruthy();
     expect(page1.entries.map((e) => e.at)).toEqual(
-      [5, 6, 7].map((s) => at(s).toISOString())
+      [5, 7].map((s) => at(s).toISOString())
     );
 
     const page2 = await composeStreamFeed(store, A, {
-      limit: 3,
+      limit: 2,
       cursor: decodeFeedCursor(page1.nextCursor!),
     });
     expect(page2.hasMore).toBe(true);
     expect(page2.entries.map((e) => e.at)).toEqual(
-      [2, 3, 4].map((s) => at(s).toISOString())
+      [2, 3].map((s) => at(s).toISOString())
     );
 
     const page3 = await composeStreamFeed(store, A, {
-      limit: 3,
+      limit: 2,
       cursor: decodeFeedCursor(page2.nextCursor!),
     });
     expect(page3.hasMore).toBe(false);
@@ -180,33 +156,8 @@ describe("composeStreamFeed", () => {
     expect(page3.entries.map((e) => e.type)).toEqual(["status"]);
   });
 
-  it("marks both directions of archived child conversations", async () => {
-    await pool.query(
-      `INSERT INTO agent_messages
-         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
-          content, delivered, created_at)
-       VALUES (gen_random_uuid(), $2, $1, 'Archived child', 'Feed A', 'in', true, $3),
-              (gen_random_uuid(), $1, $2, 'Feed A', 'Archived child', 'out', true, $4),
-              (gen_random_uuid(), $5, $1, 'Other', 'Feed A', 'peer', true, $4)`,
-      [A, ARCHIVED_CHILD, at(10), at(11), OTHER]
-    );
-    const messages = (await composeStreamFeed(store, A)).entries.filter(
-      (entry) => entry.type === "agent_message"
-    );
-    expect(messages).toHaveLength(3);
-    expect(
-      messages
-        .map((entry) => [entry.content, entry.involvesChildAgent])
-        .sort(([left], [right]) => String(left).localeCompare(String(right)))
-    ).toEqual([
-      ["in", true],
-      ["out", true],
-      ["peer", false],
-    ]);
-  });
-
   it("never drops or repeats rows that share a timestamp across sources", async () => {
-    // Twelve rows at the same instant (three per source kind) with
+    // Nine rows at the same instant (three per source kind) with
     // microsecond-identical created_at, paged two at a time.
     const t = at(10);
     for (let i = 0; i < 3; i++) {
@@ -219,13 +170,6 @@ describe("composeStreamFeed", () => {
         `INSERT INTO agent_events (agent_id, event_type, message, created_at)
          VALUES ($1, 'working', $2, $3)`,
         [A, `ev${i}`, t]
-      );
-      await pool.query(
-        `INSERT INTO agent_messages
-           (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
-            content, delivered, created_at)
-         VALUES (gen_random_uuid(), $2, $1, 'Other', 'Feed A', $3, true, $4)`,
-        [A, OTHER, `msg${i}`, t]
       );
       const b = await store.insert({
         streamId: A,
@@ -253,8 +197,8 @@ describe("composeStreamFeed", () => {
       expect(cursor).toBeTruthy();
       expect(pages).toBeLessThan(20);
     }
-    expect(new Set(seen).size).toBe(12);
-    expect(seen).toHaveLength(12);
+    expect(new Set(seen).size).toBe(9);
+    expect(seen).toHaveLength(9);
     expect(pages).toBe(6);
   });
 
@@ -276,10 +220,10 @@ describe("composeStreamFeed", () => {
     // The retired sources are not cursor types any more.
     expect(forged({ ...cursor, type: "chat" })).toBeNull();
     expect(forged({ ...cursor, type: "media", id: "7" })).toBeNull();
-    // Ids must fit the source column: uuid for block/agent_message, a
+    // Ids must fit the source column: uuid for block, a
     // serial for status/review/turn/pin — otherwise the SQL cast would 500.
     expect(forged({ ...cursor, id: "x" })).toBeNull();
-    expect(forged({ ...cursor, type: "agent_message", id: "12" })).toBeNull();
+    expect(forged({ ...cursor, type: "block", id: "12" })).toBeNull();
     expect(forged({ ...cursor, type: "status", id: uuid })).toBeNull();
     expect(forged({ ...cursor, type: "status", id: "-1" })).toBeNull();
     expect(forged({ ...cursor, type: "status", id: "99999999999" })).toBeNull();

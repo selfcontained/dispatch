@@ -56,23 +56,6 @@ describe("parsePromptSource", () => {
     }
   });
 
-  it("reads sender and text out of a cross-agent message envelope", () => {
-    const body = JSON.stringify({
-      from: "Dispatch Harness Research",
-      senderId: "agt_683b115bc1e9",
-      senderRelation: "unrelated",
-      message: "Quick check: which branch?",
-      replyTarget: "agt_683b115bc1e9",
-    });
-    const text = `--- DISPATCH MESSAGE ---\n${body}\n--- END MESSAGE ---\nOptional reply channel…`;
-    expect(parsePromptSource(text)).toEqual({
-      source: "agent",
-      senderId: "agt_683b115bc1e9",
-      senderName: "Dispatch Harness Research",
-      text: "Quick check: which branch?",
-    });
-  });
-
   it("keeps the first 500 characters of anything else as a system prompt", () => {
     const text = "x".repeat(600);
     expect(parsePromptSource(text)).toEqual({

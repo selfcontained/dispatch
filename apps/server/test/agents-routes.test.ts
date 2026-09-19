@@ -222,7 +222,7 @@ describe("POST /api/v1/agents (create)", () => {
     await ctx.awaitLaunched(child.id);
     const posts = await ctx.pool.query(
       `SELECT author_kind, text, origin, launched_by_agent_id
-         FROM blocks WHERE stream_id = $1`,
+         FROM blocks WHERE to_agent_id = $1 AND origin = 'launch'`,
       [child.id]
     );
     // The post is the user's own; only the agent-authenticated launch paths

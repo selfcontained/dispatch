@@ -389,6 +389,9 @@ describe.skipIf(!hasMigrationsToTest)(
           path.join(migrationsDir, migrationFile),
           "utf8"
         );
+        // agent_messages is dropped by a later migration; the earlier
+        // ALTERs on it cannot replay once it is gone.
+        if (migrationSql.includes("agent_messages")) continue;
         await pool.query(migrationSql);
       }
 

@@ -2262,33 +2262,6 @@ describe("createMcpHandlers", () => {
       expect(result.map((a) => a.id)).toEqual(["agt_child"]);
     });
 
-    it("lists agents across repos when the cross-repo messaging setting is enabled", async () => {
-      // getSetting(cross_repo_messaging_enabled) -> "true"
-      deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
-      deps.agentManager.listAgents.mockResolvedValue([
-        {
-          id: "agt_self",
-          name: "self",
-          cwd: "/repo",
-          status: "running",
-          latestEvent: null,
-        },
-        {
-          id: "agt_other",
-          name: "other",
-          cwd: "/other-repo",
-          status: "running",
-          latestEvent: null,
-        },
-      ]);
-      vi.mocked(resolveRepoRoot).mockImplementation(
-        async (cwd) => cwd as string
-      );
-      // senderRepoRoot null is tolerated once cross-repo messaging is on.
-      const result = await handlers.listAgentsForAgent("agt_self", null);
-      expect(result.map((a) => a.id)).toEqual(["agt_other"]);
-    });
-
     it("labels each agent's lineage relative to the caller", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
         {

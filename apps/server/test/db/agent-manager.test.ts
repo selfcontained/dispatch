@@ -462,7 +462,7 @@ describe("AgentManager", () => {
     describe("launch context in the Chat feed", () => {
       async function launchPosts(agentId: string) {
         const result = await pool.query(
-          `SELECT * FROM blocks WHERE stream_id = $1 ORDER BY created_at`,
+          `SELECT * FROM blocks WHERE to_agent_id = $1 AND origin = 'launch' ORDER BY created_at`,
           [agentId]
         );
         return result.rows as Array<{
