@@ -25,6 +25,7 @@ import {
   foldAttachments,
 } from "@/components/app/chat/turn/turn-attachments";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
+import { isSetupEvent, SetupBlock } from "@/components/app/chat/setup-block";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 
@@ -221,11 +222,15 @@ export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
       continue;
     }
     const last = items[items.length - 1];
+    // Dispatch's own marks (a setup phase, a derived status) each say
+    // something distinct; only the agent's chatter collapses.
     if (
       entry.eventType === "working" &&
+      !entry.system &&
       last &&
       last.kind === "status" &&
-      last.entry.eventType === "working"
+      last.entry.eventType === "working" &&
+      !last.entry.system
     ) {
       items[items.length - 1] = {
         kind: "status",
@@ -414,7 +419,9 @@ export function ChatFeed({
   };
 
   // Consecutive status lines sit as one quiet cluster between posts, so they
-  // read as a separator rather than as posts of their own.
+  // read as a separator rather than as posts of their own. The setup marks
+  // (workspace phases, session started, or the failure) fold into one
+  // Setup block instead.
   const blocks = useMemo(() => {
     const out: Array<
       | { kind: "row"; row: ChatFeedRow }
@@ -423,6 +430,7 @@ export function ChatFeed({
           key: string;
           rows: Extract<ChatFeedRow, { kind: "status" }>[];
         }
+      | { kind: "setup"; key: string; rows: ChatStatusEntry[] }
     > = [];
     for (const row of rows) {
       if (row.kind !== "status") {
@@ -430,6 +438,14 @@ export function ChatFeed({
         continue;
       }
       const last = out[out.length - 1];
+      if (isSetupEvent(row.entry)) {
+        if (last?.kind === "setup") {
+          last.rows.push(row.entry);
+        } else {
+          out.push({ kind: "setup", key: row.entry.id, rows: [row.entry] });
+        }
+        continue;
+      }
       if (last?.kind === "statuses") {
         last.rows.push(row);
       } else {
@@ -445,6 +461,17 @@ export function ChatFeed({
       data-testid="chat-feed"
     >
       {blocks.map((block) => {
+        if (block.kind === "setup") {
+          return (
+            <Enter
+              key={`setup:${block.key}`}
+              id={block.rows[0]!.id}
+              entering={entering}
+            >
+              <SetupBlock rows={block.rows} />
+            </Enter>
+          );
+        }
         if (block.kind === "statuses") {
           return (
             <div
