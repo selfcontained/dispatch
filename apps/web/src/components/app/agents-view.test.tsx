@@ -247,14 +247,6 @@ vi.mock("@/hooks/use-media", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-agent-messages", () => ({
-  useAgentUnreadCount: () => 0,
-  useMarkMessagesRead: (agentId: string | null) => {
-    H.record("useMarkMessagesRead", { agentId });
-    return H.state.markMessagesRead;
-  },
-}));
-
 vi.mock("@/hooks/use-agent-surfaces", () => ({
   useAgentSurfaces: (agentId: string | null) => {
     H.record("useAgentSurfaces", { agentId });
@@ -419,7 +411,6 @@ beforeEach(() => {
     mediaFiles: [],
     mediaViewportRef: { current: null },
     refreshMedia: vi.fn(),
-    markMessagesRead: vi.fn(),
     agentSurfaces: [] as Array<{ id: string }>,
     surfaceSeenIds: [] as string[],
   };
@@ -750,30 +741,6 @@ describe("AgentsView media sidebar", () => {
     expect(propsOf("MediaSidebar").mediaOpen).toBe(false);
     expect(propsOf("MediaSidebar").streamUrl).toBeNull();
   });
-
-  it("marks messages read only while the panel is open on the messages tab", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      mediaPanelOpen: true,
-      mediaActiveTab: "media",
-    });
-    mount();
-    expect(H.state.markMessagesRead).not.toHaveBeenCalled();
-
-    cleanup();
-    H.clearProps();
-    H.state.mediaActiveTab = "messages";
-    mount();
-    expect(H.state.markMessagesRead).toHaveBeenCalled();
-
-    cleanup();
-    H.clearProps();
-    (H.state.markMessagesRead as ReturnType<typeof vi.fn>).mockClear();
-    H.state.mediaPanelOpen = false;
-    mount();
-    expect(H.state.markMessagesRead).not.toHaveBeenCalled();
-  });
 });
 
 describe("AgentsView center pane", () => {
@@ -966,16 +933,6 @@ describe("AgentsView hook wiring", () => {
     // Handing over ids from an unsettled list would let the sidebar prune
     // per-agent state for agents that simply have not arrived yet.
     expect(hookArgs("useMediaSidebarState").agentIds).toEqual([]);
-  });
-
-  it("marks messages read for the focused agent", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a2",
-    });
-    mount({ path: "/agents/a2" });
-
-    expect(hookArgs("useMarkMessagesRead").agentId).toBe("a2");
   });
 
   it("swaps the left sidebar's close target between mobile and desktop", () => {

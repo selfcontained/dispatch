@@ -997,30 +997,6 @@ describe("useSSE message handling", () => {
     ]);
   });
 
-  it("invalidates both ends of a created message and only one on read", () => {
-    const { emit, invalidateQueries } = renderMessages();
-
-    emit({
-      type: "message.created",
-      senderAgentId: "sender",
-      recipientAgentId: "recipient",
-    });
-    // Cross-agent messages also appear in both agents' chat feeds.
-    expectInvalidatedSet(invalidateQueries, [
-      ["messages", "sender"],
-      ["messages", "recipient"],
-      ["stream", "sender"],
-      ["stream", "recipient"],
-    ]);
-
-    invalidateQueries.mockClear();
-    emit({ type: "message.read", agentId: "recipient" });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["messages", "recipient"],
-      exact: true,
-    });
-  });
-
   it("invalidates the collection each bare change event names", () => {
     const { emit, invalidateQueries } = renderMessages();
 

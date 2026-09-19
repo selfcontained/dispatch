@@ -9,7 +9,6 @@ import {
 } from "@/components/app/types";
 import { isSystemSidebarTab, type MediaSidebarTab } from "@/lib/store";
 import { MediaContent } from "@/components/app/media-content";
-import { MessagesPanel } from "@/components/app/messages-panel";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
 import { useAgentReviews } from "@/hooks/use-agent-reviews";
@@ -52,7 +51,6 @@ type MediaSidebarSharedProps = {
   hasStream: boolean;
   streamUrl: string | null;
   unseenMediaCount: number;
-  unreadMessageCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
   onNavigateToFile?: (
     filePath: string,
@@ -110,14 +108,12 @@ export function MediaSidebarContent({
   onTogglePin,
   className,
   unseenMediaCount,
-  unreadMessageCount,
   onUploadFile,
   onNavigateToFile,
   onShortcutRun,
   isSidebarVisible,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
-  unreadMessageCount: number;
 }): JSX.Element {
   const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
   const runPinShortcut = useRunPinShortcut();
@@ -198,25 +194,6 @@ export function MediaSidebarContent({
             {reviewUnresolvedCount > 0 && (
               <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] text-white">
                 {reviewUnresolvedCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("messages")}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "messages"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Messages
-            {activeTab === "messages" ? (
-              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
-            ) : null}
-            {unreadMessageCount > 0 && (
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
-                {unreadMessageCount}
               </span>
             )}
           </button>
@@ -339,14 +316,6 @@ export function MediaSidebarContent({
           agentId={selectedAgentId}
           onNavigateToFile={onNavigateToFile}
         />
-      </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeTab !== "messages" && "hidden"
-        )}
-      >
-        <MessagesPanel agentId={selectedAgentId} />
       </div>
       {!isSystemTab && selectedAgentId ? (
         <div className="flex min-h-0 flex-1 flex-col">

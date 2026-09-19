@@ -251,8 +251,8 @@ export function AgentsContent() {
           it ended with. While a turn runs, a <strong>Stop</strong> button next
           to the status line cancels it, and the agent&apos;s current plan shows
           above the composer. The feed also carries questions (with option
-          buttons), shared files, pins, reviews and messages from other agents.
-          An unread count sits on the Agent tab while another tab is up. Drafts
+          buttons), shared files, pins, reviews and posts from other agents. An
+          unread count sits on the Agent tab while another tab is up. Drafts
           survive a reload: text, links, pins and pasted text come back as they
           were; a picked file comes back as a placeholder to re-attach.
         </P>
@@ -356,7 +356,7 @@ export function AgentsContent() {
           branch Dispatch created for the agent — see <strong>Worktrees</strong>{" "}
           for exactly what that throws away. Archived agents are preserved in
           the History section of the Activity page, where you can review their
-          events, media, pins, feedback, and messages.
+          events, media, pins, and feedback.
         </P>
       </Section>
 
@@ -388,9 +388,10 @@ export function AgentsContent() {
         </P>
         <P>
           Each child is told which agent launched it and can coordinate back
-          using <Code>send_message</Code>. Messages are persisted and visible in
-          the <strong>Messages</strong> tab of the media sidebar, grouped by
-          conversation partner.
+          with <Code>post</Code> and <Code>to</Code> set to the launcher. A
+          child has no stream of its own: its posts and its turns live in the
+          root agent&apos;s stream, folded under the child&apos;s name, and its
+          page shows that stream filtered to the child.
         </P>
         <P>
           Archiving a parent does not archive its launched children — they keep

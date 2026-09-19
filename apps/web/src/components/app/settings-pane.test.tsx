@@ -46,10 +46,6 @@ vi.mock(
   stubModule("BrowserExtensionSettings")
 );
 vi.mock(
-  "@/components/app/cross-repo-messaging-settings",
-  stubModule("CrossRepoMessagingSettings")
-);
-vi.mock(
   "@/components/app/launch-guidance-settings",
   stubModule("LaunchGuidanceSettings")
 );
@@ -275,7 +271,6 @@ describe("SettingsContent", () => {
         "IdeSettings",
         "LaunchGuidanceSettings",
         "PluginUpdateSettings",
-        "CrossRepoMessagingSettings",
         "WorktreeLocationSettings",
       ],
     ],

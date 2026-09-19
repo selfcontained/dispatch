@@ -74,7 +74,6 @@ export function AgentHistoryDetail({
     tokenUsage,
     media,
     feedback,
-    messages,
     stateDurations,
   } = data;
   const durationMs =
@@ -212,13 +211,12 @@ export function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Tabbed: Events / Media / Pins / Feedback / Messages */}
+      {/* Tabbed: Events / Media / Pins / Feedback */}
       <DetailTabs
         events={events}
         media={media}
         pins={agent.pins ?? []}
         feedback={feedback}
-        messages={messages}
         agentId={agentId}
         workspaceRoot={agent.gitContext?.repoRoot ?? agent.cwd}
       />

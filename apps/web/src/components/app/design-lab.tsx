@@ -759,7 +759,7 @@ function ChatScene(): JSX.Element {
             steps={[
               { label: "ls -a; cat README* 2>/dev/null | head -20", ms: 666 },
               { label: "read README.md", ms: 200 },
-              { label: "send_message → startup ui", ms: 1300 },
+              { label: "post → startup ui", ms: 1300 },
             ]}
           />
         </Blocks>

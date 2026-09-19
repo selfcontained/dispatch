@@ -443,28 +443,6 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "message.created") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.senderAgentId],
-            exact: true,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.recipientAgentId],
-            exact: true,
-          });
-          invalidateStreamFeed(queryClient, payload.senderAgentId);
-          invalidateStreamFeed(queryClient, payload.recipientAgentId);
-          return;
-        }
-
-        if (payload.type === "message.read") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.agentId],
-            exact: true,
-          });
-          return;
-        }
-
         if (payload.type === "notification") {
           const shown = showWebNotification(payload);
           if (shown) {

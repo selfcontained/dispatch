@@ -15,7 +15,6 @@ import type {
   HistoryFeedbackItem,
   HistoryMedia,
 } from "@/hooks/use-agent-history";
-import type { AgentMessage } from "@/hooks/use-agent-messages";
 
 import { DetailTabs } from "./agent-history-detail-tabs";
 
@@ -24,8 +23,7 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
 
-// The messages tab renders HistoryThreadGroup's AnimatePresence collapse;
-// strip the animation layer so expanded content mounts synchronously.
+// Strip the animation layer so expanded content mounts synchronously.
 vi.mock("framer-motion", async (importOriginal) => {
   const { createFramerMotionMock } =
     await import("@/test-utils/framer-motion-mock");
@@ -72,21 +70,6 @@ function makeFeedback(id: number, description: string): HistoryFeedbackItem {
   };
 }
 
-function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
-  return {
-    id: "msg_1",
-    senderAgentId: AGENT_ID,
-    recipientAgentId: "agt_other",
-    senderName: "history-agent",
-    recipientName: "Helper",
-    content: "hello from history",
-    delivered: true,
-    readAt: "2026-07-20T10:00:05.000Z",
-    createdAt: "2026-07-20T10:00:00.000Z",
-    ...overrides,
-  };
-}
-
 function renderTabs(
   overrides: Partial<React.ComponentProps<typeof DetailTabs>> = {}
 ) {
@@ -115,7 +98,6 @@ function renderTabs(
         media={[]}
         pins={[]}
         feedback={[]}
-        messages={[]}
         agentId={AGENT_ID}
         workspaceRoot="/repo"
         {...overrides}
@@ -151,7 +133,6 @@ describe("DetailTabs", () => {
     expect(tabButton("Media").textContent).toBe("Media");
     expect(tabButton("Pins").textContent).toBe("Pins");
     expect(tabButton("Feedback").textContent).toBe("Feedback");
-    expect(tabButton("Messages").textContent).toBe("Messages");
   });
 
   it("renders the event timeline when events exist", () => {
@@ -171,9 +152,6 @@ describe("DetailTabs", () => {
 
     fireEvent.click(tabButton("Feedback"));
     expect(screen.getByText("No feedback received.")).toBeTruthy();
-
-    fireEvent.click(tabButton("Messages"));
-    expect(screen.getByText("No messages recorded.")).toBeTruthy();
 
     fireEvent.click(tabButton("Events"));
     expect(screen.getByText("only event")).toBeTruthy();
@@ -196,14 +174,6 @@ describe("DetailTabs", () => {
     renderTabs({ feedback: [makeFeedback(1, "Button label is misaligned")] });
     fireEvent.click(tabButton("Feedback"));
     expect(screen.getByText("Button label is misaligned")).toBeTruthy();
-  });
-
-  it("renders message threads on the messages tab", () => {
-    renderTabs({ messages: [makeMessage()] });
-    fireEvent.click(tabButton("Messages"));
-    // Thread header is the OTHER participant (recipient of a sent message).
-    expect(screen.getByText("Helper")).toBeTruthy();
-    expect(screen.getByText("hello from history")).toBeTruthy();
   });
 
   it("renders screenshot tiles as images with encoded media URLs and text tiles as placeholders", () => {
