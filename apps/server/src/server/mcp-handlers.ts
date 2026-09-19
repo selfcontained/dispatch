@@ -946,10 +946,35 @@ async function handleSendMessage(
         : "";
   const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
-  // Enqueue first: a persistence failure must never block delivery. The
-  // handler returns once the prompt is queued — awaiting gated delivery can
+  // Record the message before delivering it: the recipient's turn is
+  // anchored the moment the engine accepts the prompt, and the feed orders
+  // by time, so a row written afterwards would land below the reply it
+  // caused. Persistence must never block delivery, so a failed insert is
+  // swallowed and logged and the prompt still goes out.
+  const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
+  const messageStore = new MessageStore(deps.pool);
+  const persisted = await messageStore
+    .insertMessage({
+      senderAgentId: agentId,
+      recipientAgentId: target.id,
+      senderName: sender.name,
+      recipientName: target.name,
+      content: input.message,
+      delivered: null,
+      senderRepoRoot,
+      recipientRepoRoot,
+    })
+    .catch((err) => {
+      deps.appLog.error(
+        { err, senderId: agentId, targetId: target.id },
+        "dispatch_send_message: failed to persist message"
+      );
+      return null;
+    });
+
+  // The handler returns once the prompt is queued — awaiting the turn can
   // exceed MCP client timeouts (~60s), and a timed-out sender retrying would
-  // inject the message twice. Session validation happens before this resolves.
+  // deliver the message twice.
   let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>> | null = null;
   let deliveryError: unknown = null;
   try {
@@ -962,7 +987,7 @@ async function handleSendMessage(
     );
   }
   // Attach the outcome handler at once so a fast rejection can never surface
-  // as an unhandled rejection while the insert below is still in flight.
+  // as an unhandled rejection.
   const outcome: Promise<boolean> | null = enqueued
     ? enqueued.delivery.then(
         () => true,
@@ -975,33 +1000,11 @@ async function handleSendMessage(
         }
       )
     : null;
-
-  // Record the message (including failed enqueues) so it is viewable. A row
-  // that was queued starts as delivered = null and settles below; the UI
-  // renders null as "Sending". Persistence must never block delivery, so a
-  // failed insert is swallowed and logged. Only announce message.created
-  // when the row actually landed, otherwise the UI would refetch and find
-  // nothing.
-  const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
-  const messageStore = new MessageStore(deps.pool);
-  const persisted = await messageStore
-    .insertMessage({
-      senderAgentId: agentId,
-      recipientAgentId: target.id,
-      senderName: sender.name,
-      recipientName: target.name,
-      content: input.message,
-      delivered: enqueued ? null : false,
-      senderRepoRoot,
-      recipientRepoRoot,
-    })
-    .catch((err) => {
-      deps.appLog.error(
-        { err, senderId: agentId, targetId: target.id },
-        "dispatch_send_message: failed to persist message"
-      );
-      return null;
-    });
+  if (!enqueued && persisted) {
+    await messageStore
+      .setDelivered(persisted.id, false)
+      .catch(() => undefined);
+  }
 
   const announce = () =>
     deps.publishUiEvent({
