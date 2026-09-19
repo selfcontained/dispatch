@@ -11,18 +11,15 @@ const INTENT_FOR_EVENT: Record<string, CueIntent | undefined> = {
   waiting_user: "waiting_user",
 };
 
-type Snapshot = { eventKey: string; submittedReviewId: number | null };
+type Snapshot = { eventKey: string };
 
 /**
  * Plays a sound cue when an agent transitions into one of the notable
- * terminal-ish states: done, blocked, waiting_user, or review submission.
+ * terminal-ish states: done, blocked, waiting_user.
  *
  * - Subscribes to the React Query ["agents"] cache; never re-renders the host.
  * - Skips the very first observation so a snapshot/reconnect doesn't fire a
  *   wall of sound for state that already existed before the page loaded.
- * - When both a review completion and a latestEvent transition happen on the
- *   same tick (a persona agent finishing its review usually fires both),
- *   only the review cue plays.
  */
 export function useAgentSoundCues(): void {
   const enabled = useAtomValue(soundCuesEnabledAtom);
@@ -47,17 +44,11 @@ export function useAgentSoundCues(): void {
         const eventKey = agent.latestEvent
           ? `${agent.latestEvent.type}:${agent.latestEvent.updatedAt}`
           : "";
-        const submittedReviewId = agent.submittedReviewId ?? null;
-        next.set(agent.id, { eventKey, submittedReviewId });
+        next.set(agent.id, { eventKey });
 
         if (!seeded) continue;
 
         const prev = lastByAgent.get(agent.id);
-
-        if (prev?.submittedReviewId == null && submittedReviewId != null) {
-          playCueForIntent("review_finished");
-          continue;
-        }
 
         if (prev?.eventKey !== eventKey) {
           const intent = INTENT_FOR_EVENT[agent.latestEvent?.type ?? ""];

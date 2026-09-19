@@ -28,7 +28,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: "dispatch-agt_target",
     agentArgs: [],
     model: null,
     fullAccess: false,

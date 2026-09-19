@@ -150,7 +150,7 @@ export const createAgentModelPrefAtom = atomFamily((key: string) =>
   atomWithLocalStorage<string | null>(`dispatch:model:${key}`, null)
 );
 
-// Per-project, per-runtime model preference for the Launch Review dialog.
+// Per-project, per-runtime model preference for the persona launcher.
 // Kept separate from the Create Agent preference so picking a heavier model
 // for reviewers doesn't change what new agents are created with.
 export const reviewAgentModelPrefAtom = atomFamily((key: string) =>
@@ -171,21 +171,6 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
 // shows again on its own.
 export const dismissedPluginUpdateAtomFamily = atomFamily((key: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedPluginUpdate:${key}`, false)
-);
-
-/**
- * Whether one pin group is collapsed, keyed by `<agentId>::<group>`.
- *
- * Stores the user's *choice*, not the rendered state: `null` means they have
- * never touched this group, which is distinct from having chosen "expanded".
- * The size-based default is applied at render, so a group the user expanded
- * stays expanded when it later grows past the auto-collapse threshold.
- */
-export const pinGroupCollapsedAtomFamily = atomFamily((key: string) =>
-  atomWithLocalStorage<boolean | null>(
-    `dispatch:pinGroupCollapsed:${key}`,
-    null
-  )
 );
 
 export type DiffViewType = "unified" | "split";
@@ -252,20 +237,20 @@ export function reconcileAgentSidebarOrder(
   return nextOrder;
 }
 
-export const SYSTEM_SIDEBAR_TABS = ["pins", "media", "reviews"] as const;
+/**
+ * The right sidebar's tabs: the rail (what the stream needs from the user
+ * right now, and the links it produced) and the agent's media.
+ */
+export const MEDIA_SIDEBAR_TABS = ["rail", "media"] as const;
 
-export type SystemSidebarTab = (typeof SYSTEM_SIDEBAR_TABS)[number];
+export type MediaSidebarTab = (typeof MEDIA_SIDEBAR_TABS)[number];
 
-export function isSystemSidebarTab(
-  tab: MediaSidebarTab
-): tab is SystemSidebarTab {
-  return (SYSTEM_SIDEBAR_TABS as readonly string[]).includes(tab);
+/** A stored tab id; anything unknown (an old pins/reviews/surface tab) is the rail. */
+export function asMediaSidebarTab(tab: unknown): MediaSidebarTab {
+  return (MEDIA_SIDEBAR_TABS as readonly unknown[]).includes(tab)
+    ? (tab as MediaSidebarTab)
+    : "rail";
 }
-
-// A custom tab's active id is the agent-issued surface id (e.g. "srf_...").
-// Widened to `string` rather than kept as a literal union — unlike the four
-// system tabs, the set of valid values is open-ended and server-issued.
-export type MediaSidebarTab = SystemSidebarTab | (string & {});
 
 type AgentScopedStorageDomain = {
   prefix: string;
@@ -309,7 +294,7 @@ export type MediaSidebarState = {
 
 export const defaultMediaSidebarState: MediaSidebarState = {
   isOpen: false,
-  activeTab: "pins",
+  activeTab: "rail",
   isPinned: false,
 };
 
@@ -356,6 +341,8 @@ export type PersistedDraftComment = {
   startLine: number;
   endLine: number;
   comment: string;
+  /** The finding's severity once the review is posted; `minor` when unset. */
+  severity?: "blocker" | "major" | "minor" | "nit";
 };
 
 type ReviewDraftState = {
@@ -530,89 +517,6 @@ export function reconcileSplitPaneStateStorage(
   ]);
 }
 
-// ---------------------------------------------------------------------------
-// Agent-authored surface tab presentation prefs — per-agent user-chosen order
-// and hidden set, layered over the server's canonical sortOrder. The server
-// document (blocks, titles, sortOrder) is never mutated from here; see
-// use-surface-tab-prefs.ts for how these are merged with live surface data.
-// ---------------------------------------------------------------------------
-
-export const CUSTOM_TAB_ORDER_STORAGE_PREFIX = "dispatch:customTabOrder:";
-
-export const customTabOrderAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${CUSTOM_TAB_ORDER_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-export const CUSTOM_TAB_HIDDEN_STORAGE_PREFIX = "dispatch:customTabHidden:";
-
-export const customTabHiddenAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${CUSTOM_TAB_HIDDEN_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-// ---------------------------------------------------------------------------
-// Seen surface ids — per-agent record of which agent-authored tabs the user
-// has already opened, so the tab strip can flag a newly-encountered surface
-// id as "new" until it's viewed. See surface-tab-row.tsx.
-// ---------------------------------------------------------------------------
-
-export const SEEN_SURFACE_IDS_STORAGE_PREFIX = "dispatch:seenSurfaceIds:";
-
-export const seenSurfaceIdsAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${SEEN_SURFACE_IDS_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
-export function reconcileSeenSurfaceIdsStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Surface form drafts — unsubmitted input for one form block, keyed by
-// `<agentId>:<surfaceId>:<blockId>`. Typing never notifies the agent; a draft
-// survives tab switches and reloads, then clears on successful submit or
-// explicit Reset (see use-surface-form-draft.ts).
-// ---------------------------------------------------------------------------
-
-export type SurfaceFormDraft = Record<
-  string,
-  string | number | boolean | null | string[]
->;
-
-export const SURFACE_FORM_DRAFT_STORAGE_PREFIX = "dispatch:surfaceFormDraft:";
-
-export const surfaceFormDraftAtomFamily = atomFamily((draftKey: string) =>
-  atomWithLocalStorage<SurfaceFormDraft | null>(
-    `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}${draftKey}`,
-    null
-  )
-);
-
-// ---------------------------------------------------------------------------
-// Message group collapsed state — per-agent set of collapsed thread IDs
-// ---------------------------------------------------------------------------
-
-export const MESSAGE_GROUPS_STATE_STORAGE_PREFIX =
-  "dispatch:messageGroupsState:";
-
-export const messageGroupsCollapsedAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<string[]>(
-    `${MESSAGE_GROUPS_STATE_STORAGE_PREFIX}${agentId}`,
-    []
-  )
-);
-
 const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
@@ -622,16 +526,6 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
   { prefix: LEGACY_AGENT_PANE_VIEW_STORAGE_PREFIX },
   { prefix: CHAT_DRAFT_STORAGE_PREFIX },
-  { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
-  { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
-  { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
-  {
-    // Drafts are keyed `<agentId>:<surfaceId>:<blockId>`, so the live-agent
-    // check reads the first segment rather than the whole suffix.
-    prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
-    agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
-  },
-  { prefix: MESSAGE_GROUPS_STATE_STORAGE_PREFIX },
 ];
 
 /** Reconciles every per-agent persisted UI state in a single storage scan. */

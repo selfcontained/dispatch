@@ -1,18 +1,11 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type DraftComment } from "@/components/app/review-mode";
-import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 
 import { UnifiedDiffView } from "./unified-diff-view";
 
@@ -26,8 +19,8 @@ vi.mock("@/lib/api", async () => ({
   api: vi.fn(),
 }));
 
-// The feedback annotation animates its expanded body; strip the animation layer
-// so the body mounts synchronously in jsdom.
+// The draft annotation animates; strip the animation layer so it mounts
+// synchronously in jsdom.
 vi.mock("framer-motion", async (importOriginal) => {
   const { createFramerMotionMock } =
     await import("@/test-utils/framer-motion-mock");
@@ -60,40 +53,6 @@ index 1111111..2222222 100644
 
 const FILE_PATH = "src/example.ts";
 
-function feedbackItem(
-  overrides: Partial<ReviewFeedbackItem> = {}
-): ReviewFeedbackItem {
-  const id = overrides.id ?? 1;
-  return {
-    id,
-    reviewId: 10,
-    filePath: FILE_PATH,
-    lineStart: 2,
-    lineEnd: 3,
-    diffSnapshot: null,
-    baseRef: null,
-    status: "open",
-    resolution: null,
-    resolutionNote: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    messages: [
-      {
-        id: id * 100,
-        feedbackItemId: id,
-        authorType: "reviewer",
-        authorAgentId: null,
-        type: "comment",
-        content: { body: `feedback body ${id}` },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    ],
-    ...overrides,
-  };
-}
-
 function draft(overrides: Partial<DraftComment> = {}): DraftComment {
   return {
     id: "draft-1",
@@ -114,7 +73,6 @@ function renderView(overrides: Partial<ViewProps> = {}) {
   const onRemoveDraft = vi.fn();
   const onUpdateDraft = vi.fn();
   const onStartReview = vi.fn();
-  const onFeedbackFocusComplete = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -135,7 +93,6 @@ function renderView(overrides: Partial<ViewProps> = {}) {
           onRemoveDraft={onRemoveDraft}
           onUpdateDraft={onUpdateDraft}
           onStartReview={onStartReview}
-          onFeedbackFocusComplete={onFeedbackFocusComplete}
           {...overrides}
         />
       </QueryClientProvider>
@@ -150,7 +107,6 @@ function renderView(overrides: Partial<ViewProps> = {}) {
     onRemoveDraft,
     onUpdateDraft,
     onStartReview,
-    onFeedbackFocusComplete,
   };
 }
 
@@ -357,144 +313,6 @@ describe("UnifiedDiffView hunk separators", () => {
   });
 });
 
-describe("UnifiedDiffView feedback annotations", () => {
-  it("anchors a feedback annotation to the last changed line in its range", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: 2, lineEnd: 3 })],
-    });
-
-    // Lines 2 and 3 are both in range; the annotation hangs off the last one.
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("feedback body 1");
-    expect(widgetRows(container)).toHaveLength(1);
-  });
-
-  it("anchors a single-line feedback item to that line alone", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: 2, lineEnd: null })],
-    });
-
-    expect(widgetAfter(container, "const b = 3;").textContent).toContain(
-      "feedback body 1"
-    );
-  });
-
-  // lineEnd is deliberately set: without the lineStart guard the range becomes
-  // (null, 3), and `ln >= null` coerces to `ln >= 0`, so a file-level item
-  // would silently anchor itself to line 3.
-  it("skips feedback items with no start line even when an end line is set", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: null, lineEnd: 3 })],
-    });
-
-    expect(widgetRows(container)).toHaveLength(0);
-    expect(screen.queryByText("feedback body 1")).toBeNull();
-  });
-
-  it("skips feedback items whose range covers no rendered change", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: 90, lineEnd: 95 })],
-    });
-
-    expect(widgetRows(container)).toHaveLength(0);
-  });
-
-  it("groups feedback items that share an anchor into one widget", () => {
-    const { container } = renderView({
-      feedbackItems: [
-        feedbackItem({ id: 1, lineStart: 2, lineEnd: 3 }),
-        feedbackItem({ id: 2, lineStart: 3, lineEnd: 3 }),
-      ],
-    });
-
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("feedback body 1");
-    expect(widget.textContent).toContain("feedback body 2");
-    expect(widgetRows(container)).toHaveLength(1);
-  });
-
-  it("keeps feedback items on distinct anchors in separate widgets", () => {
-    const { container } = renderView({
-      feedbackItems: [
-        feedbackItem({ id: 1, lineStart: 2, lineEnd: 2 }),
-        feedbackItem({ id: 2, lineStart: 5, lineEnd: 5 }),
-      ],
-    });
-
-    expect(widgetAfter(container, "const b = 3;").textContent).toContain(
-      "feedback body 1"
-    );
-    expect(widgetAfter(container, "console.log(b);").textContent).toContain(
-      "feedback body 2"
-    );
-    expect(widgetRows(container)).toHaveLength(2);
-  });
-
-  it("shows the first thread message as the annotation body", () => {
-    const item = feedbackItem();
-    const { container } = renderView({
-      feedbackItems: [
-        {
-          ...item,
-          messages: [
-            item.messages[0]!,
-            {
-              ...item.messages[0]!,
-              id: 999,
-              content: { body: "later reply" },
-            },
-          ],
-        },
-      ],
-    });
-
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("feedback body 1");
-    expect(widget.textContent).not.toContain("later reply");
-  });
-
-  it("labels a resolved item with its resolution instead of Open", () => {
-    const { container } = renderView({
-      feedbackItems: [
-        feedbackItem({ status: "resolved", resolution: "fixed" }),
-      ],
-    });
-
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("Fixed");
-    expect(widget.textContent).not.toContain("Open");
-  });
-
-  it("expands the focused item and reports focus completion", async () => {
-    const { container, onFeedbackFocusComplete } = renderView({
-      feedbackItems: [feedbackItem({ id: 7 })],
-      focusedFeedbackItemId: 7,
-    });
-
-    const toggle = widgetAfter(container, "const c = 4;").querySelector(
-      "button[aria-expanded]"
-    );
-    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    await waitFor(() => {
-      expect(onFeedbackFocusComplete).toHaveBeenCalledWith(7);
-    });
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-  });
-
-  it("leaves an unfocused item collapsed and reports nothing", () => {
-    const { container, onFeedbackFocusComplete } = renderView({
-      feedbackItems: [feedbackItem({ id: 7 })],
-      focusedFeedbackItemId: 8,
-    });
-
-    const toggle = widgetAfter(container, "const c = 4;").querySelector(
-      "button[aria-expanded]"
-    );
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(onFeedbackFocusComplete).not.toHaveBeenCalled();
-  });
-});
-
 describe("UnifiedDiffView draft annotations", () => {
   it("anchors a draft to the last changed line in its range", () => {
     const { container } = renderView({
@@ -512,23 +330,6 @@ describe("UnifiedDiffView draft annotations", () => {
     });
 
     expect(widgetRows(container)).toHaveLength(0);
-  });
-
-  it("stacks a draft under the feedback sharing its anchor", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: 3, lineEnd: 3 })],
-      draftComments: [draft({ startLine: 3, endLine: 3 })],
-    });
-
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("feedback body 1");
-    expect(widget.textContent).toContain("draft body 1");
-    // One widget row, feedback first — the draft composes with what is already
-    // anchored there rather than replacing it.
-    expect(widgetRows(container)).toHaveLength(1);
-    expect(widget.textContent!.indexOf("feedback body 1")).toBeLessThan(
-      widget.textContent!.indexOf("draft body 1")
-    );
   });
 });
 
@@ -562,29 +363,6 @@ describe("UnifiedDiffView inline comment form", () => {
     const widget = widgetAfter(container, "const c = 4;");
     expect(widget.textContent).toContain("Add a comment");
     expect(widget.textContent).toContain("Lines 2–3");
-  });
-
-  // Current behavior, deliberately pinned: the form replaces whatever the
-  // feedback and draft passes anchored to the same change key rather than
-  // composing with it the way drafts compose with feedback. Tracked as DIS-168;
-  // invert this assertion when that is decided and fixed.
-  it("replaces an existing annotation on the same anchor while open", () => {
-    const { container } = renderView({
-      feedbackItems: [feedbackItem({ lineStart: 3, lineEnd: 3 })],
-      draftComments: [draft({ startLine: 3, endLine: 3 })],
-      lineSelection: {
-        filePath: FILE_PATH,
-        startLine: 3,
-        endLine: 3,
-        anchorLine: 3,
-      },
-      commentOpen: true,
-    });
-
-    const widget = widgetAfter(container, "const c = 4;");
-    expect(widget.textContent).toContain("Add a comment");
-    expect(widget.textContent).not.toContain("feedback body 1");
-    expect(widget.textContent).not.toContain("draft body 1");
   });
 
   it("cancelling closes the form and clears the selection", () => {

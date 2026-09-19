@@ -10,6 +10,7 @@ import type {
   Block,
   BlockOption,
   BlockReaction,
+  BlockReviewData,
   ChatAttachment,
   ChatUserAttachmentInput,
   StreamAnswerRequest,
@@ -125,7 +126,7 @@ export function shareFeedByEntryId(
   next: FeedCache
 ): FeedCache {
   // Keyed by type as well as id: the server namespaces ids per source today
-  // (event:/review:/pin:, uuids for the rest), but nothing here should
+  // (event: for status rows, uuids for the rest), but nothing here should
   // depend on a source it does not control keeping that up.
   const previousById = new Map<string, StreamEntry>();
   for (const page of prev.pages) {
@@ -358,9 +359,9 @@ function newBlockId(): string {
 }
 
 /**
- * What the optimistic post can show before the server answers: links and
- * pins as given; files only once the response names them, since the feed
- * renders a file by its stored name and size.
+ * What the optimistic post can show before the server answers: links as
+ * given; files only once the response names them, since the feed renders a
+ * file by its stored name and size.
  */
 function optimisticAttachments(
   inputs: ChatUserAttachmentInput[]
@@ -368,7 +369,6 @@ function optimisticAttachments(
   const out: ChatAttachment[] = [];
   for (const input of inputs) {
     if (input.type === "link") out.push(input);
-    else if (input.type === "pin") out.push(input);
   }
   return out;
 }
@@ -381,19 +381,18 @@ export function optimisticUserBlock(
   attachments: ChatAttachment[] = [],
   thread: { threadId: string; replyTo: string } | null = null,
   /** The agent it is for; the stream's root when not given. */
-  to?: string
+  to?: string,
+  /** A review left by hand: the block is a `review` with no findings resolved. */
+  review?: BlockReviewData
 ): Block {
   const now = new Date().toISOString();
-  return {
+  const base = {
     id,
     streamId,
-    author: { kind: "user" },
+    author: { kind: "user" } as const,
     toAgentId: to ?? streamId,
     threadId: thread?.threadId ?? null,
     replyTo: thread?.replyTo ?? null,
-    kind: "text",
-    data: null,
-    state: null,
     text,
     attachments,
     delivered: null,
@@ -401,6 +400,15 @@ export function optimisticUserBlock(
     createdAt: now,
     updatedAt: now,
   };
+  if (review) {
+    return {
+      ...base,
+      kind: "review",
+      data: review,
+      state: { findings: {} },
+    };
+  }
+  return { ...base, kind: "text", data: null, state: null };
 }
 
 function entryOf(block: Block): StreamBlockEntry {
@@ -686,24 +694,26 @@ export function usePostBlock(rootId: string | null) {
     StreamPostInput & { id: string },
     { placeholder: Block; threadKey: readonly unknown[] | null }
   >({
-    mutationFn: async ({ id, to, text, replyTo, attachments }) => {
+    mutationFn: async ({ id, to, text, replyTo, attachments, review }) => {
       const body: StreamPostRequest = { id, text };
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
       if (attachments && attachments.length > 0) body.attachments = attachments;
+      if (review) body.review = review;
       return api<StreamPostResponse>(`${streamPath(rootId)}/blocks`, {
         method: "POST",
         body: JSON.stringify(body),
       });
     },
-    onMutate: async ({ id, to, text, replyTo, attachments }) => {
+    onMutate: async ({ id, to, text, replyTo, attachments, review }) => {
       const placeholder = optimisticUserBlock(
         id,
         rootId ?? "",
         text,
         optimisticAttachments(attachments ?? []),
         replyTo ? { threadId: replyTo, replyTo } : null,
-        to
+        to,
+        review
       );
       if (replyTo) {
         const threadKey = threadQueryKey(rootId, replyTo);
@@ -992,7 +1002,20 @@ export function optimisticStatePatch(
 }
 
 /**
- * `PATCH …/state`: resolve or reopen a finding, tick a task. The patch
+ * A top-level block's newest version into the thread cache that hangs off
+ * it, when that thread is loaded: the panel shows the root block too, and
+ * a finding resolved from either place must read the same in both.
+ */
+export function replaceThreadRoot(
+  thread: StreamThreadResponse | undefined,
+  block: Block
+): StreamThreadResponse | undefined {
+  if (!thread || thread.root.id !== block.id) return thread;
+  return { ...thread, root: block };
+}
+
+/**
+ * `PATCH …/state`: resolve, dispute or reopen a finding. The patch
  * applies to the cached block at once; the response, and then the
  * `stream.entry`, carry the server's merge.
  */
@@ -1013,18 +1036,24 @@ export function useSetBlockState(rootId: string | null) {
       }),
     onMutate: async ({ blockId, state }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
+      const patched = (block: Block): Block =>
+        ({
+          ...block,
+          state: mergeBlockState(
+            block.state as Record<string, unknown> | null,
+            optimisticStatePatch(state)
+          ),
+        }) as Block;
       let previous: Block | null = null;
       queryClient.setQueryData<FeedCache>(key, (old) =>
         mapBlock(old, blockId, (block) => {
           previous = block;
-          return {
-            ...block,
-            state: mergeBlockState(
-              block.state as Record<string, unknown> | null,
-              optimisticStatePatch(state)
-            ),
-          } as Block;
+          return patched(block);
         })
+      );
+      queryClient.setQueryData<StreamThreadResponse>(
+        threadQueryKey(rootId, blockId),
+        (old) => (old ? replaceThreadRoot(old, patched(old.root)) : old)
       );
       return { previous };
     },
@@ -1038,11 +1067,19 @@ export function useSetBlockState(rootId: string | null) {
         );
       }
       void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      void queryClient.invalidateQueries({
+        queryKey: threadQueryKey(rootId, blockId),
+        exact: true,
+      });
     },
     onSuccess: (data) => {
       if (!data?.block) return;
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceBlock(old, data.block.id, data.block)
+      );
+      queryClient.setQueryData<StreamThreadResponse>(
+        threadQueryKey(rootId, data.block.id),
+        (old) => replaceThreadRoot(old, data.block)
       );
     },
   });

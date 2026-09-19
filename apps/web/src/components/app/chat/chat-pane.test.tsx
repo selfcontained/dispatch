@@ -148,7 +148,6 @@ const agent: Agent = {
   cwd: "/tmp",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: null,
   agentArgs: [],
   model: null,
   fullAccess: false,
@@ -591,7 +590,7 @@ describe("ChatPane", () => {
     rerender(
       <ChatPane
         agentId="agt_1"
-        agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
+        agent={{ ...agent }}
         active={true}
         showChildAgents={true}
         isMobile={false}

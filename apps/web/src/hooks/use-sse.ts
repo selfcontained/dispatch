@@ -21,6 +21,7 @@ import {
   bumpReplyCount,
   type FeedCache,
   LIVE_HEAD_ROWS,
+  replaceThreadRoot,
   STREAM_QUERY_PREFIX,
   streamFeedQueryKey,
   threadQueryKey,
@@ -28,7 +29,6 @@ import {
   upsertThreadReply,
 } from "@/hooks/use-stream";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
-import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
@@ -126,17 +126,8 @@ export function applyAgentUpsert(
     return sortAgentsByCreatedAtDesc([incoming, ...current]);
   }
 
-  const existing = current[index]!;
-  const nextAgent =
-    existing.submittedReviewId != null
-      ? {
-          ...incoming,
-          submittedReviewId:
-            incoming.submittedReviewId ?? existing.submittedReviewId,
-        }
-      : incoming;
   const next = [...current];
-  next[index] = nextAgent;
+  next[index] = incoming;
   return sortAgentsByCreatedAtDesc(next);
 }
 
@@ -181,6 +172,13 @@ export function applyStreamEntry(
     );
     return;
   }
+  if (entry.type === "block") {
+    // The panel shows a thread's root too; keep it in step with the feed.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, entry.block.id),
+      (old) => replaceThreadRoot(old, entry.block)
+    );
+  }
   const state = queryClient.getQueryState<FeedCache>(key);
   if (!state?.data) return;
   if (state.fetchStatus === "fetching") {
@@ -198,21 +196,6 @@ export function applyStreamEntry(
   if (result.cache.pages[0]!.entries.length > LIVE_HEAD_ROWS) {
     invalidateStreamFeed(queryClient, agentId);
   }
-}
-
-export function applyReviewCreated(
-  queryClient: QueryClient,
-  reviewerAgentId: string | null | undefined,
-  reviewId: number
-): void {
-  if (!reviewerAgentId) return;
-  queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-    old?.map((agent) =>
-      agent.id === reviewerAgentId && agent.submittedReviewId !== reviewId
-        ? { ...agent, submittedReviewId: reviewId }
-        : agent
-    )
-  );
 }
 
 export function useSSE(authState: AuthState): void {
@@ -271,22 +254,9 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "agent.upsert") {
           // Status events reach the feed as `stream.entry` rows of their own.
-          // Pin activity still comes through the agent row: a pin write
-          // lands a `pin_events` row in the same transaction, so the feed
-          // has a new entry whenever the pins array differs.
-          const existing = queryClient
-            .getQueryData<Agent[]>(["agents"])
-            ?.find((a) => a.id === payload.agent.id);
-          const pinsChanged =
-            !existing ||
-            JSON.stringify(existing.pins ?? []) !==
-              JSON.stringify(payload.agent.pins ?? []);
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
-          if (pinsChanged) {
-            invalidateStreamFeed(queryClient, payload.agent.id);
-          }
           return;
         }
 
@@ -395,36 +365,6 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (
-          payload.type === "review.created" ||
-          payload.type === "review.updated" ||
-          payload.type === "review_feedback.updated"
-        ) {
-          if (payload.type === "review.created") {
-            applyReviewCreated(
-              queryClient,
-              payload.reviewerAgentId,
-              payload.reviewId
-            );
-          }
-          void queryClient.invalidateQueries({
-            queryKey: ["agent-reviews", payload.agentId],
-          });
-          void queryClient.invalidateQueries({
-            predicate: (q) =>
-              q.queryKey[0] === "agent-review-detail" &&
-              q.queryKey[1] === payload.agentId,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["agent-feedback-items", payload.agentId],
-          });
-          // The Chat feed renders reviews as cards, with their live status
-          // and counts — so a new review, and every later change to one,
-          // has to reach the feed too.
-          invalidateStreamFeed(queryClient, payload.agentId);
-          return;
-        }
-
         if (payload.type === "job.changed") {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           // A job agent is announced before its run is attached. Refetch so
@@ -460,14 +400,6 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "release.cached_info_changed") {
           queryClient.setQueryData(CACHED_RELEASE_INFO_QUERY_KEY, {
             snapshot: payload.snapshot,
-          });
-          return;
-        }
-
-        if (payload.type === "surface.changed") {
-          void queryClient.invalidateQueries({
-            queryKey: surfacesQueryKey(payload.agentId),
-            exact: true,
           });
           return;
         }

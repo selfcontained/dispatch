@@ -8,8 +8,8 @@ export function PersonalitiesContent() {
         regular agent's system prompt at launch. Use it for voice (
         <em>"keep replies brief and sardonic"</em>) or standing preferences (
         <em>"prefer pnpm over npm; never run dev servers in the foreground"</em>
-        ). Personalities are unrelated to <strong>Reviewers</strong> — those are
-        full prompt definitions for one-off review agents and are managed
+        ). Personalities are unrelated to <strong>Personas</strong> — those are
+        full launch profiles for one-off child agents and are managed
         separately.
       </P>
 
@@ -77,8 +77,9 @@ export function PersonalitiesContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Persona reviewers</strong> launched via{" "}
-            <Code>launch_persona</Code> or the Reviewers UI.
+            <strong>Persona agents</strong> launched via{" "}
+            <Code>launch_agent</Code> with a <Code>persona</Code>, or from the
+            Changes tab.
           </li>
           <li>
             <strong>Job runs</strong> spawned by the scheduler or a manual{" "}

@@ -6,9 +6,9 @@ export function PluginContent() {
       <P>
         Dispatch publishes an official plugin for <strong>Claude Code</strong>{" "}
         and <strong>Codex</strong>. It ships skills that teach agents how to use
-        the capabilities documented here — the Brain, subagents, repo tools,
-        artifact sharing, agent surfaces, the review workflow, jobs, templates,
-        reviewers, personalities, and UI validation — so an agent discovers them
+        the capabilities documented here — the Brain, subagents, repo tools, the
+        stream and artifact sharing, the review workflow, jobs, templates,
+        personas, personalities, and UI validation — so an agent discovers them
         at the moment it needs one instead of having to be told. The Dispatch
         repo doubles as the marketplace it's served from.
       </P>
@@ -64,7 +64,7 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-skills">What's in it</H3>
         <P>
-          Twelve narrow skills, each written to fire on a situation rather than
+          Eleven narrow skills, each written to fire on a situation rather than
           a feature name — an agent that doesn't know a capability exists will
           never match its name, but will match a description of the spot it's
           currently in.
@@ -84,14 +84,15 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
           </li>
           <li>
             <Code>communicate</Code> — something needs to reach the user and the
-            channel is unchosen
+            shape is unchosen: a plain reply, a question they answer in one
+            click, a form, a file, a link, or a checklist
           </li>
           <li>
             <Code>sharing</Code> — an artifact needs to reach the user
           </li>
           <li>
-            <Code>review-workflow</Code> — a PR is going up, or review feedback
-            needs working
+            <Code>review-workflow</Code> — a PR is going up, or a review block
+            has come back to respond to
           </li>
           <li>
             <Code>ui-validation</Code> — a UI change needs proving in a browser
@@ -111,16 +112,11 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
             <Code>personalities</Code> — the user is commenting on how agents
             talk
           </li>
-          <li>
-            <Code>surfaces</Code> — the user needs status, progress, options, or
-            input richer than a pin or chat message
-          </li>
         </ul>
         <P>
-          Status reporting, pin discipline, and session naming are deliberately
-          not skills — they're always relevant, and skills only load on a task
-          match, so those stay in the launch guidance Dispatch injects into
-          every agent.
+          Posting to the stream and session naming are deliberately not skills —
+          they're always relevant, and skills only load on a task match, so
+          those stay in the launch guidance Dispatch injects into every agent.
         </P>
       </Section>
 
@@ -128,9 +124,9 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
         <H3 id="plugin-launch-guidance">Shorter startup rules</H3>
         <P>
           Once the plugin is installed, the launch guidance can drop the rules
-          its skills already cover — the Playwright methodology and the{" "}
-          <Code>create_pr</Code> routing line — and shorten the rest. Turn it on
-          under <strong>Settings → Agents → Launch guidance</strong> with{" "}
+          its skills already cover — the Playwright methodology and the
+          pull-request routing line — and shorten the rest. Turn it on under{" "}
+          <strong>Settings → Agents → Launch guidance</strong> with{" "}
           <strong>Use short startup rules</strong>. It's off by default.
         </P>
         <P>

@@ -18,8 +18,10 @@ import type {
 import {
   Check,
   ChevronRight,
+  CircleDot,
   ExternalLink,
   Link2,
+  MessageSquareWarning,
   RotateCcw,
 } from "lucide-react";
 
@@ -41,6 +43,28 @@ import { cn } from "@/lib/utils";
 
 /** A state patch for `PATCH …/blocks/:id/state`. */
 export type BlockStatePatch = Record<string, unknown>;
+
+/**
+ * Whether a foldable block (a review, a task list) is open, kept by block
+ * and place rather than in the component: the feed remounts a row whenever
+ * the block behind it changes (to replay its fade-in), and resolving a
+ * finding must not fold the review the reader is working through.
+ */
+const openedByBlock = new Map<string, boolean>();
+
+function useOpened(
+  key: string,
+  fallback: boolean
+): [boolean, (next: boolean) => void] {
+  const [opened, setOpened] = useState<boolean>(
+    () => openedByBlock.get(key) ?? fallback
+  );
+  const set = (next: boolean) => {
+    openedByBlock.set(key, next);
+    setOpened(next);
+  };
+  return [opened, set];
+}
 
 // ---------------------------------------------------------------------------
 // Questions
@@ -457,15 +481,17 @@ export function findingStatePatch(
 /**
  * A review as one line by default — verdict, the summary's first sentence,
  * "5 findings · 2 open" — that opens into compact finding rows: severity
- * chip, title, path:line, status, and a resolve/reopen action. A row's
- * title deep-links into the review's thread with that finding highlighted.
- * In the panel (`expanded`, `showBodies`) the rows also carry their bodies.
+ * chip, title, path:line, status, and resolve / dispute / reopen actions.
+ * A row's title deep-links into the review's thread with that finding
+ * highlighted; its path opens the Changes tab there. In the panel
+ * (`expanded`, `showBodies`) the rows also carry their bodies.
  */
 export function ReviewBlockBody({
   block,
   disabled,
   onSetState,
   onOpenFinding,
+  onOpenPath,
   highlightFindingId = null,
   defaultExpanded = false,
   showBodies = false,
@@ -476,11 +502,16 @@ export function ReviewBlockBody({
   onSetState?: (patch: BlockStatePatch) => void;
   /** Opens the review's thread on this finding. */
   onOpenFinding?: (findingId: string) => void;
+  /** Opens the Changes tab on a finding's file. */
+  onOpenPath?: (path: string, line: number | null) => void;
   highlightFindingId?: string | null;
   defaultExpanded?: boolean;
   showBodies?: boolean;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useOpened(
+    `review:${showBodies ? "panel" : "feed"}:${block.id}`,
+    defaultExpanded
+  );
   const verdict = VERDICT[block.data.verdict] ?? VERDICT.comment;
   const findings = block.data.findings;
   const setStatus = (findingId: string, status: BlockFindingStatus) =>
@@ -497,7 +528,7 @@ export function ReviewBlockBody({
         className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-left"
         aria-expanded={expanded}
         data-testid="chat-review-header"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded(!expanded)}
       >
         <ChevronRight
           className={cn(
@@ -540,6 +571,7 @@ export function ReviewBlockBody({
               {findings.map((finding) => {
                 const status = findingStatus(block, finding.id);
                 const isResolved = status === "resolved";
+                const isDisputed = status === "disputed";
                 const highlighted = highlightFindingId === finding.id;
                 return (
                   <li
@@ -587,51 +619,98 @@ export function ReviewBlockBody({
                         </span>
                       )}
                       {finding.path ? (
-                        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                          {finding.path}
-                          {finding.line !== undefined ? `:${finding.line}` : ""}
-                        </span>
+                        onOpenPath ? (
+                          <button
+                            type="button"
+                            className="min-w-0 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                            title="Open in Changes"
+                            data-testid="chat-review-finding-path"
+                            onClick={() =>
+                              onOpenPath(finding.path!, finding.line ?? null)
+                            }
+                          >
+                            {finding.path}
+                            {finding.line !== undefined
+                              ? `:${finding.line}`
+                              : ""}
+                          </button>
+                        ) : (
+                          <span
+                            className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+                            data-testid="chat-review-finding-path"
+                          >
+                            {finding.path}
+                            {finding.line !== undefined
+                              ? `:${finding.line}`
+                              : ""}
+                          </span>
+                        )
                       ) : null}
                       <span
-                        className="shrink-0 text-[11px] text-muted-foreground"
+                        className={cn(
+                          "shrink-0 text-[11px]",
+                          isDisputed
+                            ? "text-status-waiting"
+                            : "text-muted-foreground"
+                        )}
                         data-testid="chat-review-finding-status"
                       >
                         {FINDING_STATUS_LABEL[status]}
                       </span>
                       {onSetState ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="ml-auto h-6 gap-1 px-1.5 text-[11px]"
-                          disabled={disabled}
-                          data-testid={
-                            isResolved
-                              ? "chat-review-reopen"
-                              : "chat-review-resolve"
-                          }
-                          onClick={() =>
-                            setStatus(
-                              finding.id,
-                              isResolved ? "open" : "resolved"
-                            )
-                          }
-                        >
-                          {isResolved ? (
+                        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                          {status === "open" ? (
                             <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 gap-1 px-1.5 text-[11px]"
+                                disabled={disabled}
+                                data-testid="chat-review-resolve"
+                                onClick={() =>
+                                  setStatus(finding.id, "resolved")
+                                }
+                              >
+                                <Check className="h-3 w-3" aria-hidden="true" />
+                                Resolve
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 gap-1 px-1.5 text-[11px]"
+                                disabled={disabled}
+                                data-testid="chat-review-dispute"
+                                onClick={() =>
+                                  setStatus(finding.id, "disputed")
+                                }
+                              >
+                                <MessageSquareWarning
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                />
+                                Dispute
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 gap-1 px-1.5 text-[11px]"
+                              disabled={disabled}
+                              data-testid="chat-review-reopen"
+                              onClick={() => setStatus(finding.id, "open")}
+                            >
                               <RotateCcw
                                 className="h-3 w-3"
                                 aria-hidden="true"
                               />
                               Reopen
-                            </>
-                          ) : (
-                            <>
-                              <Check className="h-3 w-3" aria-hidden="true" />
-                              Resolve
-                            </>
+                            </Button>
                           )}
-                        </Button>
+                        </span>
                       ) : null}
                     </div>
                     {showBodies && finding.body ? (
@@ -663,24 +742,22 @@ export function taskStatus(
 }
 
 /**
- * A checklist. Ticking an item marks it done, unticking puts it back to
- * todo; the one the agent is on (`now`) carries a small marker. Once every
- * item is done the list folds to its count line and opens on click.
+ * A checklist the agent keeps: `done` items are ticked, the one it is on
+ * (`now`) carries a marker, the rest are still to do. The agent moves
+ * items with `update`; people read it and do not edit it. Once every item
+ * is done the list folds to its count line and opens on click.
  */
 export function TasksBlockBody({
   block,
-  disabled,
-  onSetState,
 }: {
   block: Extract<Block, { kind: "tasks" }>;
-  disabled: boolean;
-  onSetState?: (patch: BlockStatePatch) => void;
 }): JSX.Element {
   const items = block.data.items;
   const done = items.filter((i) => taskStatus(block, i.id) === "done").length;
   const allDone = items.length > 0 && done === items.length;
-  const [opened, setOpened] = useState<boolean | null>(null);
-  const expanded = opened ?? !allDone;
+  // Opens by default until every item is done; a reader's own fold or
+  // unfold wins over that, and survives the row's remount on an update.
+  const [expanded, setOpened] = useOpened(`tasks:${block.id}`, !allDone);
   return (
     <div
       className="mt-1"
@@ -718,17 +795,30 @@ export function TasksBlockBody({
                 data-task-id={item.id}
                 data-status={status}
               >
-                <Checkbox
-                  className="mt-0.5 h-4 w-4"
-                  checked={checked}
-                  disabled={disabled || !onSetState}
-                  aria-label={item.text}
-                  onCheckedChange={(next) =>
-                    onSetState?.({
-                      items: { [item.id]: next === true ? "done" : "todo" },
-                    })
+                <span
+                  className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
+                    checked
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : status === "now"
+                        ? "border-status-working text-status-working"
+                        : "border-border"
+                  )}
+                  role="img"
+                  aria-label={
+                    checked
+                      ? "Done"
+                      : status === "now"
+                        ? "In progress"
+                        : "To do"
                   }
-                />
+                >
+                  {checked ? (
+                    <Check className="h-3 w-3" aria-hidden="true" />
+                  ) : status === "now" ? (
+                    <CircleDot className="h-3 w-3" aria-hidden="true" />
+                  ) : null}
+                </span>
                 <span
                   className={cn(
                     "min-w-0 text-sm",

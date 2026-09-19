@@ -39,31 +39,6 @@ type AgentResult = {
   worktreeBranch: string | null;
 };
 
-type AgentPinRecord = {
-  id?: string;
-  label: string;
-  value: string;
-  type:
-    | "string"
-    | "url"
-    | "port"
-    | "code"
-    | "pr"
-    | "filename"
-    | "markdown"
-    | "shortcut";
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: "default" | "primary" | "destructive";
-  confirm?: boolean;
-};
-
-/**
- * Create an agent via the REST API (faster than going through the UI every time).
- * When useWorktree is true, polls until the setup script completes (status transitions
- * from 'creating' to 'running') so the worktree fields are populated.
- */
 export async function createAgentViaAPI(
   request: APIRequestContext,
   overrides: {
@@ -216,26 +191,6 @@ export async function uploadTextMediaViaAPI(
   }
 }
 
-export async function setAgentPinsViaDB(
-  agentId: string,
-  pins: AgentPinRecord[]
-): Promise<void> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required to seed agent pins.");
-  }
-
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
-    await pool.query(
-      "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
-      [agentId, JSON.stringify(pins)]
-    );
-  } finally {
-    await pool.end();
-  }
-}
-
 export async function setAgentRoleViaDB(
   agentId: string,
   role: "standard" | "assisted_update"
@@ -257,47 +212,57 @@ export async function setAgentRoleViaDB(
 }
 
 /**
- * Seed a row directly into `agent_messages`, bypassing the real
- * send_message path (which requires two running agents and cannot
- * run in the inert-runtime E2E stack). `agent_messages` has no FK
- * constraints, so the "other" participant id can be any string.
+ * Insert a block straight into `blocks`, bypassing the send route (which
+ * needs a live agent). `streamId` is the root agent; the author defaults
+ * to that agent (or the user, addressed to it). Attachments use the stored
+ * shape; `data` and `state` are the kind's own.
  */
-export async function seedAgentMessageViaDB(message: {
-  senderAgentId: string;
-  recipientAgentId: string;
-  senderName: string;
-  recipientName: string;
-  content: string;
-  /** `null` seeds a delivery still in flight. */
+export async function seedBlockViaDB(input: {
+  streamId: string;
+  authorKind: "user" | "agent";
+  authorAgentId?: string;
+  toAgentId?: string | null;
+  kind?: "text" | "question" | "form" | "file" | "link" | "review" | "tasks";
+  text?: string;
+  data?: unknown;
+  state?: unknown;
+  attachments?: unknown[];
   delivered?: boolean | null;
-  read?: boolean;
-  senderRepoRoot?: string | null;
-  recipientRepoRoot?: string | null;
 }): Promise<string> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL is required to seed agent messages.");
+    throw new Error("DATABASE_URL is required to seed blocks.");
   }
-
   const id = randomUUID();
+  const authorAgentId =
+    input.authorKind === "agent"
+      ? (input.authorAgentId ?? input.streamId)
+      : null;
+  const toAgentId =
+    input.toAgentId !== undefined
+      ? input.toAgentId
+      : input.authorKind === "user"
+        ? input.streamId
+        : null;
   const pool = new Pool({ connectionString, max: 1 });
   try {
     await pool.query(
-      `INSERT INTO agent_messages
-         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
-          content, delivered, read_at, sender_repo_root, recipient_repo_root)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO blocks
+         (id, stream_id, author_kind, author_agent_id, to_agent_id, kind, text,
+          data, state, attachments, delivered)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)`,
       [
         id,
-        message.senderAgentId,
-        message.recipientAgentId,
-        message.senderName,
-        message.recipientName,
-        message.content,
-        message.delivered === undefined ? true : message.delivered,
-        message.read ? new Date() : null,
-        message.senderRepoRoot ?? null,
-        message.recipientRepoRoot ?? null,
+        input.streamId,
+        input.authorKind,
+        authorAgentId,
+        toAgentId,
+        input.kind ?? "text",
+        input.text ?? "",
+        input.data === undefined ? null : JSON.stringify(input.data),
+        input.state === undefined ? null : JSON.stringify(input.state),
+        JSON.stringify(input.attachments ?? []),
+        input.delivered ?? null,
       ]
     );
   } finally {
@@ -306,10 +271,7 @@ export async function seedAgentMessageViaDB(message: {
   return id;
 }
 
-/**
- * Insert a block straight into `blocks`, bypassing the
- * send route (which needs a live pane). Attachments use the stored shape.
- */
+/** A text block, as `seedBlockViaDB` with the text kind. */
 export async function seedChatMessageViaDB(message: {
   agentId: string;
   authorKind: "user" | "agent";
@@ -317,148 +279,46 @@ export async function seedChatMessageViaDB(message: {
   attachments?: unknown[];
   delivered?: boolean | null;
 }): Promise<string> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required to seed chat messages.");
-  }
-  const id = randomUUID();
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
-    await pool.query(
-      `INSERT INTO blocks
-         (id, stream_id, author_kind, author_agent_id, to_agent_id, kind, text, attachments, delivered)
-       VALUES ($1, $2, $3, $4, $5, 'text', $6, $7::jsonb, $8)`,
-      [
-        id,
-        message.agentId,
-        message.authorKind,
-        message.authorKind === "agent" ? message.agentId : null,
-        message.authorKind === "user" ? message.agentId : null,
-        message.text,
-        JSON.stringify(message.attachments ?? []),
-        message.delivered ?? null,
-      ]
-    );
-  } finally {
-    await pool.end();
-  }
-  return id;
+  return seedBlockViaDB({
+    streamId: message.agentId,
+    authorKind: message.authorKind,
+    text: message.text,
+    attachments: message.attachments,
+    delivered: message.delivered,
+  });
 }
 
-export async function seedReviewAgentFixtureViaDB(
-  parentAgentId: string
-): Promise<{
-  activeAgentId: string;
-  openReviewAgentId: string;
-  approvedAgentId: string;
-  openReviewId: number;
-  standardChildAgentId: string;
-}> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required to seed review agent fixtures.");
-  }
-
-  const ids = {
-    activeAgentId: `${parentAgentId}-active-review`,
-    openReviewAgentId: `${parentAgentId}-open-review`,
-    approvedAgentId: `${parentAgentId}-approved-review`,
-    standardChildAgentId: `${parentAgentId}-task`,
+/** Calls an MCP tool the way an agent would, through its per-agent endpoint. */
+export async function callMcpToolViaAPI(
+  request: APIRequestContext,
+  agentId: string,
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const res = await request.fetch(`/api/mcp/${agentId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    data: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: toolName, arguments: args },
+    },
+  });
+  const text = await res.text();
+  const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
+  if (!dataLine) throw new Error(`No data line in MCP response: ${text}`);
+  const payload = JSON.parse(dataLine.slice("data: ".length)) as {
+    result?: { isError?: boolean; content?: Array<{ text?: string }> };
+    error?: unknown;
   };
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      for (const child of [
-        {
-          id: ids.activeAgentId,
-          name: "active reviewer",
-          persona: "ux-review",
-          status: "running",
-        },
-        {
-          id: ids.openReviewAgentId,
-          name: "reviewer with feedback",
-          persona: "release-readiness-review",
-          status: "stopped",
-        },
-        {
-          id: ids.approvedAgentId,
-          name: "approving reviewer",
-          persona: "architecture-review",
-          status: "stopped",
-        },
-      ]) {
-        await client.query(
-          `INSERT INTO agents (
-             id, name, type, role, status, cwd, codex_args, full_access, pins,
-             persona, parent_agent_id, created_at, updated_at
-           ) VALUES ($1, $2, 'claude', 'review', $3, '/tmp', '[]'::jsonb,
-             false, '[]'::jsonb, $4, $5, NOW(), NOW())`,
-          [child.id, child.name, child.status, child.persona, parentAgentId]
-        );
-      }
-      await client.query(
-        `INSERT INTO agents (
-           id, name, type, role, status, cwd, codex_args, full_access, pins,
-           parent_agent_id, created_at, updated_at
-         ) VALUES ($1, 'standard task child', 'claude', 'standard', 'stopped',
-           '/tmp', '[]'::jsonb, false, '[]'::jsonb, $2, NOW(), NOW())`,
-        [ids.standardChildAgentId, parentAgentId]
-      );
-
-      const openReview = await client.query<{ id: number }>(
-        `INSERT INTO reviews (
-           agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id,
-           summary, status
-         ) VALUES ($1, $1, 'agent', $2, $3, 'open') RETURNING id`,
-        [
-          parentAgentId,
-          ids.openReviewAgentId,
-          "Found one actionable loading-state issue.",
-        ]
-      );
-      const item = await client.query<{ id: number }>(
-        `INSERT INTO review_feedback_items (
-           review_id, file_path, line_start, status
-         ) VALUES ($1, $2, 56, 'open') RETURNING id`,
-        [openReview.rows[0]!.id, "apps/web/src/components/LoadingState.tsx"]
-      );
-      await client.query(
-        `INSERT INTO review_thread_messages (
-           feedback_item_id, author_type, author_agent_id, content
-         ) VALUES ($1, 'agent', $2, $3)`,
-        [
-          item.rows[0]!.id,
-          ids.openReviewAgentId,
-          JSON.stringify({
-            body: "Retry spinner never settles after a timeout.",
-          }),
-        ]
-      );
-      await client.query(
-        `INSERT INTO reviews (
-           agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id,
-           summary, status
-         ) VALUES ($1, $1, 'agent', $2, $3, 'resolved')`,
-        [
-          parentAgentId,
-          ids.approvedAgentId,
-          "Approved after checking the changed architecture boundaries.",
-        ]
-      );
-      await client.query("COMMIT");
-      return { ...ids, openReviewId: openReview.rows[0]!.id };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
+  if (payload.error || payload.result?.isError) {
+    throw new Error(`MCP ${toolName} failed: ${text}`);
   }
+  return payload as Record<string, unknown>;
 }
 
 /**

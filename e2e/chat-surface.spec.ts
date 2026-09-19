@@ -1,48 +1,15 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import {
   authHeaders,
+  callMcpToolViaAPI as callMcpTool,
   cleanupE2EAgents,
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  seedAgentMessageViaDB,
+  seedBlockViaDB,
   seedChatMessageViaDB,
-  setAgentPinsViaDB,
 } from "./helpers";
-
-/** Calls an MCP tool the way an agent would, through its per-agent endpoint. */
-async function callMcpTool(
-  request: APIRequestContext,
-  agentId: string,
-  toolName: string,
-  args: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const res = await request.fetch(`/api/mcp/${agentId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-    },
-    data: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: toolName, arguments: args },
-    },
-  });
-  const text = await res.text();
-  const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) throw new Error(`No data line in MCP response: ${text}`);
-  const payload = JSON.parse(dataLine.slice("data: ".length)) as {
-    result?: { isError?: boolean; content?: Array<{ text?: string }> };
-    error?: unknown;
-  };
-  if (payload.error || payload.result?.isError) {
-    throw new Error(`MCP ${toolName} failed: ${text}`);
-  }
-  return payload as Record<string, unknown>;
-}
 
 test.describe("Chat surface", () => {
   test.afterEach(async ({ request }) => {
@@ -159,7 +126,7 @@ test.describe("Chat surface", () => {
     await expect(page.getByTestId("chat-pane")).toBeVisible();
   });
 
-  test("renders a user post's attachments and a pending agent message", async ({
+  test("renders a user post's attachments and a pending post to a child", async ({
     page,
     request,
   }) => {
@@ -172,14 +139,6 @@ test.describe("Chat surface", () => {
       type: "claude",
       parentAgentId: agent.id,
     });
-    await setAgentPinsViaDB(agent.id, [
-      {
-        id: "pin-dev",
-        label: "Dev URL",
-        value: "http://localhost:5173",
-        type: "url",
-      },
-    ]);
     // A user message with every user-side attachment kind, as the send route
     // stores them once the composer has uploaded the file.
     await seedChatMessageViaDB({
@@ -188,7 +147,7 @@ test.describe("Chat surface", () => {
       text: "Have a look at these.",
       attachments: [
         { type: "link", url: "https://example.com/spec", title: "The spec" },
-        { type: "pin", pinId: "pin-dev" },
+        { type: "pr", url: "https://github.com/o/r/pull/12", title: "PR 12" },
       ],
       delivered: true,
     });
@@ -200,22 +159,21 @@ test.describe("Chat surface", () => {
       attachments: [{ type: "link", url: "https://example.com/bare" }],
       delivered: true,
     });
-    // A cross-agent message whose pane delivery has not settled yet.
-    await seedAgentMessageViaDB({
-      senderAgentId: agent.id,
-      recipientAgentId: peer.id,
-      senderName: agent.name,
-      recipientName: peer.name,
-      content: "Ping from the chat agent",
+    // This agent's post to its child, whose delivery has not settled yet.
+    await seedBlockViaDB({
+      streamId: agent.id,
+      authorKind: "agent",
+      toAgentId: peer.id,
+      text: "Ping from the chat agent",
       delivered: null,
     });
-    // And the child's reply.
-    await seedAgentMessageViaDB({
-      senderAgentId: peer.id,
-      recipientAgentId: agent.id,
-      senderName: peer.name,
-      recipientName: agent.name,
-      content: "Pong from the child",
+    // And the child's reply, posted into its parent's stream.
+    await seedBlockViaDB({
+      streamId: agent.id,
+      authorKind: "agent",
+      authorAgentId: peer.id,
+      toAgentId: agent.id,
+      text: "Pong from the child",
       delivered: true,
     });
 
@@ -226,48 +184,43 @@ test.describe("Chat surface", () => {
     await expect(pane).toBeVisible();
 
     const posts = pane.getByTestId("chat-message");
-    await expect(posts).toHaveCount(2);
+    await expect(posts).toHaveCount(4);
     await expect(posts.nth(0)).toContainText("Have a look at these.");
     await expect(
       posts.nth(0).getByRole("link", { name: "The spec" })
     ).toHaveAttribute("href", "https://example.com/spec");
-    await expect(posts.nth(0).getByTestId("chat-attachment-pin")).toContainText(
-      "Dev URL"
-    );
+    await expect(
+      posts.nth(0).getByTestId("chat-attachment-pr").getByRole("link")
+    ).toHaveAttribute("href", "https://github.com/o/r/pull/12");
     await expect(
       posts.nth(1).getByRole("link", { name: "https://example.com/bare" })
     ).toBeVisible();
 
-    const pending = pane
-      .getByTestId("chat-agent-message")
-      .filter({ hasText: "Ping from the chat agent" });
-    await expect(pending.getByTestId("chat-agent-message-pending")).toHaveText(
-      "Sending"
+    const pending = posts.filter({ hasText: "Ping from the chat agent" });
+    await expect(pending.getByTestId("chat-delivery-pending")).toBeVisible();
+    await expect(pending.getByTestId("chat-side-recipient")).toContainText(
+      peer.name
     );
-    await expect(pending.getByTestId("agent-relation-badge")).toHaveCount(0);
 
-    // The child's post: its own icon, its name, and its relation to this agent.
-    const fromChild = pane
-      .getByTestId("chat-agent-message")
-      .filter({ hasText: "Pong from the child" });
+    // The child's post: its own name and its relation to this agent.
+    const fromChild = posts.filter({ hasText: "Pong from the child" });
     await expect(fromChild.getByTestId("chat-post-author")).toHaveText(
       peer.name
     );
     await expect(fromChild.getByTestId("agent-relation-badge")).toHaveText(
       "child agent"
     );
-    await expect(fromChild.getByLabel("Claude agent")).toBeVisible();
     await expect(fromChild).toHaveAttribute("data-author-kind", "peer");
 
-    // The messages panel renders the same pending state.
+    // The rail lists the links the stream produced, newest first.
     await page.getByTestId("toggle-media-sidebar").click();
     const mediaSidebar = page.getByTestId("media-sidebar");
-    await mediaSidebar.getByRole("button", { name: "Messages" }).click();
-    await expect(mediaSidebar.getByTestId("message-sending")).toContainText(
-      "sending"
-    );
-    await expect(mediaSidebar.getByTestId("agent-relation-badge")).toHaveText(
-      "child agent"
+    await mediaSidebar.getByTestId("sidebar-tab-rail").click();
+    const railLinks = mediaSidebar.getByTestId("stream-rail-link");
+    await expect(railLinks).toHaveCount(3);
+    await expect(railLinks.nth(0).getByRole("link")).toHaveAttribute(
+      "href",
+      "https://example.com/bare"
     );
 
     await page.screenshot({

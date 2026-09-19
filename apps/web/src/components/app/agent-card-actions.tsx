@@ -46,7 +46,7 @@ export function AgentCardActions({
             disabled={isStopped || agent.status === "archiving"}
             disabledReason={
               isStopped
-                ? "Agent is stopped — start it before launching a review."
+                ? "Agent is stopped — start it before launching a persona."
                 : agent.status === "archiving"
                   ? "Agent is archiving."
                   : undefined

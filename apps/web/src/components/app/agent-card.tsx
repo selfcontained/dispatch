@@ -53,7 +53,6 @@ export type AgentCardProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
-  openSubmittedReview: (agent: Agent) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
@@ -79,7 +78,6 @@ export function AgentCard({
   detachTerminal,
   attachToAgent,
   startAgent,
-  openSubmittedReview,
   setDeleteTarget,
   setDeleteConfirmOpen,
   setStopTarget,
@@ -230,14 +228,10 @@ export function AgentCard({
                             key={child.id}
                             agent={child}
                             state={getVisualState(child)}
-                            isInitialReviewActive={
-                              child.role === "review" &&
-                              child.submittedReviewId == null
-                            }
+                            isInitialReviewActive={child.role === "review"}
                             attachToAgent={attachToAgent}
                             detachTerminal={detachTerminal}
                             startAgent={startAgent}
-                            openSubmittedReview={openSubmittedReview}
                             setStopTarget={setStopTarget}
                             setStopConfirmOpen={setStopConfirmOpen}
                             setDeleteTarget={setDeleteTarget}

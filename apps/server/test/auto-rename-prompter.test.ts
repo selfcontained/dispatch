@@ -29,7 +29,6 @@ function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     cwd: "/tmp/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     simulatorUdid: null,
     mediaDir: null,
     agentArgs: [],

@@ -55,8 +55,8 @@ export function AgentsContent() {
           </li>
           <li>
             <strong>Autonomous Review</strong> (CLI types only) — when enabled,
-            the agent automatically launches one reviewer agent on completion
-            and addresses its feedback before finishing.
+            the agent automatically launches one reviewer persona on completion
+            and works its review block&apos;s findings before finishing.
           </li>
         </ul>
         <P>
@@ -68,7 +68,7 @@ export function AgentsContent() {
         <P>
           Click <strong>Create</strong> to start the agent immediately. For CLI
           types, <strong>Create with context</strong> opens a second step where
-          you can add startup instructions, attach files, and pin links for the
+          you can add startup instructions, attach files, and add links for the
           new session before launch; terminal agents skip this since there is no
           CLI to send a message to.
         </P>
@@ -164,12 +164,12 @@ export function AgentsContent() {
           a button to open the working directory in your IDE and, for worktree
           agents, a pill that copies the worktree path. CLI agents additionally
           show whether they're running in full access or sandboxed mode, plus a{" "}
-          <strong>Review</strong> button that launches one or more reviewer
-          agents (see the Reviewers section — review feedback lives in the
-          Changes tab's threads, not on the card); terminal agents skip those
-          since they have no CLI. Agents launched as children — persona
-          reviewers included — appear in a <strong>Sub Agents</strong> list in
-          the expanded card.
+          <strong>Review</strong> button that launches one or more personas (see
+          the Reviewers section — a reviewer&apos;s findings live in its review
+          block in the Chat, not on the card); terminal agents skip those since
+          they have no CLI. Agents launched as children — persona agents
+          included — appear in a <strong>Sub Agents</strong> list in the
+          expanded card.
         </P>
       </Section>
 
@@ -218,27 +218,31 @@ export function AgentsContent() {
           return to a single pane with the unsplit control.
         </P>
         <P>
+          A toolbar above the diff carries the two ways to get the work
+          reviewed. <strong>Launch personas</strong> starts one or more persona
+          agents as children of this agent — pick the personas, agent type and
+          model, add a focus note, and choose whether the briefing includes the
+          current diff (see the Reviewers section).{" "}
+          <strong>Leave a review</strong> enters review mode for a review by
+          hand.
+        </P>
+        <P>
           Select one or more lines in a diff, then click the comment icon to
           leave feedback. The primary action is <strong>Start a review</strong>,
           which enters review mode and saves the comment as a draft. Use the
           dropdown to pick <strong>Chat</strong> instead — that sends the
-          comment directly to the agent's terminal as a one-off message (the
-          original behavior).
+          comment to the agent as a one-off message.
         </P>
         <P>
           In review mode, a bar at the top shows your draft count and a{" "}
-          <strong>Submit review</strong> button. Keep adding draft comments
-          across different files, then submit them all at once with an optional
-          summary. Each comment becomes a feedback item the agent can see via
-          its <Code>review_list_feedback</Code> tool.
-        </P>
-        <P>
-          Feedback threads are interactive from both sides. The agent can reply,
-          resolve items as <strong>fixed</strong> or <strong>dismissed</strong>,
-          or ask clarifying questions via MCP tools. You can do the same from
-          the UI — reply to a thread, mark an item resolved, or reopen it —
-          either inline in the diff or from the <strong>Reviews</strong> tab of
-          the media sidebar.
+          <strong>Post review</strong> button. Keep adding draft comments across
+          different files, then post them all at once with a verdict and a
+          summary; each comment can be given a severity in the dialog. The
+          result is a <Code>review</Code> block in the agent&apos;s stream,
+          addressed to the agent, with one finding per comment — the same block
+          a reviewer persona posts. The agent resolves or disputes findings with{" "}
+          <Code>update</Code> and replies in each finding&apos;s thread; you do
+          the same from the block in the Chat.
         </P>
       </Section>
 
@@ -250,11 +254,13 @@ export function AgentsContent() {
           folding activity rail of the tool calls the agent made, and the answer
           it ended with. While a turn runs, a <strong>Stop</strong> button next
           to the status line cancels it, and the agent&apos;s current plan shows
-          above the composer. The feed also carries questions (with option
-          buttons), shared files, pins, reviews and posts from other agents. An
-          unread count sits on the Agent tab while another tab is up. Drafts
-          survive a reload: text, links, pins and pasted text come back as they
-          were; a picked file comes back as a placeholder to re-attach.
+          above the composer. The feed also carries the agent&apos;s blocks:
+          questions (with option buttons), forms, shared files, links, review
+          blocks, task lists, and posts from other agents; each top-level block
+          has a thread that opens in a side panel. An unread count sits on the
+          Agent tab while another tab is up. Drafts survive a reload: text,
+          links and pasted text come back as they were; a picked file comes back
+          as a placeholder to re-attach.
         </P>
       </Section>
 
@@ -273,11 +279,12 @@ export function AgentsContent() {
       <Section>
         <H3 id="prompt-delivery">Prompt delivery</H3>
         <P>
-          Automated prompts — review feedback and diff comments, agent-to-agent
-          messages, the auto-rename request, browser feedback — reach the agent
-          the same way your Chat messages do: each one becomes the agent&apos;s
-          next turn. An agent runs one turn at a time, so a prompt that arrives
-          mid-turn waits for the running one to finish.
+          Automated prompts — a posted review, a diff comment, a post from
+          another agent, an answered question, the auto-rename request, browser
+          feedback — reach the agent the same way your Chat messages do: each
+          one becomes the agent&apos;s next turn. An agent runs one turn at a
+          time, so a prompt that arrives mid-turn waits for the running one to
+          finish.
         </P>
       </Section>
 
@@ -356,7 +363,7 @@ export function AgentsContent() {
           branch Dispatch created for the agent — see <strong>Worktrees</strong>{" "}
           for exactly what that throws away. Archived agents are preserved in
           the History section of the Activity page, where you can review their
-          events, media, pins, and feedback.
+          events and media.
         </P>
       </Section>
 
@@ -368,23 +375,22 @@ export function AgentsContent() {
           it inherits the parent's working directory and full-access mode, and
           renders as a row in the <strong>Sub Agents</strong> list inside the
           parent's expanded card rather than as a card of its own. Persona
-          reviewers appear in the same list, marked with a clipboard icon that
-          turns into a green checkmark once its review is submitted — click it
-          to open the review directly. Passing <Code>child: false</Code>{" "}
-          launches an independent agent instead — it gets its own top-level
-          card, but Dispatch still records who launched it, so the launcher can
-          message and archive it.
+          agents appear in the same list, marked with a clipboard icon; a
+          reviewer&apos;s review block lands in the parent&apos;s Chat. Passing{" "}
+          <Code>child: false</Code> launches an independent agent instead — it
+          gets its own top-level card, but Dispatch still records who launched
+          it, so the launcher can message and archive it.
         </P>
         <P>
           Nesting stops at one level: a sub agent can only launch independent
-          agents, not children or persona reviews of its own. Clicking a sub
-          agent row's own body connects or disconnects its terminal, the same
-          way a top-level card's row does. An overflow menu carries the rest of
-          its session controls: <strong>View terminal</strong>/
-          <strong>Detach</strong>, <strong>Open review</strong> (once a review
-          is submitted), <strong>Pause</strong>/<strong>Resume</strong>,{" "}
-          <strong>Session details</strong>, and <strong>Archive</strong>.
-          Selecting a sub agent expands the card it lives in.
+          agents, not children or personas of its own. Clicking a sub agent
+          row's own body connects or disconnects its terminal, the same way a
+          top-level card's row does. An overflow menu carries the rest of its
+          session controls: <strong>View terminal</strong>/
+          <strong>Detach</strong>, <strong>Pause</strong>/
+          <strong>Resume</strong>, <strong>Session details</strong>, and{" "}
+          <strong>Archive</strong>. Selecting a sub agent expands the card it
+          lives in.
         </P>
         <P>
           Each child is told which agent launched it and can coordinate back
@@ -396,9 +402,9 @@ export function AgentsContent() {
         <P>
           Archiving a parent does not archive its launched children — they keep
           running and are promoted to their own top-level cards. This differs
-          from persona reviewers, which are always archived alongside their
-          parent. An agent can also retire itself once its work is reported, by
-          calling <Code>archive_agent</Code> with its own ID.
+          from persona agents, which are always archived alongside their parent.
+          An agent can also retire itself once its work is reported, by calling{" "}
+          <Code>archive_agent</Code> with its own ID.
         </P>
       </Section>
     </>

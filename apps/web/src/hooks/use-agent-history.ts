@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import type {
   HistoryChildAgent,
   HistoryEvent,
-  HistoryFeedbackItem,
   HistoryLatestEvent,
   HistoryMedia,
   HistoryTokenUsage,
@@ -11,7 +10,6 @@ import type {
 
 import { api } from "@/lib/api";
 import { getRangeBounds, type ActivityRange } from "@/hooks/use-activity";
-import { type AgentPin } from "@/components/app/types";
 
 const HISTORY_QUERY_OPTIONS = {
   staleTime: 60_000,
@@ -22,7 +20,6 @@ const HISTORY_QUERY_OPTIONS = {
 export type {
   HistoryChildAgent,
   HistoryEvent,
-  HistoryFeedbackItem,
   HistoryMedia,
   HistoryTokenUsage,
 };
@@ -59,13 +56,10 @@ export type HistoryAgentsResponse = {
 };
 
 export type HistoryAgentDetail = {
-  agent: Omit<HistoryAgent, "durationMs" | "totalTokens"> & {
-    pins: AgentPin[];
-  };
+  agent: Omit<HistoryAgent, "durationMs" | "totalTokens">;
   events: HistoryEvent[];
   tokenUsage: HistoryTokenUsage;
   media: HistoryMedia[];
-  feedback: HistoryFeedbackItem[];
   stateDurations: Record<string, number>;
 };
 

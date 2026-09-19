@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type {
+  StreamThreadResponse,
   Block,
   BlockReaction,
   StreamAnswerResponse,
@@ -25,6 +26,7 @@ import {
   optimisticStatePatch,
   removeBlock,
   replaceBlock,
+  replaceThreadRoot,
   shareFeedByEntryId,
   shareFeedCache,
   streamFeedQueryKey,
@@ -354,6 +356,64 @@ describe("useSetBlockState", () => {
     expect(optimisticStatePatch({ items: { t1: "done" } }, "T")).toEqual({
       items: { t1: "done" },
     });
+  });
+});
+
+describe("useSetBlockState and the thread cache", () => {
+  it("keeps an open thread's root block in step with a state change", async () => {
+    const root = block({
+      id: "rv1",
+      body: {
+        kind: "review",
+        data: {
+          verdict: "comment",
+          summary: "One thing.",
+          findings: [{ id: "f1", severity: "minor", title: "A", body: "" }],
+        },
+        state: { findings: {} },
+      },
+    });
+    const client = seededClient([blockEntry(root)]);
+    const threadKey = threadQueryKey("agt_1", "rv1");
+    client.setQueryData<StreamThreadResponse>(threadKey, {
+      root,
+      replies: [],
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const stored: Block = {
+      ...root,
+      kind: "review",
+      data: (root as Extract<Block, { kind: "review" }>).data,
+      updatedAt: "2026-09-02T10:05:00.000Z",
+      state: {
+        findings: {
+          f1: {
+            status: "disputed",
+            by: { kind: "user" },
+            at: "2026-09-02T10:05:00.000Z",
+          },
+        },
+      },
+    };
+    apiMock.mockResolvedValueOnce({ block: stored });
+    const { result } = renderHook(() => useSetBlockState("agt_1"), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        blockId: "rv1",
+        state: { findings: { f1: "disputed" } },
+      });
+    });
+    const thread = client.getQueryData<StreamThreadResponse>(threadKey);
+    expect(thread?.root).toEqual(stored);
+    // A thread under another block is left alone.
+    expect(
+      replaceThreadRoot({ root: block({ id: "other" }), replies: [] }, stored)
+        ?.root.id
+    ).toBe("other");
   });
 });
 

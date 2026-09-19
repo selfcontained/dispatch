@@ -450,9 +450,7 @@ describe("browser extension scoped API", () => {
           '/secret/repo', 'feature/browser', 'working', 'Building extension',
           now()),
          ('agt_stopped', 'Stopped agent', 'codex', 'standard', 'stopped',
-          '/other/repo', null, null, null, null),
-         ('agt_review', 'Review agent', 'codex', 'review', 'running',
-          '/secret/repo', 'feature/browser', 'working', 'Reviewing', now())`
+          '/other/repo', null, null, null, null)`
     );
     const { token } = await approveAndExchange();
 
@@ -473,8 +471,7 @@ describe("browser extension scoped API", () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json<{ agents: Array<Record<string, unknown>> }>();
-    // Only the running standard agent — the stopped one and the running review
-    // agent are both excluded.
+    // Only the running agent; the stopped one is excluded.
     expect(body.agents).toHaveLength(1);
     expect(body.agents.map((agent) => agent.id)).toEqual(["agt_running"]);
     expect(body.agents[0]).toMatchObject({

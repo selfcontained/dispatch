@@ -7,7 +7,6 @@ export { WorktreesContent } from "./worktrees";
 export { PersonasContent } from "./personas";
 export { EventsContent } from "./events";
 export { MediaContent } from "./media";
-export { AgentSurfacesContent } from "./agent-surfaces";
 export { BrowserFeedbackContent } from "./browser-feedback";
 export { NotificationsContent } from "./notifications";
 export { PluginContent } from "./plugin";

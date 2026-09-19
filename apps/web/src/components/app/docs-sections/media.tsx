@@ -5,50 +5,39 @@ export function MediaContent() {
     <>
       <P>
         Agents can capture and share screenshots, images, and text files during
-        a session. Shared media appears in the Media sidebar for review.
+        a session. Shared media appears in the stream and in the sidebar&apos;s
+        Media tab.
       </P>
 
       <Section>
         <H3>Sharing files</H3>
         <P>
-          Agents call the <Code>share_file</Code> tool with a{" "}
-          <Code>filePath</Code> and a <Code>description</Code> to publish an
-          existing file. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF,
-          and a wide range of text file extensions (txt, md, html, json, yaml,
-          ts, py, go, rs, sh, sql, and many others).
+          An agent shares a file by posting it into its stream:{" "}
+          <Code>{'post({ text, attachments: [{ type: "file", path }] })'}</Code>{" "}
+          uploads the file at <Code>path</Code> from the agent&apos;s checkout
+          and shows it under the post — the same post can carry a description in{" "}
+          <Code>text</Code>, plus links, a PR, or a code snippet as further
+          attachments. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF, and
+          a wide range of text file extensions (txt, md, html, json, yaml, ts,
+          py, go, rs, sh, sql, and many others). Every shared file also lands in
+          the Media tab.
         </P>
-      </Section>
-
-      <Section>
-        <H3>Sharing text snippets</H3>
         <P>
-          Instead of writing a scratch file first, agents can pass the text
-          directly as <Code>content</Code> along with a <Code>name</Code> that
-          has an appropriate extension (e.g. <Code>snippet.ts</Code>). Content
-          is capped at 32KB — for anything larger, write the file and use{" "}
-          <Code>filePath</Code>.
-        </P>
-      </Section>
-
-      <Section>
-        <H3>Updating shared media</H3>
-        <P>
-          Every <Code>share_file</Code> call returns a <Code>fileName</Code>.
-          Pass that back as the <Code>update</Code> parameter on a later call to
-          replace the existing file in place instead of creating a new entry —
-          useful for iterating on a screenshot or snippet without cluttering the
-          sidebar.
+          A file that has already been shared can be attached again by its{" "}
+          <Code>fileName</Code> or <Code>mediaId</Code> from{" "}
+          <Code>list_media</Code> instead of re-uploading it. To iterate on a
+          screenshot or snippet without cluttering the sidebar, revise the
+          original post with <Code>update</Code> and a new attachments list.
         </P>
       </Section>
 
       <Section>
         <H3>Simulator screenshots</H3>
         <P>
-          When <Code>share_file</Code> is called with{" "}
-          <Code>source: "simulator"</Code>, it captures a screenshot from the
-          iOS Simulator using <Code>xcrun simctl</Code> and shares the resulting
-          PNG. <Code>simulatorUdid</Code> selects a specific simulator; it
-          defaults to the booted one.
+          Agents with an iOS Simulator attached can capture it with{" "}
+          <Code>xcrun simctl io booted screenshot</Code> and share the resulting
+          PNG as a file attachment; captured screenshots are listed with{" "}
+          <Code>source: "simulator"</Code>.
         </P>
       </Section>
 
@@ -75,11 +64,10 @@ export function MediaContent() {
         <P>
           An optional <Code>ownerAgentId</Code> lists what the agent&apos;s
           parent or one of its direct children has shared instead, read-only and
-          from that agent&apos;s own directory — an archived child still lists.{" "}
-          <Code>list_pins</Code> accepts the same parameter. Nothing is copied:
-          a parent reads its child&apos;s screenshots by their original path,
-          and the user sees them grouped under the parent&apos;s card in the
-          sidebar.
+          from that agent&apos;s own directory — an archived child still lists.
+          Nothing is copied: a parent reads its child&apos;s screenshots by
+          their original path, and the user sees them grouped under the
+          parent&apos;s card in the sidebar.
         </P>
         <P>
           To remove an item that is no longer relevant, call{" "}
@@ -129,54 +117,33 @@ export function MediaContent() {
       </Section>
 
       <Section>
-        <H3 id="media-sidebar">Media sidebar</H3>
+        <H3 id="media-sidebar">Sidebar: Rail and Media</H3>
         <P>
-          Click the media sidebar button at the right of the terminal's top bar
-          (or press <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button
-          shows a count badge when there are unseen media items or unread
-          messages. The sidebar has four built-in tabs: <strong>Pins</strong>,{" "}
-          <strong>Media</strong>, <strong>Reviews</strong>, and{" "}
-          <strong>Messages</strong> — plus one tab per custom tab an agent has
-          created (see the Agent Surfaces section).
+          Click the sidebar button at the right of the top bar (or press{" "}
+          <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button shows a
+          count badge when there are unseen media items or open questions. The
+          sidebar has two tabs: <strong>Rail</strong> and <strong>Media</strong>
+          .
         </P>
         <P>
-          The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
-          <Code>pin</Code> — URLs, ports, branch names, file paths, and other
-          key info. Setting a pin again with the same label updates it in place,
-          and <Code>pins</Code> writes several at once: by default it merges
-          each entry in — updating or creating it without touching anything else
-          — or with <Code>mode: "replace"</Code> and a <Code>group</Code>, it
-          makes that group contain exactly the passed entries, deleting any
-          existing member left out. Agents can remove stale pins with{" "}
-          <Code>list_pins</Code> + <Code>delete_pin</Code> — one, several, or a
-          whole group at a time. Agents can also pin a <strong>shortcut</strong>{" "}
-          — a button that injects a prompt into that agent's session when you
-          click it, exactly as if you had typed it yourself. Hovering shows the
-          full prompt before you commit, shortcuts the agent marks as risky ask
-          you to confirm first, and they're disabled while the agent isn't
-          running. On a touch device there is no hover, so every shortcut routes
-          through the confirm dialog — which shows the prompt in full — before
-          it sends. An agent can also grey out a shortcut of its own once the
-          action no longer applies, leaving the caption to explain why. Any pin
-          can also carry a one-line markdown caption, and pins sharing a{" "}
-          <Code>group</Code> render together under one collapsible heading with
-          a member count — groups of more than eight pins start collapsed, and
-          your own expand/collapse choice sticks per agent and group. The{" "}
-          <strong>Media</strong> tab shows shared files in reverse chronological
-          order (most recent 50); click an item to open the full-screen
-          lightbox. Items you haven't seen yet are highlighted, and the tab
-          shows an unseen count. The <strong>Reviews</strong> tab shows review
-          feedback for this agent — both what a persona reviewer submitted and
-          what you sent from the Changes tab. Each row carries a resolved count
-          and a status badge that reads <strong>Open</strong> until every item
-          is resolved and <strong>Resolved</strong> after; a reviewer that
-          raised nothing shows as <em>Approved · no feedback</em>. Expand a
-          review to see individual items, threaded messages, diff snapshots, and
-          resolutions. Click a file path to jump to that location in the Changes
-          tab. The <strong>Messages</strong> tab shows inter-agent messages
-          grouped by conversation partner — sent and received messages appear in
-          chat-style bubbles with timestamps and delivery status. Unread
-          messages show a badge count on the tab.
+          The <strong>Rail</strong> is derived from the agent&apos;s stream —
+          the agent has no tool that writes to it directly. Its{" "}
+          <strong>Needs you</strong> section lists every <Code>question</Code>{" "}
+          and <Code>form</Code> the agent (or one of its children) has posted to
+          you and you have not answered yet, with the same buttons and fields
+          the Chat shows, so you can answer from the sidebar without scrolling
+          the feed; the tab badge counts them, and an open one is what shows the
+          agent as <em>waiting</em>. The time on each card opens that
+          block&apos;s thread in the Chat. Below that, <strong>Links</strong>{" "}
+          collects the most recent links and pull requests the stream has posted
+          — a dev URL, a PR, a doc — so they stay one click away after the posts
+          have scrolled by.
+        </P>
+        <P>
+          The <strong>Media</strong> tab shows shared files in reverse
+          chronological order (most recent 50); click an item to open the
+          full-screen lightbox. Items you haven&apos;t seen yet are highlighted,
+          and the tab shows an unseen count.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —

@@ -1,11 +1,5 @@
 import { memo, type ReactNode } from "react";
-import type {
-  Block,
-  BlockOption,
-  ChatPinEntry,
-  ChatReviewEntry,
-  ChatStatusEntry,
-} from "@dispatch/shared";
+import type { Block, BlockOption, ChatStatusEntry } from "@dispatch/shared";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -14,7 +8,6 @@ import {
   Hourglass,
   Loader2,
   MessagesSquare,
-  Pin,
   Rocket,
   UserRound,
 } from "lucide-react";
@@ -25,10 +18,6 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import {
-  reviewerLabel,
-  ReviewSummaryBlock,
-} from "@/components/app/review-summary-block";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -45,7 +34,7 @@ import {
   ReviewBlockBody,
   TasksBlockBody,
 } from "./block-bodies";
-import { AttachmentList, LivePin } from "./chat-attachment-views";
+import { AttachmentList } from "./chat-attachment-views";
 import {
   POST_ACTION_BUTTON,
   POST_ACTION_FACE,
@@ -121,9 +110,7 @@ export function peerDirectory(
 /**
  * What every row of the channel needs to know about the agent it belongs
  * to. Every row is memoised on this object's identity, so it carries only
- * what changes rarely; what the pin rows need on top of it — the live pins
- * and the shortcut machinery — travels on `PinShortcutContext`, which
- * changes on its own schedule and re-renders only them.
+ * what changes rarely.
  */
 export type FeedContext = {
   agentId: string;
@@ -133,8 +120,8 @@ export type FeedContext = {
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
   onOpenMedia: (mediaId: number) => void;
-  /** Opens a review in the Reviews sidebar, expanded. */
-  onOpenReview?: (reviewId: number) => void;
+  /** Opens the Changes tab on a file, at a line when one is given. */
+  onOpenPath?: (path: string, line: number | null) => void;
   /**
    * Adds (`remove: false`) or takes back an emoji reaction on an agent's
    * block. Absent, the feed shows reactions but offers no way to change
@@ -148,7 +135,7 @@ export type FeedContext = {
     blockId: string,
     values: Record<string, string | number | boolean>
   ) => void;
-  /** `PATCH …/state`: resolve a finding, tick a task. */
+  /** `PATCH …/state`: resolve, dispute or reopen a finding. */
   onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
 };
 
@@ -616,7 +603,7 @@ function BlockBody({
   inThread: boolean;
   highlightFindingId: string | null;
 }): JSX.Element | null {
-  const { onSubmitForm, onSetBlockState, onOpenThread } = ctx;
+  const { onSubmitForm, onSetBlockState, onOpenThread, onOpenPath } = ctx;
   const setState = onSetBlockState
     ? (patch: BlockStatePatch) => onSetBlockState(block.id, patch)
     : undefined;
@@ -650,6 +637,7 @@ function BlockBody({
               ? (findingId) => onOpenThread(block.id, findingId)
               : undefined
           }
+          onOpenPath={onOpenPath}
           // In the panel the review is the whole subject: open, with the
           // findings' bodies, and the finding the link named picked out.
           defaultExpanded={inThread}
@@ -658,13 +646,7 @@ function BlockBody({
         />
       );
     case "tasks":
-      return (
-        <TasksBlockBody
-          block={block}
-          disabled={answersDisabled}
-          onSetState={setState}
-        />
-      );
+      return <TasksBlockBody block={block} />;
     case "link":
       return <LinkBlockBody block={block} />;
     case "text":
@@ -752,7 +734,7 @@ export const BlockView = memo(function BlockView({
         {block.origin === "launch" ? (
           <div
             className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
-            title="What this agent was started with — the prompt, files, links and pins from its launch."
+            title="What this agent was started with — the prompt, files and links from its launch."
             data-testid="chat-launch-context"
           >
             <Rocket className="h-3 w-3" aria-hidden="true" />
@@ -837,7 +819,7 @@ export const BlockView = memo(function BlockView({
 });
 
 // ---------------------------------------------------------------------------
-// Status, cross-agent messages, pins, reviews
+// Status
 // ---------------------------------------------------------------------------
 
 /**
@@ -899,151 +881,5 @@ export const StatusLine = memo(function StatusLine({
         </span>
       ) : null}
     </div>
-  );
-});
-
-/** "Pinned", "Updated pin", "Removed pin" — plural when a batch wrote several. */
-export function pinEntryVerb(entry: ChatPinEntry): string {
-  const plural = entry.pins.length !== 1;
-  switch (entry.action) {
-    case "created":
-      return plural ? `Pinned ${entry.pins.length} items` : "Pinned";
-    case "updated":
-      return plural ? `Updated ${entry.pins.length} pins` : "Updated pin";
-    case "deleted":
-      return plural ? `Removed ${entry.pins.length} pins` : "Removed pin";
-  }
-}
-
-/**
- * A pin the agent created, updated, or removed, shown at that moment in the
- * stream. The pin itself renders live (see {@link LivePin}): every earlier
- * entry for a pin shows its latest value, so re-reading the channel never
- * shows a stale URL, and a shortcut runs from wherever it appears. A removed
- * pin has nothing left to render, so its entry names it by label only.
- */
-export const PinEntryView = memo(function PinEntryView({
-  entry,
-  grouped,
-  rule = false,
-  ctx,
-}: {
-  entry: ChatPinEntry;
-  grouped: boolean;
-  rule?: boolean;
-  ctx: FeedContext;
-}): JSX.Element {
-  const removed = entry.action === "deleted";
-  return (
-    <Post
-      author={agentAuthor(ctx, "Agent")}
-      at={entry.at}
-      grouped={grouped}
-      rule={rule}
-      data-testid="chat-pin-entry"
-      data-pin-action={entry.action}
-    >
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Pin className="h-3 w-3 shrink-0" aria-hidden="true" />
-        <span data-testid="chat-pin-entry-verb">{pinEntryVerb(entry)}</span>
-        {removed ? (
-          <span className="min-w-0 truncate font-medium text-foreground/80">
-            {entry.pins.map((pin) => pin.label).join(", ")}
-          </span>
-        ) : null}
-      </div>
-      {removed ? null : (
-        <div className="mt-1 flex flex-col gap-2">
-          {entry.pins.map((pin) => (
-            <LivePin
-              key={pin.id}
-              pinId={pin.id}
-              label={pin.label}
-              ctx={ctx}
-              testId="chat-pin-entry-pin"
-            />
-          ))}
-        </div>
-      )}
-    </Post>
-  );
-});
-
-/**
- * Who a review card reads as: the reviewer agent that submitted it, or the
- * user for a review left by hand in the Changes tab. Its own group key, so
- * a review card never collapses into an adjacent post's header — the card
- * carries its own heading.
- *
- * The name is the server's `reviewerName` (the persona the agent reviewed
- * as, falling back to its own name), which is what the block below the
- * header says too — one actor must not read as two names in one post. The
- * peer directory is only a fallback for a review whose reviewer the list no
- * longer knows.
- */
-export function reviewAuthor(
-  entry: ChatReviewEntry,
-  ctx: FeedContext
-): PostAuthor {
-  if (entry.reviewerType === "agent" && entry.reviewerAgentId) {
-    const peer = ctx.peers?.[entry.reviewerAgentId];
-    const author = peerAuthor(
-      entry.reviewerAgentId,
-      entry.reviewerName ??
-        peer?.name ??
-        reviewerLabel(entry.reviewerType, entry.reviewerName),
-      ctx
-    );
-    return { ...author, key: `review:${entry.reviewerAgentId}` };
-  }
-  return { ...userAuthor(), key: "review:human" };
-}
-
-/**
- * A review in the channel, as the same block the Reviews sidebar shows for
- * a collapsed review: who left it, how much is still open, its status.
- * Clicking opens that review in the sidebar, where the summary and the
- * feedback items live — the card is the notice, not a second copy of it.
- */
-export const ReviewEntryView = memo(function ReviewEntryView({
-  entry,
-  grouped,
-  rule = false,
-  ctx,
-}: {
-  entry: ChatReviewEntry;
-  grouped: boolean;
-  rule?: boolean;
-  ctx: FeedContext;
-}): JSX.Element {
-  const { onOpenReview } = ctx;
-  return (
-    <Post
-      author={reviewAuthor(entry, ctx)}
-      at={entry.at}
-      grouped={grouped}
-      rule={rule}
-      data-testid="chat-review"
-      data-review-id={String(entry.reviewId)}
-    >
-      <ReviewSummaryBlock
-        review={{
-          reviewerType: entry.reviewerType,
-          reviewerName: entry.reviewerName,
-          status: entry.status,
-          itemCount: entry.itemCount,
-          resolvedCount: entry.resolvedCount,
-          createdAt: entry.at,
-        }}
-        showTime={false}
-        onClick={onOpenReview ? () => onOpenReview(entry.reviewId) : undefined}
-        ariaLabel={`Open review from ${reviewerLabel(
-          entry.reviewerType,
-          entry.reviewerName
-        )}`}
-        className="mt-1 max-w-sm"
-        data-testid="chat-review-block"
-      />
-    </Post>
   );
 });

@@ -77,11 +77,10 @@ export function NotificationsContent() {
         <P>
           A soft synthesized tone on status changes. Cues are per-device — they
           don't touch server state and only play in tabs where you've enabled
-          them. Four status cues are available: <Code>done</Code>,{" "}
-          <Code>waiting_user</Code>, <Code>blocked</Code>, and a distinct chord
-          when a persona reviewer completes its review. A fifth cue provides
-          tactile feedback for mobile toolbar taps. Use the preview buttons in
-          settings to hear each one.
+          them. Three status cues are available: <Code>done</Code>,{" "}
+          <Code>waiting_user</Code>, and <Code>blocked</Code>. A fourth cue
+          provides tactile feedback for mobile toolbar taps. Use the preview
+          buttons in settings to hear each one.
         </P>
       </Section>
 
@@ -114,34 +113,12 @@ export function NotificationsContent() {
       <Section>
         <H3>Agent-initiated notifications</H3>
         <P>
-          Agents can push a Slack message mid-task by calling the{" "}
-          <Code>notify</Code> MCP tool — useful for summarizing intermediate
+          An agent can page you mid-task by posting to its stream with{" "}
+          <Code>notify: true</Code> — useful for summarizing intermediate
           results, flagging risks, or asking you to check something specific.
-          Parameters:
-        </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
-          <li>
-            <Code>message</Code> — body with Slack mrkdwn (max 3000 chars).
-          </li>
-          <li>
-            <Code>title</Code> — optional title (max 150 chars). Defaults to{" "}
-            <em>Notification from &lt;agent&gt;</em>.
-          </li>
-          <li>
-            <Code>level</Code> — <Code>info</Code>, <Code>success</Code>,{" "}
-            <Code>warning</Code>, or <Code>error</Code>; controls the attachment
-            color and emoji.
-          </li>
-          <li>
-            <Code>respectFocus</Code> — when <Code>true</Code>, the notification
-            is suppressed while you're actively viewing the agent. Defaults to{" "}
-            <Code>false</Code>.
-          </li>
-        </ul>
-        <P>
-          Rate limited to 5 notifications per minute per agent. Requires a Slack
-          webhook. Available to regular and job agents; persona agents don't
-          have this tool.
+          The post goes out through the same browser and Slack channels as a
+          status change, subject to the same focus suppression, and the block
+          itself stays in the Chat. Available to regular and job agents.
         </P>
       </Section>
     </>

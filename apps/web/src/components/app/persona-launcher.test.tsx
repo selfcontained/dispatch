@@ -19,7 +19,6 @@ const agent: Agent = {
   cwd: "/repo",
   worktreePath: null,
   worktreeBranch: null,
-  tmuxSession: "dispatch-agt_parent",
   agentArgs: [],
   model: null,
   fullAccess: false,
@@ -121,7 +120,7 @@ describe("PersonaLauncher", () => {
   it("sends the trimmed focus note with the launch request", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/launch-persona")) return { ok: true, launched: [] };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });
@@ -145,7 +144,7 @@ describe("PersonaLauncher", () => {
 
     await vi.waitFor(() => {
       const call = api.mock.calls.find((args) =>
-        String(args[0]).includes("/launch-review")
+        String(args[0]).includes("/launch-persona")
       );
       expect(call).toBeDefined();
       expect(JSON.parse(call![1].body)).toMatchObject({
@@ -158,7 +157,7 @@ describe("PersonaLauncher", () => {
   it("sends note: null when the field is left empty", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/launch-persona")) return { ok: true, launched: [] };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });
@@ -179,7 +178,7 @@ describe("PersonaLauncher", () => {
 
     await vi.waitFor(() => {
       const call = api.mock.calls.find((args) =>
-        String(args[0]).includes("/launch-review")
+        String(args[0]).includes("/launch-persona")
       );
       expect(call).toBeDefined();
       expect(JSON.parse(call![1].body).note).toBeNull();

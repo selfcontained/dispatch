@@ -1120,18 +1120,14 @@ export class JobService {
     return current;
   }
 
+  /**
+   * The host reports its own exit, so the agent's status is the whole
+   * signal: a run whose agent is stopped or in error will never report.
+   */
   private async agentSessionCrashed(agentId: string): Promise<boolean> {
     const agent = await this.agentManager.getAgent(agentId);
     if (!agent) return true;
-    if (agent.status === "error" || agent.status === "stopped") return true;
-    if (this.config.agentRuntime === "inert") return false;
-    if (!agent.tmuxSession) return false;
-    const tmux = await runCommand(
-      "tmux",
-      ["has-session", "-t", agent.tmuxSession],
-      { allowedExitCodes: [0, 1] }
-    );
-    return tmux.exitCode !== 0;
+    return agent.status === "error" || agent.status === "stopped";
   }
 
   private async markTimedOut(
@@ -1212,20 +1208,6 @@ export class JobService {
       sections.push(
         `Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`
       );
-    }
-
-    const agent = await this.agentManager.getAgent(agentId);
-    if (agent?.tmuxSession) {
-      const pane = await runCommand(
-        "tmux",
-        ["capture-pane", "-pt", agent.tmuxSession],
-        { allowedExitCodes: [0, 1] }
-      );
-      if (pane.exitCode === 0 && pane.stdout.trim()) {
-        sections.push(
-          `Terminal pane tail:\n${pane.stdout.trim().split("\n").slice(-40).join("\n")}`
-        );
-      }
     }
 
     return sections.join("\n\n");

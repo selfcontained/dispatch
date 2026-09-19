@@ -64,7 +64,6 @@ export type AgentRecord = {
   cwd: string;
   worktreePath: string | null;
   worktreeBranch: string | null;
-  tmuxSession: string | null;
   simulatorUdid: string | null;
   mediaDir: string | null;
   agentArgs: string[];
@@ -81,14 +80,12 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   /**
-   * The agent that ran launch_agent / launch_persona to
-   * create this one. Set for every agent-originated launch, including
+   * The agent that ran launch_agent to create this one. Set for every agent-originated launch, including
    * `child: false` launches whose `parentAgentId` is deliberately null.
    */
   launchedByAgentId: string | null;
   personaContext: string | null;
   reviewAgentType: AgentType | null;
-  submittedReviewId: number | null;
   baseBranch: string | null;
   templateId: string | null;
   autoReview: boolean;

@@ -94,14 +94,14 @@ export async function seedAgents(client: PoolClient): Promise<void> {
     await client.query(
       `
       INSERT INTO agents (
-        id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access,
+        id, name, type, status, cwd, media_dir, agent_args, full_access,
         setup_phase, archive_phase, last_error,
         persona, parent_agent_id, persona_context,
         worktree_path, worktree_branch, base_branch,
         latest_event_type, latest_event_message, latest_event_metadata, latest_event_updated_at,
         created_at, updated_at
       ) VALUES (
-        $1,$2,$3,$4,$5,NULL,NULL,'[]'::jsonb,false,
+        $1,$2,$3,$4,$5,NULL,'[]'::jsonb,false,
         $6,$7,$8,
         $9,$10,NULL,
         $11,$12,$13,

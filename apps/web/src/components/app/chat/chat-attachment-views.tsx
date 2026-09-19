@@ -1,6 +1,6 @@
 /**
- * The attachments a post hangs under itself: files, links, PRs, code and
- * pins. Presentational leaves — each takes an attachment and renders it;
+ * The attachments a post hangs under itself: files, links, PRs and code.
+ * Presentational leaves — each takes an attachment and renders it;
  * none of them reads the feed beyond the three fields `AttachmentCtx`
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
@@ -10,8 +10,6 @@ import { ExternalLink, FileText, GitPullRequest } from "lucide-react";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
-import { usePinShortcuts } from "@/components/app/chat/pin-shortcut-context";
-import { PinItem } from "@/components/app/pin-item";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
@@ -171,83 +169,6 @@ function CodeAttachment({
   );
 }
 
-/**
- * A pin rendered live from the agent's current pins — the sidebar's own
- * `PinItem`, so the stream and the sidebar never disagree, and a shortcut
- * fires from either place. `label` names a pin that is no longer there.
- */
-export function LivePin({
-  pinId,
-  label,
-  ctx,
-  testId,
-}: {
-  pinId: string;
-  label?: string;
-  ctx: AttachmentCtx;
-  testId: string;
-}): JSX.Element {
-  const shortcuts = usePinShortcuts();
-  const pin = shortcuts.pins.find((p) => p.id === pinId);
-  if (!pin) {
-    return (
-      <AttachmentBlock
-        className="text-xs italic text-muted-foreground"
-        data-testid={`${testId}-missing`}
-      >
-        {label ? (
-          <>
-            <span className="not-italic font-medium">{label}</span> · pin no
-            longer available
-          </>
-        ) : (
-          "Pin no longer available"
-        )}
-      </AttachmentBlock>
-    );
-  }
-  // A card rather than the accent bar the other attachments use: a pin's
-  // copy button sits at the right edge of its own box, and without a drawn
-  // edge that box is invisible — the button reads as floating somewhere
-  // short of where the post's copy action lives. A shortcut is already a
-  // button, so it gets no card; it is a sidebar-width button (w-full) that
-  // in the channel's wide measure would stretch into a banner, so here it
-  // hugs its label up to a cap instead.
-  return (
-    <div
-      className={
-        pin.type === "shortcut"
-          ? "w-fit max-w-[20rem]"
-          : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
-      }
-      data-testid={testId}
-    >
-      <PinItem
-        pin={pin}
-        workspaceRoot={shortcuts.workspaceRoot}
-        inGroup
-        agentIsRunning={shortcuts.agentIsRunning}
-        onRunShortcut={shortcuts.onRunShortcut}
-        pendingPinId={shortcuts.pendingPinId}
-        agentName={ctx.agentName ?? null}
-        buttonRef={shortcuts.registerShortcutButton}
-      />
-    </div>
-  );
-}
-
-function PinAttachment({
-  attachment,
-  ctx,
-}: {
-  attachment: Extract<ChatAttachment, { type: "pin" }>;
-  ctx: AttachmentCtx;
-}): JSX.Element {
-  return (
-    <LivePin pinId={attachment.pinId} ctx={ctx} testId="chat-attachment-pin" />
-  );
-}
-
 function AttachmentView({
   attachment,
   ctx,
@@ -278,8 +199,6 @@ function AttachmentView({
       );
     case "code":
       return <CodeAttachment attachment={attachment} />;
-    case "pin":
-      return <PinAttachment attachment={attachment} ctx={ctx} />;
   }
 }
 

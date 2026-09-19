@@ -1071,7 +1071,7 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
+      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
       VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
       `,
       [
@@ -1559,20 +1559,17 @@ export class AgentManager {
   private async setAgentStatus(
     id: string,
     status: AgentStatus,
-    lastError: string | null,
-    tmuxSession?: string
+    lastError: string | null
   ): Promise<void> {
-    const shouldSetTmuxSession = typeof tmuxSession === "string";
     const result = await this.pool.query(
       `
       UPDATE agents
       SET status = $2,
           last_error = $3,
-          tmux_session = CASE WHEN $4::boolean THEN $5 ELSE tmux_session END,
           updated_at = NOW()
       WHERE id = $1
       `,
-      [id, status, lastError, shouldSetTmuxSession, tmuxSession ?? null]
+      [id, status, lastError]
     );
 
     if (result.rowCount !== 1) {
@@ -1611,10 +1608,9 @@ export class AgentManager {
         cwd,
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
-        tmux_session AS "tmuxSession",
         simulator_udid AS "simulatorUdid",
         media_dir AS "mediaDir",
-        codex_args AS "agentArgs",
+        agent_args AS "agentArgs",
         model,
         full_access AS "fullAccess",
         setup_phase AS "setupPhase",

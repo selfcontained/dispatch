@@ -126,6 +126,7 @@ import {
 } from "./server/activity-query.js";
 import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
+import { startRetentionSweep } from "./agents/retention.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
@@ -240,6 +241,7 @@ const streamManager = new StreamManager(
   }
 );
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
+let stopRetentionSweep: (() => void) | null = null;
 
 const ICON_COLOR_KEY = "icon_color";
 const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
@@ -859,6 +861,11 @@ export async function initializeApp(options?: {
       void diffStatsRefresher.signal(agent.id);
     }
     agentLifecycleRuntime.startReconcileLoop();
+    stopRetentionSweep = startRetentionSweep({
+      pool,
+      logger: app.log,
+      mediaRoot: config.mediaRoot,
+    });
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();
   }
@@ -910,6 +917,8 @@ async function cleanupAppResources(): Promise<void> {
 
   streamManager.stopAll();
   agentLifecycleRuntime.stopReconcileLoop();
+  stopRetentionSweep?.();
+  stopRetentionSweep = null;
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
   await serviceResources.shutdown();

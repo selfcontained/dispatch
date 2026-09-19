@@ -9,8 +9,6 @@ import {
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDefaultStore } from "jotai";
-
 import type { Agent } from "@/components/app/types";
 
 import { AgentsView } from "./agents-view";
@@ -247,26 +245,15 @@ vi.mock("@/hooks/use-media", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-agent-surfaces", () => ({
-  useAgentSurfaces: (agentId: string | null) => {
-    H.record("useAgentSurfaces", { agentId });
+vi.mock("@/hooks/use-stream-rail", () => ({
+  useStreamRail: (agentId: string | null) => {
+    H.record("useStreamRail", { agentId });
     const s = H.state;
     return {
-      surfaces: (s.agentSurfaces as Array<{ id: string }>) ?? [],
+      rootId: agentId,
+      inputs: (s.railInputs as unknown[]) ?? [],
+      links: [],
       isLoading: false,
-      isError: false,
-      refetch: s.unused,
-    };
-  },
-}));
-
-vi.mock("@/components/app/agent-surfaces/use-surface-seen", () => ({
-  useSurfaceSeen: (agentId: string | null) => {
-    H.record("useSurfaceSeen", { agentId });
-    const seen = (H.state.surfaceSeenIds as string[]) ?? [];
-    return {
-      isNew: (id: string) => !seen.includes(id),
-      markSeen: H.state.unused,
     };
   },
 }));
@@ -321,7 +308,6 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
     cwd: `/repos/${overrides.id}`,
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: null,
     agentArgs: [],
     model: null,
     fullAccess: false,
@@ -472,20 +458,6 @@ describe("AgentsView focused agent", () => {
     expect(propsOf("AgentsViewHeader").focusedAgentName).toBe("agent a2");
     expect(propsOf("MediaSidebar").selectedAgentId).toBe("a2");
   });
-
-  it("counts unseen agent-authored surfaces into the header's closed-sidebar badge", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      agentSurfaces: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
-      surfaceSeenIds: ["s2"],
-    });
-    mount();
-
-    // s1 and s3 are unseen; s2 was already viewed — reuses the same
-    // seen-state atom the tab strip itself reads, no duplicate server state.
-    expect(propsOf("AgentsViewHeader").unseenSurfaceCount).toBe(2);
-  });
 });
 
 describe("AgentsView agent pane", () => {
@@ -555,7 +527,7 @@ describe("AgentsView file navigation", () => {
   }
 
   function navigateToFile(...args: unknown[]) {
-    const handler = propsOf("MediaSidebar").onNavigateToFile as (
+    const handler = propsOf("AgentPane").onOpenPath as (
       ...a: unknown[]
     ) => void;
     act(() => handler(...args));
@@ -570,16 +542,6 @@ describe("AgentsView file navigation", () => {
     // A push here would leave the pre-navigation entry behind, so Back would
     // land on the same screen the user is already looking at.
     expect(navigationType()).toBe("REPLACE");
-  });
-
-  it("omits the line and carries a feedback item when one is given", () => {
-    mountWithFocus();
-
-    navigateToFile("src/app.ts", null, 7);
-
-    expect(locationHref()).toBe(
-      "/agents/a1/changes?file=src%2Fapp.ts&feedback=7"
-    );
   });
 
   it("closes the mobile media sidebar it navigated out of", () => {
@@ -608,98 +570,6 @@ describe("AgentsView file navigation", () => {
     navigateToFile("src/app.ts", 42);
 
     expect(locationHref()).toBe("/agents");
-  });
-});
-
-describe("AgentsView review navigation", () => {
-  it("opens the reviews tab on the focused agent after a review is submitted", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      changesMatch: true,
-    });
-    mount({ path: "/agents/a1/changes" });
-
-    act(() =>
-      (propsOf("ChangesTab").onReviewSubmitted as (id: number) => void)(31)
-    );
-
-    expect(locationHref()).toBe("/agents/a1?expandReview=31");
-    expect(navigationType()).toBe("REPLACE");
-    expect(H.state.setMediaOpen).toHaveBeenCalledWith(true);
-    expect(H.state.setMediaActiveTab).toHaveBeenCalledWith("reviews");
-  });
-
-  it("jumps from a reviewer to its parent's review, keeping the reviewer in history", () => {
-    const reviewer = makeAgent({
-      id: "rev1",
-      parentAgentId: "a1",
-      submittedReviewId: 9,
-    });
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), reviewer],
-      validatedSelectedAgentId: "rev1",
-    });
-    const { props } = mount({ path: "/agents/rev1", isMobile: true });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        reviewer
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/a1?expandReview=9");
-    // Unlike a submit, this is a jump to a different agent: Back must return
-    // the user to the reviewer they came from.
-    expect(navigationType()).toBe("PUSH");
-    expect(H.state.setExpandedAgentId).toHaveBeenCalledWith("a1");
-    expect(H.state.setMediaActiveTab).toHaveBeenCalledWith("reviews");
-    expect(props.setMobileLeftOpen).toHaveBeenCalledWith(false);
-  });
-
-  it("ignores a reviewer that has not submitted a review yet", () => {
-    const reviewer = makeAgent({
-      id: "rev1",
-      parentAgentId: "a1",
-      submittedReviewId: null,
-    });
-    Object.assign(H.state, {
-      agents: [reviewer],
-      validatedSelectedAgentId: "rev1",
-    });
-    mount({ path: "/agents/rev1" });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        reviewer
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/rev1");
-    expect(H.state.setExpandedAgentId).not.toHaveBeenCalled();
-    expect(H.state.setMediaOpen).not.toHaveBeenCalled();
-  });
-
-  it("ignores a review agent with no parent to jump back to", () => {
-    const orphan = makeAgent({
-      id: "rev1",
-      parentAgentId: null,
-      submittedReviewId: 9,
-    });
-    Object.assign(H.state, {
-      agents: [orphan],
-      validatedSelectedAgentId: "rev1",
-    });
-    mount({ path: "/agents/rev1" });
-
-    act(() =>
-      (propsOf("AgentListContent").openSubmittedReview as (a: Agent) => void)(
-        orphan
-      )
-    );
-
-    expect(locationHref()).toBe("/agents/rev1");
-    expect(H.state.setMediaActiveTab).not.toHaveBeenCalled();
   });
 });
 
@@ -988,17 +858,5 @@ describe("AgentsView hook wiring", () => {
     expect(props.setLeftOpen).toHaveBeenCalledWith(false);
     expect(props.setMobileMediaOpen).not.toHaveBeenCalled();
     expect(props.setMobileLeftOpen).not.toHaveBeenCalled();
-  });
-
-  it("closes the mobile media sidebar after one of its shortcuts runs", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-    });
-    const { props } = mount({ isMobile: true });
-
-    act(() => (propsOf("MediaSidebarContent").onShortcutRun as () => void)());
-
-    expect(props.setMobileMediaOpen).toHaveBeenCalledWith(false);
   });
 });

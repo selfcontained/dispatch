@@ -68,14 +68,7 @@ export function AgentHistoryDetail({
     );
   }
 
-  const {
-    agent,
-    events,
-    tokenUsage,
-    media,
-    feedback,
-    stateDurations,
-  } = data;
+  const { agent, events, tokenUsage, media, stateDurations } = data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -211,15 +204,8 @@ export function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Tabbed: Events / Media / Pins / Feedback */}
-      <DetailTabs
-        events={events}
-        media={media}
-        pins={agent.pins ?? []}
-        feedback={feedback}
-        agentId={agentId}
-        workspaceRoot={agent.gitContext?.repoRoot ?? agent.cwd}
-      />
+      {/* Tabbed: Events / Media */}
+      <DetailTabs events={events} media={media} agentId={agentId} />
     </div>
   );
 }

@@ -60,7 +60,6 @@ function makeAgent(id: string): Agent {
     cwd: "/repo",
     worktreePath: null,
     worktreeBranch: null,
-    tmuxSession: `dispatch-${id}`,
     agentArgs: [],
     fullAccess: false,
     mediaDir: null,

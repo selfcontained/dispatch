@@ -86,7 +86,7 @@ function playTones(tones: Tone[], masterGain = 0.18): void {
   }
 }
 
-export type CueIntent = "done" | "blocked" | "waiting_user" | "review_finished";
+export type CueIntent = "done" | "blocked" | "waiting_user";
 
 type SoundCue = {
   id: string;
@@ -125,19 +125,6 @@ const SOUND_CUES: SoundCue[] = [
         { freq: 659.25, startSec: 0.2, durSec: 0.16, gain: 0.7 },
       ]),
   },
-  {
-    id: "review-chord",
-    intent: "review_finished",
-    play: () =>
-      playTones(
-        [
-          { freq: 523.25, startSec: 0.0, durSec: 0.45 },
-          { freq: 659.25, startSec: 0.06, durSec: 0.4 },
-          { freq: 783.99, startSec: 0.12, durSec: 0.34 },
-        ],
-        0.13
-      ),
-  },
 ];
 
 export const CUE_INTENTS: Array<{
@@ -155,11 +142,6 @@ export const CUE_INTENTS: Array<{
     intent: "blocked",
     label: "Blocked",
     description: "Agent is stuck with no further approach to try.",
-  },
-  {
-    intent: "review_finished",
-    label: "Review finished",
-    description: "Persona agent submitted its verdict.",
   },
 ];
 

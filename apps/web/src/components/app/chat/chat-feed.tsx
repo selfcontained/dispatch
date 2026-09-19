@@ -12,9 +12,6 @@ import {
   DayDivider,
   dayLabel,
   type FeedContext,
-  PinEntryView,
-  reviewAuthor,
-  ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
 import {
@@ -52,7 +49,7 @@ export type ChatFeedRow =
        */
       rule: boolean;
       /**
-       * A turn only: the files, pins and posts to other agents the agent
+       * A turn only: the files, links and posts to other agents the agent
        * produced while it ran, lifted out of the feed and into the turn's
        * post.
        */
@@ -257,14 +254,10 @@ function authorKey(
         ? `${key}>${to}`
         : key;
     }
-    case "pin":
-      return "agent";
     case "turn":
       // Never reached: `layoutFeed` gives a turn its own group before it
       // asks for an author key.
       return "turn";
-    case "review":
-      return reviewAuthor(entry, ctx).key;
   }
 }
 
@@ -525,15 +518,6 @@ export function ChatFeed({
                   onAnswer={onAnswer}
                 />
               );
-            case "review":
-              return (
-                <ReviewEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                />
-              );
             case "turn":
               return (
                 <TurnEntryView
@@ -542,15 +526,6 @@ export function ChatFeed({
                   rule={row.rule}
                   ctx={ctx}
                   folded={row.folded}
-                />
-              );
-            case "pin":
-              return (
-                <PinEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
                 />
               );
           }
