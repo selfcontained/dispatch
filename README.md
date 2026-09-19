@@ -37,7 +37,6 @@ replace the fixed executable and restart the service.
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - GitHub integration — PR creation and CI status checks via MCP tools.
 - Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
-- Per-agent whiteboard — a shared Excalidraw canvas in the center pane that both you and the agent can draw on, synced live in both directions via MCP tools.
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
 - Service resources dashboard — live CPU, memory, subsystem health, and workload metrics for the Dispatch server, agents, and host (Settings → Resources, opt-in collection).
@@ -188,10 +187,6 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `send_message`             | Send a message to another running agent by ID or name                                      |
 | `get_activity_summary`     | Summarize agent activity over a time range                                                 |
 | `get_feedback_summary`     | Aggregate persona review feedback for pattern detection                                    |
-| `whiteboard_get`           | Read the agent's shared whiteboard (elements + PNG snapshot path)                          |
-| `whiteboard_update`        | Draw on the shared whiteboard (upsert Excalidraw elements by id)                           |
-| `whiteboard_howto`         | Fetch the Excalidraw element format and layout guide on demand                             |
-| `whiteboard_clear`         | Clear the shared whiteboard                                                                |
 | `brain_get_object`         | Read a shared object from the repo-scoped Brain                                            |
 | `brain_store_object`       | Create or update a shared Brain object (optimistic concurrency)                            |
 | `brain_list_objects`       | List Brain objects, optionally filtered by collection or prefix                            |
@@ -226,7 +221,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `review_submit`, `review_add_feedback`, `review_list_feedback`, `review_get_feedback`, `review_add_message`, `review_resolve`, `pin`, `pins`, `delete_pin`, `list_pins`, `post`, `update`, `react`, `list_media`, `delete_media`, `whiteboard_get`, and the full `surface_*` family. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `review_submit`, `review_add_feedback`, `review_list_feedback`, `review_get_feedback`, `review_add_message`, `review_resolve`, `pin`, `pins`, `delete_pin`, `list_pins`, `post`, `update`, `react`, `list_media`, `delete_media`, and the full `surface_*` family. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 
@@ -240,7 +235,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Dispatch plugin (Claude Code + Codex)
 
-This repo doubles as a plugin marketplace. The **Dispatch plugin** ships twelve skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, interactive surfaces, the review workflow, UI validation, personas, the whiteboard, jobs, templates, and personalities — so agents discover them instead of having to be told.
+This repo doubles as a plugin marketplace. The **Dispatch plugin** ships eleven skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, interactive surfaces, the review workflow, UI validation, personas, jobs, templates, and personalities — so agents discover them instead of having to be told.
 
 **Before you install:** plugins on Claude Code and Codex are **unsigned and unsandboxed, and run with your full local user privileges** — this one and every other self-hosted plugin. This plugin ships no executable components (no hooks, no `bin/`, no bundled MCP servers), only markdown skills; [plugins/dispatch/README.md](plugins/dispatch/README.md#trust) shows how to verify that for yourself before running the commands below.
 

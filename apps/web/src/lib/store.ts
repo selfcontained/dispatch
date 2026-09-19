@@ -174,10 +174,6 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
-export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
-  atom(false)
-);
-
 // Per-version dismissal for the plugin-update affordance, keyed by
 // `<agentType>:<latestVersion>`. Unlike a first-install dismissal (which is
 // correctly permanent), an update nudge must not silence every future

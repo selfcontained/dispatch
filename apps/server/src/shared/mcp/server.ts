@@ -29,11 +29,6 @@ import {
   type AgentListing,
 } from "./messaging-tools.js";
 import { registerPersonalityTools } from "./personality-tools.js";
-import { registerWhiteboardTools } from "./whiteboard-tools.js";
-import type {
-  WhiteboardGetResult,
-  WhiteboardUpdateResult,
-} from "../whiteboard.js";
 import type { PinListing, PinSummary } from "../../server/pin-listing.js";
 import {
   registerPersonaInteractionTools,
@@ -166,10 +161,6 @@ const AGENT_TOOLS = new Set([
   "react",
   "get_activity_summary",
   "get_feedback_summary",
-  "whiteboard_get",
-  "whiteboard_update",
-  "whiteboard_howto",
-  "whiteboard_clear",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -280,7 +271,6 @@ const REVIEW_AGENT_TOOLS = new Set([
   "review_get_feedback",
   "review_add_message",
   "review_resolve",
-  "whiteboard_get",
   "surface_create",
   "surface_update",
   "surface_list",
@@ -546,13 +536,6 @@ export type McpRequestContext = {
     input: { id?: string; ids?: string[]; group?: string }
   ) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
-  getWhiteboard?: (agentId: string) => Promise<WhiteboardGetResult>;
-  updateWhiteboard?: (
-    agentId: string,
-    elements: unknown[],
-    deleteIds: string[]
-  ) => Promise<WhiteboardUpdateResult>;
-  clearWhiteboard?: (agentId: string) => Promise<void>;
   sendMessage?: (
     agentId: string,
     input: { target: string; message: string; senderRepoRoot: string | null }
@@ -715,16 +698,6 @@ export async function createDispatchMcpServer(
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
       getReviewFeedbackItem: context.getReviewFeedbackItem,
-    });
-  }
-
-  // ── Whiteboard tools ──────────────────────────────────────────────
-  if (context.agent) {
-    registerWhiteboardTools(server, allowed, {
-      agentId: context.agent.id,
-      getWhiteboard: context.getWhiteboard,
-      updateWhiteboard: context.updateWhiteboard,
-      clearWhiteboard: context.clearWhiteboard,
     });
   }
 

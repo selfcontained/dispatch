@@ -6,12 +6,10 @@ import {
   bottomBarCollapsedAtom,
   chatShowChildAgentsAtom,
   type CenterTab,
-  whiteboardAgentDrewAtomFamily,
 } from "@/lib/store";
 
 import { AgentPane, ChatFiltersButton } from "@/components/app/agent-pane";
 import { ChangesTab } from "@/components/app/changes-tab";
-import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
 import { useVisibleDiffStats } from "@/hooks/use-agent-diff-stats";
@@ -106,12 +104,13 @@ export function AgentsView({
     agentVisualState,
   } = useAgents(true, routeAgentId ?? null);
 
-  const { changesMatch, whiteboardMatch, centerTabResolved, onTabChange } =
-    useAgentsViewRouting({
+  const { changesMatch, centerTabResolved, onTabChange } = useAgentsViewRouting(
+    {
       routeAgentId,
       agentsLoaded,
       validatedSelectedAgentId,
-    });
+    }
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -150,15 +149,8 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
-  const activeTab: CenterTab = changesMatch
-    ? "changes"
-    : whiteboardMatch
-      ? "whiteboard"
-      : "agent";
+  const activeTab: CenterTab = changesMatch ? "changes" : "agent";
 
-  const whiteboardAgentDrew = useAtomValue(
-    whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
-  );
   const bottomBarCollapsed = useAtomValue(bottomBarCollapsedAtom);
 
   const {
@@ -421,17 +413,8 @@ export function AgentsView({
     />
   ) : null;
 
-  const whiteboardVisible =
-    (isSplit &&
-      (splitState.left === "whiteboard" ||
-        splitState.right === "whiteboard")) ||
-    (!isSplit && whiteboardMatch);
-  const whiteboardElement = whiteboardVisible ? (
-    <WhiteboardPane agentId={focusedAgentId} active={true} />
-  ) : null;
-
   const agentPaneVisible = !isSplit
-    ? centerTabResolved && !changesMatch && !whiteboardMatch
+    ? centerTabResolved && !changesMatch
     : splitState.left === "agent" || splitState.right === "agent";
   const agentPaneProps = {
     agentId: focusedAgentId,
@@ -444,7 +427,7 @@ export function AgentsView({
     isMobile,
   };
   // Only in a split: the single-pane Agent pane is always rendered (hidden
-  // under Changes/Whiteboard) so its draft and scroll position survive a tab
+  // under Changes) so its draft and scroll position survive a tab
   // switch.
   const splitAgentElement =
     isSplit && agentPaneVisible ? (
@@ -556,7 +539,6 @@ export function AgentsView({
                 splitState={splitState}
                 exitSplit={exitSplit}
                 onTabChange={onTabChange}
-                whiteboardAgentDrew={whiteboardAgentDrew}
                 mediaPanelOpen={mediaPanelOpen}
                 setMediaOpen={setMediaOpen}
                 unseenMediaCount={unseenMediaCount}
@@ -578,7 +560,6 @@ export function AgentsView({
                     splitLeftRef={splitLeftRef}
                     splitButtonRef={splitButtonRef}
                     changesElement={changesElement}
-                    whiteboardElement={whiteboardElement}
                     agentElement={splitAgentElement}
                     agentHeaderAccessory={splitAgentHeaderAccessory}
                     isMobile={isMobile}
@@ -599,7 +580,6 @@ export function AgentsView({
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
-                    {whiteboardElement}
                   </>
                 )}
                 <SplitDropZones

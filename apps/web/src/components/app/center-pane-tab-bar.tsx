@@ -20,7 +20,6 @@ export function formatDiffCount(count: number): string {
 type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
-  whiteboardAgentDrew?: boolean;
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
@@ -30,7 +29,6 @@ type CenterPaneTabBarProps = {
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   activeTab,
   onTabChange,
-  whiteboardAgentDrew = false,
   isSplit,
   splitState,
   isMobile,
@@ -43,7 +41,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   const visibleTabs = CENTER_TABS.filter((t) => !splitTabs.has(t.id));
 
   // When the strip scrolls (phones), keep the active tab in view: a deep
-  // link to Whiteboard would otherwise land with its tab off the right edge.
+  // link to Changes would otherwise land with its tab off the right edge.
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isMobile) return;
@@ -115,14 +113,6 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
                   {formatBadgeCount(chatUnreadCount)}
                 </span>
               ) : null}
-              {tab.id === "whiteboard" &&
-              whiteboardAgentDrew &&
-              activeTab !== "whiteboard" ? (
-                <span
-                  data-testid="whiteboard-agent-drew-dot"
-                  className="absolute -right-2 -top-0.5 h-1.5 w-1.5 rounded-full bg-violet-500"
-                />
-              ) : null}
               {activeTab === tab.id && !isSplit ? (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
               ) : null}
@@ -140,23 +130,6 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             <TipSpot
               key={tab.id}
               tipId="split-tabs"
-              side="bottom"
-              align="center"
-            >
-              {button}
-            </TipSpot>
-          );
-
-        if (
-          tab.id === "whiteboard" &&
-          activeTab !== tab.id &&
-          !isMobile &&
-          !isSplit
-        )
-          return (
-            <TipSpot
-              key={tab.id}
-              tipId="whiteboard"
               side="bottom"
               align="center"
             >

@@ -7,10 +7,10 @@ export function PluginContent() {
         Dispatch publishes an official plugin for <strong>Claude Code</strong>{" "}
         and <strong>Codex</strong>. It ships skills that teach agents how to use
         the capabilities documented here — the Brain, subagents, repo tools,
-        artifact sharing, agent surfaces, the review workflow, the whiteboard,
-        jobs, templates, reviewers, personalities, and UI validation — so an
-        agent discovers them at the moment it needs one instead of having to be
-        told. The Dispatch repo doubles as the marketplace it's served from.
+        artifact sharing, agent surfaces, the review workflow, jobs, templates,
+        reviewers, personalities, and UI validation — so an agent discovers them
+        at the moment it needs one instead of having to be told. The Dispatch
+        repo doubles as the marketplace it's served from.
       </P>
 
       <Section>
@@ -64,10 +64,10 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-skills">What's in it</H3>
         <P>
-          Thirteen narrow skills, each written to fire on a situation rather
-          than a feature name — an agent that doesn't know a capability exists
-          will never match its name, but will match a description of the spot
-          it's currently in.
+          Twelve narrow skills, each written to fire on a situation rather than
+          a feature name — an agent that doesn't know a capability exists will
+          never match its name, but will match a description of the spot it's
+          currently in.
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
@@ -99,10 +99,6 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
           <li>
             <Code>personas</Code> — this repo needs a reviewer with a domain
             lens
-          </li>
-          <li>
-            <Code>whiteboard</Code> — the user's sketch matters, or a diagram
-            beats prose
           </li>
           <li>
             <Code>jobs</Code> — work should run on a schedule and report

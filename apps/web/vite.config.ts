@@ -55,44 +55,6 @@ function browserExtensionArchivePlugin(): Plugin {
   };
 }
 
-function excalidrawAssets(): Plugin {
-  const fontsDir = path.resolve(
-    __dirname,
-    "node_modules/@excalidraw/excalidraw/dist/prod/fonts"
-  );
-  const publicPrefix = "/excalidraw/fonts/";
-  const skipFamilies = new Set(["Xiaolai"]);
-  return {
-    name: "excalidraw-assets",
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? "").split("?")[0];
-        if (!url.startsWith(publicPrefix)) return next();
-        const rel = decodeURIComponent(url.slice(publicPrefix.length));
-        const file = path.join(fontsDir, rel);
-        if (!file.startsWith(fontsDir) || !existsSync(file)) {
-          res.statusCode = 404;
-          return res.end();
-        }
-        res.setHeader(
-          "Content-Type",
-          file.endsWith(".woff2") ? "font/woff2" : "font/woff"
-        );
-        return res.end(readFileSync(file));
-      });
-    },
-    writeBundle(options) {
-      const outDir = options.dir ?? path.resolve(__dirname, "dist");
-      cpSync(fontsDir, path.join(outDir, "excalidraw/fonts"), {
-        recursive: true,
-        filter: (src) =>
-          !skipFamilies.has(path.basename(path.dirname(src))) &&
-          !skipFamilies.has(path.basename(src)),
-      });
-    },
-  };
-}
-
 // Bake the workspace version into the bundle. The web client compares
 // this against the `X-Dispatch-Version` response header to detect a
 // stale bundle after a server self-update.
@@ -123,7 +85,6 @@ export default defineConfig({
   plugins: [
     react(),
     browserExtensionArchivePlugin(),
-    excalidrawAssets(),
     isProd &&
       VitePWA({
         registerType: "prompt",

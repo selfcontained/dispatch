@@ -111,7 +111,6 @@ import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
 import { isChatSurfaceEnabled } from "./chat-surface-settings.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
-import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -651,9 +650,6 @@ async function registerRoutes() {
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
     mcpDeleteMedia: mcpHandlers.deleteMedia,
-    mcpGetWhiteboard: mcpHandlers.getWhiteboard,
-    mcpUpdateWhiteboard: mcpHandlers.updateWhiteboard,
-    mcpClearWhiteboard: mcpHandlers.clearWhiteboard,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpListPersonalities: mcpHandlers.listPersonalities,
@@ -784,13 +780,6 @@ async function registerRoutes() {
   });
 
   await registerSurfaceRoutes(app, { surfaces: surfaceService });
-
-  await registerWhiteboardRoutes(app, {
-    pool,
-    mediaRoot: config.mediaRoot,
-    agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event),
-  });
 
   await registerAgentRoutes(app, {
     pool,

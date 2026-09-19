@@ -167,7 +167,6 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | `agent.deleted`                | Agent ID that was deleted                                           |
 | `media.changed`                | Agent ID whose media list changed                                   |
 | `media.seen`                   | Agent ID + array of media keys marked seen                          |
-| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                 |
 | `stream.entry`                 | Agent ID + one feed entry to upsert (a block, with its reactions)   |
 | `stream.changed`               | Agent ID whose stream changed; refetch the feed                     |
 | `stream.read`                  | Agent ID + the read boundary after `POST /streams/:rootId/read`     |
@@ -258,19 +257,6 @@ Cross-agent messages sent with the `send_message` MCP tool.
 | POST   | `/agents/:id/messages/read` | Mark messages addressed to the agent as read                |
 
 `delivered` is `null` while the pane write is queued (possibly behind the injection quiet gate), then `true`/`false` once it settles; `message.created` is published for the sender/recipient pair at insert and again at settlement, so clients refetch both times. Rows still pending when the server starts were abandoned by the previous process and are swept to `false` (no replay).
-
-## Whiteboard
-
-Per-agent shared Excalidraw canvas. The scene is stored as JSONB with an integer version for optimistic locking; agents edit it via the `whiteboard_*` MCP tools, the UI via these routes.
-
-| Method | Path                              | Description                                                                                    |
-| ------ | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| GET    | `/agents/:id/whiteboard`          | Get the scene, version, and updated-at (empty scene if never set)                              |
-| PUT    | `/agents/:id/whiteboard`          | Save the scene (`scene` + `baseVersion`); `409` with the current scene and version on conflict |
-| POST   | `/agents/:id/whiteboard/snapshot` | Upload a PNG rendering of the board (multipart file field)                                     |
-| DELETE | `/agents/:id/whiteboard/snapshot` | Remove the PNG snapshot (used when the board is emptied)                                       |
-
-Scene saves are capped at 20,000 elements and an 8 MB body. The snapshot is written to the agent's media directory as `whiteboard.png` (not listed in the media pane) so agents can view the board via `whiteboard_get`.
 
 ## Streaming
 

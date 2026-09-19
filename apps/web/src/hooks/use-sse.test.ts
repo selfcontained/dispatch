@@ -10,10 +10,7 @@ import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { LIVE_HEAD_ROWS } from "@/hooks/use-stream";
 import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
-import {
-  agentToolBlipAtomFamily,
-  whiteboardAgentDrewAtomFamily,
-} from "@/lib/store";
+import { agentToolBlipAtomFamily } from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 
 import {
@@ -531,7 +528,6 @@ describe("useSSE message handling", () => {
       ["jobs"],
       ["templates"],
       ["brain"],
-      ["whiteboard"],
       CACHED_RELEASE_INFO_QUERY_KEY,
       ["chat-unread"],
       ["stream"],
@@ -619,34 +615,6 @@ describe("useSSE message handling", () => {
       ["a1", false],
       ["a2", false],
     ]);
-  });
-
-  it("marks the agent-drew flag only when the agent did the drawing", () => {
-    // The flag drives an attention affordance, so echoing the user's own
-    // strokes back at them would make it permanently lit.
-    const { jotaiStore, emit, invalidateQueries } = renderMessages();
-
-    emit({
-      type: "whiteboard.changed",
-      agentId: "a1",
-      version: 2,
-      source: "user",
-    });
-    expect(jotaiStore.get(whiteboardAgentDrewAtomFamily("a1"))).toBe(false);
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["whiteboard", "a1"],
-      exact: true,
-    });
-
-    emit({
-      type: "whiteboard.changed",
-      agentId: "a1",
-      version: 3,
-      source: "agent",
-    });
-    expect(jotaiStore.get(whiteboardAgentDrewAtomFamily("a1"))).toBe(true);
-    // Another agent's board is untouched by a1's stroke.
-    expect(jotaiStore.get(whiteboardAgentDrewAtomFamily("a2"))).toBe(false);
   });
 
   it("marks seen only the media files named in the event", () => {

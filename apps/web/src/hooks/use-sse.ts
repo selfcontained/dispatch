@@ -33,10 +33,7 @@ import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
-import {
-  agentToolBlipAtomFamily,
-  whiteboardAgentDrewAtomFamily,
-} from "@/lib/store";
+import { agentToolBlipAtomFamily } from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
@@ -258,7 +255,6 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
-          void queryClient.invalidateQueries({ queryKey: ["whiteboard"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -382,20 +378,6 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "stream.stopped") {
           patchAgentHasStream(queryClient, payload.agentId, false);
-          return;
-        }
-
-        if (payload.type === "whiteboard.changed") {
-          void queryClient.invalidateQueries({
-            queryKey: ["whiteboard", payload.agentId],
-            exact: true,
-          });
-          if (payload.source === "agent") {
-            jotaiStore.set(
-              whiteboardAgentDrewAtomFamily(payload.agentId),
-              true
-            );
-          }
           return;
         }
 

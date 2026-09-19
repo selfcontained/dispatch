@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDefaultStore } from "jotai";
 
-import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 import type { Agent } from "@/components/app/types";
 
 import { AgentsView } from "./agents-view";
@@ -82,7 +81,6 @@ vi.mock(
   "@/components/app/agent-pane",
   stubModule("AgentPane", "ChatFiltersButton")
 );
-vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
 // the stub does too — otherwise the elements AgentsView builds are only ever
@@ -95,11 +93,9 @@ vi.mock("@/components/app/center-pane-split", async () => {
       const slot = (tab: string) =>
         tab === "changes"
           ? (received.changesElement as never)
-          : tab === "whiteboard"
-            ? (received.whiteboardElement as never)
-            : tab === "agent"
-              ? (received.agentElement as never)
-              : null;
+          : tab === "agent"
+            ? (received.agentElement as never)
+            : null;
       const splitState = received.splitState as { left: string; right: string };
       return React.createElement(
         "div",
@@ -174,7 +170,6 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     const s = H.state;
     return {
       changesMatch: s.changesMatch,
-      whiteboardMatch: s.whiteboardMatch,
       centerTabResolved: s.centerTabResolved ?? true,
       onTabChange: s.onTabChange,
     };
@@ -405,7 +400,6 @@ beforeEach(() => {
     agentVisualState: () => "idle",
     resortAgents: vi.fn(),
     changesMatch: false,
-    whiteboardMatch: false,
     onTabChange: vi.fn(),
     expandedAgentId: null,
     setExpandedAgentId: vi.fn(),
@@ -552,7 +546,7 @@ describe("AgentsView agent pane", () => {
     focusOn("a1");
     Object.assign(H.state, {
       isSplit: true,
-      splitState: { left: "whiteboard", right: "changes" },
+      splitState: { left: "changes", right: "changes" },
     });
     mount({ path: "/agents/a1" });
     expect(propsOf("CenterPaneSplit").agentElement).toBeNull();
@@ -793,10 +787,6 @@ describe("AgentsView center pane", () => {
     mount({ path: "/agents/a1" });
 
     expect(renderedChildren()).toContain("ChangesTab");
-    // The whiteboard is checked at the source, not in the DOM: the split's
-    // slots decide what mounts, so an element built from a stale match would
-    // be absent from the document either way.
-    expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
   });
 
   it("renders the changes pane from the split layout's left slot", () => {
@@ -812,19 +802,6 @@ describe("AgentsView center pane", () => {
     expect(propsOf("ChangesTab").agentId).toBe("a1");
   });
 
-  it("renders the whiteboard from the split layout's left slot", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      isSplit: true,
-      splitState: { left: "whiteboard", right: "agent" },
-    });
-    mount({ path: "/agents/a1" });
-
-    expect(renderedChildren()).toContain("WhiteboardPane");
-    expect(propsOf("CenterPaneSplit").changesElement).toBeNull();
-  });
-
   it("ignores the route matches while split, so a stale route cannot double-render", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
@@ -832,30 +809,14 @@ describe("AgentsView center pane", () => {
       isSplit: true,
       splitState: { left: "agent", right: "agent" },
       changesMatch: true,
-      whiteboardMatch: true,
     });
     mount({ path: "/agents/a1/changes" });
 
     expect(renderedChildren()).not.toContain("ChangesTab");
-    expect(renderedChildren()).not.toContain("WhiteboardPane");
-    // The split's own slots decide what is mounted, so the panes have to be
+    // The split's own slots decide what is mounted, so the pane has to be
     // absent at the source: a pane built from a stale route match would be
     // handed to the split and appear the moment a slot switched to it.
     expect(propsOf("CenterPaneSplit").changesElement).toBeNull();
-    expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
-  });
-
-  it("renders the whiteboard inline when its route matches and nothing is split", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-      whiteboardMatch: true,
-    });
-    mount({ path: "/agents/a1/whiteboard" });
-
-    expect(renderedChildren()).toContain("WhiteboardPane");
-    expect(propsOf("WhiteboardPane").agentId).toBe("a1");
-    expect(renderedChildren()).not.toContain("CenterPaneSplit");
   });
 });
 
@@ -1015,19 +976,6 @@ describe("AgentsView hook wiring", () => {
     mount({ path: "/agents/a2" });
 
     expect(hookArgs("useMarkMessagesRead").agentId).toBe("a2");
-  });
-
-  it("reads the whiteboard hint for the focused agent", () => {
-    const store = getDefaultStore();
-    store.set(whiteboardAgentDrewAtomFamily("a2"), true);
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
-      validatedSelectedAgentId: "a2",
-    });
-    mount({ path: "/agents/a2" });
-
-    expect(propsOf("AgentsViewHeader").whiteboardAgentDrew).toBe(true);
-    store.set(whiteboardAgentDrewAtomFamily("a2"), false);
   });
 
   it("swaps the left sidebar's close target between mobile and desktop", () => {

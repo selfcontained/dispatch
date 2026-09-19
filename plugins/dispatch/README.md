@@ -3,8 +3,8 @@
 Skills that teach agents how to use Dispatch's own capabilities. Install it in
 Claude Code or Codex and agents get shared memory, subagent orchestration, repo
 tools, artifact sharing, interactive surfaces, the review workflow, UI
-validation, personas, the whiteboard, jobs, templates, personalities, and how to
-reach the user as discoverable skills instead of tribal knowledge.
+validation, personas, jobs, templates, personalities, and how to reach the
+user as discoverable skills instead of tribal knowledge.
 
 ## Install
 
@@ -98,7 +98,6 @@ The rest of the tree is documentation: `skills/` (the skill bodies agents load),
 | `review-workflow` | A PR is going up, or review feedback needs working            |
 | `ui-validation`   | A UI change needs proving in a browser                        |
 | `personas`        | This repo needs a reviewer with a domain lens                 |
-| `whiteboard`      | The user's sketch matters, or a diagram beats prose           |
 | `jobs`            | Work should run on a schedule and report structurally         |
 | `templates`       | A launch configuration is worth saving                        |
 | `personalities`   | The user is commenting on how agents talk                     |
@@ -113,14 +112,14 @@ labels ("artifact sharing API"): an agent that does not know a capability exists
 will never match its name, but will match a description of the situation it is
 currently in.
 
-**Narrow skills, not mega-skills.** Thirteen narrow skills cost thirteen short
+**Narrow skills, not mega-skills.** Twelve narrow skills cost twelve short
 descriptions always-on and load exactly one body on a match. Folding them into
 three broad skills would load four unrelated bodies every time one of them fired.
 The binding budget is total description bytes, not skill count.
 
 **`communicate` is a router, not an exception to that.** It spans channels, but
-its body is a dispatch table that hands off to `surfaces`, `sharing`, and
-`whiteboard` rather than restating them. It exists because channel choice is
+its body is a dispatch table that hands off to `surfaces` and `sharing`
+rather than restating them. It exists because channel choice is
 made _before_ the agent knows which tool it wants: that guidance used to open
 `surfaces/SKILL.md`, where only an agent already committed to building a surface
 would ever read it. It was moved, not copied — two routing tables would be worse

@@ -40,13 +40,13 @@ describe("normalizeSplitPaneState", () => {
     });
     const roundTwo: PersistedSplitPaneState = {
       mode: "split",
-      left: "whiteboard",
+      left: "changes",
       right: "chat",
       sizes: [50, 50],
     };
     expect(normalizeSplitPaneState(roundTwo)).toEqual({
       mode: "split",
-      left: "whiteboard",
+      left: "changes",
       right: "agent",
       sizes: [50, 50],
     });
@@ -121,16 +121,16 @@ describe("useSplitPane persistence", () => {
     );
     const { result } = renderPane("agt_write");
 
-    act(() => result.current.handleTabDrop("whiteboard", "right", "agent"));
+    act(() => result.current.updateSizes([40, 60]));
 
     expect(result.current.splitState).toEqual({
       ...legacySplit,
       left: "agent",
-      right: "whiteboard",
+      sizes: [40, 60],
     });
     expect(
       JSON.parse(window.localStorage.getItem(v2Key("agt_write"))!)
-    ).toEqual({ ...legacySplit, right: "whiteboard" });
+    ).toEqual({ ...legacySplit, sizes: [40, 60] });
     // A client rolled back to v0.37.10 reads this key and must never find
     // an id it does not know in it.
     expect(window.localStorage.getItem(legacyKey("agt_write"))).toBe(
@@ -145,8 +145,8 @@ describe("useSplitPane persistence", () => {
     );
     const v2: SplitPaneState = {
       mode: "split",
-      left: "agent",
-      right: "whiteboard",
+      left: "changes",
+      right: "agent",
       sizes: [50, 50],
     };
     window.localStorage.setItem(v2Key("agt_both"), JSON.stringify(v2));

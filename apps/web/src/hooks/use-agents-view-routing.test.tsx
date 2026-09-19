@@ -155,27 +155,15 @@ describe("useAgentsViewRouting", () => {
         validatedSelectedAgentId: "agt_1",
       });
       expect(result.current.changesMatch).toBe(true);
-      expect(result.current.whiteboardMatch).toBe(false);
     });
 
-    it("reports the whiteboard tab", () => {
-      const { result } = renderRouting("/agents/agt_1/whiteboard", {
-        routeAgentId: "agt_1",
-        agentsLoaded: true,
-        validatedSelectedAgentId: "agt_1",
-      });
-      expect(result.current.changesMatch).toBe(false);
-      expect(result.current.whiteboardMatch).toBe(true);
-    });
-
-    it("reports the Agent tab as neither match", () => {
+    it("reports the Agent tab as no match", () => {
       const { result } = renderRouting("/agents/agt_1", {
         routeAgentId: "agt_1",
         agentsLoaded: true,
         validatedSelectedAgentId: "agt_1",
       });
       expect(result.current.changesMatch).toBe(false);
-      expect(result.current.whiteboardMatch).toBe(false);
     });
   });
 
@@ -253,7 +241,7 @@ describe("useAgentsViewRouting", () => {
   });
 
   describe("onTabChange", () => {
-    it("navigates between the three tabs, updating the match flags", () => {
+    it("navigates between the tabs, updating the match flags", () => {
       const { result, pathname } = renderRouting("/agents/agt_1", {
         routeAgentId: "agt_1",
         agentsLoaded: true,
@@ -264,14 +252,9 @@ describe("useAgentsViewRouting", () => {
       expect(pathname()).toBe("/agents/agt_1/changes");
       expect(result.current.changesMatch).toBe(true);
 
-      act(() => result.current.onTabChange("whiteboard"));
-      expect(pathname()).toBe("/agents/agt_1/whiteboard");
-      expect(result.current.whiteboardMatch).toBe(true);
-
       act(() => result.current.onTabChange("agent"));
       expect(pathname()).toBe("/agents/agt_1");
       expect(result.current.changesMatch).toBe(false);
-      expect(result.current.whiteboardMatch).toBe(false);
     });
 
     it("replaces the history entry instead of stacking tab switches", () => {
@@ -282,11 +265,12 @@ describe("useAgentsViewRouting", () => {
       });
 
       act(() => result.current.onTabChange("changes"));
-      act(() => result.current.onTabChange("whiteboard"));
-      expect(pathname()).toBe("/agents/agt_1/whiteboard");
+      act(() => result.current.onTabChange("agent"));
+      act(() => result.current.onTabChange("changes"));
+      expect(pathname()).toBe("/agents/agt_1/changes");
 
       goBack();
-      expect(pathname()).toBe("/agents/agt_1/whiteboard");
+      expect(pathname()).toBe("/agents/agt_1/changes");
     });
 
     it("ignores tab changes without a route agent", () => {

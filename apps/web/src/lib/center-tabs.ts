@@ -1,14 +1,10 @@
-import {
-  agentChangesRoute,
-  agentRoute,
-  agentWhiteboardRoute,
-} from "@/lib/agent-routes";
+import { agentChangesRoute, agentRoute } from "@/lib/agent-routes";
 
 /**
  * The center-pane tabs. **Agent** is the Chat feed at `/agents/:id`;
- * Changes and Whiteboard have routes of their own.
+ * Changes has a route of its own.
  */
-export type CenterTab = "agent" | "changes" | "whiteboard";
+export type CenterTab = "agent" | "changes";
 
 /**
  * Ids older builds persisted: round 1/2's "chat" tab and the "terminal" tab
@@ -31,7 +27,6 @@ export type CenterTabDef = {
 export const CENTER_TABS: readonly CenterTabDef[] = [
   { id: "agent", label: "Agent", route: agentRoute },
   { id: "changes", label: "Changes", route: agentChangesRoute },
-  { id: "whiteboard", label: "Whiteboard", route: agentWhiteboardRoute },
 ];
 
 const BY_ID: ReadonlyMap<CenterTab, CenterTabDef> = new Map(

@@ -9,23 +9,17 @@ import {
 } from "./center-tabs";
 
 describe("center tabs registry", () => {
-  it("offers Agent / Changes / Whiteboard in order", () => {
-    expect(CENTER_TABS.map((t) => t.id)).toEqual([
-      "agent",
-      "changes",
-      "whiteboard",
-    ]);
+  it("offers Agent / Changes in order", () => {
+    expect(CENTER_TABS.map((t) => t.id)).toEqual(["agent", "changes"]);
     expect(CENTER_TABS.map((t) => centerTabLabel(t.id))).toEqual([
       "Agent",
       "Changes",
-      "Whiteboard",
     ]);
   });
 
   it("routes each tab", () => {
     expect(centerTabRoute("a1", "agent")).toBe("/agents/a1");
     expect(centerTabRoute("a1", "changes")).toBe("/agents/a1/changes");
-    expect(centerTabRoute("a1", "whiteboard")).toBe("/agents/a1/whiteboard");
   });
 
   it("recognises stored tab ids and rejects anything else", () => {

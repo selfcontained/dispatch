@@ -31,7 +31,6 @@ type AgentsViewHeaderProps = {
   splitState: SplitPaneState;
   exitSplit: () => void;
   onTabChange: (tab: CenterTab) => void;
-  whiteboardAgentDrew: boolean;
   mediaPanelOpen: boolean;
   setMediaOpen: (open: boolean) => void;
   unseenMediaCount: number;
@@ -54,7 +53,6 @@ export function AgentsViewHeader({
   splitState,
   exitSplit,
   onTabChange,
-  whiteboardAgentDrew,
   mediaPanelOpen,
   setMediaOpen,
   unseenMediaCount,
@@ -120,7 +118,6 @@ export function AgentsViewHeader({
                   }
                   onTabChange(tab);
                 }}
-                whiteboardAgentDrew={whiteboardAgentDrew}
                 isSplit={isSplit}
                 splitState={splitState}
                 isMobile={isMobile}

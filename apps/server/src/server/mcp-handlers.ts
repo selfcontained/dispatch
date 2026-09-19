@@ -64,7 +64,6 @@ import type {
 } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
-import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
 import {
   activatePersonality,
   createPersonality,
@@ -1001,9 +1000,7 @@ async function handleSendMessage(
       )
     : null;
   if (!enqueued && persisted) {
-    await messageStore
-      .setDelivered(persisted.id, false)
-      .catch(() => undefined);
+    await messageStore.setDelivered(persisted.id, false).catch(() => undefined);
   }
 
   const announce = () =>
@@ -1235,16 +1232,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     appLog: deps.appLog,
   });
 
-  const whiteboardHandlers = createWhiteboardHandlers({
-    pool: deps.pool,
-    mediaRoot: deps.mediaRoot,
-    agentManager: deps.agentManager,
-    publishUiEvent: deps.publishUiEvent,
-  });
-
   return {
     ...reviewHandlers,
-    ...whiteboardHandlers,
 
     listPersonalities: async () => {
       const [personalities, activeId] = await Promise.all([

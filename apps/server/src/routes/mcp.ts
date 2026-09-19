@@ -73,9 +73,6 @@ type McpRouteDeps = {
   mcpListMedia: unknown;
   mcpDeleteMedia: unknown;
   mcpListPins: unknown;
-  mcpGetWhiteboard: unknown;
-  mcpUpdateWhiteboard: unknown;
-  mcpClearWhiteboard: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
   mcpListPersonalities: unknown;
@@ -105,7 +102,10 @@ type McpRouteDeps = {
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
   surfaces: SurfaceService;
-  chat: Pick<StreamService, "post" | "update" | "addReaction" | "removeReaction">;
+  chat: Pick<
+    StreamService,
+    "post" | "update" | "addReaction" | "removeReaction"
+  >;
 };
 
 function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
@@ -239,9 +239,6 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
-      getWhiteboard: deps.mcpGetWhiteboard,
-      updateWhiteboard: deps.mcpUpdateWhiteboard,
-      clearWhiteboard: deps.mcpClearWhiteboard,
       upsertPin: deps.mcpUpsertPin,
       upsertPins: deps.mcpUpsertPins,
       deletePin: deps.mcpDeletePin,
@@ -350,9 +347,6 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
-      getWhiteboard: deps.mcpGetWhiteboard,
-      updateWhiteboard: deps.mcpUpdateWhiteboard,
-      clearWhiteboard: deps.mcpClearWhiteboard,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       listPersonalities: deps.mcpListPersonalities,
