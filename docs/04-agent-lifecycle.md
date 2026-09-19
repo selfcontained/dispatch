@@ -22,7 +22,7 @@ lifecycle contract the server implements on top of it.
 `AgentRole` (column added in migration `0018_agents-role.sql`):
 
 - `standard` — every agent created via the normal Create dialog or a job launch.
-- `review` — persona review agents launched via `launch_persona` (see [Review Agent Lifecycle](#review-agent-lifecycle)).
+- `review` — persona agents launched via `launch_agent` with `persona` (or the UI's launch-persona action); see [Persona Agent Lifecycle](#persona-agent-lifecycle).
 - `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
 Role is orthogonal to `AgentType`, which names the engine: `claude` or `codex`.
@@ -100,7 +100,7 @@ Cleanup of orphaned hosts (hosts whose matching agent row is in a terminal state
 
 Each agent has a state directory `<agentStateRoot>/<agentId>/` (`~/.dispatch/agents/<agentId>/` in production; `DISPATCH_AGENT_STATE_ROOT` overrides it) holding `launch.json`, `host.sock`, `host.pid`, `journal.jsonl`, `session.json` and `host.log`. The server writes `launch.json` and spawns the host detached, in its own session and process group, through the user's login shell; the host owns everything else. `stop` removes the socket and pid; archive removes the directory.
 
-`agentManager.getTerminalAccess(id)` answers `{ mode: "live" }` when the host is up or `{ mode: "inert", message }` when the runtime has no processes at all (test/CI). Every prompt to an agent — a Chat message, a review injection, a cross-agent message, a job prompt — goes through `enqueueAgentPrompt`, which queues one turn behind whatever the engine is already running. "Held" means a turn is running ahead of it.
+`agentManager.getTerminalAccess(id)` answers `{ mode: "live" }` when the host is up or `{ mode: "inert", message }` when the runtime has no processes at all (test/CI). Every prompt to an agent — a user post, a block another agent addressed to it with `post` and `to`, a job prompt — goes through `enqueueAgentPrompt`, which queues one turn behind whatever the engine is already running. "Held" means a turn is running ahead of it.
 
 ## Local Config Files
 
@@ -190,8 +190,8 @@ Terminal phases: `done`, `rollback`, `blocked`, `failed`. The forward-only guard
 
 On server startup, `rehydrateActiveAssistedJob` reads the on-disk state and resumes tracking the active job if the persisted phase is non-terminal — this lets the in-app Updates pane keep showing progress across a Dispatch restart that the assisted update itself triggered.
 
-## Review Agent Lifecycle
+## Persona Agent Lifecycle
 
-Review agents are ordinary child agents with role `review`. Launching one does not create a review record. The review agent completes its initial pass by calling `review_submit`; a review with no feedback items records a clean approval, while a review with items remains open until the parent resolves or dismisses each item.
+Persona agents are ordinary child agents with role `review`: a persona is a launch profile (its instructions appended to the system prompt, the launcher's prompt as the briefing), not a separate runtime. Launching one creates no review record. A reviewer persona finishes its pass by posting one `review` block (`verdict`, `summary`, `findings`) into the stream, addressed to the agent that launched it. `verdict: "approve"` with no findings is a clean approval.
 
-Questions and follow-up discussion use each feedback item's tracked thread. Review status is derived from the item states rather than a separate reviewer state machine.
+Each finding is a thread on that block, and its status (`open`, `resolved`, `disputed`) lives in the block's `state`, changed by the launcher with `update` or by a person through the stream routes. Review status is derived from those finding states; there is no separate reviewer state machine. The persona agent's own status is derived like everyone else's: it shows as waiting only while it has an open question or form for the user.

@@ -70,9 +70,9 @@ Pass `ownerAgentId` to list what your parent or one of your direct children has
 shared instead — same shape, read-only, and the `filePath` points into their
 directory. A child's posts already land in the parent's stream, so a child that
 has posted its screenshots does not need to message you the paths, and you do
-not need to re-post them for the user. `list_pins` takes `ownerAgentId` the
-same way, so a child can read the dev-stack URL or PR link you pinned rather
-than being told.
+not need to re-post them for the user. Links go the other way the same way: a
+dev-stack URL or PR you posted is in the stream the child shares, so it can read
+it there rather than being told.
 
 ## Write a description that earns the click
 

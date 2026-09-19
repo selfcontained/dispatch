@@ -59,7 +59,7 @@ it at the moment of use.
 | `scope`       | no       | `agent` (standard agents and persona reviewers) and/or `job` (scheduled job runs). Omit to expose everywhere |
 
 `repo_` prefixing is automatic and keeps repo tools in their own namespace, so a
-repo tool can never shadow a built-in Dispatch tool like `create_pr` or
+repo tool can never shadow a built-in Dispatch tool like `launch_agent` or
 `post`.
 
 Scope values Dispatch doesn't recognize are dropped from the array, and a `scope`
