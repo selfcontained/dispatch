@@ -315,13 +315,13 @@ describe("POST /api/v1/jobs/run", () => {
     const body = res.json();
     const posts = await ctx.pool.query(
       `SELECT author_kind, kind, text, delivered, origin, attachments
-         FROM agent_chat_messages WHERE agent_id = $1`,
+         FROM blocks WHERE stream_id = $1`,
       [body.agentId]
     );
     expect(posts.rows).toHaveLength(1);
     expect(posts.rows[0]).toMatchObject({
       author_kind: "user",
-      kind: "reply",
+      kind: "text",
       delivered: true,
       origin: "launch",
       attachments: [],

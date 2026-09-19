@@ -31,7 +31,11 @@ async function createAgent(
     ...overrides,
   });
   expect(res.statusCode).toBe(201);
-  return res.json().agent;
+  const agent = res.json().agent;
+  // The launch post is written once the workspace is ready, in the
+  // background launch; wait for it before reading the stream.
+  await ctx.awaitLaunched(agent.id);
+  return agent;
 }
 
 beforeEach(async () => {
@@ -215,7 +219,7 @@ describe("POST /api/v1/agents (create)", () => {
     expect(child.parentAgentId).toBe(parent.id);
     const posts = await ctx.pool.query(
       `SELECT author_kind, text, origin, launched_by_agent_id
-         FROM agent_chat_messages WHERE agent_id = $1`,
+         FROM blocks WHERE stream_id = $1`,
       [child.id]
     );
     // The post is the user's own; only the agent-authenticated launch paths

@@ -129,8 +129,8 @@ describe("migrations", () => {
     // only operator used here.
     const index = await pool.query<{ indexdef: string }>(
       `SELECT indexdef FROM pg_indexes
-        WHERE tablename = 'agent_chat_messages'
-          AND indexname = 'agent_chat_messages_attachments_gin'`
+        WHERE tablename = 'blocks'
+          AND indexname = 'blocks_attachments_gin'`
     );
     expect(index.rowCount).toBe(1);
     expect(index.rows[0].indexdef).toContain("USING gin");

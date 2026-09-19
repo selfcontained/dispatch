@@ -152,7 +152,7 @@ describe("POST /api/v1/agents/:id/prompts/pin/:pinId", () => {
     );
     expect(res.statusCode).toBe(409);
     const rows = await ctx.pool.query(
-      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      "SELECT id FROM blocks WHERE stream_id = $1",
       [agent.id]
     );
     expect(rows.rowCount).toBe(0);
@@ -179,7 +179,7 @@ describe("POST /api/v1/agents/:id/prompts/pin/:pinId", () => {
     );
     expect(res.statusCode).toBe(400);
     const rows = await ctx.pool.query(
-      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      "SELECT id FROM blocks WHERE stream_id = $1",
       [agent.id]
     );
     expect(rows.rowCount).toBe(0);

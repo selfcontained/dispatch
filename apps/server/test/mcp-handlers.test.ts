@@ -1313,10 +1313,10 @@ describe("createMcpHandlers", () => {
       );
       expect(turn).toBe(
         [
-          "--- DISPATCH CHAT (id: post-1) ---",
+          "--- DISPATCH POST (id: post-1, from: user) ---",
           created.initialPrompt,
-          "--- END DISPATCH CHAT ---",
-          'The user is reading Chat; your reply appears there as you write it. Only a question with options needs chat_post (replyTo: "post-1").',
+          "--- END DISPATCH POST ---",
+          "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');

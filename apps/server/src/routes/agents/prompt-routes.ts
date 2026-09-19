@@ -82,7 +82,10 @@ export async function registerAgentPromptRoutes(
       return { text };
     }
     try {
-      await deps.chat.sendUserPost(deps.chat.streamOf(agentId), { text });
+      await deps.chat.sendUserPost(deps.chat.streamOf(agentId), {
+        text,
+        allowInert: false,
+      });
       return reply.code(204).send();
     } catch (error) {
       if (error instanceof StreamServiceError) {
@@ -110,6 +113,7 @@ export async function registerAgentPromptRoutes(
       }
       await deps.chat.sendUserPost(deps.chat.streamOf(agentId), {
         text: target.prompt,
+        allowInert: false,
       });
       return reply.code(204).send();
     } catch (error) {

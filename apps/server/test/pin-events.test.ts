@@ -7,8 +7,8 @@ import {
   recordPinEvents,
 } from "../src/agents/pin-events.js";
 import type { AgentPin } from "../src/agents/types.js";
-import { composeChatFeed } from "../src/chat/feed.js";
-import { ChatStore } from "../src/chat/store.js";
+import { composeStreamFeed } from "../src/chat/feed.js";
+import { BlockStore } from "../src/chat/store.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const pin = (id: string, over: Partial<AgentPin> = {}): AgentPin => ({
@@ -57,13 +57,13 @@ describe("diffPins", () => {
 
 describe("recordPinEvents", () => {
   let pool: Pool;
-  let store: ChatStore;
+  let store: BlockStore;
   const A = "agt_pin_events_a";
 
   beforeAll(async () => {
     pool = await setupTestDb();
     await runTestMigrations();
-    store = new ChatStore(pool);
+    store = new BlockStore(pool);
     await pool.query(
       `INSERT INTO agents (id, name, cwd, status) VALUES ($1, 'Pins', '/tmp', 'running')`,
       [A]
@@ -173,7 +173,7 @@ describe("recordPinEvents", () => {
       { pinId: "a", label: "A", action: "updated" },
     ]);
 
-    const feed = await composeChatFeed(store, A);
+    const feed = await composeStreamFeed(store, A);
     const entries = feed.entries.filter((e) => e.type === "pin");
     expect(entries).toHaveLength(3);
     expect(entries.map((e) => [e.action, e.pins])).toEqual([
@@ -202,7 +202,7 @@ describe("recordPinEvents", () => {
     const seen: string[] = [];
     let cursor: string | null = null;
     for (;;) {
-      const page = await composeChatFeed(store, A, {
+      const page = await composeStreamFeed(store, A, {
         limit: 2,
         cursor: cursor ? decodeFeedCursor(cursor) : null,
       });

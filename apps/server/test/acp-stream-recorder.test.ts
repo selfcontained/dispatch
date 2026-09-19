@@ -326,7 +326,7 @@ describe("StreamRecorder", () => {
       type: "turn",
       agentId: A,
       state: "started",
-      text: "--- DISPATCH CHAT (id: 11111111-2222-4333-8444-555555555555) ---\nhi\n--- END DISPATCH CHAT ---",
+      text: "--- DISPATCH POST (id: 11111111-2222-4333-8444-555555555555, from: user) ---\nhi\n--- END DISPATCH POST ---",
     });
     await rec.handle(chunk("reply"));
     await rec.handle({

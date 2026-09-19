@@ -453,19 +453,21 @@ describe("assembleTurns with agent questions", () => {
     ];
     const question = {
       id: "q1",
-      agentId: "agt_1",
-      authorKind: "agent" as const,
+      streamId: "agt_1",
+      author: { kind: "agent" as const, agentId: "agt_1" },
+      toAgentId: null,
+      threadId: null,
       kind: "question" as const,
       text: "Scope choice: fix the preview alone, or bundle it?",
       replyTo: null,
-      question: {
+      data: {
         options: [
           { label: "Preview only" },
           { label: "Bundle", value: "bundle" },
         ],
         allowFreeform: true,
       },
-      answer: null,
+      state: {},
       attachments: [],
       delivered: null,
       readAt: null,
@@ -775,13 +777,15 @@ describe("toTurnEntry", () => {
     );
     const question = {
       id: "11111111-1111-4111-8111-111111111111",
-      agentId: "agt_x",
-      authorKind: "agent" as const,
+      streamId: "agt_x",
+      author: { kind: "agent" as const, agentId: "agt_x" },
+      toAgentId: null,
+      threadId: null,
       kind: "question" as const,
       text: "Which one?",
       replyTo: null,
-      question: { options: [{ label: "A" }], allowFreeform: true },
-      answer: null,
+      data: { options: [{ label: "A" }], allowFreeform: true },
+      state: {},
       attachments: [],
       delivered: null,
       readAt: null,

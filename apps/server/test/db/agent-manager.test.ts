@@ -44,7 +44,7 @@ const {
   LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
 } = await import("../../src/agents/manager.js");
-const { ChatService } = await import("../../src/chat/service.js");
+const { StreamService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { createGitWorktree, GitWorktreeError } =
@@ -183,7 +183,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   chatEvents = [];
-  await pool.query("DELETE FROM agent_chat_messages");
+  await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM agents");
@@ -200,7 +200,7 @@ beforeEach(async () => {
   manager = new AgentManager(pool, noopLogger, testConfig, { runtime });
   // The Chat feed's launch-context recorder, wired the way server.ts does.
   manager.attachLaunchContextRecorder(
-    new ChatService({
+    new StreamService({
       pool,
       publishUiEvent: (event) => chatEvents.push(event),
       getAgent: (id) => manager.getAgent(id),
@@ -462,7 +462,7 @@ describe("AgentManager", () => {
     describe("launch context in the Chat feed", () => {
       async function launchPosts(agentId: string) {
         const result = await pool.query(
-          `SELECT * FROM agent_chat_messages WHERE agent_id = $1 ORDER BY created_at`,
+          `SELECT * FROM blocks WHERE stream_id = $1 ORDER BY created_at`,
           [agentId]
         );
         return result.rows as Array<{
@@ -512,7 +512,7 @@ describe("AgentManager", () => {
         const ticketPin = agent.pins.find((pin) => pin.label === "Ticket");
         expect(posts[0]).toMatchObject({
           author_kind: "user",
-          kind: "reply",
+          kind: "text",
           text: "Build the widget",
           delivered: true,
           origin: "launch",
@@ -531,11 +531,11 @@ describe("AgentManager", () => {
         });
         expect(chatEvents).toEqual([
           expect.objectContaining({
-            type: "chat.entry",
+            type: "stream.entry",
             agentId: agent.id,
             entry: expect.objectContaining({
-              type: "chat",
-              message: expect.objectContaining({ origin: "launch" }),
+              type: "block",
+              block: expect.objectContaining({ origin: "launch" }),
             }),
           }),
         ]);
@@ -634,9 +634,8 @@ describe("AgentManager", () => {
         // The envelope names the post that was written, so the agent's reply
         // threads onto the launch post in the feed.
         expect(firstTurn).toContain(
-          `--- DISPATCH CHAT (id: ${posts[0].id}) ---`
+          `--- DISPATCH POST (id: ${posts[0].id}, from: user) ---`
         );
-        expect(firstTurn).toContain(`replyTo: "${posts[0].id}"`);
         expect(firstTurn).toContain("Build the widget");
         // Attachment lines come from the recorder, so turn and post agree.
         const media = await pool.query<{ file_name: string }>(
@@ -660,7 +659,7 @@ describe("AgentManager", () => {
         expect(promptsFor(agent.id)).toEqual(["Internal launch instructions"]);
         // The Chat rule rides in the system prompt instead.
         expect(lastLaunch().systemPrompt).toContain(
-          "The user is reading the Chat tab."
+          "The user reads your stream."
         );
       });
 
@@ -781,7 +780,7 @@ describe("AgentManager", () => {
         const warn = vi.fn();
         const spy = createSpyRuntime();
         const racing = managerWith({ warn, runtime: spy });
-        const chat = new ChatService({
+        const chat = new StreamService({
           pool,
           publishUiEvent: (event) => chatEvents.push(event),
           getAgent: (id) => racing.getAgent(id),
@@ -791,8 +790,8 @@ describe("AgentManager", () => {
           prepareLaunchContext: async (input) => {
             const prepared = await chat.prepareLaunchContext(input);
             await pool.query(
-              `INSERT INTO agent_chat_messages (id, agent_id, author_kind, kind, text)
-               VALUES ($1, $2, 'user', 'reply', 'squatter')`,
+              `INSERT INTO blocks (id, stream_id, author_kind, kind, text)
+               VALUES ($1, $2, 'user', 'text', 'squatter')`,
               [input.id, input.agentId]
             );
             return prepared;
@@ -813,7 +812,7 @@ describe("AgentManager", () => {
         expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
         // The squatter row is untouched: the launch wrote nothing.
         const rows = await pool.query<{ text: string }>(
-          `SELECT text FROM agent_chat_messages WHERE agent_id = $1`,
+          `SELECT text FROM blocks WHERE stream_id = $1`,
           [agent.id]
         );
         expect(rows.rows).toEqual([{ text: "squatter" }]);
@@ -1317,7 +1316,7 @@ describe("AgentManager", () => {
     });
 
     it("derives working, waiting and idle from the turn lifecycle", async () => {
-      const { ChatStore } = await import("../../src/chat/store.js");
+      const { BlockStore } = await import("../../src/chat/store.js");
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
@@ -1347,25 +1346,21 @@ describe("AgentManager", () => {
         type: "idle",
       });
 
-      const store = new ChatStore(pool);
+      const store = new BlockStore(pool);
       await store.insert({
-        agentId: agent.id,
-        authorKind: "agent",
+        streamId: agent.id,
+        author: { kind: "agent", agentId: agent.id },
         kind: "question",
         text: "Ship it?",
-        replyTo: null,
-        question: { options: [{ label: "Yes" }], allowFreeform: false },
-        attachments: [],
+        data: { options: [{ label: "Yes" }] },
+        state: {},
       });
       // A Chat prompt names its message by id; the status reads the text back.
       const userMessage = await store.insert({
-        agentId: agent.id,
-        authorKind: "user",
-        kind: "reply",
+        streamId: agent.id,
+        author: { kind: "user" },
+        toAgentId: agent.id,
         text: "Please also update the docs",
-        replyTo: null,
-        question: null,
-        attachments: [],
       });
       await runtime.emit(
         agent.id,
@@ -1373,7 +1368,7 @@ describe("AgentManager", () => {
           type: "turn",
           agentId: agent.id,
           state: "started",
-          text: `--- DISPATCH CHAT (id: ${userMessage.id}) ---\nPlease also update the docs\n--- END DISPATCH CHAT ---`,
+          text: `--- DISPATCH POST (id: ${userMessage.id}, from: user) ---\nPlease also update the docs\n--- END DISPATCH POST ---`,
         },
         3
       );

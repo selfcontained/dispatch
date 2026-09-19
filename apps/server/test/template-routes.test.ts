@@ -310,8 +310,8 @@ describe("POST /api/v1/templates/:id/launch", () => {
     // ...but the launch post shows the URL once, as a link attachment, while
     // template runtime instructions stay out of Chat.
     const posts = await ctx.pool.query(
-      `SELECT text, origin, attachments FROM agent_chat_messages
-         WHERE agent_id = $1`,
+      `SELECT text, origin, attachments FROM blocks
+         WHERE stream_id = $1`,
       [agent.id]
     );
     expect(posts.rows).toHaveLength(1);

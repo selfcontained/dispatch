@@ -5,9 +5,9 @@ import { parsePromptSource } from "../src/agents/acp/prompt-source.js";
 describe("parsePromptSource", () => {
   it("reads the chat message id out of a chat envelope", () => {
     const text = [
-      "--- DISPATCH CHAT (id: fae1f052-5d66-4039-9bde-35ac8166695d) ---",
+      "--- DISPATCH POST (id: fae1f052-5d66-4039-9bde-35ac8166695d, from: user) ---",
       "hello",
-      "--- END DISPATCH CHAT ---",
+      "--- END DISPATCH POST ---",
       "The user is reading Chat…",
     ].join("\n");
     expect(parsePromptSource(text)).toEqual({
@@ -27,9 +27,9 @@ describe("parsePromptSource", () => {
       "fae1f052-5d664039-9bde-35ac8166695dd",
     ]) {
       const text = [
-        `--- DISPATCH CHAT (id: ${id}) ---`,
+        `--- DISPATCH POST (id: ${id}, from: user) ---`,
         "hello",
-        "--- END DISPATCH CHAT ---",
+        "--- END DISPATCH POST ---",
       ].join("\n");
       expect(parsePromptSource(text).source).toBe("system");
     }

@@ -307,7 +307,7 @@ export async function seedAgentMessageViaDB(message: {
 }
 
 /**
- * Insert a chat message straight into `agent_chat_messages`, bypassing the
+ * Insert a block straight into `blocks`, bypassing the
  * send route (which needs a live pane). Attachments use the stored shape.
  */
 export async function seedChatMessageViaDB(message: {
@@ -325,13 +325,15 @@ export async function seedChatMessageViaDB(message: {
   const pool = new Pool({ connectionString, max: 1 });
   try {
     await pool.query(
-      `INSERT INTO agent_chat_messages
-         (id, agent_id, author_kind, kind, text, attachments, delivered)
-       VALUES ($1, $2, $3, 'reply', $4, $5::jsonb, $6)`,
+      `INSERT INTO blocks
+         (id, stream_id, author_kind, author_agent_id, to_agent_id, kind, text, attachments, delivered)
+       VALUES ($1, $2, $3, $4, $5, 'text', $6, $7::jsonb, $8)`,
       [
         id,
         message.agentId,
         message.authorKind,
+        message.authorKind === "agent" ? message.agentId : null,
+        message.authorKind === "user" ? message.agentId : null,
         message.text,
         JSON.stringify(message.attachments ?? []),
         message.delivered ?? null,
