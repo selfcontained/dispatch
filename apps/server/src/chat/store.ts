@@ -539,18 +539,41 @@ export class BlockStore {
     except: BlockAuthor
   ): Promise<BlockAuthor[]> {
     if (!isBlockId(rootId)) return [];
+    // Both sides of every block in the thread: who wrote it and whom it was
+    // for. A launch block is written by a person for the child, so the
+    // child is a participant of its own launch thread from the start.
     const result = await this.db.query<{
       author_kind: BlockAuthorKind;
       author_agent_id: string | null;
     }>(
-      `SELECT DISTINCT author_kind, author_agent_id
-         FROM blocks
-        WHERE id = $1 OR thread_id = $1`,
+      `SELECT DISTINCT author_kind, author_agent_id FROM (
+         SELECT author_kind, author_agent_id FROM blocks
+          WHERE id = $1 OR thread_id = $1
+         UNION
+         SELECT 'agent' AS author_kind, to_agent_id AS author_agent_id FROM blocks
+          WHERE (id = $1 OR thread_id = $1) AND to_agent_id IS NOT NULL
+       ) parties`,
       [rootId]
     );
     return result.rows
       .map((row) => authorOf(row.author_kind, row.author_agent_id))
       .filter((author) => !sameAuthor(author, except));
+  }
+
+  /**
+   * The block that records what an agent was launched with: the anchor of
+   * the thread its parent and it talk in. Null for an agent launched with
+   * no context, or before the block is written.
+   */
+  async findLaunchBlock(agentId: string): Promise<Block | null> {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks
+        WHERE to_agent_id = $1 AND origin = 'launch' AND thread_id IS NULL
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [agentId]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
   /**

@@ -1223,45 +1223,6 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(feedback[0].persona).toBe("security-review");
   });
 
-  it("includes agent messages in the history detail", async () => {
-    const agentId = await createAgent({ name: "history-agent" });
-    // Seed a message where the history agent is the sender.
-    await ctx.pool.query(
-      `INSERT INTO agent_messages
-         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name, content, delivered)
-       VALUES ('11111111-1111-1111-1111-111111111111', $1, 'agt_other', 'Hist', 'Other', 'history msg', true)`,
-      [agentId]
-    );
-
-    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { messages: Array<{ content: string }> };
-    expect(body.messages.map((m) => m.content)).toContain("history msg");
-
-    await ctx.pool.query(
-      "DELETE FROM agent_messages WHERE id = '11111111-1111-1111-1111-111111111111'"
-    );
-  });
-
-  it("includes messages where agent is the recipient", async () => {
-    const agentId = await createAgent({ name: "recipient-agent" });
-    await ctx.pool.query(
-      `INSERT INTO agent_messages
-         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name, content, delivered)
-       VALUES ('22222222-2222-2222-2222-222222222222', 'agt_sender', $1, 'Sender', 'Recv', 'incoming msg', true)`,
-      [agentId]
-    );
-
-    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { messages: Array<{ content: string }> };
-    expect(body.messages.map((m) => m.content)).toContain("incoming msg");
-
-    await ctx.pool.query(
-      "DELETE FROM agent_messages WHERE id = '22222222-2222-2222-2222-222222222222'"
-    );
-  });
-
   it("computes stateDurations from events", async () => {
     const agentId = await createAgent({ name: "duration-agent" });
     const today = new Date().toISOString().slice(0, 10);

@@ -484,7 +484,7 @@ export class AgentManager {
     const source = parsePromptSource(prompt);
     if (source.source !== "chat") return source.text;
     const result = await this.pool.query<{ text: string }>(
-      `SELECT text FROM blocks WHERE id = $1 AND stream_id = $2`,
+      `SELECT text FROM blocks WHERE id = $1 AND (to_agent_id = $2 OR stream_id = $2)`,
       [source.chatMessageId, agentId]
     );
     return result.rows[0]?.text ?? "";

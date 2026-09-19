@@ -31,7 +31,6 @@ export {
   CHAT_REACTIONS_MAX,
 } from "./chat-types.js";
 export type {
-  ChatAgentMessageEntry,
   ChatAnswer,
   ChatAnswerRequest,
   ChatAnswerResponse,

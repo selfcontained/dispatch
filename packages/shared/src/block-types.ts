@@ -8,7 +8,6 @@
  */
 
 import type {
-  ChatAgentMessageEntry,
   ChatAttachment,
   ChatPinEntry,
   ChatReviewEntry,
@@ -200,14 +199,12 @@ export type StreamBlockEntry = {
 
 /**
  * One row of `GET /streams/:rootId/blocks`: a block, a turn, a system status
- * mark, or (until their own steps land) a peer message, a review card or a
- * pin write.
+ * mark, or (until their own steps land) a review card or a pin write.
  */
 export type StreamEntry =
   | StreamBlockEntry
   | ChatTurnEntry
   | ChatStatusEntry
-  | ChatAgentMessageEntry
   | ChatReviewEntry
   | ChatPinEntry;
 

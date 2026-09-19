@@ -27,7 +27,6 @@ const SOURCE_RANK: Record<StreamEntry["type"], number> = {
   block: 4,
   status: 3,
   pin: 2,
-  agent_message: 1,
 };
 
 const AT_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
@@ -42,7 +41,6 @@ const SERIAL_ID_RE = /^\d{1,10}$/;
 function isValidCursorId(type: StreamEntry["type"], id: string): boolean {
   switch (type) {
     case "block":
-    case "agent_message":
       return isBlockId(id);
     case "status":
     case "review":

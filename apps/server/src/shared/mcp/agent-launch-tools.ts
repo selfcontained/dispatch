@@ -51,7 +51,7 @@ export function registerAgentLaunchTools(
     {
       description:
         "Launch a new agent to work on a task. The new agent runs independently " +
-        "— use send_message to coordinate and list_agents to check status. " +
+        "— it shares your stream: post with to set to its id to coordinate, and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
         "A child's pins and media are readable here via ownerAgentId on list_pins / list_media, " +

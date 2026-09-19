@@ -105,7 +105,6 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
-import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
@@ -131,7 +130,6 @@ import {
 import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
-import { MessageStore } from "./messages/store.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
@@ -666,7 +664,6 @@ async function registerRoutes() {
     mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
     mcpListReviewFeedback: mcpHandlers.listReviewFeedback,
     mcpGetReviewFeedbackItem: mcpHandlers.getReviewFeedbackItem,
-    mcpSendMessage: mcpHandlers.sendMessage,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
     mcpUpsertPins: mcpHandlers.upsertPins,
@@ -764,11 +761,6 @@ async function registerRoutes() {
     mediaRoot: config.mediaRoot,
     agentManager,
     appLog: app.log,
-    publishUiEvent: (event) => uiEventBroker.publish(event),
-  });
-
-  await registerMessagesRoutes(app, {
-    pool,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
@@ -886,17 +878,6 @@ export async function initializeApp(options?: {
       app.log.info(
         { agentIds: recovered },
         "Marked chat deliveries abandoned by the previous process as not delivered"
-      );
-    }
-    // Same for cross-agent messages queued by send_message.
-    const staleMessages = await new MessageStore(pool).sweepPendingDeliveries();
-    for (const pair of staleMessages) {
-      uiEventBroker.publish({ type: "message.created", ...pair });
-    }
-    if (staleMessages.length > 0) {
-      app.log.info(
-        { pairs: staleMessages.length },
-        "Marked agent messages abandoned by the previous process as not delivered"
       );
     }
     await agentLifecycleRuntime.restorePendingContinuations(jobService);

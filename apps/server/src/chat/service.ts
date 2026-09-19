@@ -33,6 +33,7 @@ import {
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
+import { parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
   buildReactionEnvelope,
@@ -463,9 +464,95 @@ export class StreamService {
     this.log = deps.log ?? NO_OP_LOG;
   }
 
-  /** The stream an agent's blocks live in. Step 1: its own. */
-  streamOf(agentId: string): string {
-    return agentId;
+  /**
+   * The stream an agent's blocks live in: its root's. A child posts into
+   * its parent's stream; an agent with no parent has its own.
+   */
+  streamOf(agentId: string): Promise<string> {
+    return rootAgentId(this.deps.pool, agentId);
+  }
+
+  /**
+   * The agent a reply in a thread is for when the writer named none: the
+   * agent on the other side of the thread's root (its author, or the agent
+   * it was addressed to). Null when the thread has no agent on it.
+   */
+  private async threadCounterpart(
+    threadId: string,
+    author: BlockAuthor
+  ): Promise<string | null> {
+    const root = await this.store.getById(threadId);
+    if (!root) return null;
+    if (root.author.kind === "agent" && !sameAuthor(root.author, author)) {
+      return root.author.agentId;
+    }
+    if (
+      root.toAgentId &&
+      !(author.kind === "agent" && author.agentId === root.toAgentId)
+    ) {
+      return root.toAgentId;
+    }
+    const others = await this.store.threadParticipants(threadId, author);
+    const agent = others.find(
+      (p): p is { kind: "agent"; agentId: string } => p.kind === "agent"
+    );
+    return agent?.agentId ?? null;
+  }
+
+  /**
+   * Everyone else on a thread hears about a reply: the agents in it other
+   * than the writer and the primary recipient get the same envelope, so a
+   * conversation on a finding reaches the reviewer and the builder alike.
+   */
+  private async notifyThread(
+    block: Block,
+    from: EnvelopeSender,
+    attachmentLines: string[],
+    except: string[]
+  ): Promise<void> {
+    if (!block.threadId) return;
+    const author = block.author;
+    const others = await this.store.threadParticipants(block.threadId, author);
+    for (const party of others) {
+      if (party.kind !== "agent" || except.includes(party.agentId)) continue;
+      if (!(await this.canDeliver(party.agentId, true))) continue;
+      this.injectDetached({
+        agentId: party.agentId,
+        envelope: buildPostEnvelope({
+          blockId: block.id,
+          from,
+          text: block.text,
+          attachmentLines,
+          threadId: block.threadId,
+        }),
+        record: async () => undefined,
+        logContext: { blockId: block.id, participant: party.agentId },
+      });
+    }
+  }
+
+  /**
+   * Where a post between a parent and its child lands when the writer gave
+   * no thread: under the child's launch block, so agent-to-agent traffic
+   * reads as one conversation instead of loose posts in the main column.
+   */
+  private async defaultThread(
+    authorAgentId: string,
+    toAgentId: string
+  ): Promise<string | null> {
+    const [authorParent, toParent] = await Promise.all([
+      parentAgentId(this.deps.pool, authorAgentId),
+      parentAgentId(this.deps.pool, toAgentId),
+    ]);
+    const childId =
+      authorParent === toAgentId
+        ? authorAgentId
+        : toParent === authorAgentId
+          ? toAgentId
+          : null;
+    if (!childId) return null;
+    const launch = await this.store.findLaunchBlock(childId);
+    return launch?.id ?? null;
   }
 
   // -------------------------------------------------------------------------
@@ -499,9 +586,12 @@ export class StreamService {
       );
     }
     const thread = await this.resolveThread(streamId, input.replyTo ?? null);
-    // A reply in a thread goes to the agents in it; a top-level post goes to
-    // the stream's agent unless addressed elsewhere.
-    const toAgentId = input.to ?? streamId;
+    // A reply in a thread goes to the agent on the other side of it; a
+    // top-level post goes to the stream's agent unless addressed elsewhere.
+    const toAgentId =
+      input.to ??
+      (thread ? await this.threadCounterpart(thread.threadId, USER) : null) ??
+      streamId;
     const recipient = await this.requireAgent(toAgentId);
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
@@ -529,6 +619,11 @@ export class StreamService {
     }
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
+    if (thread) {
+      void this.notifyThread(block, { kind: "user" }, attachmentLines, [
+        toAgentId,
+      ]);
+    }
     if (!live) return { block, delivered: false, held: false };
     const { held } = this.deliverBlock(
       block,
@@ -925,7 +1020,7 @@ export class StreamService {
   async post(agentId: string, input: PostInput): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
-    const streamId = this.streamOf(agentId);
+    const streamId = await this.streamOf(agentId);
     const { kind, data } = resolveKindAndData(input);
     const text = requireText(input.text);
     const attachmentInputs = input.attachments ?? [];
@@ -939,12 +1034,19 @@ export class StreamService {
         "A post needs text, an attachment, or one of question, form, link, review or tasks."
       );
     }
-    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
-    const toAgentId = input.to ?? null;
+    let replyTo = input.replyTo ?? null;
+    let toAgentId = input.to ?? null;
     if (toAgentId === agentId) {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
+    if (toAgentId !== null && replyTo === null) {
+      replyTo = await this.defaultThread(agentId, toAgentId);
+    }
+    const thread = await this.resolveThread(streamId, replyTo);
+    if (toAgentId === null && thread) {
+      toAgentId = await this.threadCounterpart(thread.threadId, author);
+    }
     const attachments = await this.resolveAgentAttachments(
       agent,
       attachmentInputs
@@ -965,12 +1067,19 @@ export class StreamService {
     });
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
+    // File paths in the envelope are the author's: that is where the file
+    // is, and every agent on this machine can read it.
+    const attachmentLines = this.describeAttachments(agent, attachments);
+    const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
     if (toAgentId && live) {
-      const recipient = await this.requireAgent(toAgentId);
-      this.deliverBlock(
+      this.deliverBlock(block, from, attachmentLines);
+    }
+    if (thread) {
+      void this.notifyThread(
         block,
-        { kind: "agent", agentId, name: agent.name },
-        this.describeAttachments(recipient, attachments)
+        from,
+        attachmentLines,
+        toAgentId ? [toAgentId] : []
       );
     }
     if (
@@ -1126,7 +1235,7 @@ export class StreamService {
       attachments.length - stored.length
     );
     const id = input.id ?? randomUUID();
-    const streamId = this.streamOf(input.agentId);
+    const streamId = await this.streamOf(input.agentId);
     return {
       id,
       attachmentLines,
@@ -1197,8 +1306,14 @@ export class StreamService {
   private async composeTurnEntry(agentId: string): Promise<void> {
     try {
       const entry = await loadLatestTurnEntry(this.store.db, agentId);
-      if (entry)
-        this.deps.publishUiEvent({ type: "stream.entry", agentId, entry });
+      if (entry) {
+        const streamId = await this.streamOf(agentId);
+        this.deps.publishUiEvent({
+          type: "stream.entry",
+          agentId: streamId,
+          entry,
+        });
+      }
     } catch (error) {
       this.log.warn(
         { err: error, agentId },

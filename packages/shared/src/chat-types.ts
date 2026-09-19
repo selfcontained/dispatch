@@ -187,23 +187,6 @@ export type ChatStatusEntry = {
   setupPhase?: string;
 };
 
-/** A cross-agent message (`agent_messages`) in either direction. */
-export type ChatAgentMessageEntry = {
-  type: "agent_message";
-  id: string;
-  direction: "in" | "out";
-  senderAgentId: string;
-  senderName: string;
-  recipientAgentId: string;
-  recipientName: string;
-  /** True when either endpoint is a direct child of this feed's agent. */
-  involvesChildAgent?: boolean;
-  content: string;
-  /** `null` while the pane delivery is still pending (see `agent_messages`). */
-  delivered: boolean | null;
-  at: string;
-};
-
 /** A file the agent shared via share_file. */
 export type ChatMediaEntry = {
   type: "media";
@@ -361,7 +344,6 @@ export type ChatMessageEntry = {
 export type ChatFeedEntry =
   | ChatMessageEntry
   | ChatStatusEntry
-  | ChatAgentMessageEntry
   | ChatMediaEntry
   | ChatReviewEntry
   | ChatTurnEntry

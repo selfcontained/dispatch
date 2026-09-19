@@ -1,5 +1,4 @@
 import type {
-  ChatAgentMessageEntry,
   ChatPinEntry,
   ChatReviewEntry,
   ChatStatusEntry,
@@ -19,6 +18,7 @@ import {
   intKey,
   type Keyed,
 } from "./feed-cursor.js";
+import { agentTree } from "../agents/tree.js";
 import { listTurnEntries, TURN_PROMPT_CHAT_ID_PATH } from "./turns.js";
 import {
   type BlockRow,
@@ -251,63 +251,6 @@ export function toStatusEntry(
   };
 }
 
-async function listAgentMessageEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatAgentMessageEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("agent_message", "uuid", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: string;
-    sender_agent_id: string;
-    recipient_agent_id: string;
-    sender_name: string;
-    recipient_name: string;
-    involves_child_agent: boolean;
-    content: string;
-    delivered: boolean | null;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT m.id, m.sender_agent_id, m.recipient_agent_id, m.sender_name,
-            m.recipient_name,
-            EXISTS (
-              SELECT 1
-                FROM agents child
-               WHERE child.id IN (m.sender_agent_id, m.recipient_agent_id)
-                 AND child.parent_agent_id = $1
-            ) AS involves_child_agent,
-            m.content, m.delivered, m.created_at,
-            ${AT_KEY_SQL} AS at_key
-       FROM agent_messages m
-      WHERE (m.sender_agent_id = $1 OR m.recipient_agent_id = $1) ${clause}
-      ORDER BY m.created_at DESC, m.id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: {
-      type: "agent_message",
-      id: row.id,
-      direction: row.sender_agent_id === agentId ? "out" : "in",
-      senderAgentId: row.sender_agent_id,
-      senderName: row.sender_name,
-      recipientAgentId: row.recipient_agent_id,
-      recipientName: row.recipient_name,
-      involvesChildAgent: row.involves_child_agent,
-      content: row.content,
-      delivered: row.delivered,
-      at: row.created_at.toISOString(),
-    },
-    atKey: row.at_key,
-    rawId: row.id,
-    idKey: row.id,
-  }));
-}
-
 /**
  * Reviews left on this agent's work. Counts and status are read live rather
  * than frozen at submission time, so the card in the feed says the same
@@ -423,10 +366,11 @@ async function listPinEntries(
 
 /**
  * Compose one stream's feed at read time from blocks, system status marks,
- * cross-agent messages, reviews, turns and pin activity. Each source
- * contributes its newest `limit + 1` rows past the cursor; the merge keeps
- * the newest `limit` overall, so any row that belongs on the page is
- * present, and anything left over proves an older page exists.
+ * reviews, pin activity, and the turns of every agent in the root's tree
+ * (a child's turns show in its parent's stream, folded by the client).
+ * Each source contributes its newest `limit + 1` rows past the cursor; the
+ * merge keeps the newest `limit` overall, so any row that belongs on the
+ * page is present, and anything left over proves an older page exists.
  */
 export async function composeStreamFeed(
   store: BlockStore,
@@ -436,13 +380,15 @@ export async function composeStreamFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [blocks, status, agentMessages, reviews, turns, pins, unreadCount] =
+  const tree = await agentTree(db, streamId);
+  const [blocks, status, reviews, turnsByAgent, pins, unreadCount] =
     await Promise.all([
       listBlockEntries(db, streamId, cursor, limit + 1),
       listStatusEntries(db, streamId, cursor, limit + 1),
-      listAgentMessageEntries(db, streamId, cursor, limit + 1),
       listReviewEntries(db, streamId, cursor, limit + 1),
-      listTurnEntries(db, streamId, cursor, limit + 1),
+      Promise.all(
+        tree.map((agentId) => listTurnEntries(db, agentId, cursor, limit + 1))
+      ),
       listPinEntries(db, streamId, cursor, limit + 1),
       store.countUnread(streamId),
     ]);
@@ -450,9 +396,8 @@ export async function composeStreamFeed(
   const merged: Keyed<StreamEntry>[] = [
     ...blocks,
     ...status,
-    ...agentMessages,
     ...reviews,
-    ...turns,
+    ...turnsByAgent.flat(),
     ...pins,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;

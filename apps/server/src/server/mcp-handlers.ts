@@ -14,7 +14,6 @@ import {
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
-import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
@@ -63,7 +62,6 @@ import type {
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
-import { MessageStore } from "../messages/store.js";
 import {
   activatePersonality,
   createPersonality,
@@ -84,7 +82,7 @@ function buildLaunchedAgentInitialPrompt(
   const header = child
     ? [
         `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent.`,
-        "Use that parent agent ID when coordinating back with send_message.",
+        "You share its stream: to coordinate back, post with to set to that parent agent id; your posts land in the thread under your launch block.",
         // Stated up front because the tool call fails at the point of use
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
@@ -94,7 +92,7 @@ function buildLaunchedAgentInitialPrompt(
       ]
     : [
         `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent as an independent agent — you are not its child.`,
-        "Use that agent ID when coordinating back with send_message.",
+        "To coordinate back, post with to set to that agent id.",
       ];
   return [...header, "", prompt].join("\n");
 }
@@ -155,7 +153,7 @@ export function mcpMethodNotAllowed(): {
 }
 
 /**
- * The set of agents a sender may address via send_message and
+ * The set of agents a sender may address with post and
  * list_agents: every other agent (self excluded), scoped to the sender's git
  * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
  * relationships always bypass repo-root scoping so spawned agents can
@@ -854,196 +852,6 @@ async function handleShareMedia(
   };
 }
 
-async function handleSendMessage(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  input: { target: string; message: string; senderRepoRoot: string | null }
-): Promise<{
-  delivered: boolean;
-  targetAgentId: string;
-  targetAgentName: string;
-}> {
-  const sender = await deps.agentManager.getAgent(agentId);
-  if (!sender) throw new Error("Sender agent not found.");
-
-  const senderRepoRoot = input.senderRepoRoot;
-  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
-
-  const everyAgent = await deps.agentManager.listAgents();
-  const allAgents = await addressableAgents(
-    everyAgent,
-    agentId,
-    senderRepoRoot,
-    crossRepo
-  );
-
-  const isAgentId = input.target.startsWith("agt_");
-
-  let target: (typeof allAgents)[number] | undefined;
-  if (isAgentId) {
-    target = allAgents.find((a) => a.id === input.target);
-  } else {
-    const lowerTarget = input.target.toLowerCase();
-    const matches = allAgents.filter(
-      (a) =>
-        a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
-    );
-    if (matches.length === 1) {
-      target = matches[0];
-    } else if (matches.length > 1) {
-      const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
-      throw new Error(
-        `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
-      );
-    }
-  }
-
-  if (!target) {
-    const running = allAgents
-      .filter((a) => a.status === "running")
-      .map((a) => `  ${a.id} "${a.name}"`)
-      .join("\n");
-    throw new Error(
-      `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
-    );
-  }
-
-  if (target.status !== "running") {
-    throw new Error(
-      `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
-    );
-  }
-
-  // Provenance: without this the recipient sees only a sender name, so a
-  // message from a grandchild is indistinguishable from one from a direct
-  // child. Resolved against every agent so an unaddressable intermediate still
-  // appears in the chain rather than collapsing two levels into one.
-  const lineage = createLineageIndex(everyAgent);
-  const senderRelation = relationTo(lineage, target.id, agentId);
-  const chain = delegationChain(lineage, agentId, target.id);
-
-  const envelope = JSON.stringify({
-    from: sender.name,
-    senderId: agentId,
-    senderRelation,
-    ...(chain.length > 1
-      ? { delegationChain: chain.map((node) => `${node.name} (${node.id})`) }
-      : {}),
-    message: input.message,
-    replyTarget: agentId,
-  });
-  // The prose line only fires when it tells the recipient something the sender
-  // name alone does not: that the sender is further down its tree than a direct
-  // child, or that the sender belongs to a tree the recipient is not part of.
-  // A direct child's chain is just [child, you], so it stays silent.
-  const recipientInChain = chain.some((node) => node.id === target.id);
-  const provenanceLine =
-    senderRelation === "descendant"
-      ? `\nProvenance: ${sanitizeAgentNameForPrompt(sender.name)} is not your direct child — delegation chain: ${formatDelegationChain(chain, target.id)}.`
-      : !recipientInChain && chain.length > 1
-        ? `\nProvenance: ${formatDelegationChain(chain, target.id)}.`
-        : "";
-  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
-
-  // Record the message before delivering it: the recipient's turn is
-  // anchored the moment the engine accepts the prompt, and the feed orders
-  // by time, so a row written afterwards would land below the reply it
-  // caused. Persistence must never block delivery, so a failed insert is
-  // swallowed and logged and the prompt still goes out.
-  const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
-  const messageStore = new MessageStore(deps.pool);
-  const persisted = await messageStore
-    .insertMessage({
-      senderAgentId: agentId,
-      recipientAgentId: target.id,
-      senderName: sender.name,
-      recipientName: target.name,
-      content: input.message,
-      delivered: null,
-      senderRepoRoot,
-      recipientRepoRoot,
-    })
-    .catch((err) => {
-      deps.appLog.error(
-        { err, senderId: agentId, targetId: target.id },
-        "send_message: failed to persist message"
-      );
-      return null;
-    });
-
-  // The handler returns once the prompt is queued — awaiting the turn can
-  // exceed MCP client timeouts (~60s), and a timed-out sender retrying would
-  // deliver the message twice.
-  let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>> | null = null;
-  let deliveryError: unknown = null;
-  try {
-    enqueued = await deps.enqueueAgentPrompt(target.id, prompt);
-  } catch (err) {
-    deliveryError = err;
-    deps.appLog.error(
-      { err, senderId: agentId, targetId: target.id },
-      "send_message: delivery failed"
-    );
-  }
-  // Attach the outcome handler at once so a fast rejection can never surface
-  // as an unhandled rejection.
-  const outcome: Promise<boolean> | null = enqueued
-    ? enqueued.delivery.then(
-        () => true,
-        (err: unknown) => {
-          deps.appLog.warn(
-            { err, senderId: agentId, targetId: target.id },
-            "send_message: delivery failed — agent may have exited"
-          );
-          return false;
-        }
-      )
-    : null;
-  if (!enqueued && persisted) {
-    await messageStore.setDelivered(persisted.id, false).catch(() => undefined);
-  }
-
-  const announce = () =>
-    deps.publishUiEvent({
-      type: "message.created",
-      senderAgentId: agentId,
-      recipientAgentId: target.id,
-    });
-  if (persisted) announce();
-
-  if (persisted && outcome) {
-    // Settle the row once the pane write completes and announce the pair
-    // again so both sides' panels refetch the final state.
-    void outcome
-      .then(async (delivered) => {
-        await messageStore.setDelivered(persisted.id, delivered);
-        announce();
-      })
-      .catch((err: unknown) => {
-        deps.appLog.error(
-          { err, senderId: agentId, targetId: target.id },
-          "send_message: failed to record delivery outcome"
-        );
-      });
-  }
-
-  if (!enqueued) {
-    throw deliveryError instanceof Error
-      ? deliveryError
-      : new Error(`Failed to deliver message to "${target.name}".`);
-  }
-
-  deps.appLog.info(
-    { senderId: agentId, targetId: target.id, held: enqueued.held },
-    "send_message: queued for delivery"
-  );
-  return {
-    delivered: true,
-    targetAgentId: target.id,
-    targetAgentName: target.name,
-  };
-}
-
 async function handleListAgentsForAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
@@ -1061,7 +869,7 @@ async function handleListAgentsForAgent(
     relation: AgentRelation;
   }>
 > {
-  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
+  const crossRepo = true;
 
   const allAgents = await deps.agentManager.listAgents();
   const agents = await addressableAgents(
@@ -1349,11 +1157,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         update?: string;
       }
     ) => handleShareMedia(deps, agentId, opts),
-
-    sendMessage: (
-      agentId: string,
-      input: { target: string; message: string; senderRepoRoot: string | null }
-    ) => handleSendMessage(deps, agentId, input),
 
     listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
       handleListAgentsForAgent(deps, agentId, senderRepoRoot),

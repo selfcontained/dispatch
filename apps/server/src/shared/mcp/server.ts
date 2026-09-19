@@ -144,7 +144,6 @@ const AGENT_TOOLS = new Set([
   "review_reopen",
   "review_add_message",
   "list_agents",
-  "send_message",
   "launch_agent",
   "archive_agent",
   "surface_create",
@@ -209,7 +208,6 @@ const JOB_TOOLS = new Set([
   "job_needs_input",
   "job_log",
   "list_agents",
-  "send_message",
   "launch_agent",
   "archive_agent",
   "surface_create",
@@ -530,14 +528,6 @@ export type McpRequestContext = {
     input: { id?: string; ids?: string[]; group?: string }
   ) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
-  sendMessage?: (
-    agentId: string,
-    input: { target: string; message: string; senderRepoRoot: string | null }
-  ) => Promise<{
-    delivered: boolean;
-    targetAgentId: string;
-    targetAgentName: string;
-  }>;
   listAgentsForAgent?: (
     agentId: string,
     senderRepoRoot: string | null
@@ -704,7 +694,6 @@ export async function createDispatchMcpServer(
       listAgentsForAgent: context.jobTools
         ? undefined
         : context.listAgentsForAgent,
-      sendMessage: context.sendMessage,
     });
   }
 

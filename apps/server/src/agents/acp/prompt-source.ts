@@ -17,33 +17,11 @@ export type PromptSource =
 // (`Name (agt_x)`), so it is matched lazily up to the closing marker.
 const CHAT_HEADER =
   /^--- DISPATCH POST \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:, from: [^\n]*?)?\) ---/m;
-const MESSAGE_BLOCK =
-  /^--- DISPATCH MESSAGE ---\n([\s\S]*?)\n--- END MESSAGE ---/m;
 const SYSTEM_MAX = 500;
 
 export function parsePromptSource(text: string): PromptSource {
   const chat = CHAT_HEADER.exec(text);
   if (chat) return { source: "chat", chatMessageId: chat[1] };
-  const message = MESSAGE_BLOCK.exec(text);
-  if (message) {
-    try {
-      const body = JSON.parse(message[1]) as {
-        from?: unknown;
-        senderId?: unknown;
-        message?: unknown;
-      };
-      if (typeof body.message === "string") {
-        return {
-          source: "agent",
-          senderId: typeof body.senderId === "string" ? body.senderId : "",
-          senderName: typeof body.from === "string" ? body.from : "agent",
-          text: body.message,
-        };
-      }
-    } catch {
-      // Not JSON after all; treat the whole thing as a system prompt.
-    }
-  }
   return { source: "system", text: text.slice(0, SYSTEM_MAX) };
 }
 

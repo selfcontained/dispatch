@@ -97,7 +97,6 @@ type McpRouteDeps = {
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
   mcpJobLog: unknown;
-  mcpSendMessage: unknown;
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
   surfaces: SurfaceService;
@@ -260,7 +259,6 @@ export async function registerMcpRoutes(
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
       getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
-      sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
@@ -353,7 +351,6 @@ export async function registerMcpRoutes(
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
       getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
-      sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       issueLoginLink: () => deps.loginLinkStore.issue(),
       upsertPin: deps.mcpUpsertPin,

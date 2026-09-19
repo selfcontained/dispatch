@@ -281,7 +281,6 @@ async function handleHistoryAgentDetail(
     tokenByModelResult,
     mediaResult,
     feedbackResult,
-    messagesResult,
   ] = await Promise.all([
     deps.pool.query<HistoryEvent>(
       `SELECT id, event_type, message, metadata, created_at
@@ -340,34 +339,6 @@ async function handleHistoryAgentDetail(
            LIMIT 500`,
       [id]
     ),
-    deps.pool.query<{
-      id: string;
-      senderAgentId: string;
-      recipientAgentId: string;
-      senderName: string;
-      recipientName: string;
-      content: string;
-      delivered: boolean;
-      readAt: string | null;
-      createdAt: string;
-    }>(
-      `SELECT id,
-                sender_agent_id AS "senderAgentId",
-                recipient_agent_id AS "recipientAgentId",
-                sender_name AS "senderName",
-                recipient_name AS "recipientName",
-                content, delivered,
-                read_at AS "readAt",
-                created_at AS "createdAt"
-           FROM (
-             SELECT * FROM agent_messages
-              WHERE sender_agent_id = $1 OR recipient_agent_id = $1
-              ORDER BY created_at DESC
-              LIMIT 500
-           ) recent
-           ORDER BY created_at ASC`,
-      [id]
-    ),
   ]);
 
   const eventRows: ActivityEventRow[] = eventsResult.rows.map((row) => ({
@@ -383,7 +354,6 @@ async function handleHistoryAgentDetail(
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
     media: mediaResult.rows,
     feedback: feedbackResult.rows,
-    messages: messagesResult.rows,
     stateDurations: stats.stateDurations,
   };
 }

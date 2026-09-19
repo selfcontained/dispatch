@@ -7,10 +7,6 @@ import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
 import {
-  isCrossRepoMessagingEnabled,
-  setCrossRepoMessagingEnabled,
-} from "../cross-repo-messaging-settings.js";
-import {
   isTrimmedLaunchGuidanceEnabled,
   setTrimmedLaunchGuidanceEnabled,
 } from "../launch-guidance-settings.js";
@@ -430,22 +426,6 @@ export async function registerSystemRoutes(
         return reply.code(400).send({ error: "enabled must be a boolean." });
       }
       await setTrimmedLaunchGuidanceEnabled(deps.pool, body.enabled);
-      return { enabled: body.enabled };
-    }
-  );
-
-  app.get("/api/v1/app/settings/cross-repo-messaging", async () => {
-    return { enabled: await isCrossRepoMessagingEnabled(deps.pool) };
-  });
-
-  app.post(
-    "/api/v1/app/settings/cross-repo-messaging",
-    async (request, reply) => {
-      const body = request.body as { enabled?: unknown } | null;
-      if (typeof body?.enabled !== "boolean") {
-        return reply.code(400).send({ error: "enabled must be a boolean." });
-      }
-      await setCrossRepoMessagingEnabled(deps.pool, body.enabled);
       return { enabled: body.enabled };
     }
   );

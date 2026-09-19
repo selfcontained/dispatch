@@ -26,7 +26,7 @@ import type {
   ToolPayload,
   TurnPayload,
 } from "../agents/acp/stream-store.js";
-import { isBlockId, type Queryable, toBlock } from "./store.js";
+import { type BlockRow, isBlockId, type Queryable, toBlock } from "./store.js";
 
 export type TurnSourceRow = Pick<
   StreamEventRow,
@@ -82,10 +82,22 @@ function firstLine(text: string): string {
 
 function promptFor(
   source: PromptSource,
-  chat: Map<string, Block>
+  chat: Map<string, PromptBlock>
 ): ChatTurnPrompt {
   if (source.source === "chat") {
     const block = chat.get(source.chatMessageId);
+    if (block?.author.kind === "agent") {
+      // Another agent's post, delivered as this turn's prompt.
+      return {
+        source: "agent",
+        text: block.text,
+        chatMessageId: source.chatMessageId,
+        senderName: block.authorName ?? block.author.agentId,
+        senderAgentId: block.author.agentId,
+        ...(block.threadId ? { threadId: block.threadId } : {}),
+        attachments: block.attachments,
+      };
+    }
     return {
       source: block?.origin === "launch" ? "launch" : "chat",
       text: block?.text ?? "",
@@ -275,9 +287,12 @@ function planEntriesOf(row: TurnSourceRow): ChatTurnPlanEntry[] {
 }
 
 /** Cut ascending stream rows into turns and shape each for the view. */
+/** A block behind a prompt, with its agent author's name when it has one. */
+export type PromptBlock = Block & { authorName?: string };
+
 export function assembleTurns(
   rows: TurnSourceRow[],
-  chat: Map<string, Block>,
+  chat: Map<string, PromptBlock>,
   questions: Block[] = []
 ): AssembledTurn[] {
   const groups = groupTurnRows(rows);
@@ -549,7 +564,7 @@ export async function listTurnEntries(
   const since = source.length ? source[0].createdAt : new Date(0);
   const asked = await db.query(
     `SELECT * FROM blocks
-      WHERE stream_id = $1 AND author_kind = 'agent' AND author_agent_id = $1
+      WHERE author_kind = 'agent' AND author_agent_id = $1
         AND kind = 'question' AND to_agent_id IS NULL AND thread_id IS NULL
         AND created_at >= $2
         AND ($3::timestamptz IS NULL OR created_at < $3)
@@ -610,29 +625,35 @@ export async function loadLatestTurnEntry(
 }
 
 /**
- * The chat messages behind chat-sourced prompts, by id. Scoped to the agent:
- * a prompt's chat id is parsed out of text that can embed another agent's
- * message or a review body verbatim, so an id that names a message of some
- * other agent reads as a prompt with no chat text behind it.
+ * The blocks behind chat-sourced prompts, by id. Scoped to the agent: a
+ * prompt's block id is parsed out of text that can embed another agent's
+ * post or a review body verbatim, so only a block delivered to this agent
+ * (or on its stream) counts; anything else reads as a prompt with no block
+ * behind it.
  */
 async function loadChatMessages(
   db: Queryable,
   agentId: string,
   ids: string[]
-): Promise<Map<string, Block>> {
-  const chat = new Map<string, Block>();
+): Promise<Map<string, PromptBlock>> {
+  const chat = new Map<string, PromptBlock>();
   // The cast below is the only thing standing between a stored prompt and a
   // permanent 500 on this agent's turns, so ids Postgres would reject are
   // dropped here rather than sent. A dropped id reads as a prompt with no
   // chat text behind it.
   const valid = ids.filter((id) => isBlockId(id));
   if (valid.length === 0) return chat;
-  const blocks = await db.query(
-    `SELECT * FROM blocks WHERE stream_id = $1 AND id = ANY($2::uuid[])`,
+  const blocks = await db.query<BlockRow & { author_name: string | null }>(
+    `SELECT b.*, a.name AS author_name
+       FROM blocks b
+       LEFT JOIN agents a ON a.id = b.author_agent_id
+      WHERE b.id = ANY($2::uuid[])
+        AND (b.to_agent_id = $1 OR b.stream_id = $1 OR b.author_agent_id = $1)`,
     [agentId, valid]
   );
   for (const row of blocks.rows) {
-    const block = toBlock(row as never);
+    const block: PromptBlock = toBlock(row);
+    if (row.author_name) block.authorName = row.author_name;
     chat.set(block.id, block);
   }
   return chat;
