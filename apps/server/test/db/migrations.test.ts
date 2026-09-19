@@ -121,12 +121,8 @@ describe("migrations", () => {
     expect(seen.rowCount).toBe(0);
   });
 
-  it("should index chat attachments for the feed's containment lookup", async () => {
-    // The feed hides a media file that already renders as a post attachment,
-    // with a correlated `@>` check against every message on the agent. Without
-    // this index that is media x messages: measured past 20s at 5,000 media and
-    // 15,000 messages, against 97ms with it. jsonb_path_ops because `@>` is the
-    // only operator used here.
+  it("should index block attachments for containment lookups", async () => {
+    // jsonb_path_ops because `@>` is the only operator used against it.
     const index = await pool.query<{ indexdef: string }>(
       `SELECT indexdef FROM pg_indexes
         WHERE tablename = 'blocks'

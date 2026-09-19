@@ -34,7 +34,6 @@ function baseContext(): AgentLifecycleContext {
     agentId: AGENT_ID,
     upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
-    sendNotify: vi.fn(async () => ({ sent: true })),
     listMedia: vi.fn(async () => []),
     deleteMedia: vi.fn(async () => {}),
     listPins: vi.fn(async () => []),
@@ -54,7 +53,6 @@ describe("registerAgentLifecycleTools", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
       const allowed = new Set([
         "rename_session",
-        "notify",
         "list_media",
         "delete_media",
         "list_pins",
@@ -64,7 +62,6 @@ describe("registerAgentLifecycleTools", () => {
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
         "rename_session",
-        "notify",
         "list_media",
         "delete_media",
         "list_pins",
@@ -76,24 +73,12 @@ describe("registerAgentLifecycleTools", () => {
       expect(server.tools).toHaveLength(0);
     });
 
-
     it("skips rename_session when renameSession is missing", () => {
       const ctx = baseContext();
       delete ctx.renameSession;
       registerAgentLifecycleTools(
         server as never,
         new Set(["rename_session"]),
-        ctx
-      );
-      expect(server.tools).toHaveLength(0);
-    });
-
-    it("skips notify when sendNotify is missing", () => {
-      const ctx = baseContext();
-      delete ctx.sendNotify;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["notify"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
@@ -124,22 +109,18 @@ describe("registerAgentLifecycleTools", () => {
     it("skips list_pins when listPins is missing", () => {
       const ctx = baseContext();
       delete ctx.listPins;
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["list_pins"]),
-        ctx
-      );
+      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
       expect(server.tools).toHaveLength(0);
     });
 
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["notify", "list_media"]),
+        new Set(["list_media", "list_pins"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["notify", "list_media"]);
+      expect(names).toEqual(["list_media", "list_pins"]);
     });
   });
 
@@ -181,85 +162,13 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  // ── notify handler ─────────────────────────────────────
-
-  describe("notify handler", () => {
-    it("calls sendNotify and returns sent confirmation", async () => {
-      const ctx = baseContext();
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["notify"]),
-        ctx
-      );
-      const handler = server.tools[0]!.handler;
-
-      const result = await handler({
-        message: "Build finished",
-        title: "CI",
-        level: "success",
-        respectFocus: false,
-      });
-
-      expect(ctx.sendNotify).toHaveBeenCalledWith(AGENT_ID, {
-        message: "Build finished",
-        title: "CI",
-        level: "success",
-        respectFocus: false,
-      });
-      expect(result).toEqual({
-        content: [{ type: "text", text: "Notification sent to Slack." }],
-      });
-    });
-
-    it("returns not-sent message with reason", async () => {
-      const ctx = baseContext();
-      ctx.sendNotify = vi.fn(async () => ({
-        sent: false,
-        reason: "No webhook configured",
-      }));
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["notify"]),
-        ctx
-      );
-
-      const result = await server.tools[0]!.handler({
-        message: "test",
-        level: "info",
-        respectFocus: false,
-      });
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "Notification not sent: No webhook configured",
-          },
-        ],
-      });
-    });
-
-    it("returns tool error on exception", async () => {
-      const ctx = baseContext();
-      ctx.sendNotify = vi.fn(async () => {
-        throw new Error("Rate limited");
-      });
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["notify"]),
-        ctx
-      );
-
-      const result = await server.tools[0]!.handler({
-        message: "x",
-        level: "info",
-        respectFocus: false,
-      });
-      expect(result).toEqual({
-        content: [{ type: "text", text: "Rate limited" }],
-        isError: true,
-      });
-    });
+  it("never registers notify: post carries notify: true instead", () => {
+    registerAgentLifecycleTools(
+      server as never,
+      new Set(["notify", "rename_session"]),
+      baseContext()
+    );
+    expect(server.tools.map((t) => t.name)).toEqual(["rename_session"]);
   });
 
   // ── list_media handler ─────────────────────────────────
@@ -374,11 +283,7 @@ describe("registerAgentLifecycleTools", () => {
       ];
       const ctx = baseContext();
       ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["list_pins"]),
-        ctx
-      );
+      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
 
       const one = (await server.tools[0]!.handler({ id: "pin_2" })) as {
         content: Array<{ text: string }>;
@@ -405,11 +310,7 @@ describe("registerAgentLifecycleTools", () => {
       ];
       const ctx = baseContext();
       ctx.listPins = vi.fn(async () => pins);
-      registerAgentLifecycleTools(
-        server as never,
-        new Set(["list_pins"]),
-        ctx
-      );
+      registerAgentLifecycleTools(server as never, new Set(["list_pins"]), ctx);
 
       const result = await server.tools[0]!.handler({});
 

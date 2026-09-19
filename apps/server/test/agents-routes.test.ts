@@ -217,6 +217,9 @@ describe("POST /api/v1/agents (create)", () => {
       initialPrompt: "Look like the parent wrote this",
     });
     expect(child.parentAgentId).toBe(parent.id);
+    // The launch post is written once the workspace is ready, in the
+    // background launch the create route detaches.
+    await ctx.awaitLaunched(child.id);
     const posts = await ctx.pool.query(
       `SELECT author_kind, text, origin, launched_by_agent_id
          FROM blocks WHERE stream_id = $1`,

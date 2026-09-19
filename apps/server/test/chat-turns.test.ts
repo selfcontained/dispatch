@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage } from "@dispatch/shared";
+import type { Block } from "@dispatch/shared";
 
 import {
   assembleTurns,
@@ -28,15 +28,17 @@ function row(
     updatedAt: at(settledAt ?? s),
   };
 }
-const chatMsg = (id: string, text: string, origin?: "launch"): ChatMessage => ({
+const chatMsg = (id: string, text: string, origin?: "launch"): Block => ({
   id,
-  agentId: "a",
-  authorKind: "user",
-  kind: "reply",
-  text,
+  streamId: "a",
+  author: { kind: "user" },
+  toAgentId: "a",
+  kind: "text",
+  threadId: null,
   replyTo: null,
-  question: null,
-  answer: null,
+  text,
+  data: null,
+  state: null,
   attachments: [],
   delivered: true,
   readAt: null,
@@ -451,15 +453,15 @@ describe("assembleTurns with agent questions", () => {
         12
       ),
     ];
-    const question = {
+    const question: Block = {
       id: "q1",
       streamId: "agt_1",
-      author: { kind: "agent" as const, agentId: "agt_1" },
+      author: { kind: "agent", agentId: "agt_1" },
       toAgentId: null,
+      kind: "question",
       threadId: null,
-      kind: "question" as const,
-      text: "Scope choice: fix the preview alone, or bundle it?",
       replyTo: null,
+      text: "Scope choice: fix the preview alone, or bundle it?",
       data: {
         options: [
           { label: "Preview only" },
@@ -474,7 +476,7 @@ describe("assembleTurns with agent questions", () => {
       createdAt: at(3).toISOString(),
       updatedAt: at(3).toISOString(),
     };
-    const turns = assembleTurns(rows, new Map(), [question as never]);
+    const turns = assembleTurns(rows, new Map(), [question]);
     expect(turns[0].questions).toEqual([
       {
         id: "q1",
@@ -775,15 +777,15 @@ describe("toTurnEntry", () => {
       0,
       5
     );
-    const question = {
+    const question: Block = {
       id: "11111111-1111-4111-8111-111111111111",
       streamId: "agt_x",
-      author: { kind: "agent" as const, agentId: "agt_x" },
+      author: { kind: "agent", agentId: "agt_x" },
       toAgentId: null,
+      kind: "question",
       threadId: null,
-      kind: "question" as const,
-      text: "Which one?",
       replyTo: null,
+      text: "Which one?",
       data: { options: [{ label: "A" }], allowFreeform: true },
       state: {},
       attachments: [],
@@ -793,7 +795,7 @@ describe("toTurnEntry", () => {
       updatedAt: at(1).toISOString(),
     };
     const [group] = groupTurnRows([turnRow]);
-    const [turn] = assembleTurns([turnRow], new Map(), [question as never]);
+    const [turn] = assembleTurns([turnRow], new Map(), [question]);
     const entry = toTurnEntry(turn, group, "agt_x");
     expect(entry.error).toBe("no API key");
     expect(entry.interrupted).toBe(false);

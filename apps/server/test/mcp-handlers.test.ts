@@ -1293,7 +1293,7 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("wraps the child's whole prompt, launch header included, in the Chat envelope", async () => {
+    it("wraps the child's whole prompt, launch header included, in the POST envelope", async () => {
       await handlers.launchAgent("agt_test1", {
         name: "worker",
         prompt: "Investigate the flaky test.",

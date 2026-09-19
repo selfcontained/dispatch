@@ -513,6 +513,7 @@ describe("AgentManager", () => {
         expect(posts[0]).toMatchObject({
           author_kind: "user",
           kind: "text",
+          to_agent_id: agent.id,
           text: "Build the widget",
           delivered: true,
           origin: "launch",
@@ -636,6 +637,7 @@ describe("AgentManager", () => {
         expect(firstTurn).toContain(
           `--- DISPATCH POST (id: ${posts[0].id}, from: user) ---`
         );
+        expect(firstTurn).toContain("--- END DISPATCH POST ---");
         expect(firstTurn).toContain("Build the widget");
         // Attachment lines come from the recorder, so turn and post agree.
         const media = await pool.query<{ file_name: string }>(
@@ -657,7 +659,7 @@ describe("AgentManager", () => {
         });
         expect(await launchPosts(agent.id)).toEqual([]);
         expect(promptsFor(agent.id)).toEqual(["Internal launch instructions"]);
-        // The Chat rule rides in the system prompt instead.
+        // The stream rule rides in the system prompt instead.
         expect(lastLaunch().systemPrompt).toContain(
           "The user reads your stream."
         );
@@ -790,8 +792,8 @@ describe("AgentManager", () => {
           prepareLaunchContext: async (input) => {
             const prepared = await chat.prepareLaunchContext(input);
             await pool.query(
-              `INSERT INTO blocks (id, stream_id, author_kind, kind, text)
-               VALUES ($1, $2, 'user', 'text', 'squatter')`,
+              `INSERT INTO blocks (id, stream_id, author_kind, to_agent_id, kind, text)
+               VALUES ($1, $2, 'user', $2, 'text', 'squatter')`,
               [input.id, input.agentId]
             );
             return prepared;
@@ -1355,11 +1357,12 @@ describe("AgentManager", () => {
         data: { options: [{ label: "Yes" }] },
         state: {},
       });
-      // A Chat prompt names its message by id; the status reads the text back.
+      // A stream prompt names its block by id; the status reads the text back.
       const userMessage = await store.insert({
         streamId: agent.id,
         author: { kind: "user" },
         toAgentId: agent.id,
+        kind: "text",
         text: "Please also update the docs",
       });
       await runtime.emit(

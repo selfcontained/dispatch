@@ -292,7 +292,8 @@ describe("MCP auth integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("rename_session");
-    expect(response.body).toContain("share_file");
+    expect(response.body).toContain('"post"');
+    expect(response.body).not.toContain("share_file");
     expect(response.body).toContain("launch_persona");
     expect(response.body).not.toContain("job_complete");
     expect(response.body).not.toContain("job_log");
