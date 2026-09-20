@@ -28,6 +28,7 @@ import {
   clearChatScrollMemory,
   entryOwner,
   filterStreamView,
+  isMainColumnEntry,
   questionExcerpt,
   type StreamView,
   readChatScrollPosition,
@@ -1050,6 +1051,19 @@ describe("ChatPane scroll memory", () => {
     expect(readChatScrollPosition("agt_9")).toBeNull();
     expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
     expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
+  });
+});
+
+describe("isMainColumnEntry", () => {
+  it("leaves a turn a thread reply opened to the drawer", () => {
+    const plain = turnEntry("turn:1", "agt_1", "2026-09-02T10:00:00.000Z");
+    expect(isMainColumnEntry(plain)).toBe(true);
+    expect(
+      isMainColumnEntry({
+        ...plain,
+        prompt: { ...plain.prompt, chatMessageId: "r1", threadId: "root" },
+      })
+    ).toBe(false);
   });
 });
 

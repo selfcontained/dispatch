@@ -138,7 +138,8 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
   if (entry.type === "status") {
     return entry.system === true && entry.phase !== "turn";
   }
-  return true;
+  // A turn a thread reply opened belongs to that thread, in the drawer.
+  return !(entry.type === "turn" && entry.prompt.threadId);
 }
 
 /**

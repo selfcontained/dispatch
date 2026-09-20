@@ -198,6 +198,22 @@ export type StreamFeedState = {
   refetch: () => void;
 };
 
+/**
+ * The feed as the cache holds it, without fetching: for a view beside the
+ * feed (the drawer's thread page) that reads the turns the Chat tab keeps
+ * current and should not start a second load of its own.
+ */
+export function useStreamFeedCache(rootId: string | null): StreamEntry[] {
+  const { data } = useQuery<FeedCache>({
+    queryKey: streamFeedQueryKey(rootId),
+    enabled: false,
+  });
+  return useMemo(
+    () => (data ? data.pages.flatMap((page) => page.entries) : []),
+    [data]
+  );
+}
+
 export function useStreamFeed(rootId: string | null): StreamFeedState {
   const query = useInfiniteQuery<
     StreamFeedResponse,
