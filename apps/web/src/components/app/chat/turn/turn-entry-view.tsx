@@ -13,7 +13,6 @@ import {
   Post,
   POST_BODY_MEASURE,
   type PostAuthor,
-  SIDE_POST_INDENT,
 } from "@/components/app/chat/chat-entries";
 import { cn } from "@/lib/utils";
 
@@ -310,7 +309,7 @@ function TurnBody({
     >
       {notice ? (
         <div
-          className={cn("pt-2 pr-4", SIDE_POST_INDENT, POST_BODY_MEASURE)}
+          className={cn("px-4 pt-2", POST_BODY_MEASURE)}
           data-testid="chat-turn-notice"
         >
           <PromptLine turn={promptTurn} />

@@ -271,6 +271,55 @@ function Avatar({ author }: { author: PostAuthor }): JSX.Element {
 }
 
 /**
+ * The line under an agent's name: which engine, which model, and how it
+ * stands to this agent when it is another one (a child, its parent). Every
+ * agent in the stream is told apart the same way, not only the page's own.
+ */
+export function AuthorMeta({
+  author,
+}: {
+  author: PostAuthor;
+}): JSX.Element | null {
+  if (author.kind === "user") return null;
+  const engine = agentTypeLabel(author.agentType);
+  const relation =
+    author.relation && author.relation !== "agent" ? author.relation : null;
+  if (!engine && !author.model && !relation) return null;
+  return (
+    <span
+      className="flex basis-full flex-wrap items-center gap-1 leading-4"
+      data-testid="chat-author-meta"
+    >
+      {engine ? (
+        <span
+          className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
+          data-testid="chat-author-engine"
+        >
+          {engine}
+        </span>
+      ) : null}
+      {author.model ? (
+        <span
+          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground"
+          title={author.model}
+          data-testid="chat-author-model"
+        >
+          {author.model}
+        </span>
+      ) : null}
+      {relation ? <AgentRelationBadge relation={relation} /> : null}
+    </span>
+  );
+}
+
+/** "Claude" / "Codex" for an engine id; null for an unknown one. */
+export function agentTypeLabel(type: string | null | undefined): string | null {
+  if (type === "claude") return "Claude";
+  if (type === "codex") return "Codex";
+  return null;
+}
+
+/**
  * Who a post reads as, at a glance: "You" and other agents get a faint
  * full-width tint so their posts stand apart from this agent's prose, which
  * stays plain. The tint runs the whole author group, so a run of posts
