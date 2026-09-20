@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
+import { stepLabel } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useChatRowState } from "../chat-row-state";
 
@@ -84,7 +85,7 @@ function ActivityBlockImpl({
             open={open}
             onToggle={() => setBlockOverride(!open)}
           />
-          {action}
+          {action ? <span className="shrink-0">{action}</span> : null}
         </div>
         <motion.div
           initial={false}
@@ -192,9 +193,11 @@ export function TurnGlyph({
   summary: Pick<TurnSummary, "done" | "failed" | "interrupted">;
 }): JSX.Element | null {
   if (!summary.done) {
+    // A slow breath, not a flicker: enough to read as "alive" from across
+    // the column, quiet enough that three of them do not fight.
     return (
       <span
-        className="inline-block h-1.5 w-1.5 rounded-full bg-status-working"
+        className="inline-block h-1.5 w-1.5 rounded-full bg-status-working animate-[pulse_1.8s_ease-in-out_infinite] motion-reduce:animate-none"
         data-testid="harness-turn-live"
       />
     );
@@ -209,11 +212,13 @@ export function TurnGlyph({
 }
 
 /**
- * The one row that describes the turn's work at every moment: the glyph
- * says live / done / failed / interrupted, the verb says what is or was
- * being done, the meta counts steps and time, the chevron says whether the
- * rail under it is open. The same node from start to finish, so the eye
- * never has to find the turn again.
+ * The one line that describes the turn's work at every moment, laid out so
+ * nothing shifts as it changes: a glyph slot (a slow-pulsing dot while the
+ * turn runs, a cross or a stop square after a failure or interruption, no
+ * slot at all once it is done), the current step or the verb (flexible,
+ * truncated, cross-fading in place), the count and time right-aligned in
+ * tabular figures, then the chevron. Stop, when the caller passes one, sits
+ * after the line and so never moves either.
  */
 function SummaryRow({
   trace,
@@ -228,8 +233,12 @@ function SummaryRow({
 }): JSX.Element {
   const done = trace.endedAt != null;
   const summary = turnSummary(trace, label);
-  const { verb, steps, ms, thinking } = summary;
-  const glyph = <TurnGlyph summary={summary} />;
+  const { steps, ms, thinking } = summary;
+  const running = done
+    ? undefined
+    : trace.steps.find((step) => step.status === "running");
+  const verb = running ? stepLabel(running) : summary.verb;
+  const slot = !done || summary.failed || summary.interrupted;
   return (
     <button
       type="button"
@@ -239,41 +248,45 @@ function SummaryRow({
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
+        "grid min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
+        slot
+          ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
+          : "grid-cols-[minmax(0,1fr)_auto_auto]",
         "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
       )}
     >
-      <span
-        className="flex w-3 shrink-0 justify-center text-[12px] leading-none"
-        aria-hidden="true"
-      >
-        {glyph}
-      </span>
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.span
-          key={verb}
-          variants={fadeVariants}
-          initial="hidden"
-          animate="shown"
-          exit="hidden"
-          transition={arrive(DURATION.fast)}
-          className={cn(
-            "min-w-0 max-w-[60%] truncate text-[11.5px]",
-            !done && "text-status-working"
-          )}
-          title={verb}
+      {slot ? (
+        <span
+          className="flex w-3 shrink-0 items-center justify-center leading-none"
+          aria-hidden="true"
         >
-          {verb}
-        </motion.span>
-      </AnimatePresence>
-      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <TurnGlyph summary={summary} />
+        </span>
+      ) : null}
+      <span className="relative min-w-0 overflow-hidden text-[11.5px]">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={verb}
+            variants={fadeVariants}
+            initial="hidden"
+            animate="shown"
+            exit="hidden"
+            transition={arrive(DURATION.base)}
+            className={cn("block truncate", !done && "text-status-working")}
+            title={verb}
+          >
+            {verb}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+      <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
         {thinking
           ? formatStepDuration(ms)
           : `${steps} · ${formatStepDuration(ms)}`}
       </span>
       <span
         aria-hidden="true"
-        className="ml-auto text-[9px] text-muted-foreground/70"
+        className="shrink-0 text-[9px] text-muted-foreground/70"
       >
         {open ? (
           <ChevronDown className="h-3 w-3" />

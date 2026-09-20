@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Markdown } from "@/components/ui/markdown";
 
 import type { Turn } from "./contracts";
-import { arrive, fadeVariants } from "./motion";
+import { arrive, DURATION } from "./motion";
 
 function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
   const error = turn.error;
@@ -14,10 +14,9 @@ function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
   const showContent = !!turn.content;
   return (
     <motion.div
-      variants={fadeVariants}
-      initial="hidden"
-      animate="shown"
-      transition={arrive()}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={arrive(DURATION.slow)}
       className="space-y-2"
       data-testid="harness-result"
     >

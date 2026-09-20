@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
+import { motion } from "framer-motion";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -22,6 +23,7 @@ import { ActivityBlock, TurnGlyph, turnSummary } from "./activity-block";
 import { AutoHeight } from "./auto-height";
 import type { Step, Trace, Turn } from "./contracts";
 import { formatStepDuration } from "./format";
+import { arrive, DURATION } from "./motion";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
@@ -342,7 +344,11 @@ function TurnBody({
               {entry.settled ? <ResultTurn turn={result} /> : null}
               <TurnAttachments items={folded} ctx={ctx} />
               {showsRail(trace, result) || !entry.settled ? (
-                <div className={cn(entry.settled && result.content && "mt-2")}>
+                <motion.div
+                  layout="position"
+                  transition={arrive(DURATION.slow)}
+                  className={cn(entry.settled && result.content && "mt-2")}
+                >
                   <ActivityBlock
                     trace={trace}
                     label={foldLabel}
@@ -356,7 +362,7 @@ function TurnBody({
                       {stopError}
                     </p>
                   ) : null}
-                </div>
+                </motion.div>
               ) : null}
             </AutoHeight>
           </div>
