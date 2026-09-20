@@ -1689,7 +1689,7 @@ describe("turn entries", () => {
 });
 
 describe("rowIdentity", () => {
-  const turn = (id: string, agentId: string): StreamEntry => ({
+  const turn = (id: string, agentId: string): ChatTurnEntry => ({
     type: "turn",
     id,
     agentId,
