@@ -77,20 +77,21 @@ test.describe("Stream blocks", () => {
     const review = pane.getByTestId("chat-review-block");
     await expect(review).toBeVisible();
 
-    // Collapsed: verdict, the summary's first sentence, the counts.
+    // A card of its own: the verdict and counts in the header, and, since
+    // findings are open, the rows already showing.
     await expect(review.getByTestId("chat-review-verdict")).toHaveText(
       "Changes requested"
-    );
-    await expect(review.getByTestId("chat-review-header")).toContainText(
-      "Two things to fix before this ships."
     );
     await expect(review.getByTestId("chat-review-counts")).toHaveText(
       "2 findings · 2 open"
     );
-    await expect(review.getByTestId("chat-review-finding")).toHaveCount(0);
-
-    // Expanded: one row per finding.
-    await review.getByTestId("chat-review-header").click();
+    await expect(review.getByTestId("chat-review-details")).toHaveAttribute(
+      "data-open",
+      "true"
+    );
+    await expect(review.getByTestId("chat-review-details")).toContainText(
+      "Two things to fix before this ships."
+    );
     const findings = review.getByTestId("chat-review-finding");
     await expect(findings).toHaveCount(2);
     await expect(findings.nth(0)).toHaveAttribute("data-finding-id", "f1");
@@ -99,13 +100,28 @@ test.describe("Stream blocks", () => {
     await expect(
       findings.nth(0).getByTestId("chat-review-severity")
     ).toHaveText("major");
+    // The row is compact: no body, no controls.
+    await expect(findings.nth(0)).not.toContainText(
+      "Left over from debugging."
+    );
+    await expect(review.getByTestId("chat-review-resolve")).toHaveCount(0);
 
-    // Resolve goes through PATCH …/state and the row follows.
-    await findings.nth(0).getByTestId("chat-review-resolve").click();
+    // A row opens the finding's own panel, where Resolve lives; the change
+    // goes through PATCH …/state and the row follows.
+    await findings.nth(0).getByTestId("chat-review-finding-link").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f1$`)
+    );
+    const thread = page.getByTestId("chat-thread-panel");
+    await expect(thread).toBeVisible();
+    await expect(thread).toHaveAttribute("data-block-id", reviewId!);
+    const detail = thread.getByTestId("chat-finding-detail");
+    await expect(detail).toContainText("Retry spinner never settles");
+    await detail.getByTestId("chat-review-resolve").click();
+    await expect(detail.getByTestId("chat-review-finding-status")).toHaveText(
+      "Resolved"
+    );
     await expect(findings.nth(0)).toHaveAttribute("data-status", "resolved");
-    await expect(
-      findings.nth(0).getByTestId("chat-review-finding-status")
-    ).toHaveText("Resolved");
     await expect(review.getByTestId("chat-review-counts")).toHaveText(
       "2 findings · 1 open"
     );
@@ -113,32 +129,32 @@ test.describe("Stream blocks", () => {
       .poll(() => blockState(request, agent.id, reviewId!))
       .toMatchObject({ findings: { f1: { status: "resolved" } } });
 
-    // Disputing a finding is a state too.
-    await findings.nth(1).getByTestId("chat-review-dispute").click();
-    await expect(findings.nth(1)).toHaveAttribute("data-status", "disputed");
-    await expect
-      .poll(() => blockState(request, agent.id, reviewId!))
-      .toMatchObject({ findings: { f2: { status: "disputed" } } });
-
-    // A finding's title opens the review's thread on that finding.
+    // Disputing a finding is a state too, and Reopen takes it back.
     await findings.nth(1).getByTestId("chat-review-finding-link").click();
     await page.waitForURL(
       new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f2$`)
     );
-    const thread = page.getByTestId("chat-thread-panel");
-    await expect(thread).toBeVisible();
-    await expect(thread).toHaveAttribute("data-block-id", reviewId!);
-    const highlighted = thread.locator(
-      '[data-testid="chat-review-finding"][data-highlighted="true"]'
-    );
-    await expect(highlighted).toHaveAttribute("data-finding-id", "f2");
-    // In the panel the finding carries its body, and reopen is on offer.
-    await expect(highlighted).toContainText("Left over from debugging.");
-    await highlighted.getByTestId("chat-review-reopen").click();
-    await expect(highlighted).toHaveAttribute("data-status", "open");
+    await expect(detail).toContainText("Left over from debugging.");
+    await detail.getByTestId("chat-review-dispute").click();
+    await expect(findings.nth(1)).toHaveAttribute("data-status", "disputed");
+    await expect
+      .poll(() => blockState(request, agent.id, reviewId!))
+      .toMatchObject({ findings: { f2: { status: "disputed" } } });
+    await detail.getByTestId("chat-review-reopen").click();
+    await expect(findings.nth(1)).toHaveAttribute("data-status", "open");
     await expect
       .poll(() => blockState(request, agent.id, reviewId!))
       .toMatchObject({ findings: { f2: { status: "open" } } });
+
+    // A comment on the finding lands in its discussion, tagged to it.
+    await thread
+      .getByTestId("chat-composer-input")
+      .fill("Fixing this one now.");
+    await thread.getByTestId("chat-composer-send").click();
+    await expect(thread.getByTestId("chat-thread-replies")).toContainText(
+      "Fixing this one now."
+    );
+    await expect(findings.nth(1)).toContainText("1 comment");
 
     await page.screenshot({
       path: test.info().outputPath("review-block-thread.png"),
