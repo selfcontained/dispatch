@@ -265,7 +265,7 @@ function SubmitReviewDialog({
           <DialogTitle className="text-sm">Post review</DialogTitle>
           <DialogDescription>
             Posts a review block into the agent&apos;s stream. Each comment
-            becomes a finding the agent can resolve or dispute, with a thread
+            becomes a finding the agent can mark fixed or dismiss, with a thread
             behind it.
           </DialogDescription>
         </DialogHeader>

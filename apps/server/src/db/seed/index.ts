@@ -60,7 +60,7 @@ async function clearSeeded(client: PoolClient): Promise<void> {
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     "activity-demo",
   ]);
-  // Deleting agents cascades to media, token usage, events, and reviews.
+  // Deleting agents cascades to media, token usage and stream events.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
 

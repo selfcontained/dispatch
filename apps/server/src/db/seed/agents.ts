@@ -50,7 +50,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
   const demoCwd = "/tmp/dispatch-demo";
 
   const agents: SeedAgentInput[] = [
-    // Simple agent — no feedback, no reviews. Base branch set.
+    // Simple agent. Base branch set.
     {
       id: "seed-agent-running-main",
       name: "theme polish",
@@ -67,7 +67,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       },
       createdDaysAgo: 1,
     },
-    // Rich agent — has persona review + feedback + media + all 7 pin types. Base branch set.
+    // Rich agent — has media. Base branch set.
     {
       id: "seed-agent-running-feature",
       name: "add activity heatmap",

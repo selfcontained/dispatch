@@ -138,16 +138,12 @@ export function buildStartupPrompt(
  * into chat, so it's the one tool-routing rule with a demonstrated failure
  * history — the toggle tests the PR line, not this.
  *
- * The Autonomous Review rule is shortened for *everyone*, toggle or not, and
- * that has nothing to do with the plugin: two thirds of the old block was
- * reactive ("after feedback arrives, do X"), and Dispatch already re-injects
- * each of those clauses at the moment they apply — see
- * `buildLaunchPersonaResponseText` and `reviews/injection-prompts.ts`. What
- * remains is the part nothing can inject: the gate the agent must already know
- * before it decides it is done, plus a pointer to
- * `review_list_feedback` — injection is best-effort and is dropped
- * when the parent has no live session, so the agent needs one durable way to
- * find a review that was submitted while it was down.
+ * The Autonomous Review rule is short for *everyone*, toggle or not, and
+ * that has nothing to do with the plugin: the reactive part ("after a
+ * review arrives, do X") reaches the agent with the review itself, as the
+ * envelope of the review block. What remains is the part nothing can
+ * deliver later: the gate the agent must already know before it decides it
+ * is done.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -225,7 +221,7 @@ export function buildLaunchGuidance(
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; resolve or dispute its findings with update state and answer questions in the block's thread. Don't finish until every finding is resolved."
+        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; work its findings (mark each fixed, or dismiss it with a note, with update state) and answer questions in the block's thread. Don't finish until every finding is resolved."
       );
     }
   }
