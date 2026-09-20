@@ -8,6 +8,7 @@ import {
   type DrawerPage,
 } from "@/components/app/drawer/drawer-stack";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
+import { TurnPage, useTurnEntry } from "@/components/app/drawer/turn-page";
 import {
   type Agent,
   type FileItem,
@@ -169,16 +170,36 @@ export function DrawerContent({
   const rootId = rail.rootId;
   const threadId = selectedAgentId && rootId ? route.threadId : null;
   const findingId = threadId ? route.findingId : null;
+  const turnId = selectedAgentId && rootId ? route.turnId : null;
   const thread = useThread(rootId, threadId);
+  const turn = useTurnEntry(rootId, turnId);
   const nameOf = (agentId: string) =>
     agentId === selectedAgentId
       ? (selectedAgentName ?? "Agent")
       : (agentNameById?.(agentId) ?? "Agent");
-  const heading = threadTitle(thread.root, findingId !== null, nameOf);
-  const { openThread, back } = route;
+  const heading = turnId
+    ? { title: "Turn", subtitle: turn ? `by ${nameOf(turn.agentId)}` : "" }
+    : threadTitle(thread.root, findingId !== null, nameOf);
+  const { openThread, openTurn, back } = route;
   const pages = useMemo<DrawerPage[]>(() => {
     const list: DrawerPage[] = [{ key: "home", node: null }];
-    if (!selectedAgentId || !rootId || !threadId) return list;
+    if (!selectedAgentId || !rootId) return list;
+    if (turnId) {
+      list.push({
+        key: `turn:${turnId}`,
+        node: (
+          <TurnPage
+            rootId={rootId}
+            turnId={turnId}
+            openLightbox={openLightbox}
+            onOpenPath={onOpenPath}
+            onOpenThread={openThread}
+          />
+        ),
+      });
+      return list;
+    }
+    if (!threadId) return list;
     // One page per level: moving between findings on the same review
     // changes what the finding page shows rather than swapping pages.
     const page = (finding: string | null): DrawerPage => ({
@@ -194,6 +215,7 @@ export function DrawerContent({
           openLightbox={openLightbox}
           onOpenPath={onOpenPath}
           onOpenThread={openThread}
+          onOpenTurn={openTurn}
           onBack={back}
         />
       ),
@@ -209,9 +231,11 @@ export function DrawerContent({
     onOpenPath,
     openLightbox,
     openThread,
+    openTurn,
     rootId,
     selectedAgentId,
     threadId,
+    turnId,
   ]);
   const depth = pages.length - 1;
 

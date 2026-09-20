@@ -177,9 +177,15 @@ function ChildTurnView({
     >
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-label={`${name}, ${summary.verb}, ${summary.steps}, ${duration}, ${open ? "collapse" : "expand"} turn`}
+        // In the stream the row opens the turn as a page in the drawer; where
+        // there is no drawer to open (the drawer's own pages), it unfolds.
+        onClick={() =>
+          ctx.onOpenTurn ? ctx.onOpenTurn(entry.id) : setOpen(!open)
+        }
+        aria-expanded={ctx.onOpenTurn ? undefined : open}
+        aria-label={`${name}, ${summary.verb}, ${summary.steps}, ${duration}, ${
+          ctx.onOpenTurn ? "open" : open ? "collapse" : "expand"
+        } turn`}
         data-testid="chat-child-turn-summary"
         className={cn(
           "group flex w-full min-w-0 items-center gap-3 px-4 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/30",

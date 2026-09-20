@@ -8,15 +8,19 @@
 import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
+import { FINDING_PARAM, THREAD_PARAM, TURN_PARAM } from "@/lib/agent-routes";
 
 export type DrawerRoute = {
   threadId: string | null;
   findingId: string | null;
+  /** A turn of another agent, open as a page of its own. */
+  turnId: string | null;
   /** How many pages sit over the drawer's home: 0, 1 (thread) or 2 (finding). */
   depth: number;
   /** Push a thread, or a finding on a review, over the home page. */
   openThread: (blockId: string, findingId?: string) => void;
+  /** Push a turn (a child agent's, folded in the stream) over the home page. */
+  openTurn: (turnId: string) => void;
   /** Pop the top page. */
   back: () => void;
   /** Pop every page: the drawer shows its home again. */
@@ -27,6 +31,7 @@ export function useDrawerRoute(): DrawerRoute {
   const [searchParams, setSearchParams] = useSearchParams();
   const threadId = searchParams.get(THREAD_PARAM);
   const findingId = threadId ? searchParams.get(FINDING_PARAM) : null;
+  const turnId = threadId ? null : searchParams.get(TURN_PARAM);
 
   const openThread = useCallback(
     (blockId: string, finding?: string) => {
@@ -35,6 +40,20 @@ export function useDrawerRoute(): DrawerRoute {
         next.set(THREAD_PARAM, blockId);
         if (finding) next.set(FINDING_PARAM, finding);
         else next.delete(FINDING_PARAM);
+        next.delete(TURN_PARAM);
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
+
+  const openTurn = useCallback(
+    (id: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set(TURN_PARAM, id);
+        next.delete(THREAD_PARAM);
+        next.delete(FINDING_PARAM);
         return next;
       });
     },
@@ -45,7 +64,10 @@ export function useDrawerRoute(): DrawerRoute {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (next.has(FINDING_PARAM)) next.delete(FINDING_PARAM);
-      else next.delete(THREAD_PARAM);
+      else {
+        next.delete(THREAD_PARAM);
+        next.delete(TURN_PARAM);
+      }
       return next;
     });
   }, [setSearchParams]);
@@ -54,9 +76,16 @@ export function useDrawerRoute(): DrawerRoute {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (!next.has(THREAD_PARAM) && !next.has(FINDING_PARAM)) return prev;
+        if (
+          !next.has(THREAD_PARAM) &&
+          !next.has(FINDING_PARAM) &&
+          !next.has(TURN_PARAM)
+        ) {
+          return prev;
+        }
         next.delete(THREAD_PARAM);
         next.delete(FINDING_PARAM);
+        next.delete(TURN_PARAM);
         return next;
       },
       { replace: true }
@@ -67,11 +96,13 @@ export function useDrawerRoute(): DrawerRoute {
     () => ({
       threadId,
       findingId,
-      depth: threadId ? (findingId ? 2 : 1) : 0,
+      turnId,
+      depth: threadId ? (findingId ? 2 : 1) : turnId ? 1 : 0,
       openThread,
+      openTurn,
       back,
       closeAll,
     }),
-    [back, closeAll, findingId, openThread, threadId]
+    [back, closeAll, findingId, openThread, openTurn, threadId, turnId]
   );
 }

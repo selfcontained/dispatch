@@ -270,10 +270,10 @@ export function AgentsView({
   const drawerRoute = useDrawerRoute();
   const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
     drawerRoute;
-  const drawerThreadId = drawerRoute.threadId;
+  const drawerPageOpen = drawerRoute.depth > 0;
   useEffect(() => {
-    if (drawerThreadId) setDrawerOpenState(true);
-  }, [drawerThreadId, setDrawerOpenState]);
+    if (drawerPageOpen) setDrawerOpenState(true);
+  }, [drawerPageOpen, setDrawerOpenState]);
   const closeDrawer = useCallback(() => {
     closeDrawerPages();
     setDrawerOpenState(false);

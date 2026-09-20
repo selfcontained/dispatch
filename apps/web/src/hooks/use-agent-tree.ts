@@ -64,7 +64,7 @@ export function descendantAgentIds(
   return out;
 }
 
-async function fetchAgents(): Promise<Agent[]> {
+export async function fetchAgents(): Promise<Agent[]> {
   const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
   return payload.agents;
 }

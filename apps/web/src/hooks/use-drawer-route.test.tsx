@@ -39,6 +39,20 @@ describe("useDrawerRoute", () => {
     expect(setup("?finding=f2").result.current.route.depth).toBe(0);
   });
 
+  it("a turn is a page of its own, replaced by a thread and popped by back", () => {
+    const { result } = setup("");
+    act(() => result.current.route.openTurn("turn:7"));
+    expect(result.current.search).toBe("?turn=turn%3A7");
+    expect(result.current.route).toMatchObject({ turnId: "turn:7", depth: 1 });
+    act(() => result.current.route.openThread("t1"));
+    expect(result.current.search).toBe("?thread=t1");
+    expect(result.current.route.turnId).toBeNull();
+    act(() => result.current.route.openTurn("turn:8"));
+    act(() => result.current.route.back());
+    expect(result.current.search).toBe("");
+    expect(result.current.route.depth).toBe(0);
+  });
+
   it("pushes a thread then a finding, pops one at a time, and closes them all", () => {
     const { result } = setup("?file=x");
     act(() => result.current.route.openThread("t1"));

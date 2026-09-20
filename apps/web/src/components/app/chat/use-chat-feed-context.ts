@@ -18,6 +18,7 @@ export type ChatFeedContextInput = {
   onOpenPath?: FeedContext["onOpenPath"];
   onToggleReaction?: FeedContext["onToggleReaction"];
   onOpenThread?: FeedContext["onOpenThread"];
+  onOpenTurn?: FeedContext["onOpenTurn"];
   onSubmitForm?: FeedContext["onSubmitForm"];
   onSetBlockState?: FeedContext["onSetBlockState"];
 };
@@ -50,6 +51,7 @@ export function useChatFeedContext({
   onOpenPath,
   onToggleReaction,
   onOpenThread,
+  onOpenTurn,
   onSubmitForm,
   onSetBlockState,
 }: ChatFeedContextInput): ChatFeedContextResult {
@@ -85,6 +87,7 @@ export function useChatFeedContext({
       onOpenPath,
       onToggleReaction,
       onOpenThread,
+      onOpenTurn,
       onSubmitForm,
       onSetBlockState,
     }),
@@ -93,9 +96,11 @@ export function useChatFeedContext({
       rootId,
       agentName,
       agentType,
+      agentModel,
       onOpenPath,
       onToggleReaction,
       onOpenThread,
+      onOpenTurn,
       onSubmitForm,
       onSetBlockState,
       openLightbox,

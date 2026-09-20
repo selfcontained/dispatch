@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { StreamThreadResponse } from "@dispatch/shared";
+import type { ChatTurnEntry, StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -11,7 +11,11 @@ import {
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { threadQueryKey } from "@/hooks/use-stream";
+import {
+  type FeedCache,
+  streamFeedQueryKey,
+  threadQueryKey,
+} from "@/hooks/use-stream";
 import { block, reviewBody } from "@/test-utils/blocks";
 
 import { DrawerContent } from "./drawer";
@@ -186,6 +190,45 @@ describe("DrawerContent as the drawer", () => {
     fireEvent.click(screen.getByTestId("drawer-back"));
     expect(screen.getByTestId("location-search").textContent).toBe("");
     expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("0");
+  });
+
+  it("shows another agent's turn as a page of its own from the URL", () => {
+    const at = "2026-09-02T10:00:00.000Z";
+    const childTurn: ChatTurnEntry = {
+      type: "turn",
+      id: "turn:9",
+      agentId: "agt_rev",
+      at,
+      updatedAt: at,
+      prompt: { source: "chat", text: "check the diff", attachments: [] },
+      trace: { startedAt: at, endedAt: at, finalResult: "ok", steps: [] },
+      result: { text: "All clear from the reviewer.", streaming: false },
+      settled: true,
+      interrupted: false,
+    };
+    client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1"), {
+      pages: [
+        {
+          entries: [childTurn],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+      pageParams: [undefined],
+    });
+    renderDrawer("?turn=turn%3A9");
+    expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("1");
+    expect(screen.getByTestId("drawer-title").textContent).toBe("Turn");
+    expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
+      "by reviewer"
+    );
+    const page = screen.getByTestId("drawer-turn-page");
+    // The turn in full, not a child's folded row.
+    expect(page.querySelector('[data-testid="chat-child-turn"]')).toBeNull();
+    expect(page.textContent).toContain("All clear from the reviewer.");
+    fireEvent.click(screen.getByTestId("drawer-back"));
+    expect(screen.getByTestId("location-search").textContent).toBe("");
   });
 
   it("opens a finding's page from a row on the review page", () => {

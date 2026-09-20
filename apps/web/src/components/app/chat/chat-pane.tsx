@@ -404,7 +404,11 @@ export function ChatPane({
   // The open thread lives in the URL and shows in the right drawer; the
   // pane only needs to know one is open (the composer yields focus) and
   // how to open one.
-  const { threadId: openThreadId, openThread: onOpenThread } = useDrawerRoute();
+  const {
+    threadId: openThreadId,
+    openThread: onOpenThread,
+    openTurn: onOpenTurn,
+  } = useDrawerRoute();
 
   const entries = feed.entries;
   const view = useMemo<StreamView | null>(
@@ -840,6 +844,7 @@ export function ChatPane({
     onOpenPath,
     onToggleReaction,
     onOpenThread,
+    onOpenTurn,
     onSubmitForm,
     onSetBlockState,
   });
