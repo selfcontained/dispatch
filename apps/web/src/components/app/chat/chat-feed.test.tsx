@@ -626,7 +626,11 @@ describe("ChatFeed", () => {
       }),
     ]);
     const post = sidePosts()[0]!;
-    expect(post.querySelector('[aria-label="Agent agent"]')).not.toBeNull();
+    expect(
+      post
+        .querySelector('[data-testid="chat-avatar-agent"]')
+        ?.getAttribute("aria-label")
+    ).toBe("Agent, agent");
     // This agent's own outgoing posts carry no badge.
   });
 
