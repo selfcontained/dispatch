@@ -146,17 +146,20 @@ export function ThreadPanel({
     findingId && thread.root?.kind === "review"
       ? (thread.root.data.findings.find((f) => f.id === findingId) ?? null)
       : null;
-  // A reply from a person that opened a turn is drawn by that turn, here
-  // as in the stream: the turns the feed holds for this thread take the
-  // place of the replies that started them, in time order.
+  // A reply that opened a turn of the page's agent is drawn by that turn,
+  // here as in the stream: the turns the feed holds for this thread take
+  // the place of the replies that started them, in time order. Another
+  // agent's turns stay out; what it said is already here as its replies.
   const entries = useStreamFeedCache(rootId);
   const turns = useMemo(
     () =>
       entries.filter(
         (entry): entry is ChatTurnEntry =>
-          entry.type === "turn" && entry.prompt.threadId === blockId
+          entry.type === "turn" &&
+          entry.agentId === agentId &&
+          entry.prompt.threadId === blockId
       ),
-    [blockId, entries]
+    [agentId, blockId, entries]
   );
   const replies = useMemo(
     () =>
