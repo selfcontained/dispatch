@@ -508,7 +508,10 @@ describe("ChatPane", () => {
     fireEvent.scroll(scroll);
 
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
 
     H.entries = [
       ...H.entries,
@@ -521,11 +524,14 @@ describe("ChatPane", () => {
       ),
     ];
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
     expect(screen.queryByText("still hidden")).toBeNull();
   });
 
-  it("offers the New messages pill for a live row that lands mid-feed", () => {
+  it("offers the jump-to-bottom button, marked, for a live row that lands mid-feed", () => {
     const first = blockEntry(
       block({
         id: "a1",
@@ -545,7 +551,10 @@ describe("ChatPane", () => {
       scrollTop: { configurable: true, value: 100, writable: true },
     });
     fireEvent.scroll(scroll);
-    expect(screen.queryByText("New messages")).toBeNull();
+    // Scrolled up, the way back is offered; nothing new is marked on it.
+    expect(
+      screen.queryByTestId("chat-jump-to-bottom")?.getAttribute("data-pending")
+    ).toBeFalsy();
 
     H.entries = [
       first,
@@ -570,7 +579,9 @@ describe("ChatPane", () => {
         isMobile={false}
       />
     );
-    expect(screen.getByText("New messages")).toBeTruthy();
+    expect(
+      screen.getByTestId("chat-jump-to-bottom").getAttribute("data-pending")
+    ).toBe("true");
   });
 
   it("does not re-render memoised posts when the pane re-renders with equal data", async () => {

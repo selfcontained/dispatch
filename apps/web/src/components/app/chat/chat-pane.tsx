@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { BlockOption, StreamEntry } from "@dispatch/shared";
+import type { ChatTurnEntry, BlockOption, StreamEntry } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -147,6 +147,8 @@ export { FINDING_PARAM, THREAD_PARAM };
 
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
+/** Scrolled up past this much of the view, the jump-to-bottom button shows. */
+const JUMP_BUTTON_PX = 160;
 
 /**
  * Where a reader was in one agent's feed.
@@ -209,6 +211,77 @@ export function readChatScrollPosition(
 /** Tests share the module with each other; let them start clean. */
 export function clearChatScrollMemory(): void {
   scrollPositions.clear();
+}
+
+/**
+ * The page agent's turn whose message just landed: settled, with text,
+ * not noticed before. Every settled turn present at the first pass is
+ * remembered without being reported, so history never counts as landing.
+ */
+export function landedTurn(
+  entries: readonly StreamEntry[],
+  agentId: string,
+  seen: Set<string>
+): ChatTurnEntry | null {
+  const first = seen.size === 0;
+  let landed: ChatTurnEntry | null = null;
+  for (const entry of entries) {
+    if (entry.type !== "turn" || !entry.settled) continue;
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    if (first || entry.agentId !== agentId || !entry.result?.text) continue;
+    landed = entry;
+  }
+  return landed;
+}
+
+/** Room left above the reply's header when the reader is put at its start. */
+const REPLY_START_GAP_PX = 8;
+
+/** Scroll so the reply's header sits at the top of the view, as far as the content allows. */
+export function alignReplyStart(el: HTMLElement, turnId: string): void {
+  const post = el.querySelector<HTMLElement>(
+    `[data-turn-id="${turnId}"] [data-testid="chat-turn-result"]`
+  );
+  if (!post) return;
+  const postTop =
+    post.getBoundingClientRect().top -
+    el.getBoundingClientRect().top +
+    el.scrollTop;
+  el.scrollTop = Math.max(0, postTop - REPLY_START_GAP_PX);
+}
+
+/**
+ * Where to scroll so a reply that would not fit under the fold starts at
+ * the top of the view, or null when pinning the bottom keeps its start in
+ * sight. The reply's body may still be easing open, so its final height is
+ * read from the content inside the wrapper, not the wrapper.
+ */
+export function replyStartIfTall(
+  el: HTMLElement,
+  turnId: string
+): number | null {
+  const post = el.querySelector<HTMLElement>(
+    `[data-turn-id="${turnId}"] [data-testid="chat-turn-result"]`
+  );
+  if (!post) return null;
+  const body = post.querySelector<HTMLElement>(
+    '[data-testid="chat-turn-body"]'
+  );
+  const inner = body?.firstElementChild;
+  const postRect = post.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const finalPostHeight =
+    body && inner
+      ? postRect.height -
+        body.getBoundingClientRect().height +
+        inner.getBoundingClientRect().height
+      : postRect.height;
+  const postTop = postRect.top - elRect.top + el.scrollTop;
+  const finalScrollHeight = el.scrollHeight - postRect.height + finalPostHeight;
+  const bottomPinnedTop = finalScrollHeight - el.clientHeight;
+  if (postTop - REPLY_START_GAP_PX >= bottomPinnedTop) return null;
+  return Math.max(0, postTop - REPLY_START_GAP_PX);
 }
 
 function entryNodes(el: HTMLElement): HTMLElement[] {
@@ -408,10 +481,26 @@ export function ChatPane({
     () => savedPositionRef.current?.following ?? true
   );
   const [pendingBelow, setPendingBelow] = useState(false);
+  /** Scrolled up far enough that a way back to the bottom is worth showing. */
+  const [farFromBottom, setFarFromBottom] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
   /** Id plus version of the tail entry: a streaming row grows in place. */
   const lastEntryKeyRef = useRef<string | null>(null);
   const seenEntryIdsRef = useRef<ReadonlySet<string>>(new Set());
+  /** Turns whose message has already landed, so a settle is noticed once. */
+  const settledTurnIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * When the reader was last put at the start of a tall reply, or 0. The
+   * content observer must not drag them back to the bottom while that
+   * reply's body is still easing open, and the scroll handler must not
+   * re-arm following off the jump itself: at that instant the body is
+   * still short, so the reply's start reads as "near the bottom". Reaching
+   * the bottom later, once the settle has played out, clears it.
+   */
+  const anchoredRef = useRef(0);
+  /** The turn whose reply start the reader is held at, while anchored. */
+  const anchorTurnRef = useRef<string | null>(null);
+  const ANCHOR_HOLD_MS = 1200;
   const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
   const restoredRef = useRef(false);
@@ -430,13 +519,30 @@ export function ChatPane({
   // image sizing itself. The content is what is watched, not the scroller,
   // whose size only changes with the window.
   const contentRef = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(following);
+  followingRef.current = following;
   useEffect(() => {
     const el = contentRef.current;
-    if (!following || !el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => scrollToBottom());
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (anchoredRef.current !== 0) {
+        // The reader was put at the start of a tall reply whose body is
+        // still easing open: the scroller could not reach that start while
+        // the content was short, so align again as it grows, then let go.
+        if (
+          anchorTurnRef.current &&
+          Date.now() - anchoredRef.current < ANCHOR_HOLD_MS
+        ) {
+          const scroller = scrollRef.current;
+          if (scroller) alignReplyStart(scroller, anchorTurnRef.current);
+        }
+        return;
+      }
+      if (followingRef.current) scrollToBottom();
+    });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [following, scrollToBottom]);
+  }, [scrollToBottom]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -484,6 +590,12 @@ export function ChatPane({
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance <= FOLLOW_THRESHOLD_PX;
+    setFarFromBottom(distance > JUMP_BUTTON_PX);
+    if (atBottom && Date.now() - anchoredRef.current < ANCHOR_HOLD_MS) {
+      rememberSoon();
+      return;
+    }
+    if (atBottom) anchoredRef.current = 0;
     setFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
@@ -554,12 +666,30 @@ export function ChatPane({
       scrollToBottom();
       return;
     }
+    // A turn's message landing. A long one would push its own start off the
+    // top if the bottom stayed pinned, so the reader lands at the start of
+    // the reply instead and reads down; following resumes when they reach
+    // the bottom. A reply that fits under the fold pins the bottom as usual.
+    const landed = agentId
+      ? landedTurn(visibleEntries, agentId, settledTurnIdsRef.current)
+      : null;
+    if (following && landed) {
+      if (replyStartIfTall(el, landed.id) !== null) {
+        anchoredRef.current = Date.now();
+        anchorTurnRef.current = landed.id;
+        setFollowing(false);
+        // A jump, not a smooth scroll: the first scroll events of a smooth
+        // one still read as "at the bottom" and would re-arm following.
+        alignReplyStart(el, landed.id);
+        return;
+      }
+    }
     if (following) {
       scrollToBottom();
     } else if (appended) {
       setPendingBelow(true);
     }
-  }, [following, scrollToBottom, showChildAgents, visibleEntries]);
+  }, [agentId, following, scrollToBottom, showChildAgents, visibleEntries]);
 
   // Agent switch. AgentPane keys this pane by agent id, so in practice a
   // switch remounts it and the state above is already fresh; this covers
@@ -575,6 +705,8 @@ export function ChatPane({
     lastEntryIdRef.current = null;
     lastEntryKeyRef.current = null;
     seenEntryIdsRef.current = new Set();
+    settledTurnIdsRef.current = new Set();
+    anchoredRef.current = 0;
     olderLoadRef.current = null;
   }, [agentId]);
 
@@ -847,21 +979,35 @@ export function ChatPane({
                 ) : null}
               </div>
             </div>
-            {pendingBelow && !following ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
+            {!following && (farFromBottom || pendingBelow) ? (
+              <div className="pointer-events-none absolute bottom-3 right-3">
                 <Button
                   type="button"
-                  size="sm"
-                  variant="primary"
-                  className="pointer-events-auto h-7 gap-1 rounded-full text-xs shadow"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={
+                    pendingBelow
+                      ? "New messages, jump to bottom"
+                      : "Jump to bottom"
+                  }
+                  title={pendingBelow ? "New messages" : "Jump to bottom"}
+                  data-testid="chat-jump-to-bottom"
+                  data-pending={pendingBelow ? "true" : undefined}
+                  className="pointer-events-auto relative h-9 w-9 rounded-full border-border/60 bg-background/70 text-foreground shadow-md backdrop-blur hover:bg-background/90"
                   onClick={() => {
+                    anchoredRef.current = 0;
                     setFollowing(true);
                     setPendingBelow(false);
                     scrollToBottom("smooth");
                   }}
                 >
-                  <ArrowDown className="h-3 w-3" />
-                  New messages
+                  <ArrowDown className="h-4 w-4" />
+                  {pendingBelow ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute right-1 top-1 h-2 w-2 rounded-full bg-status-working ring-2 ring-background"
+                    />
+                  ) : null}
                 </Button>
               </div>
             ) : null}

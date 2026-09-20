@@ -94,6 +94,9 @@ export function StepDetail({
   );
 }
 
+/** A command this long fits on the step row itself, so the detail need not echo it. */
+const COMMAND_ROW_CHARS = 48;
+
 function DetailBody({ step }: { step: Step }): JSX.Element | null {
   const d = stepDetailData(step);
   const input = inputRecord(d.input);
@@ -111,9 +114,15 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
   }
   switch (step.kind) {
     case "execute":
+      // When the row's own label is the command (some engines title a run
+      // by its command), a short one-line command is not repeated here;
+      // the detail still shows it when the row could not carry all of it.
       return (
         <>
-          {typeof command === "string" ? (
+          {typeof command === "string" &&
+          (step.label?.trim() !== command.trim() ||
+            command.length > COMMAND_ROW_CHARS ||
+            command.includes("\n")) ? (
             <CommandLine command={command} />
           ) : null}
           <OutputBlock text={d.terminalOutput} />
