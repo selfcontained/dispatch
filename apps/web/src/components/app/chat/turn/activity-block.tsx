@@ -1,14 +1,14 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
-import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
+import { arrive, burstIndex } from "./motion";
 import { stepLabel } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
@@ -261,20 +261,19 @@ function SummaryRow({
         </span>
       ) : null}
       <span className="relative min-w-0 overflow-hidden text-[11.5px]">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span
-            key={verb}
-            variants={fadeVariants}
-            initial="hidden"
-            animate="shown"
-            exit="hidden"
-            transition={arrive(DURATION.base)}
-            className={cn("block truncate", !done && "text-status-working")}
-            title={verb}
-          >
-            {verb}
-          </motion.span>
-        </AnimatePresence>
+        {/* A new step name fades in over the old one's place: a keyed CSS
+            fade, no layout animation, so the timer ticking around it never
+            re-measures anything. */}
+        <span
+          key={verb}
+          className={cn(
+            "block truncate animate-chat-enter motion-reduce:animate-none",
+            !done && "text-status-working"
+          )}
+          title={verb}
+        >
+          {verb}
+        </span>
       </span>
       <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
         {thinking
