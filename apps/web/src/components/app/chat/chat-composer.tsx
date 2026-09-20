@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
@@ -53,6 +54,11 @@ export type ChatComposerProps = {
    * and is dropped on unmount.
    */
   agentId: string | null;
+  /**
+   * A control beside Send: Stop while the agent's turn runs. The composer
+   * is the one spot that never moves and has room on a phone.
+   */
+  action?: ReactNode;
   /**
    * Resolves once the message is accepted; rejects when it is not. The draft
    * — text and attachments — is cleared only on success so a failed send
@@ -174,6 +180,7 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  action,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -750,6 +757,7 @@ export function ChatComposer({
             className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
             data-testid="chat-composer-input"
           />
+          {action}
           <Button
             type="submit"
             size="icon"

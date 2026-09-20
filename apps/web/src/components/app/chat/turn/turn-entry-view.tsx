@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
 import { motion } from "framer-motion";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -27,7 +27,6 @@ import { arrive, DURATION } from "./motion";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
-import { StopTurnButton } from "../stop-turn-button";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 import { useStreamTicker } from "./use-stream-ticker";
 
@@ -279,13 +278,6 @@ function TurnBody({
   const showsPrompt = entry.prompt.source !== "agent" && !entry.prompt.threadId;
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const prompt = useMemo(() => promptBlock(entry), [entry]);
-  // Stop sits on the running post's own activity line, where the work is;
-  // a failed cancel says so right there.
-  const [stopError, setStopError] = useState<string | null>(null);
-  const stop =
-    !entry.settled && entry.agentId === ctx.agentId ? (
-      <StopTurnButton agentId={entry.agentId} onError={setStopError} />
-    ) : undefined;
   return (
     <div
       data-testid="chat-turn"
@@ -349,19 +341,7 @@ function TurnBody({
                   transition={arrive(DURATION.slow)}
                   className={cn(entry.settled && result.content && "mt-2")}
                 >
-                  <ActivityBlock
-                    trace={trace}
-                    label={foldLabel}
-                    action={stop}
-                  />
-                  {stopError ? (
-                    <p
-                      role="alert"
-                      className="mt-1 text-[11px] text-destructive"
-                    >
-                      {stopError}
-                    </p>
-                  ) : null}
+                  <ActivityBlock trace={trace} label={foldLabel} />
                 </motion.div>
               ) : null}
             </AutoHeight>

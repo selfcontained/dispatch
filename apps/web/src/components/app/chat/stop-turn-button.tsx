@@ -25,16 +25,16 @@ export function StopTurnButton({
   return (
     <Button
       type="button"
-      size="sm"
-      variant="default"
-      className="h-6 shrink-0 gap-1 px-2 text-xs"
+      size="icon"
+      variant="ghost"
+      className="m-2 h-7 w-7 shrink-0 rounded-full text-status-waiting hover:text-status-waiting pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
       onClick={() => cancel.mutate()}
       disabled={cancel.isPending}
       data-testid="chat-stop-turn"
+      title={cancel.isPending ? "Stopping…" : "Stop the running turn"}
       aria-label="Stop the running turn"
     >
-      <Square className="h-3 w-3 fill-current" aria-hidden="true" />
-      {cancel.isPending ? "Stopping…" : "Stop"}
+      <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
     </Button>
   );
 }

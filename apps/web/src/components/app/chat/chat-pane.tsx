@@ -12,6 +12,7 @@ import { ArrowDown, MessageSquare } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
 import {
@@ -738,6 +739,7 @@ export function ChatPane({
     : null;
 
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
+  const turnRunning = newestTurn !== null && !newestTurn.settled;
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
@@ -896,6 +898,11 @@ export function ChatPane({
               sending={send.isPending || answer.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
+              action={
+                agentId && turnRunning ? (
+                  <StopTurnButton agentId={agentId} onError={setSendError} />
+                ) : undefined
+              }
             />
           </div>
         </div>

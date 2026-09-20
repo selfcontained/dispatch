@@ -1,6 +1,6 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo, useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
@@ -33,13 +33,10 @@ export function showsActivity(trace: Trace | null | undefined): trace is Trace {
 function ActivityBlockImpl({
   trace,
   label,
-  action,
 }: {
   trace: Trace;
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
-  /** A control that sits at the line's right end: Stop, while the turn runs. */
-  action?: ReactNode;
 }): JSX.Element {
   const done = trace.endedAt != null;
   const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
@@ -78,15 +75,12 @@ function ActivityBlockImpl({
         data-open={open ? "true" : "false"}
         data-final-result={trace.finalResult}
       >
-        <div className="flex items-center gap-2">
-          <SummaryRow
-            trace={trace}
-            label={label}
-            open={open}
-            onToggle={() => setBlockOverride(!open)}
-          />
-          {action ? <span className="shrink-0">{action}</span> : null}
-        </div>
+        <SummaryRow
+          trace={trace}
+          label={label}
+          open={open}
+          onToggle={() => setBlockOverride(!open)}
+        />
         <motion.div
           initial={false}
           animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
@@ -217,8 +211,7 @@ export function TurnGlyph({
  * turn runs, a cross or a stop square after a failure or interruption, no
  * slot at all once it is done), the current step or the verb (flexible,
  * truncated, cross-fading in place), the count and time right-aligned in
- * tabular figures, then the chevron. Stop, when the caller passes one, sits
- * after the line and so never moves either.
+ * tabular figures, then the chevron.
  */
 function SummaryRow({
   trace,
@@ -248,7 +241,7 @@ function SummaryRow({
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "grid min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
+        "grid w-full min-w-0 items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
           : "grid-cols-[minmax(0,1fr)_auto_auto]",
