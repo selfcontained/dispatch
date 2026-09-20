@@ -251,6 +251,8 @@ export type ChatTurnPrompt = {
    * the turn draws no prompt post for it.
    */
   kind?: BlockKind;
+  /** A launch prompt written by another agent (launch_agent): which one. */
+  launchedByAgentId?: string;
   /**
    * A chat prompt that is a thread reply (an answer to a question, a reply
    * under a block): the thread's root. The block already shows the reply

@@ -83,6 +83,9 @@ export function promptBlock(entry: ChatTurnEntry): Block {
     delivered: true,
     readAt: null,
     ...(entry.prompt.source === "launch" ? { origin: "launch" as const } : {}),
+    ...(entry.prompt.launchedByAgentId
+      ? { launchedByAgentId: entry.prompt.launchedByAgentId }
+      : {}),
     createdAt: entry.at,
     updatedAt: entry.at,
   };

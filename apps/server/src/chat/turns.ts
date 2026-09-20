@@ -104,6 +104,9 @@ function promptFor(
       chatMessageId: source.chatMessageId,
       ...(block?.threadId ? { threadId: block.threadId } : {}),
       ...(block && block.kind !== "text" ? { kind: block.kind } : {}),
+      ...(block?.launchedByAgentId
+        ? { launchedByAgentId: block.launchedByAgentId }
+        : {}),
       attachments: block?.attachments ?? [],
     };
   }
