@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
+import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ function gutterTime(iso: string): string {
 export type PeerInfo = {
   name: string;
   agentType: string | null;
+  model?: string | null;
   relation: AgentRelation;
 };
 
@@ -94,7 +96,8 @@ export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
  */
 export function peerDirectory(
   agentId: string,
-  agents: readonly Pick<Agent, "id" | "name" | "type" | "parentAgentId">[]
+  agents: readonly (Pick<Agent, "id" | "name" | "type" | "parentAgentId"> &
+    Partial<Pick<Agent, "model">>)[]
 ): PeerDirectory {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const peers: Record<string, PeerInfo> = {};
@@ -103,6 +106,7 @@ export function peerDirectory(
     peers[agent.id] = {
       name: agent.name,
       agentType: agent.type ?? null,
+      model: agent.model ?? null,
       relation: agentRelation(agentId, agent.id, byId),
     };
   }
@@ -120,6 +124,8 @@ export type FeedContext = {
   rootId?: string | null;
   /** The agent this channel belongs to; names its posts. */
   agentName?: string;
+  /** The agent's engine model, for the line under its name. */
+  agentModel?: string | null;
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
@@ -149,6 +155,8 @@ export type PostAuthor = {
   name: string;
   kind: "user" | "agent" | "peer";
   agentType?: string | null;
+  /** The engine's model, when the agent list knows it. */
+  model?: string | null;
   /** Peers only: how the sender stands to this agent. */
   relation?: AgentRelation;
 };
@@ -163,6 +171,7 @@ export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
     name: ctx.agentName ?? fallback,
     kind: "agent",
     agentType: ctx.agentType ?? null,
+    model: ctx.agentModel ?? null,
   };
 }
 
@@ -182,6 +191,7 @@ export function peerAuthor(
     name,
     kind: "peer",
     agentType: peer?.agentType ?? null,
+    model: peer?.model ?? null,
     relation: peer?.relation ?? "agent",
   };
 }
@@ -270,6 +280,55 @@ function Avatar({
       </span>
     </span>
   );
+}
+
+/**
+ * The line under an agent's name: which engine, which model, and how it
+ * stands to this agent when it is another one (a child, its parent). Every
+ * agent in the stream is told apart the same way, not only the page's own.
+ */
+export function AuthorMeta({
+  author,
+}: {
+  author: PostAuthor;
+}): JSX.Element | null {
+  if (author.kind === "user") return null;
+  const engine = agentTypeLabel(author.agentType);
+  const relation =
+    author.relation && author.relation !== "agent" ? author.relation : null;
+  if (!engine && !author.model && !relation) return null;
+  return (
+    <span
+      className="flex basis-full flex-wrap items-center gap-1 leading-4"
+      data-testid="chat-author-meta"
+    >
+      {engine ? (
+        <span
+          className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
+          data-testid="chat-author-engine"
+        >
+          {engine}
+        </span>
+      ) : null}
+      {author.model ? (
+        <span
+          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground"
+          title={author.model}
+          data-testid="chat-author-model"
+        >
+          {author.model}
+        </span>
+      ) : null}
+      {relation ? <AgentRelationBadge relation={relation} /> : null}
+    </span>
+  );
+}
+
+/** "Claude" / "Codex" for an engine id; null for an unknown one. */
+export function agentTypeLabel(type: string | null | undefined): string | null {
+  if (type === "claude") return "Claude";
+  if (type === "codex") return "Codex";
+  return null;
 }
 
 /**
@@ -484,6 +543,7 @@ export function Post({
                 {action}
               </div>
             ) : null}
+            <AuthorMeta author={author} />
           </div>
         )}
         <div

@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import {
   agentAuthor,
@@ -205,6 +206,9 @@ function ChildTurnView({
         >
           {name}
         </span>
+        {author.relation && author.relation !== "agent" ? (
+          <AgentRelationBadge relation={author.relation} />
+        ) : null}
         <span
           className={cn(
             "min-w-0 truncate",

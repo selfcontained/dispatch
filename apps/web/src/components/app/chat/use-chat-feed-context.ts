@@ -72,12 +72,14 @@ export function useChatFeedContext({
 
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
+  const agentModel = agent?.model ?? null;
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
       rootId,
       agentName,
       agentType,
+      agentModel,
       peers,
       onOpenFile: openLightbox,
       onOpenPath,
