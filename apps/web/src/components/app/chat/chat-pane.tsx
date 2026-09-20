@@ -9,7 +9,6 @@ import {
 import type { ChatTurnEntry, BlockOption, StreamEntry } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
 import { ArrowDown, MessageSquare } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
@@ -22,7 +21,7 @@ import {
   latestOpenFreeformQuestion,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
-import { ThreadPanel } from "@/components/app/chat/thread-panel";
+import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
 import {
   latestTurnPlan,
@@ -41,7 +40,7 @@ import {
   useSubmitForm,
   useToggleReaction,
 } from "@/hooks/use-stream";
-import { FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -169,9 +168,6 @@ export function withoutTurnPrompts(entries: StreamEntry[]): StreamEntry[] {
       )
   );
 }
-
-/** The thread and finding named in the URL (`?thread=<id>&finding=<id>`). */
-export { FINDING_PARAM, THREAD_PARAM };
 
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
@@ -378,23 +374,6 @@ export function questionExcerpt(text: string, max = 80): string {
   return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
 }
 
-function composerDisabledReason(
-  agent: Agent | null,
-  feed: { isLoading: boolean; error: Error | null } = {
-    isLoading: false,
-    error: null,
-  }
-): string | null {
-  if (!agent) return "Select an agent to chat with.";
-  if (feed.error) return "Chat couldn't load — retry above before sending.";
-  if (feed.isLoading) return "Loading the chat…";
-  if (agent.status === "creating") return "The agent is still starting up.";
-  if (agent.status !== "running") {
-    return "The agent is not running. Start it to send messages.";
-  }
-  return null;
-}
-
 export function ChatPane({
   agentId,
   agent,
@@ -420,37 +399,10 @@ export function ChatPane({
   // the root, which is the stream's default recipient.
   const postTo = agentId && rootId && agentId !== rootId ? agentId : undefined;
 
-  // The open thread lives in the URL so it survives a reload and a link
-  // to a finding lands on it.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const openThreadId = searchParams.get(THREAD_PARAM);
-  const openFindingId = searchParams.get(FINDING_PARAM);
-  const onOpenThread = useCallback(
-    (blockId: string, findingId?: string) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.set(THREAD_PARAM, blockId);
-          if (findingId) next.set(FINDING_PARAM, findingId);
-          else next.delete(FINDING_PARAM);
-          return next;
-        },
-        { replace: true }
-      );
-    },
-    [setSearchParams]
-  );
-  const onCloseThread = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete(THREAD_PARAM);
-        next.delete(FINDING_PARAM);
-        return next;
-      },
-      { replace: true }
-    );
-  }, [setSearchParams]);
+  // The open thread lives in the URL and shows in the right drawer; the
+  // pane only needs to know one is open (the composer yields focus) and
+  // how to open one.
+  const { threadId: openThreadId, openThread: onOpenThread } = useDrawerRoute();
 
   const entries = feed.entries;
   const view = useMemo<StreamView | null>(
@@ -1085,22 +1037,6 @@ export function ChatPane({
             />
           </div>
         </div>
-        {agentId && rootId && openThreadId ? (
-          <ThreadPanel
-            key={openThreadId}
-            agentId={agentId}
-            rootId={rootId}
-            blockId={openThreadId}
-            findingId={openFindingId}
-            ctx={ctx}
-            disabledReason={disabledReason}
-            isMobile={isMobile}
-            onClose={onCloseThread}
-            onAnswer={onAnswer}
-            answeringBlockId={answeringBlockId}
-            submittingBlockId={submittingBlockId}
-          />
-        ) : null}
       </div>
     </MotionConfig>
   );

@@ -112,9 +112,14 @@ test.describe("Stream blocks", () => {
     await page.waitForURL(
       new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f1$`)
     );
-    const thread = page.getByTestId("chat-thread-panel");
+    // The finding's page sits on top of the review's in the drawer; only
+    // the top page is live.
+    const thread = page.locator(
+      '[data-testid="drawer-page"][data-top="true"] [data-testid="chat-thread-panel"]'
+    );
     await expect(thread).toBeVisible();
     await expect(thread).toHaveAttribute("data-block-id", reviewId!);
+    await expect(page.getByTestId("drawer-title")).toHaveText("Finding");
     const detail = thread.getByTestId("chat-finding-detail");
     await expect(detail).toContainText("Retry spinner never settles");
     await detail.getByTestId("chat-review-resolve").click();
@@ -283,20 +288,29 @@ test.describe("Stream blocks", () => {
     await page.getByRole("option", { name: "Approve" }).click();
     await post.click();
 
-    // The review lands in the stream and its thread opens.
-    await page.waitForURL(new RegExp(`/agents/${agent.id}\\?thread=`));
+    // The review lands in the stream and opens in the drawer, over the
+    // Changes tab it was written from.
+    await page.waitForURL(new RegExp(`/agents/${agent.id}/changes\\?thread=`));
     const thread = page.getByTestId("chat-thread-panel");
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
     await expect(thread.getByTestId("chat-review-verdict")).toHaveText(
       "Approved"
     );
     await expect(thread.getByTestId("chat-review-counts")).toHaveText(
       "No findings"
     );
-    // The feed shows it too, beside the thread panel.
+    // Back on the Agent tab, the feed shows it too.
+    await page.goto(
+      `/agents/${agent.id}?thread=${new URL(page.url()).searchParams.get(
+        "thread"
+      )}`,
+      { waitUntil: "domcontentloaded" }
+    );
     await expect(
       page
         .getByTestId("chat-pane")
         .locator("[data-chat-entry-id] [data-testid='chat-review-block']")
     ).toBeVisible();
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
   });
 });

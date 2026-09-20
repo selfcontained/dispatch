@@ -40,7 +40,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { useMedia } from "@/hooks/use-media";
 import { useStreamRail } from "@/hooks/use-stream-rail";
-import { THREAD_PARAM } from "@/lib/agent-routes";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
@@ -263,25 +263,43 @@ export function AgentsView({
     [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
   );
 
-  /** Opens a block's thread in the Chat tab; from the rail. */
+  // The drawer's pages live in the URL. Opening one opens the drawer;
+  // closing the drawer pops them all, so it reopens on its home.
+  const drawerRoute = useDrawerRoute();
+  const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
+    drawerRoute;
+  const drawerThreadId = drawerRoute.threadId;
+  useEffect(() => {
+    if (drawerThreadId) setMediaOpen(true);
+  }, [drawerThreadId, setMediaOpen]);
+  const closeDrawer = useCallback(() => {
+    closeDrawerPages();
+    setMediaOpen(false);
+  }, [closeDrawerPages, setMediaOpen]);
+  const setDrawerOpen = useCallback(
+    (open: boolean) => {
+      if (open) setMediaOpen(true);
+      else closeDrawer();
+    },
+    [closeDrawer, setMediaOpen]
+  );
+
+  /** Pushes a block's thread (or a review) onto the drawer; from the rail. */
   const handleOpenBlock = useCallback(
     (blockId: string) => {
       if (!focusedAgentId) return;
-      navTo(`/agents/${focusedAgentId}?${THREAD_PARAM}=${blockId}`);
-      if (isMobile) setMobileMediaOpen(false);
+      openDrawerThread(blockId);
     },
-    [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
+    [focusedAgentId, openDrawerThread]
   );
 
-  /** After a review is posted from the Changes tab, show it in the Chat. */
+  /** After a review is posted from the Changes tab, show it in the drawer. */
   const handleReviewPosted = useCallback(
     (blockId: string) => {
       if (!focusedAgentId) return;
-      navTo(`/agents/${focusedAgentId}?${THREAD_PARAM}=${blockId}`, {
-        replace: true,
-      });
+      openDrawerThread(blockId);
     },
-    [focusedAgentId, navTo]
+    [focusedAgentId, openDrawerThread]
   );
 
   useExpandedAgentSync(
@@ -562,7 +580,7 @@ export function AgentsView({
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
-            setMediaOpen={setMediaOpen}
+            setMediaOpen={setDrawerOpen}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
             pinned={mediaPinned}
@@ -576,6 +594,9 @@ export function AgentsView({
             railDisabledReason={railDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
+            agent={focusedAgent}
+            onOpenPath={handleOpenPath}
+            isMobile={false}
           />
         </div>
       </div>
@@ -585,6 +606,7 @@ export function AgentsView({
           open={mobileMediaOpen}
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
+            else closeDrawerPages();
             setMobileMediaOpen(open);
           }}
           side="right"
@@ -607,12 +629,15 @@ export function AgentsView({
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
-            onRequestClose={() => setMobileMediaOpen(false)}
+            onRequestClose={closeDrawer}
             onUploadFile={uploadFile}
             rail={rail}
             railDisabledReason={railDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
+            agent={focusedAgent}
+            onOpenPath={handleOpenPath}
+            isMobile
           />
         </GlassSidebar>
       ) : null}

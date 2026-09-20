@@ -4,19 +4,38 @@
  * Everything here is derived from the stream (see use-stream-rail.ts); the
  * agent has no tool to write to it directly.
  */
-import { useState } from "react";
-import type { BlockOption } from "@dispatch/shared";
-import { ExternalLink, GitPullRequest, Inbox } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { BlockOption, BlockReviewStatus } from "@dispatch/shared";
+import { reviewStatus } from "@dispatch/shared";
+import {
+  ChevronRight,
+  ExternalLink,
+  GitPullRequest,
+  Inbox,
+} from "lucide-react";
 
 import {
+  findingsSummary,
   FormBlockBody,
   QuestionOptions,
+  VERDICT,
 } from "@/components/app/chat/block-bodies";
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
+import { unreadCommentsOf } from "@/components/app/chat/chat-entries";
+import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
-import { useAnswerQuestion, useSubmitForm } from "@/hooks/use-stream";
-import type { RailInput, StreamRail } from "@/hooks/use-stream-rail";
+import {
+  useAnswerQuestion,
+  useSubmitForm,
+  useThread,
+} from "@/hooks/use-stream";
+import type {
+  RailInput,
+  RailReview,
+  StreamRail,
+} from "@/hooks/use-stream-rail";
 import { formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export type StreamRailPanelProps = {
   rail: StreamRail;
@@ -142,6 +161,94 @@ function RailInputCard({
   );
 }
 
+const REVIEW_STATUS_LABEL: Record<BlockReviewStatus, string> = {
+  open: "Open",
+  partially_resolved: "In progress",
+  resolved: "Resolved",
+};
+
+const REVIEW_STATUS_CLASS: Record<BlockReviewStatus, string> = {
+  open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
+  partially_resolved:
+    "border-status-working/50 bg-status-working/10 text-status-working",
+  resolved: "border-status-done/40 bg-status-done/10 text-status-done",
+};
+
+/**
+ * One review in the rail: who left it, the verdict, where it stands, and
+ * how many of its comments the person has not seen. Opens the review page.
+ */
+function RailReviewCard({
+  review,
+  authorName,
+  rootId,
+  onOpenBlock,
+}: {
+  review: RailReview;
+  authorName: string;
+  rootId: string;
+  onOpenBlock?: (blockId: string) => void;
+}): JSX.Element {
+  const thread = useThread(
+    rootId,
+    (review.replyCount ?? 0) > 0 ? review.id : null
+  );
+  const unread = useMemo(
+    () =>
+      Object.values(unreadCommentsOf(thread.replies)).reduce(
+        (sum: number, n: number) => sum + n,
+        0
+      ),
+    [thread.replies]
+  );
+  const status = reviewStatus(review.data, review.state);
+  const verdict = VERDICT[review.data.verdict] ?? VERDICT.comment;
+  return (
+    <button
+      type="button"
+      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
+      data-testid="rail-review"
+      data-block-id={review.id}
+      data-status={status}
+      onClick={() => onOpenBlock?.(review.id)}
+    >
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate">{authorName}</span>
+        <span className="shrink-0">{formatRelativeTime(review.createdAt)}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {unread > 0 ? (
+            <span
+              className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
+              data-testid="rail-review-unread"
+              aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
+            >
+              {unread}
+            </span>
+          ) : null}
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant={verdict.variant} data-testid="rail-review-verdict">
+          {verdict.label}
+        </Badge>
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide",
+            REVIEW_STATUS_CLASS[status]
+          )}
+          data-testid="rail-review-status"
+        >
+          {REVIEW_STATUS_LABEL[status]}
+        </span>
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {findingsSummary(review)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export function StreamRailPanel({
   rail,
   agentName,
@@ -149,8 +256,9 @@ export function StreamRailPanel({
   disabledReason,
   onOpenBlock,
 }: StreamRailPanelProps): JSX.Element {
-  const { rootId, inputs, links } = rail;
-  const empty = inputs.length === 0 && links.length === 0;
+  const { rootId, inputs, links, reviews } = rail;
+  const empty =
+    inputs.length === 0 && links.length === 0 && reviews.length === 0;
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3"
@@ -188,6 +296,33 @@ export function StreamRailPanel({
               }
               rootId={rootId}
               disabledReason={disabledReason}
+              onOpenBlock={onOpenBlock}
+            />
+          ))}
+        </div>
+      ) : null}
+      {reviews.length > 0 && rootId ? (
+        <div data-testid="stream-rail-reviews">
+          <RailSectionTitle
+            count={
+              reviews.filter(
+                (review) =>
+                  reviewStatus(review.data, review.state) !== "resolved"
+              ).length
+            }
+          >
+            Reviews
+          </RailSectionTitle>
+          {reviews.map((review) => (
+            <RailReviewCard
+              key={review.id}
+              review={review}
+              authorName={
+                review.author.kind === "agent"
+                  ? (agentNameById?.(review.author.agentId) ?? "Agent")
+                  : "You"
+              }
+              rootId={rootId}
               onOpenBlock={onOpenBlock}
             />
           ))}

@@ -1,10 +1,23 @@
-import { type RefObject } from "react";
-import { ChevronRight, Pin, PinOff, X } from "lucide-react";
+import { type RefObject, useMemo } from "react";
+import { MotionConfig } from "framer-motion";
+import { ArrowLeft, ChevronRight, Pin, PinOff, X } from "lucide-react";
 
-import { type MediaFile, type SubAgentMedia } from "@/components/app/types";
+import { threadTitle } from "@/components/app/chat/thread-panel";
+import {
+  DrawerStack,
+  type DrawerPage,
+} from "@/components/app/drawer/drawer-stack";
+import { ThreadPage } from "@/components/app/drawer/thread-page";
+import {
+  type Agent,
+  type MediaFile,
+  type SubAgentMedia,
+} from "@/components/app/types";
 import { type MediaSidebarTab } from "@/lib/store";
 import { MediaContent } from "@/components/app/media-content";
 import { StreamRailPanel } from "@/components/app/stream-rail";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { useThread } from "@/hooks/use-stream";
 import { type StreamRail } from "@/hooks/use-stream-rail";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
@@ -43,8 +56,13 @@ type MediaSidebarSharedProps = {
   railDisabledReason: string | null;
   /** Names an agent in the selected agent's tree, for a child's question. */
   agentNameById?: (agentId: string) => string;
-  /** Opens a block's thread in the Chat tab (mobile closes the sheet first). */
+  /** Pushes a block's thread (or a review) over the drawer's home page. */
   onOpenBlock?: (blockId: string) => void;
+  /** The page's agent: the thread pages post as it and read its state. */
+  agent?: Agent | null;
+  /** Opens the Changes tab on a file, at a line when one is given. */
+  onOpenPath?: (path: string, line: number | null) => void;
+  isMobile?: boolean;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -139,37 +157,125 @@ export function MediaSidebarContent({
   railDisabledReason,
   agentNameById,
   onOpenBlock,
+  agent = null,
+  onOpenPath,
+  isMobile = false,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
 }): JSX.Element {
+  // The pages over the home tabs come from the URL: a thread (or a review),
+  // and a finding on that review.
+  const route = useDrawerRoute();
+  const rootId = rail.rootId;
+  const threadId = selectedAgentId && rootId ? route.threadId : null;
+  const findingId = threadId ? route.findingId : null;
+  const thread = useThread(rootId, threadId);
+  const nameOf = (agentId: string) =>
+    agentId === selectedAgentId
+      ? (selectedAgentName ?? "Agent")
+      : (agentNameById?.(agentId) ?? "Agent");
+  const heading = threadTitle(thread.root, findingId !== null, nameOf);
+  const { openThread, back } = route;
+  const pages = useMemo<DrawerPage[]>(() => {
+    const list: DrawerPage[] = [{ key: "home", node: null }];
+    if (!selectedAgentId || !rootId || !threadId) return list;
+    // One page per level: moving between findings on the same review
+    // changes what the finding page shows rather than swapping pages.
+    const page = (finding: string | null): DrawerPage => ({
+      key: finding ? `finding:${threadId}` : `thread:${threadId}`,
+      node: (
+        <ThreadPage
+          agentId={selectedAgentId}
+          agent={agent}
+          rootId={rootId}
+          blockId={threadId}
+          findingId={finding}
+          isMobile={isMobile}
+          openLightbox={openLightbox}
+          onOpenPath={onOpenPath}
+          onOpenThread={openThread}
+          onBack={back}
+        />
+      ),
+    });
+    list.push(page(null));
+    if (findingId) list.push(page(findingId));
+    return list;
+  }, [
+    agent,
+    back,
+    findingId,
+    isMobile,
+    onOpenPath,
+    openLightbox,
+    openThread,
+    rootId,
+    selectedAgentId,
+    threadId,
+  ]);
+  const depth = pages.length - 1;
+
   return (
     <aside
       data-testid="media-sidebar"
+      data-depth={depth}
       className={cn(
         "flex h-full min-h-0 w-full flex-col text-foreground",
         className
       )}
     >
-      {/* Tab header */}
+      {/* Chrome: the home tabs, or the page's title with the way back */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
-        <div className="flex min-w-0 flex-1">
-          <SidebarTab
-            label="Rail"
-            active={activeTab === "rail"}
-            onClick={() => setActiveTab("rail")}
-            badge={rail.inputs.length}
-            badgeClassName="bg-status-waiting text-white"
-            testId="sidebar-tab-rail"
-          />
-          <SidebarTab
-            label="Media"
-            active={activeTab === "media"}
-            onClick={() => setActiveTab("media")}
-            badge={unseenMediaCount}
-            badgeClassName="bg-destructive text-destructive-foreground"
-            testId="sidebar-tab-media"
-          />
-        </div>
+        {depth > 0 ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1 pl-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label="Back"
+              data-testid="drawer-back"
+              onClick={back}
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <div
+                className="truncate text-sm font-semibold text-foreground"
+                data-testid="drawer-title"
+              >
+                {heading.title}
+              </div>
+              {heading.subtitle ? (
+                <div
+                  className="truncate text-[11.5px] text-muted-foreground"
+                  data-testid="drawer-subtitle"
+                >
+                  {heading.subtitle}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1">
+            <SidebarTab
+              label="Rail"
+              active={activeTab === "rail"}
+              onClick={() => setActiveTab("rail")}
+              badge={rail.inputs.length}
+              badgeClassName="bg-status-waiting text-white"
+              testId="sidebar-tab-rail"
+            />
+            <SidebarTab
+              label="Media"
+              active={activeTab === "media"}
+              onClick={() => setActiveTab("media")}
+              badge={unseenMediaCount}
+              badgeClassName="bg-destructive text-destructive-foreground"
+              testId="sidebar-tab-media"
+            />
+          </div>
+        )}
         <div className="flex items-center gap-1 px-2">
           {onTogglePin ? (
             <Button
@@ -208,43 +314,58 @@ export function MediaSidebarContent({
         </div>
       </div>
 
-      {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeTab !== "rail" && "hidden"
-        )}
-      >
-        <StreamRailPanel
-          rail={rail}
-          agentName={selectedAgentName}
-          agentNameById={agentNameById}
-          disabledReason={railDisabledReason}
-          onOpenBlock={onOpenBlock}
+      <MotionConfig reducedMotion="user">
+        <DrawerStack
+          pages={pages.map((page, index) =>
+            index === 0
+              ? {
+                  key: page.key,
+                  node: (
+                    <>
+                      {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
+                      <div
+                        className={cn(
+                          "flex min-h-0 flex-1 flex-col",
+                          activeTab !== "rail" && "hidden"
+                        )}
+                      >
+                        <StreamRailPanel
+                          rail={rail}
+                          agentName={selectedAgentName}
+                          agentNameById={agentNameById}
+                          disabledReason={railDisabledReason}
+                          onOpenBlock={onOpenBlock}
+                        />
+                      </div>
+                      <div
+                        className={cn(
+                          "flex min-h-0 flex-1 flex-col",
+                          activeTab !== "media" && "hidden"
+                        )}
+                      >
+                        <MediaContent
+                          mediaFiles={mediaFiles}
+                          ownMediaFiles={ownMediaFiles}
+                          subAgentMedia={subAgentMedia}
+                          mediaOwnerId={mediaOwnerId}
+                          onMediaOwnerChange={onMediaOwnerChange}
+                          selectedAgentId={selectedAgentId}
+                          selectedAgentName={selectedAgentName}
+                          animatingMediaKeys={animatingMediaKeys}
+                          mediaViewportRef={mediaViewportRef}
+                          openLightbox={openLightbox}
+                          hasStream={hasStream}
+                          streamUrl={streamUrl}
+                          onUploadFile={onUploadFile}
+                        />
+                      </div>
+                    </>
+                  ),
+                }
+              : page
+          )}
         />
-      </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeTab !== "media" && "hidden"
-        )}
-      >
-        <MediaContent
-          mediaFiles={mediaFiles}
-          ownMediaFiles={ownMediaFiles}
-          subAgentMedia={subAgentMedia}
-          mediaOwnerId={mediaOwnerId}
-          onMediaOwnerChange={onMediaOwnerChange}
-          selectedAgentId={selectedAgentId}
-          selectedAgentName={selectedAgentName}
-          animatingMediaKeys={animatingMediaKeys}
-          mediaViewportRef={mediaViewportRef}
-          openLightbox={openLightbox}
-          hasStream={hasStream}
-          streamUrl={streamUrl}
-          onUploadFile={onUploadFile}
-        />
-      </div>
+      </MotionConfig>
     </aside>
   );
 }

@@ -19,11 +19,7 @@ import {
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
-import {
-  useMarkThreadRead,
-  usePostBlock,
-  useThread,
-} from "@/hooks/use-stream";
+import { useMarkThreadRead, usePostBlock, useThread } from "@/hooks/use-stream";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -75,6 +71,20 @@ export function groupReplies(
   });
 }
 
+/** What the drawer's header says over a thread page: a title and a line under it. */
+export function threadTitle(
+  root: Block | null,
+  finding: boolean,
+  nameOf: (agentId: string) => string
+): { title: string; subtitle: string } {
+  if (!root) return { title: finding ? "Finding" : "Thread", subtitle: "" };
+  const by = root.author.kind === "agent" ? nameOf(root.author.agentId) : "you";
+  if (finding) return { title: "Finding", subtitle: `in the review by ${by}` };
+  if (root.kind === "review") return { title: "Review", subtitle: `by ${by}` };
+  const subject = threadSubject(root);
+  return { title: "Thread", subtitle: subject ? `${by}: ${subject}` : by };
+}
+
 export type ThreadPanelProps = {
   /** The page's agent: owns the media a reply attaches. */
   agentId: string;
@@ -91,6 +101,13 @@ export type ThreadPanelProps = {
   onAnswer: (blockId: string, option: BlockOption) => void;
   answeringBlockId: string | null;
   submittingBlockId: string | null;
+  /**
+   * Render the panel's own header (title, back/close). Off inside the
+   * drawer, whose chrome carries the title and the way back.
+   */
+  chrome?: boolean;
+  /** A failed action to show above the composer. */
+  error?: string | null;
 };
 
 export function ThreadPanel({
@@ -105,6 +122,8 @@ export function ThreadPanel({
   onAnswer,
   answeringBlockId,
   submittingBlockId,
+  chrome = true,
+  error = null,
 }: ThreadPanelProps): JSX.Element {
   const thread = useThread(rootId, blockId);
   const post = usePostBlock(rootId);
@@ -182,72 +201,77 @@ export function ThreadPanel({
   return (
     <aside
       className={cn(
-        "flex min-h-0 flex-col bg-background",
-        isMobile
-          ? "absolute inset-0 z-20"
-          : "w-[26rem] shrink-0 border-l border-border/40"
+        "flex min-h-0 flex-1 flex-col",
+        chrome && "bg-background",
+        chrome &&
+          (isMobile
+            ? "absolute inset-0 z-20"
+            : "w-[26rem] shrink-0 border-l border-border/40")
       )}
       role="complementary"
-      aria-label="Thread"
+      aria-label={finding ? "Finding" : "Thread"}
       data-testid="chat-thread-panel"
       data-block-id={blockId}
+      data-finding-id={finding?.id ?? undefined}
       data-mobile={isMobile ? "true" : undefined}
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/30 px-3 py-2">
-        {isMobile ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            aria-label="Back to the channel"
-            data-testid="chat-thread-close"
-            onClick={onClose}
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-foreground">
-            {finding ? "Finding" : "Thread"}
-          </div>
-          {finding ? (
-            <button
+      {chrome ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/30 px-3 py-2">
+          {isMobile ? (
+            <Button
               type="button"
-              className="block max-w-full truncate text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
-              data-testid="chat-thread-subject"
-              onClick={() => ctx.onOpenThread?.(blockId)}
-              title="Back to the review"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label="Back to the channel"
+              data-testid="chat-thread-close"
+              onClick={onClose}
             >
-              ← in the review by{" "}
-              {thread.root ? blockAuthor(thread.root, ctx).name : ""}
-            </button>
-          ) : thread.root ? (
-            <div
-              className="truncate text-[11.5px] text-muted-foreground"
-              data-testid="chat-thread-subject"
-            >
-              on {blockAuthor(thread.root, ctx).name}
-              {threadSubject(thread.root)
-                ? `: ${threadSubject(thread.root)}`
-                : ""}
-            </div>
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
           ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground">
+              {finding ? "Finding" : "Thread"}
+            </div>
+            {finding ? (
+              <button
+                type="button"
+                className="block max-w-full truncate text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
+                data-testid="chat-thread-subject"
+                onClick={() => ctx.onOpenThread?.(blockId)}
+                title="Back to the review"
+              >
+                ← in the review by{" "}
+                {thread.root ? blockAuthor(thread.root, ctx).name : ""}
+              </button>
+            ) : thread.root ? (
+              <div
+                className="truncate text-[11.5px] text-muted-foreground"
+                data-testid="chat-thread-subject"
+              >
+                on {blockAuthor(thread.root, ctx).name}
+                {threadSubject(thread.root)
+                  ? `: ${threadSubject(thread.root)}`
+                  : ""}
+              </div>
+            ) : null}
+          </div>
+          {isMobile ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              aria-label="Close thread"
+              data-testid="chat-thread-close"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          )}
         </div>
-        {isMobile ? null : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            aria-label="Close thread"
-            data-testid="chat-thread-close"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        )}
-      </div>
+      ) : null}
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
@@ -349,6 +373,15 @@ export function ThreadPanel({
         ) : null}
       </div>
       <div className="shrink-0 border-t border-border/40 px-4 pb-3 pt-2">
+        {error ? (
+          <div
+            role="alert"
+            className="mb-1.5 truncate text-[11px] text-destructive"
+            data-testid="chat-thread-action-error"
+          >
+            {error}
+          </div>
+        ) : null}
         <ChatComposer
           // No persisted draft: a thread's half-typed reply is not worth
           // keeping across reloads, and sharing the agent's key would

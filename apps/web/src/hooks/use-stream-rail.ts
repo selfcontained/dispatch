@@ -6,6 +6,7 @@
  */
 import { useMemo } from "react";
 import type { Block, ChatAttachment, StreamEntry } from "@dispatch/shared";
+import { reviewStatus } from "@dispatch/shared";
 
 import { useRootAgentId } from "@/hooks/use-agent-tree";
 import { useStreamFeed } from "@/hooks/use-stream";
@@ -24,13 +25,20 @@ export type RailLink = {
   at: string;
 };
 
+/** A review in the stream, newest first. */
+export type RailReview = Extract<Block, { kind: "review" }>;
+
 export type StreamRail = {
   rootId: string | null;
   /** Open inputs, oldest first: the order they were asked in. */
   inputs: RailInput[];
   links: RailLink[];
+  /** Reviews the stream holds, newest first, open ones before settled ones. */
+  reviews: RailReview[];
   isLoading: boolean;
 };
+
+const REVIEWS_MAX = 12;
 
 /** How far back the links list reads; the rail is a glance, not an index. */
 const LINKS_WINDOW = 200;
@@ -74,22 +82,33 @@ export function deriveStreamRail(
   entries: readonly StreamEntry[],
   agentId: string | null,
   rootId: string | null
-): Pick<StreamRail, "inputs" | "links"> {
+): Pick<StreamRail, "inputs" | "links" | "reviews"> {
   const own = (block: Block) =>
     agentId === null ||
     agentId === rootId ||
     (block.author.kind === "agent" && block.author.agentId === agentId);
   const inputs: RailInput[] = [];
   const links: RailLink[] = [];
+  const reviews: RailReview[] = [];
   const seen = new Set<string>();
   const blocks: Block[] = [];
   for (const entry of entries) {
     if (entry.type !== "block") continue;
     const { block } = entry;
+    // A review of this agent's work is addressed to it; its own reviews
+    // and a person's count too.
+    if (block.kind === "review" && block.threadId === null) {
+      if (own(block) || block.toAgentId === agentId) reviews.unshift(block);
+      continue;
+    }
     if (!own(block)) continue;
     blocks.push(block);
     if (isOpenInput(block)) inputs.push(block);
   }
+  const settled = (review: RailReview) =>
+    reviewStatus(review.data, review.state) === "resolved";
+  reviews.sort((a, b) => Number(settled(a)) - Number(settled(b)));
+  reviews.length = Math.min(reviews.length, REVIEWS_MAX);
   const recent = blocks.slice(-LINKS_WINDOW);
   for (let i = recent.length - 1; i >= 0 && links.length < LINKS_MAX; i--) {
     for (const link of linksOf(recent[i]!)) {
@@ -99,10 +118,14 @@ export function deriveStreamRail(
       if (links.length >= LINKS_MAX) break;
     }
   }
-  return { inputs, links };
+  return { inputs, links, reviews };
 }
 
-const EMPTY: Pick<StreamRail, "inputs" | "links"> = { inputs: [], links: [] };
+const EMPTY: Pick<StreamRail, "inputs" | "links" | "reviews"> = {
+  inputs: [],
+  links: [],
+  reviews: [],
+};
 
 /** The rail for one agent's page, live off the stream feed cache. */
 export function useStreamRail(agentId: string | null): StreamRail {
@@ -118,6 +141,7 @@ export function useStreamRail(agentId: string | null): StreamRail {
     rootId,
     inputs: derived.inputs,
     links: derived.links,
+    reviews: derived.reviews,
     isLoading: rootId !== null && feed.isLoading,
   };
 }

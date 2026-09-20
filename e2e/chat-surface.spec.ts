@@ -202,13 +202,10 @@ test.describe("Chat surface", () => {
       peer.name
     );
 
-    // The child's post: its own name and its relation to this agent.
+    // The child's post: its own name, as a peer.
     const fromChild = posts.filter({ hasText: "Pong from the child" });
     await expect(fromChild.getByTestId("chat-post-author")).toHaveText(
       peer.name
-    );
-    await expect(fromChild.getByTestId("agent-relation-badge")).toHaveText(
-      "child agent"
     );
     await expect(fromChild).toHaveAttribute("data-author-kind", "peer");
 

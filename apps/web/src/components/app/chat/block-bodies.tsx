@@ -423,7 +423,7 @@ export function FormBlockBody({
 // Reviews
 // ---------------------------------------------------------------------------
 
-const VERDICT: Record<
+export const VERDICT: Record<
   BlockReviewVerdict,
   { label: string; variant: "transitional" | "error" | "default" }
 > = {

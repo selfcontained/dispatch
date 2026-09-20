@@ -8,6 +8,7 @@ import {
   blockEntry,
   formBody,
   questionBody,
+  reviewBody,
 } from "@/test-utils/blocks";
 
 import { deriveStreamRail, isOpenInput } from "./use-stream-rail";
@@ -39,6 +40,80 @@ function link(id: string, by: string, when: string, url: string) {
     })
   );
 }
+
+function review(
+  id: string,
+  by: string,
+  to: string | null,
+  when: string,
+  state: Parameters<typeof reviewBody>[3] = { findings: {} }
+) {
+  return blockEntry(
+    block({
+      id,
+      author: { kind: "agent", agentId: by },
+      toAgentId: to,
+      body: reviewBody(
+        "request_changes",
+        "s",
+        [
+          { id: "f1", severity: "major", title: "a", body: "b" },
+          { id: "f2", severity: "nit", title: "c", body: "d" },
+        ],
+        state
+      ),
+      createdAt: when,
+    })
+  );
+}
+
+describe("deriveStreamRail reviews", () => {
+  it("lists reviews of the page's agent newest first, open ones before resolved", () => {
+    const resolved = {
+      findings: {
+        f1: {
+          status: "resolved" as const,
+          by: { kind: "user" as const },
+          at: "t",
+        },
+        f2: {
+          status: "resolved" as const,
+          by: { kind: "user" as const },
+          at: "t",
+        },
+      },
+    };
+    const rail = deriveStreamRail(
+      [
+        review("r-old", CHILD, ROOT, at("09:00")),
+        review("r-done", CHILD, ROOT, at("09:30"), resolved),
+        review("r-new", CHILD, ROOT, at("10:00")),
+        // A review of someone else's work, on a child's page.
+        review("r-other", "agt_x", "agt_y", at("10:30")),
+      ],
+      ROOT,
+      ROOT
+    );
+    // On the root's page the whole stream counts.
+    expect(rail.reviews.map((r) => r.id)).toEqual([
+      "r-other",
+      "r-new",
+      "r-old",
+      "r-done",
+    ]);
+    // On the child's page: only reviews it wrote or received.
+    const childRail = deriveStreamRail(
+      [
+        review("r-mine", CHILD, ROOT, at("09:00")),
+        review("r-for-me", "agt_x", CHILD, at("09:30")),
+        review("r-other", "agt_x", "agt_y", at("10:30")),
+      ],
+      CHILD,
+      ROOT
+    );
+    expect(childRail.reviews.map((r) => r.id)).toEqual(["r-for-me", "r-mine"]);
+  });
+});
 
 describe("isOpenInput", () => {
   it("is an agent's unanswered question or form for people", () => {

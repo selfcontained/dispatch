@@ -1088,33 +1088,29 @@ describe("ChatPane threads", () => {
     lastReplyAt: "2026-09-02T10:05:00.000Z",
   });
 
-  it("shows a reply line on a threaded block and opens the panel into the URL", () => {
+  it("shows a reply line on a threaded block and puts the thread into the URL for the drawer", () => {
     H.entries = [blockEntry(root)];
     H.threadRoot = root;
     renderWithUrl("");
     const line = screen.getByTestId("chat-thread-line");
     expect(line.textContent).toContain("3 replies");
     expect(line.textContent).toContain("last");
-    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
     fireEvent.click(line);
     expect(screen.getByTestId("location-search").textContent).toBe(
       "?thread=root"
     );
-    expect(
-      screen.getByTestId("chat-thread-panel").getAttribute("data-block-id")
-    ).toBe("root");
-    fireEvent.click(screen.getByTestId("chat-thread-close"));
-    expect(screen.getByTestId("location-search").textContent).toBe("");
+    // The thread itself is the drawer's, not the pane's.
     expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
   });
 
-  it("reopens the thread named in the URL, with its finding", () => {
+  it("leaves the composer unfocused while a thread is open in the drawer", () => {
     H.entries = [blockEntry(root)];
     H.threadRoot = root;
     renderWithUrl("?thread=root&finding=f1");
-    expect(
-      screen.getByTestId("chat-thread-panel").getAttribute("data-block-id")
-    ).toBe("root");
+    expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
+    expect(document.activeElement).not.toBe(
+      screen.getByTestId("chat-composer-input")
+    );
   });
 
   it("keeps replies out of the main column", () => {
