@@ -591,7 +591,9 @@ export class StreamService {
         `attachments must have ${BLOCK_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    const thread = review
+      ? null
+      : await this.resolveThread(streamId, input.replyTo ?? null);
     const finding = await this.resolveFinding(thread, input.finding ?? null);
     // A reply in a thread goes to the agent on the other side of it; a
     // top-level post goes to the stream's agent unless addressed elsewhere.
@@ -1055,7 +1057,11 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    const thread = await this.resolveThread(streamId, replyTo);
+    // A review is a thread of its own (its findings are discussed under
+    // it), so it is never a reply: a reviewer answering its briefing in
+    // the launch thread still posts the review top-level.
+    const thread =
+      kind === "review" ? null : await this.resolveThread(streamId, replyTo);
     const finding = await this.resolveFinding(thread, input.finding ?? null);
     if (finding && kind === "text") data = { findingId: finding.id };
     if (toAgentId === null && thread) {
@@ -1724,7 +1730,11 @@ export class StreamService {
 function parseFindingPatch(
   id: string,
   value: unknown
-): { status: BlockFindingStatus; resolution?: BlockFindingResolution; note?: string } {
+): {
+  status: BlockFindingStatus;
+  resolution?: BlockFindingResolution;
+  note?: string;
+} {
   const bad = () =>
     new StreamValidationError(
       `finding "${id}" must be open, fixed or dismissed (or { status, resolution?, note? }).`
@@ -1735,7 +1745,10 @@ function parseFindingPatch(
       : value && typeof value === "object"
         ? (value as { status?: unknown }).status
         : undefined;
-  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const record =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
   let status: BlockFindingStatus;
   let resolution: BlockFindingResolution | undefined;
   if (word === "open") {

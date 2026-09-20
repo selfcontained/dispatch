@@ -1909,7 +1909,11 @@ describe("StreamService.setState", () => {
       {
         findings: {
           f1: { status: "open", note: "Still spins after a timeout." },
-          f2: { status: "resolved", resolution: "dismissed", note: "Not ours." },
+          f2: {
+            status: "resolved",
+            resolution: "dismissed",
+            note: "Not ours.",
+          },
         },
       },
       { kind: "user" }
@@ -1920,7 +1924,9 @@ describe("StreamService.setState", () => {
         f2: { status: "resolved", resolution: "dismissed", note: "Not ours." },
       },
     });
-    expect((again.state as { findings: Record<string, object> }).findings.f1).not.toHaveProperty("resolution");
+    expect(
+      (again.state as { findings: Record<string, object> }).findings.f1
+    ).not.toHaveProperty("resolution");
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected[1]?.text).toContain(
       "Finding f1 reopened: Still spins after a timeout.\nFinding f2 dismissed: Not ours."
@@ -2086,6 +2092,34 @@ describe("StreamService review threads", () => {
     return r;
   }
 
+  it("posts a review top-level even when the reviewer replies into its launch thread", async () => {
+    const { svc } = build();
+    const briefing = await svc.sendUserPost(A, {
+      to: B,
+      text: "Please review src/x.ts.",
+    });
+    const r = await svc.post(B, {
+      to: A,
+      replyTo: briefing.block.id,
+      review: {
+        verdict: "request_changes",
+        summary: "s",
+        findings: [{ id: "f1", severity: "major", title: "a", body: "b" }],
+      },
+    });
+    expect(r).toMatchObject({ threadId: null, replyTo: null, toAgentId: A });
+    await settled(svc, r.id);
+    const comment = await svc.post(A, {
+      text: "Done.",
+      replyTo: r.id,
+      finding: "f1",
+    });
+    expect(comment).toMatchObject({
+      threadId: r.id,
+      data: { findingId: "f1" },
+    });
+  });
+
   it("sends each comment to one side: the builder's to the reviewer, the reviewer's to the builder", async () => {
     const { svc, injected } = build();
     const r = await reviewed(svc);
@@ -2095,7 +2129,10 @@ describe("StreamService review threads", () => {
       replyTo: r.id,
       finding: "f1",
     });
-    expect(fromBuilder).toMatchObject({ toAgentId: B, data: { findingId: "f1" } });
+    expect(fromBuilder).toMatchObject({
+      toAgentId: B,
+      data: { findingId: "f1" },
+    });
     await settled(svc, fromBuilder.id);
     expect(injected.map((i) => i.agentId)).toEqual([B]);
     expect(injected[0]?.text).toContain('About finding "f1" (a).');
@@ -2121,12 +2158,20 @@ describe("StreamService review threads", () => {
       replyTo: r.id,
       finding: "f1",
     });
-    expect(onOpen.block).toMatchObject({ toAgentId: A, data: { findingId: "f1" } });
+    expect(onOpen.block).toMatchObject({
+      toAgentId: A,
+      data: { findingId: "f1" },
+    });
     await settled(svc, onOpen.block.id);
     expect(injected.map((i) => i.agentId)).toEqual([A]);
 
     // f2 resolved: the reviewer checks it.
-    await svc.setState(A, r.id, { findings: { f2: "fixed" } }, { kind: "agent", agentId: A });
+    await svc.setState(
+      A,
+      r.id,
+      { findings: { f2: "fixed" } },
+      { kind: "agent", agentId: A }
+    );
     await svc.waitForInFlightDeliveries(1_000);
     injected.length = 0;
     const onResolved = await svc.sendUserPost(A, {
@@ -2173,11 +2218,19 @@ describe("StreamService review threads", () => {
     expect(first.readAt).toEqual(expect.any(String));
     const rest = await svc.store.markThreadRead(A, r.id);
     expect(rest.ids.sort()).toEqual([c2.id, c3.id].sort());
-    expect(await svc.store.markThreadRead(A, r.id)).toEqual({ ids: [], readAt: null });
+    expect(await svc.store.markThreadRead(A, r.id)).toEqual({
+      ids: [],
+      readAt: null,
+    });
     const replies = (await svc.store.listThread(r.id))!.replies;
-    expect(replies.filter((b) => b.author.kind === "agent").every((b) => b.readAt)).toBe(true);
+    expect(
+      replies.filter((b) => b.author.kind === "agent").every((b) => b.readAt)
+    ).toBe(true);
     // Another stream's mark touches nothing here.
-    expect(await svc.store.markThreadRead(B, r.id)).toEqual({ ids: [], readAt: null });
+    expect(await svc.store.markThreadRead(B, r.id)).toEqual({
+      ids: [],
+      readAt: null,
+    });
   });
 });
 
