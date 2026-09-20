@@ -1,11 +1,49 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { highlightCodeLanguage } from "@/components/app/media-lightbox-syntax";
+import { useCopyText } from "@/hooks/use-copy";
 import { MermaidBlock } from "@/components/ui/markdown-mermaid";
 import { useMermaidTheme } from "@/components/ui/markdown-mermaid-theme";
 import { cn } from "@/lib/utils";
+
+/**
+ * A fenced code block with a copy button in its corner, like a post's own
+ * copy action: the block is the thing worth lifting out of a message.
+ */
+function CodeBlock({
+  code,
+  children,
+}: {
+  code: string;
+  children: ReactNode;
+}): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  return (
+    <div className="group/code relative" data-testid="markdown-code-block">
+      <pre>{children}</pre>
+      <button
+        type="button"
+        className={cn(
+          "absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border/60 bg-background/80 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100",
+          copied && "text-status-working opacity-100"
+        )}
+        onClick={() => copyText(code)}
+        title={copied ? "Copied" : "Copy code"}
+        aria-label={copied ? "Code copied" : "Copy code"}
+        data-testid="markdown-copy-code"
+      >
+        {copied ? (
+          <Check className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3 w-3" aria-hidden="true" />
+        )}
+      </button>
+    </div>
+  );
+}
 
 function getCodeBlock(
   children: ReactNode
@@ -215,15 +253,19 @@ function MarkdownDefault({
               : null;
             if (block && highlightedHtml) {
               return (
-                <pre>
+                <CodeBlock code={block.code}>
                   <code
                     className={cn(block.className, "hljs")}
                     dangerouslySetInnerHTML={{ __html: highlightedHtml }}
                   />
-                </pre>
+                </CodeBlock>
               );
             }
-            return <pre>{children}</pre>;
+            return block ? (
+              <CodeBlock code={block.code}>{children}</CodeBlock>
+            ) : (
+              <pre>{children}</pre>
+            );
           },
         }}
       >

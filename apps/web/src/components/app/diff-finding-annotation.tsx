@@ -130,12 +130,11 @@ export function InlineFindingAnnotation({
             <div className="text-[11px] text-muted-foreground">
               {changedBy}
               {record?.note ? (
-                <span
-                  className="block text-foreground/80"
-                  data-testid="diff-finding-note"
-                >
-                  {record.note}
-                </span>
+                <div data-testid="diff-finding-note">
+                  <Markdown className="text-[11px] text-foreground/80">
+                    {record.note}
+                  </Markdown>
+                </div>
               ) : null}
             </div>
           ) : null}

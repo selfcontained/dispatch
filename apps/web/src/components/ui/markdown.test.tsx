@@ -28,3 +28,18 @@ describe("MarkdownDefault overflow", () => {
     expect(scroller.querySelector("table")).not.toBeNull();
   });
 });
+
+describe("Markdown code blocks", () => {
+  it("gives a fenced block a copy button and leaves inline code alone", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <Markdown>{"Run `pnpm test`.\n\n```sh\npnpm test\n```\n"}</Markdown>
+    );
+    const blocks = screen.getAllByTestId("markdown-code-block");
+    expect(blocks).toHaveLength(1);
+    const button = screen.getByTestId("markdown-copy-code");
+    button.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("pnpm test"));
+  });
+});

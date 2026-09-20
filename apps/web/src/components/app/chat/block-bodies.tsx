@@ -137,11 +137,12 @@ export function QuestionOptions({
               // chosen one keeps it.
               variant={chosen || open ? "primary" : "default"}
               className={cn(
-                "h-7 gap-1 text-xs",
-                // Phones and touch screens: a real tap target, with the label
-                // allowed to wrap instead of being clipped.
-                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
-                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
+                // A label is whatever the agent wrote: it wraps inside the
+                // column rather than running past it.
+                "h-auto min-h-7 max-w-full gap-1 whitespace-normal py-1 text-left text-xs",
+                // Phones and touch screens: a real tap target.
+                "max-sm:min-h-11 max-sm:py-2",
+                "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2",
                 chosen && "cursor-default"
               )}
               disabled={optionsDisabled}
@@ -788,12 +789,11 @@ function FindingRecordLine({
         {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
       </span>
       {record.note ? (
-        <span
-          className="text-foreground/80"
-          data-testid="chat-review-finding-note"
-        >
-          {record.note}
-        </span>
+        <div data-testid="chat-review-finding-note">
+          <Markdown className="text-xs text-foreground/80">
+            {record.note}
+          </Markdown>
+        </div>
       ) : null}
     </div>
   );
