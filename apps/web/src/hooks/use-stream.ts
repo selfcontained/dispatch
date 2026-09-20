@@ -35,6 +35,7 @@ import {
   useInfiniteQuery,
   useMutation,
   type UseMutationResult,
+  skipToken,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -204,9 +205,10 @@ export type StreamFeedState = {
  * current and should not start a second load of its own.
  */
 export function useStreamFeedCache(rootId: string | null): StreamEntry[] {
+  // `skipToken` is the read-only form: no fetch, no "no queryFn" warning.
   const { data } = useQuery<FeedCache>({
     queryKey: streamFeedQueryKey(rootId),
-    enabled: false,
+    queryFn: skipToken,
   });
   return useMemo(
     () => (data ? data.pages.flatMap((page) => page.entries) : []),
