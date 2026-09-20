@@ -2,7 +2,6 @@ import { memo, type ReactNode, useMemo } from "react";
 import type { Block, BlockOption, ChatStatusEntry } from "@dispatch/shared";
 import {
   AlertTriangle,
-  ArrowLeftRight,
   Bot,
   Check,
   Copy,
@@ -244,20 +243,9 @@ export function blockSide(
   return { recipientName: agentDisplayName(block.toAgentId, ctx) };
 }
 
-/**
- * The author's avatar. In a side conversation (`side`) it carries a small
- * arrows badge in its top-right corner, so an agent-to-agent post is told
- * apart from the same agent's posts to the user at a glance.
- */
-function Avatar({
-  author,
-  side = false,
-}: {
-  author: PostAuthor;
-  side?: boolean;
-}): JSX.Element {
-  const icon =
-    author.kind === "user" ? (
+function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+  if (author.kind === "user") {
+    return (
       <span
         className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground/[0.08] text-foreground"
         aria-label="You"
@@ -266,80 +254,20 @@ function Avatar({
       >
         <UserRound className="h-4 w-4" aria-hidden="true" />
       </span>
-    ) : (
-      // Every agent wears the same face; the engine and model are said in
-      // the chips under its name, not guessed from a logo.
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted/50 text-foreground/80"
-        aria-label={`${author.name}, agent`}
-        title={author.name}
-        data-testid="chat-avatar-agent"
-      >
-        <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
-      </span>
     );
-  if (!side) return icon;
-  return (
-    <span className="relative inline-flex" data-testid="chat-avatar-side">
-      {icon}
-      <span
-        className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full border border-border bg-background text-muted-foreground"
-        aria-hidden="true"
-        data-testid="chat-avatar-side-badge"
-      >
-        <ArrowLeftRight className="h-2 w-2" />
-      </span>
-    </span>
-  );
-}
-
-/**
- * The line under an agent's name: which engine, which model, and how it
- * stands to this agent when it is another one (a child, its parent). Every
- * agent in the stream is told apart the same way, not only the page's own.
- */
-export function AuthorMeta({
-  author,
-}: {
-  author: PostAuthor;
-}): JSX.Element | null {
-  if (author.kind === "user") return null;
-  const engine = agentTypeLabel(author.agentType);
-  const relation =
-    author.relation && author.relation !== "agent" ? author.relation : null;
-  if (!engine && !author.model && !relation) return null;
+  }
+  // Every agent wears the same face; the engine and model are said in the
+  // chips under its name, not guessed from a logo.
   return (
     <span
-      className="flex basis-full flex-wrap items-center gap-1 leading-4"
-      data-testid="chat-author-meta"
+      className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted/50 text-foreground/80"
+      aria-label={`${author.name}, agent`}
+      title={author.name}
+      data-testid="chat-avatar-agent"
     >
-      {engine ? (
-        <span
-          className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
-          data-testid="chat-author-engine"
-        >
-          {engine}
-        </span>
-      ) : null}
-      {author.model ? (
-        <span
-          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground"
-          title={author.model}
-          data-testid="chat-author-model"
-        >
-          {author.model}
-        </span>
-      ) : null}
-      {relation ? <AgentRelationBadge relation={relation} /> : null}
+      <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
     </span>
   );
-}
-
-/** "Claude" / "Codex" for an engine id; null for an unknown one. */
-export function agentTypeLabel(type: string | null | undefined): string | null {
-  if (type === "claude") return "Claude";
-  if (type === "codex") return "Codex";
-  return null;
 }
 
 /**
@@ -367,14 +295,6 @@ export const POST_TINT: Record<PostAuthor["kind"], string> = {
  * the full width.
  */
 export const POST_BODY_MEASURE = "max-w-[90ch]";
-
-/**
- * A side conversation's indent: one gutter step (the 32px avatar column
- * plus its gap) on top of the row's own padding, so the avatar column
- * shifts in and the body narrows by the same amount.
- */
-// One gutter step on wide screens; a phone has no room to give up.
-export const SIDE_POST_INDENT = "pl-4 sm:pl-[3.75rem]";
 
 /** Opens the post's thread with the composer ready: a person replying to one post. */
 export function ReplyInThreadButton({
@@ -475,7 +395,10 @@ export function Post({
     <div
       className={cn(
         "group relative flex min-w-0 max-w-full gap-3 transition-colors",
-        flush ? "px-3" : side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
+        // An agent-to-agent post sits in the same column as every other
+        // row: the "→ recipient" in its header says who it was for. An
+        // indent read as a different, harder-to-follow kind of message.
+        flush ? "px-3" : "px-4",
         side ? POST_TINT.peer : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
@@ -499,7 +422,7 @@ export function Post({
               {gutterTime(at)}
             </span>
           ) : (
-            <Avatar author={author} side={side !== undefined} />
+            <Avatar author={author} />
           )}
         </div>
       )}
@@ -559,8 +482,7 @@ export function Post({
         )}
         <div
           className={cn(
-            "min-w-0 max-w-full text-sm",
-            side ? "text-muted-foreground" : "text-foreground",
+            "min-w-0 max-w-full text-sm text-foreground",
             POST_BODY_MEASURE
           )}
         >

@@ -30,7 +30,6 @@ import {
 import {
   type FeedContext,
   POST_BODY_MEASURE,
-  SIDE_POST_INDENT,
   peerDirectory,
   POST_TINT,
 } from "@/components/app/chat/chat-entries";
@@ -1199,17 +1198,16 @@ describe("ChatFeed", () => {
       HTMLElement,
     ];
 
-    // Indented one gutter step, tinted like a peer's post either way, with
-    // a muted body.
+    // In the same column as every other row (no indent, no muting): the
+    // header's "→ recipient" is what says who it was for.
     for (const post of posts) {
       expect(post.getAttribute("data-side")).toBe("true");
-      expect(post.className).toContain(SIDE_POST_INDENT);
-      expect(post.className).not.toContain("px-4");
+      expect(post.className).toContain("px-4");
       expect(post.className).toContain(POST_TINT.peer);
       const body = Array.from(post.querySelectorAll("div")).find((el) =>
         el.className.includes(POST_BODY_MEASURE)
       );
-      expect(body?.className).toContain("text-muted-foreground");
+      expect(body?.className).not.toContain("text-muted-foreground");
     }
 
     // "sender → recipient" header, the relation badge after a peer sender.
@@ -1245,18 +1243,12 @@ describe("ChatFeed", () => {
       first.querySelector("[data-testid='chat-post-author']")?.className
     ).toContain("max-w-full");
 
-    // The sender's icon with the arrows overlay, on header rows only.
+    // The sender's avatar on header rows only, no overlay.
     expect(
       first.querySelector("[data-testid='chat-avatar-agent']")
     ).not.toBeNull();
     expect(
-      first.querySelector("[data-testid='chat-avatar-side-badge']")
-    ).not.toBeNull();
-    expect(
       third.querySelector("[data-testid='chat-avatar-agent']")
-    ).not.toBeNull();
-    expect(
-      third.querySelector("[data-testid='chat-avatar-side-badge']")
     ).not.toBeNull();
 
     // Same sender → same recipient groups; the reply from the other side
@@ -1265,7 +1257,7 @@ describe("ChatFeed", () => {
     expect(first.getAttribute("data-grouped")).toBeNull();
     expect(second.getAttribute("data-grouped")).toBe("true");
     expect(
-      second.querySelector("[data-testid='chat-avatar-side-badge']")
+      second.querySelector("[data-testid='chat-avatar-agent']")
     ).toBeNull();
     expect(third.getAttribute("data-grouped")).toBeNull();
     const ownPosts = screen
