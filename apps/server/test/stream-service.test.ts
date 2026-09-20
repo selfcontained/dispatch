@@ -36,13 +36,13 @@ const AGENTS: Record<string, StreamAgent> = {
   [A]: {
     id: A,
     name: "Svc",
-    mediaDir: null,
+    filesDir: null,
     status: "running",
   },
   [B]: {
     id: B,
     name: "Peer",
-    mediaDir: "/peer/media",
+    filesDir: "/peer/files",
     status: "running",
   },
 };
@@ -81,7 +81,7 @@ function build(
     pool,
     publishUiEvent: (event) => events.push(event),
     getAgent,
-    mediaRoot: "/media-root",
+    filesRoot: "/files-root",
     ...(opts.withDelivery === false
       ? {}
       : {
@@ -117,9 +117,9 @@ async function settled(svc: StreamService, id: string): Promise<Block> {
   throw new Error("delivery never settled");
 }
 
-async function seedMedia(agentId: string, fileName: string, size = 12) {
+async function seedFiles(agentId: string, fileName: string, size = 12) {
   const result = await pool.query<{ id: number }>(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes)
+    `INSERT INTO files (agent_id, file_name, source, size_bytes)
      VALUES ($1, $2, 'user', $3) RETURNING id`,
     [agentId, fileName, size]
   );
@@ -141,7 +141,7 @@ beforeAll(async () => {
     pool,
     publishUiEvent: (event) => published.push(event),
     getAgent,
-    mediaRoot: "/media-root",
+    filesRoot: "/files-root",
   });
 });
 
@@ -152,7 +152,7 @@ afterAll(async () => {
 beforeEach(async () => {
   published.length = 0;
   await pool.query("DELETE FROM blocks");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files");
 });
 
 // ---------------------------------------------------------------------------
@@ -161,11 +161,11 @@ beforeEach(async () => {
 
 describe("StreamService.recordLaunchContext", () => {
   it("records one delivered user block with file and link attachments", async () => {
-    const mediaId = await seedMedia(A, "brief-2026.md", 300);
+    const fileId = await seedFiles(A, "brief-2026.md", 300);
     const block = await service.recordLaunchContext({
       agentId: A,
       text: "Build the widget",
-      files: [{ mediaId }],
+      files: [{ fileId }],
       links: ["https://example.com/spec"],
     });
     expect(block).toMatchObject({
@@ -179,7 +179,7 @@ describe("StreamService.recordLaunchContext", () => {
       attachments: [
         {
           type: "file",
-          mediaId,
+          fileId,
           fileName: "brief-2026.md",
           sizeBytes: 300,
           mimeType: "text/markdown",
@@ -223,7 +223,7 @@ describe("StreamService.recordLaunchContext", () => {
       service.recordLaunchContext({
         agentId: A,
         text: "x",
-        files: [{ mediaId: 999_999 }],
+        files: [{ fileId: 999_999 }],
       })
     ).rejects.toBeInstanceOf(StreamValidationError);
   });
@@ -231,18 +231,18 @@ describe("StreamService.recordLaunchContext", () => {
 
 describe("StreamService.prepareLaunchContext", () => {
   it("resolves the block's id and envelope lines before anything is written", async () => {
-    const mediaId = await seedMedia(A, "brief-2026.md", 300);
+    const fileId = await seedFiles(A, "brief-2026.md", 300);
     const prepared = await service.prepareLaunchContext({
       id: "8a4f9e60-1111-4222-8333-444455556666",
       agentId: A,
       text: "Build the widget",
-      files: [{ mediaId }],
+      files: [{ fileId }],
       links: ["https://example.com/spec"],
     });
     expect(prepared?.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
     // The same lines sendUserPost injects, so envelope and block agree.
     expect(prepared?.attachmentLines).toEqual([
-      "- file: /media-root/agt_stream_svc/brief-2026.md (text/markdown, 300 B)",
+      "- file: /files-root/agt_stream_svc/brief-2026.md (text/markdown, 300 B)",
       "- link: https://example.com/spec",
     ]);
     // Nothing written and nothing announced until record() runs.
@@ -672,22 +672,22 @@ describe("StreamService.post", () => {
     expect(tasks.state).toEqual({ items: { t1: "todo", t2: "todo" } });
   });
 
-  it("resolves file attachments by stored fileName or mediaId", async () => {
+  it("resolves file attachments by stored fileName or fileId", async () => {
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes)
        VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'screenshot', 123),
               ($1, 'report.pdf', 'screenshot', 456),
               ($2, 'theirs.png', 'screenshot', 1)`,
       [A, B]
     );
     const pdf = await pool.query<{ id: number }>(
-      `SELECT id FROM media WHERE file_name = 'report.pdf'`
+      `SELECT id FROM files WHERE file_name = 'report.pdf'`
     );
     const block = await service.post(A, {
       text: "see",
       attachments: [
         { type: "file", fileName: "shot-2026-01-01-00-00-00-000.png" },
-        { type: "file", mediaId: pdf.rows[0].id },
+        { type: "file", fileId: pdf.rows[0].id },
         { type: "link", url: "https://example.com" },
         { type: "pr", url: "https://gh/1", title: "PR" },
         { type: "code", code: "x = 1", language: "py" },
@@ -696,14 +696,14 @@ describe("StreamService.post", () => {
     expect(block.attachments).toEqual([
       {
         type: "file",
-        mediaId: expect.any(Number),
+        fileId: expect.any(Number),
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 123,
         mimeType: "image/png",
       },
       {
         type: "file",
-        mediaId: pdf.rows[0].id,
+        fileId: pdf.rows[0].id,
         fileName: "report.pdf",
         sizeBytes: 456,
         mimeType: "application/pdf",
@@ -726,13 +726,13 @@ describe("StreamService.post", () => {
     }
     await expect(
       service.post(A, { text: "see", attachments: [{ type: "file" }] })
-    ).rejects.toThrow(/fileName, mediaId or path/);
+    ).rejects.toThrow(/fileName, fileId or path/);
     // Two identifiers: refused, never a guess — even when they agree.
     await expect(
       service.post(A, {
         text: "see",
         attachments: [
-          { type: "file", fileName: "report.pdf", mediaId: pdf.rows[0].id },
+          { type: "file", fileName: "report.pdf", fileId: pdf.rows[0].id },
         ],
       })
     ).rejects.toThrow(/not both/);
@@ -751,7 +751,7 @@ describe("StreamService.post", () => {
         input: { filePath: string; description: string }
       ) => {
         await pool.query(
-          `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+          `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
          VALUES ($1, 'shot-uploaded.png', 'screenshot', 77, $2)`,
           [agentId, input.description]
         );
@@ -817,7 +817,7 @@ describe("StreamService.post", () => {
 
   it("stores no dimensions on a file attachment, even for a measured image", async () => {
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, metadata)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, metadata)
        VALUES ($1, 'measured.png', 'screenshot', 9, '{"width":120,"height":90}'::jsonb)`,
       [A]
     );
@@ -948,7 +948,7 @@ describe("StreamService.post", () => {
   });
 
   it("delivers a post with `to` as a DISPATCH POST from the agent, settling delivered", async () => {
-    await seedMedia(A, "diff.patch", 2048);
+    await seedFiles(A, "diff.patch", 2048);
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;
@@ -1106,7 +1106,7 @@ describe("StreamService.update", () => {
   it("replaces attachments wholesale, uploading paths", async () => {
     const uploadFile = vi.fn(async (agentId: string) => {
       await pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes)
+        `INSERT INTO files (agent_id, file_name, source, size_bytes)
          VALUES ($1, 'late.png', 'screenshot', 5)`,
         [agentId]
       );
@@ -1386,7 +1386,7 @@ describe("StreamService.sendUserPost", () => {
   });
 
   it("resolves user attachments and lists them in the envelope", async () => {
-    const mediaId = await seedMedia(
+    const fileId = await seedFiles(
       A,
       "shot-2026-01-01-00-00-00-000.png",
       122880
@@ -1395,14 +1395,14 @@ describe("StreamService.sendUserPost", () => {
     const res = await svc.sendUserPost(A, {
       text: "look at this",
       attachments: [
-        { type: "file", mediaId },
+        { type: "file", fileId },
         { type: "link", url: "https://example.com/spec", title: "Spec" },
       ],
     });
     expect(res.block.attachments).toEqual([
       {
         type: "file",
-        mediaId,
+        fileId,
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
@@ -1416,7 +1416,7 @@ describe("StreamService.sendUserPost", () => {
         "look at this",
         "",
         "Attachments:",
-        "- file: /media-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
+        "- file: /files-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH POST ---",
         "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
@@ -1437,12 +1437,12 @@ describe("StreamService.sendUserPost", () => {
     );
   });
 
-  it("rejects unknown media and too many attachments before writing", async () => {
+  it("rejects unknown files and too many attachments before writing", async () => {
     const { svc, injected } = build();
     await expect(
       svc.sendUserPost(A, {
         text: "x",
-        attachments: [{ type: "file", mediaId: 999_999 }],
+        attachments: [{ type: "file", fileId: 999_999 }],
       })
     ).rejects.toThrow(/Unknown file #999999/);
     await expect(
@@ -1644,7 +1644,7 @@ describe("StreamService.answerQuestion", () => {
   });
 
   it("stores attachments on the reply and lists them in the envelope", async () => {
-    const mediaId = await seedMedia(
+    const fileId = await seedFiles(
       A,
       "shot-2026-01-01-00-00-00-000.png",
       122880
@@ -1654,14 +1654,14 @@ describe("StreamService.answerQuestion", () => {
     const res = await svc.answerQuestion(A, q.id, {
       value: "this one",
       attachments: [
-        { type: "file", mediaId },
+        { type: "file", fileId },
         { type: "link", url: "https://example.com/spec", title: "Spec" },
       ],
     });
     expect(res.reply.attachments).toEqual([
       {
         type: "file",
-        mediaId,
+        fileId,
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
@@ -1678,7 +1678,7 @@ describe("StreamService.answerQuestion", () => {
         "this one",
         "",
         "Attachments:",
-        "- file: /media-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
+        "- file: /files-root/agt_stream_svc/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
         "- link: https://example.com/spec — Spec",
         `This answers your question ${q.id}. In the thread under ${q.id}.`,
         "--- END DISPATCH POST ---",
@@ -1686,13 +1686,13 @@ describe("StreamService.answerQuestion", () => {
     );
   });
 
-  it("rejects unknown media and too many attachments before writing", async () => {
+  it("rejects unknown files and too many attachments before writing", async () => {
     const { svc, injected } = build();
     const q = await ask(svc, true);
     await expect(
       svc.answerQuestion(A, q.id, {
         value: "x",
-        attachments: [{ type: "file", mediaId: 999_999 }],
+        attachments: [{ type: "file", fileId: 999_999 }],
       })
     ).rejects.toThrow(/Unknown file #999999/);
     await expect(

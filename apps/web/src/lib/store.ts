@@ -225,16 +225,16 @@ export function reconcileAgentSidebarOrder(
 
 /**
  * The right sidebar's tabs: the rail (what the stream needs from the user
- * right now, and the links it produced) and the agent's media.
+ * right now, and the links it produced) and the agent's files.
  */
-export const MEDIA_SIDEBAR_TABS = ["rail", "media"] as const;
+export const DRAWER_TABS = ["rail", "files"] as const;
 
-export type MediaSidebarTab = (typeof MEDIA_SIDEBAR_TABS)[number];
+export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 /** A stored tab id; anything unknown (an old pins/reviews/surface tab) is the rail. */
-export function asMediaSidebarTab(tab: unknown): MediaSidebarTab {
-  return (MEDIA_SIDEBAR_TABS as readonly unknown[]).includes(tab)
-    ? (tab as MediaSidebarTab)
+export function asDrawerTab(tab: unknown): DrawerTab {
+  return (DRAWER_TABS as readonly unknown[]).includes(tab)
+    ? (tab as DrawerTab)
     : "rail";
 }
 
@@ -269,39 +269,35 @@ function reconcileAgentScopedStorageDomains(
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
 
-export type MediaSidebarState = {
+export type DrawerState = {
   isOpen: boolean;
-  activeTab: MediaSidebarTab;
+  activeTab: DrawerTab;
   // When true (desktop only), the sidebar takes layout space and shrinks the
   // content. When false, the sidebar floats over the content as a drawer
   // that slides in/out without shifting layout. Default is false.
   isPinned: boolean;
 };
 
-export const defaultMediaSidebarState: MediaSidebarState = {
+export const defaultDrawerState: DrawerState = {
   isOpen: false,
   activeTab: "rail",
   isPinned: false,
 };
 
-export const inactiveMediaSidebarStateAtom = atom<MediaSidebarState>(
-  defaultMediaSidebarState
-);
+export const inactiveDrawerStateAtom = atom<DrawerState>(defaultDrawerState);
 
-export const MEDIA_SIDEBAR_STATE_STORAGE_PREFIX = "dispatch:mediaSidebarState:";
+export const DRAWER_STATE_STORAGE_PREFIX = "dispatch:drawerState:";
 
-export const mediaSidebarStateAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<MediaSidebarState>(
-    `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}${agentId}`,
-    defaultMediaSidebarState
+export const drawerStateAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<DrawerState>(
+    `${DRAWER_STATE_STORAGE_PREFIX}${agentId}`,
+    defaultDrawerState
   )
 );
 
-export function reconcileMediaSidebarStateStorage(
-  agentIds: Iterable<string>
-): void {
+export function reconcileDrawerStateStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+    { prefix: DRAWER_STATE_STORAGE_PREFIX },
   ]);
 }
 
@@ -462,7 +458,7 @@ export function reconcileSplitPaneStateStorage(
 }
 
 const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
-  { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+  { prefix: DRAWER_STATE_STORAGE_PREFIX },
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },

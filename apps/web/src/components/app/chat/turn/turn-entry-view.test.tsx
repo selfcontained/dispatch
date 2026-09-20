@@ -24,7 +24,7 @@ const ctx: FeedContext = {
   agentId: AGENT_ID,
   agentName: "builder",
   agentType: "dispatch",
-  onOpenMedia: () => undefined,
+  onOpenFile: () => undefined,
 };
 
 function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {

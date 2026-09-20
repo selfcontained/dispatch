@@ -59,7 +59,7 @@ finds defects from one that returns a summary. Include:
   shared helper now owns. A briefing that only describes the change gets a
   summary back; one that poses questions gets findings.
 
-Set `includeDiff: false` only for non-code reviews (a plan, a document, media)
+Set `includeDiff: false` only for non-code reviews (a plan, a document, images)
 where a code change is not the review target. When it is on, the reviewer gets a
 file-level map of the change and the git commands to read it — never the diff
 itself, since it is already in the worktree.

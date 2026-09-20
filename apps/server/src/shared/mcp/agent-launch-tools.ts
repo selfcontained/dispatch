@@ -62,7 +62,7 @@ export function registerAgentLaunchTools(
         "— it shares your stream: post with to set to its id to coordinate, and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
-        "A child's media is readable here via ownerAgentId on list_media, " +
+        "A child's files are readable here via ownerAgentId on list_files, " +
         "and it can read yours the same way — neither side needs to relay file paths. " +
         "Pass persona (a slug from list_personas) to launch it as that persona — a reviewer, a QA tester, whatever the persona defines — " +
         "with prompt as its briefing; a reviewer persona posts one review block back to you when done.",

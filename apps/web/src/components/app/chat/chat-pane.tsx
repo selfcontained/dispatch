@@ -41,7 +41,7 @@ import {
   useToggleReaction,
 } from "@/hooks/use-stream";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
-import { uploadAgentMedia } from "@/lib/media-upload";
+import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
 export type ChatPaneProps = {
@@ -56,7 +56,7 @@ export type ChatPaneProps = {
   /** Show the turns and posts of the agents under this one (default on). */
   showChildAgents: boolean;
   onShowChildAgentsChange: (show: boolean) => void;
-  openLightbox: (mediaId: number) => void;
+  openLightbox: (fileId: number) => void;
   /** Opens the Changes tab on a file (a review finding's path). */
   onOpenPath?: (path: string, line: number | null) => void;
   isMobile: boolean;
@@ -757,7 +757,7 @@ export function ChatPane({
   const uploadFile = useCallback(
     (file: File) => {
       if (!agentId) return Promise.reject(new Error("No agent selected."));
-      return uploadAgentMedia(agentId, file, { source: "user", inject: false });
+      return uploadAgentFile(agentId, file, { source: "user", inject: false });
     },
     [agentId]
   );

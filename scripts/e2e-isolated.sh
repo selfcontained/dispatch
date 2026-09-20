@@ -61,7 +61,7 @@ echo "==> Ensuring the pinned Playwright chromium build is installed"
 pnpm exec playwright install chromium
 
 export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DB_PORT}/dispatch_${RUN_ID}"
-export MEDIA_ROOT="/tmp/dispatch-media-${RUN_ID}"
+export DISPATCH_FILES_ROOT="/tmp/dispatch-files-${RUN_ID}"
 # Keep the release store out of the host's ~/.dispatch/ — a stale version
 # there surfaces the update-available toast and intercepts clicks.
 export DISPATCH_RELEASE_STORE_PATH="/tmp/dispatch-release-${RUN_ID}.json"
@@ -71,7 +71,7 @@ unset TLS_CERT TLS_KEY
 
 PROJECT="dispatch-${RUN_ID}"
 
-mkdir -p "$MEDIA_ROOT"
+mkdir -p "$DISPATCH_FILES_ROOT"
 
 cleanup() {
   echo "==> Tearing down isolated environment"
@@ -83,7 +83,7 @@ cleanup() {
   done
   rm -rf "$DISPATCH_AGENT_STATE_ROOT"
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
-  rm -rf "$MEDIA_ROOT"
+  rm -rf "$DISPATCH_FILES_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
 }
 trap cleanup EXIT

@@ -30,8 +30,8 @@ import type {
  */
 export type SharedUiEvent =
   | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string }
-  | { type: "media.seen"; agentId: string; keys: string[] }
+  | { type: "files.changed"; agentId: string }
+  | { type: "files.seen"; agentId: string; keys: string[] }
   /**
    * Ephemeral: an agent invoked an MCP tool. Not persisted, not fetched;
    * feeds the presence strip's tool blip.

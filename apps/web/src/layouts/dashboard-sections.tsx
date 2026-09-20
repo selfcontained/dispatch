@@ -43,7 +43,7 @@ function SectionShell({
     mobileLeftOpen,
     setLeftOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
     handleSetLeftPanelOpen,
     pulsingNavItem,
     triggerNavAnimation,
@@ -57,7 +57,7 @@ function SectionShell({
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {
             if (isMobile) {
-              if (open) setMobileMediaOpen(false);
+              if (open) setMobileDrawerOpen(false);
               setMobileLeftOpen(open);
             } else {
               setLeftOpen(open);
@@ -123,10 +123,10 @@ export function AgentsRoute(): JSX.Element {
       leftOpen={context.leftOpen}
       leftPanelOpen={context.leftPanelOpen}
       mobileLeftOpen={context.mobileLeftOpen}
-      mobileMediaOpen={context.mobileMediaOpen}
+      mobileDrawerOpen={context.mobileDrawerOpen}
       setLeftOpen={context.setLeftOpen}
       setMobileLeftOpen={context.setMobileLeftOpen}
-      setMobileMediaOpen={context.setMobileMediaOpen}
+      setMobileDrawerOpen={context.setMobileDrawerOpen}
       handleSetLeftPanelOpen={context.handleSetLeftPanelOpen}
       pulsingNavItem={context.pulsingNavItem}
       triggerNavAnimation={context.triggerNavAnimation}

@@ -152,8 +152,8 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | `agent.upsert`                | Single agent record (created or updated)                          |
 | `agent.diff_state_changed`    | Diff stats for an agent (or `null` when cleared)                  |
 | `agent.deleted`               | Agent ID that was deleted                                         |
-| `media.changed`               | Agent ID whose media list changed                                 |
-| `media.seen`                  | Agent ID + array of media keys marked seen                        |
+| `files.changed`               | Agent ID whose file list changed                                  |
+| `files.seen`                  | Agent ID + array of file keys marked seen                         |
 | `stream.entry`                | Agent ID + one feed entry to upsert (a block, with its reactions) |
 | `stream.changed`              | Agent ID whose stream changed; refetch the feed                   |
 | `stream.read`                 | Agent ID + the read boundary after `POST /streams/:rootId/read`   |
@@ -179,14 +179,14 @@ Reusable text snippets that can be sent to an agent as a prompt.
 
 The phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true`; `false` only renders the text and returns it). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
 
-## Media
+## Files
 
-| Method | Path                      | Description                                                |
-| ------ | ------------------------- | ---------------------------------------------------------- |
-| GET    | `/agents/:id/media`       | List media files with seen/unseen status                   |
-| GET    | `/agents/:id/media/:file` | Download a media file                                      |
-| POST   | `/agents/:id/media`       | Upload media (multipart form: file + source + description) |
-| POST   | `/agents/:id/media/seen`  | Mark media files as seen                                   |
+| Method | Path                      | Description                                                 |
+| ------ | ------------------------- | ----------------------------------------------------------- |
+| GET    | `/agents/:id/files`       | List files with seen/unseen status                          |
+| GET    | `/agents/:id/files/:file` | Download a file                                             |
+| POST   | `/agents/:id/files`       | Upload a file (multipart form: file + source + description) |
+| POST   | `/agents/:id/files/seen`  | Mark files as seen                                          |
 
 ## Streams
 
@@ -213,7 +213,7 @@ Reactions go both ways: the user reacts to agent blocks through the routes above
 
 Launching an agent with context records one launch post in its stream: a user block with `origin: "launch"`, the initial prompt as `text`, and attachments for each startup file (`file`) and startup link (`link`). When another agent created the agent (`launch_agent`), the post is attributed to that agent. The agent's first user turn is that post wrapped in the same `--- DISPATCH POST (id: …) ---` envelope any user post is delivered with, so an agent replies where it was launched. A launch with no prompt, files, or links records nothing.
 
-User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media); `text` may be blank when at least one attachment is present. The injected envelope lists each attachment after the text.
+User posts take up to `BLOCK_ATTACHMENTS_MAX` attachments: `{ type: "file", fileId }` for a file uploaded first via `POST /agents/:id/files`, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown file ids); `text` may be blank when at least one attachment is present. The injected envelope lists each attachment after the text.
 
 Agent-to-agent traffic is the same table: a block with `to_agent_id` set. There is no separate messages API.
 
@@ -252,7 +252,7 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 }
 ```
 
-Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, media). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
+Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, images). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
 A reviewer persona finishes its pass by posting one `review` block (`{ verdict, summary, findings }`) to the parent; the parent (or a person, via `PATCH /streams/:rootId/blocks/:blockId/state`) marks each finding fixed, dismisses it with a note, or reopens it in that block's `state`, and discussion is the block's thread (`finding` on a reply names the item). There is no separate review API.
 
@@ -311,7 +311,7 @@ All token endpoints accept `days` and `timezone` query params.
 | ------ | --------------------- | ----------------------------------------------------------- |
 | GET    | `/history/projects`   | List projects from archived agents (excludes active ones)   |
 | GET    | `/history/agents`     | Paginated archived-agent history with filtering and sorting |
-| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and media  |
+| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and files  |
 
 ### `GET /history/agents`
 
@@ -581,11 +581,11 @@ Query params: `name` (required), `directory` (required), `limit` (1–100, optio
   "branchName": "feature/{{feature_name}}",
   "fullAccess": true,
   "callable": false,
-  "allowMedia": true
+  "allowFiles": true
 }
 ```
 
-`name` and `directory` are required. All other fields are optional. `agentType` must be `claude` or `codex`. `callable` controls whether the template appears in the command palette for on-demand use. `allowMedia` (defaults `true`) enables media file attachments on launch. `~` in `directory` is expanded to the user's home directory.
+`name` and `directory` are required. All other fields are optional. `agentType` must be `claude` or `codex`. `callable` controls whether the template appears in the command palette for on-demand use. `allowFiles` (defaults `true`) enables file attachments on launch. `~` in `directory` is expanded to the user's home directory.
 
 Template prompts support `{{arg_name}}` placeholder syntax — arguments are parsed from the prompt and presented to the user in the launch dialog.
 
@@ -614,7 +614,7 @@ All fields are optional. `args` fills `{{placeholder}}` values in the template p
 
 **Multipart body (for startup files):**
 
-When `allowMedia` is enabled on the template, the launch endpoint accepts `multipart/form-data` with:
+When `allowFiles` is enabled on the template, the launch endpoint accepts `multipart/form-data` with:
 
 - `args` — JSON-encoded string of template arguments
 - `directory` — override directory

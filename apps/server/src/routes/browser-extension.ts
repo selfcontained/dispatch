@@ -8,9 +8,9 @@ import * as z from "zod/v4";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { tokensEqual } from "../auth.js";
-import { mediaMetadataFromBuffer } from "../media/metadata.js";
+import { fileMetadataFromBuffer } from "../files/metadata.js";
 import { parseInput } from "../shared/lib/parse-input.js";
-import { resolveMediaDir } from "../shared/media.js";
+import { resolveFilesDir } from "../shared/files.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
@@ -33,7 +33,7 @@ function isPng(buffer: Buffer): boolean {
   return buffer.length >= 8 && buffer.subarray(0, 8).equals(PNG_SIGNATURE);
 }
 
-function mediaTimestamp(date: Date): string {
+function fileTimestamp(date: Date): string {
   return date
     .toISOString()
     .replace(/[:.]/g, "-")
@@ -133,8 +133,8 @@ type BrowserExtensionRouteDeps = {
   pool: Pool;
   agentManager: Pick<AgentManager, "getAgent" | "listAgents">;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
-  /** Base media directory; when omitted, attached screenshots are ignored. */
-  mediaRoot?: string;
+  /** Base files directory; when omitted, attached screenshots are ignored. */
+  filesRoot?: string;
   publishUiEvent?: PublishUiEvent;
 };
 
@@ -286,7 +286,7 @@ function sendStoredSubmission(reply: FastifyReply, row: StoredSubmission) {
 
 export async function cleanupBrowserExtensionData(
   pool: Pool,
-  mediaRoot?: string
+  filesRoot?: string
 ): Promise<void> {
   // Pairings stop being useful at expiry, including the encrypted token copy
   // retained only to make exchange idempotent during the ten-minute window.
@@ -302,28 +302,28 @@ export async function cleanupBrowserExtensionData(
       WHERE expires_at <= now()
          OR revoked_at < now() - interval '${REVOKED_TOKEN_RETENTION_DAYS} day'`
   );
-  await cleanupExpiredScreenshots(pool, mediaRoot);
+  await cleanupExpiredScreenshots(pool, filesRoot);
 }
 
 /**
- * Browser-feedback screenshots are stored as agent media on their own; nothing
+ * Browser-feedback screenshots are stored as agent files on their own; nothing
  * else prunes them, so give them the same retention as the submissions they came
  * from and delete both the row and the file on disk. Identified by the
- * server-generated `browser-selection-` prefix so unrelated media is untouched.
+ * server-generated `browser-selection-` prefix so unrelated files are untouched.
  */
 async function cleanupExpiredScreenshots(
   pool: Pool,
-  mediaRoot?: string
+  filesRoot?: string
 ): Promise<void> {
-  if (!mediaRoot) return;
+  if (!filesRoot) return;
   const expired = await pool.query<{
     id: number;
     agent_id: string;
     file_name: string;
-    media_dir: string | null;
+    files_dir: string | null;
   }>(
-    `SELECT m.id, m.agent_id, m.file_name, a.media_dir
-       FROM media m
+    `SELECT m.id, m.agent_id, m.file_name, a.files_dir
+       FROM files m
        LEFT JOIN agents a ON a.id = m.agent_id
       WHERE m.source = 'screenshot'
         AND m.file_name LIKE 'browser-selection-%'
@@ -331,12 +331,12 @@ async function cleanupExpiredScreenshots(
   );
   if (expired.rows.length === 0) return;
   for (const row of expired.rows) {
-    const dir = resolveMediaDir(row.agent_id, row.media_dir, mediaRoot);
+    const dir = resolveFilesDir(row.agent_id, row.files_dir, filesRoot);
     await unlink(path.join(dir, row.file_name)).catch(() => {
       // File may already be gone; the row deletion below still reclaims it.
     });
   }
-  await pool.query(`DELETE FROM media WHERE id = ANY($1::int[])`, [
+  await pool.query(`DELETE FROM files WHERE id = ANY($1::int[])`, [
     expired.rows.map((row) => row.id),
   ]);
 }
@@ -368,7 +368,7 @@ export function buildBrowserFeedbackPrompt(
 }
 
 /**
- * Persist an attached screenshot as an agent media entry. Best-effort: returns
+ * Persist an attached screenshot as an agent file entry. Best-effort: returns
  * the saved file path, or null when there is no valid image or storage fails, so
  * feedback delivery proceeds regardless.
  */
@@ -378,7 +378,7 @@ async function storeSubmissionScreenshot(
   agent: AgentRecord,
   screenshot: string | undefined
 ): Promise<string | null> {
-  if (!screenshot || !deps.mediaRoot) return null;
+  if (!screenshot || !deps.filesRoot) return null;
 
   let writtenPath: string | null = null;
   try {
@@ -387,16 +387,16 @@ async function storeSubmissionScreenshot(
       return null;
     if (!isPng(buffer)) return null;
 
-    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir, deps.mediaRoot);
-    await mkdir(mediaDir, { recursive: true });
+    const filesDir = resolveFilesDir(agent.id, agent.filesDir, deps.filesRoot);
+    await mkdir(filesDir, { recursive: true });
     // A random suffix keeps concurrent same-agent submissions from colliding on
     // the millisecond-precision timestamp and overwriting each other's image.
-    const fileName = `browser-selection-${mediaTimestamp(new Date())}-${crypto.randomUUID()}.png`;
-    const filePath = path.join(mediaDir, fileName);
+    const fileName = `browser-selection-${fileTimestamp(new Date())}-${crypto.randomUUID()}.png`;
+    const filePath = path.join(filesDir, fileName);
     await writeFile(filePath, buffer);
     writtenPath = filePath;
     await deps.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
                           metadata)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
@@ -405,7 +405,7 @@ async function storeSubmissionScreenshot(
         "screenshot",
         buffer.length,
         "Browser feedback: selected element",
-        mediaMetadataFromBuffer(buffer),
+        fileMetadataFromBuffer(buffer),
       ]
     );
   } catch (error) {
@@ -424,11 +424,11 @@ async function storeSubmissionScreenshot(
   // Persistence succeeded — a UI-event failure must not orphan the file or fail
   // delivery, so notify outside the store-and-rollback path.
   try {
-    deps.publishUiEvent?.({ type: "media.changed", agentId: agent.id });
+    deps.publishUiEvent?.({ type: "files.changed", agentId: agent.id });
   } catch (error) {
     request.log.warn(
       { err: error, agentId: agent.id },
-      "Browser feedback media.changed event failed after screenshot store"
+      "Browser feedback files.changed event failed after screenshot store"
     );
   }
   return writtenPath;
@@ -438,9 +438,9 @@ export async function registerBrowserExtensionRoutes(
   app: FastifyInstance,
   deps: BrowserExtensionRouteDeps
 ): Promise<void> {
-  await cleanupBrowserExtensionData(deps.pool, deps.mediaRoot);
+  await cleanupBrowserExtensionData(deps.pool, deps.filesRoot);
   const cleanupTimer = setInterval(() => {
-    void cleanupBrowserExtensionData(deps.pool, deps.mediaRoot).catch(
+    void cleanupBrowserExtensionData(deps.pool, deps.filesRoot).catch(
       (error: unknown) => {
         app.log.warn({ err: error }, "Browser extension data cleanup failed");
       }

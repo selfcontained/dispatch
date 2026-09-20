@@ -444,7 +444,11 @@ describe("useSetBlockState and the thread cache", () => {
         blockId: "rv1",
         state: {
           findings: {
-            f1: { status: "resolved", resolution: "dismissed", note: "Not ours." },
+            f1: {
+              status: "resolved",
+              resolution: "dismissed",
+              note: "Not ours.",
+            },
           },
         },
       });
@@ -1097,7 +1101,7 @@ describe("replaceBlock", () => {
       attachments: [
         {
           type: "file",
-          mediaId: 1,
+          fileId: 1,
           fileName: "a.png",
           sizeBytes: 10,
           mimeType: "image/png",

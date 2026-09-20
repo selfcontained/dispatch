@@ -16,9 +16,9 @@ tmp-*.mjs
 *.jpeg
 *.gif
 *.webp
-# Public site assets are intentional, versioned content rather than generated media.
+# Public site assets are intentional, versioned content rather than generated files.
 !apps/site/public/**
-.media
+.files
 .playwright-mcp/
 test-results/
 playwright-report/

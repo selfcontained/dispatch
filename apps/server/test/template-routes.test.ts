@@ -52,7 +52,7 @@ describe("POST /api/v1/templates (create)", () => {
     expect(body.useWorktree).toBe(false);
     expect(body.fullAccess).toBe(false);
     expect(body.callable).toBe(true);
-    expect(body.allowMedia).toBe(true);
+    expect(body.allowFiles).toBe(true);
   });
 
   it("creates a template with all optional fields", async () => {
@@ -65,7 +65,7 @@ describe("POST /api/v1/templates (create)", () => {
       branchName: "feature-x",
       fullAccess: true,
       callable: false,
-      allowMedia: false,
+      allowFiles: false,
     });
     expect(body.description).toBe("A test template");
     expect(body.prompt).toBe("Do something");
@@ -75,7 +75,7 @@ describe("POST /api/v1/templates (create)", () => {
     expect(body.branchName).toBe("feature-x");
     expect(body.fullAccess).toBe(true);
     expect(body.callable).toBe(false);
-    expect(body.allowMedia).toBe(false);
+    expect(body.allowFiles).toBe(false);
   });
 
   it("rejects missing name", async () => {

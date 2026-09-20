@@ -7,7 +7,7 @@ import {
 import type {
   HistoryChildAgent,
   HistoryEvent,
-  HistoryMedia,
+  HistoryFile,
   HistoryTokenByModel,
   HistoryTokenTotals,
 } from "./history-wire.js";
@@ -273,7 +273,7 @@ async function handleHistoryAgentDetail(
     return reply.code(404).send({ error: "Agent not found" });
   }
 
-  const [eventsResult, tokenResult, tokenByModelResult, mediaResult] =
+  const [eventsResult, tokenResult, tokenByModelResult, filesResult] =
     await Promise.all([
       deps.pool.query<HistoryEvent>(
         `SELECT id, event_type, message, metadata, created_at
@@ -298,9 +298,9 @@ async function handleHistoryAgentDetail(
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
         [id]
       ),
-      deps.pool.query<HistoryMedia>(
+      deps.pool.query<HistoryFile>(
         `SELECT id, file_name, source, size_bytes, description, created_at
-           FROM media WHERE agent_id = $1 ORDER BY created_at`,
+           FROM files WHERE agent_id = $1 ORDER BY created_at`,
         [id]
       ),
     ]);
@@ -316,7 +316,7 @@ async function handleHistoryAgentDetail(
     agent: agentResult.rows[0],
     events: eventsResult.rows,
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
-    media: mediaResult.rows,
+    files: filesResult.rows,
     stateDurations: stats.stateDurations,
   };
 }

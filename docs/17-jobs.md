@@ -29,7 +29,7 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 | `branchName`  | Branch for the worktree (optional)                          |
 | `fullAccess`  | Pass the agent CLI's full-access/bypass-approvals flag      |
 | `callable`    | If true, the template appears in the Cmd+K command palette  |
-| `allowMedia`  | Default true: show a Context area for files/links at launch |
+| `allowFiles`  | Default true: show a Context area for files/links at launch |
 | `selfImprove` | Append run-only guidance to revise the saved prompt         |
 
 Templates and jobs validate `agentType` against the same table (`AGENT_TYPES`; `CLI_AGENT_TYPES` is the same list, kept for its importers).
@@ -54,7 +54,7 @@ If the same argument appears more than once, modifiers are merged. An argument i
 
 Templates with `callable: true` appear in the Cmd+K command palette under a "Templates" group.
 
-Selecting one always opens the launch dialog — there is no confirmation-only path, even for templates with no arguments. The dialog carries an agent-type override, a model override for types with a curated catalog, any argument fields, and (when `allowMedia` is on) a Context area for files and links. The inline play button in the Templates list opens the same dialog.
+Selecting one always opens the launch dialog — there is no confirmation-only path, even for templates with no arguments. The dialog carries an agent-type override, a model override for types with a curated catalog, any argument fields, and (when `allowFiles` is on) a Context area for files and links. The inline play button in the Templates list opens the same dialog.
 
 After launch, the agent record is optimistically added to the sidebar cache and the URL navigates to it immediately. The launch endpoint returns the full agent record (matching the create-agent response shape).
 

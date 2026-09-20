@@ -22,7 +22,7 @@ export function ShortcutsContent() {
             <Code>Mod+K</Code> — Open the command palette.
           </li>
           <li>
-            <Code>Mod+Shift+&gt;</Code> — Toggle the media sidebar.
+            <Code>Mod+Shift+&gt;</Code> — Toggle the drawer.
           </li>
           <li>
             <Code>Mod+Shift+&lt;</Code> — Toggle the agent sidebar.

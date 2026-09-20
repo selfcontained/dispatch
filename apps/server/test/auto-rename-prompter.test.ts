@@ -30,7 +30,7 @@ function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     worktreePath: null,
     worktreeBranch: null,
     simulatorUdid: null,
-    mediaDir: null,
+    filesDir: null,
     agentArgs: [],
     fullAccess: false,
     setupPhase: "done",

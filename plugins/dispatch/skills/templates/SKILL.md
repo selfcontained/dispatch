@@ -41,7 +41,7 @@ omits prompt bodies — call `get_template` for the one you actually want.
 | `branchName`  | Branch name for that worktree                        |
 | `fullAccess`  | Pass the CLI's full-access / bypass-approvals flag   |
 | `callable`    | Show it in the Cmd+K command palette                 |
-| `allowMedia`  | Default true: offer files and links at launch        |
+| `allowFiles`  | Default true: offer files and links at launch        |
 | `selfImprove` | Let the agent revise this saved prompt after a run   |
 
 Templates and jobs accept the same two agent types.
@@ -78,7 +78,7 @@ names it expects.
 
 Templates with `callable: true` appear in Cmd+K under "Templates". Selecting one
 always opens the launch dialog — argument fields when the prompt has them, plus
-an agent-type override, a model override, and a Context area when `allowMedia` is
+an agent-type override, a model override, and a Context area when `allowFiles` is
 on. There is no launch-on-Enter path, so a template with no arguments still costs
 the human one extra confirm.
 

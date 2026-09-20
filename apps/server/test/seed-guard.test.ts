@@ -11,7 +11,7 @@ const sentinelPool = {
 } as unknown as import("pg").Pool;
 
 describe("seedDevData safety guard", () => {
-  const mediaRoot = "/tmp/seed-guard-test";
+  const filesRoot = "/tmp/seed-guard-test";
 
   it.each([
     "postgres://u:p@host/dispatch",
@@ -23,7 +23,7 @@ describe("seedDevData safety guard", () => {
     await expect(
       seedDevData(sentinelPool, {
         databaseUrl: url,
-        mediaRoot,
+        filesRoot,
         log: () => {},
       })
     ).rejects.toThrow(/Refusing to seed/);
@@ -33,7 +33,7 @@ describe("seedDevData safety guard", () => {
     await expect(
       seedDevData(sentinelPool, {
         databaseUrl: "not a url",
-        mediaRoot,
+        filesRoot,
         log: () => {},
       })
     ).rejects.toThrow(/Refusing to seed/);
@@ -45,7 +45,7 @@ describe("seedDevData safety guard", () => {
     await expect(
       seedDevData(sentinelPool, {
         databaseUrl: "postgres://u:p@host/dispatch_agt_abc123",
-        mediaRoot,
+        filesRoot,
         log: () => {},
       })
     ).rejects.toThrow(/pool\.connect should never run/);

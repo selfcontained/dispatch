@@ -54,7 +54,7 @@ const makeAgent = (
   worktreePath: null,
   worktreeBranch: null,
   simulatorUdid: null,
-  mediaDir: null,
+  filesDir: null,
   agentArgs: [],
   fullAccess: false,
   setupPhase: null,

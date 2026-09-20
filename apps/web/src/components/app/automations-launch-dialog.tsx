@@ -85,7 +85,7 @@ function LaunchTemplateDialogContent({
   } = useAgentModelCatalog(agentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
-  const showMedia = template.allowMedia;
+  const showFiles = template.allowFiles;
   const {
     startupFiles,
     startupLinks,
@@ -198,7 +198,7 @@ function LaunchTemplateDialogContent({
           if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
         }}
         onDragOver={
-          showMedia
+          showFiles
             ? (event) => {
                 if (event.dataTransfer.types.includes("Files")) {
                   event.preventDefault();
@@ -208,7 +208,7 @@ function LaunchTemplateDialogContent({
             : undefined
         }
         onDragLeave={
-          showMedia
+          showFiles
             ? (event) => {
                 if (
                   event.currentTarget.contains(
@@ -221,7 +221,7 @@ function LaunchTemplateDialogContent({
               }
             : undefined
         }
-        onDrop={showMedia ? handleStartupDrop : undefined}
+        onDrop={showFiles ? handleStartupDrop : undefined}
       >
         <div
           className={cn(
@@ -263,7 +263,7 @@ function LaunchTemplateDialogContent({
           </div>
         ) : null}
 
-        {showMedia ? (
+        {showFiles ? (
           <ContextPicker
             className="mt-3"
             files={startupFiles}

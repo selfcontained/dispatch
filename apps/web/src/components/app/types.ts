@@ -51,7 +51,7 @@ export type Agent = Omit<AgentRecord, LenientAgentField> &
     hasStream?: boolean;
   };
 
-export type MediaFile = {
+export type FileItem = {
   id: number;
   name: string;
   size: number;
@@ -62,14 +62,14 @@ export type MediaFile = {
   description?: string | null;
   /**
    * Stamped client-side, not returned by the API. The selected agent's panel
-   * also lists its sub agents' media, so a file has to say whose it is for
+   * also lists its sub agents' files, so a file has to say whose it is for
    * seen-tracking and the lightbox to address the right agent.
    */
   ownerAgentId?: string;
 };
 
 /**
- * A sub agent whose media is grouped under the selected agent. Carries the
+ * A sub agent whose files are grouped under the selected agent. Carries the
  * child's own workspace root so paths resolve against the child's worktree,
  * not the parent's.
  */
@@ -80,10 +80,10 @@ export type SubAgentRef = {
   workspaceRoot: string | null;
 };
 
-export type SubAgentMedia = {
+export type SubAgentFiles = {
   agent: SubAgentRef;
-  files: MediaFile[];
-  /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
+  files: FileItem[];
+  /** The child's files query state, so an unresolved fetch is not shown as "nothing shared". */
   status: "pending" | "error" | "success";
 };
 

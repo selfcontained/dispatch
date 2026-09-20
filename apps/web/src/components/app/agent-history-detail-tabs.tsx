@@ -2,49 +2,46 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
-import { MediaLightbox } from "@/components/app/media-lightbox";
-import { type MediaFile } from "@/components/app/types";
-import {
-  type HistoryEvent,
-  type HistoryMedia,
-} from "@/hooks/use-agent-history";
+import { FileLightbox } from "@/components/app/file-lightbox";
+import { type FileItem } from "@/components/app/types";
+import { type HistoryEvent, type HistoryFile } from "@/hooks/use-agent-history";
 import { EventTimeline } from "@/components/app/agent-history-timeline";
-import { mediaItemQueryKey } from "@/hooks/use-media";
+import { fileItemQueryKey } from "@/hooks/use-files";
 
-type DetailTab = "events" | "media";
+type DetailTab = "events" | "files";
 
 export function DetailTabs({
   events,
-  media,
+  files,
   agentId,
 }: {
   events: HistoryEvent[];
-  media: HistoryMedia[];
+  files: HistoryFile[];
   agentId: string;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<DetailTab>("events");
-  const [lightboxMediaId, setLightboxMediaId] = useState<number | null>(null);
-  const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
+  const [lightboxFileId, setLightboxFileId] = useState<number | null>(null);
+  const fileIds = useMemo(() => files.map((item) => item.id), [files]);
 
   useEffect(() => {
-    for (const item of media) {
-      queryClient.setQueryData<MediaFile>(mediaItemQueryKey(item.id), {
+    for (const item of files) {
+      queryClient.setQueryData<FileItem>(fileItemQueryKey(item.id), {
         id: item.id,
         ownerAgentId: agentId,
         name: item.file_name,
         size: item.size_bytes,
         updatedAt: item.created_at,
-        url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(item.file_name)}`,
+        url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(item.file_name)}`,
         description: item.description,
-        source: item.source as MediaFile["source"],
+        source: item.source as FileItem["source"],
       });
     }
-  }, [agentId, media, queryClient]);
+  }, [agentId, files, queryClient]);
 
   const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
     { key: "events", label: "Events", count: events.length },
-    { key: "media", label: "Media", count: media.length },
+    { key: "files", label: "Files", count: files.length },
   ];
 
   return (
@@ -92,17 +89,17 @@ export function DetailTabs({
             </p>
           )}
 
-          {tab === "media" && media.length > 0 && (
+          {tab === "files" && files.length > 0 && (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {media.map((m) => (
+              {files.map((m) => (
                 <button
                   key={m.id}
-                  onClick={() => setLightboxMediaId(m.id)}
+                  onClick={() => setLightboxFileId(m.id)}
                   className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
                     <img
-                      src={`/api/v1/agents/${agentId}/media/${encodeURIComponent(m.file_name)}`}
+                      src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
                       alt={m.description ?? m.file_name}
                       className="aspect-video w-full object-cover"
                       loading="lazy"
@@ -121,18 +118,18 @@ export function DetailTabs({
               ))}
             </div>
           )}
-          {tab === "media" && media.length === 0 && (
+          {tab === "files" && files.length === 0 && (
             <p className="py-6 text-center text-xs text-muted-foreground">
-              No media captured.
+              No files captured.
             </p>
           )}
         </div>
       </div>
 
-      <MediaLightbox
-        mediaId={lightboxMediaId}
-        mediaIds={mediaIds}
-        setMediaId={setLightboxMediaId}
+      <FileLightbox
+        fileId={lightboxFileId}
+        fileIds={fileIds}
+        setFileId={setLightboxFileId}
       />
     </>
   );

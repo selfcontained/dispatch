@@ -69,7 +69,7 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Temporary Files
 
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
-- Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
+- Use `/tmp/` or `$DISPATCH_FILES_DIR` for ephemeral files.
 - Playwright screenshots should be posted as file attachments via the `post` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)

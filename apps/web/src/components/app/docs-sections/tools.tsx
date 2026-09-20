@@ -203,7 +203,7 @@ export function ToolsContent() {
             <Code>file</Code> — a file the agent shared, carried as an
             attachment: <Code>{'attachments: [{ type: "file", path }]'}</Code>{" "}
             uploads a file from the agent&apos;s checkout (or names an already
-            shared one by <Code>fileName</Code> / <Code>mediaId</Code>). Links,
+            shared one by <Code>fileName</Code> / <Code>fileId</Code>). Links,
             PRs, and code snippets are attachments too.
           </li>
           <li>
@@ -259,13 +259,13 @@ export function ToolsContent() {
             Dispatch UI signed in, for driving it in a browser
           </li>
           <li>
-            <Code>list_media</Code> — list media shared with or by the current
+            <Code>list_files</Code> — list files shared with or by the current
             agent, or by its parent or a direct child via{" "}
             <Code>ownerAgentId</Code>
           </li>
           <li>
-            <Code>delete_media</Code> — permanently remove a shared media file
-            by its listed file name
+            <Code>delete_file</Code> — permanently remove a shared file by its
+            listed file name
           </li>
           <li>
             <Code>list_personas</Code> — list the personas defined for the

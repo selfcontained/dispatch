@@ -273,7 +273,7 @@ describe("ChatComposer attachments", () => {
     expect(uploadFile).toHaveBeenCalledTimes(1);
     expect(uploadFile.mock.calls[0]![0].name).toBe("shot.png");
     expect(onSend).toHaveBeenCalledWith("look at these", [
-      { type: "file", mediaId: "shot.png".length },
+      { type: "file", fileId: "shot.png".length },
       { type: "link", url: "https://example.com/x" },
     ]);
     await waitFor(() => expect(input.value).toBe(""));
@@ -319,9 +319,7 @@ describe("ChatComposer attachments", () => {
       resolveUpload({ id: 7 });
     });
     await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith("hold", [
-        { type: "file", mediaId: 7 },
-      ])
+      expect(onSend).toHaveBeenCalledWith("hold", [{ type: "file", fileId: 7 }])
     );
   });
 
@@ -358,14 +356,14 @@ describe("ChatComposer attachments", () => {
     expect(chips).toHaveLength(2);
     expect(chips[1]!.getAttribute("data-status")).toBe("failed");
 
-    // Second attempt: ok.txt keeps its media id, only bad.txt uploads again.
+    // Second attempt: ok.txt keeps its file id, only bad.txt uploads again.
     uploadFile.mockImplementation(async () => ({ id: 2 }));
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(uploadFile).toHaveBeenCalledTimes(3);
     expect(onSend).toHaveBeenCalledWith("keep me", [
-      { type: "file", mediaId: 1 },
-      { type: "file", mediaId: 2 },
+      { type: "file", fileId: 1 },
+      { type: "file", fileId: 2 },
     ]);
   });
 

@@ -70,7 +70,7 @@ export function AutomationsContent() {
             appears in the <Code>Mod+K</Code> palette for quick access.
           </li>
           <li>
-            <strong>Allow media attachments on launch</strong> — when on (the
+            <strong>Allow file attachments on launch</strong> — when on (the
             default), the launch dialog shows a Context section where you can
             attach files (images, PDFs, text) or paste links. These are pinned
             to the agent and available from the start of the session.
@@ -150,7 +150,7 @@ export function AutomationsContent() {
           itself.
         </P>
         <P>
-          When a template has <strong>Allow media attachments</strong> enabled,
+          When a template has <strong>Allow file attachments</strong> enabled,
           the launch dialog includes a <strong>Context</strong> section for
           attaching files or links. You can drag-and-drop files, use the{" "}
           <em>Add</em> menu to pick files or enter URLs, paste from the
@@ -380,7 +380,7 @@ export function AutomationsContent() {
             , and <Code>react</Code> behave the same as for standard agents: a
             link for the PR a run opened, a file for a report,{" "}
             <Code>notify: true</Code> for a post that should page you.{" "}
-            <Code>list_media</Code>, <Code>delete_media</Code>, and{" "}
+            <Code>list_files</Code>, <Code>delete_file</Code>, and{" "}
             <Code>rename_session</Code> are there too — renaming the session is
             handy when the job's prompt is generic but each run has a more
             specific topic.

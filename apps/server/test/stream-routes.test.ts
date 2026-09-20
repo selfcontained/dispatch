@@ -103,7 +103,7 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM blocks");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agent_stream_events");
-  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM job_runs");
   await ctx.pool.query("DELETE FROM jobs");
   await ctx.pool.query("DELETE FROM agents");
@@ -129,7 +129,7 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
       { at: "2026-01-01 00:00:00.000000", type: "chat", id: NIL },
       { at: "2026-01-01 00:00:00.000000", type: "status", id: "abc" },
       { at: "2026-02-30 00:00:00.000000", type: "status", id: "1" },
-      { at: "2026-01-01 00:00:00.000000", type: "media", id: "99999999999" },
+      { at: "2026-01-01 00:00:00.000000", type: "file", id: "99999999999" },
       { at: "0000-01-01 00:00:00.000000", type: "status", id: "1" },
     ];
     for (const value of forged) {
@@ -308,7 +308,7 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     });
     expect(tooMany.statusCode).toBe(400);
     expect(tooMany.json().error).toMatch(/attachments/);
-    // The user path takes files by mediaId only; fileName and path are the agent's.
+    // The user path takes files by fileId only; fileName and path are the agent's.
     for (const file of [
       { type: "file", fileName: "shot.png" },
       { type: "file", path: "/tmp/shot.png" },
@@ -362,12 +362,12 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     });
     expect(blank.statusCode).toBe(400);
     expect(blank.json().error).toMatch(/text is required/);
-    const unknownMedia = await authedInject("POST", url, {
+    const unknownFile = await authedInject("POST", url, {
       text: "",
-      attachments: [{ type: "file", mediaId: 424242 }],
+      attachments: [{ type: "file", fileId: 424242 }],
     });
-    expect(unknownMedia.statusCode).toBe(400);
-    expect(unknownMedia.json().error).toMatch(/Unknown file/);
+    expect(unknownFile.statusCode).toBe(400);
+    expect(unknownFile.json().error).toMatch(/Unknown file/);
     const badReply = await authedInject("POST", url, {
       text: "x",
       replyTo: "nope",
@@ -998,9 +998,9 @@ describe("stream routes with a deliverable engine", () => {
         id,
         name: "Streamy",
         status: "running",
-        mediaDir: null,
+        filesDir: null,
       }),
-      mediaRoot: "/media-root",
+      filesRoot: "/files-root",
       delivery: {
         access: opts.access ?? (async () => ({ mode: "live" as const })),
         inject: async (id: string, prompt: string) => {
@@ -1181,13 +1181,13 @@ describe("stream routes with a deliverable engine", () => {
   });
 
   it("stores user attachments and lists them in the injected envelope", async () => {
-    const media = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+    const inserted = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO files (agent_id, file_name, source, size_bytes)
        VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
        RETURNING id`,
       [agentId]
     );
-    const mediaId = media.rows[0].id;
+    const fileId = inserted.rows[0].id;
     const { app, ready, streams, prompts } = buildApp({});
     await ready;
     const res = await app.inject({
@@ -1196,7 +1196,7 @@ describe("stream routes with a deliverable engine", () => {
       payload: {
         text: "",
         attachments: [
-          { type: "file", mediaId },
+          { type: "file", fileId },
           { type: "link", url: "https://example.com/x" },
         ],
       },
@@ -1207,7 +1207,7 @@ describe("stream routes with a deliverable engine", () => {
     expect(body.block.attachments).toEqual([
       {
         type: "file",
-        mediaId,
+        fileId,
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
@@ -1220,7 +1220,7 @@ describe("stream routes with a deliverable engine", () => {
       [
         `--- DISPATCH POST (id: ${body.block.id}, from: user) ---`,
         "Attachments:",
-        `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
+        `- file: /files-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
         "- link: https://example.com/x",
         "--- END DISPATCH POST ---",
       ].join("\n")
@@ -1361,13 +1361,13 @@ describe("stream routes with a deliverable engine", () => {
   });
 
   it("answers with attachments: stores them on the reply and lists them in the envelope", async () => {
-    const media = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+    const inserted = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO files (agent_id, file_name, source, size_bytes)
        VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
        RETURNING id`,
       [agentId]
     );
-    const mediaId = media.rows[0].id;
+    const fileId = inserted.rows[0].id;
     const { app, ready, streams, prompts } = buildApp({});
     await ready;
     const q = await question(agentId, { allowFreeform: true });
@@ -1377,7 +1377,7 @@ describe("stream routes with a deliverable engine", () => {
       payload: {
         value: "see the doc",
         attachments: [
-          { type: "file", mediaId },
+          { type: "file", fileId },
           { type: "link", url: "https://example.com/x" },
         ],
       },
@@ -1388,7 +1388,7 @@ describe("stream routes with a deliverable engine", () => {
     expect(body.reply.attachments).toEqual([
       {
         type: "file",
-        mediaId,
+        fileId,
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
@@ -1403,7 +1403,7 @@ describe("stream routes with a deliverable engine", () => {
         "see the doc",
         "",
         "Attachments:",
-        `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
+        `- file: /files-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
         "- link: https://example.com/x",
         `This answers your question ${q.id}. In the thread under ${q.id}.`,
         "--- END DISPATCH POST ---",
@@ -1420,7 +1420,7 @@ describe("stream routes with a deliverable engine", () => {
     const unknown = await app.inject({
       method: "POST",
       url,
-      payload: { value: "x", attachments: [{ type: "file", mediaId: 424242 }] },
+      payload: { value: "x", attachments: [{ type: "file", fileId: 424242 }] },
     });
     expect(unknown.statusCode).toBe(400);
     expect(unknown.json().error).toMatch(/Unknown file #424242/);

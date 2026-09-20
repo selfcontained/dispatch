@@ -4,11 +4,11 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import { getSetting } from "../db/settings.js";
-import { resolveMediaDir } from "../shared/media.js";
+import { resolveFilesDir } from "../shared/files.js";
 
 /**
  * How long an archived agent's record and history stay around. Archiving
- * soft-deletes the row so the stream, status history and media remain
+ * soft-deletes the row so the stream, status history and files remain
  * readable for a while; past this window they are just disk space. `0`
  * keeps archived agents forever.
  */
@@ -22,7 +22,7 @@ const SWEEP_BATCH = 100;
 export type RetentionDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
-  mediaRoot: string;
+  filesRoot: string;
 };
 
 export async function readArchivedAgentRetentionDays(
@@ -38,9 +38,9 @@ export async function readArchivedAgentRetentionDays(
 
 /**
  * Hard-delete agents archived longer ago than the retention window: the
- * row (stream events, token usage and media rows cascade from it), the
+ * row (stream events, token usage and file rows cascade from it), the
  * status history and browser feedback that name it, the stream it rooted,
- * and its media directory. A child's posts live in its root's stream and
+ * and its files directory. A child's posts live in its root's stream and
  * go when the root does. Returns the ids removed.
  */
 export async function purgeExpiredArchivedAgents(
@@ -51,9 +51,9 @@ export async function purgeExpiredArchivedAgents(
 
   const expired = await deps.pool.query<{
     id: string;
-    media_dir: string | null;
+    files_dir: string | null;
   }>(
-    `SELECT id, media_dir
+    `SELECT id, files_dir
        FROM agents
       WHERE deleted_at IS NOT NULL
         AND deleted_at < now() - ($1::int * interval '1 day')
@@ -92,11 +92,11 @@ export async function purgeExpiredArchivedAgents(
   }
 
   for (const row of expired.rows) {
-    const dir = resolveMediaDir(row.id, row.media_dir, deps.mediaRoot);
+    const dir = resolveFilesDir(row.id, row.files_dir, deps.filesRoot);
     await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
       deps.logger.warn(
         { err, agentId: row.id, dir },
-        "Retention: media directory not removed"
+        "Retention: files directory not removed"
       );
     });
   }

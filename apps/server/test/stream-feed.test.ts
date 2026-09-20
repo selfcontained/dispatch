@@ -44,7 +44,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agent_stream_events");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files");
 });
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
@@ -219,7 +219,7 @@ describe("composeStreamFeed", () => {
     expect(forged({ ...cursor, at: "2026-01-01T00:00:00.000Z" })).toBeNull();
     // The retired sources are not cursor types any more.
     expect(forged({ ...cursor, type: "chat" })).toBeNull();
-    expect(forged({ ...cursor, type: "media", id: "7" })).toBeNull();
+    expect(forged({ ...cursor, type: "file", id: "7" })).toBeNull();
     // Ids must fit the source column: uuid for block, a
     // serial for status/review/turn/pin — otherwise the SQL cast would 500.
     expect(forged({ ...cursor, id: "x" })).toBeNull();
@@ -450,22 +450,22 @@ describe("composeStreamFeed", () => {
     // Nothing records a shape when the block is written: a re-upload
     // replaces a file's bytes under an unchanged URL, so anything frozen at
     // write time can end up describing bytes the post no longer serves. The
-    // live media row is the only source, read when the page is composed.
+    // live file row is the only source, read when the page is composed.
     async function postWithAttachment(fileName: string): Promise<number> {
-      const media = await pool.query<{ id: number }>(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at, metadata)
+      const inserted = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata)
          VALUES ($1, $2, 'screenshot', 9, $3, '{"width":120,"height":90}'::jsonb)
          RETURNING id`,
         [A, fileName, at(60)]
       );
-      const mediaId = media.rows[0]!.id;
+      const fileId = inserted.rows[0]!.id;
       await store.insert({
         streamId: A,
         author: agent(A),
         text: "Here it is.",
-        attachments: [{ type: "file", mediaId, fileName, sizeBytes: 9 }],
+        attachments: [{ type: "file", fileId, fileName, sizeBytes: 9 }],
       });
-      return mediaId;
+      return fileId;
     }
 
     const attachmentOf = async () => {
@@ -474,25 +474,25 @@ describe("composeStreamFeed", () => {
       return entry.block.attachments[0] as Record<string, unknown>;
     };
 
-    it("fills dimensions in from the live media row", async () => {
+    it("fills dimensions in from the live file row", async () => {
       await postWithAttachment("posted.png");
       expect(await attachmentOf()).toMatchObject({ width: 120, height: 90 });
     });
 
     it("follows the row when the file is replaced with another shape", async () => {
-      const mediaId = await postWithAttachment("replaced.png");
+      const fileId = await postWithAttachment("replaced.png");
       await pool.query(
-        `UPDATE media SET metadata = '{"width":90,"height":120}'::jsonb WHERE id = $1`,
-        [mediaId]
+        `UPDATE files SET metadata = '{"width":90,"height":120}'::jsonb WHERE id = $1`,
+        [fileId]
       );
       expect(await attachmentOf()).toMatchObject({ width: 90, height: 120 });
     });
 
     it("leaves them off when the row has no dimensions", async () => {
-      const mediaId = await postWithAttachment("unreadable-now.png");
+      const fileId = await postWithAttachment("unreadable-now.png");
       await pool.query(
-        `UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`,
-        [mediaId]
+        `UPDATE files SET metadata = '{}'::jsonb WHERE id = $1`,
+        [fileId]
       );
       const attachment = await attachmentOf();
       expect(attachment.width).toBeUndefined();
@@ -500,8 +500,8 @@ describe("composeStreamFeed", () => {
     });
 
     it("overrides a stale pair that somehow reached the blob", async () => {
-      const media = await pool.query<{ id: number }>(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at, metadata)
+      const inserted = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata)
          VALUES ($1, 'stale.png', 'screenshot', 9, $2, '{"width":90,"height":120}'::jsonb)
          RETURNING id`,
         [A, at(60)]
@@ -513,7 +513,7 @@ describe("composeStreamFeed", () => {
         attachments: [
           {
             type: "file",
-            mediaId: media.rows[0]!.id,
+            fileId: inserted.rows[0]!.id,
             fileName: "stale.png",
             sizeBytes: 9,
             width: 1280,
@@ -525,8 +525,8 @@ describe("composeStreamFeed", () => {
     });
 
     it("strips a stale pair when the row has no dimensions", async () => {
-      const media = await pool.query<{ id: number }>(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+      const inserted = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
          VALUES ($1, 'unmeasured.png', 'screenshot', 9, $2) RETURNING id`,
         [A, at(60)]
       );
@@ -537,7 +537,7 @@ describe("composeStreamFeed", () => {
         attachments: [
           {
             type: "file",
-            mediaId: media.rows[0]!.id,
+            fileId: inserted.rows[0]!.id,
             fileName: "unmeasured.png",
             sizeBytes: 9,
             width: 1280,
@@ -567,9 +567,9 @@ describe("composeStreamFeed", () => {
       ]);
     });
 
-    it("leaves them off when the media row is gone", async () => {
-      const mediaId = await postWithAttachment("deleted.png");
-      await pool.query(`DELETE FROM media WHERE id = $1`, [mediaId]);
+    it("leaves them off when the file row is gone", async () => {
+      const fileId = await postWithAttachment("deleted.png");
+      await pool.query(`DELETE FROM files WHERE id = $1`, [fileId]);
       const attachment = await attachmentOf();
       expect(attachment.width).toBeUndefined();
       expect(attachment.height).toBeUndefined();

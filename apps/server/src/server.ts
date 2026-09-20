@@ -34,10 +34,10 @@ import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
-import { mediaMetadataFromBuffer } from "./media/metadata.js";
+import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
-import { mimeType, resolveMediaDir } from "./shared/media.js";
+import { mimeType, resolveFilesDir } from "./shared/files.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
@@ -104,7 +104,7 @@ import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
-import { registerMediaRoutes } from "./routes/media.js";
+import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
@@ -218,15 +218,15 @@ const streamManager = new StreamManager(
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return;
 
-    const mediaDir = resolveMediaDir(agentId, agent.mediaDir, config.mediaRoot);
+    const filesDir = resolveFilesDir(agentId, agent.filesDir, config.filesRoot);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `stream-capture-${timestamp}.jpg`;
 
-    await mkdir(mediaDir, { recursive: true });
-    await writeFile(path.join(mediaDir, fileName), lastFrame);
+    await mkdir(filesDir, { recursive: true });
+    await writeFile(path.join(filesDir, fileName), lastFrame);
 
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
                           metadata)
        VALUES ($1, $2, 'stream', $3, $4, $5)`,
       [
@@ -234,11 +234,11 @@ const streamManager = new StreamManager(
         fileName,
         lastFrame.length,
         description,
-        mediaMetadataFromBuffer(lastFrame),
+        fileMetadataFromBuffer(lastFrame),
       ]
     );
 
-    uiEventBroker.publish({ type: "media.changed", agentId });
+    uiEventBroker.publish({ type: "files.changed", agentId });
   }
 );
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
@@ -405,12 +405,12 @@ const streamService = new StreamService({
   publishUiEvent: (event) => uiEventBroker.publish(event),
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
-  mediaRoot: config.mediaRoot,
+  filesRoot: config.filesRoot,
   onInputPosted: (agentId, text) =>
     agentManager.noteQuestionPosted(agentId, text),
   // Both are created below; they are only called once requests arrive.
   uploadFile: (agentId, input) =>
-    mcpHandlers.shareMedia(agentId, {
+    mcpHandlers.shareFile(agentId, {
       filePath: input.filePath,
       description: input.description,
     }),
@@ -435,7 +435,7 @@ agentManager.onStreamWrite((agentId) => {
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
-  mediaRoot: config.mediaRoot,
+  filesRoot: config.filesRoot,
   agentManager,
   jobService,
   templateService,
@@ -607,7 +607,7 @@ async function registerRoutes() {
     agentManager,
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
-    mediaRoot: config.mediaRoot,
+    filesRoot: config.filesRoot,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
@@ -639,9 +639,9 @@ async function registerRoutes() {
     mcpSendNotify: mcpHandlers.sendNotify,
     mcpUpsertEvent: mcpHandlers.upsertEvent,
     mcpRenameSession: mcpHandlers.renameSession,
-    mcpShareMedia: mcpHandlers.shareMedia,
-    mcpListMedia: mcpHandlers.listMedia,
-    mcpDeleteMedia: mcpHandlers.deleteMedia,
+    mcpShareFile: mcpHandlers.shareFile,
+    mcpListFiles: mcpHandlers.listFiles,
+    mcpDeleteFile: mcpHandlers.deleteFile,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpListPersonalities: mcpHandlers.listPersonalities,
     mcpCreatePersonality: mcpHandlers.createPersonality,
@@ -737,9 +737,9 @@ async function registerRoutes() {
     autoCheck: autoCheckRuntime,
   });
 
-  await registerMediaRoutes(app, {
+  await registerFileRoutes(app, {
     pool,
-    mediaRoot: config.mediaRoot,
+    filesRoot: config.filesRoot,
     agentManager,
     appLog: app.log,
     publishUiEvent: (event) => uiEventBroker.publish(event),
@@ -864,7 +864,7 @@ export async function initializeApp(options?: {
     stopRetentionSweep = startRetentionSweep({
       pool,
       logger: app.log,
-      mediaRoot: config.mediaRoot,
+      filesRoot: config.filesRoot,
     });
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();

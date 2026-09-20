@@ -84,9 +84,9 @@ describe("feedImageBoxStyle", () => {
   it("reserves the same box whichever max height the caller passes", () => {
     // The two call sites differ only by this number; nothing else should.
     const attachment = feedImageBoxStyle(1600, 400, 224);
-    const media = feedImageBoxStyle(1600, 400, 256);
-    expect(attachment.aspectRatio).toBe(media.aspectRatio);
+    const wide = feedImageBoxStyle(1600, 400, 256);
+    expect(attachment.aspectRatio).toBe(wide.aspectRatio);
     expect(attachment.width).toBe(`${224 * 4}px`);
-    expect(media.width).toBe(`${256 * 4}px`);
+    expect(wide.width).toBe(`${256 * 4}px`);
   });
 });

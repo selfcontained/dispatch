@@ -32,8 +32,8 @@ describe("migrations", () => {
       (r: { table_name: string }) => r.table_name
     );
     expect(tableNames).toContain("agents");
-    expect(tableNames).toContain("media");
-    expect(tableNames).toContain("media_seen");
+    expect(tableNames).toContain("files");
+    expect(tableNames).toContain("files_seen");
     expect(tableNames).toContain("simulator_reservations");
     expect(tableNames).toContain("jobs");
     expect(tableNames).toContain("job_runs");
@@ -64,7 +64,7 @@ describe("migrations", () => {
       "status",
       "cwd",
       "simulator_udid",
-      "media_dir",
+      "files_dir",
       "agent_args",
       "full_access",
       "last_error",
@@ -93,29 +93,29 @@ describe("migrations", () => {
     }
   });
 
-  it("should have ON DELETE CASCADE for media foreign keys", async () => {
-    // Insert a test agent, then media, then delete the agent — media should cascade
+  it("should have ON DELETE CASCADE for files foreign keys", async () => {
+    // Insert a test agent, then a file, then delete the agent — files should cascade
     await pool.query(
       `INSERT INTO agents (id, name, status, cwd) VALUES ('test-cascade', 'Cascade Test', 'stopped', '/tmp')`
     );
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes) VALUES ('test-cascade', 'test.png', 'screenshot', 1024)`
+      `INSERT INTO files (agent_id, file_name, source, size_bytes) VALUES ('test-cascade', 'test.png', 'screenshot', 1024)`
     );
     await pool.query(
-      `INSERT INTO media_seen (agent_id, media_key) VALUES ('test-cascade', 'test.png')`
+      `INSERT INTO files_seen (agent_id, file_key) VALUES ('test-cascade', 'test.png')`
     );
 
     // Delete the agent
     await pool.query(`DELETE FROM agents WHERE id = 'test-cascade'`);
 
     // Child rows should be gone
-    const media = await pool.query(
-      `SELECT * FROM media WHERE agent_id = 'test-cascade'`
+    const remaining = await pool.query(
+      `SELECT * FROM files WHERE agent_id = 'test-cascade'`
     );
     const seen = await pool.query(
-      `SELECT * FROM media_seen WHERE agent_id = 'test-cascade'`
+      `SELECT * FROM files_seen WHERE agent_id = 'test-cascade'`
     );
-    expect(media.rowCount).toBe(0);
+    expect(remaining.rowCount).toBe(0);
     expect(seen.rowCount).toBe(0);
   });
 

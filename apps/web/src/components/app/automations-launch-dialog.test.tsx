@@ -43,7 +43,7 @@ function makeTemplate(overrides: Partial<Template> = {}): Template {
     branchName: null,
     fullAccess: false,
     callable: false,
-    allowMedia: false,
+    allowFiles: false,
     selfImprove: false,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
@@ -62,7 +62,7 @@ function makeAgent(id: string): Agent {
     worktreeBranch: null,
     agentArgs: [],
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     model: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
@@ -432,10 +432,10 @@ describe("launch outcome", () => {
   });
 });
 
-describe("media attachments", () => {
-  it("ignores drops when the template does not allow media", async () => {
+describe("file attachments", () => {
+  it("ignores drops when the template does not allow files", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: false }));
+    await renderDialog(makeTemplate({ allowFiles: false }));
 
     expect(screen.queryByText("Add files or links")).toBeNull();
     dropFiles(dialogForm(), [file("shot.png", "image/png")]);
@@ -449,9 +449,9 @@ describe("media attachments", () => {
   });
 
   it("arms the drop zone only for file drags", async () => {
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
-    // Positive control for the empty-state copy the media-gating tests
+    // Positive control for the empty-state copy the files-gating tests
     // assert absent — if this copy drifts, those absence checks go vacuous.
     expect(screen.getByText("Add files or links")).toBeTruthy();
 
@@ -470,7 +470,7 @@ describe("media attachments", () => {
     queueLaunchedAgent("agt_new");
     await renderDialog(
       makeTemplate({
-        allowMedia: true,
+        allowFiles: true,
         model: "sonnet",
         prompt: "Ship {{D:Tag|required}}",
       })
@@ -515,7 +515,7 @@ describe("media attachments", () => {
 
   it("sends an empty model field when multipart launches use the CLI default", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
     dropFiles(dialogForm(), [file("shot.png", "image/png")]);
     fireEvent.click(launchButton());
@@ -528,7 +528,7 @@ describe("media attachments", () => {
 
   it("keeps a removed file out of the payload", async () => {
     queueLaunchedAgent("agt_new");
-    await renderDialog(makeTemplate({ allowMedia: true }));
+    await renderDialog(makeTemplate({ allowFiles: true }));
 
     dropFiles(dialogForm(), [
       file("shot.png", "image/png"),

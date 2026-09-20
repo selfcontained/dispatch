@@ -39,7 +39,7 @@ const testConfig = {
   port: 6767,
   databaseUrl: "",
   authToken: "test-token",
-  mediaRoot: "/tmp/dispatch-test-media",
+  filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp",
   codexBin: "echo",
   claudeBin: "echo",
@@ -65,8 +65,8 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_token_usage");
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files_seen");
+  await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
 });
 

@@ -9,7 +9,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: 6767,
     databaseUrl: "",
     authToken: "",
-    mediaRoot: "",
+    filesRoot: "",
     dispatchBinDir: "",
     codexBin: "",
     claudeBin: "",

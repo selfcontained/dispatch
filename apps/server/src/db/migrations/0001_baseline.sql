@@ -12,7 +12,7 @@ CREATE TABLE agents (
   role text NOT NULL DEFAULT 'standard',
   status text NOT NULL,
   cwd text NOT NULL,
-  media_dir text,
+  files_dir text,
   agent_args jsonb NOT NULL DEFAULT '[]'::jsonb,
   model text,
   full_access boolean NOT NULL DEFAULT false,
@@ -196,9 +196,9 @@ CREATE INDEX block_reactions_pending_idx
   ON block_reactions (stream_id)
   WHERE author_kind = 'user' AND delivered IS NULL;
 
--- ── Media ────────────────────────────────────────────────────────────────
+-- ── Files ────────────────────────────────────────────────────────────────
 
-CREATE TABLE media (
+CREATE TABLE files (
   id serial PRIMARY KEY,
   agent_id text NOT NULL REFERENCES agents (id) ON DELETE CASCADE,
   file_name text NOT NULL,
@@ -210,13 +210,13 @@ CREATE TABLE media (
   updated_at timestamptz
 );
 
-CREATE INDEX media_agent_idx ON media (agent_id);
+CREATE INDEX files_agent_idx ON files (agent_id);
 
-CREATE TABLE media_seen (
+CREATE TABLE files_seen (
   agent_id text NOT NULL REFERENCES agents (id) ON DELETE CASCADE,
-  media_key text NOT NULL,
+  file_key text NOT NULL,
   seen_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (agent_id, media_key)
+  PRIMARY KEY (agent_id, file_key)
 );
 
 CREATE TABLE simulator_reservations (
@@ -241,7 +241,7 @@ CREATE TABLE templates (
   branch_name text,
   full_access boolean NOT NULL DEFAULT false,
   callable boolean NOT NULL DEFAULT true,
-  allow_media boolean NOT NULL DEFAULT true,
+  allow_files boolean NOT NULL DEFAULT true,
   self_improve boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

@@ -68,7 +68,7 @@ export function AgentHistoryDetail({
     );
   }
 
-  const { agent, events, tokenUsage, media, stateDurations } = data;
+  const { agent, events, tokenUsage, files, stateDurations } = data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -204,8 +204,8 @@ export function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Tabbed: Events / Media */}
-      <DetailTabs events={events} media={media} agentId={agentId} />
+      {/* Tabbed: Events / Files */}
+      <DetailTabs events={events} files={files} agentId={agentId} />
     </div>
   );
 }

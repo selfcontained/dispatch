@@ -22,8 +22,8 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM templates");
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
-  await ctx.pool.query("DELETE FROM media_seen");
-  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM files_seen");
+  await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
   sessionCookie = await ctx.sessionCookie();
@@ -383,7 +383,7 @@ describe("MCP CRUD tools", () => {
         )
       );
       expect(afterCreate.callable).toBe(true);
-      expect(afterCreate.allowMedia).toBe(true);
+      expect(afterCreate.allowFiles).toBe(true);
 
       // list_templates — scoped to /tmp
       const listRes = await mcpToolCall(agentId, "list_templates", {

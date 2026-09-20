@@ -31,9 +31,9 @@ type AgentsViewHeaderProps = {
   splitState: SplitPaneState;
   exitSplit: () => void;
   onTabChange: (tab: CenterTab) => void;
-  mediaPanelOpen: boolean;
-  setMediaOpen: (open: boolean) => void;
-  unseenMediaCount: number;
+  drawerPanelOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
+  unseenFileCount: number;
   /** Open questions and forms waiting on the user (the rail). */
   openInputCount: number;
 };
@@ -53,9 +53,9 @@ export function AgentsViewHeader({
   splitState,
   exitSplit,
   onTabChange,
-  mediaPanelOpen,
-  setMediaOpen,
-  unseenMediaCount,
+  drawerPanelOpen,
+  setDrawerOpen,
+  unseenFileCount,
   openInputCount,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
@@ -130,22 +130,22 @@ export function AgentsViewHeader({
         {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
-        {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
+        {hasActiveAgent && (!drawerPanelOpen || isMobile) ? (
           <Button
             size="icon"
             variant="ghost"
             className="relative"
-            onClick={() => setMediaOpen(true)}
-            title="Open media sidebar"
-            data-testid="toggle-media-sidebar"
+            onClick={() => setDrawerOpen(true)}
+            title="Open drawer"
+            data-testid="toggle-drawer"
           >
             <PanelLeftOpen className="h-4 w-4" />
-            {unseenMediaCount + openInputCount > 0 ? (
+            {unseenFileCount + openInputCount > 0 ? (
               <span
                 className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
-                data-testid="toggle-media-sidebar-badge"
+                data-testid="toggle-drawer-badge"
               >
-                {unseenMediaCount + openInputCount}
+                {unseenFileCount + openInputCount}
               </span>
             ) : null}
           </Button>

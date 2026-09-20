@@ -7,13 +7,13 @@ import { SEED_TAG } from "./constants.js";
 import { seedAgents } from "./agents.js";
 import { seedActivityEvents } from "./activity.js";
 import { seedTokenUsage } from "./token-usage.js";
-import { seedMedia } from "./media.js";
+import { seedFiles } from "./files.js";
 import { seedJobs } from "./jobs.js";
-import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
+import { PLACEHOLDER_FILES } from "./placeholder-files.js";
 
 type SeedOptions = {
   databaseUrl: string;
-  mediaRoot: string;
+  filesRoot: string;
   log?: (msg: string) => void;
 };
 
@@ -60,7 +60,7 @@ async function clearSeeded(client: PoolClient): Promise<void> {
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     "activity-demo",
   ]);
-  // Deleting agents cascades to media, token usage and stream events.
+  // Deleting agents cascades to files, token usage and stream events.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
 
@@ -78,7 +78,7 @@ export async function seedDevData(
     await seedAgents(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
-    await seedMedia(client);
+    await seedFiles(client);
     await seedJobs(client);
     await client.query("COMMIT");
   } catch (err) {
@@ -88,22 +88,22 @@ export async function seedDevData(
     client.release();
   }
 
-  await writePlaceholderMedia(options.mediaRoot, log.bind(null, options));
+  await writePlaceholderFiles(options.filesRoot, log.bind(null, options));
   log(options, "Dev data seeded.");
 }
 
-// Minimal 1x1 PNGs so media thumbnails/routes have real bytes on disk.
+// Minimal 1x1 PNGs so file thumbnails/routes have real bytes on disk.
 
-async function writePlaceholderMedia(
-  mediaRoot: string,
+async function writePlaceholderFiles(
+  filesRoot: string,
   report: (msg: string) => void
 ): Promise<void> {
-  for (const { agentId, fileName, base64 } of PLACEHOLDER_MEDIA) {
-    const dir = path.join(mediaRoot, agentId);
+  for (const { agentId, fileName, base64 } of PLACEHOLDER_FILES) {
+    const dir = path.join(filesRoot, agentId);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, fileName), Buffer.from(base64, "base64"));
   }
   report(
-    `Wrote ${PLACEHOLDER_MEDIA.length} placeholder media files under ${mediaRoot}.`
+    `Wrote ${PLACEHOLDER_FILES.length} placeholder files under ${filesRoot}.`
   );
 }

@@ -9,8 +9,8 @@ const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set(
   PLUGIN_AGENT_TYPES
 );
 
-/** A startup file as `seedInitialMedia` reports it, for the first turn. */
-export type StartupMedia = {
+/** A startup file as `seedInitialFiles` reports it, for the first turn. */
+export type StartupFile = {
   fileName: string;
   displayName: string;
   source: string;
@@ -32,7 +32,7 @@ export type StartupTurnInput = {
   initialPrompt?: string;
   /** Raw startup URLs. */
   initialLinks?: string[];
-  initialMedia?: StartupMedia[];
+  initialFiles?: StartupFile[];
   chatLaunchPost?: ChatLaunchPost | null;
 };
 
@@ -61,13 +61,13 @@ export function buildStartupTurn(
   return buildStartupPrompt(
     startup.initialPrompt,
     startup.initialLinks ?? [],
-    startup.initialMedia ?? []
+    startup.initialFiles ?? []
   );
 }
 
 /**
  * Compose the first user-message-style prompt handed to the agent on
- * launch — formats `initialPrompt`, `initialLinks`, and `initialMedia` into
+ * launch — formats `initialPrompt`, `initialLinks`, and `initialFiles` into
  * a single string the CLI passes through as the opening turn.
  *
  * Returns `undefined` when there's nothing to attach (the caller can then
@@ -76,16 +76,16 @@ export function buildStartupTurn(
 export function buildStartupPrompt(
   initialPrompt: string | undefined,
   initialLinks: string[],
-  initialMedia: StartupMedia[]
+  initialFiles: StartupFile[]
 ): string | undefined {
   const trimmedPrompt = initialPrompt?.trim() || "";
-  if (initialLinks.length === 0 && initialMedia.length === 0) {
+  if (initialLinks.length === 0 && initialFiles.length === 0) {
     return trimmedPrompt || undefined;
   }
 
   const sections = [
     "Startup context is attached to this session.",
-    "Inspect the provided links and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
+    "Inspect the provided links and shared files before acting. Use Dispatch shared-file tools to access attached files; do not try to locate them by searching the filesystem by name.",
   ];
 
   if (trimmedPrompt) {
@@ -98,14 +98,14 @@ export function buildStartupPrompt(
     );
   }
 
-  if (initialMedia.length > 0) {
+  if (initialFiles.length > 0) {
     sections.push(
       [
         "Attached files:",
-        ...initialMedia.map((file) => {
+        ...initialFiles.map((file) => {
           const detail = file.description?.trim();
           const suffix = detail ? ` — ${detail}` : "";
-          return `- ${file.displayName}${suffix} (available via dispatch shared media)`;
+          return `- ${file.displayName}${suffix} (available via dispatch shared files)`;
         }),
       ].join("\n")
     );

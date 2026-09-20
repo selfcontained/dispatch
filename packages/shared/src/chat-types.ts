@@ -36,20 +36,20 @@ export type ChatAttachment =
       type: "file";
       /**
        * A file previously shared via share_file, referenced by the
-       * stored `fileName` (or `mediaId`) that tool returned. The server fills
-       * these fields from the media row; the agent's local path is never
+       * stored `fileName` (or `fileId`) that tool returned. The server fills
+       * these fields from the file row; the agent's local path is never
        * stored.
        */
-      mediaId: number;
+      fileId: number;
       fileName: string;
       sizeBytes: number;
       mimeType?: string;
       /**
        * Natural pixel size of an image, filled in at read time from the live
-       * media row. The feed reserves a box of this aspect ratio before the
+       * file row. The feed reserves a box of this aspect ratio before the
        * image loads, so an arriving image never pushes the reader's place down
        * the page. Absent for non-images, for a file whose header could not be
-       * read, and for a media row that has since been deleted — each of which
+       * read, and for a file row that has since been deleted — each of which
        * falls back to a fixed-height box.
        */
       width?: number;
@@ -61,11 +61,11 @@ export type ChatAttachment =
 
 /**
  * An attachment as the user supplies it from the Chat composer. `file` names
- * a media row uploaded first via `POST /agents/:id/media`; the server resolves
+ * a file row uploaded first via `POST /agents/:id/files`; the server resolves
  * it into the stored `ChatAttachment` shape and stores `link` as given.
  */
 export type ChatUserAttachmentInput =
-  | { type: "file"; mediaId: number }
+  | { type: "file"; fileId: number }
   | { type: "link"; url: string; title?: string };
 
 /** Body of `POST /agents/:id/chat/messages`. */
@@ -186,10 +186,10 @@ export type ChatStatusEntry = {
 };
 
 /** A file the agent shared via share_file. */
-export type ChatMediaEntry = {
-  type: "media";
+export type ChatFileEntry = {
+  type: "file";
   id: string;
-  mediaId: number;
+  fileId: number;
   fileName: string;
   sizeBytes: number;
   description: string | null;
@@ -310,7 +310,7 @@ export type ChatMessageEntry = {
 export type ChatFeedEntry =
   | ChatMessageEntry
   | ChatStatusEntry
-  | ChatMediaEntry
+  | ChatFileEntry
   | ChatTurnEntry;
 
 export type ChatFeedResponse = {

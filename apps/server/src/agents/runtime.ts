@@ -19,7 +19,7 @@ export type RuntimeLaunch = {
   model: string | null;
   systemPrompt: string | null;
   mcp: { url: string; token: string };
-  /** Environment additions for the engine child (DISPATCH_*, media dir). */
+  /** Environment additions for the engine child (DISPATCH_*, files dir). */
   env: Record<string, string>;
   /** Directories the engine child's PATH is prefixed with. */
   pathPrefix: string[];
@@ -43,7 +43,9 @@ export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
   /** Spawn the host, connect, and wait for a running engine. Throws on failure. */
-  launch(input: RuntimeLaunch): Promise<{ sessionId: string; resumed: boolean }>;
+  launch(
+    input: RuntimeLaunch
+  ): Promise<{ sessionId: string; resumed: boolean }>;
   /** Reconnect to a host that outlived the server; false when it is gone. */
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;

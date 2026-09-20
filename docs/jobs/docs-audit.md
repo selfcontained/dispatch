@@ -43,7 +43,7 @@ Keep the run's scope deliberately narrow. A small, correct PR every night beats 
 - Repo Tools
 - Worktrees
 - Reviewers (personas)
-- Media & Sharing
+- Files & Sharing
 - Notifications
 
 For each section in scope, verify:

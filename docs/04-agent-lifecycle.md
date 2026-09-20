@@ -154,7 +154,7 @@ export NVM_DIR="$HOME/.nvm"
 export GH_TOKEN="ghp_..."
 ```
 
-The engine child additionally gets `DISPATCH_AGENT_ID`, `DISPATCH_MEDIA_DIR`, `DISPATCH_PORT`, `DISPATCH_SCHEME`, Dispatch's `bin/` and `~/.local/bin` ahead on `PATH`, and (for Claude) `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`. It does not inherit the server's `DATABASE_URL`, `DISPATCH_*` settings, TLS material or provider API keys: each engine authenticates through the host CLI's own login.
+The engine child additionally gets `DISPATCH_AGENT_ID`, `DISPATCH_FILES_DIR`, `DISPATCH_PORT`, `DISPATCH_SCHEME`, Dispatch's `bin/` and `~/.local/bin` ahead on `PATH`, and (for Claude) `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`. It does not inherit the server's `DATABASE_URL`, `DISPATCH_*` settings, TLS material or provider API keys: each engine authenticates through the host CLI's own login.
 
 ## Stop Contract
 

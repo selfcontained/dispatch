@@ -67,9 +67,9 @@ type McpRouteDeps = {
   mcpSendNotify: unknown;
   mcpUpsertEvent: unknown;
   mcpRenameSession: unknown;
-  mcpShareMedia: unknown;
-  mcpListMedia: unknown;
-  mcpDeleteMedia: unknown;
+  mcpShareFile: unknown;
+  mcpListFiles: unknown;
+  mcpDeleteFile: unknown;
   mcpListPersonas: unknown;
   mcpListPersonalities: unknown;
   mcpCreatePersonality: unknown;
@@ -219,9 +219,9 @@ export async function registerMcpRoutes(
       sendNotify: deps.mcpSendNotify,
       upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
-      shareMedia: deps.mcpShareMedia,
-      listMedia: deps.mcpListMedia,
-      deleteMedia: deps.mcpDeleteMedia,
+      shareFile: deps.mcpShareFile,
+      listFiles: deps.mcpListFiles,
+      deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
@@ -302,9 +302,9 @@ export async function registerMcpRoutes(
       sendNotify: deps.mcpSendNotify,
       upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
-      shareMedia: deps.mcpShareMedia,
-      listMedia: deps.mcpListMedia,
-      deleteMedia: deps.mcpDeleteMedia,
+      shareFile: deps.mcpShareFile,
+      listFiles: deps.mcpListFiles,
+      deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *
  * Each of these modules resolves its own env var, so the expansion is easy to
  * add in one place and forget in another — which is what happened with
- * MEDIA_ROOT: a literal `~` produced a directory *named* `~` beside the
+ * DISPATCH_FILES_ROOT: a literal `~` produced a directory *named* `~` beside the
  * process working directory, writes succeeded, and nothing could find them
  * again. These assert the file lands at the expanded location and that no
  * literal-tilde directory is created anywhere.

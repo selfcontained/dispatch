@@ -220,7 +220,7 @@ test.describe("Review loop", () => {
         `/agents/${builder.id}/changes\\?thread=${reviewId}&finding=f-ten$`
       )
     );
-    const drawer = page.getByTestId("media-sidebar");
+    const drawer = page.getByTestId("drawer");
     await expect(drawer).toHaveAttribute("data-depth", "2");
     await expect(page.getByTestId("drawer-title")).toHaveText("Finding");
     const top = page.locator('[data-testid="drawer-page"][data-top="true"]');
@@ -429,8 +429,8 @@ test.describe("Review loop", () => {
     await page.goto(`/agents/${builder.id}?thread=${reviewId}&finding=f1`, {
       waitUntil: "domcontentloaded",
     });
-    const sheet = page.getByRole("dialog", { name: "Media sidebar" });
-    await expect(sheet.getByTestId("media-sidebar")).toHaveAttribute(
+    const sheet = page.getByRole("dialog", { name: "Drawer" });
+    await expect(sheet.getByTestId("drawer")).toHaveAttribute(
       "data-depth",
       "2"
     );
@@ -438,7 +438,7 @@ test.describe("Review loop", () => {
     await sheet.getByTestId("drawer-back").click();
     await expect(sheet.getByTestId("drawer-title")).toHaveText("Review");
     await sheet.getByTestId("drawer-back").click();
-    await expect(sheet.getByTestId("media-sidebar")).toHaveAttribute(
+    await expect(sheet.getByTestId("drawer")).toHaveAttribute(
       "data-depth",
       "0"
     );

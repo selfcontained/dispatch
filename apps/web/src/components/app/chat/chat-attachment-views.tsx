@@ -14,14 +14,14 @@ import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
-import { isImageFile } from "../../../../../server/src/shared/media-file-types";
+import { isImageFile } from "../../../../../server/src/shared/file-types";
 
 /** What the attachment views read off the feed they are rendered in. */
-type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenMedia">;
+type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenFile">;
 
-/** The URL a media file is served from. */
-export function mediaFileUrl(agentId: string, fileName: string): string {
-  return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+/** The URL a file is served from. */
+export function fileUrl(agentId: string, fileName: string): string {
+  return `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`;
 }
 
 function hostOf(url: string): string {
@@ -98,9 +98,9 @@ function FileAttachment({
   attachment: Extract<ChatAttachment, { type: "file" }>;
   ctx: AttachmentCtx;
 }): JSX.Element {
-  const url = mediaFileUrl(ctx.agentId, attachment.fileName);
-  const open = () => ctx.onOpenMedia(attachment.mediaId);
-  // By stored name or by the media row's type: a file shared without an
+  const url = fileUrl(ctx.agentId, attachment.fileName);
+  const open = () => ctx.onOpenFile(attachment.fileId);
+  // By stored name or by the file row's type: a file shared without an
   // extension still renders as the image it is.
   const isImage =
     isImageFile(attachment.fileName) ||

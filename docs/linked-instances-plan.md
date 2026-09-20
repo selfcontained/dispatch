@@ -31,7 +31,7 @@ reasons.
 **It built a federation API where it needed a transport.** Four hand-written
 cross-instance endpoints — `/peers/launch`, `/peers/messages`, `/peers/events`,
 `/peers/repos` — each with its own schema, capability gate, client, and error
-mapping. Terminal would have been a fifth, media a sixth. Every feature that
+mapping. Terminal would have been a fifth, files a sixth. Every feature that
 crosses instances pays the tax again, so branch count scales with feature count.
 It already shows: five behavioral `if (peerId)` branch sites server-side, six
 web-side.
@@ -141,10 +141,10 @@ of. Rejected.
 
 | Request class          | Handling                                                                                                                                                                               |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| REST                   | Prefix and forward. Streams, media metadata, lifecycle, diffs.                                                                                                                         |
+| REST                   | Prefix and forward. Streams, file metadata, lifecycle, diffs.                                                                                                                          |
 | WebSocket              | Proxy the upgrade, pipe both directions. The terminal token is minted by the spoke and fetched through the same proxy, so nothing forges auth. **Terminal parity falls out for free.** |
 | Global SSE             | Not proxied. See §3.6.                                                                                                                                                                 |
-| Media transfer         | Prefix and forward, but **stream** — don't buffer. Otherwise a 100 MB recording is a memory spike.                                                                                     |
+| File transfer          | Prefix and forward, but **stream** — don't buffer. Otherwise a 100 MB recording is a memory spike.                                                                                     |
 | Static, settings, jobs | Always local.                                                                                                                                                                          |
 
 Pair-time capabilities become a route-pattern → capability table checked once at
@@ -161,7 +161,7 @@ This is the decision that collapses the most complexity:
 - No merged agent list, no shadow rows, no presence cache, no reaping or
   unreachable-stamping, no drift between multiple SQL writers. **Most of #978's
   weight is avoided rather than solved.**
-- Instance-scoped and repo-scoped resources (jobs, templates, settings, media,
+- Instance-scoped and repo-scoped resources (jobs, templates, settings, files,
   brain, personas) just follow the selector. The scoping problem stops being a
   design question.
 - Agent id collisions stop mattering early on.
@@ -265,7 +265,7 @@ pieces can land on `main` independently and `main` stays releasable throughout.
 | #   | Release                       | Ships                                                                                                                                    | Value                                                                               |
 | --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | R1  | Connect two hosts             | Instance identity, cert generation, mTLS peer port, registration flow, capability table, hosts settings panel with health and unregister | Machines are linked; you can see the link is healthy                                |
-| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, stream, launch, media, diffs |
+| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, stream, launch, files, diffs |
 | R3  | Attention badge               | Per-host blocked/unread counts on the selector                                                                                           | Flipping hosts is informed rather than a guess                                      |
 | R4  | Agent-initiated remote launch | `host` parameter on the MCP launch tool, provenance recorded on both ends                                                                | Agents delegate across machines (humans already can, via R2)                        |
 | R5  | Cross-host agent messaging    | Outbox, idempotency receipts, dead-lettering, two-sided message record                                                                   | Agents coordinate across machines                                                   |

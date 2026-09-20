@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
-import { mediaMetadataFromBuffer } from "../media/metadata.js";
+import { fileMetadataFromBuffer } from "../files/metadata.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
@@ -36,8 +36,12 @@ import {
   type AgentRelation,
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
-import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
-import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
+import {
+  isSupportedFile,
+  isTextFile,
+  resolveFilesDir,
+} from "../shared/files.js";
+import type { ListedFileItem } from "../shared/mcp/agent-lifecycle-tools.js";
 import type {
   LaunchAgentInput,
   LaunchAgentResult,
@@ -73,7 +77,7 @@ function buildLaunchedAgentInitialPrompt(
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
           "If you need to hand work off, launch an independent agent with launch_agent's `child: false`.",
-        "Your parent's media is readable: pass its id as ownerAgentId to list_media.",
+        "Your parent's files are readable: pass its id as ownerAgentId to list_files.",
       ]
     : [
         `You were launched by Dispatch agent "${launcherAgentId}" via launch_agent as an independent agent — you are not its child.`,
@@ -84,7 +88,7 @@ function buildLaunchedAgentInitialPrompt(
 
 type CreateMcpHandlersDeps = {
   pool: Pool;
-  mediaRoot: string;
+  filesRoot: string;
   agentManager: AgentManager;
   jobService: JobService;
   // Only the template lookup is needed here — the full TemplateService can
@@ -231,17 +235,17 @@ async function handleSendNotify(
 type ReadableOwner = {
   id: string;
   name: string;
-  mediaDir: string | null;
+  filesDir: string | null;
 };
 
 /**
- * The agent whose media a read tool should return: the caller itself,
+ * The agent whose files a read tool should return: the caller itself,
  * or — when `ownerAgentId` is given — its parent or one of its direct children
  * (see `isFamily`). Anything else is "not found": the tool neither confirms
  * nor denies the agent exists.
  *
  * Reads the table directly rather than through `agentManager.getAgent`, which
- * filters out archived rows. Media outlives an archive, and a parent that has
+ * filters out archived rows. Files outlive an archive, and a parent that has
  * already archived a finished child still needs that child's screenshots to
  * write its report — so a family read works on an archived owner too.
  */
@@ -254,10 +258,10 @@ async function resolveReadableOwner(
   const result = await deps.pool.query<{
     id: string;
     name: string;
-    media_dir: string | null;
+    files_dir: string | null;
     parent_agent_id: string | null;
   }>(
-    `SELECT id, name, media_dir, parent_agent_id
+    `SELECT id, name, files_dir, parent_agent_id
      FROM agents WHERE id = ANY($1::text[])`,
     [Array.from(new Set([requesterId, ownerId]))]
   );
@@ -281,7 +285,7 @@ async function resolveReadableOwner(
   return {
     id: owner.id,
     name: owner.name,
-    mediaDir: owner.media_dir,
+    filesDir: owner.files_dir,
   };
 }
 
@@ -578,7 +582,7 @@ async function handleArchiveAgent(
   return { agentId: target.id, name: archiving.name, archiving: true };
 }
 
-async function handleShareMedia(
+async function handleShareFile(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   opts: {
@@ -598,7 +602,7 @@ async function handleShareMedia(
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
-  if (!isMediaFile(opts.filePath)) {
+  if (!isSupportedFile(opts.filePath)) {
     throw new Error(
       "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
     );
@@ -613,31 +617,29 @@ async function handleShareMedia(
       : "screenshot";
 
   const buffer = await readFile(opts.filePath);
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
-  await mkdir(mediaDir, { recursive: true });
+  const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
+  await mkdir(filesDir, { recursive: true });
 
   // Derived from the bytes we are about to write, not from the file on disk.
   // The dimensions and the bytes are the same object, so the row cannot come to
   // describe a shape its file does not have — there is nothing here for a
   // transaction to keep in sync.
-  const metadata = mediaMetadataFromBuffer(buffer);
+  const metadata = fileMetadataFromBuffer(buffer);
 
   if (opts.update) {
     const existing = await deps.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2`,
+      `SELECT file_name FROM files WHERE agent_id = $1 AND file_name = $2`,
       [agentId, opts.update]
     );
     if (existing.rows.length === 0) {
-      throw new Error(
-        "No media file found with the given fileName for this agent."
-      );
+      throw new Error("No file found with the given fileName for this agent.");
     }
 
     const fileName = existing.rows[0].file_name;
-    const filePath = path.join(mediaDir, fileName);
-    const resolvedMediaDir = path.resolve(mediaDir);
-    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-      throw new Error("Invalid media file path.");
+    const filePath = path.join(filesDir, fileName);
+    const resolvedFilesDir = path.resolve(filesDir);
+    if (!path.resolve(filePath).startsWith(resolvedFilesDir + path.sep)) {
+      throw new Error("Invalid file path.");
     }
 
     // Write the bytes, then describe them. The other order would let a failed
@@ -646,16 +648,16 @@ async function handleShareMedia(
     // replacement, which costs one image a stale reserved box and nothing else.
     await writeFile(filePath, buffer);
     await deps.pool.query(
-      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+      `UPDATE files SET size_bytes = $1, description = $2, updated_at = NOW(),
               metadata = $5
        WHERE agent_id = $3 AND file_name = $4`,
       [buffer.length, opts.description, agentId, fileName, metadata]
     );
 
-    deps.publishUiEvent({ type: "media.changed", agentId });
+    deps.publishUiEvent({ type: "files.changed", agentId });
     return {
       fileName,
-      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+      url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`,
       sizeBytes: buffer.length,
       source,
       description: opts.description,
@@ -678,18 +680,18 @@ async function handleShareMedia(
   const base = path.basename(safeName, ext);
   const fileName = `${base}-${timestamp}${ext}`;
 
-  await writeFile(path.join(mediaDir, fileName), buffer);
+  await writeFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+    `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
                         metadata)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [agentId, fileName, source, buffer.length, opts.description, metadata]
   );
 
-  deps.publishUiEvent({ type: "media.changed", agentId });
+  deps.publishUiEvent({ type: "files.changed", agentId });
   return {
     fileName,
-    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+    url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`,
     sizeBytes: buffer.length,
     source,
     description: opts.description,
@@ -782,16 +784,16 @@ async function handleListAgentsForAgent(
   return result;
 }
 
-async function handleListMedia(
+async function handleListFiles(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   opts: { source?: string; ownerAgentId?: string }
-): Promise<ListedMediaItem[]> {
+): Promise<ListedFileItem[]> {
   const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
   // Files stay in the owner's directory; a family read hands back the owner's
-  // path and nothing is copied. Agents read media by path, never over HTTP.
-  const mediaDir = resolveMediaDir(owner.id, owner.mediaDir, deps.mediaRoot);
+  // path and nothing is copied. Agents read files by path, never over HTTP.
+  const filesDir = resolveFilesDir(owner.id, owner.filesDir, deps.filesRoot);
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
     : `WHERE agent_id = $1`;
@@ -807,7 +809,7 @@ async function handleListMedia(
     created_at: Date;
   }>(
     `SELECT file_name, source, description, size_bytes, created_at
-     FROM media ${whereClause}
+     FROM files ${whereClause}
      ORDER BY created_at DESC LIMIT 100`,
     params
   );
@@ -815,7 +817,7 @@ async function handleListMedia(
   return result.rows.map((row) => ({
     ownerAgentId: owner.id,
     fileName: row.file_name,
-    filePath: path.join(mediaDir, row.file_name),
+    filePath: path.join(filesDir, row.file_name),
     source: row.source,
     description: row.description ?? null,
     sizeBytes: row.size_bytes,
@@ -823,7 +825,7 @@ async function handleListMedia(
   }));
 }
 
-async function handleDeleteMedia(
+async function handleDeleteFile(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   fileName: string
@@ -832,21 +834,19 @@ async function handleDeleteMedia(
   if (!agent) throw new Error("Agent not found.");
 
   const result = await deps.pool.query<{ file_name: string }>(
-    "SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2",
+    "SELECT file_name FROM files WHERE agent_id = $1 AND file_name = $2",
     [agentId, fileName]
   );
   if (result.rows.length === 0) {
-    throw new Error(
-      "No media file found with the given fileName for this agent."
-    );
+    throw new Error("No file found with the given fileName for this agent.");
   }
 
   const storedFileName = result.rows[0].file_name;
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
-  const filePath = path.join(mediaDir, storedFileName);
-  const resolvedMediaDir = path.resolve(mediaDir);
-  if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-    throw new Error("Invalid media file path.");
+  const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
+  const filePath = path.join(filesDir, storedFileName);
+  const resolvedFilesDir = path.resolve(filesDir);
+  if (!path.resolve(filePath).startsWith(resolvedFilesDir + path.sep)) {
+    throw new Error("Invalid file path.");
   }
 
   try {
@@ -865,10 +865,10 @@ async function handleDeleteMedia(
   }
 
   await deps.pool.query(
-    "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+    "DELETE FROM files WHERE agent_id = $1 AND file_name = $2",
     [agentId, storedFileName]
   );
-  deps.publishUiEvent({ type: "media.changed", agentId });
+  deps.publishUiEvent({ type: "files.changed", agentId });
 }
 
 // ---------------------------------------------------------------------------
@@ -972,7 +972,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
     ) => handleArchiveAgent(deps, agentId, input),
 
-    shareMedia: (
+    shareFile: (
       agentId: string,
       opts: {
         filePath: string;
@@ -981,17 +981,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         name?: string;
         update?: string;
       }
-    ) => handleShareMedia(deps, agentId, opts),
+    ) => handleShareFile(deps, agentId, opts),
 
     listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
       handleListAgentsForAgent(deps, agentId, senderRepoRoot),
 
-    listMedia: (
+    listFiles: (
       agentId: string,
       opts: { source?: string; ownerAgentId?: string }
-    ) => handleListMedia(deps, agentId, opts),
+    ) => handleListFiles(deps, agentId, opts),
 
-    deleteMedia: (agentId: string, fileName: string) =>
-      handleDeleteMedia(deps, agentId, fileName),
+    deleteFile: (agentId: string, fileName: string) =>
+      handleDeleteFile(deps, agentId, fileName),
   };
 }

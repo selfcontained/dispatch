@@ -476,10 +476,10 @@ export async function getFeedbackSummary(
   };
 }
 
-export async function listMedia(
+export async function listFiles(
   pool: Pool,
   agentId: string,
-  fallbackMediaDir: (agentId: string) => string
+  fallbackFilesDir: (agentId: string) => string
 ): Promise<
   Array<{
     fileName: string;
@@ -496,12 +496,12 @@ export async function listMedia(
     source: string;
     sizeBytes: number;
     createdAt: Date;
-    mediaDir: string | null;
+    filesDir: string | null;
   }>(
     `SELECT m.file_name AS "fileName", m.description, m.source,
               m.size_bytes AS "sizeBytes", m.created_at AS "createdAt",
-              a.media_dir AS "mediaDir"
-       FROM media m
+              a.files_dir AS "filesDir"
+       FROM files m
        JOIN agents a ON a.id = m.agent_id
        WHERE m.agent_id = $1
        ORDER BY m.created_at`,
@@ -510,7 +510,7 @@ export async function listMedia(
   return result.rows.map((row) => ({
     fileName: row.fileName,
     filePath: path.join(
-      resolveConfiguredPath(row.mediaDir ?? fallbackMediaDir(agentId)),
+      resolveConfiguredPath(row.filesDir ?? fallbackFilesDir(agentId)),
       row.fileName
     ),
     description: row.description,

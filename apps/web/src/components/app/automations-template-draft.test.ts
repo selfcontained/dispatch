@@ -26,7 +26,7 @@ function template(overrides: Partial<Template> = {}): Template {
     branchName: null,
     fullAccess: false,
     callable: true,
-    allowMedia: true,
+    allowFiles: true,
     selfImprove: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -48,7 +48,7 @@ describe("templateDraftFrom", () => {
       branchName: "",
       fullAccess: false,
       callable: true,
-      allowMedia: true,
+      allowFiles: true,
       selfImprove: false,
     });
   });
@@ -66,7 +66,7 @@ describe("templateDraftFrom", () => {
           branchName: "feat/x",
           fullAccess: true,
           callable: false,
-          allowMedia: false,
+          allowFiles: false,
           selfImprove: true,
         })
       )
@@ -82,7 +82,7 @@ describe("templateDraftFrom", () => {
       branchName: "feat/x",
       fullAccess: true,
       callable: false,
-      allowMedia: false,
+      allowFiles: false,
       selfImprove: true,
     });
   });

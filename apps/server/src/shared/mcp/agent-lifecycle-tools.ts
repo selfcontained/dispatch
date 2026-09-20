@@ -6,10 +6,10 @@ import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 /**
- * One row of a media listing. `ownerAgentId` is always present: a listing can
+ * One row of a file listing. `ownerAgentId` is always present: a listing can
  * mix owners once family reads exist, so every row says whose it is.
  */
-export type ListedMediaItem = {
+export type ListedFileItem = {
   ownerAgentId: string;
   fileName: string;
   filePath: string;
@@ -36,11 +36,11 @@ export type AgentLifecycleContext = {
     sent: boolean;
     reason?: string;
   }>;
-  listMedia?: (
+  listFiles?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
-  ) => Promise<ListedMediaItem[]>;
-  deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
+  ) => Promise<ListedFileItem[]>;
+  deleteFile?: (agentId: string, fileName: string) => Promise<void>;
 };
 
 export function registerAgentLifecycleTools(
@@ -84,34 +84,34 @@ export function registerAgentLifecycleTools(
   }
 
   // ── notify ───────────────────────────────────────────────
-  // ── list_media ──────────────────────────────────────────
-  if (allowed.has("list_media") && context.listMedia) {
-    const listMedia = context.listMedia;
+  // ── list_files ──────────────────────────────────────────
+  if (allowed.has("list_files") && context.listFiles) {
+    const listFiles = context.listFiles;
 
     server.registerTool(
-      "list_media",
+      "list_files",
       {
         description:
-          "List media files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
+          "List files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
         inputSchema: {
           source: z
             .string()
             .optional()
             .describe(
-              'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all media.'
+              'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all files.'
             ),
           ownerAgentId: z
             .string()
             .min(1)
             .optional()
             .describe(
-              "Whose media to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
+              "Whose files to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
             ),
         },
       },
       async (args) => {
         try {
-          const items = await listMedia(agentId, {
+          const items = await listFiles(agentId, {
             source: args.source,
             ownerAgentId: args.ownerAgentId,
           });
@@ -125,25 +125,25 @@ export function registerAgentLifecycleTools(
     );
   }
 
-  if (allowed.has("delete_media") && context.deleteMedia) {
-    const deleteMedia = context.deleteMedia;
+  if (allowed.has("delete_file") && context.deleteFile) {
+    const deleteFile = context.deleteFile;
     server.registerTool(
-      "delete_media",
+      "delete_file",
       {
         description:
-          "Permanently remove one of this agent's shared media files. Call list_media first to identify the exact fileName. This removes both the stored file and its Dispatch media record.",
+          "Permanently remove one of this agent's shared files. Call list_files first to identify the exact fileName. This removes both the stored file and its Dispatch file record.",
         inputSchema: {
           fileName: z
             .string()
-            .describe("Exact fileName returned by list_media."),
+            .describe("Exact fileName returned by list_files."),
         },
       },
       async (args) => {
         try {
-          await deleteMedia(agentId, args.fileName);
+          await deleteFile(agentId, args.fileName);
           return {
             content: [
-              { type: "text", text: `Deleted media \"${args.fileName}\".` },
+              { type: "text", text: `Deleted file \"${args.fileName}\".` },
             ],
           };
         } catch (error) {

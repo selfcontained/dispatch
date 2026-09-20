@@ -338,13 +338,13 @@ button:focus-visible {
   font-family: "JetBrains Mono", Menlo, monospace;
 }
 
-.media {
+.files {
   display: grid;
   grid-template-rows: auto auto 1fr;
   min-height: 0;
 }
 
-.media-hint {
+.files-hint {
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid var(--border);
   color: var(--muted);
@@ -360,7 +360,7 @@ code {
   padding: 0.06rem 0.3rem;
 }
 
-.media-grid {
+.files-grid {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
@@ -368,14 +368,14 @@ code {
   overflow: auto;
 }
 
-.media-item {
+.files-item {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #10151f;
 }
 
-.media-item img {
+.files-item img {
   display: block;
   width: 100%;
   max-height: 240px;
@@ -384,7 +384,7 @@ code {
   cursor: zoom-in;
 }
 
-.media-meta {
+.files-meta {
   padding: 0.45rem 0.55rem;
   font-size: 0.78rem;
   color: #bcc5d4;
@@ -478,7 +478,7 @@ code {
     min-height: auto;
   }
 
-  .media {
+  .files {
     min-height: 280px;
   }
 

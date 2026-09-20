@@ -17,7 +17,7 @@ export interface TemplateDraft {
   branchName: string;
   fullAccess: boolean;
   callable: boolean;
-  allowMedia: boolean;
+  allowFiles: boolean;
   selfImprove: boolean;
 }
 
@@ -34,7 +34,7 @@ export const EMPTY_TEMPLATE_DRAFT: TemplateDraft = {
   branchName: "",
   fullAccess: false,
   callable: true,
-  allowMedia: true,
+  allowFiles: true,
   selfImprove: false,
 };
 
@@ -52,7 +52,7 @@ export function templateDraftFrom(template: Template): TemplateDraft {
     branchName: template.branchName ?? "",
     fullAccess: template.fullAccess,
     callable: template.callable,
-    allowMedia: template.allowMedia,
+    allowFiles: template.allowFiles,
     selfImprove: template.selfImprove,
   };
 }
@@ -60,7 +60,7 @@ export function templateDraftFrom(template: Template): TemplateDraft {
 /**
  * The submit fields the create dialog and the detail pane derive identically
  * from the draft: a terminal session has no prompt, worktree, access mode,
- * media or self-improve, and the branch fields only travel when a worktree is
+ * files or self-improve, and the branch fields only travel when a worktree is
  * requested. `name`, `directory` and `model` are deliberately absent — each
  * surface applies its own trimming/normalization to those.
  */
@@ -77,7 +77,7 @@ export function templateConfigFromDraft(
     | "branchName"
     | "fullAccess"
     | "callable"
-    | "allowMedia"
+    | "allowFiles"
     | "selfImprove"
   >
 > {
@@ -90,7 +90,7 @@ export function templateConfigFromDraft(
     branchName: draft.useWorktree ? draft.branchName || null : null,
     fullAccess: draft.fullAccess,
     callable: draft.callable,
-    allowMedia: draft.allowMedia,
+    allowFiles: draft.allowFiles,
     selfImprove: draft.selfImprove,
   };
 }
@@ -142,8 +142,8 @@ export function useTemplateDraft(
         setDraft((prev) => ({ ...prev, fullAccess: checked })),
       onCallableChange: (checked: boolean) =>
         setDraft((prev) => ({ ...prev, callable: checked })),
-      onAllowMediaChange: (checked: boolean) =>
-        setDraft((prev) => ({ ...prev, allowMedia: checked })),
+      onAllowFilesChange: (checked: boolean) =>
+        setDraft((prev) => ({ ...prev, allowFiles: checked })),
       onSelfImproveChange: (checked: boolean) =>
         setDraft((prev) => ({ ...prev, selfImprove: checked })),
     }),

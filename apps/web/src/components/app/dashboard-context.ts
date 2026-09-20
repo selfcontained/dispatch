@@ -19,10 +19,10 @@ export type DashboardContextValue = {
   leftOpen: boolean;
   leftPanelOpen: boolean;
   mobileLeftOpen: boolean;
-  mobileMediaOpen: boolean;
+  mobileDrawerOpen: boolean;
   setLeftOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
-  setMobileMediaOpen: (open: boolean) => void;
+  setMobileDrawerOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
   apiState: ServiceState;
   dbState: ServiceState;

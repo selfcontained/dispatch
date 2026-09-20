@@ -3,7 +3,7 @@ import type { Pool, QueryResult } from "pg";
 import {
   getActivitySummary,
   getFeedbackSummary,
-  listMedia,
+  listFiles,
 } from "../src/agents/telemetry.js";
 
 function mockPool(...results: Array<Partial<QueryResult>>): Pool {
@@ -800,8 +800,8 @@ describe("getFeedbackSummary", () => {
   });
 });
 
-describe("listMedia", () => {
-  it("returns formatted media entries with file paths", async () => {
+describe("listFiles", () => {
+  it("returns formatted file entries with file paths", async () => {
     const pool = mockPool({
       rows: [
         {
@@ -810,23 +810,23 @@ describe("listMedia", () => {
           source: "playwright",
           sizeBytes: 1024,
           createdAt: new Date("2026-01-15T10:00:00Z"),
-          mediaDir: "/media/agt_001",
+          filesDir: "/files/agt_001",
         },
       ],
     });
 
-    const result = await listMedia(pool, "agt_001", (id) => `/fallback/${id}`);
+    const result = await listFiles(pool, "agt_001", (id) => `/fallback/${id}`);
 
     expect(result).toHaveLength(1);
     expect(result[0].fileName).toBe("screenshot.png");
-    expect(result[0].filePath).toBe("/media/agt_001/screenshot.png");
+    expect(result[0].filePath).toBe("/files/agt_001/screenshot.png");
     expect(result[0].description).toBe("Home page");
     expect(result[0].source).toBe("playwright");
     expect(result[0].sizeBytes).toBe(1024);
     expect(result[0].createdAt).toBe("2026-01-15T10:00:00.000Z");
   });
 
-  it("uses fallback media dir when mediaDir is null", async () => {
+  it("uses fallback files dir when filesDir is null", async () => {
     const pool = mockPool({
       rows: [
         {
@@ -835,25 +835,25 @@ describe("listMedia", () => {
           source: "upload",
           sizeBytes: 2048,
           createdAt: new Date("2026-01-20T12:00:00Z"),
-          mediaDir: null,
+          filesDir: null,
         },
       ],
     });
 
-    const result = await listMedia(pool, "agt_002", (id) => `/fallback/${id}`);
+    const result = await listFiles(pool, "agt_002", (id) => `/fallback/${id}`);
 
     expect(result[0].filePath).toBe("/fallback/agt_002/photo.jpg");
   });
 
-  it("returns empty array when no media exists", async () => {
+  it("returns empty array when no files exist", async () => {
     const pool = mockPool({ rows: [] });
 
-    const result = await listMedia(pool, "agt_none", (id) => `/fallback/${id}`);
+    const result = await listFiles(pool, "agt_none", (id) => `/fallback/${id}`);
 
     expect(result).toEqual([]);
   });
 
-  it("handles multiple media entries preserving order", async () => {
+  it("handles multiple file entries preserving order", async () => {
     const pool = mockPool({
       rows: [
         {
@@ -862,7 +862,7 @@ describe("listMedia", () => {
           source: "agent",
           sizeBytes: 100,
           createdAt: new Date("2026-01-01T00:00:00Z"),
-          mediaDir: "/m",
+          filesDir: "/m",
         },
         {
           fileName: "second.png",
@@ -870,12 +870,12 @@ describe("listMedia", () => {
           source: "agent",
           sizeBytes: 200,
           createdAt: new Date("2026-01-02T00:00:00Z"),
-          mediaDir: "/m",
+          filesDir: "/m",
         },
       ],
     });
 
-    const result = await listMedia(pool, "agt_multi", () => "/fb");
+    const result = await listFiles(pool, "agt_multi", () => "/fb");
 
     expect(result).toHaveLength(2);
     expect(result[0].fileName).toBe("first.png");

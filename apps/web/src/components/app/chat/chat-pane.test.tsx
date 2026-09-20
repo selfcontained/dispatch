@@ -153,7 +153,7 @@ const agent: Agent = {
   agentArgs: [],
   model: null,
   fullAccess: false,
-  mediaDir: null,
+  filesDir: null,
   createdAt: "2026-09-02T09:00:00.000Z",
   updatedAt: "2026-09-02T10:00:00.000Z",
   latestEvent: {
@@ -676,11 +676,11 @@ describe("ChatPane", () => {
       },
       blockEntry(
         block({
-          id: "media:1",
+          id: "file:1",
           text: "",
           body: FILE_BODY,
           attachments: [
-            { type: "file", mediaId: 1, fileName: "shot.png", sizeBytes: 10 },
+            { type: "file", fileId: 1, fileName: "shot.png", sizeBytes: 10 },
           ],
           createdAt: "2026-09-02T10:00:01.000Z",
         })

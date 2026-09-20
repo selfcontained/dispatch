@@ -31,7 +31,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
     ...overrides,

@@ -695,7 +695,7 @@ export function removeBlock(
 // Posting
 // ---------------------------------------------------------------------------
 
-/** Files here are already uploaded (`POST /agents/:id/media`). */
+/** Files here are already uploaded (`POST /agents/:id/files`). */
 export type StreamPostInput = StreamPostRequest;
 
 /**
@@ -1028,7 +1028,9 @@ export function optimisticStatePatch(
         : isPlainObject(value)
           ? (value as { status?: string }).status
           : undefined;
-    const record = isPlainObject(value) ? (value as Record<string, unknown>) : {};
+    const record = isPlainObject(value)
+      ? (value as Record<string, unknown>)
+      : {};
     const status = word === "open" ? "open" : "resolved";
     const resolution =
       word === "dismissed"

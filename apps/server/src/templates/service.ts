@@ -30,7 +30,7 @@ export type AddTemplateInput = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
-  allowMedia?: boolean;
+  allowFiles?: boolean;
   selfImprove?: boolean;
 };
 
@@ -78,7 +78,7 @@ export class TemplateService {
       prompt: input.prompt ?? null,
       ...applyAgentConfigDefaults(input),
       callable: input.callable ?? true,
-      allowMedia: input.allowMedia ?? true,
+      allowFiles: input.allowFiles ?? true,
       selfImprove: input.selfImprove ?? false,
     });
     this.logger.info(
@@ -115,7 +115,7 @@ export class TemplateService {
     if (input.branchName !== undefined) updates.branchName = input.branchName;
     if (input.fullAccess !== undefined) updates.fullAccess = input.fullAccess;
     if (input.callable !== undefined) updates.callable = input.callable;
-    if (input.allowMedia !== undefined) updates.allowMedia = input.allowMedia;
+    if (input.allowFiles !== undefined) updates.allowFiles = input.allowFiles;
     if (input.selfImprove !== undefined)
       updates.selfImprove = input.selfImprove;
 
@@ -180,12 +180,12 @@ export class TemplateService {
       );
     }
     if (
-      !template.allowMedia &&
+      !template.allowFiles &&
       ((input.startupFiles && input.startupFiles.length > 0) ||
         (input.startupLinks && input.startupLinks.length > 0))
     ) {
       throw new Error(
-        `Template "${template.name}" does not allow media attachments.`
+        `Template "${template.name}" does not allow file attachments.`
       );
     }
 

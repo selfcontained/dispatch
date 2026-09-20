@@ -80,7 +80,7 @@ const inertConfig = {
   port: 6767,
   databaseUrl: "",
   authToken: "test-token",
-  mediaRoot: "/tmp/dispatch-test-media",
+  filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp",
   codexBin: "echo",
   claudeBin: "echo",
@@ -103,8 +103,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files_seen");
+  await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
   cleanupGitWorktreeSpy.mockClear();
 });

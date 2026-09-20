@@ -232,12 +232,10 @@ test.describe("Stream blocks", () => {
     await expect(page.getByTestId("chat-pane")).toBeVisible();
 
     // The closed sidebar's toggle counts the open question.
-    const toggle = page.getByTestId("toggle-media-sidebar");
-    await expect(toggle.getByTestId("toggle-media-sidebar-badge")).toHaveText(
-      "1"
-    );
+    const toggle = page.getByTestId("toggle-drawer");
+    await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveText("1");
     await toggle.click();
-    const sidebar = page.getByTestId("media-sidebar");
+    const sidebar = page.getByTestId("drawer");
     await sidebar.getByTestId("sidebar-tab-rail").click();
     const rail = sidebar.getByTestId("stream-rail");
     await expect(rail).toHaveAttribute("data-open-inputs", "1");
@@ -267,9 +265,7 @@ test.describe("Stream blocks", () => {
     await input.getByTestId("chat-question-option").nth(1).click();
     await expect(rail).toHaveAttribute("data-open-inputs", "0");
     await expect(rail.getByTestId("rail-input")).toHaveCount(0);
-    await expect(toggle.getByTestId("toggle-media-sidebar-badge")).toHaveCount(
-      0
-    );
+    await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveCount(0);
     const answered = page
       .getByTestId("chat-pane")
       .getByTestId("chat-question-options");

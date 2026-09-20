@@ -58,10 +58,10 @@ export function DashboardLayout(): JSX.Element {
     leftOpen,
     leftPanelOpen,
     mobileLeftOpen,
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setLeftOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
     handleSetLeftPanelOpen,
   } = useLayout();
   const { apiState, dbState } = useHealth(true);
@@ -136,11 +136,11 @@ export function DashboardLayout(): JSX.Element {
     if (!previousNavItem || !currentNavItem) return;
     if (currentNavItem === previousNavItem) return;
 
-    setMobileMediaOpen(false);
+    setMobileDrawerOpen(false);
     if (currentNavItem !== "activity") {
       setMobileLeftOpen(true);
     }
-  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
+  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileDrawerOpen]);
 
   useEffect(() => {
     if (!pendingNavPulse || pendingNavPulse !== currentNavItem) return;
@@ -180,10 +180,10 @@ export function DashboardLayout(): JSX.Element {
     leftOpen,
     leftPanelOpen,
     mobileLeftOpen,
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setLeftOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
     handleSetLeftPanelOpen,
     apiState,
     dbState,

@@ -13,7 +13,7 @@ export type ChatFeedContextInput = {
   agentId: string | null;
   rootId?: string | null;
   agent: Agent | null;
-  openLightbox: (mediaId: number) => void;
+  openLightbox: (fileId: number) => void;
   /** Must be stable: every row is memoised on the context it lands in. */
   onOpenPath?: FeedContext["onOpenPath"];
   onToggleReaction?: FeedContext["onToggleReaction"];
@@ -79,7 +79,7 @@ export function useChatFeedContext({
       agentName,
       agentType,
       peers,
-      onOpenMedia: openLightbox,
+      onOpenFile: openLightbox,
       onOpenPath,
       onToggleReaction,
       onOpenThread,

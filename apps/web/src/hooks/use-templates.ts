@@ -27,7 +27,7 @@ export type AddTemplateConfig = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
-  allowMedia?: boolean;
+  allowFiles?: boolean;
   selfImprove?: boolean;
 };
 

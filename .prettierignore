@@ -10,7 +10,7 @@ apps/site/.astro
 .env
 .env.local
 data
-.media
+.files
 artifacts
 .playwright-mcp
 test-results

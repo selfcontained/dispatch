@@ -21,7 +21,7 @@ export type AppConfig = {
   port: number;
   databaseUrl: string;
   authToken: string;
-  mediaRoot: string;
+  filesRoot: string;
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
@@ -83,8 +83,8 @@ export function loadConfig(): AppConfig {
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
-    mediaRoot: resolveConfiguredPath(
-      process.env.MEDIA_ROOT ?? statePath("media")
+    filesRoot: resolveConfiguredPath(
+      process.env.DISPATCH_FILES_ROOT ?? statePath("files")
     ),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
@@ -101,7 +101,9 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_AGENT_STATE_ROOT ??
         path.join(
           path.dirname(
-            resolveConfiguredPath(process.env.MEDIA_ROOT ?? statePath("media"))
+            resolveConfiguredPath(
+              process.env.DISPATCH_FILES_ROOT ?? statePath("files")
+            )
           ),
           "agents"
         )

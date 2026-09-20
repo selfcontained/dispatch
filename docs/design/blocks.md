@@ -3,7 +3,7 @@
 Every agent's product is a stream of blocks. Chat renders it; the sidebar,
 notifications and the Activity page derive from it. This is the contract the
 `acp-runtime` branch builds against, replacing the Chat tab's message table,
-cross-agent messages, media posts, pins, surfaces, whiteboards and reviews
+cross-agent messages, file posts, pins, surfaces, whiteboards and reviews
 one step at a time. It is not a description of what `main` does today.
 
 ## Goals
@@ -51,7 +51,7 @@ turn    = an agent's unit of work (prompt → steps → answer), rendered from
 | `text`            | text        | markdown; may be blank when `data` or `attachments` carry the content     |
 | `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author |
 | `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution              |
-| `attachments`     | jsonb       | `[]`; file, link, code references (the media row is the source of truth)  |
+| `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)   |
 | `origin`          | text null   | `launch` for the launch-context post; otherwise null                      |
 | `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending    |
 | `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                 |
@@ -72,17 +72,17 @@ dropped. Rows are not migrated.
 
 ### Block kinds
 
-| kind       | data                                                                          | state                                                                  | who posts                       |
-| ---------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------- |
-| `text`     | —                                                                             | —                                                                      | anyone                          |
-| `question` | `{ options: [{label, value?}], allowFreeform? }`                              | `{ answer?: {value, label?, by, blockId, at} }`                        | agent (to the user or an agent) |
-| `form`     | `{ fields: [{id, label, type, options?, required?}] }`                        | `{ submission?: {values, by, blockId, at} }`                           | agent                           |
-| `file`     | — (the file is an attachment)                                                 | —                                                                      | agent, user                     |
-| `link`     | `{ url, title? }` (a PR is a link)                                            | —                                                                      | agent, user                     |
+| kind       | data                                                                          | state                                                                                              | who posts                       |
+| ---------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `text`     | —                                                                             | —                                                                                                  | anyone                          |
+| `question` | `{ options: [{label, value?}], allowFreeform? }`                              | `{ answer?: {value, label?, by, blockId, at} }`                                                    | agent (to the user or an agent) |
+| `form`     | `{ fields: [{id, label, type, options?, required?}] }`                        | `{ submission?: {values, by, blockId, at} }`                                                       | agent                           |
+| `file`     | — (the file is an attachment)                                                 | —                                                                                                  | agent, user                     |
+| `link`     | `{ url, title? }` (a PR is a link)                                            | —                                                                                                  | agent, user                     |
 | `review`   | `{ verdict, summary, findings: [{id, severity, title, body, path?, line?}] }` | `{ findings: { [id]: { status: open\|resolved, resolution?: fixed\|dismissed, note?, by, at } } }` | agent, user                     |
-| `tasks`    | `{ items: [{id, text}] }`                                                     | `{ items: { [id]: done\|now\|todo } }`                                 | agent                           |
-| `board`    | later: kanban, table                                                          |                                                                        |                                 |
-| `preview`  | later: a served URL with a live status                                        |                                                                        |                                 |
+| `tasks`    | `{ items: [{id, text}] }`                                                     | `{ items: { [id]: done\|now\|todo } }`                                                             | agent                           |
+| `board`    | later: kanban, table                                                          |                                                                                                    |                                 |
+| `preview`  | later: a served URL with a live status                                        |                                                                                                    |                                 |
 
 A `question` is a `form` with one field; it exists as its own kind because
 it is the common case and renders as a row of buttons.

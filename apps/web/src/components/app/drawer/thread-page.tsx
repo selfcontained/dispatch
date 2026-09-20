@@ -27,7 +27,7 @@ export type ThreadPageProps = {
   blockId: string;
   findingId: string | null;
   isMobile: boolean;
-  openLightbox: (mediaId: number) => void;
+  openLightbox: (fileId: number) => void;
   onOpenPath?: (path: string, line: number | null) => void;
   onOpenThread: (blockId: string, findingId?: string) => void;
   onBack: () => void;

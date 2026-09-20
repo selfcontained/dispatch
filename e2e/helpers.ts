@@ -136,18 +136,18 @@ export async function setEnabledAgentTypesViaAPI(
   }
 }
 
-export async function uploadMediaViaAPI(
+export async function uploadFileViaAPI(
   request: APIRequestContext,
   agentId: string,
   description: string,
-  fileName = `media-${Date.now()}.png`
+  fileName = `file-${Date.now()}.png`
 ): Promise<void> {
   const pngBytes = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9VE3D7wAAAAASUVORK5CYII=",
     "base64"
   );
 
-  const res = await request.post(`${API}/agents/${agentId}/media`, {
+  const res = await request.post(`${API}/agents/${agentId}/files`, {
     headers: authHeaders(),
     multipart: {
       description,
@@ -161,19 +161,19 @@ export async function uploadMediaViaAPI(
   });
 
   if (!res.ok()) {
-    throw new Error(`Media upload failed with ${res.status()}`);
+    throw new Error(`File upload failed with ${res.status()}`);
   }
 }
 
-export async function uploadTextMediaViaAPI(
+export async function uploadTextFileViaAPI(
   request: APIRequestContext,
   agentId: string,
   description: string,
   content: string,
-  fileName = `media-${Date.now()}.md`,
+  fileName = `file-${Date.now()}.md`,
   mimeType = "text/markdown"
 ): Promise<void> {
-  const res = await request.post(`${API}/agents/${agentId}/media`, {
+  const res = await request.post(`${API}/agents/${agentId}/files`, {
     headers: authHeaders(),
     multipart: {
       description,
@@ -187,7 +187,7 @@ export async function uploadTextMediaViaAPI(
   });
 
   if (!res.ok()) {
-    throw new Error(`Media upload failed with ${res.status()}`);
+    throw new Error(`File upload failed with ${res.status()}`);
   }
 }
 

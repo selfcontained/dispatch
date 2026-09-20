@@ -38,7 +38,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
-import { mimeType, resolveMediaDir } from "../shared/media.js";
+import { mimeType, resolveFilesDir } from "../shared/files.js";
 import { parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
@@ -59,14 +59,14 @@ import { chatUrlSchema, normalizeReactionEmoji } from "./validation.js";
 
 /**
  * An attachment as an agent supplies it to `post`: `file` names a file it
- * shared before (by `fileName` or `mediaId`) or a `path` on disk that the
- * server uploads first; the server fills in the media row fields.
+ * shared before (by `fileName` or `fileId`) or a `path` on disk that the
+ * server uploads first; the server fills in the file row fields.
  */
 export type BlockAttachmentInput =
   | {
       type: "file";
       fileName?: string;
-      mediaId?: number;
+      fileId?: number;
       path?: string;
       description?: string;
     }
@@ -120,7 +120,7 @@ export type StreamDeliveryAdapter = {
 
 export type StreamAgent = Pick<
   AgentRecord,
-  "id" | "name" | "mediaDir" | "status"
+  "id" | "name" | "filesDir" | "status"
 >;
 
 export type StreamServiceDeps = {
@@ -128,14 +128,14 @@ export type StreamServiceDeps = {
   publishUiEvent: (
     event: StreamChangedEvent | StreamEntryEvent | StreamReadEvent
   ) => void;
-  /** Minimal agent lookup: name, media dir and status are all the service needs. */
+  /** Minimal agent lookup: name, files dir and status are all the service needs. */
   getAgent: (agentId: string) => Promise<StreamAgent | null>;
   /**
-   * Root of per-agent media directories (config.mediaRoot), so the envelope
+   * Root of per-agent files directories (config.filesRoot), so the envelope
    * can hand the agent an absolute path for a file attachment — the same
-   * resolution `GET /media/:file` serves from.
+   * resolution `GET /files/:file` serves from.
    */
-  mediaRoot: string;
+  filesRoot: string;
   /**
    * Whether any browser is listening. Composing a turn entry reads the whole
    * open turn and the recorder asks for one about ten times a second, so an
@@ -145,7 +145,7 @@ export type StreamServiceDeps = {
   hasUiClient?: () => boolean;
   /** An agent posted a question or form for people: it is waiting now. */
   onInputPosted?: (agentId: string, text: string) => Promise<void>;
-  /** Copy a file from the agent's disk into its media; for `path` attachments. */
+  /** Copy a file from the agent's disk into its files; for `path` attachments. */
   uploadFile?: (
     agentId: string,
     input: { filePath: string; description: string }
@@ -186,8 +186,8 @@ export class StreamForbiddenError extends StreamServiceError {
 
 /**
  * What an agent was created with, as `AgentManager.createAgent` hands it to
- * the recorder once the agent row and its media rows exist. Files are the
- * seeded media rows; links are the raw startup URLs.
+ * the recorder once the agent row and its file rows exist. Files are the
+ * seeded file rows; links are the raw startup URLs.
  */
 export type LaunchContextInput = {
   /**
@@ -198,7 +198,7 @@ export type LaunchContextInput = {
   agentId: string;
   /** The initial prompt as the person (or launching agent) wrote it. */
   text?: string;
-  files?: Array<{ mediaId: number }>;
+  files?: Array<{ fileId: number }>;
   links?: string[];
   /** The agent that created this one via launch_agent, if any. */
   launchedByAgentId?: string | null;
@@ -1203,7 +1203,7 @@ export class StreamService {
           ? { tasks: input.data as BlockTasksData }
           : {}),
         attachments: block.attachments.map((a) =>
-          a.type === "file" ? { type: "file" as const, mediaId: a.mediaId } : a
+          a.type === "file" ? { type: "file" as const, fileId: a.fileId } : a
         ),
       }).data;
     }
@@ -1296,7 +1296,7 @@ export class StreamService {
     const inputs: ChatUserAttachmentInput[] = [
       ...files.map((file) => ({
         type: "file" as const,
-        mediaId: file.mediaId,
+        fileId: file.fileId,
       })),
       ...links.map((url) => ({ type: "link" as const, url })),
     ];
@@ -1754,17 +1754,17 @@ export class StreamService {
   /**
    * One envelope line per resolved attachment: `file: <abs path> (<mime>,
    * <size>)`, `link: <url>`, `code: …`. File paths use the
-   * recipient agent's media directory when the file is its own; otherwise
+   * recipient agent's files directory when the file is its own; otherwise
    * the file is described by name and the agent fetches it by URL.
    */
   private describeAttachments(
     agent: StreamAgent,
     attachments: ChatAttachment[]
   ): string[] {
-    const mediaDir = resolveMediaDir(
+    const filesDir = resolveFilesDir(
       agent.id,
-      agent.mediaDir,
-      this.deps.mediaRoot
+      agent.filesDir,
+      this.deps.filesRoot
     );
     const lines: string[] = [];
     for (const attachment of attachments) {
@@ -1772,7 +1772,7 @@ export class StreamService {
         case "file": {
           const mime = attachment.mimeType ?? mimeType(attachment.fileName);
           lines.push(
-            `- file: ${path.join(mediaDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
+            `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
           );
           break;
         }
@@ -1794,21 +1794,21 @@ export class StreamService {
 
   private async resolveFile(
     agentId: string,
-    input: { fileName?: string; mediaId?: number }
+    input: { fileName?: string; fileId?: number }
   ): Promise<ChatAttachment> {
     const fileName = input.fileName?.trim();
-    const mediaId =
-      typeof input.mediaId === "number" && Number.isInteger(input.mediaId)
-        ? input.mediaId
+    const fileId =
+      typeof input.fileId === "number" && Number.isInteger(input.fileId)
+        ? input.fileId
         : undefined;
-    if (!fileName && mediaId === undefined) {
+    if (!fileName && fileId === undefined) {
       throw new StreamValidationError(
-        "file attachments need fileName, mediaId or path."
+        "file attachments need fileName, fileId or path."
       );
     }
-    if (fileName && mediaId !== undefined) {
+    if (fileName && fileId !== undefined) {
       throw new StreamValidationError(
-        "file attachments take either fileName or mediaId, not both."
+        "file attachments take either fileName or fileId, not both."
       );
     }
     const result = await this.deps.pool.query<{
@@ -1816,20 +1816,20 @@ export class StreamService {
       file_name: string;
       size_bytes: number;
     }>(
-      `SELECT id, file_name, size_bytes FROM media
+      `SELECT id, file_name, size_bytes FROM files
         WHERE agent_id = $1
           AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END`,
-      [agentId, fileName ?? null, mediaId ?? null]
+      [agentId, fileName ?? null, fileId ?? null]
     );
     const match = result.rows[0];
     if (!match) {
       throw new StreamValidationError(
-        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — attach it by path to upload it first.`
+        `Unknown file ${fileName ? `"${fileName}"` : `#${fileId}`} — attach it by path to upload it first.`
       );
     }
     return {
       type: "file",
-      mediaId: match.id,
+      fileId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),

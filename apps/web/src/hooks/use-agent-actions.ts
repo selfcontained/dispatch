@@ -13,7 +13,7 @@ type UseAgentActionsParams = {
   setCreateOpen: (open: boolean) => void;
   setRequestedCreateType: (type: AgentType | null) => void;
   setLastUsedAgentType: (type: AgentType) => void;
-  refreshMedia: (agentId: string) => void;
+  refreshFiles: (agentId: string) => void;
 };
 
 export function useAgentActions({
@@ -22,7 +22,7 @@ export function useAgentActions({
   setCreateOpen,
   setRequestedCreateType,
   setLastUsedAgentType,
-  refreshMedia,
+  refreshFiles,
 }: UseAgentActionsParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -38,9 +38,9 @@ export function useAgentActions({
     async (agent: Agent) => {
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
-      refreshMedia(agent.id);
+      refreshFiles(agent.id);
     },
-    [ensureAuxExpanded, navigate, refreshMedia]
+    [ensureAuxExpanded, navigate, refreshFiles]
   );
 
   const startAgent = useCallback(
@@ -51,9 +51,9 @@ export function useAgentActions({
         method: "POST",
         body: JSON.stringify({}),
       });
-      refreshMedia(agent.id);
+      refreshFiles(agent.id);
     },
-    [ensureAuxExpanded, navigate, refreshMedia]
+    [ensureAuxExpanded, navigate, refreshFiles]
   );
 
   const closeAgentAndClearSelection = useCallback(() => {
@@ -104,13 +104,13 @@ export function useAgentActions({
       });
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.id);
-      refreshMedia(agent.id);
+      refreshFiles(agent.id);
     },
     [
       ensureAuxExpanded,
       navigate,
       queryClient,
-      refreshMedia,
+      refreshFiles,
       setCreateOpen,
       setRequestedCreateType,
       setLastUsedAgentType,

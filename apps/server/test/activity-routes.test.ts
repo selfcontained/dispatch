@@ -140,7 +140,7 @@ async function seedTokenUsage(
 }
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM job_runs");
@@ -1142,7 +1142,7 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("returns full agent detail with events, tokens, and media", async () => {
+  it("returns full agent detail with events, tokens, and files", async () => {
     const agentId = await createAgent({ name: "detail-agent" });
     const today = new Date().toISOString().slice(0, 10);
     await seedEvent(agentId, "working", `${today}T10:00:00Z`, "starting work");
@@ -1163,22 +1163,22 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(Number(body.tokenUsage.total_output)).toBe(300);
     expect(body.tokenUsage.by_model.length).toBe(1);
     expect(body.tokenUsage.by_model[0].model).toBe("claude-sonnet-4-20250514");
-    expect(body.media).toEqual([]);
+    expect(body.files).toEqual([]);
     expect(body.stateDurations).toBeDefined();
   });
 
-  it("includes media records", async () => {
+  it("includes file records", async () => {
     const agentId = await createAgent();
     await ctx.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes)
        VALUES ($1, 'screenshot.png', 'screenshot', 2048)`,
       [agentId]
     );
 
     const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
     expect(res.statusCode).toBe(200);
-    expect(res.json().media.length).toBe(1);
-    expect(res.json().media[0].file_name).toBe("screenshot.png");
+    expect(res.json().files.length).toBe(1);
+    expect(res.json().files[0].file_name).toBe("screenshot.png");
   });
 
   it("computes stateDurations from events", async () => {

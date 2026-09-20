@@ -53,7 +53,7 @@ describe("buildPostEnvelope", () => {
 
   it("lists attachments after the text, or alone when the text is blank", () => {
     const lines = [
-      "- file: /media/shot.png (image/png, 12 KB)",
+      "- file: /files/shot.png (image/png, 12 KB)",
       "- link: https://x",
     ];
     expect(

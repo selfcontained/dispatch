@@ -23,9 +23,9 @@ export type HotkeyDef = {
 };
 
 export const HOTKEYS = {
-  "toggle-media-sidebar": {
+  "toggle-drawer": {
     combo: "mod+shift+>",
-    description: "Toggle media sidebar",
+    description: "Toggle drawer",
   },
   "toggle-agent-sidebar": {
     combo: "mod+shift+<",

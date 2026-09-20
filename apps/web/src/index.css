@@ -789,7 +789,7 @@ html[data-theme="matrix"] [role="button"] {
   text-shadow: 0 0 10px hsl(var(--primary) / 0.12);
 }
 
-@keyframes media-in-slow {
+@keyframes file-in-slow {
   from {
     opacity: 0;
     transform: translateY(-14px);
@@ -800,11 +800,11 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-.animate-media-in-slow {
-  animation: media-in-slow 1600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+.animate-file-in-slow {
+  animation: file-in-slow 1600ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.media-thumb-unseen {
+.file-thumb-unseen {
   border-color: hsl(var(--status-working) / 0.45);
   box-shadow:
     inset 0 0 0 1px hsl(var(--status-working) / 0.28),
@@ -814,7 +814,7 @@ html[data-theme="matrix"] [role="button"] {
     box-shadow 1600ms ease-out;
 }
 
-.media-thumb-seen {
+.file-thumb-seen {
   border-color: hsl(var(--border));
   box-shadow:
     inset 0 0 0 1px hsl(var(--status-working) / 0),

@@ -23,8 +23,8 @@ const el = {
   refreshBtn: document.querySelector("[data-refresh-btn]"),
   selected: document.querySelector("[data-selected]"),
   terminal: document.querySelector("[data-terminal-output]"),
-  mediaGrid: document.querySelector("[data-media-grid]"),
-  mediaRefreshBtn: document.querySelector("[data-media-refresh-btn]"),
+  fileGrid: document.querySelector("[data-file-grid]"),
+  fileRefreshBtn: document.querySelector("[data-file-refresh-btn]"),
   lightbox: document.querySelector("[data-lightbox]"),
   lightboxImage: document.querySelector("[data-lightbox-image]"),
   lightboxCaption: document.querySelector("[data-lightbox-caption]"),
@@ -95,7 +95,7 @@ function renderAgents() {
   for (const agent of state.agents) {
     const item = document.createElement("div");
     item.className = `agent ${state.selectedAgentId === agent.id ? "agent--active" : ""}`;
-    item.title = `${agent.cwd}${agent.mediaDir ? `\nmedia: ${agent.mediaDir}` : ""}`;
+    item.title = `${agent.cwd}${agent.filesDir ? `\nfiles: ${agent.filesDir}` : ""}`;
 
     const head = document.createElement("div");
     head.className = "agent-head";
@@ -107,7 +107,7 @@ function renderAgents() {
       state.selectedAgentId = agent.id;
       renderAgents();
       updateSelectedLabel();
-      void refreshMedia();
+      void refreshFiles();
     });
 
     const badge = document.createElement("span");
@@ -136,7 +136,7 @@ function renderAgents() {
         await refreshAgents();
       }
       await ensureTerminalConnected(true);
-      await refreshMedia();
+      await refreshFiles();
     });
 
     const stop = document.createElement("button");
@@ -152,7 +152,7 @@ function renderAgents() {
         closeSocket(false);
       }
       await refreshAgents();
-      await refreshMedia();
+      await refreshFiles();
       setStatus(`Stopped ${agent.name}.`);
     });
 
@@ -178,7 +178,7 @@ function renderAgents() {
         closeSocket(false);
       }
       await refreshAgents();
-      await refreshMedia();
+      await refreshFiles();
       setStatus(`Deleted ${agent.name}.`);
     });
 
@@ -395,7 +395,7 @@ async function stopSelectedAgent() {
 
   detachTerminal();
   await refreshAgents();
-  await refreshMedia();
+  await refreshFiles();
   setStatus(`Stopped ${agent.name}.`);
 }
 
@@ -429,7 +429,7 @@ async function deleteSelectedAgent() {
   }
   detachTerminal();
   await refreshAgents();
-  await refreshMedia();
+  await refreshFiles();
   setStatus(`Deleted ${agent.name}.`);
 }
 
@@ -452,34 +452,34 @@ async function createAgent(event) {
   state.selectedAgentId = payload.agent.id;
   renderAgents();
   updateSelectedLabel();
-  await refreshMedia();
+  await refreshFiles();
   await ensureTerminalConnected(true, true);
   setStatus(`Created ${payload.agent.name} and attached terminal.`);
 }
 
-async function refreshMedia() {
+async function refreshFiles() {
   const agent = selectedAgent();
   if (!agent) {
-    el.mediaGrid.innerHTML = "";
+    el.fileGrid.innerHTML = "";
     return;
   }
 
   try {
-    const payload = await api(`/api/v1/agents/${agent.id}/media`);
+    const payload = await api(`/api/v1/agents/${agent.id}/files`);
     const files = payload.files ?? [];
 
-    el.mediaGrid.innerHTML = "";
+    el.fileGrid.innerHTML = "";
     if (files.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "media-meta";
+      empty.className = "file-meta";
       empty.textContent = "No images yet.";
-      el.mediaGrid.appendChild(empty);
+      el.fileGrid.appendChild(empty);
       return;
     }
 
     for (const file of files) {
       const item = document.createElement("div");
-      item.className = "media-item";
+      item.className = "file-item";
 
       const image = document.createElement("img");
       image.src = `${file.url}?t=${encodeURIComponent(file.updatedAt)}`;
@@ -490,15 +490,15 @@ async function refreshMedia() {
       });
 
       const meta = document.createElement("div");
-      meta.className = "media-meta";
+      meta.className = "file-meta";
       meta.textContent = `${file.name} • ${Math.round(file.size / 1024)} KB`;
 
       item.appendChild(image);
       item.appendChild(meta);
-      el.mediaGrid.appendChild(item);
+      el.fileGrid.appendChild(item);
     }
   } catch (error) {
-    setStatus(`Media load error: ${error.message}`);
+    setStatus(`File load error: ${error.message}`);
   }
 }
 
@@ -560,8 +560,8 @@ el.detachBtn.addEventListener("click", () => {
 el.refreshBtn.addEventListener("click", () => {
   void refreshAgents();
 });
-el.mediaRefreshBtn.addEventListener("click", () => {
-  void refreshMedia();
+el.fileRefreshBtn.addEventListener("click", () => {
+  void refreshFiles();
 });
 el.lightboxClose.addEventListener("click", () => {
   closeLightbox();
@@ -593,7 +593,7 @@ async function init() {
   const health = await api("/api/v1/health");
   setStatus(`API ${health.status}, DB ${health.db}`);
   await refreshAgents();
-  await refreshMedia();
+  await refreshFiles();
   el.cwdInput.value = "";
   setConnectionBadge("disconnected");
 }

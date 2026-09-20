@@ -265,7 +265,7 @@ describe("registerStreamTools", () => {
     expect(result.content[0]?.text).toContain("Unknown file");
   });
 
-  it("declares file attachments by path, fileName or mediaId", () => {
+  it("declares file attachments by path, fileName or fileId", () => {
     const schema = tool("post").config.inputSchema.attachments as Schema;
     expect(
       schema.safeParse([{ type: "file", path: "/tmp/a.png" }]).success
@@ -273,10 +273,8 @@ describe("registerStreamTools", () => {
     expect(
       schema.safeParse([{ type: "file", fileName: "a.png" }]).success
     ).toBe(true);
-    expect(schema.safeParse([{ type: "file", mediaId: 3 }]).success).toBe(true);
-    expect(schema.safeParse([{ type: "file", mediaId: 0 }]).success).toBe(
-      false
-    );
+    expect(schema.safeParse([{ type: "file", fileId: 3 }]).success).toBe(true);
+    expect(schema.safeParse([{ type: "file", fileId: 0 }]).success).toBe(false);
     expect(schema.safeParse([{ type: "link", url: "https://x" }]).success).toBe(
       true
     );

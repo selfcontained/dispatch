@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { highlightCodeLanguage } from "@/components/app/media-lightbox-syntax";
+import { highlightCodeLanguage } from "@/components/app/file-lightbox-syntax";
 import { useCopyText } from "@/hooks/use-copy";
 import { MermaidBlock } from "@/components/ui/markdown-mermaid";
 import { useMermaidTheme } from "@/components/ui/markdown-mermaid-theme";

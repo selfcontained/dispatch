@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -13,7 +20,11 @@ import type {
   RuntimeLaunch,
 } from "../runtime.js";
 import { HostClient } from "./host-client.js";
-import { type HostLaunch, hostFile, type JournalEntry } from "./host-protocol.js";
+import {
+  type HostLaunch,
+  hostFile,
+  type JournalEntry,
+} from "./host-protocol.js";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
 const LAUNCH_TIMEOUT_MS = 60_000;
@@ -58,7 +69,8 @@ export function loginShellCommand(
   const base = path.basename(shell);
   // ~/.dispatch/env is the documented place for agent-session overrides;
   // it is read after the profile so it wins.
-  const posix = '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"';
+  const posix =
+    '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"';
   if (base === "fish") {
     return {
       bin: shell,
@@ -70,9 +82,15 @@ export function loginShellCommand(
     };
   }
   if (base === "bash" || base === "zsh" || base === "sh") {
-    return { bin: shell, args: ["-lc", posix, "dispatch-agent-host", ...command] };
+    return {
+      bin: shell,
+      args: ["-lc", posix, "dispatch-agent-host", ...command],
+    };
   }
-  return { bin: "/bin/bash", args: ["-lc", posix, "dispatch-agent-host", ...command] };
+  return {
+    bin: "/bin/bash",
+    args: ["-lc", posix, "dispatch-agent-host", ...command],
+  };
 }
 
 /** What the host must not inherit from the server process. */
@@ -87,7 +105,7 @@ const ENV_DENY_EXACT = new Set([
   "PGHOST",
   "PGPORT",
   "PGDATABASE",
-  "MEDIA_ROOT",
+  "DISPATCH_FILES_ROOT",
   "TLS_CERT",
   "TLS_KEY",
   "TLS_CA",
@@ -148,10 +166,7 @@ type Live = {
 };
 
 export type AcpRuntimeDeps = {
-  config: Pick<
-    AppConfig,
-    "agentStateRoot" | "agentRuntime" | "dispatchBinDir"
-  >;
+  config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
   /** The last journal seq the server applied for this agent (agents.host_seq). */
   hostSeq: (agentId: string) => Promise<number>;
@@ -270,7 +285,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     try {
       const log = await readFile(hostFile(stateDir(agentId), "log"), "utf8");
       const tail = log.trim().split("\n").slice(-LOG_TAIL_LINES).join("\n");
-      return tail ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${tail}` : "";
+      return tail
+        ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${tail}`
+        : "";
     } catch {
       return "";
     }
@@ -294,9 +311,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         pathPrefix: input.pathPrefix,
         resumeSessionId: input.resumeSessionId,
       };
-      await writeFile(hostFile(dir, "launch"), JSON.stringify(launch, null, 2), {
-        mode: 0o600,
-      });
+      await writeFile(
+        hostFile(dir, "launch"),
+        JSON.stringify(launch, null, 2),
+        {
+          mode: 0o600,
+        }
+      );
       // A stale socket from a dead host would make connect() spin on
       // ECONNREFUSED until the new host replaces it; clear it first.
       await unlink(hostFile(dir, "socket")).catch(() => {});
@@ -321,7 +342,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       });
       child.on("error", (err) => {
         exited = true;
-        logger.error({ err, agentId: input.agentId }, "agent host spawn failed");
+        logger.error(
+          { err, agentId: input.agentId },
+          "agent host spawn failed"
+        );
       });
       child.unref();
       logger.info(
@@ -370,7 +394,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     prompt(agentId, text) {
       const entry = live.get(agentId);
       if (!entry) {
-        const err = new Error("The agent is not running; the prompt cannot be delivered.");
+        const err = new Error(
+          "The agent is not running; the prompt cannot be delivered."
+        );
         return { accepted: Promise.reject(err), settled: Promise.reject(err) };
       }
       let resolveAccepted!: () => void;
@@ -386,7 +412,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           // Wait out a turn the engine started before this prompt was queued
           // (a reconnect mid-turn), then run ours and wait for its settle.
           while (entry.turnOpen) {
-            await new Promise<void>((resolve) => entry.settleWaiters.push(resolve));
+            await new Promise<void>((resolve) =>
+              entry.settleWaiters.push(resolve)
+            );
           }
           const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
           let resolveSettle!: () => void;

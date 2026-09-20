@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { HistoryEvent, HistoryMedia } from "@/hooks/use-agent-history";
+import type { HistoryEvent, HistoryFile } from "@/hooks/use-agent-history";
 
 import { DetailTabs } from "./agent-history-detail-tabs";
 
@@ -37,7 +37,7 @@ function makeEvent(id: number, message: string): HistoryEvent {
   };
 }
 
-function makeMedia(overrides: Partial<HistoryMedia> = {}): HistoryMedia {
+function makeFile(overrides: Partial<HistoryFile> = {}): HistoryFile {
   return {
     id: 1,
     file_name: "shot-2026-07-20-10-00-00-111.png",
@@ -52,13 +52,13 @@ function makeMedia(overrides: Partial<HistoryMedia> = {}): HistoryMedia {
 function renderTabs(
   overrides: Partial<React.ComponentProps<typeof DetailTabs>> = {}
 ) {
-  const media = overrides.media ?? [];
+  const files = overrides.files ?? [];
   apiMock.mockImplementation(async (requestPath: string) => {
-    const mediaId = Number(requestPath.split("/").pop());
-    const item = media.find((candidate) => candidate.id === mediaId);
-    if (!item) throw new Error("Media item not found");
+    const fileId = Number(requestPath.split("/").pop());
+    const item = files.find((candidate) => candidate.id === fileId);
+    if (!item) throw new Error("File not found");
     return {
-      media: {
+      file: {
         id: item.id,
         ownerAgentId: AGENT_ID,
         name: item.file_name,
@@ -66,13 +66,13 @@ function renderTabs(
         size: item.size_bytes,
         updatedAt: item.created_at,
         description: item.description,
-        url: `/api/v1/agents/${AGENT_ID}/media/${encodeURIComponent(item.file_name)}`,
+        url: `/api/v1/agents/${AGENT_ID}/files/${encodeURIComponent(item.file_name)}`,
       },
     };
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <DetailTabs events={[]} media={[]} agentId={AGENT_ID} {...overrides} />
+      <DetailTabs events={[]} files={[]} agentId={AGENT_ID} {...overrides} />
     </QueryClientProvider>
   );
 }
@@ -94,14 +94,14 @@ describe("DetailTabs", () => {
   it("defaults to the events tab and shows the empty state", () => {
     renderTabs();
     expect(screen.getByText("No events recorded.")).toBeTruthy();
-    expect(screen.queryByText("No media captured.")).toBeNull();
+    expect(screen.queryByText("No files captured.")).toBeNull();
   });
 
   it("shows a count badge only for non-empty collections", () => {
     renderTabs({ events: [makeEvent(1, "first"), makeEvent(2, "second")] });
     expect(tabButton("Events").textContent).toBe("Events2");
     // Empty tabs must not render a stray "0" badge.
-    expect(tabButton("Media").textContent).toBe("Media");
+    expect(tabButton("Files").textContent).toBe("Files");
   });
 
   it("renders the event timeline when events exist", () => {
@@ -112,29 +112,29 @@ describe("DetailTabs", () => {
   it("switches panes per tab and shows each tab's empty state", () => {
     renderTabs({ events: [makeEvent(1, "only event")] });
 
-    fireEvent.click(tabButton("Media"));
-    expect(screen.getByText("No media captured.")).toBeTruthy();
+    fireEvent.click(tabButton("Files"));
+    expect(screen.getByText("No files captured.")).toBeTruthy();
     expect(screen.queryByText("only event")).toBeNull();
 
     fireEvent.click(tabButton("Events"));
     expect(screen.getByText("only event")).toBeTruthy();
   });
 
-  it("renders screenshot tiles as images with encoded media URLs and text tiles as placeholders", () => {
+  it("renders screenshot tiles as images with encoded file URLs and text tiles as placeholders", () => {
     renderTabs({
-      media: [
-        makeMedia({
+      files: [
+        makeFile({
           id: 1,
           file_name: "my shot-2026-07-20-10-00-00-111.png",
           description: "Login page",
         }),
-        makeMedia({
+        makeFile({
           id: 2,
           file_name: "capture-2026-07-20-10-00-00-222.mp4",
           source: "stream",
           description: null,
         }),
-        makeMedia({
+        makeFile({
           id: 3,
           file_name: "sim-2026-07-20-10-00-00-333.png",
           source: "simulator",
@@ -142,11 +142,11 @@ describe("DetailTabs", () => {
         }),
       ],
     });
-    fireEvent.click(tabButton("Media"));
+    fireEvent.click(tabButton("Files"));
 
     const img = screen.getByAltText("Login page");
     expect(img.getAttribute("src")).toBe(
-      `/api/v1/agents/${AGENT_ID}/media/my%20shot-2026-07-20-10-00-00-111.png`
+      `/api/v1/agents/${AGENT_ID}/files/my%20shot-2026-07-20-10-00-00-111.png`
     );
     // The tile caption comes from the description, and only when present.
     expect(screen.getByText("Login page")).toBeTruthy();
@@ -158,26 +158,26 @@ describe("DetailTabs", () => {
 
   it("opens the lightbox at the clicked ID with a stripped-timestamp caption fallback", async () => {
     renderTabs({
-      media: [
-        makeMedia({
+      files: [
+        makeFile({
           id: 1,
           file_name: "first-2026-07-20-10-00-00-111.png",
           description: "First shot",
         }),
-        makeMedia({
+        makeFile({
           id: 2,
           file_name: "second-2026-07-20-10-00-00-222.png",
           description: null,
         }),
-        makeMedia({
+        makeFile({
           id: 3,
           file_name: "third-2026-07-20-10-00-00-333.png",
           description: "Third shot",
         }),
       ],
     });
-    fireEvent.click(tabButton("Media"));
-    expect(screen.queryByTestId("media-lightbox")).toBeNull();
+    fireEvent.click(tabButton("Files"));
+    expect(screen.queryByTestId("file-lightbox")).toBeNull();
 
     // Second tile has no description, so its alt falls back to the file name.
     fireEvent.click(
@@ -186,10 +186,10 @@ describe("DetailTabs", () => {
         .closest("button")!
     );
 
-    expect(screen.queryByText("Loading media…")).toBeNull();
+    expect(screen.queryByText("Loading file…")).toBeNull();
     await screen.findByText("second.png");
-    const lightbox = within(screen.getByTestId("media-lightbox"));
-    expect(apiMock).toHaveBeenCalledWith("/api/v1/media/2");
+    const lightbox = within(screen.getByTestId("file-lightbox"));
+    expect(apiMock).toHaveBeenCalledWith("/api/v1/files/2");
     // Caption falls back to the timestamp-stripped file name.
     expect(lightbox.getByText("second.png")).toBeTruthy();
     // Index and count both reached the lightbox.
@@ -198,11 +198,11 @@ describe("DetailTabs", () => {
     // ArrowRight advances to the third item, proving index wiring is live
     // state (not a snapshot) and totalItems permits forward navigation.
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    const thirdLightbox = within(screen.getByTestId("media-lightbox"));
+    const thirdLightbox = within(screen.getByTestId("file-lightbox"));
     await thirdLightbox.findByText("Third shot");
     expect(thirdLightbox.getByText("3/3")).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByTestId("media-lightbox")).toBeNull();
+    expect(screen.queryByTestId("file-lightbox")).toBeNull();
   });
 });
