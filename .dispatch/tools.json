@@ -21,7 +21,7 @@
           "name": "live",
           "type": "boolean",
           "flag": "--live",
-          "description": "Enable live agent runtime (tmux) instead of inert mode. Also disables demo data seeding."
+          "description": "Enable the live ACP agent runtime (real agent host processes) instead of inert mode. Also disables demo data seeding."
         },
         {
           "name": "noSeed",
@@ -46,7 +46,7 @@
           "name": "live",
           "type": "boolean",
           "flag": "--live",
-          "description": "Enable live agent runtime (tmux) instead of inert mode. Also disables demo data seeding."
+          "description": "Enable the live ACP agent runtime (real agent host processes) instead of inert mode. Also disables demo data seeding."
         },
         {
           "name": "noSeed",
@@ -93,12 +93,12 @@
       "scope": ["job"]
     },
     {
-      "name": "list_dispatch_sessions",
-      "description": "List tmux sessions belonging to this Dispatch server. Returns one session name per line. Uses DISPATCH_SESSION_PREFIX to filter (defaults to 'dispatch').",
+      "name": "list_agent_hosts",
+      "description": "List live agent host processes under this server's agent state root (DISPATCH_AGENT_STATE_ROOT, default ~/.dispatch/agents). Returns one '<agentId> <pid>' line per host whose pid is alive.",
       "command": [
         "bash",
         "-c",
-        "PREFIX=${DISPATCH_SESSION_PREFIX:-dispatch}; tmux list-sessions -F '#{session_name}' 2>/dev/null | grep \"^${PREFIX}_agt_\" || true"
+        "ROOT=${DISPATCH_AGENT_STATE_ROOT:-$HOME/.dispatch/agents}; for d in \"$ROOT\"/agt_*/; do [ -f \"$d/host.pid\" ] || continue; pid=$(cat \"$d/host.pid\" 2>/dev/null); [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null && echo \"$(basename \"$d\") $pid\"; done; true"
       ],
       "scope": ["job"]
     },
