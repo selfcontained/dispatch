@@ -833,14 +833,23 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/read", () => {
     );
     expect(all.json()).toEqual({ ids: [other.id], readAt: expect.any(String) });
     expect(
-      (await authedInject("POST", `/api/v1/streams/${agentId}/blocks/nope/read`, {}))
-        .statusCode
+      (
+        await authedInject(
+          "POST",
+          `/api/v1/streams/${agentId}/blocks/nope/read`,
+          {}
+        )
+      ).statusCode
     ).toBe(400);
     expect(
       (
-        await authedInject("POST", `/api/v1/streams/${agentId}/blocks/${r.id}/read`, {
-          finding: 3,
-        })
+        await authedInject(
+          "POST",
+          `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
+          {
+            finding: 3,
+          }
+        )
       ).statusCode
     ).toBe(400);
   });
@@ -1541,7 +1550,11 @@ describe("stream routes with a deliverable engine", () => {
       payload: {
         state: {
           findings: {
-            f1: { status: "resolved", resolution: "dismissed", note: "Out of scope" },
+            f1: {
+              status: "resolved",
+              resolution: "dismissed",
+              note: "Out of scope",
+            },
           },
         },
       },
@@ -1553,7 +1566,7 @@ describe("stream routes with a deliverable engine", () => {
       {
         agentId,
         prompt: expect.stringContaining(
-          `--- DISPATCH POST (id: ${r.id}, from: user) ---\nFinding f1 dismissed: Out of scope\n--- END DISPATCH POST ---`
+          `--- DISPATCH POST (id: ${r.id}, from: user) ---\nFinding f1 dismissed: Out of scope\nVerify the resolution`
         ),
       },
     ]);

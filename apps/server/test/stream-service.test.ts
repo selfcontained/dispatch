@@ -1240,7 +1240,7 @@ describe("StreamService.update", () => {
       {
         agentId: B,
         text: expect.stringContaining(
-          `--- DISPATCH POST (id: ${review.id}, from: Svc (${A})) ---\nFinding f1 fixed.\n--- END DISPATCH POST ---`
+          `--- DISPATCH POST (id: ${review.id}, from: Svc (${A})) ---\nFinding f1 fixed.\nVerify the resolution`
         ),
       },
     ]);
@@ -1897,6 +1897,7 @@ describe("StreamService.setState", () => {
         text: [
           `--- DISPATCH POST (id: ${r.id}, from: user) ---`,
           "Finding f1 fixed.",
+          "Verify the resolution when you can; reopen the finding with a note if it falls short.",
           "--- END DISPATCH POST ---",
           "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
         ].join("\n"),
@@ -1929,7 +1930,7 @@ describe("StreamService.setState", () => {
     ).not.toHaveProperty("resolution");
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected[1]?.text).toContain(
-      "Finding f1 reopened: Still spins after a timeout.\nFinding f2 dismissed: Not ours."
+      "Finding f1 reopened: Still spins after a timeout.\nFinding f2 dismissed: Not ours.\nThe agent whose work this is will address it"
     );
   });
 
@@ -2016,6 +2017,23 @@ describe("StreamService.setState", () => {
         f2: { status: "resolved", by: { kind: "agent", agentId: B } },
       },
     });
+    // The reviewer reopening tells the builder it is its move.
+    injected.length = 0;
+    await svc.setState(
+      B,
+      r.id,
+      { findings: { f1: { status: "open", note: "Still wrong." } } },
+      { kind: "agent", agentId: B }
+    );
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([
+      {
+        agentId: A,
+        text: expect.stringContaining(
+          "Finding f1 reopened: Still wrong.\nA reopened finding is yours to address"
+        ),
+      },
+    ]);
   });
 
   it("maps unknown or foreign blocks, stateless kinds and bad patches to errors", async () => {

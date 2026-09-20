@@ -885,12 +885,25 @@ export class StreamService {
     const from = await this.senderOf(by);
     for (const agentId of sides) {
       if (!(await this.canDeliver(agentId, true))) continue;
+      // Whose move it is: a reopened finding is the builder's to fix and
+      // the reviewer's to wait on; a resolved one is the reviewer's to
+      // check. Said outright, so neither side takes the other's turn.
+      const role =
+        kind === "review"
+          ? reviewMoveHint(
+              stamped,
+              updated.author.kind === "agent" &&
+                updated.author.agentId === agentId
+                ? "reviewer"
+                : "builder"
+            )
+          : null;
       this.injectDetached({
         agentId,
         envelope: buildPostEnvelope({
           blockId: updated.id,
           from,
-          text: summary,
+          text: role ? `${summary}\n${role}` : summary,
           threadId: updated.threadId,
         }),
         record: async () => undefined,
@@ -1828,6 +1841,29 @@ function describeFindingChange(id: string, state: BlockFindingState): string {
         ? "dismissed"
         : "fixed";
   return `Finding ${id} ${what}${state.note ? `: ${state.note}` : "."}`;
+}
+
+/**
+ * The line under a finding change that says whose move it is. `side` is
+ * who reads it: the review's author (reviewer) or the agent it is
+ * addressed to (builder).
+ */
+function reviewMoveHint(
+  patch: Record<string, unknown>,
+  side: "reviewer" | "builder"
+): string {
+  const findings = Object.values(
+    patch.findings as Record<string, BlockFindingState>
+  );
+  const reopened = findings.some((f) => f.status === "open");
+  if (side === "builder") {
+    return reopened
+      ? "A reopened finding is yours to address: make the change, say what changed under the finding, then mark it fixed on this block."
+      : "Nothing to do on your side unless a finding is reopened.";
+  }
+  return reopened
+    ? "The agent whose work this is will address it; you will hear when it is marked fixed. Do not make the change yourself."
+    : "Verify the resolution when you can; reopen the finding with a note if it falls short.";
 }
 
 function describeStateChange(
