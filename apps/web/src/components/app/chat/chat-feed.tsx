@@ -66,7 +66,25 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
  * expanded activity row; growth is {@link entryGrowthKey}'s business.
  */
 export function entryVersion(entry: StreamEntry): string {
-  return entry.type === "block" ? entry.block.updatedAt : entry.at;
+  if (entry.type !== "block") return entry.at;
+  // Only an agent edits a post; a user's post changes just its delivery
+  // and read marks, which are not a new version to fade in.
+  return entry.block.author.kind === "agent"
+    ? entry.block.updatedAt
+    : entry.block.createdAt;
+}
+
+/**
+ * The row a stream entry renders in. A user's post and the turn it opens
+ * are one row: the post lands first, the turn replaces it a moment later
+ * (the feed hides a block once a turn carries it as its prompt), and the
+ * row has to be the same element through that swap or the message fades
+ * in twice.
+ */
+export function rowIdentity(entry: StreamEntry): string {
+  return entry.type === "turn" && entry.prompt.chatMessageId
+    ? entry.prompt.chatMessageId
+    : entry.id;
 }
 
 /**
@@ -111,7 +129,7 @@ export function useEnteringEntries(
 
   if (seenRef.current === null) {
     seenRef.current = new Map(
-      entries.map((entry) => [entry.id, entryVersion(entry)])
+      entries.map((entry) => [rowIdentity(entry), entryVersion(entry)])
     );
     for (const entry of entries) {
       if (entry.at > newestAtRef.current) newestAtRef.current = entry.at;
@@ -125,21 +143,26 @@ export function useEnteringEntries(
   let newest = newestAtRef.current;
   let afterSeen = false;
   for (const entry of entries) {
-    present.add(entry.id);
+    const id = rowIdentity(entry);
+    present.add(id);
     const version = entryVersion(entry);
-    const prior = seen.get(entry.id);
+    const prior = seen.get(id);
     if (prior === undefined) {
       // New here, and either newer than anything seen or sitting below a
       // row that was already here: a live arrival, wherever time put it.
       // Only a page of older rows lands above everything seen.
       if (entry.at >= newestAtRef.current || afterSeen) {
-        entering.set(entry.id, version);
+        entering.set(id, version);
       }
     } else {
       afterSeen = true;
-      if (prior !== version) entering.set(entry.id, version);
+      // A post edited in place fades in again. The turn that replaces a
+      // user's post is the same row, not an edit: its fade carries on.
+      if (prior !== version && entry.type === "block") {
+        entering.set(id, version);
+      }
     }
-    seen.set(entry.id, version);
+    seen.set(id, version);
     if (entry.at > newest) newest = entry.at;
   }
   newestAtRef.current = newest;
@@ -531,7 +554,11 @@ export function ChatFeed({
           }
         })();
         return (
-          <Enter key={entry.id} id={entry.id} entering={entering}>
+          <Enter
+            key={rowIdentity(entry)}
+            id={rowIdentity(entry)}
+            entering={entering}
+          >
             <ChatRowStateContext.Provider value={rowState(entry.id)}>
               {view}
             </ChatRowStateContext.Provider>
