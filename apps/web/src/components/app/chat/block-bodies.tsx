@@ -11,6 +11,7 @@ import type {
   BlockFindingStatus,
   BlockFormField,
   BlockOption,
+  BlockReviewFinding,
   BlockReviewSeverity,
   BlockReviewVerdict,
   BlockTaskStatus,
@@ -40,6 +41,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
+import { Collapse } from "./collapse";
 
 /** A state patch for `PATCH …/blocks/:id/state`. */
 export type BlockStatePatch = Record<string, unknown>;
@@ -478,13 +481,201 @@ export function findingStatePatch(
   return { findings: { [findingId]: status } };
 }
 
+/** Colours for a finding's status pill. */
+const FINDING_STATUS_PILL: Record<BlockFindingStatus, string> = {
+  open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
+  resolved: "border-status-done/40 bg-status-done/10 text-status-done",
+  disputed: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
+};
+
+/** The card's left edge and header tint follow the verdict. */
+const VERDICT_EDGE: Record<BlockReviewVerdict, string> = {
+  approve: "border-l-status-done",
+  request_changes: "border-l-status-blocked",
+  comment: "border-l-border",
+};
+
+/** A finding's status as a small pill. */
+export function FindingStatusPill({
+  status,
+  className,
+}: {
+  status: BlockFindingStatus;
+  className?: string;
+}): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide",
+        FINDING_STATUS_PILL[status],
+        className
+      )}
+      data-testid="chat-review-finding-status"
+      data-status={status}
+    >
+      {FINDING_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+/** A finding's severity as a small chip. */
+function SeverityChip({
+  severity,
+}: {
+  severity: BlockReviewSeverity;
+}): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
+        SEVERITY_CHIP[severity] ?? SEVERITY_CHIP.minor
+      )}
+      data-testid="chat-review-severity"
+    >
+      {severity}
+    </span>
+  );
+}
+
+/** "apps/web/src/x.tsx:33", as a link into the Changes tab when one is offered. */
+function FindingPath({
+  finding,
+  onOpenPath,
+}: {
+  finding: BlockReviewFinding;
+  onOpenPath?: (path: string, line: number | null) => void;
+}): JSX.Element | null {
+  if (!finding.path) return null;
+  const label = `${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`;
+  return onOpenPath ? (
+    <button
+      type="button"
+      className="min-w-0 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      title="Open in Changes"
+      data-testid="chat-review-finding-path"
+      onClick={() => onOpenPath(finding.path!, finding.line ?? null)}
+    >
+      {label}
+    </button>
+  ) : (
+    <span
+      className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+      data-testid="chat-review-finding-path"
+    >
+      {label}
+    </span>
+  );
+}
+
 /**
- * A review as one line by default — verdict, the summary's first sentence,
- * "5 findings · 2 open" — that opens into compact finding rows: severity
- * chip, title, path:line, status, and resolve / dispute / reopen actions.
- * A row's title deep-links into the review's thread with that finding
- * highlighted; its path opens the Changes tab there. In the panel
- * (`expanded`, `showBodies`) the rows also carry their bodies.
+ * The status controls for one finding, sized for a thumb: Resolve and
+ * Dispute while it is open, Reopen once it is not.
+ */
+export function FindingActions({
+  status,
+  disabled,
+  onSetStatus,
+}: {
+  status: BlockFindingStatus;
+  disabled: boolean;
+  onSetStatus: (status: BlockFindingStatus) => void;
+}): JSX.Element {
+  return (
+    <div
+      className="flex flex-wrap gap-2"
+      data-testid="chat-review-finding-actions"
+    >
+      {status === "open" ? (
+        <>
+          <Button
+            type="button"
+            variant="success"
+            className="h-9 flex-1 gap-1.5 sm:flex-none"
+            disabled={disabled}
+            data-testid="chat-review-resolve"
+            onClick={() => onSetStatus("resolved")}
+          >
+            <Check className="h-4 w-4" aria-hidden="true" />
+            Resolve
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            className="h-9 flex-1 gap-1.5 sm:flex-none"
+            disabled={disabled}
+            data-testid="chat-review-dispute"
+            onClick={() => onSetStatus("disputed")}
+          >
+            <MessageSquareWarning className="h-4 w-4" aria-hidden="true" />
+            Dispute
+          </Button>
+        </>
+      ) : (
+        <Button
+          type="button"
+          variant="default"
+          className="h-9 gap-1.5"
+          disabled={disabled}
+          data-testid="chat-review-reopen"
+          onClick={() => onSetStatus("open")}
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden="true" />
+          Reopen
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One finding in full: severity, place, status, the requested change, and
+ * the status controls. The finding panel's subject; the discussion under
+ * it is the panel's.
+ */
+export function FindingDetail({
+  block,
+  finding,
+  disabled,
+  onSetState,
+  onOpenPath,
+}: {
+  block: Extract<Block, { kind: "review" }>;
+  finding: BlockReviewFinding;
+  disabled: boolean;
+  onSetState?: (patch: BlockStatePatch) => void;
+  onOpenPath?: (path: string, line: number | null) => void;
+}): JSX.Element {
+  const status = findingStatus(block, finding.id);
+  return (
+    <div className="flex flex-col gap-3" data-testid="chat-finding-detail">
+      <div className="flex flex-wrap items-center gap-2">
+        <FindingStatusPill status={status} />
+        <SeverityChip severity={finding.severity} />
+        <FindingPath finding={finding} onOpenPath={onOpenPath} />
+      </div>
+      <h3 className="text-[15px] font-semibold leading-snug text-foreground">
+        {finding.title}
+      </h3>
+      {onSetState ? (
+        <FindingActions
+          status={status}
+          disabled={disabled}
+          onSetStatus={(next) =>
+            onSetState(findingStatePatch(finding.id, next))
+          }
+        />
+      ) : null}
+      <Markdown className="text-sm text-foreground/90">{finding.body}</Markdown>
+    </div>
+  );
+}
+
+/**
+ * A review as a card of its own, unlike a text post: a verdict-coloured
+ * edge, a header that names the verdict and counts, the summary, and one
+ * compact row per finding (status, severity, title, place, comments) that
+ * opens the finding's panel. The full text and the status controls live
+ * there. Open by default while findings are open; the fold animates.
  */
 export function ReviewBlockBody({
   block,
@@ -494,49 +685,56 @@ export function ReviewBlockBody({
   onOpenPath,
   highlightFindingId = null,
   defaultExpanded = false,
-  showBodies = false,
+  commentCounts,
 }: {
   block: Extract<Block, { kind: "review" }>;
   /** State changes are unavailable (no callback, or nothing can be sent). */
   disabled: boolean;
   onSetState?: (patch: BlockStatePatch) => void;
-  /** Opens the review's thread on this finding. */
+  /** Opens the finding's panel. */
   onOpenFinding?: (findingId: string) => void;
   /** Opens the Changes tab on a finding's file. */
   onOpenPath?: (path: string, line: number | null) => void;
   highlightFindingId?: string | null;
   defaultExpanded?: boolean;
-  showBodies?: boolean;
+  /** Replies about each finding, by finding id. */
+  commentCounts?: Readonly<Record<string, number>>;
 }): JSX.Element {
   const [expanded, setExpanded] = useOpened(
-    `review:${showBodies ? "panel" : "feed"}:${block.id}`,
+    `review:${block.id}`,
     defaultExpanded
   );
   const verdict = VERDICT[block.data.verdict] ?? VERDICT.comment;
   const findings = block.data.findings;
-  const setStatus = (findingId: string, status: BlockFindingStatus) =>
-    onSetState?.(findingStatePatch(findingId, status));
-  const sentence = summarySentence(block.data.summary);
+  const open = findings.filter(
+    (finding) => findingStatus(block, finding.id) === "open"
+  ).length;
   return (
     <div
-      className="mt-1"
+      className={cn(
+        "mt-1 overflow-hidden rounded-md border border-border/60 border-l-[3px] bg-card/60",
+        VERDICT_EDGE[block.data.verdict] ?? VERDICT_EDGE.comment
+      )}
       data-testid="chat-review-block"
       data-expanded={expanded ? "true" : undefined}
     >
       <button
         type="button"
-        className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-left"
+        className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-muted/30"
         aria-expanded={expanded}
         data-testid="chat-review-header"
         onClick={() => setExpanded(!expanded)}
       >
         <ChevronRight
           className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-300",
             expanded && "rotate-90"
           )}
           aria-hidden="true"
         />
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Review
+        </span>
         <Badge
           variant={verdict.variant}
           data-testid="chat-review-verdict"
@@ -544,41 +742,62 @@ export function ReviewBlockBody({
         >
           {verdict.label}
         </Badge>
-        {sentence ? (
-          <span className="min-w-0 truncate text-sm text-foreground">
-            {sentence}
-          </span>
-        ) : null}
         <span
-          className="shrink-0 text-[11px] text-muted-foreground"
+          className="ml-auto shrink-0 text-[11px] text-muted-foreground"
           data-testid="chat-review-counts"
         >
           {findingsSummary(block)}
         </span>
       </button>
-      {expanded ? (
-        <div className="mt-2" data-testid="chat-review-details">
-          {block.data.summary && block.data.summary !== sentence ? (
-            <Markdown className="mb-2 text-muted-foreground prose-p:my-0.5">
+      <Collapse open={expanded} data-testid="chat-review-details">
+        <div className="border-t border-border/40 px-3 pb-2 pt-2">
+          {block.data.summary ? (
+            <Markdown className="mb-2 text-[13px] text-foreground/90 prose-p:my-0.5">
               {block.data.summary}
             </Markdown>
           ) : null}
           {findings.length > 0 ? (
             <ol
-              className="flex flex-col divide-y divide-border/40 border-t border-border/40"
+              className="-mx-1 flex flex-col divide-y divide-border/40 border-t border-border/40"
               data-testid="chat-review-findings"
             >
               {findings.map((finding) => {
                 const status = findingStatus(block, finding.id);
-                const isResolved = status === "resolved";
-                const isDisputed = status === "disputed";
+                const comments = commentCounts?.[finding.id] ?? 0;
                 const highlighted = highlightFindingId === finding.id;
+                const row = (
+                  <>
+                    <FindingStatusPill status={status} />
+                    <SeverityChip severity={finding.severity} />
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
+                        status === "resolved" &&
+                          "text-muted-foreground line-through"
+                      )}
+                      title={finding.title}
+                    >
+                      {finding.title}
+                    </span>
+                    {comments > 0 ? (
+                      <span
+                        className="shrink-0 text-[11px] text-muted-foreground"
+                        data-testid="chat-review-finding-comments"
+                      >
+                        {comments} {comments === 1 ? "comment" : "comments"}
+                      </span>
+                    ) : null}
+                    <ChevronRight
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                      aria-hidden="true"
+                    />
+                  </>
+                );
                 return (
                   <li
                     key={finding.id}
                     className={cn(
-                      "-mx-2 px-2 py-1.5",
-                      isResolved && "opacity-70",
+                      "px-1",
                       highlighted && "rounded-md bg-primary/[0.08]"
                     )}
                     data-testid="chat-review-finding"
@@ -586,145 +805,36 @@ export function ReviewBlockBody({
                     data-status={status}
                     data-highlighted={highlighted ? "true" : undefined}
                   >
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span
-                        className={cn(
-                          "shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
-                          SEVERITY_CHIP[finding.severity] ?? SEVERITY_CHIP.minor
-                        )}
-                        data-testid="chat-review-severity"
+                    {onOpenFinding ? (
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
+                        data-testid="chat-review-finding-link"
+                        aria-label={`${finding.title}, ${FINDING_STATUS_LABEL[status]}, open finding`}
+                        onClick={() => onOpenFinding(finding.id)}
                       >
-                        {finding.severity}
-                      </span>
-                      {onOpenFinding ? (
-                        <button
-                          type="button"
-                          className={cn(
-                            "min-w-0 truncate text-sm font-medium text-foreground underline-offset-2 hover:underline",
-                            isResolved && "line-through"
-                          )}
-                          data-testid="chat-review-finding-link"
-                          onClick={() => onOpenFinding(finding.id)}
-                        >
-                          {finding.title}
-                        </button>
-                      ) : (
-                        <span
-                          className={cn(
-                            "min-w-0 truncate text-sm font-medium text-foreground",
-                            isResolved && "line-through"
-                          )}
-                        >
-                          {finding.title}
-                        </span>
-                      )}
-                      {finding.path ? (
-                        onOpenPath ? (
-                          <button
-                            type="button"
-                            className="min-w-0 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                            title="Open in Changes"
-                            data-testid="chat-review-finding-path"
-                            onClick={() =>
-                              onOpenPath(finding.path!, finding.line ?? null)
-                            }
-                          >
-                            {finding.path}
-                            {finding.line !== undefined
-                              ? `:${finding.line}`
-                              : ""}
-                          </button>
-                        ) : (
-                          <span
-                            className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
-                            data-testid="chat-review-finding-path"
-                          >
-                            {finding.path}
-                            {finding.line !== undefined
-                              ? `:${finding.line}`
-                              : ""}
-                          </span>
-                        )
-                      ) : null}
-                      <span
-                        className={cn(
-                          "shrink-0 text-[11px]",
-                          isDisputed
-                            ? "text-status-waiting"
-                            : "text-muted-foreground"
-                        )}
-                        data-testid="chat-review-finding-status"
-                      >
-                        {FINDING_STATUS_LABEL[status]}
-                      </span>
-                      {onSetState ? (
-                        <span className="ml-auto flex shrink-0 items-center gap-0.5">
-                          {status === "open" ? (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 gap-1 px-1.5 text-[11px]"
-                                disabled={disabled}
-                                data-testid="chat-review-resolve"
-                                onClick={() =>
-                                  setStatus(finding.id, "resolved")
-                                }
-                              >
-                                <Check className="h-3 w-3" aria-hidden="true" />
-                                Resolve
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 gap-1 px-1.5 text-[11px]"
-                                disabled={disabled}
-                                data-testid="chat-review-dispute"
-                                onClick={() =>
-                                  setStatus(finding.id, "disputed")
-                                }
-                              >
-                                <MessageSquareWarning
-                                  className="h-3 w-3"
-                                  aria-hidden="true"
-                                />
-                                Dispute
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 gap-1 px-1.5 text-[11px]"
-                              disabled={disabled}
-                              data-testid="chat-review-reopen"
-                              onClick={() => setStatus(finding.id, "open")}
-                            >
-                              <RotateCcw
-                                className="h-3 w-3"
-                                aria-hidden="true"
-                              />
-                              Reopen
-                            </Button>
-                          )}
-                        </span>
-                      ) : null}
+                        {row}
+                      </button>
+                    ) : (
+                      <div className="flex w-full min-w-0 items-center gap-2 py-2">
+                        {row}
+                      </div>
+                    )}
+                    <div className="pb-1.5 pl-1">
+                      <FindingPath finding={finding} onOpenPath={onOpenPath} />
                     </div>
-                    {showBodies && finding.body ? (
-                      <Markdown className="mt-1 text-muted-foreground prose-p:my-0.5">
-                        {finding.body}
-                      </Markdown>
-                    ) : null}
                   </li>
                 );
               })}
             </ol>
           ) : null}
+          {open === 0 && findings.length > 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Every finding is resolved or disputed.
+            </p>
+          ) : null}
         </div>
-      ) : null}
+      </Collapse>
     </div>
   );
 }

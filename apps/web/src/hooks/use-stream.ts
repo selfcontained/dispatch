@@ -694,10 +694,19 @@ export function usePostBlock(rootId: string | null) {
     StreamPostInput & { id: string },
     { placeholder: Block; threadKey: readonly unknown[] | null }
   >({
-    mutationFn: async ({ id, to, text, replyTo, attachments, review }) => {
+    mutationFn: async ({
+      id,
+      to,
+      text,
+      replyTo,
+      finding,
+      attachments,
+      review,
+    }) => {
       const body: StreamPostRequest = { id, text };
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
+      if (replyTo && finding) body.finding = finding;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       if (review) body.review = review;
       return api<StreamPostResponse>(`${streamPath(rootId)}/blocks`, {

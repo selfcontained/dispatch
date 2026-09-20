@@ -96,6 +96,7 @@ export type {
   BlockReviewVerdict,
   BlockTaskStatus,
   BlockTasksData,
+  BlockTextData,
   BlockTasksState,
   StreamAnswerRequest,
   StreamAnswerResponse,

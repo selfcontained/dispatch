@@ -202,23 +202,46 @@ describe("ThreadPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("opens a review root expanded with the named finding highlighted", () => {
+  it("becomes the named finding's own panel: its detail, its comments, its composer", () => {
     const review = block({
       id: "rv",
       body: reviewBody("comment", "Looks fine.", [
         { id: "f1", severity: "minor", title: "Naming", body: "Rename x." },
-        { id: "f2", severity: "nit", title: "Spacing", body: "" },
+        { id: "f2", severity: "nit", title: "Spacing", body: "Add a gap." },
       ]),
     });
     client.setQueryData(threadQueryKey("agt_1", "rv"), {
       root: review,
-      replies: [],
+      replies: [
+        block({
+          id: "c1",
+          text: "on f2",
+          body: { kind: "text", data: { findingId: "f2" }, state: null },
+        }),
+        block({
+          id: "c2",
+          text: "on f1",
+          body: { kind: "text", data: { findingId: "f1" }, state: null },
+        }),
+        block({ id: "c3", text: "general" }),
+      ],
     });
     renderPanel({ blockId: "rv", findingId: "f2" });
-    const rows = screen.getAllByTestId("chat-review-finding");
-    expect(rows).toHaveLength(2);
-    expect(rows[1]!.getAttribute("data-highlighted")).toBe("true");
-    expect(rows[0]!.textContent).toContain("Rename x.");
+    expect(screen.getByTestId("chat-thread-subject").textContent).toContain(
+      "in the review by"
+    );
+    const detail = screen.getByTestId("chat-finding-detail");
+    expect(detail.textContent).toContain("Spacing");
+    expect(detail.textContent).toContain("Add a gap.");
+    expect(screen.queryByTestId("chat-review-finding")).toBeNull();
+    // Only this finding's comments.
+    const replies = screen.getByTestId("chat-thread-replies");
+    expect(replies.textContent).toContain("on f2");
+    expect(replies.textContent).not.toContain("on f1");
+    expect(replies.textContent).not.toContain("general");
+    expect(screen.getByTestId("chat-thread-count").textContent).toBe(
+      "1 comment"
+    );
   });
 
   it("reports a failed load with a retry", async () => {

@@ -15,6 +15,7 @@ import {
   findingsSummary,
   FormBlockBody,
   LinkBlockBody,
+  FindingDetail,
   ReviewBlockBody,
   summarySentence,
   TasksBlockBody,
@@ -162,43 +163,66 @@ describe("ReviewBlockBody", () => {
     expect(screen.getByTestId("chat-review-verdict").textContent).toBe(
       "Changes requested"
     );
-    expect(header.textContent).toContain("Two things need work.");
-    expect(header.textContent).not.toContain("The rest is fine.");
     expect(screen.getByTestId("chat-review-counts").textContent).toBe(
       "2 findings · 1 open"
     );
-    expect(screen.queryByTestId("chat-review-findings")).toBeNull();
+    // Folded: the details are there but closed (they animate open).
+    expect(
+      screen.getByTestId("chat-review-details").getAttribute("data-open")
+    ).toBe("false");
 
     fireEvent.click(header);
+    expect(
+      screen.getByTestId("chat-review-details").getAttribute("data-open")
+    ).toBe("true");
+    expect(screen.getByTestId("chat-review-details").textContent).toContain(
+      "Two things need work. The rest is fine."
+    );
     const rows = screen.getAllByTestId("chat-review-finding");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.getAttribute("data-status")).toBe("open");
+    expect(rows[0]!.textContent).toContain("Open");
     expect(rows[0]!.textContent).toContain("blocker");
     expect(rows[0]!.textContent).toContain("src/a.ts:12");
     expect(rows[1]!.getAttribute("data-status")).toBe("resolved");
-    // Compact rows: the body waits for the panel.
+    // Compact rows: the body and the controls wait for the finding panel.
     expect(rows[0]!.textContent).not.toContain("Guard the lookup.");
+    expect(screen.queryByTestId("chat-review-resolve")).toBeNull();
   });
 
-  it("resolves and reopens a finding through a bare-status patch", () => {
+  it("resolves and reopens a finding from its detail through a bare-status patch", () => {
     const onSetState = vi.fn();
+    const r = review();
     render(
-      <ReviewBlockBody
-        block={review()}
+      <FindingDetail
+        block={r}
+        finding={r.data.findings[0]!}
         disabled={false}
         onSetState={onSetState}
-        defaultExpanded
       />
+    );
+    expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
+      "Guard the lookup."
     );
     fireEvent.click(screen.getByTestId("chat-review-resolve"));
     expect(onSetState).toHaveBeenCalledWith({
       findings: { f1: "resolved" },
     });
+    cleanup();
+
+    render(
+      <FindingDetail
+        block={r}
+        finding={r.data.findings[1]!}
+        disabled={false}
+        onSetState={onSetState}
+      />
+    );
     fireEvent.click(screen.getByTestId("chat-review-reopen"));
     expect(onSetState).toHaveBeenCalledWith({ findings: { f2: "open" } });
   });
 
-  it("deep-links a finding into the thread, and highlights it with its body in the panel", () => {
+  it("opens a finding from its row, counts its comments, and highlights the one named", () => {
     const onOpenFinding = vi.fn();
     render(
       <ReviewBlockBody
@@ -206,26 +230,17 @@ describe("ReviewBlockBody", () => {
         disabled={false}
         onOpenFinding={onOpenFinding}
         defaultExpanded
+        commentCounts={{ f1: 2 }}
+        highlightFindingId="f1"
       />
     );
     fireEvent.click(screen.getAllByTestId("chat-review-finding-link")[0]!);
     expect(onOpenFinding).toHaveBeenCalledWith("f1");
-    cleanup();
-
-    render(
-      <ReviewBlockBody
-        block={review()}
-        disabled={false}
-        defaultExpanded
-        showBodies
-        highlightFindingId="f1"
-      />
-    );
     const rows = screen.getAllByTestId("chat-review-finding");
     expect(rows[0]!.getAttribute("data-highlighted")).toBe("true");
+    expect(rows[0]!.textContent).toContain("2 comments");
     expect(rows[1]!.getAttribute("data-highlighted")).toBeNull();
-    expect(rows[0]!.textContent).toContain("Guard the lookup.");
-    expect(screen.queryByTestId("chat-review-resolve")).toBeNull();
+    expect(rows[1]!.textContent).not.toContain("comment");
   });
 
   it("summarises findings and summaries", () => {

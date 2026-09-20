@@ -209,6 +209,14 @@ export function registerStreamTools(
             .describe("Agent id to deliver to. Omit for your own stream."),
           text: textSchema.optional(),
           replyTo: z.uuid().optional(),
+          finding: z
+            .string()
+            .min(1)
+            .max(64)
+            .optional()
+            .describe(
+              "With replyTo on a review: the id of the finding this reply is about, so it shows under that item."
+            ),
           question: questionSchema.optional(),
           form: formSchema.optional(),
           link: linkSchema.optional(),
@@ -224,6 +232,7 @@ export function registerStreamTools(
             to: args.to ?? null,
             text: args.text,
             replyTo: args.replyTo ?? null,
+            finding: args.finding ?? null,
             question: args.question ?? null,
             form: args.form ?? null,
             link: args.link ?? null,

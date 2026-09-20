@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
 
+import { FindingDetail } from "@/components/app/chat/block-bodies";
+
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import {
@@ -103,19 +105,37 @@ export function ThreadPanel({
   const post = usePostBlock(rootId);
   const { mutateAsync: postAsync } = post;
 
-  const grouped = useMemo(
-    () => groupReplies(thread.replies, ctx),
-    [ctx, thread.replies]
+  // On a review, a finding id turns the panel into that finding's own:
+  // the finding in full, its status controls, and only its discussion.
+  const finding =
+    findingId && thread.root?.kind === "review"
+      ? (thread.root.data.findings.find((f) => f.id === findingId) ?? null)
+      : null;
+  const replies = useMemo(
+    () =>
+      finding
+        ? thread.replies.filter(
+            (reply) =>
+              reply.kind === "text" && reply.data?.findingId === finding.id
+          )
+        : thread.replies,
+    [finding, thread.replies]
   );
+  const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
 
   const onSend = useCallback(
     async (
       text: string,
       attachments: ChatUserAttachmentInput[]
     ): Promise<void> => {
-      await postAsync({ text, attachments, replyTo: blockId });
+      await postAsync({
+        text,
+        attachments,
+        replyTo: blockId,
+        ...(finding ? { finding: finding.id } : {}),
+      });
     },
-    [blockId, postAsync]
+    [blockId, finding, postAsync]
   );
 
   const uploadFile = useCallback(
@@ -170,8 +190,21 @@ export function ThreadPanel({
           </Button>
         ) : null}
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-foreground">Thread</div>
-          {thread.root ? (
+          <div className="text-sm font-semibold text-foreground">
+            {finding ? "Finding" : "Thread"}
+          </div>
+          {finding ? (
+            <button
+              type="button"
+              className="block max-w-full truncate text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
+              data-testid="chat-thread-subject"
+              onClick={() => ctx.onOpenThread?.(blockId)}
+              title="Back to the review"
+            >
+              ← in the review by{" "}
+              {thread.root ? blockAuthor(thread.root, ctx).name : ""}
+            </button>
+          ) : thread.root ? (
             <div
               className="truncate text-[11.5px] text-muted-foreground"
               data-testid="chat-thread-subject"
@@ -230,31 +263,53 @@ export function ThreadPanel({
             Loading the thread…
           </div>
         ) : null}
+        {thread.root && finding && thread.root.kind === "review" ? (
+          <div className="px-4 pb-2 pt-1">
+            <FindingDetail
+              block={thread.root}
+              finding={finding}
+              disabled={disabledReason !== null || !ctx.onSetBlockState}
+              onSetState={
+                ctx.onSetBlockState
+                  ? (patch) => ctx.onSetBlockState?.(blockId, patch)
+                  : undefined
+              }
+              onOpenPath={ctx.onOpenPath}
+            />
+          </div>
+        ) : thread.root ? (
+          <BlockView
+            block={thread.root}
+            held={false}
+            grouped={false}
+            ctx={ctx}
+            answering={answeringBlockId === thread.root.id}
+            submitting={submittingBlockId === thread.root.id}
+            answersDisabled={disabledReason !== null}
+            onAnswer={onAnswer}
+            inThread
+            highlightFindingId={findingId}
+          />
+        ) : null}
         {thread.root ? (
           <>
-            <BlockView
-              block={thread.root}
-              held={false}
-              grouped={false}
-              ctx={ctx}
-              answering={answeringBlockId === thread.root.id}
-              submitting={submittingBlockId === thread.root.id}
-              answersDisabled={disabledReason !== null}
-              onAnswer={onAnswer}
-              inThread
-              highlightFindingId={findingId}
-            />
-            {thread.replies.length > 0 ? (
+            {replies.length > 0 ? (
               <div
                 className="mx-4 mt-2 border-t border-border/40 pt-1 text-[11px] text-muted-foreground"
                 data-testid="chat-thread-count"
               >
-                {thread.replies.length}{" "}
-                {thread.replies.length === 1 ? "reply" : "replies"}
+                {replies.length}{" "}
+                {replies.length === 1
+                  ? finding
+                    ? "comment"
+                    : "reply"
+                  : finding
+                    ? "comments"
+                    : "replies"}
               </div>
             ) : null}
             <div data-testid="chat-thread-replies">
-              {thread.replies.map((reply, index) => (
+              {replies.map((reply, index) => (
                 <BlockView
                   key={reply.id}
                   block={reply}
@@ -282,7 +337,9 @@ export function ThreadPanel({
           uploadFile={uploadFile}
           disabledReason={disabledReason}
           sending={post.isPending}
-          placeholder="Reply in thread…"
+          placeholder={
+            finding ? "Comment on this finding…" : "Reply in thread…"
+          }
           autoFocus={!isMobile}
         />
       </div>

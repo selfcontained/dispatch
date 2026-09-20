@@ -76,6 +76,8 @@ export type PostInput = {
   kind?: BlockKind;
   text?: string;
   replyTo?: string | null;
+  /** With `replyTo` naming a review (or a reply in its thread): the finding this is about. */
+  finding?: string | null;
   question?: BlockQuestionData | null;
   form?: BlockFormData | null;
   link?: BlockLinkData | null;
@@ -528,6 +530,7 @@ export class StreamService {
     if (!block.threadId) return;
     const author = block.author;
     const others = await this.store.threadParticipants(block.threadId, author);
+    const finding = await this.findingOf(block);
     for (const party of others) {
       if (party.kind !== "agent" || except.includes(party.agentId)) continue;
       if (!(await this.canDeliver(party.agentId, true))) continue;
@@ -539,6 +542,7 @@ export class StreamService {
           text: envelopeText(block),
           attachmentLines,
           threadId: block.threadId,
+          finding,
         }),
         record: async () => undefined,
         logContext: { blockId: block.id, participant: party.agentId },
@@ -562,6 +566,8 @@ export class StreamService {
       to?: string | null;
       text: string;
       replyTo?: string | null;
+      /** With `replyTo` on a review: the finding this reply is about. */
+      finding?: string | null;
       attachments?: ChatUserAttachmentInput[];
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewData | null;
@@ -582,6 +588,7 @@ export class StreamService {
       );
     }
     const thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    const finding = await this.resolveFinding(thread, input.finding ?? null);
     // A reply in a thread goes to the agent on the other side of it; a
     // top-level post goes to the stream's agent unless addressed elsewhere.
     const toAgentId =
@@ -606,7 +613,9 @@ export class StreamService {
       text,
       ...(review
         ? { data: review, state: initialState("review", review) }
-        : {}),
+        : finding
+          ? { data: { findingId: finding.id } }
+          : {}),
       attachments: resolved,
       delivered: live ? null : false,
     };
@@ -624,7 +633,7 @@ export class StreamService {
       ]);
     }
     if (!live) return { block, delivered: false, held: false };
-    const { held } = this.deliverBlock(
+    const { held } = await this.deliverBlock(
       block,
       { kind: "user" },
       attachmentLines
@@ -738,7 +747,7 @@ export class StreamService {
     await this.publishEntry(streamId, answered.id);
     await this.publishEntry(streamId, reply.id);
     if (live) {
-      this.deliverBlock(reply, { kind: "user" }, attachmentLines, {
+      await this.deliverBlock(reply, { kind: "user" }, attachmentLines, {
         answers: { blockId: question.id, kind: "question" },
       });
     }
@@ -822,7 +831,7 @@ export class StreamService {
     await this.publishEntry(streamId, submitted.id);
     await this.publishEntry(streamId, reply.id);
     if (live) {
-      this.deliverBlock(reply, { kind: "user" }, [], {
+      await this.deliverBlock(reply, { kind: "user" }, [], {
         answers: { blockId: form.id, kind: "form" },
       });
     }
@@ -1020,7 +1029,9 @@ export class StreamService {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
     const streamId = await this.streamOf(agentId);
-    const { kind, data } = resolveKindAndData(input);
+    const resolved = resolveKindAndData(input);
+    const kind = resolved.kind;
+    let data = resolved.data;
     const text = requireText(input.text);
     const attachmentInputs = input.attachments ?? [];
     if (attachmentInputs.length > BLOCK_ATTACHMENTS_MAX) {
@@ -1040,6 +1051,8 @@ export class StreamService {
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
     const thread = await this.resolveThread(streamId, replyTo);
+    const finding = await this.resolveFinding(thread, input.finding ?? null);
+    if (finding && kind === "text") data = { findingId: finding.id };
     if (toAgentId === null && thread) {
       toAgentId = await this.threadCounterpart(thread.threadId, author);
     }
@@ -1068,7 +1081,7 @@ export class StreamService {
     const attachmentLines = this.describeAttachments(agent, attachments);
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
     if (toAgentId && live) {
-      this.deliverBlock(block, from, attachmentLines);
+      await this.deliverBlock(block, from, attachmentLines);
     }
     if (thread) {
       void this.notifyThread(
@@ -1381,12 +1394,12 @@ export class StreamService {
    * again; graceful shutdown waits (briefly) for it, and a restart sweeps
    * whatever it could not wait for to delivered=false.
    */
-  private deliverBlock(
+  private async deliverBlock(
     block: Block,
     from: EnvelopeSender,
     attachmentLines: string[] = [],
     extra: { answers?: { blockId: string; kind: BlockKind } | null } = {}
-  ): { held: boolean } {
+  ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
     if (!toAgentId) return { held: false };
     return this.injectDetached({
@@ -1397,6 +1410,7 @@ export class StreamService {
         text: envelopeText(block),
         attachmentLines,
         threadId: block.threadId,
+        finding: await this.findingOf(block),
         answers: extra.answers ?? null,
       }),
       record: async (delivered) => {
@@ -1502,6 +1516,55 @@ export class StreamService {
       );
     }
     return { threadId: target.threadId ?? target.id, replyTo: target.id };
+  }
+
+  /**
+   * The finding a thread reply is about: named by id, it has to exist on
+   * the review the thread is under. Returns its id and title, or null when
+   * no finding was named.
+   */
+  /** The finding a reply names (its id and title), for the envelope. */
+  private async findingOf(
+    block: Block
+  ): Promise<{ id: string; title: string } | null> {
+    const findingId =
+      block.kind === "text" && block.data && "findingId" in block.data
+        ? (block.data as { findingId?: string }).findingId
+        : undefined;
+    if (!findingId || !block.threadId) return null;
+    const root = await this.store.getById(block.threadId);
+    if (!root || root.kind !== "review") return null;
+    const match = (root.data as BlockReviewData).findings.find(
+      (candidate) => candidate.id === findingId
+    );
+    return match ? { id: match.id, title: match.title } : null;
+  }
+
+  private async resolveFinding(
+    thread: { threadId: string; replyTo: string } | null,
+    finding: string | null
+  ): Promise<{ id: string; title: string } | null> {
+    if (finding === null || finding.trim() === "") return null;
+    if (!thread) {
+      throw new StreamValidationError(
+        "finding needs replyTo: the review the finding is on."
+      );
+    }
+    const root = await this.store.getById(thread.threadId);
+    if (!root || root.kind !== "review") {
+      throw new StreamValidationError(
+        "finding only applies to a reply in a review's thread."
+      );
+    }
+    const match = (root.data as BlockReviewData).findings.find(
+      (candidate) => candidate.id === finding
+    );
+    if (!match) {
+      throw new StreamValidationError(
+        `finding "${finding}" is not on that review.`
+      );
+    }
+    return { id: match.id, title: match.title };
   }
 
   private async requireAgent(agentId: string): Promise<StreamAgent> {

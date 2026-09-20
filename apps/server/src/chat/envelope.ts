@@ -96,7 +96,7 @@ export function describeReview(
     if (open > 0) {
       lines.push(
         "",
-        `What to do: address each open finding, then mark it on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "resolved" } } }), and say what changed in its thread: post({ replyTo: "${blockId}", text: "…" }). Disagree with one by marking it "disputed" and saying why in the thread. You are done when no finding is open.`
+        `What to do: address each open finding, then mark it on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "resolved" } } }), and say what changed under that finding: post({ replyTo: "${blockId}", finding: "<finding id>", text: "…" }). Disagree with one by marking it "disputed" and saying why the same way. You are done when no finding is open.`
       );
     }
   }
@@ -123,6 +123,8 @@ export function buildPostEnvelope(input: {
   threadId?: string | null;
   /** A block of the agent's this post answers (a question or form). */
   answers?: { blockId: string; kind: BlockKind } | null;
+  /** The review finding this thread reply is about. */
+  finding?: { id: string; title: string } | null;
 }): string {
   const body: string[] = [];
   if (input.text.trim().length > 0) body.push(input.text);
@@ -141,10 +143,18 @@ export function buildPostEnvelope(input: {
   if (input.threadId) {
     context.push(`In the thread under ${input.threadId}.`);
   }
+  if (input.finding) {
+    context.push(
+      `About finding "${input.finding.id}" (${input.finding.title}).`
+    );
+  }
+  const replyArgs = input.threadId
+    ? `replyTo: "${input.threadId}"${input.finding ? `, finding: "${input.finding.id}"` : ""}`
+    : "";
   const routing =
     input.from.kind === "user"
-      ? `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent${input.threadId ? `; to answer in this thread, post with replyTo: "${input.threadId}"` : ""}.`
-      : `From another agent. Reply with post (to: "${input.from.agentId}"${input.threadId ? `, replyTo: "${input.threadId}"` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
+      ? `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent${replyArgs ? `; to answer in this thread, post with ${replyArgs}` : ""}.`
+      : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
   return [
     `--- DISPATCH POST (id: ${input.blockId}, from: ${senderLabel(input.from)}) ---`,
     ...(body.length > 0 ? [safeBody] : []),

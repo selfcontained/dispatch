@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 
 export type ChatFeedContextInput = {
   agentId: string | null;
+  rootId?: string | null;
   agent: Agent | null;
   openLightbox: (mediaId: number) => void;
   /** Must be stable: every row is memoised on the context it lands in. */
@@ -43,6 +44,7 @@ export type ChatFeedContextResult = {
  */
 export function useChatFeedContext({
   agentId,
+  rootId = null,
   agent,
   openLightbox,
   onOpenPath,
@@ -73,6 +75,7 @@ export function useChatFeedContext({
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
+      rootId,
       agentName,
       agentType,
       peers,
@@ -85,6 +88,7 @@ export function useChatFeedContext({
     }),
     [
       agentId,
+      rootId,
       agentName,
       agentType,
       onOpenPath,

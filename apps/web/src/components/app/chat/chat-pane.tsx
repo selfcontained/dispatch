@@ -880,6 +880,7 @@ export function ChatPane({
 
   const { ctx } = useChatFeedContext({
     agentId,
+    rootId,
     agent,
     openLightbox,
     onOpenPath,

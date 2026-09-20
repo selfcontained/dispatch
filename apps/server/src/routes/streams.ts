@@ -66,6 +66,7 @@ const postBodySchema = z.object({
     )
     .default(""),
   replyTo: z.uuid().optional(),
+  finding: z.string().min(1).max(64).optional(),
   attachments: z
     .array(userAttachmentSchema)
     .max(BLOCK_ATTACHMENTS_MAX)
@@ -179,6 +180,7 @@ export async function registerStreamRoutes(
         to: parsed.data.to ?? null,
         text: parsed.data.text,
         replyTo: parsed.data.replyTo ?? null,
+        finding: parsed.data.finding ?? null,
         attachments: parsed.data.attachments ?? [],
         ...(parsed.data.review ? { review: parsed.data.review } : {}),
         allowInert: true,

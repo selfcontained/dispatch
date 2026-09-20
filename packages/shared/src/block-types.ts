@@ -122,8 +122,15 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 /** `kind` with its `data` and `state`, so a switch on kind types both. */
+/**
+ * A text reply in a review's thread may be about one finding: the
+ * discussion of that item, shown under it rather than in the review's
+ * general thread.
+ */
+export type BlockTextData = { findingId?: string };
+
 export type BlockBody =
-  | { kind: "text"; data: null; state: null }
+  | { kind: "text"; data: BlockTextData | null; state: null }
   | { kind: "file"; data: null; state: null }
   | { kind: "link"; data: BlockLinkData; state: null }
   | { kind: "question"; data: BlockQuestionData; state: BlockQuestionState }
@@ -240,6 +247,8 @@ export type StreamPostRequest = {
   text: string;
   /** Reply under this top-level block (or a reply in its thread). */
   replyTo?: string;
+  /** With `replyTo` on a review: the finding this reply is about. */
+  finding?: string;
   attachments?: ChatUserAttachmentInput[];
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
   review?: BlockReviewData;

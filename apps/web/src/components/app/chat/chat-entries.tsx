@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useMemo } from "react";
 import type { Block, BlockOption, ChatStatusEntry } from "@dispatch/shared";
 import {
   AlertTriangle,
@@ -24,6 +24,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
+import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
 
 import {
@@ -114,6 +115,8 @@ export function peerDirectory(
  */
 export type FeedContext = {
   agentId: string;
+  /** The stream the feed reads: the root of the agent's lineage. */
+  rootId?: string | null;
   /** The agent this channel belongs to; names its posts. */
   agentName?: string;
   agentType?: string | null;
@@ -299,7 +302,8 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
  * plus its gap) on top of the row's own padding, so the avatar column
  * shifts in and the body narrows by the same amount.
  */
-export const SIDE_POST_INDENT = "pl-[3.75rem]";
+// One gutter step on wide screens; a phone has no room to give up.
+export const SIDE_POST_INDENT = "pl-4 sm:pl-[3.75rem]";
 
 /** Opens the post's thread with the composer ready: a person replying to one post. */
 export function ReplyInThreadButton({
@@ -649,21 +653,21 @@ function BlockBody({
       );
     case "review":
       return (
-        <ReviewBlockBody
+        <ReviewBlockWithCounts
           block={block}
+          rootId={ctx.rootId ?? null}
           disabled={answersDisabled}
           onSetState={setState}
           onOpenFinding={
-            onOpenThread && !inThread
+            onOpenThread
               ? (findingId) => onOpenThread(block.id, findingId)
               : undefined
           }
           onOpenPath={onOpenPath}
-          // A review with work left in it opens on its findings, each with
-          // the change it asks for; a settled one folds to its verdict. In
-          // the panel the review is the whole subject and always open.
+          // A review with work left in it opens on its findings; a settled
+          // one folds to its verdict. In the panel the review is the whole
+          // subject and always open.
           defaultExpanded={inThread || hasOpenFindings(block)}
-          showBodies
           highlightFindingId={highlightFindingId}
         />
       );
@@ -701,6 +705,40 @@ export type BlockViewProps = {
  * the attachments, and then the delivery state (a person's block), the
  * reactions, and the thread's reply line.
  */
+/** How many replies in a review's thread are about each finding. */
+export function commentCountsOf(
+  replies: readonly Block[]
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const reply of replies) {
+    const findingId =
+      reply.kind === "text" && reply.data ? reply.data.findingId : undefined;
+    if (findingId) counts[findingId] = (counts[findingId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * The review card with each finding's comment count, read from the
+ * review's thread once it has replies.
+ */
+function ReviewBlockWithCounts({
+  rootId,
+  ...props
+}: Omit<Parameters<typeof ReviewBlockBody>[0], "commentCounts"> & {
+  rootId: string | null;
+}): JSX.Element {
+  const thread = useThread(
+    rootId,
+    (props.block.replyCount ?? 0) > 0 ? props.block.id : null
+  );
+  const commentCounts = useMemo(
+    () => commentCountsOf(thread.replies),
+    [thread.replies]
+  );
+  return <ReviewBlockBody {...props} commentCounts={commentCounts} />;
+}
+
 /** Whether any finding on a review is still open. */
 function hasOpenFindings(block: Extract<Block, { kind: "review" }>): boolean {
   return block.data.findings.some(
