@@ -34,6 +34,7 @@ import {
   QuestionOptions,
   ReviewBlockBody,
   TasksBlockBody,
+  findingIdOf,
 } from "./block-bodies";
 import { AttachmentList } from "./chat-attachment-views";
 import {
@@ -730,8 +731,7 @@ export function commentCountsOf(
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const reply of replies) {
-    const findingId =
-      reply.kind === "text" && reply.data ? reply.data.findingId : undefined;
+    const findingId = findingIdOf(reply);
     if (findingId) counts[findingId] = (counts[findingId] ?? 0) + 1;
   }
   return counts;
@@ -747,10 +747,7 @@ export function unreadCommentsOf(
   const counts: Record<string, number> = {};
   for (const reply of replies) {
     if (reply.author.kind !== "agent" || reply.readAt !== null) continue;
-    const findingId =
-      (reply.kind === "text" && reply.data
-        ? reply.data.findingId
-        : undefined) ?? "";
+    const findingId = findingIdOf(reply) ?? "";
     counts[findingId] = (counts[findingId] ?? 0) + 1;
   }
   return counts;

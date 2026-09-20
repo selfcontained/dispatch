@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 import {
   BLOCK_ATTACHMENTS_MAX,
   BLOCK_FORM_FIELDS_MAX,
+  BLOCK_OPTION_LABEL_MAX_CHARS,
   BLOCK_OPTIONS_MAX,
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
@@ -23,7 +24,11 @@ export type StreamToolsContext = {
 };
 
 const optionSchema = z.object({
-  label: z.string().min(1).max(200),
+  label: z
+    .string()
+    .min(1)
+    .max(BLOCK_OPTION_LABEL_MAX_CHARS)
+    .describe("A button's text: a few words, not a sentence."),
   value: z
     .string()
     .min(1)
@@ -277,7 +282,7 @@ export function registerStreamTools(
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-              "Partial state to merge: { findings: { <id>: \"fixed\" | \"dismissed\" | \"open\" | { status, resolution?, note? } } } or { items: { <id>: <status> } }."
+              'Partial state to merge: { findings: { <id>: "fixed" | "dismissed" | "open" | { status, resolution?, note? } } } or { items: { <id>: <status> } }.'
             ),
           attachments: attachmentsSchema.optional(),
         },

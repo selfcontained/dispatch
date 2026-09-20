@@ -28,6 +28,7 @@ import type {
 import {
   BLOCK_ATTACHMENTS_MAX,
   BLOCK_FORM_FIELDS_MAX,
+  BLOCK_OPTION_LABEL_MAX_CHARS,
   BLOCK_OPTIONS_MAX,
   BLOCK_REACTIONS_MAX,
   BLOCK_REVIEW_FINDINGS_MAX,
@@ -337,11 +338,19 @@ export function resolveKindAndData(input: PostInput): {
           `question.options must have ${BLOCK_OPTIONS_MAX} entries or fewer.`
         );
       }
+      for (const o of q.options) {
+        const label = typeof o.label === "string" ? o.label.trim() : "";
+        if (!label || label.length > BLOCK_OPTION_LABEL_MAX_CHARS) {
+          throw new StreamValidationError(
+            `Each option label must be 1–${BLOCK_OPTION_LABEL_MAX_CHARS} characters: a button, not a sentence. Put the explanation in the text.`
+          );
+        }
+      }
       return {
         kind,
         data: {
           options: q.options.map((o) => ({
-            label: o.label,
+            label: o.label.trim(),
             ...(o.value !== undefined ? { value: o.value } : {}),
           })),
           ...(q.allowFreeform ? { allowFreeform: true } : {}),
@@ -1077,6 +1086,9 @@ export class StreamService {
       kind === "review" ? null : await this.resolveThread(streamId, replyTo);
     const finding = await this.resolveFinding(thread, input.finding ?? null);
     if (finding && kind === "text") data = { findingId: finding.id };
+    if (finding && kind === "question") {
+      data = { ...(data as BlockQuestionData), findingId: finding.id };
+    }
     if (toAgentId === null && thread) {
       toAgentId = await this.threadCounterpart(thread, author, finding);
     }
@@ -1100,12 +1112,24 @@ export class StreamService {
     });
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
+    // An agent's reply to a question asked of it is the answer: the
+    // question closes with the reply's text (an option's label when the
+    // reply is one), the way a person's click would close it.
+    const answered =
+      kind === "text" && thread && text.trim()
+        ? await this.answerByReply(agentId, thread.replyTo, block)
+        : null;
     // File paths in the envelope are the author's: that is where the file
     // is, and every agent on this machine can read it.
     const attachmentLines = this.describeAttachments(agent, attachments);
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
     if (toAgentId && live) {
-      await this.deliverBlock(block, from, attachmentLines);
+      await this.deliverBlock(
+        block,
+        from,
+        attachmentLines,
+        answered ? { answers: { blockId: answered.id, kind: "question" } } : {}
+      );
     }
     if (
       toAgentId === null &&
@@ -1544,7 +1568,9 @@ export class StreamService {
     block: Block
   ): Promise<{ id: string; title: string } | null> {
     const findingId =
-      block.kind === "text" && block.data && "findingId" in block.data
+      (block.kind === "text" || block.kind === "question") &&
+      block.data &&
+      "findingId" in block.data
         ? (block.data as { findingId?: string }).findingId
         : undefined;
     if (!findingId || !block.threadId) return null;
@@ -1554,6 +1580,40 @@ export class StreamService {
       (candidate) => candidate.id === findingId
     );
     return match ? { id: match.id, title: match.title } : null;
+  }
+
+  /**
+   * Close a question with the reply the agent it was asked of just made.
+   * Returns the answered question, or null when the reply answers nothing
+   * (not a question, not asked of this agent, or already answered).
+   */
+  private async answerByReply(
+    agentId: string,
+    replyTo: string,
+    reply: Block
+  ): Promise<Block | null> {
+    const target = await this.store.getById(replyTo);
+    if (
+      !target ||
+      target.kind !== "question" ||
+      target.toAgentId !== agentId ||
+      target.state?.answer
+    ) {
+      return null;
+    }
+    const text = reply.text.trim();
+    const option = target.data.options.find(
+      (o) => o.label.trim() === text || (o.value ?? o.label) === text
+    );
+    const answered = await this.store.recordAnswer(target.id, {
+      value: option ? (option.value ?? option.label) : text,
+      ...(option ? { label: option.label } : {}),
+      by: { kind: "agent", agentId },
+      blockId: reply.id,
+      at: new Date().toISOString(),
+    });
+    if (answered) await this.publishEntry(answered.streamId, answered.id);
+    return answered;
   }
 
   private async resolveFinding(

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Block, BlockOption, ChatTurnEntry } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
 
-import { FindingDetail } from "@/components/app/chat/block-bodies";
+import { FindingDetail, findingIdOf } from "@/components/app/chat/block-bodies";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -164,10 +164,7 @@ export function ThreadPanel({
   const replies = useMemo(
     () =>
       finding
-        ? thread.replies.filter(
-            (reply) =>
-              reply.kind === "text" && reply.data?.findingId === finding.id
-          )
+        ? thread.replies.filter((reply) => findingIdOf(reply) === finding.id)
         : thread.replies,
     [finding, thread.replies]
   );

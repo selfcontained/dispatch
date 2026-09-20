@@ -137,12 +137,13 @@ export function QuestionOptions({
               // chosen one keeps it.
               variant={chosen || open ? "primary" : "default"}
               className={cn(
-                // A label is whatever the agent wrote: it wraps inside the
-                // column rather than running past it.
-                "h-auto min-h-7 max-w-full gap-1 whitespace-normal py-1 text-left text-xs",
-                // Phones and touch screens: a real tap target.
-                "max-sm:min-h-11 max-sm:py-2",
-                "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2",
+                // Labels are capped server-side to button length, so a row
+                // of buttons wraps between buttons, not inside one.
+                "h-7 max-w-full gap-1 text-xs",
+                // Phones and touch screens: a real tap target, with the label
+                // allowed to wrap instead of being clipped.
+                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
+                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
                 chosen && "cursor-default"
               )}
               disabled={optionsDisabled}
@@ -449,6 +450,13 @@ const FINDING_OUTCOME_LABEL: Record<FindingOutcome, string> = {
   fixed: "Fixed",
   dismissed: "Dismissed",
 };
+
+/** The finding a reply is about: a text or question reply may carry one. */
+export function findingIdOf(block: Block): string | undefined {
+  return (block.kind === "text" || block.kind === "question") && block.data
+    ? block.data.findingId
+    : undefined;
+}
 
 /** `state.findings[id]`, or an open record when nothing has been recorded. */
 export function findingRecord(

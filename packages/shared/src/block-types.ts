@@ -44,6 +44,8 @@ export type BlockQuestionData = {
   options: BlockOption[];
   /** When true the UI hints that a typed reply is also acceptable. */
   allowFreeform?: boolean;
+  /** Asked under a review finding: the discussion it belongs to. */
+  findingId?: string;
 };
 
 /** Who did something to a block, and when. */
@@ -371,6 +373,8 @@ export type StreamReadEvent = {
 export const BLOCK_TEXT_MAX_CHARS = 20_000;
 export const BLOCK_ATTACHMENTS_MAX = 20;
 export const BLOCK_OPTIONS_MAX = 10;
+/** An option is a button: its label stays on one line. */
+export const BLOCK_OPTION_LABEL_MAX_CHARS = 60;
 export const BLOCK_FORM_FIELDS_MAX = 20;
 export const BLOCK_REVIEW_FINDINGS_MAX = 50;
 export const BLOCK_TASKS_MAX = 50;

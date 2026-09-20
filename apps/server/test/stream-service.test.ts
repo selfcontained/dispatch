@@ -2110,6 +2110,81 @@ describe("StreamService review threads", () => {
     return r;
   }
 
+  it("caps option labels at button length", async () => {
+    await expect(
+      service.post(A, {
+        text: "Which?",
+        question: { options: [{ label: "x".repeat(61) }] },
+      })
+    ).rejects.toThrow(/Each option label must be 1–60 characters/);
+    await expect(
+      service.post(A, {
+        text: "Which?",
+        question: { options: [{ label: "  " }] },
+      })
+    ).rejects.toThrow(/Each option label/);
+    const ok = await service.post(A, {
+      text: "Which?",
+      question: { options: [{ label: "  Ship it  " }] },
+    });
+    expect(ok.kind === "question" && ok.data.options[0]?.label).toBe("Ship it");
+  });
+
+  it("closes a question asked of an agent with that agent's reply, and keeps it on its finding", async () => {
+    const { svc, injected } = build();
+    const r = await reviewed(svc);
+    // The reviewer asks the builder something under a finding.
+    const q = await svc.post(B, {
+      text: "Keep the hard cut, or return empty?",
+      question: { options: [{ label: "Keep it" }, { label: "Return empty" }] },
+      replyTo: r.id,
+      finding: "f2",
+    });
+    expect(q).toMatchObject({
+      kind: "question",
+      toAgentId: A,
+      threadId: r.id,
+      data: { findingId: "f2" },
+    });
+    await settled(svc, q.id);
+    injected.length = 0;
+    // The builder's reply answers it: an option's label closes it as that
+    // option, and the envelope says so.
+    const reply = await svc.post(A, { text: "Keep it", replyTo: q.id });
+    expect(reply).toMatchObject({
+      toAgentId: B,
+      threadId: r.id,
+      data: { findingId: "f2" },
+    });
+    const answered = await svc.store.getById(q.id);
+    expect(answered?.state).toMatchObject({
+      answer: {
+        value: "Keep it",
+        label: "Keep it",
+        by: { kind: "agent", agentId: A },
+        blockId: reply.id,
+      },
+    });
+    await settled(svc, reply.id);
+    expect(injected[0]?.agentId).toBe(B);
+    expect(injected[0]?.text).toContain(`This answers your question ${q.id}.`);
+    // A second reply is just a reply.
+    const more = await svc.post(A, { text: "Also…", replyTo: q.id });
+    expect((await svc.store.getById(q.id))?.state?.answer?.blockId).toBe(
+      reply.id
+    );
+    expect(more.kind).toBe("text");
+    // A reply by someone the question was not asked of answers nothing.
+    const other = await svc.post(B, {
+      text: "Return empty?",
+      question: { options: [{ label: "Yes" }] },
+      replyTo: r.id,
+    });
+    await settled(svc, other.id);
+    await svc.post(B, { text: "Yes", replyTo: other.id, to: A });
+    expect((await svc.store.getById(other.id))?.state?.answer).toBeUndefined();
+  });
+
   it("posts a review top-level even when the reviewer replies into its launch thread", async () => {
     const { svc } = build();
     const briefing = await svc.sendUserPost(A, {
