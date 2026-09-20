@@ -129,10 +129,10 @@ export type TurnEntryViewProps = {
 };
 
 /**
- * One harness turn as a feed entry: the prompt that opened it, the activity
- * rail, and the answer it ended with. The rail sits inside the agent post so
- * the work and the answer read under one header. No scroll follow of its
- * own: the feed owns that, keyed on `entryGrowthKey`.
+ * One harness turn as a feed entry: the prompt that opened it, then the
+ * agent's post: its text, and under the text one quiet activity line that
+ * opens into the step rail on click. No scroll follow of its own: the feed
+ * owns that, keyed on `entryGrowthKey`.
  *
  * The feed is the root agent's stream, which carries the turns of every
  * agent in its tree: a turn run by another agent than the page's folds to
@@ -304,8 +304,8 @@ function TurnBody({
       <div className="mt-3">
         <Post
           author={author}
-          at={entry.updatedAt}
-          grouped={true}
+          at={entry.at}
+          grouped={false}
           // The answer is the half a reader wants to lift out, and the prompt
           // above it has had a copy button all along.
           action={
@@ -327,13 +327,17 @@ function TurnBody({
                 instead of snapping, so the feed above glides rather than
                 jumps while it follows the bottom. */}
             <AutoHeight data-testid="chat-turn-body">
-              {showsRail(trace, result) ? (
-                <div className="mb-2">
+              {/* The message lands whole when the turn settles, as a chat
+                  message does; nothing streams into the column. Until then
+                  the post is its header and one activity line. The work
+                  that produced the message is a footnote under the text. */}
+              {entry.settled ? <ResultTurn turn={result} /> : null}
+              <TurnAttachments items={folded} ctx={ctx} />
+              {showsRail(trace, result) || !entry.settled ? (
+                <div className={cn(entry.settled && result.content && "mt-2")}>
                   <ActivityBlock trace={trace} label={foldLabel} />
                 </div>
               ) : null}
-              <TurnAttachments items={folded} ctx={ctx} />
-              <ResultTurn turn={result} />
             </AutoHeight>
           </div>
         </Post>
@@ -343,10 +347,10 @@ function TurnBody({
 }
 
 /**
- * The rail is the turn's one constant: it opens with the turn ("thinking")
- * and stays through settle once any step ran. A turn that only ever
- * answered has nothing to fold, so its rail steps aside as soon as the
- * answer starts and never comes back: one handover, text for the row.
+ * The activity line is there from the turn's first tick ("thinking") and
+ * stays through settle once any step ran. A turn that only ever answered
+ * has nothing to fold, so its line steps aside as soon as the answer
+ * starts and never comes back.
  */
 export function showsRail(trace: Trace, result: Turn): boolean {
   if (trace.steps.length > 0) return true;

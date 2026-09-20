@@ -4,7 +4,6 @@ import { memo } from "react";
 import { motion } from "framer-motion";
 
 import { Markdown } from "@/components/ui/markdown";
-import { cn } from "@/lib/utils";
 
 import type { Turn } from "./contracts";
 import { arrive, fadeVariants } from "./motion";
@@ -50,26 +49,13 @@ function ResultText({
   content: string;
   error?: boolean;
 }): JSX.Element {
-  return (
-    <div className="flex items-start gap-[9px]">
-      <span
-        aria-hidden="true"
-        className={cn(
-          "select-none text-[13px] leading-[1.6]",
-          error ? "text-status-blocked" : "text-status-working"
-        )}
-      >
-        ▪
-      </span>
-      {error ? (
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
-          {content}
-        </p>
-      ) : (
-        <div className="min-w-0 flex-1 text-[12.5px] leading-[1.6]">
-          <Markdown>{content}</Markdown>
-        </div>
-      )}
+  return error ? (
+    <p className="min-w-0 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
+      {content}
+    </p>
+  ) : (
+    <div className="min-w-0 text-[12.5px] leading-[1.6]">
+      <Markdown>{content}</Markdown>
     </div>
   );
 }

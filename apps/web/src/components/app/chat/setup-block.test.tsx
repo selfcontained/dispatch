@@ -80,23 +80,32 @@ describe("setupSteps", () => {
 describe("SetupBlock", () => {
   afterEach(cleanup);
 
-  it("reads Ready in Ns once the session started", () => {
+  it("reads Started in Ns once the session started, phases in the title", () => {
     render(<SetupBlock rows={[worktree, deps, session, started]} />);
     expect(screen.getByTestId("chat-setup-aside").textContent).toBe(
-      "Ready in 12s"
+      "Started in 12s"
     );
-    expect(screen.getAllByTestId("chat-setup-step")).toHaveLength(3);
+    const block = screen.getByTestId("chat-setup-block");
+    expect(block.getAttribute("data-outcome")).toBe("ready");
+    expect(block.getAttribute("title")).toContain("Installing dependencies");
+    expect(screen.queryByTestId("chat-setup-step")).toBeNull();
+  });
+
+  it("names the current phase while the agent is still starting", () => {
+    render(<SetupBlock rows={[worktree, deps]} />);
+    expect(screen.getByTestId("chat-setup-aside").textContent).toBe(
+      "Installing dependencies…"
+    );
     expect(
-      screen
-        .getByTestId("chat-setup-block")
-        .querySelector("[data-outcome]")
-        ?.getAttribute("data-outcome")
-    ).toBe("ready");
+      screen.getByTestId("chat-setup-block").getAttribute("data-outcome")
+    ).toBe("live");
   });
 
   it("shows the failure under the failed step", () => {
     render(<SetupBlock rows={[worktree, failed]} />);
-    expect(screen.getByTestId("chat-setup-aside").textContent).toBe("Failed");
+    expect(screen.getByTestId("chat-setup-aside").textContent).toBe(
+      "Setup failed"
+    );
     expect(screen.getByTestId("chat-setup-failure").textContent).toContain(
       "no such branch"
     );

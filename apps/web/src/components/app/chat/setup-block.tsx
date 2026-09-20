@@ -1,8 +1,7 @@
 import { memo } from "react";
 import type { ChatStatusEntry } from "@dispatch/shared";
-import { AlertTriangle, Check, Rocket } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -69,9 +68,9 @@ function seconds(from: string, to: string): string {
 }
 
 /**
- * The agent's setup as one stateful block at the top of its stream: each
- * workspace step ticks off as Dispatch reports it, then the block settles
- * to "Ready in 12s" or shows what failed. Replaces a hairline per phase.
+ * The agent's setup as one quiet line at the top of its stream: what
+ * Dispatch is doing right now while the agent starts, "Started in 12s"
+ * once it is up, or what failed. The phases are the line's title.
  */
 export const SetupBlock = memo(function SetupBlock({
   rows,
@@ -79,88 +78,53 @@ export const SetupBlock = memo(function SetupBlock({
   rows: readonly ChatStatusEntry[];
 }): JSX.Element {
   const { steps, outcome, startedAt, endedAt, failure } = setupSteps(rows);
-  const aside =
-    outcome === "ready" && startedAt && endedAt
-      ? `Ready in ${seconds(startedAt, endedAt)}`
-      : outcome === "ready"
-        ? "Ready"
-        : outcome === "failed"
-          ? "Failed"
-          : "Starting";
+  const current = steps[steps.length - 1];
+  const text =
+    outcome === "ready"
+      ? startedAt && endedAt
+        ? `Started in ${seconds(startedAt, endedAt)}`
+        : "Started"
+      : outcome === "failed"
+        ? "Setup failed"
+        : current
+          ? `${current.label}…`
+          : "Starting…";
   return (
-    <div className="px-4 py-1.5" data-testid="chat-setup-block">
+    <div
+      className="px-4 py-1"
+      data-testid="chat-setup-block"
+      data-outcome={outcome}
+      title={[
+        startedAt ? formatDateTime(startedAt) : null,
+        ...steps.map((step) => step.label),
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
       <div
         className={cn(
-          "max-w-[72ch] overflow-hidden rounded-lg border bg-card",
-          outcome === "live" && "border-status-working/50",
-          outcome === "failed" && "border-status-blocked/60",
-          outcome === "ready" && "border-border"
+          "flex items-center gap-2 pl-11 text-[11px] text-muted-foreground",
+          outcome === "failed" && "text-status-blocked"
         )}
-        data-outcome={outcome}
-        title={startedAt ? formatDateTime(startedAt) : undefined}
       >
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 px-3 py-1.5 text-[11.5px] text-muted-foreground">
-          <Rocket className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="font-semibold text-foreground">Setup</span>
+        {outcome === "live" ? (
           <span
-            className={cn(
-              "ml-auto tabular-nums",
-              outcome === "failed" && "text-status-blocked",
-              outcome === "live" && "text-status-working"
-            )}
-            data-testid="chat-setup-aside"
-          >
-            {aside}
-          </span>
-        </div>
-        <div className="grid gap-1.5 px-3 py-2.5 text-sm">
-          {steps.map((step) => (
-            <div
-              key={step.key}
-              className="flex items-center gap-2"
-              data-testid="chat-setup-step"
-              data-state={step.state}
-            >
-              <span
-                className={cn(
-                  "grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[4px] border",
-                  step.state === "done" &&
-                    "border-status-working bg-status-working text-background",
-                  step.state === "now" && "border-status-working/60",
-                  step.state === "failed" &&
-                    "border-status-blocked text-status-blocked"
-                )}
-                aria-hidden="true"
-              >
-                {step.state === "done" ? (
-                  <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                ) : step.state === "failed" ? (
-                  <AlertTriangle className="h-2.5 w-2.5" strokeWidth={3} />
-                ) : (
-                  <ActivityBars size={8} className="justify-center" />
-                )}
-              </span>
-              <span
-                className={cn(
-                  step.state === "done" && "text-muted-foreground",
-                  step.state === "now" && "font-medium",
-                  step.state === "failed" && "text-status-blocked"
-                )}
-              >
-                {step.label}
-              </span>
-            </div>
-          ))}
-          {failure ? (
-            <div
-              className="mt-1 whitespace-pre-wrap break-words border-l-[3px] border-status-blocked/60 pl-3 text-xs text-muted-foreground"
-              data-testid="chat-setup-failure"
-            >
-              {failure}
-            </div>
-          ) : null}
-        </div>
+            aria-hidden="true"
+            className="inline-block h-1.5 w-1.5 rounded-full bg-status-working"
+          />
+        ) : outcome === "failed" ? (
+          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+        ) : null}
+        <span data-testid="chat-setup-aside">{text}</span>
       </div>
+      {failure ? (
+        <div
+          className="mt-1 whitespace-pre-wrap break-words border-l-[3px] border-status-blocked/60 pl-3 text-xs text-muted-foreground"
+          data-testid="chat-setup-failure"
+        >
+          {failure}
+        </div>
+      ) : null}
     </div>
   );
 });

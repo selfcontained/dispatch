@@ -88,15 +88,18 @@ describe("TurnEntryView", () => {
     expect(prompt.textContent).toContain("read the readme");
     const result = screen.getByTestId("chat-turn-result");
     expect(result.getAttribute("data-author-kind")).toBe("agent");
-    expect(result.getAttribute("data-grouped")).toBe("true");
+    // The answer is a post of its own, with the agent's header.
+    expect(result.getAttribute("data-grouped")).toBeNull();
     expect(result.parentElement?.className).toContain("mt-3");
     expect(result.textContent).toContain("It documents the CLI.");
-    // The rail sits between the two halves, inside the agent post.
+    // The activity line is a footnote under the text, inside the agent post.
+    const body = result.querySelector('[data-testid="chat-turn-body"]')!;
+    const text = body.querySelector('[data-testid="harness-result"]')!;
+    const rail = body.querySelector('[data-testid="harness-activity-fold"]')!;
+    expect(rail).not.toBeNull();
     expect(
-      screen
-        .getByTestId("chat-turn-result")
-        .querySelector('[data-testid="harness-activity-fold"]')
-    ).not.toBeNull();
+      text.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("eases the agent post's height: the rail and the answer sit in one measured body", () => {
@@ -124,7 +127,7 @@ describe("TurnEntryView", () => {
     expect(wrapper.getAttribute("data-settled")).toBe("true");
   });
 
-  it("shows a running turn's growing text with no settle time under it", () => {
+  it("holds a running turn's text back: the post is its header and the activity line until settle", () => {
     renderTurn(
       turn({
         settled: false,
@@ -147,7 +150,8 @@ describe("TurnEntryView", () => {
     expect(
       screen.getByTestId("chat-turn").getAttribute("data-settled")
     ).toBeNull();
-    expect(screen.getByTestId("harness-result").textContent).toContain(
+    expect(screen.queryByTestId("harness-result")).toBeNull();
+    expect(screen.getByTestId("chat-turn-result").textContent).not.toContain(
       "reading now"
     );
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
@@ -233,5 +237,4 @@ describe("TurnEntryView", () => {
     expect(summary.textContent).toContain("read README.md");
     expect(summary.getAttribute("aria-label")).toContain("read README.md");
   });
-
 });

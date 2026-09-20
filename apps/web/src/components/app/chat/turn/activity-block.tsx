@@ -2,9 +2,8 @@
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, ChevronDown, ChevronRight, Square, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
@@ -47,9 +46,10 @@ function ActivityBlockImpl({
   const [stepOverrides, setStepOverrides] = useChatRowState<
     Record<string, boolean>
   >("activity-steps", {});
-  // The rail is open while the turn runs and folds when it settles; a click
-  // on the row overrides either way.
-  const open = blockOverride ?? !done;
+  // One line, closed, at every moment of the turn: the step rail under it is
+  // the reader's to open. Three agents working must not mean three rails
+  // unfolding and refolding in the column.
+  const open = blockOverride ?? false;
   const reduced = useReducedMotion();
 
   const unaccountedMs = computeUnaccountedMs(trace);
@@ -62,10 +62,9 @@ function ActivityBlockImpl({
   const toggleStep = (step: Step) =>
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
-  // One container for the whole turn: the summary row is there from the
+  // One container for the whole turn: the summary line is there from the
   // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
-  // and the rail is a disclosure under it that grows while the turn runs
-  // and eases shut when it settles. Nothing swaps out.
+  // and the rail is a disclosure under it. Nothing swaps out.
   return (
     <div
       className="w-full min-w-0 max-w-full [overflow-wrap:anywhere]"
@@ -180,15 +179,24 @@ export function turnSummary(
   };
 }
 
-/** The glyph for a turn's state: live bars, a check, a cross, a stop square. */
+/**
+ * The glyph for a turn's state: a steady dot while it runs, nothing once it
+ * is done, a cross when it failed, a stop square when it was interrupted.
+ * Nothing animates: with several agents working the column would otherwise
+ * be a wall of flicker.
+ */
 export function TurnGlyph({
   summary,
 }: {
   summary: Pick<TurnSummary, "done" | "failed" | "interrupted">;
-}): JSX.Element {
+}): JSX.Element | null {
   if (!summary.done) {
-    // Dispatch's own loading bars, at glyph size.
-    return <ActivityBars size={11} className="justify-center" />;
+    return (
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full bg-status-working"
+        data-testid="harness-turn-live"
+      />
+    );
   }
   if (summary.failed) {
     return <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />;
@@ -196,7 +204,7 @@ export function TurnGlyph({
   if (summary.interrupted) {
     return <Square className="h-2.5 w-2.5 fill-current text-status-waiting" />;
   }
-  return <Check className="h-3 w-3 text-status-done" strokeWidth={2.5} />;
+  return null;
 }
 
 /**
@@ -230,7 +238,7 @@ function SummaryRow({
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md py-1 pl-0 pr-1 text-left",
+        "flex w-full items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
         "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
       )}
     >
@@ -249,30 +257,22 @@ function SummaryRow({
           exit="hidden"
           transition={arrive(DURATION.fast)}
           className={cn(
-            "min-w-0 max-w-[60%] truncate text-[12px]",
-            done ? "text-foreground" : "font-medium text-status-working"
+            "min-w-0 max-w-[60%] truncate text-[11.5px]",
+            !done && "text-status-working"
           )}
           title={verb}
         >
           {verb}
         </motion.span>
       </AnimatePresence>
-      {thinking ? null : (
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {steps} · {formatStepDuration(ms)}
-        </span>
-      )}
-      {thinking ? (
-        <span className="ml-auto text-[10.5px] tabular-nums text-muted-foreground">
-          {formatStepDuration(ms)}
-        </span>
-      ) : null}
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        {thinking
+          ? formatStepDuration(ms)
+          : `${steps} · ${formatStepDuration(ms)}`}
+      </span>
       <span
         aria-hidden="true"
-        className={cn(
-          "text-[9px] text-muted-foreground/70",
-          !thinking && "ml-auto"
-        )}
+        className="ml-auto text-[9px] text-muted-foreground/70"
       >
         {open ? (
           <ChevronDown className="h-3 w-3" />

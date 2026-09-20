@@ -41,6 +41,8 @@ describe("ActivityBlock settle", () => {
     const { rerender } = render(
       <ActivityBlock trace={{ ...open, steps: [step] }} />
     );
+    // The rail is closed until the reader opens it, even while running.
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
     const button = screen.getByRole("button", { name: /running/ });
     expect(button.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(button);
