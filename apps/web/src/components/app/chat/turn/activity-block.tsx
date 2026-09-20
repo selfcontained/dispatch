@@ -1,6 +1,6 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
-import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useChatRowState } from "../chat-row-state";
 
@@ -33,10 +32,13 @@ export function showsActivity(trace: Trace | null | undefined): trace is Trace {
 function ActivityBlockImpl({
   trace,
   label,
+  action,
 }: {
   trace: Trace;
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
+  /** A control that sits at the line's right end: Stop, while the turn runs. */
+  action?: ReactNode;
 }): JSX.Element {
   const done = trace.endedAt != null;
   const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
@@ -52,7 +54,6 @@ function ActivityBlockImpl({
   const open = blockOverride ?? false;
   const reduced = useReducedMotion();
 
-  const unaccountedMs = computeUnaccountedMs(trace);
   // Stream updates must not open and close details underneath the reader.
   // Narration being written right now is the exception: it opens so it can
   // be read as it streams, and folds like any note once it is finished.
@@ -76,12 +77,15 @@ function ActivityBlockImpl({
         data-open={open ? "true" : "false"}
         data-final-result={trace.finalResult}
       >
-        <SummaryRow
-          trace={trace}
-          label={label}
-          open={open}
-          onToggle={() => setBlockOverride(!open)}
-        />
+        <div className="flex items-center gap-2">
+          <SummaryRow
+            trace={trace}
+            label={label}
+            open={open}
+            onToggle={() => setBlockOverride(!open)}
+          />
+          {action}
+        </div>
         <motion.div
           initial={false}
           animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
@@ -116,9 +120,6 @@ function ActivityBlockImpl({
                   )}
                   maskClass={BLOCK_FILL}
                 />
-              ) : null}
-              {unaccountedMs > 0 ? (
-                <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
               ) : null}
             </div>
           </div>
@@ -323,33 +324,6 @@ function ThinkingRow({
       <LiveDuration startedAt={since} />
       <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
         <ChevronRight className="h-3 w-3" />
-      </span>
-    </div>
-  );
-}
-
-function UnaccountedRow({
-  ms,
-  maskClass,
-}: {
-  ms: number;
-  maskClass: string;
-}): JSX.Element {
-  return (
-    <div
-      className="flex items-center gap-[9px] py-1 text-[11px]"
-      role="listitem"
-      aria-label={`Unaccounted time, ${formatStepDuration(ms)}`}
-    >
-      <span
-        className={cn("flex w-3 justify-center text-status-waiting", maskClass)}
-        aria-hidden="true"
-      >
-        !
-      </span>
-      <span className="flex-1 text-muted-foreground">unaccounted time</span>
-      <span className="text-[10.5px] tabular-nums text-muted-foreground">
-        {formatStepDuration(ms)}
       </span>
     </div>
   );

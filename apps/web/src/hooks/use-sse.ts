@@ -33,7 +33,6 @@ import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
-import { agentToolBlipAtomFamily } from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
@@ -261,12 +260,8 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.tool_invoked") {
-          // Ephemeral: the presence strip shows it for a few seconds. Local
-          // receipt time keeps the blip's timer independent of clock skew.
-          jotaiStore.set(agentToolBlipAtomFamily(payload.agentId), {
-            tool: payload.tool,
-            at: Date.now(),
-          });
+          // Nothing in the column moves on a tool call; the turn's own
+          // activity line covers it once the stream row lands.
           return;
         }
 

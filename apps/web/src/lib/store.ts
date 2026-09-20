@@ -532,19 +532,3 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
 export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }
-
-// ---------------------------------------------------------------------------
-// Live tool signals for the chat presence strip — ephemeral, per agent,
-// never persisted. Written by the SSE stream (tool invocations).
-// ---------------------------------------------------------------------------
-
-export type AgentToolBlip = {
-  /** MCP tool name as the server reported it, e.g. `share_file`. */
-  tool: string;
-  /** `Date.now()` on receipt — local time, so the blip's timer ignores clock skew. */
-  at: number;
-};
-
-export const agentToolBlipAtomFamily = atomFamily((_agentId: string) =>
-  atom<AgentToolBlip | null>(null)
-);

@@ -13,7 +13,6 @@ import { useSearchParams } from "react-router-dom";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
-import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
 import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
 import {
   arrivedEntryIds,
@@ -22,7 +21,6 @@ import {
   latestOpenFreeformQuestion,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
-import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
 import { ThreadPanel } from "@/components/app/chat/thread-panel";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
 import {
@@ -740,7 +738,6 @@ export function ChatPane({
     : null;
 
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
-  const turnRunning = newestTurn !== null && !newestTurn.settled;
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
@@ -874,22 +871,16 @@ export function ChatPane({
               isMobile ? "pb-2" : "pb-3"
             )}
           >
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <ChatPresenceStrip agentId={agentId} agent={agent} />
-              <div className="flex min-w-0 items-center gap-2">
-                {sendError ? (
-                  <span
-                    role="alert"
-                    className="truncate text-[11px] text-destructive"
-                  >
-                    {sendError}
-                  </span>
-                ) : null}
-                {agentId && turnRunning ? (
-                  <StopTurnButton agentId={agentId} onError={setSendError} />
-                ) : null}
+            {sendError ? (
+              <div className="mb-1.5 flex items-center gap-2">
+                <span
+                  role="alert"
+                  className="truncate text-[11px] text-destructive"
+                >
+                  {sendError}
+                </span>
               </div>
-            </div>
+            ) : null}
             {tasksOpen ? (
               <TasksStrip
                 items={tasks}
