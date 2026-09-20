@@ -66,8 +66,11 @@ export default {
         sm: "0.45rem",
       },
       keyframes: {
+        // Every new post arrives the same way, whoever wrote it: sliding up
+        // as it fades in. A turn's message uses the same curve when it
+        // lands after the activity line settles (`message-in`).
         "chat-enter": {
-          from: { opacity: "0", transform: "translateY(3px)" },
+          from: { opacity: "0", transform: "translateY(10px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
         // A turn's message landing once the turn settles: like a new
@@ -111,7 +114,7 @@ export default {
       animation: {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
-        "chat-enter": "chat-enter 200ms ease-out both",
+        "chat-enter": "chat-enter 450ms cubic-bezier(0.2, 0, 0, 1) both",
         "message-in": "message-in 450ms cubic-bezier(0.2, 0, 0, 1) 120ms both",
         "reaction-picker-in": "reaction-picker-in 160ms ease-out both",
         "reaction-picker-out": "reaction-picker-out 100ms ease-in both",
