@@ -84,8 +84,8 @@ Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the
 final report.
 
-Artifacts do not travel by message. A child's shared media is readable from the
-parent with `ownerAgentId` on `list_media`, and the parent's from the child the
+Artifacts do not travel by message. A child's shared files is readable from the
+parent with `ownerAgentId` on `list_files`, and the parent's from the child the
 same way — so a child posts a screenshot as a file attachment and says so,
 rather than pasting the path. A child's posts land in the parent's stream
 already, and the parent's links and PRs are in that same stream, so neither side

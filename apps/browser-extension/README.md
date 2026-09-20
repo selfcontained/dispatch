@@ -49,7 +49,7 @@ When the **Include screenshot of selected element** toggle is on (the default,
 remembered per browser profile), selecting an element also captures a cropped
 PNG of it using Chrome's `captureVisibleTab` and the element's bounding box. The
 image is shown in the side panel preview and sent with the submission, where
-Dispatch stores it as an agent media entry and points the agent at its path.
+Dispatch stores it as an agent file entry and points the agent at its path.
 
 The screenshot is a pixel capture of the rendered viewport, so — unlike the DOM
 context — it is not sanitized and shows whatever is on screen. Use the **Remove

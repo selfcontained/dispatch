@@ -59,11 +59,11 @@ different deliverable — a new flow, not a retake — a new post is right.
 ## Managing what you've shared
 
 ```
-list_media    — metadata for this agent's shared files, including filePath
-delete_media  fileName — permanently removes the file and its record
+list_files    — metadata for this agent's shared files, including filePath
+delete_file   fileName — permanently removes the file and its record
 ```
 
-`list_media` returns metadata only; read the content through `filePath`
+`list_files` returns metadata only; read the content through `filePath`
 with normal file tools.
 
 Pass `ownerAgentId` to list what your parent or one of your direct children has

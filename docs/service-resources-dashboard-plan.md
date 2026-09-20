@@ -57,7 +57,7 @@ tooltips, and chart primitives.
 │ Reconciliation   Healthy    12 s ago      180 ms             ▸    │
 │ Git diff refresh Degraded   2 failures    p95 1.4 s          ▸    │
 ├ Capacity and storage ──────────────────────────────────────────────┤
-│ Agents 8 running │ SSE 3 │ Streams 1 │ DB 84 MB │ Media 1.2 GB  │
+│ Agents 8 running │ SSE 3 │ Streams 1 │ DB 84 MB │ Files 1.2 GB  │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -142,7 +142,7 @@ Show operational totals that help explain pressure:
 - active SSE clients and browser streams/viewers;
 - scheduled jobs and in-flight job monitors;
 - current database size via `pg_database_size(current_database())`;
-- media, logs, diagnostics, and release-cache directory size.
+- files, logs, diagnostics, and release-cache directory size.
 
 Directory sizes must be sampled asynchronously on a slow cadence (at least 60
 seconds), cached, bounded to the known Dispatch-owned roots, and tolerant of

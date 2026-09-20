@@ -48,8 +48,8 @@ ACP session, one prompt at a time, and it says `busy` if asked for a second.
 ### State directory
 
 `<agentStateRoot>/<agentId>/`, where `agentStateRoot` is
-`DISPATCH_AGENT_STATE_ROOT` or `<dirname(mediaRoot)>/agents`
-(`~/.dispatch/agents` in production; the dev stack's media root keeps it out
+`DISPATCH_AGENT_STATE_ROOT` or `<dirname(filesRoot)>/agents`
+(`~/.dispatch/agents` in production; the dev stack's files root keeps it out
 of `~/.dispatch`).
 
 | file                 | owner  | purpose                                                            |

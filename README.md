@@ -1,6 +1,6 @@
 # Dispatch
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents, with one stream per agent and media sharing in the browser. It runs on macOS and Linux.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents, with one stream per agent and file sharing in the browser. It runs on macOS and Linux.
 
 ## Quick Install
 
@@ -48,7 +48,7 @@ replace the fixed executable and restart the service.
   - quick phrases — reusable text snippets with template variables, sent to an agent as a prompt
   - durable agents: each runs under its own host process that outlives the server, so a restart never cuts a turn
   - agent lifecycle controls (create, start, stop, delete — with background archive cleanup)
-  - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
+  - files pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
   - one stream per agent: replies, questions and forms you answer in one click, files, links, checklists and reviews, with threads
   - live agent status (working, waiting, idle, blocked) derived by the server, over SSE
   - in-app browser notifications (with Slack fallback if no browser client acks)
@@ -151,8 +151,8 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `react`                    | Put an emoji reaction on a block                                                                    |
 | `rename_session`           | Update the current session's display name                                                           |
 | `login_link`               | Mint a short-lived browser login link for the Dispatch UI                                           |
-| `list_media`               | List media files shared with or by this agent, or by its parent or a direct child                   |
-| `delete_media`             | Permanently remove a shared media file                                                              |
+| `list_files`               | List files shared with or by this agent, or by its parent or a direct child                         |
+| `delete_file`              | Permanently remove a shared file                                                                    |
 | `list_personas`            | List available personas for this project                                                            |
 | `persona_templates`        | Get built-in starter templates for authoring personas                                               |
 | `persona_upsert`           | Create or update a persona file in `.dispatch/personas/`                                            |
@@ -238,7 +238,7 @@ See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill
 
 ## Docs
 
-User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, media, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, files, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, host contract
