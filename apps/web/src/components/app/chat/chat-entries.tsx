@@ -210,6 +210,11 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     return peerAuthor(block.author.agentId, peer?.name ?? "Agent", ctx);
   }
   if (block.launchedByAgentId) {
+    // The page's own agent launching a child reads as itself, not as an
+    // unknown peer (the peer directory leaves the page's agent out).
+    if (block.launchedByAgentId === ctx.agentId) {
+      return agentAuthor(ctx, "Agent");
+    }
     const peer = ctx.peers?.[block.launchedByAgentId];
     return peerAuthor(block.launchedByAgentId, peer?.name ?? "Agent", ctx);
   }
