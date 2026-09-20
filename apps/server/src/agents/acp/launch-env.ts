@@ -7,8 +7,8 @@ import type { AcpEngineId } from "./engine-spec.js";
 
 /**
  * The environment additions the engine child gets, and the PATH entries
- * put ahead of the host's own. The same contract the tmux launch exported,
- * so plugin skills and hooks the agent's shell runs see one shape.
+ * put ahead of the host's own: one shape for the plugin skills and hooks
+ * the agent's shell runs.
  */
 export function buildLaunchEnv(input: {
   agentId: string;

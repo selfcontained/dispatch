@@ -11,10 +11,7 @@ export type AgentModelOption = { id: string; label: string };
  * Every entry must be cross-checked against the installed CLI's own model
  * registry before it ships — provider doc prose alone is not evidence a slug
  * exists. See docs/agent-model-catalog.md for the per-CLI procedure and the
- * evidence bar. Cursor has no entry because no list has passed that bar yet
- * (its docs carry display names rather than CLI slugs, and a logged-out
- * `cursor-agent` reports no models); to add one, use the exact slugs from
- * `cursor-agent --list-models` on the logged-in account Dispatch runs under.
+ * evidence bar.
  *
  * Maintenance sources:
  * - Codex: https://learn.chatgpt.com/docs/models.md

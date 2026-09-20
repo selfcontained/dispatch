@@ -1,43 +1,13 @@
 import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 
-import { type LegacyCenterTab } from "@/lib/center-tabs";
 import {
   type CenterTab,
-  type PersistedSplitPaneState,
   type SplitPaneState,
   defaultSplitPaneState,
   inactiveSplitPaneStateAtom,
-  isCurrentSplitPaneState,
   splitPaneStateAtomFamily,
 } from "@/lib/store";
-
-/**
- * Older builds persisted a "chat" pane and a "terminal" pane; both read as
- * the Agent pane now. A split that collapses to the same pane twice (Chat
- * beside the old Terminal, say) is shown as a single pane.
- */
-export function normalizeSplitPaneState(
-  state: PersistedSplitPaneState
-): SplitPaneState {
-  const fold = (tab: LegacyCenterTab): CenterTab =>
-    tab === "chat" || tab === "terminal" ? "agent" : tab;
-  const left = fold(state.left);
-  const right = fold(state.right);
-  if (
-    left === state.left &&
-    right === state.right &&
-    isCurrentSplitPaneState(state)
-  ) {
-    return state;
-  }
-  return {
-    ...state,
-    left,
-    right,
-    mode: left === right ? "single" : state.mode,
-  };
-}
 
 export function useSplitPane(agentId: string | null, isMobile: boolean) {
   const atom = agentId
@@ -45,13 +15,8 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
     : inactiveSplitPaneStateAtom;
   const [rawState, setState] = useAtom(atom);
 
-  const splitState: SplitPaneState = useMemo(
-    () =>
-      isMobile || !agentId
-        ? defaultSplitPaneState
-        : normalizeSplitPaneState(rawState),
-    [agentId, isMobile, rawState]
-  );
+  const splitState: SplitPaneState =
+    isMobile || !agentId ? defaultSplitPaneState : rawState;
 
   const isSplit = splitState.mode === "split" && !isMobile;
 

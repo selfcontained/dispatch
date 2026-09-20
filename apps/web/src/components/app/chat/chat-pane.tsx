@@ -121,7 +121,7 @@ export function filterStreamView(
 
 /**
  * What the main column shows of the feed. A reply (a block under a thread)
- * lives in the thread panel only, except an agent's post to another agent,
+ * lives in the drawer's thread page only, except an agent's post to another agent,
  * which is the one record of that exchange in the column (a parent's post
  * to a child threads under the child's launch post, and folds into the
  * parent's turn as "Sent to"). Dispatch's own marks stay — setup phases

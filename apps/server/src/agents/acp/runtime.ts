@@ -48,7 +48,8 @@ export function hostCommand(env: NodeJS.ProcessEnv = process.env): string[] {
 
 /**
  * Wrap a command so it runs through the user's login shell: the host, and
- * so the engine, gets the PATH, ssh agent and tool config a tmux pane got.
+ * so the engine, gets the PATH, ssh agent and tool config the user's own
+ * shell has.
  */
 export function loginShellCommand(
   command: string[],

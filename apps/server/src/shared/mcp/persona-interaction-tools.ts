@@ -177,12 +177,6 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  const feedbackItemSchema = {
-    filePath: z.string().optional().describe("Repo-relative file path."),
-    startLine: z.number().int().positive().optional(),
-    endLine: z.number().int().positive().optional(),
-    comment: z.string().min(1).max(10_000),
-  };
 
   // ── list_personas ────────────────────────────────────────────────
   if (allowed.has("list_personas") && callbacks.listPersonas) {

@@ -29,11 +29,9 @@ const PERSONAS_DIR = ".dispatch/personas";
 /**
  * Hard ceiling on the assembled persona prompt.
  *
- * This prompt is handed to the CLI as an `--append-system-prompt`
- * argument, and on a restart that argument is re-escaped into the
- * `tmux new-session` command, which tmux refuses somewhere above 16KB.
- * Overshooting produced `command too long` and left the reviewer
- * unstartable, so the size is enforced here — at assembly, on the raw
+ * This prompt travels to the engine as one system-prompt argument, and a
+ * command line has a ceiling somewhere above 16KB; overshooting once left
+ * a reviewer unstartable, so the size is enforced here — at assembly, on the raw
  * text — rather than discovered at launch. 8KB leaves room for the
  * launch guidance, MCP config and env prefix that share that budget.
  *

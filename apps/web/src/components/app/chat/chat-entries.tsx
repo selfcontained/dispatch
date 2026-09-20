@@ -132,7 +132,7 @@ export type FeedContext = {
    * them.
    */
   onToggleReaction?: (blockId: string, emoji: string, remove: boolean) => void;
-  /** Opens a block's thread in the side panel, on one finding when given. */
+  /** Opens a block's thread in the drawer, on one finding when given. */
   onOpenThread?: (blockId: string, findingId?: string) => void;
   /** Submits a form block's values. */
   onSubmitForm?: (
@@ -714,7 +714,7 @@ export type BlockViewProps = {
   /** Answers go through the same delivery as the composer; lock them together. */
   answersDisabled?: boolean;
   onAnswer: (blockId: string, option: BlockOption) => void;
-  /** Inside the thread panel: no reply line, no thread to open. */
+  /** Inside a thread page: no reply line, no thread to open. */
   inThread?: boolean;
   /** A review's finding to pick out (the panel's `?finding=`). */
   highlightFindingId?: string | null;

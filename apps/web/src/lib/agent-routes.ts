@@ -10,7 +10,7 @@ export function agentChatRoute(agentId: string): string {
   return `/agents/${agentId}/chat`;
 }
 
-/** `?thread=<blockId>` on an agent route: the thread open in the side panel. */
+/** `?thread=<blockId>` on an agent route: the thread open in the drawer. */
 export const THREAD_PARAM = "thread";
 /** `?finding=<id>` with `thread`: the review finding to pick out. */
 export const FINDING_PARAM = "finding";

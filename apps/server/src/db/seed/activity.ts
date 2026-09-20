@@ -23,7 +23,7 @@ function buildRows(now: Date): EventRow[] {
   const projects = [
     { dir: "/tmp/dispatch-demo", agentType: "codex" },
     { dir: "/tmp/ios-client-demo", agentType: "claude" },
-    { dir: "/tmp/marketing-site-demo", agentType: "opencode" },
+    { dir: "/tmp/marketing-site-demo", agentType: "codex" },
   ];
   const dayCount = 150;
   const rows: EventRow[] = [];

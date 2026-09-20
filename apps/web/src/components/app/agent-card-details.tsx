@@ -190,17 +190,15 @@ export function AgentCardDetails({
             </Tooltip>
           ) : null}
         </div>
-        <div
-          className={cn(
-            "inline-flex min-h-6 items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-            fullAccessEnabled
-              ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
-              : "border border-border bg-muted/40 text-muted-foreground"
-          )}
-        >
-          {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
-          <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
-        </div>
+        {fullAccessEnabled ? (
+          <div
+            className="inline-flex min-h-6 items-center gap-1 rounded-full border border-status-waiting/35 bg-status-waiting/10 px-2 py-0.5 text-[10px] text-status-waiting"
+            title="Launched with the engine's permission prompts turned off."
+          >
+            <AlertTriangle className="h-3 w-3" />
+            <span>Full access</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

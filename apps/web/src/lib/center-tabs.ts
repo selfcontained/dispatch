@@ -6,13 +6,6 @@ import { agentChangesRoute, agentRoute } from "@/lib/agent-routes";
  */
 export type CenterTab = "agent" | "changes";
 
-/**
- * Ids older builds persisted: round 1/2's "chat" tab and the "terminal" tab
- * that hosted the Console. Stored values carrying them are folded into the
- * Agent pane by `normalizeSplitPaneState`.
- */
-export type LegacyCenterTab = CenterTab | "chat" | "terminal";
-
 export type CenterTabDef = {
   id: CenterTab;
   label: string;
@@ -50,9 +43,4 @@ export function centerTabRoute(agentId: string, tab: CenterTab): string {
 /** Stored values are user-editable localStorage; anything unknown reads as unset. */
 export function isCenterTab(value: unknown): value is CenterTab {
   return typeof value === "string" && BY_ID.has(value as CenterTab);
-}
-
-/** `isCenterTab`, plus the retired ids stored state may still carry. */
-export function isLegacyCenterTab(value: unknown): value is LegacyCenterTab {
-  return value === "chat" || value === "terminal" || isCenterTab(value);
 }

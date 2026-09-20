@@ -162,14 +162,13 @@ export function AgentsContent() {
           <strong>diff-stats badge</strong> in the top-right summarizes
           uncommitted changes against the base branch. The details card also has
           a button to open the working directory in your IDE and, for worktree
-          agents, a pill that copies the worktree path. CLI agents additionally
-          show whether they're running in full access or sandboxed mode, plus a{" "}
-          <strong>Review</strong> button that launches one or more personas (see
-          the Reviewers section — a reviewer&apos;s findings live in its review
-          block in the Chat, not on the card); terminal agents skip those since
-          they have no CLI. Agents launched as children — persona agents
-          included — appear in a <strong>Sub Agents</strong> list in the
-          expanded card.
+          agents, a pill that copies the worktree path, a{" "}
+          <strong>Full access</strong> pill when the agent was launched with the
+          engine&apos;s permission prompts off, and a <strong>Review</strong>{" "}
+          button that launches one or more personas (see the Reviewers section —
+          a reviewer&apos;s findings live in its review block in the Chat, not
+          on the card). Agents launched as children — persona agents included —
+          appear in a <strong>Sub Agents</strong> list in the expanded card.
         </P>
       </Section>
 
@@ -240,10 +239,10 @@ export function AgentsContent() {
           summary; each comment can be given a severity in the dialog. The
           result is a <Code>review</Code> block in the agent&apos;s stream,
           addressed to the agent, with one finding per comment — the same block
-          a reviewer persona posts. The agent marks findings fixed or dismisses them
-          with <Code>update</Code> and replies in each finding&apos;s thread;
-          you do the same from the review&apos;s page in the drawer, or from the
-          finding where it sits in the diff.
+          a reviewer persona posts. The agent marks findings fixed or dismisses
+          them with <Code>update</Code> and replies in each finding&apos;s
+          thread; you do the same from the review&apos;s page in the drawer, or
+          from the finding where it sits in the diff.
         </P>
       </Section>
 
@@ -259,10 +258,9 @@ export function AgentsContent() {
           questions (with option buttons), forms, shared files, links, review
           blocks, task lists, and posts from other agents; each top-level block
           has a thread that opens as a page in the right drawer, over the rail.
-          An unread count sits on the
-          Agent tab while another tab is up. Drafts survive a reload: text,
-          links and pasted text come back as they were; a picked file comes back
-          as a placeholder to re-attach.
+          An unread count sits on the Agent tab while another tab is up. Drafts
+          survive a reload: text, links and pasted text come back as they were;
+          a picked file comes back as a placeholder to re-attach.
         </P>
       </Section>
 

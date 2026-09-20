@@ -45,7 +45,7 @@ export type StreamRailPanelProps = {
   agentNameById?: (agentId: string) => string;
   /** Why answers cannot be sent right now, or null. */
   disabledReason: string | null;
-  /** Opens the block in the feed (the thread panel). */
+  /** Opens the block's thread as a page in the drawer. */
   onOpenBlock?: (blockId: string) => void;
 };
 

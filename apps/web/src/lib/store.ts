@@ -1,12 +1,7 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
-import {
-  type CenterTab,
-  isCenterTab,
-  isLegacyCenterTab,
-  type LegacyCenterTab,
-} from "./center-tabs";
+import { type CenterTab, isCenterTab } from "./center-tabs";
 import {
   type ChatComposerDraft,
   EMPTY_CHAT_DRAFT,
@@ -18,12 +13,6 @@ import { type IdeType } from "./ide-types";
 export { type CenterTab } from "./center-tabs";
 
 type AtomWithLocalStorageOptions<T> = {
-  /**
-   * Older key to read when `key` is absent. Read-only migration path: writes
-   * go to `key` alone, so a client rolled back to the old schema only ever
-   * sees values it wrote itself.
-   */
-  legacyKey?: string;
   /**
    * Shape check for what comes back from storage (user-editable, and maybe
    * written by another build). A value that fails it reads as
@@ -55,10 +44,7 @@ export function atomWithLocalStorage<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
       try {
-        let stored = window.localStorage.getItem(key);
-        if (stored === null && options.legacyKey !== undefined) {
-          stored = window.localStorage.getItem(options.legacyKey);
-        }
+        const stored = window.localStorage.getItem(key);
         if (stored === null) return initialValue;
         return parse(stored);
       } catch {
@@ -287,7 +273,7 @@ export type MediaSidebarState = {
   isOpen: boolean;
   activeTab: MediaSidebarTab;
   // When true (desktop only), the sidebar takes layout space and shrinks the
-  // terminal. When false, the sidebar floats over the terminal as a drawer
+  // content. When false, the sidebar floats over the content as a drawer
   // that slides in/out without shifting layout. Default is false.
   isPinned: boolean;
 };
@@ -397,19 +383,6 @@ export type SplitPaneState = {
   sizes: [number, number];
 };
 
-/**
- * What storage holds. Sides may still carry the retired "chat" and
- * "terminal" ids;
- * `normalizeSplitPaneState` in use-split-pane.ts turns one of these into a
- * `SplitPaneState` before anything renders it.
- */
-export type PersistedSplitPaneState = {
-  mode: SplitPaneMode;
-  left: LegacyCenterTab;
-  right: LegacyCenterTab;
-  sizes: [number, number];
-};
-
 export const defaultSplitPaneState: SplitPaneState = {
   mode: "single",
   left: "agent",
@@ -418,60 +391,32 @@ export const defaultSplitPaneState: SplitPaneState = {
 };
 
 /** Stored values are user-editable localStorage; anything off-shape reads as the default. */
-export function isPersistedSplitPaneState(
-  value: unknown
-): value is PersistedSplitPaneState {
+export function isSplitPaneState(value: unknown): value is SplitPaneState {
   if (!value || typeof value !== "object") return false;
   const state = value as Record<string, unknown>;
   return (
     (state.mode === "single" || state.mode === "split") &&
-    isLegacyCenterTab(state.left) &&
-    isLegacyCenterTab(state.right) &&
+    isCenterTab(state.left) &&
+    isCenterTab(state.right) &&
     Array.isArray(state.sizes) &&
     state.sizes.length === 2 &&
     state.sizes.every((n) => typeof n === "number" && Number.isFinite(n))
   );
 }
 
-/** A persisted state whose sides are already current tabs, as stored by this build. */
-export function isCurrentSplitPaneState(
-  state: PersistedSplitPaneState
-): state is SplitPaneState {
-  return isCenterTab(state.left) && isCenterTab(state.right);
-}
-
-// Typed as the persisted shape so it can stand in for a family member in
-// `useSplitPane`; the default it holds is a current-shape state.
-export const inactiveSplitPaneStateAtom = atom<PersistedSplitPaneState>(
+export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
   defaultSplitPaneState
 );
 
-/**
- * Versioned key. v1 (`dispatch:splitPane:`) predates the "chat" tab; a client
- * rolled back to a v1 build reading "chat" out of its own key would render a
- * blank pane, so the current schema lives under its own key and the legacy
- * one is only ever read (see `atomWithLocalStorage`'s `legacyKey`).
- */
 export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPaneV2:";
-export const LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<PersistedSplitPaneState>(
+  atomWithLocalStorage<SplitPaneState>(
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
     defaultSplitPaneState,
-    {
-      legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
-      validate: isPersistedSplitPaneState,
-    }
+    { validate: isSplitPaneState }
   )
 );
-
-/**
- * Retired per-agent keys: round 1/2's last-picked center tab and the old
- * Chat | Console toggle. Only kept so the reconciler still sweeps them.
- */
-export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
-export const LEGACY_AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
 
 // ---------------------------------------------------------------------------
 // Chat child-agent filter — whether Chat shows the messages exchanged with an
@@ -513,7 +458,6 @@ export function reconcileSplitPaneStateStorage(
 ): void {
   reconcileAgentScopedStorageDomains(agentIds, [
     { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
-    { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   ]);
 }
 
@@ -522,9 +466,6 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
-  { prefix: LEGACY_AGENT_PANE_VIEW_STORAGE_PREFIX },
   { prefix: CHAT_DRAFT_STORAGE_PREFIX },
 ];
 

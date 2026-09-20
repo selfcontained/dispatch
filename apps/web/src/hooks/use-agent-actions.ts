@@ -61,7 +61,7 @@ export function useAgentActions({
   }, [navigate]);
 
   // A stopped agent's Chat stays readable, so stopping never leaves the
-  // route; that navigation was a tmux-era detach.
+  // route.
   const stopAgent = useCallback(async (agent: Agent) => {
     await api(`/api/v1/agents/${agent.id}/stop`, {
       method: "POST",

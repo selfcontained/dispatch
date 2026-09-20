@@ -6,7 +6,7 @@ import os from "node:os";
  * through `DISPATCH_COPY_DISPLAY`.
  *
  * Used by the media upload inject flow to decide between native clipboard paste
- * and path-based injection into tmux.
+ * and handing the agent the file's path.
  */
 export function hostClipboardImageCapable(): boolean {
   const platform = os.platform();

@@ -5,69 +5,11 @@ import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
-  type PersistedSplitPaneState,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
   type SplitPaneState,
 } from "@/lib/store";
 
-import { normalizeSplitPaneState, useSplitPane } from "./use-split-pane";
-
-describe("normalizeSplitPaneState", () => {
-  it("leaves a current-shape split alone", () => {
-    const state = {
-      mode: "split" as const,
-      left: "agent" as const,
-      right: "changes" as const,
-      sizes: [50, 50] as [number, number],
-    };
-    expect(normalizeSplitPaneState(state)).toBe(state);
-  });
-
-  it("folds a persisted terminal or chat pane into the Agent pane", () => {
-    expect(
-      normalizeSplitPaneState({
-        mode: "split",
-        left: "terminal",
-        right: "changes",
-        sizes: [30, 70],
-      })
-    ).toEqual({
-      mode: "split",
-      left: "agent",
-      right: "changes",
-      sizes: [30, 70],
-    });
-    const roundTwo: PersistedSplitPaneState = {
-      mode: "split",
-      left: "changes",
-      right: "chat",
-      sizes: [50, 50],
-    };
-    expect(normalizeSplitPaneState(roundTwo)).toEqual({
-      mode: "split",
-      left: "changes",
-      right: "agent",
-      sizes: [50, 50],
-    });
-  });
-
-  it("collapses a chat/terminal split to a single Agent pane", () => {
-    expect(
-      normalizeSplitPaneState({
-        mode: "split",
-        left: "chat",
-        right: "terminal",
-        sizes: [50, 50],
-      })
-    ).toEqual({
-      mode: "single",
-      left: "agent",
-      right: "agent",
-      sizes: [50, 50],
-    });
-  });
-});
+import { useSplitPane } from "./use-split-pane";
 
 describe("useSplitPane persistence", () => {
   beforeEach(() => {
@@ -80,9 +22,9 @@ describe("useSplitPane persistence", () => {
     window.localStorage.clear();
   });
 
-  const legacySplit: PersistedSplitPaneState = {
+  const storedSplit: SplitPaneState = {
     mode: "split",
-    left: "terminal",
+    left: "agent",
     right: "changes",
     sizes: [30, 70],
   };
@@ -95,68 +37,36 @@ describe("useSplitPane persistence", () => {
     });
   }
 
-  const v2Key = (agentId: string) =>
+  const key = (agentId: string) =>
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`;
-  const legacyKey = (agentId: string) =>
-    `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`;
 
-  it("reads a pre-chat client's split state from the legacy key, folded into the Agent pane", () => {
+  it("reads a stored split state", () => {
     // Each test uses its own agent id: the atom family caches the first read.
-    window.localStorage.setItem(
-      legacyKey("agt_read"),
-      JSON.stringify(legacySplit)
-    );
+    window.localStorage.setItem(key("agt_read"), JSON.stringify(storedSplit));
     const { result } = renderPane("agt_read");
-    expect(result.current.splitState).toEqual({
-      ...legacySplit,
-      left: "agent",
-    });
+    expect(result.current.splitState).toEqual(storedSplit);
     expect(result.current.isSplit).toBe(true);
   });
 
-  it("writes only the versioned key, never the legacy one", () => {
-    window.localStorage.setItem(
-      legacyKey("agt_write"),
-      JSON.stringify(legacySplit)
-    );
+  it("writes changes back under the same key", () => {
+    window.localStorage.setItem(key("agt_write"), JSON.stringify(storedSplit));
     const { result } = renderPane("agt_write");
 
     act(() => result.current.updateSizes([40, 60]));
 
     expect(result.current.splitState).toEqual({
-      ...legacySplit,
-      left: "agent",
+      ...storedSplit,
       sizes: [40, 60],
     });
-    expect(
-      JSON.parse(window.localStorage.getItem(v2Key("agt_write"))!)
-    ).toEqual({ ...legacySplit, sizes: [40, 60] });
-    // A client rolled back to v0.37.10 reads this key and must never find
-    // an id it does not know in it.
-    expect(window.localStorage.getItem(legacyKey("agt_write"))).toBe(
-      JSON.stringify(legacySplit)
-    );
+    expect(JSON.parse(window.localStorage.getItem(key("agt_write"))!)).toEqual({
+      ...storedSplit,
+      sizes: [40, 60],
+    });
   });
 
-  it("prefers the versioned key over the legacy one", () => {
+  it("reads a stored value with an unknown pane id as the default", () => {
     window.localStorage.setItem(
-      legacyKey("agt_both"),
-      JSON.stringify(legacySplit)
-    );
-    const v2: SplitPaneState = {
-      mode: "split",
-      left: "changes",
-      right: "agent",
-      sizes: [50, 50],
-    };
-    window.localStorage.setItem(v2Key("agt_both"), JSON.stringify(v2));
-    const { result } = renderPane("agt_both");
-    expect(result.current.splitState).toEqual(v2);
-  });
-
-  it("folds a round-2 chat pane into the Agent pane", () => {
-    window.localStorage.setItem(
-      v2Key("agt_r2"),
+      key("agt_stale"),
       JSON.stringify({
         mode: "split",
         left: "chat",
@@ -164,9 +74,9 @@ describe("useSplitPane persistence", () => {
         sizes: [50, 50],
       })
     );
-    const { result } = renderPane("agt_r2");
+    const { result } = renderPane("agt_stale");
     expect(result.current.splitState).toEqual({
-      mode: "split",
+      mode: "single",
       left: "agent",
       right: "changes",
       sizes: [50, 50],

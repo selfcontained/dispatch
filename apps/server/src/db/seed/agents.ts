@@ -9,7 +9,7 @@ type AgentStatus =
   | "stopped"
   | "archiving"
   | "error";
-type AgentType = "codex" | "claude" | "opencode";
+type AgentType = "codex" | "claude";
 type LatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 type ArchivePhase =

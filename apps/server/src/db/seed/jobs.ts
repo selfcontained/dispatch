@@ -10,7 +10,7 @@ type SeedJob = {
   timeoutMs: number;
   needsInputTimeoutMs: number;
   prompt: string;
-  agentType: "claude" | "codex" | "opencode";
+  agentType: "claude" | "codex";
   useWorktree: boolean;
   branchName: string | null;
   fullAccess: boolean;
@@ -154,7 +154,7 @@ const JOBS: SeedJob[] = [
     needsInputTimeoutMs: 15 * 60 * 1000,
     prompt:
       "Check outdated dependencies and open PRs for low-risk patch upgrades.",
-    agentType: "opencode",
+    agentType: "codex",
     useWorktree: true,
     branchName: "deps/weekly-audit",
     fullAccess: false,

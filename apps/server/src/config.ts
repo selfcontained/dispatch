@@ -24,7 +24,6 @@ export type AppConfig = {
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
-  opencodeBin: string;
   /** The Claude engine's ACP adapter (`claude-agent-acp`). */
   claudeAdapterBin: string;
   /** The Codex engine's ACP adapter (`codex-acp`). */
@@ -62,7 +61,7 @@ function loadTls(): TlsConfig | null {
 function resolveAgentRuntime(): "acp" | "inert" {
   const env = process.env.DISPATCH_AGENT_RUNTIME;
   if (env === "inert") return "inert";
-  if (env && env !== "acp" && env !== "tmux") {
+  if (env && env !== "acp") {
     console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", using acp`);
   }
   return "acp";
@@ -91,10 +90,6 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex",
     claudeBin:
       process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude",
-    opencodeBin:
-      process.env.DISPATCH_OPENCODE_BIN ??
-      process.env.OPENCODE_BIN ??
-      "opencode",
     claudeAdapterBin: resolveConfiguredBin(
       process.env.DISPATCH_CLAUDE_ADAPTER_BIN ?? "claude-agent-acp"
     ),

@@ -461,7 +461,7 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.getByTitle("/repo/app")).toBeTruthy();
   });
 
-  it("flags full access and falls back to sandboxed, but shows neither for terminals", () => {
+  it("flags full access, and says nothing otherwise", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ fullAccess: true }),
       expandedAgentId: AGENT_ID,
@@ -469,8 +469,8 @@ describe("AgentCardDetails wiring", () => {
     expect(screen.getByText("Full access")).toBeTruthy();
 
     rerender({ agent: makeAgent({ fullAccess: false }) });
-    expect(screen.getByText("Sandboxed")).toBeTruthy();
     expect(screen.queryByText("Full access")).toBeNull();
+    expect(screen.queryByText("Sandboxed")).toBeNull();
   });
 
   it("keeps the worktree-path copy confirmation across a collapse and reopen", async () => {

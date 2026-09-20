@@ -11,12 +11,11 @@ import {
   DIFF_VIEW_STATE_STORAGE_PREFIX,
   reconcileSplitPaneStateStorage,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
-  LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
   splitPaneStateAtomFamily,
   defaultSplitPaneState,
   type SplitPaneState,
   atomWithLocalStorage,
-  isPersistedSplitPaneState,
+  isSplitPaneState,
   asMediaSidebarTab,
   reconcileAgentScopedStorage,
   REVIEW_DRAFTS_STORAGE_PREFIX,
@@ -294,7 +293,7 @@ describe("reconcileSplitPaneStateStorage", () => {
 
   const defaultSplitState = JSON.stringify({
     mode: "single",
-    left: "terminal",
+    left: "agent",
     right: "changes",
     sizes: [50, 50],
   });
@@ -379,37 +378,8 @@ describe("reconcileSplitPaneStateStorage", () => {
     ).toBeNull();
   });
 
-  it("uses the versioned key so a rolled-back client never reads a chat pane", () => {
+  it("keeps the versioned key", () => {
     expect(SPLIT_PANE_STATE_STORAGE_PREFIX).toBe("dispatch:splitPaneV2:");
-    expect(LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX).toBe("dispatch:splitPane:");
-  });
-
-  it("also drops legacy-key entries for agents not in the live set", () => {
-    storeForAgent("agt_1");
-    window.localStorage.setItem(
-      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`,
-      defaultSplitState
-    );
-    window.localStorage.setItem(
-      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_gone`,
-      defaultSplitState
-    );
-
-    reconcileSplitPaneStateStorage(["agt_1"]);
-
-    expect(
-      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`)
-    ).not.toBeNull();
-    expect(
-      window.localStorage.getItem(
-        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`
-      )
-    ).not.toBeNull();
-    expect(
-      window.localStorage.getItem(
-        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_gone`
-      )
-    ).toBeNull();
   });
 
   it("accepts a Set as agentIds", () => {
@@ -445,32 +415,6 @@ describe("splitPaneStateAtomFamily storage migration", () => {
     sizes: [40, 60],
   };
 
-  it("falls back to the legacy key when the v2 key is absent", () => {
-    window.localStorage.setItem(
-      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_read`,
-      JSON.stringify(split)
-    );
-    const store = createStore();
-    expect(store.get(splitPaneStateAtomFamily("agt_legacy_read"))).toEqual(
-      split
-    );
-  });
-
-  it("prefers the v2 key when both are present", () => {
-    window.localStorage.setItem(
-      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_both`,
-      JSON.stringify(split)
-    );
-    window.localStorage.setItem(
-      `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_both`,
-      JSON.stringify(defaultSplitPaneState)
-    );
-    const store = createStore();
-    expect(store.get(splitPaneStateAtomFamily("agt_both"))).toEqual(
-      defaultSplitPaneState
-    );
-  });
-
   it("reads an off-shape stored value as the default", () => {
     window.localStorage.setItem(
       `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_corrupt`,
@@ -481,63 +425,41 @@ describe("splitPaneStateAtomFamily storage migration", () => {
       defaultSplitPaneState
     );
   });
-
-  it("writes only the v2 key and leaves the legacy value untouched", () => {
-    const legacy = JSON.stringify({
-      mode: "split",
-      left: "terminal",
-      right: "changes",
-      sizes: [50, 50],
-    });
-    window.localStorage.setItem(
-      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`,
-      legacy
-    );
-    const store = createStore();
-    const atom = splitPaneStateAtomFamily("agt_legacy_write");
-    store.set(atom, split);
-
-    expect(
-      window.localStorage.getItem(
-        `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`
-      )
-    ).toBe(JSON.stringify(split));
-    // A client rolled back to the v1 schema still sees only what it wrote.
-    expect(
-      window.localStorage.getItem(
-        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`
-      )
-    ).toBe(legacy);
-  });
 });
 
-describe("isPersistedSplitPaneState", () => {
-  it("accepts current and round-1/2 tab ids on either side", () => {
+describe("isSplitPaneState", () => {
+  it("accepts the current tab ids on either side, and nothing retired", () => {
     expect(
-      isPersistedSplitPaneState({
+      isSplitPaneState({
         mode: "split",
-        left: "chat",
-        right: "terminal",
+        left: "changes",
+        right: "agent",
         sizes: [30, 70],
       })
     ).toBe(true);
-    expect(isPersistedSplitPaneState(defaultSplitPaneState)).toBe(true);
+    expect(isSplitPaneState(defaultSplitPaneState)).toBe(true);
+    expect(isSplitPaneState({ ...defaultSplitPaneState, left: "chat" })).toBe(
+      false
+    );
+    expect(
+      isSplitPaneState({ ...defaultSplitPaneState, right: "terminal" })
+    ).toBe(false);
   });
 
   it("rejects anything else", () => {
-    expect(isPersistedSplitPaneState(null)).toBe(false);
-    expect(isPersistedSplitPaneState("split")).toBe(false);
+    expect(isSplitPaneState(null)).toBe(false);
+    expect(isSplitPaneState("split")).toBe(false);
+    expect(isSplitPaneState({ ...defaultSplitPaneState, mode: "wide" })).toBe(
+      false
+    );
+    expect(isSplitPaneState({ ...defaultSplitPaneState, left: "files" })).toBe(
+      false
+    );
+    expect(isSplitPaneState({ ...defaultSplitPaneState, sizes: [50] })).toBe(
+      false
+    );
     expect(
-      isPersistedSplitPaneState({ ...defaultSplitPaneState, mode: "wide" })
-    ).toBe(false);
-    expect(
-      isPersistedSplitPaneState({ ...defaultSplitPaneState, left: "files" })
-    ).toBe(false);
-    expect(
-      isPersistedSplitPaneState({ ...defaultSplitPaneState, sizes: [50] })
-    ).toBe(false);
-    expect(
-      isPersistedSplitPaneState({ ...defaultSplitPaneState, sizes: ["a", 1] })
+      isSplitPaneState({ ...defaultSplitPaneState, sizes: ["a", 1] })
     ).toBe(false);
   });
 });

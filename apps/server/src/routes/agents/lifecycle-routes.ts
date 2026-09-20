@@ -578,32 +578,36 @@ export async function registerAgentLifecycleRoutes(
         ? `Line ${body.startLine}`
         : `Lines ${body.startLine}-${body.endLine}`;
     const codeBlock =
-      lines.length > 0
-        ? "\n" + lines.map((l) => `│ ${l}`).join("\n") + "\n"
-        : "";
+      lines.length > 0 ? ["```", ...lines, "```"].join("\n") : "";
 
-    const prompt = [
-      "--- DISPATCH: Code Comment ---",
-      `File: ${body.filePath}`,
-      `${lineLabel}:`,
+    // The comment is a post in the agent's stream, like anything else a
+    // person says to it: it reads in the Chat and reaches the agent as a
+    // prompt, quoting the lines it is about.
+    const text = [
+      `**${body.filePath}** · ${lineLabel}`,
       codeBlock,
-      `Comment: ${body.comment.trim()}`,
-      "--- END ---",
-    ].join("\n");
+      body.comment.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     try {
-      await deps.sendAgentPrompt(id, prompt);
+      const streamId = await deps.chat.streamOf(id);
+      const posted = await deps.chat.sendUserPost(streamId, {
+        to: id,
+        text,
+        allowInert: false,
+      });
+      return { delivered: true, block: posted.block };
     } catch (error) {
       deps.appLog.warn(
         { err: error, agentId: id },
-        "Diff comment: tmux delivery failed"
+        "Diff comment: delivery failed"
       );
       return reply
         .code(500)
         .send({ error: "Failed to deliver comment to agent." });
     }
-
-    return { delivered: true };
   });
 }
 

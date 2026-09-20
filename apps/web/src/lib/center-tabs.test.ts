@@ -5,7 +5,6 @@ import {
   centerTabLabel,
   centerTabRoute,
   isCenterTab,
-  isLegacyCenterTab,
 } from "./center-tabs";
 
 describe("center tabs registry", () => {
@@ -24,17 +23,10 @@ describe("center tabs registry", () => {
 
   it("recognises stored tab ids and rejects anything else", () => {
     expect(isCenterTab("agent")).toBe(true);
-    // Retired ids are not tabs of their own any more.
     expect(isCenterTab("terminal")).toBe(false);
     expect(isCenterTab("chat")).toBe(false);
     expect(isCenterTab("console")).toBe(false);
     expect(isCenterTab(null)).toBe(false);
     expect(isCenterTab(3)).toBe(false);
-  });
-
-  it("still accepts the retired ids stored state may carry", () => {
-    expect(isLegacyCenterTab("terminal")).toBe(true);
-    expect(isLegacyCenterTab("chat")).toBe(true);
-    expect(isLegacyCenterTab("console")).toBe(false);
   });
 });
