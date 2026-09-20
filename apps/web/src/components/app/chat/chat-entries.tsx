@@ -3,21 +3,21 @@ import type { Block, BlockOption, ChatStatusEntry } from "@dispatch/shared";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Bot,
   Check,
   Copy,
   Hourglass,
   Loader2,
+  MessageSquare,
   MessagesSquare,
   Rocket,
   UserRound,
-  MessageSquare,
 } from "lucide-react";
 
 import {
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
-import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -242,8 +242,6 @@ export function blockSide(
   return { recipientName: agentDisplayName(block.toAgentId, ctx) };
 }
 
-const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
-
 /**
  * The author's avatar. In a side conversation (`side`) it carries a small
  * arrows badge in its top-right corner, so an agent-to-agent post is told
@@ -267,10 +265,16 @@ function Avatar({
         <UserRound className="h-4 w-4" aria-hidden="true" />
       </span>
     ) : (
-      <AgentTypeIcon
-        type={author.agentType}
-        className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
-      />
+      // Every agent wears the same face; the engine and model are said in
+      // the chips under its name, not guessed from a logo.
+      <span
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted/50 text-foreground/80"
+        aria-label={`${author.name}, agent`}
+        title={author.name}
+        data-testid="chat-avatar-agent"
+      >
+        <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
+      </span>
     );
   if (!side) return icon;
   return (

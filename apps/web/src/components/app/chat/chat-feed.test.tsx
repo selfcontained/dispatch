@@ -592,17 +592,20 @@ describe("ChatFeed", () => {
     expect(
       posts[1]!.querySelector('[data-testid="chat-author-model"]')
     ).toBeNull();
+    // One face for every agent; the name is in the avatar's label.
     expect(
       posts.map((post) =>
-        post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
+        post
+          .querySelector('[data-testid="chat-avatar-agent"]')
+          ?.getAttribute("aria-label")
       )
     ).toEqual([
-      "Codex agent",
-      "Claude agent",
-      "Codex agent",
-      "Claude agent",
-      // Not in the list any more: the generic agent icon.
-      "Agent agent",
+      "kid, agent",
+      "root, agent",
+      "sib, agent",
+      "far, agent",
+      // Not in the list any more: named as a plain agent.
+      "Agent, agent",
     ]);
     // Still a peer post: muted side-conversation treatment, the sender's
     // name as the agents list knows it.
@@ -645,7 +648,9 @@ describe("ChatFeed", () => {
     expect(
       post.querySelector('[data-testid="agent-relation-badge"]')
     ).toBeNull();
-    expect(post.querySelector('[aria-label="Claude agent"]')).not.toBeNull();
+    expect(
+      post.querySelector('[data-testid="chat-avatar-agent"]')
+    ).not.toBeNull();
     expect(
       post
         .querySelector("[data-testid='chat-side-header']")
@@ -728,8 +733,10 @@ describe("ChatFeed", () => {
       "orchestrator"
     );
     expect(
-      post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
-    ).toBe("Codex agent");
+      post
+        .querySelector('[data-testid="chat-avatar-agent"]')
+        ?.getAttribute("aria-label")
+    ).toBe("orchestrator, agent");
     expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
     cleanup();
 
@@ -805,10 +812,15 @@ describe("ChatFeed", () => {
     expect(action?.className).toContain("max-sm:-mt-2");
   });
 
-  it("uses the agent's type for its avatar", () => {
+  it("gives the agent a bot avatar and names its engine under it", () => {
     renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType: "codex" });
     const post = screen.getByTestId("chat-message");
-    expect(post.querySelector("[aria-label='Codex agent']")).toBeTruthy();
+    expect(
+      post.querySelector("[data-testid='chat-avatar-agent']")
+    ).toBeTruthy();
+    expect(
+      post.querySelector("[data-testid='chat-author-engine']")?.textContent
+    ).toBe("Codex");
   });
 
   it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
@@ -1230,11 +1242,15 @@ describe("ChatFeed", () => {
     ).toContain("max-w-full");
 
     // The sender's icon with the arrows overlay, on header rows only.
-    expect(first.querySelector("[aria-label='Claude agent']")).not.toBeNull();
+    expect(
+      first.querySelector("[data-testid='chat-avatar-agent']")
+    ).not.toBeNull();
     expect(
       first.querySelector("[data-testid='chat-avatar-side-badge']")
     ).not.toBeNull();
-    expect(third.querySelector("[aria-label='Codex agent']")).not.toBeNull();
+    expect(
+      third.querySelector("[data-testid='chat-avatar-agent']")
+    ).not.toBeNull();
     expect(
       third.querySelector("[data-testid='chat-avatar-side-badge']")
     ).not.toBeNull();
