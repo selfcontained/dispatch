@@ -11,6 +11,7 @@ import { formatStepDuration } from "./format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
 import { stepLabel } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
+import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
 
 /**
@@ -225,6 +226,9 @@ function SummaryRow({
   onToggle: () => void;
 }): JSX.Element {
   const done = trace.endedAt != null;
+  // Re-render on the shared tick while the turn runs, so the time counts
+  // between stream events rather than only when one lands.
+  useStreamTicker(!done);
   const summary = turnSummary(trace, label);
   const { steps, ms, thinking } = summary;
   const running = done

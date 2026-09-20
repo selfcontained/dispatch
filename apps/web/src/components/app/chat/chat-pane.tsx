@@ -745,7 +745,7 @@ export function ChatPane({
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
 
   return (
-    <MotionConfig reducedMotion={isMobile ? "always" : "user"}>
+    <MotionConfig reducedMotion="user">
       <div
         className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden bg-background"
         data-testid="chat-pane"

@@ -14,9 +14,11 @@ function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
   const showContent = !!turn.content;
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      // The message arrives like a new message would: after the activity
+      // line has settled, sliding up as it fades in.
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={arrive(DURATION.slow)}
+      transition={{ ...arrive(0.45), delay: 0.12 }}
       className="space-y-2"
       data-testid="harness-result"
     >
