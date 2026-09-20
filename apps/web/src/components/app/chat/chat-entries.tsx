@@ -16,7 +16,6 @@ import {
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
-import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -423,9 +422,6 @@ export function Post({
             >
               {author.name}
             </span>
-            {author.kind === "peer" ? (
-              <AgentRelationBadge relation={author.relation ?? "agent"} />
-            ) : null}
             {side ? (
               <span
                 className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
@@ -638,10 +634,11 @@ function BlockBody({
               : undefined
           }
           onOpenPath={onOpenPath}
-          // In the panel the review is the whole subject: open, with the
-          // findings' bodies, and the finding the link named picked out.
-          defaultExpanded={inThread}
-          showBodies={inThread}
+          // A review with work left in it opens on its findings, each with
+          // the change it asks for; a settled one folds to its verdict. In
+          // the panel the review is the whole subject and always open.
+          defaultExpanded={inThread || hasOpenFindings(block)}
+          showBodies
           highlightFindingId={highlightFindingId}
         />
       );
@@ -679,6 +676,14 @@ export type BlockViewProps = {
  * the attachments, and then the delivery state (a person's block), the
  * reactions, and the thread's reply line.
  */
+/** Whether any finding on a review is still open. */
+function hasOpenFindings(block: Extract<Block, { kind: "review" }>): boolean {
+  return block.data.findings.some(
+    (finding) =>
+      (block.state?.findings[finding.id]?.status ?? "open") === "open"
+  );
+}
+
 export const BlockView = memo(function BlockView({
   block,
   held,

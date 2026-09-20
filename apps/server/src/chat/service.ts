@@ -10,6 +10,7 @@ import type {
   BlockLinkData,
   BlockQuestionData,
   BlockReviewData,
+  BlockReviewState,
   BlockTasksData,
   ChatAttachment,
   ChatUserAttachmentInput,
@@ -36,6 +37,7 @@ import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
+  describeReview,
   buildReactionEnvelope,
   type EnvelopeSender,
   formatAttachmentSize,
@@ -449,6 +451,23 @@ type TurnPublish = { done: Promise<void>; again: boolean };
  * answers, state changes, reactions, delivery to agents, the launch block,
  * and the events that keep a mounted feed current.
  */
+/**
+ * The text a block delivers as a prompt: its own text, plus what its data
+ * says when the data is the point (a review's findings). A question's
+ * options are not spelled out: the recipient of a question is a person.
+ */
+function envelopeText(block: Block): string {
+  if (block.kind === "review" && block.data) {
+    const review = describeReview(
+      block.id,
+      block.data as BlockReviewData,
+      (block.state as BlockReviewState | null) ?? null
+    );
+    return block.text.trim() ? `${block.text.trim()}\n\n${review}` : review;
+  }
+  return block.text;
+}
+
 export class StreamService {
   readonly store: BlockStore;
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
@@ -517,7 +536,7 @@ export class StreamService {
         envelope: buildPostEnvelope({
           blockId: block.id,
           from,
-          text: block.text,
+          text: envelopeText(block),
           attachmentLines,
           threadId: block.threadId,
         }),
@@ -525,30 +544,6 @@ export class StreamService {
         logContext: { blockId: block.id, participant: party.agentId },
       });
     }
-  }
-
-  /**
-   * Where a post between a parent and its child lands when the writer gave
-   * no thread: under the child's launch block, so agent-to-agent traffic
-   * reads as one conversation instead of loose posts in the main column.
-   */
-  private async defaultThread(
-    authorAgentId: string,
-    toAgentId: string
-  ): Promise<string | null> {
-    const [authorParent, toParent] = await Promise.all([
-      parentAgentId(this.deps.pool, authorAgentId),
-      parentAgentId(this.deps.pool, toAgentId),
-    ]);
-    const childId =
-      authorParent === toAgentId
-        ? authorAgentId
-        : toParent === authorAgentId
-          ? toAgentId
-          : null;
-    if (!childId) return null;
-    const launch = await this.store.findLaunchBlock(childId);
-    return launch?.id ?? null;
   }
 
   // -------------------------------------------------------------------------
@@ -1038,15 +1033,12 @@ export class StreamService {
         "A post needs text, an attachment, or one of question, form, link, review or tasks."
       );
     }
-    let replyTo = input.replyTo ?? null;
+    const replyTo = input.replyTo ?? null;
     let toAgentId = input.to ?? null;
     if (toAgentId === agentId) {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    if (toAgentId !== null && replyTo === null) {
-      replyTo = await this.defaultThread(agentId, toAgentId);
-    }
     const thread = await this.resolveThread(streamId, replyTo);
     if (toAgentId === null && thread) {
       toAgentId = await this.threadCounterpart(thread.threadId, author);
@@ -1402,7 +1394,7 @@ export class StreamService {
       envelope: buildPostEnvelope({
         blockId: block.id,
         from,
-        text: block.text,
+        text: envelopeText(block),
         attachmentLines,
         threadId: block.threadId,
         answers: extra.answers ?? null,

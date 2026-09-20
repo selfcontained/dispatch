@@ -142,6 +142,30 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
   return true;
 }
 
+/**
+ * A person's post that opened a turn is drawn by that turn. The server
+ * leaves it out of the feed, but the two can meet in the cache for a
+ * moment (the post arrived by SSE before the turn did), and then the row
+ * keyed by the post's id would appear twice.
+ */
+export function withoutTurnPrompts(entries: StreamEntry[]): StreamEntry[] {
+  const prompts = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type === "turn" && entry.prompt.chatMessageId) {
+      prompts.add(entry.prompt.chatMessageId);
+    }
+  }
+  if (prompts.size === 0) return entries;
+  return entries.filter(
+    (entry) =>
+      !(
+        entry.type === "block" &&
+        entry.block.author.kind === "user" &&
+        prompts.has(entry.block.id)
+      )
+  );
+}
+
 /** The thread and finding named in the URL (`?thread=<id>&finding=<id>`). */
 export { FINDING_PARAM, THREAD_PARAM };
 
@@ -431,10 +455,12 @@ export function ChatPane({
   );
   const visibleEntries = useMemo(
     () =>
-      (view
-        ? filterStreamView(entries, view, showChildAgents)
-        : entries
-      ).filter(isMainColumnEntry),
+      withoutTurnPrompts(
+        (view
+          ? filterStreamView(entries, view, showChildAgents)
+          : entries
+        ).filter(isMainColumnEntry)
+      ),
     [entries, showChildAgents, view]
   );
   // The page agent's own rows: what its composer answers, what its Stop
@@ -995,8 +1021,10 @@ export function ChatPane({
                   data-pending={pendingBelow ? "true" : undefined}
                   className="pointer-events-auto relative h-9 w-9 rounded-full border-border/60 bg-background/70 text-foreground shadow-md backdrop-blur hover:bg-background/90"
                   onClick={() => {
+                    // Only the smooth scroll: following re-arms itself once
+                    // the scroll reaches the bottom. Arming it here would let
+                    // the content observer jump the rest of the way.
                     anchoredRef.current = 0;
-                    setFollowing(true);
                     setPendingBelow(false);
                     scrollToBottom("smooth");
                   }}

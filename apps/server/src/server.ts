@@ -786,7 +786,7 @@ async function registerRoutes() {
   // --- Personas ---
   await registerPersonaRoutes(app, {
     agentManager,
-    launchPersonaAgent: mcpHandlers.launchPersonaAgent,
+    streams: streamService,
     handleAgentError,
   });
 

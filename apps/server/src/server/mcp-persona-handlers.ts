@@ -183,21 +183,24 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       );
     }
     const prepared = await preparePersonaLaunch(parent, opts);
-    const agent = await agentManager.createAgent({
-      name: opts.name ?? `${opts.persona}-${parentId.slice(-6)}`,
-      type: prepared.agentType,
-      cwd: prepared.cwd,
-      model: prepared.model,
-      agentArgs: prepared.agentArgs,
-      fullAccess: parent.fullAccess,
-      useWorktree: false,
-      persona: opts.persona,
-      parentAgentId: parentId,
-      launchedByAgentId: parentId,
-      personaContext: opts.context,
-      initialPrompt: buildPersonaKickoffPrompt(parentId),
-      launchContext: { prompt: opts.context },
-    });
+    const agent = await agentManager.createAgent(
+      {
+        name: opts.name ?? `${opts.persona}-${parentId.slice(-6)}`,
+        type: prepared.agentType,
+        cwd: prepared.cwd,
+        model: prepared.model,
+        agentArgs: prepared.agentArgs,
+        fullAccess: parent.fullAccess,
+        useWorktree: false,
+        persona: opts.persona,
+        parentAgentId: parentId,
+        launchedByAgentId: parentId,
+        personaContext: opts.context,
+        initialPrompt: buildPersonaKickoffPrompt(parentId),
+        launchContext: { prompt: opts.context },
+      },
+      { detachLaunch: true }
+    );
     const fresh = await agentManager.getAgent(agent.id);
     publishUiEvent({
       type: "agent.upsert",

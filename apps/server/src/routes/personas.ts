@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
+import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { loadPersonasFromRoots } from "../personas/loader.js";
@@ -11,19 +12,44 @@ import {
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
-  /** Launch a child running as a persona; see mcp-persona-handlers. */
-  launchPersonaAgent: (
-    parentId: string,
-    opts: {
-      persona: string;
-      context: string;
-      agentType?: (typeof CLI_AGENT_TYPES)[number];
-      includeDiff?: boolean;
-      model?: string;
-    }
-  ) => Promise<{ agentId: string; name: string; persona: string }>;
+  /**
+   * The request reaches the agent as a post in its stream: the agent
+   * launches the persona itself, with its own briefing of the work.
+   */
+  streams: Pick<StreamService, "sendUserPost" | "streamOf">;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
+
+/**
+ * What the agent is asked to do. The agent has the context a reviewer
+ * needs (what changed, where to look, what to be careful about); a launch
+ * made by the server with a generic note loses all of that.
+ */
+export function personaLaunchRequest(input: {
+  personas: string[];
+  agentType: string;
+  model?: string;
+  includeDiff?: boolean;
+  note?: string;
+}): string {
+  const lines = input.personas.map((persona) => {
+    const args = [
+      `persona: "${persona}"`,
+      `type: "${input.agentType}"`,
+      ...(input.model ? [`model: "${input.model}"`] : []),
+      ...(input.includeDiff === false ? ["includeDiff: false"] : []),
+    ];
+    return `- launch_agent({ ${args.join(", ")}, prompt: <your briefing> })`;
+  });
+  return [
+    input.personas.length === 1
+      ? `Please launch the ${input.personas[0]} persona on your current work:`
+      : `Please launch these personas on your current work:`,
+    ...lines,
+    "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review block back to you; address every finding.",
+    ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
+  ].join("\n");
+}
 
 const MAX_LAUNCH_NOTE_LENGTH = 2000;
 
@@ -180,26 +206,24 @@ export async function registerPersonaRoutes(
     try {
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
-      const context =
-        typeof body.note === "string" && body.note.trim().length > 0
-          ? body.note.trim()
-          : "Review the agent's current work in this worktree.";
-      const launched = [];
-      for (const persona of personas) {
-        launched.push(
-          await deps.launchPersonaAgent(agentId, {
-            persona,
-            context,
-            agentType: body.agentType as (typeof CLI_AGENT_TYPES)[number],
-            ...(body.includeDiff !== undefined
-              ? { includeDiff: body.includeDiff }
-              : {}),
-            ...(model !== undefined ? { model } : {}),
-          })
-        );
-      }
-      return { ok: true, launched };
+      const text = personaLaunchRequest({
+        personas,
+        agentType: body.agentType as string,
+        ...(model !== undefined ? { model } : {}),
+        ...(body.includeDiff !== undefined
+          ? { includeDiff: body.includeDiff }
+          : {}),
+        ...(typeof body.note === "string" ? { note: body.note } : {}),
+      });
+      const posted = await deps.streams.sendUserPost(
+        await deps.streams.streamOf(agentId),
+        { to: agentId, text, allowInert: false }
+      );
+      return { ok: true, block: posted.block };
     } catch (error) {
+      if (error instanceof StreamServiceError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
       return deps.handleAgentError(reply, error);
     }
   });

@@ -35,12 +35,6 @@ type PersonaSummary = {
   description: string;
 };
 
-export type LaunchedPersona = {
-  agentId: string;
-  name: string;
-  persona: string;
-};
-
 function defaultReviewAgentType(agent: Agent): AgentType {
   return agent.reviewAgentType ?? agent.type ?? "codex";
 }
@@ -51,7 +45,6 @@ export function PersonaLauncher({
   disabled = false,
   disabledReason,
   label = "Review",
-  onLaunched,
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
@@ -59,8 +52,6 @@ export function PersonaLauncher({
   disabledReason?: string;
   /** The trigger button's text. */
   label?: string;
-  /** Called with the launched children once the request succeeds. */
-  onLaunched?: (launched: LaunchedPersona[]) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
@@ -103,9 +94,9 @@ export function PersonaLauncher({
   const launchMutation = useMutation({
     mutationFn: async (personas: string[]) => {
       await persistReviewAgentType(selectedAgentType);
-      // Each persona becomes a child agent that posts its review (or
-      // whatever the persona produces) into this agent's stream.
-      return api<{ ok: boolean; launched: LaunchedPersona[] }>(
+      // The request lands in the agent's stream as a post; the agent
+      // launches each persona itself, with its own briefing of the work.
+      return api<{ ok: boolean; block: { id: string } }>(
         `/api/v1/agents/${agent.id}/launch-persona`,
         {
           method: "POST",
@@ -123,9 +114,8 @@ export function PersonaLauncher({
         }
       );
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       setDialogOpen(false);
-      onLaunched?.(result.launched);
     },
   });
 

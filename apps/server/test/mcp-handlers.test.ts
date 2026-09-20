@@ -515,14 +515,19 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchPersonaAgent", () => {
-    it("launches a persona child in the parent's worktree and stream", async () => {
+    it("launches a persona child in the parent's worktree and stream, detached", async () => {
       const result = await handlers.launchPersonaAgent("agt_test1", {
         persona: "security",
         context: "review this PR",
       });
       expect(result).toHaveProperty("agentId", "agt_new1");
       expect(result).toHaveProperty("persona", "security");
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      // The launcher's request returns as soon as the row exists; the
+      // workspace and engine start run on.
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[1]).toEqual({
+        detachLaunch: true,
+      });
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           persona: "security",
           parentAgentId: "agt_test1",
@@ -580,7 +585,7 @@ describe("createMcpHandlers", () => {
         expect.anything(),
         expect.objectContaining({ agentType: "cursor" })
       );
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "cursor" })
       );
     });
@@ -622,7 +627,7 @@ describe("createMcpHandlers", () => {
         expect.anything(),
         expect.anything()
       );
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ persona: GENERIC_REVIEW_PERSONA_SLUG })
       );
     });
@@ -664,7 +669,7 @@ describe("createMcpHandlers", () => {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           agentArgs: expect.arrayContaining(["--dangerously-skip-permissions"]),
         })
@@ -698,7 +703,7 @@ describe("createMcpHandlers", () => {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           agentArgs: expect.arrayContaining([
             "--dangerously-bypass-approvals-and-sandbox",
@@ -774,7 +779,7 @@ describe("createMcpHandlers", () => {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -797,7 +802,7 @@ describe("createMcpHandlers", () => {
         context: "review",
         agentType: "codex",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -819,7 +824,7 @@ describe("createMcpHandlers", () => {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({ type: "codex" })
       );
     });
@@ -841,7 +846,7 @@ describe("createMcpHandlers", () => {
         persona: "security",
         context: "review",
       });
-      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+      expect(deps.agentManager.createAgent.mock.calls.at(-1)?.[0]).toEqual(
         expect.objectContaining({
           cwd: "/repo/.dispatch/worktrees/abc",
         })

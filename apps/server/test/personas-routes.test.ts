@@ -9,8 +9,8 @@ import {
 } from "vitest";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
-import { CLI_AGENT_TYPES } from "../src/agent-type-settings.js";
 import { registerPersonaRoutes } from "../src/routes/personas.js";
+import { StreamServiceError } from "../src/chat/service.js";
 
 vi.mock("../src/personas/loader.js", () => ({
   loadPersonasFromRoots: vi.fn(async () => []),
@@ -30,13 +30,13 @@ function createMockDeps() {
         cwd: "/tmp",
       })),
     },
-    launchPersonaAgent: vi.fn(
-      async (_parentId: string, opts: { persona: string }) => ({
-        agentId: `agt_${opts.persona}`,
-        name: `${opts.persona}-parent`,
-        persona: opts.persona,
-      })
-    ),
+    streams: {
+      streamOf: vi.fn(async (id: string) => `root:${id}`),
+      sendUserPost: vi.fn(async (_root: string, input: { text: string }) => ({
+        block: { id: "blk_1", text: input.text },
+        delivered: null,
+      })),
+    },
     handleAgentError: vi.fn((reply: FastifyReply, error: unknown) =>
       reply.code(500).send({ error: String(error) })
     ),
@@ -111,7 +111,7 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       });
       expect(response.statusCode).toBe(400);
     }
-    expect(deps.launchPersonaAgent).not.toHaveBeenCalled();
+    expect(deps.streams.sendUserPost).not.toHaveBeenCalled();
   });
 
   it("404s an unknown parent", async () => {
@@ -124,51 +124,49 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it("launches one child per persona, with the note as the briefing", async () => {
-    for (const agentType of CLI_AGENT_TYPES) {
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/v1/agents/agt_parent/launch-persona",
-        payload: { persona: "security-review", agentType, includeDiff: false },
-      });
-      expect(response.statusCode).toBe(200);
-    }
-    expect(deps.launchPersonaAgent).toHaveBeenLastCalledWith("agt_parent", {
-      persona: "security-review",
-      context: "Review the agent's current work in this worktree.",
-      agentType: CLI_AGENT_TYPES[CLI_AGENT_TYPES.length - 1],
-      includeDiff: false,
-    });
-
+  it("asks the agent to launch the personas itself, with the user's note", async () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/agents/agt_parent/launch-persona",
       payload: {
         personas: ["security-review", "ux-review", "security-review"],
         agentType: "codex",
+        includeDiff: false,
         note: "  Focus on the auth changes.  ",
       },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      ok: true,
-      launched: [
-        {
-          agentId: "agt_security-review",
-          name: "security-review-parent",
-          persona: "security-review",
-        },
-        {
-          agentId: "agt_ux-review",
-          name: "ux-review-parent",
-          persona: "ux-review",
-        },
-      ],
+    expect(response.json()).toMatchObject({ ok: true, block: { id: "blk_1" } });
+    expect(deps.streams.streamOf).toHaveBeenCalledWith("agt_parent");
+    expect(deps.streams.sendUserPost).toHaveBeenCalledTimes(1);
+    const [root, input] = deps.streams.sendUserPost.mock.calls[0]!;
+    expect(root).toBe("root:agt_parent");
+    expect(input).toMatchObject({ to: "agt_parent", allowInert: false });
+    // The agent writes the briefing; the request names the personas, the
+    // runtime, and carries the user's note.
+    expect(input.text).toContain('persona: "security-review"');
+    expect(input.text).toContain('persona: "ux-review"');
+    expect(input.text).not.toMatch(
+      /security-review[\s\S]*security-review[\s\S]*security-review/
+    );
+    expect(input.text).toContain('type: "codex"');
+    expect(input.text).toContain("includeDiff: false");
+    expect(input.text).toContain("prompt: <your briefing>");
+    expect(input.text).toContain("From the user: Focus on the auth changes.");
+  });
+
+  it("reports the agent as not running when the post cannot be delivered", async () => {
+    class StoppedError extends StreamServiceError {
+      readonly statusCode = 409;
+    }
+    deps.streams.sendUserPost.mockRejectedValueOnce(
+      new StoppedError("Agent is stopped.")
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: { persona: "security-review", agentType: "codex" },
     });
-    expect(deps.launchPersonaAgent).toHaveBeenCalledWith("agt_parent", {
-      persona: "ux-review",
-      context: "Focus on the auth changes.",
-      agentType: "codex",
-    });
+    expect(response.statusCode).toBe(409);
   });
 });

@@ -120,7 +120,8 @@ describe("PersonaLauncher", () => {
   it("sends the trimmed focus note with the launch request", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-persona")) return { ok: true, launched: [] };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });
@@ -157,7 +158,8 @@ describe("PersonaLauncher", () => {
   it("sends note: null when the field is left empty", async () => {
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
-      if (path.includes("/launch-persona")) return { ok: true, launched: [] };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
       if (path.includes("/review-agent-type")) return { agent };
       return { models: { claude: [{ id: "opus", label: "Opus" }] } };
     });

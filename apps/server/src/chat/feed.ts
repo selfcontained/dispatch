@@ -63,7 +63,7 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
 
 /**
  * Top-level blocks on a stream, newest first. Replies live in threads and
- * are read through the thread route; a block that opened a turn is rendered
+ * are read through the thread route; a person's block that opened a turn is rendered
  * by that turn entry (prompt text and attachments included), so listing it
  * again would show the prompt twice.
  *
@@ -98,13 +98,13 @@ async function listBlockEntries(
          FROM blocks b
         WHERE b.stream_id = $1
           ${scope}
-          AND NOT EXISTS (
+          AND NOT (b.author_kind = 'user' AND EXISTS (
             SELECT 1
               FROM agent_stream_events s
              WHERE s.agent_id = $1
                AND s.kind = 'turn'
                AND s.${TURN_PROMPT_CHAT_ID_PATH} = b.id::text
-          ) ${clause}
+          )) ${clause}
         ORDER BY b.created_at DESC, b.id DESC
         LIMIT $${params.length}
      ), expanded AS (

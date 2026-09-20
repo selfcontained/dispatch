@@ -238,6 +238,9 @@ function ChildTurnView({
           ctx={ctx}
           folded={folded}
           author={author}
+          // What opened a child's turn is already in the column: its
+          // launch block, or a post from its parent.
+          hidePrompt
         />
       ) : null}
     </div>
@@ -251,7 +254,11 @@ function TurnBody({
   ctx,
   folded = NO_FOLDED,
   author,
-}: TurnEntryViewProps & { author: PostAuthor }): JSX.Element {
+  hidePrompt = false,
+}: TurnEntryViewProps & {
+  author: PostAuthor;
+  hidePrompt?: boolean;
+}): JSX.Element {
   const trace = useMemo(() => turnTrace(entry), [entry]);
   const result = useMemo(() => resultTurnModel(entry, trace), [entry, trace]);
   // The folded rail reads "<verb>, 12 steps, 1m 4s"; the verb is derived
@@ -273,7 +280,8 @@ function TurnBody({
    */
   // A reply in a thread (an answer to a question) is already shown by the
   // block it answers, so the turn it opened draws no prompt post either.
-  const showsPrompt = entry.prompt.source !== "agent" && !entry.prompt.threadId;
+  const showsPrompt =
+    !hidePrompt && entry.prompt.source !== "agent" && !entry.prompt.threadId;
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const prompt = useMemo(() => promptBlock(entry), [entry]);
   return (

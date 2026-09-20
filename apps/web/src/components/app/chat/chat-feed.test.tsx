@@ -524,7 +524,7 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
   });
 
-  it("shows a peer's own icon and its relation to this agent", () => {
+  it("shows a peer's own icon, with no relation badge", () => {
     const peers = peerDirectory(AGENT_ID, [
       {
         id: AGENT_ID,
@@ -563,13 +563,12 @@ describe("ChatFeed", () => {
       { peers }
     );
     const posts = sidePosts();
-    expect(
-      posts.map(
-        (post) =>
-          post.querySelector('[data-testid="agent-relation-badge"]')
-            ?.textContent
-      )
-    ).toEqual(["child agent", "parent", "sibling", "agent", "agent"]);
+    // No relation badge: the name and icon carry who it is.
+    for (const post of posts) {
+      expect(
+        post.querySelector('[data-testid="agent-relation-badge"]')
+      ).toBeNull();
+    }
     expect(
       posts.map((post) =>
         post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
@@ -601,9 +600,6 @@ describe("ChatFeed", () => {
       }),
     ]);
     const post = sidePosts()[0]!;
-    expect(
-      post.querySelector('[data-testid="agent-relation-badge"]')?.textContent
-    ).toBe("agent");
     expect(post.querySelector('[aria-label="Agent agent"]')).not.toBeNull();
     // This agent's own outgoing posts carry no badge.
   });
@@ -708,9 +704,6 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-post-author").textContent).toBe(
       "orchestrator"
     );
-    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
-      "parent"
-    );
     expect(
       post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
     ).toBe("Codex agent");
@@ -721,9 +714,6 @@ describe("ChatFeed", () => {
     renderFeed([blockEntry(launch)], {}, { peers: {} });
     post = screen.getByTestId("chat-message");
     expect(screen.getByTestId("chat-post-author").textContent).toBe("Agent");
-    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
-      "agent"
-    );
     expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
   });
 
@@ -1201,8 +1191,8 @@ describe("ChatFeed", () => {
         ?.getAttribute("aria-label")
     ).toBe("Reviewer → builder");
     expect(
-      third.querySelector("[data-testid='agent-relation-badge']")?.textContent
-    ).toBe("child agent");
+      third.querySelector("[data-testid='agent-relation-badge']")
+    ).toBeNull();
 
     // Narrow screens: the header wraps and the recipient keeps a minimum
     // width instead of collapsing to "→ …" beside a long sender name.

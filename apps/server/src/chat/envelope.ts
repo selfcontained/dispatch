@@ -1,4 +1,8 @@
-import type { BlockKind } from "@dispatch/shared";
+import type {
+  BlockKind,
+  BlockReviewData,
+  BlockReviewState,
+} from "@dispatch/shared";
 
 /**
  * The envelope's own markers, line-anchored exactly as they are emitted:
@@ -53,6 +57,50 @@ export type EnvelopeSender =
 
 function senderLabel(from: EnvelopeSender): string {
   return from.kind === "user" ? "user" : `${from.name} (${from.agentId})`;
+}
+
+/**
+ * A review as its recipient reads it: the verdict, the summary, then every
+ * finding with its severity, location and body, and what to do about each.
+ * The block carries this as data, not text, so without these lines the
+ * agent would be told "a review was posted" and nothing else.
+ */
+export function describeReview(
+  blockId: string,
+  data: BlockReviewData,
+  state: BlockReviewState | null
+): string {
+  const verdict =
+    data.verdict === "approve"
+      ? "Approved"
+      : data.verdict === "request_changes"
+        ? "Changes requested"
+        : "Comments";
+  const lines: string[] = [`Review: ${verdict}.`];
+  if (data.summary.trim()) lines.push(data.summary.trim());
+  if (data.findings.length > 0) {
+    lines.push("", `Findings (${data.findings.length}):`);
+    data.findings.forEach((finding, index) => {
+      const status = state?.findings[finding.id]?.status ?? "open";
+      const where = finding.path
+        ? ` — ${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`
+        : "";
+      lines.push(
+        `${index + 1}. [${finding.severity}] ${finding.title} (id: ${finding.id}, ${status})${where}`,
+        `   ${finding.body.trim().replace(/\n/g, "\n   ")}`
+      );
+    });
+    const open = data.findings.filter(
+      (finding) => (state?.findings[finding.id]?.status ?? "open") === "open"
+    ).length;
+    if (open > 0) {
+      lines.push(
+        "",
+        `What to do: address each open finding, then mark it on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "resolved" } } }), and say what changed in its thread: post({ replyTo: "${blockId}", text: "…" }). Disagree with one by marking it "disputed" and saying why in the thread. You are done when no finding is open.`
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 /**

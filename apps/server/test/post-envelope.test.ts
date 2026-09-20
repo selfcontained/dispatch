@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPostEnvelope,
   buildReactionEnvelope,
+  describeReview,
   ENVELOPE_MARKER_ESCAPE,
   escapeEnvelopeMarkers,
   formatAttachmentSize,
@@ -51,7 +52,10 @@ describe("buildPostEnvelope", () => {
   });
 
   it("lists attachments after the text, or alone when the text is blank", () => {
-    const lines = ["- file: /media/shot.png (image/png, 12 KB)", "- link: https://x"];
+    const lines = [
+      "- file: /media/shot.png (image/png, 12 KB)",
+      "- link: https://x",
+    ];
     expect(
       buildPostEnvelope({
         blockId: ID,
@@ -84,9 +88,11 @@ describe("buildPostEnvelope", () => {
     ]);
     // No text and no attachments: the markers close on themselves.
     expect(
-      buildPostEnvelope({ blockId: ID, from: { kind: "user" }, text: "" }).split(
-        "\n"
-      )
+      buildPostEnvelope({
+        blockId: ID,
+        from: { kind: "user" },
+        text: "",
+      }).split("\n")
     ).toHaveLength(3);
   });
 
@@ -210,7 +216,9 @@ describe("buildReactionEnvelope", () => {
       text: LONG_POST,
       postsSince: 3,
     }).split("\n");
-    expect(lines[1]).toBe("The user reacted 🎉 to your review from 3 posts ago:");
+    expect(lines[1]).toBe(
+      "The user reacted 🎉 to your review from 3 posts ago:"
+    );
     const quote = lines[2]!.slice(2);
     expect(quote.length).toBeGreaterThan(REACTION_EXCERPT_LATEST_CHARS * 2);
     expect(quote.length).toBeLessThanOrEqual(
@@ -232,8 +240,13 @@ describe("buildReactionEnvelope", () => {
 
   it("names every kind", () => {
     const noun = (kind: Parameters<typeof buildReactionEnvelope>[0]["kind"]) =>
-      buildReactionEnvelope({ blockId: ID, emoji: "👀", kind, text: "", postsSince: 0 })
-        .split("\n")[1];
+      buildReactionEnvelope({
+        blockId: ID,
+        emoji: "👀",
+        kind,
+        text: "",
+        postsSince: 0,
+      }).split("\n")[1];
     expect(noun("text")).toBe("The user reacted 👀 to your latest post.");
     expect(noun("file")).toBe("The user reacted 👀 to your latest file.");
     expect(noun("link")).toBe("The user reacted 👀 to your latest link.");
@@ -322,5 +335,55 @@ describe("normalizeReactionEmoji", () => {
     ["missing", undefined],
   ])("rejects %s", (_label, value) => {
     expect(normalizeReactionEmoji(value)).toBeNull();
+  });
+});
+
+describe("describeReview", () => {
+  it("spells out the verdict, every finding with its place and status, and what to do", () => {
+    const text = describeReview(
+      "b1",
+      {
+        verdict: "request_changes",
+        summary: "Two things to fix.",
+        findings: [
+          {
+            id: "f1",
+            severity: "blocker",
+            title: "Button on every block",
+            body: "Gate it behind a prop.\nOr remove it.",
+            path: "apps/web/src/x.tsx",
+            line: 33,
+          },
+          { id: "f2", severity: "nit", title: "Naming", body: "Rename." },
+        ],
+      },
+      {
+        findings: {
+          f1: { status: "open", by: { kind: "user" }, at: "t" },
+          f2: { status: "resolved", by: { kind: "user" }, at: "t" },
+        },
+      }
+    );
+    expect(text).toContain("Review: Changes requested.");
+    expect(text).toContain("Two things to fix.");
+    expect(text).toContain("Findings (2):");
+    expect(text).toContain(
+      "1. [blocker] Button on every block (id: f1, open) — apps/web/src/x.tsx:33"
+    );
+    expect(text).toContain("   Gate it behind a prop.\n   Or remove it.");
+    expect(text).toContain("2. [nit] Naming (id: f2, resolved)");
+    expect(text).toContain(
+      'update({ id: "b1", state: { findings: { "<finding id>": "resolved" } } })'
+    );
+    expect(text).toContain('post({ replyTo: "b1"');
+  });
+
+  it("gives no instructions when nothing is open", () => {
+    const text = describeReview(
+      "b1",
+      { verdict: "approve", summary: "Clean.", findings: [] },
+      { findings: {} }
+    );
+    expect(text).toBe("Review: Approved.\nClean.");
   });
 });
