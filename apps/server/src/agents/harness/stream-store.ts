@@ -98,6 +98,28 @@ const INSERT_SQL = `
   RETURNING *`;
 
 /**
+ * Turn every `in_progress` entry of the agent's plan rows after `$2` back to
+ * `pending`, leaving order and every other field alone.
+ */
+const DEMOTE_PLAN_SQL = `
+  UPDATE agent_stream_events
+     SET payload = jsonb_set(
+           payload,
+           '{entries}',
+           (SELECT COALESCE(
+                     jsonb_agg(
+                       CASE WHEN e->>'status' = 'in_progress'
+                            THEN e || '{"status":"pending"}'::jsonb
+                            ELSE e END
+                       ORDER BY ord),
+                     '[]'::jsonb)
+              FROM jsonb_array_elements(payload->'entries')
+                   WITH ORDINALITY AS t(e, ord))),
+         updated_at = NOW()
+   WHERE agent_id = $1 AND kind = 'plan' AND seq > $2
+     AND payload->'entries' @> '[{"status":"in_progress"}]'::jsonb`;
+
+/**
  * Rows in `agent_stream_events`: the durable projection of a stream-driven
  * harness (an engine over ACP) that the Chat feed reads. Append-only except for
  * tool calls and plans, which are rewritten in place under their key.
@@ -212,44 +234,87 @@ export class StreamStore {
           AND payload->>'status' IN ('pending', 'in_progress')`,
       [agentId, JSON.stringify({ status: "failed", error })]
     );
+    // Nothing is in progress once the engine is gone. The list itself is
+    // kept: the work it names is still to do, it is just not being done.
+    await this.db.query(DEMOTE_PLAN_SQL, [agentId, -1]);
     return turns.rowCount ?? 0;
   }
 
   /**
-   * Where a recall starts: the newest turn row, but only while it is still
-   * open. `chatMessageId` is the Chat row that prompted it, or null for a
-   * turn the engine opened itself — nothing of the user's to put back.
+   * Settle what a turn that has just ended left open, for the rows it owns
+   * (everything after `turnSeq`; see `turnAnchorForMessage` on ownership).
    *
-   * Grouping is positional (`groupTurnRows`): a turn row owns every row
-   * after it until the next one. So its seq is both the anchor and the
-   * lower bound of everything the turn produced.
+   * A tool call still `pending` or `in_progress` will never hear from the
+   * engine through this turn, and `toolStep` reads anything unfinished as
+   * "running", so it would spin in a turn that reads as over. It settles to
+   * `failed` with the reason. A late report still wins: `tool_call_update`
+   * rewrites the row, and the reason goes with it.
+   *
+   * A task marked `in_progress` goes back to `pending`. The agent is the
+   * only writer of its list and it stops writing when the turn ends, so an
+   * active task would otherwise stay active for as long as the agent idles.
    */
-  async openTurnAnchor(
-    agentId: string
-  ): Promise<{ seq: number; chatMessageId: string | null } | null> {
-    const result = await this.db.query<{
-      seq: number;
-      state: string | null;
-      chat_message_id: string | null;
-    }>(
-      `SELECT seq,
-              payload->>'state' AS state,
-              payload->'prompt'->>'chatMessageId' AS chat_message_id
-         FROM agent_stream_events
-        WHERE agent_id = $1 AND kind = 'turn'
-        ORDER BY seq DESC LIMIT 1`,
-      [agentId]
+  async settleTurnLeftovers(
+    agentId: string,
+    turnSeq: number,
+    error: string
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE agent_stream_events
+          SET payload = payload || $3::jsonb, updated_at = NOW()
+        WHERE agent_id = $1 AND kind = 'tool_call' AND seq > $2
+          AND payload->>'status' IN ('pending', 'in_progress')`,
+      [agentId, turnSeq, JSON.stringify({ status: "failed", error })]
     );
-    const row = result.rows[0];
-    if (!row || row.state !== "started") return null;
-    return { seq: row.seq, chatMessageId: row.chat_message_id };
+    await this.db.query(DEMOTE_PLAN_SQL, [agentId, turnSeq]);
   }
 
-  /** Drop every row from `seq` on. Returns how many went. */
-  async deleteFrom(agentId: string, seq: number): Promise<number> {
+  /**
+   * The turn a Chat message started, open or settled, and where the turn
+   * after it begins (null when it is the newest).
+   *
+   * Grouping is positional (`groupTurnRows`): a turn row owns every row
+   * after it until the next turn row. So `seq` is the lower bound of what
+   * the turn produced and `nextSeq` the upper one.
+   *
+   * Looked up by the message, not by "the newest open turn": between a
+   * cancel and the read that follows it the turn may already have settled,
+   * and a queued prompt may already have opened the next one. Either makes
+   * "newest open" name the wrong turn, or none.
+   */
+  async turnAnchorForMessage(
+    agentId: string,
+    chatMessageId: string
+  ): Promise<{ seq: number; nextSeq: number | null } | null> {
+    const result = await this.db.query<{
+      seq: number;
+      next_seq: number | null;
+    }>(
+      `SELECT t.seq,
+              (SELECT MIN(n.seq) FROM agent_stream_events n
+                WHERE n.agent_id = t.agent_id AND n.kind = 'turn'
+                  AND n.seq > t.seq) AS next_seq
+         FROM agent_stream_events t
+        WHERE t.agent_id = $1 AND t.kind = 'turn'
+          AND t.payload->'prompt'->>'chatMessageId' = $2
+        ORDER BY t.seq DESC LIMIT 1`,
+      [agentId, chatMessageId]
+    );
+    const row = result.rows[0];
+    return row ? { seq: row.seq, nextSeq: row.next_seq } : null;
+  }
+
+  /** Drop the rows in `[fromSeq, beforeSeq)`, or from `fromSeq` on. Returns how many went. */
+  async deleteRange(
+    agentId: string,
+    fromSeq: number,
+    beforeSeq: number | null
+  ): Promise<number> {
     const result = await this.db.query(
-      `DELETE FROM agent_stream_events WHERE agent_id = $1 AND seq >= $2`,
-      [agentId, seq]
+      `DELETE FROM agent_stream_events
+        WHERE agent_id = $1 AND seq >= $2
+          AND ($3::int IS NULL OR seq < $3::int)`,
+      [agentId, fromSeq, beforeSeq]
     );
     return result.rowCount ?? 0;
   }

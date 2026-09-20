@@ -170,11 +170,26 @@ function statusEventOf(
   };
 }
 
-function toolStep(row: TurnSourceRow): ChatTurnStep | null {
+/**
+ * `turnEndedAt` is set for a turn that has settled. A step cannot run in a
+ * turn that is over, so one the stream left unfinished reads as cut at the
+ * turn's end rather than as running. The recorder settles such rows when the
+ * turn ends; this covers rows written before it did.
+ */
+function toolStep(
+  row: TurnSourceRow,
+  turnEndedAt: Date | null
+): ChatTurnStep | null {
   const p = row.payload as Partial<ToolPayload>;
   const title = p.title ?? "";
   if (DROPPED_TOOL_TITLES.has(title)) return null;
-  const settled = p.status === "completed" || p.status === "failed";
+  const reported = p.status === "completed" || p.status === "failed";
+  const cut = !reported && turnEndedAt !== null;
+  const endedAt = reported
+    ? row.updatedAt
+    : cut
+      ? new Date(Math.max(turnEndedAt.getTime(), row.createdAt.getTime()))
+      : null;
   return {
     id: `stream:${row.id}`,
     kind: p.toolKind ?? "other",
@@ -182,14 +197,14 @@ function toolStep(row: TurnSourceRow): ChatTurnStep | null {
     status:
       p.status === "completed"
         ? "ok"
-        : p.status === "failed"
+        : p.status === "failed" || cut
           ? "error"
           : "running",
     startedAt: row.createdAt.toISOString(),
-    ...(settled
+    ...(endedAt
       ? {
-          endedAt: row.updatedAt.toISOString(),
-          durMs: Math.max(0, row.updatedAt.getTime() - row.createdAt.getTime()),
+          endedAt: endedAt.toISOString(),
+          durMs: Math.max(0, endedAt.getTime() - row.createdAt.getTime()),
         }
       : {}),
     detail: {
@@ -295,11 +310,21 @@ function nestSteps(
   return top;
 }
 
-function planEntriesOf(row: TurnSourceRow): ChatTurnPlanEntry[] {
+/**
+ * In a settled turn nothing is in progress: the agent stopped writing its
+ * list when the turn ended. The recorder rewrites such rows at turn end;
+ * this covers rows written before it did.
+ */
+function planEntriesOf(
+  row: TurnSourceRow,
+  turnSettled: boolean
+): ChatTurnPlanEntry[] {
   const p = row.payload as Partial<PlanPayload>;
   return (p.entries ?? []).map((e) => ({
     content: e.content,
-    status: e.status as ChatTurnPlanEntry["status"],
+    status: (turnSettled && e.status === "in_progress"
+      ? "pending"
+      : e.status) as ChatTurnPlanEntry["status"],
     priority: e.priority as ChatTurnPlanEntry["priority"],
   }));
 }
@@ -333,6 +358,15 @@ export function assembleTurns(
     const startedAt = anchor.createdAt.toISOString();
     const turnQuestions = byGroup.get(index);
     const settled = turnPayload?.state === "settled";
+    const lastGroupRow = group.rows[group.rows.length - 1];
+    const parsedEnd = turnPayload?.endedAt
+      ? Date.parse(turnPayload.endedAt)
+      : NaN;
+    const turnEndedAt = !settled
+      ? null
+      : Number.isFinite(parsedEnd)
+        ? new Date(parsedEnd)
+        : (lastGroupRow ?? anchor).updatedAt;
     let result: AssembledTurn["result"] = null;
     const assistants = group.rows.filter((r) => r.kind === "assistant");
     const last = assistants[assistants.length - 1];
@@ -361,7 +395,7 @@ export function assembleTurns(
             labelTerminal = terminal;
           }
         }
-        const step = toolStep(row);
+        const step = toolStep(row, turnEndedAt);
         if (step) {
           flat.push({
             step,
@@ -388,7 +422,7 @@ export function assembleTurns(
           flat.push({ step: noteStep(row, "note"), key: null, parent: null });
         }
       } else if (row.kind === "plan") {
-        plan = planEntriesOf(row);
+        plan = planEntriesOf(row, settled);
       }
     }
     const steps = nestSteps(flat);

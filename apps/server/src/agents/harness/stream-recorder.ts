@@ -31,6 +31,15 @@ const TITLE_MAX_CHARS = 1024;
 const LOCATIONS_MAX = 200;
 const AUTONOMOUS_IDLE_MS = 20_000;
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
+/** Why a tool call never reported, by how its turn ended. Shown on the step. */
+export const STOPPED_BEFORE_FINISHED = "stopped before it finished";
+export const TURN_ENDED_BEFORE_REPORT = "the turn ended before it reported";
+
+function leftoverReason(stopReason: string | undefined): string {
+  return stopReason === "cancelled"
+    ? STOPPED_BEFORE_FINISHED
+    : TURN_ENDED_BEFORE_REPORT;
+}
 export const FLUSH_INTERVAL_MS = 100;
 
 /**
@@ -231,6 +240,11 @@ export class StreamRecorder {
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
+          await this.store.settleTurnLeftovers(
+            event.agentId,
+            open.seq,
+            leftoverReason(event.stopReason)
+          );
           if (!(prev as TurnPayload).autonomous) {
             this.trailingPrompt.add(event.agentId);
           }
@@ -256,6 +270,13 @@ export class StreamRecorder {
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
+          await this.store.settleTurnLeftovers(
+            event.agentId,
+            open.seq,
+            event.expected
+              ? STOPPED_BEFORE_FINISHED
+              : "the agent exited before it reported"
+          );
         }
         if (event.expected || event.code === 0) return;
         const how =
@@ -417,6 +438,11 @@ export class StreamRecorder {
       endedAt: new Date().toISOString(),
     } satisfies TurnPayload);
     this.openTurn.delete(agentId);
+    await this.store.settleTurnLeftovers(
+      agentId,
+      open.seq,
+      leftoverReason(stopReason)
+    );
     this.deps.onAutonomousSettled?.(agentId);
     return true;
   }

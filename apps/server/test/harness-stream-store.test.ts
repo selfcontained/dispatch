@@ -135,45 +135,126 @@ describe("settleInterrupted", () => {
 });
 
 describe("recall", () => {
-  it("finds the open turn's anchor and its prompt message", async () => {
-    await store.append(A, "turn", {
+  it("finds a message's turn whether it is open or already settled", async () => {
+    // Between the cancel and the read, the turn has usually settled. A
+    // lookup that only knew "the newest open turn" found nothing then.
+    const settled = await store.append(A, "turn", {
       state: "settled",
-      prompt: { source: "chat", chatMessageId: "old" },
+      stopReason: "cancelled",
+      prompt: { source: "chat", chatMessageId: "m-cut" },
     });
-    const open = await store.append(A, "turn", {
+    await expect(store.turnAnchorForMessage(A, "m-cut")).resolves.toEqual({
+      seq: settled.seq,
+      nextSeq: null,
+    });
+  });
+
+  it("bounds the turn at the one after it", async () => {
+    // A queued prompt can open the next turn before the recall reads.
+    const cut = await store.append(A, "turn", {
+      state: "settled",
+      prompt: { source: "chat", chatMessageId: "m-cut" },
+    });
+    await store.append(A, "assistant", { text: "partial", streaming: false });
+    const next = await store.append(A, "turn", {
       state: "started",
-      prompt: { source: "chat", chatMessageId: "m-live" },
+      prompt: { source: "chat", chatMessageId: "m-next" },
     });
-    await store.append(A, "assistant", { text: "working", streaming: true });
-
-    await expect(store.openTurnAnchor(A)).resolves.toEqual({
-      seq: open.seq,
-      chatMessageId: "m-live",
+    await expect(store.turnAnchorForMessage(A, "m-cut")).resolves.toEqual({
+      seq: cut.seq,
+      nextSeq: next.seq,
     });
   });
 
-  it("has no anchor once the newest turn has settled", async () => {
-    await store.append(A, "turn", {
-      state: "settled",
-      prompt: { source: "chat", chatMessageId: "m" },
-    });
-    await expect(store.openTurnAnchor(A)).resolves.toBeNull();
-  });
-
-  it("reports a null prompt for a turn Dispatch did not prompt", async () => {
+  it("has no anchor for a message that never started a turn", async () => {
     await store.append(A, "turn", { state: "started", autonomous: true });
-    const anchor = await store.openTurnAnchor(A);
-    expect(anchor?.chatMessageId).toBeNull();
+    await expect(store.turnAnchorForMessage(A, "nope")).resolves.toBeNull();
   });
 
-  it("deletes the turn's rows and leaves everything before it", async () => {
+  it("deletes only the turn's own rows", async () => {
     const keep = await store.append(A, "assistant", { text: "earlier" });
-    const open = await store.append(A, "turn", { state: "started" });
-    await store.append(A, "tool_call", { status: "pending" }, "call_1");
-    await store.append(A, "assistant", { text: "partial", streaming: true });
+    const cut = await store.append(A, "turn", { state: "settled" });
+    await store.append(A, "tool_call", { status: "failed" }, "call_1");
+    await store.append(A, "assistant", { text: "partial", streaming: false });
+    const next = await store.append(A, "turn", { state: "started" });
+    const nextRow = await store.append(A, "assistant", { text: "new work" });
 
-    await expect(store.deleteFrom(A, open.seq)).resolves.toBe(3);
+    await expect(store.deleteRange(A, cut.seq, next.seq)).resolves.toBe(3);
     const rows = await store.list(A, 20);
-    expect(rows.map((r) => r.seq)).toEqual([keep.seq]);
+    expect(rows.map((r) => r.seq).sort((a, b) => a - b)).toEqual([
+      keep.seq,
+      next.seq,
+      nextRow.seq,
+    ]);
+  });
+
+  it("deletes to the end when the turn is the newest", async () => {
+    const keep = await store.append(A, "assistant", { text: "earlier" });
+    const cut = await store.append(A, "turn", { state: "settled" });
+    await store.append(A, "assistant", { text: "partial" });
+    await expect(store.deleteRange(A, cut.seq, null)).resolves.toBe(2);
+    expect((await store.list(A, 20)).map((r) => r.seq)).toEqual([keep.seq]);
+  });
+});
+
+describe("tasks left active", () => {
+  const plan = (statuses: string[]) => ({
+    entries: statuses.map((status, i) => ({
+      content: `task ${i}`,
+      status,
+      priority: "medium",
+    })),
+  });
+  const statusesOf = async (key: string) =>
+    (
+      (await store.getByKey(A, "plan", key))?.payload as {
+        entries: { content: string; status: string }[];
+      }
+    ).entries.map((e) => e.status);
+
+  it("puts an active task back to pending when its turn ends, in order", async () => {
+    const turn = await store.append(A, "turn", { state: "settled" });
+    await store.upsertByKey(
+      A,
+      "plan",
+      "plan:1",
+      plan(["completed", "in_progress", "pending"])
+    );
+    await store.settleTurnLeftovers(A, turn.seq, "stopped before it finished");
+    expect(await statusesOf("plan:1")).toEqual([
+      "completed",
+      "pending",
+      "pending",
+    ]);
+    const entries = (
+      (await store.getByKey(A, "plan", "plan:1"))?.payload as {
+        entries: { content: string; priority: string }[];
+      }
+    ).entries;
+    expect(entries.map((e) => e.content)).toEqual([
+      "task 0",
+      "task 1",
+      "task 2",
+    ]);
+    expect(entries[1].priority).toBe("medium");
+  });
+
+  it("leaves an earlier turn's list alone", async () => {
+    await store.upsertByKey(A, "plan", "plan:old", plan(["in_progress"]));
+    const turn = await store.append(A, "turn", { state: "settled" });
+    await store.settleTurnLeftovers(A, turn.seq, "stopped before it finished");
+    expect(await statusesOf("plan:old")).toEqual(["in_progress"]);
+  });
+
+  it("puts every active task back to pending after a restart", async () => {
+    await store.append(A, "turn", { state: "started" });
+    await store.upsertByKey(
+      A,
+      "plan",
+      "plan:1",
+      plan(["in_progress", "pending"])
+    );
+    await store.settleInterrupted(A, "interrupted by restart");
+    expect(await statusesOf("plan:1")).toEqual(["pending", "pending"]);
   });
 });

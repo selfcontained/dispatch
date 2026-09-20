@@ -234,6 +234,77 @@ describe("assembleTurns", () => {
     expect(turns[0].result?.text).toBe("half");
   });
 
+  it("never shows a step running, or a task active, in a turn that is over", () => {
+    // Rows a stop left open before the recorder settled them at turn end.
+    const rows: TurnSourceRow[] = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "p" },
+          stopReason: "cancelled",
+          endedAt: at(9).toISOString(),
+        },
+        0,
+        9
+      ),
+      row(
+        "tool_call",
+        { toolKind: "think", title: "Review PRs", status: "pending" },
+        4,
+        5,
+        "c1"
+      ),
+      row(
+        "plan",
+        {
+          entries: [
+            { content: "a", status: "completed", priority: "medium" },
+            { content: "b", status: "in_progress", priority: "medium" },
+          ],
+        },
+        5
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.steps[0]).toMatchObject({
+      status: "error",
+      endedAt: at(9).toISOString(),
+      durMs: 5000,
+    });
+    expect(turn.plan?.map((e) => e.status)).toEqual(["completed", "pending"]);
+  });
+
+  it("still shows a step running, and a task active, while the turn is live", () => {
+    const rows: TurnSourceRow[] = [
+      row(
+        "turn",
+        { state: "started", prompt: { source: "system", text: "p" } },
+        0
+      ),
+      row(
+        "tool_call",
+        { toolKind: "execute", title: "pnpm test", status: "in_progress" },
+        1,
+        1,
+        "c1"
+      ),
+      row(
+        "plan",
+        {
+          entries: [
+            { content: "a", status: "in_progress", priority: "medium" },
+          ],
+        },
+        2
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.steps[0].status).toBe("running");
+    expect(turn.trace.steps[0].endedAt).toBeUndefined();
+    expect(turn.plan?.[0].status).toBe("in_progress");
+  });
+
   it("nests a subagent's steps under the parent Task step", () => {
     seq = 0;
     const rows = [
@@ -387,9 +458,10 @@ describe("assembleTurns", () => {
       row("assistant", { text: "done", streaming: false }, 2),
     ];
     const [turn] = assembleTurns(rows, new Map());
+    // The turn has settled, so the task it left active reads as pending.
     expect(turn.plan).toEqual([
       { content: "a", status: "completed", priority: "high" },
-      { content: "b", status: "in_progress", priority: "low" },
+      { content: "b", status: "pending", priority: "low" },
     ]);
     expect(turn.usage).toEqual({ used: 4200, size: 200000, costUsd: 0.5 });
     expect(turn.trace.steps).toEqual([]);

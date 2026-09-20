@@ -796,7 +796,7 @@ export async function createDispatchMcpServer(
       "dispatch_update_tasks",
       {
         description:
-          "Show your task list above the chat composer. Send the complete list before multi-step work and update it as each task starts or finishes. Use an empty list to clear it. Only updates your own active turn.",
+          "Show your task list above the chat composer. Send the complete list before multi-step work and update it as each task starts or finishes. Send it once more before ending your turn so it matches where things stand. Use an empty list to clear it. Only updates your own active turn.",
         inputSchema: {
           tasks: z
             .array(

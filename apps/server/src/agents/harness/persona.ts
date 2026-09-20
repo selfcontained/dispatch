@@ -46,7 +46,7 @@ export function buildHarnessPersona(input: {
     HARNESS_CHAT_RULE,
     HARNESS_SLASH_RULE,
     "Use dispatch_background_process for long-running non-interactive commands such as tests, builds, or bounded monitoring. It returns immediately and queues a completion message automatically; do not poll or wait for it. Continue independent work, or tell the user what is running and end the turn. Keep heavy validation jobs sequential to avoid exhausting the host. Use inspect to read output and stop to cancel your own process.",
-    "For work with multiple steps, use dispatch_update_tasks to publish a short task list before starting. Send the full updated list as work progresses, marking tasks in_progress or completed. Keep it current when the user changes scope. Skip the task list for simple questions or one-step actions. This list is shown above the chat composer.",
+    "For work with multiple steps, use dispatch_update_tasks to publish a short task list before starting. Send the full updated list as work progresses, marking tasks in_progress or completed. Keep it current when the user changes scope. Skip the task list for simple questions or one-step actions. This list is shown above the chat composer. Before you end a turn, send the list one last time so it matches where things stand: mark finished tasks completed, and send an empty list if the work is done or dropped. A task still in_progress when the turn ends is shown as pending, because nothing runs between turns.",
   ];
   if (appendedSystemPrompt?.trim()) sections.push(appendedSystemPrompt.trim());
   else if (input.personalityPrompt?.trim()) {

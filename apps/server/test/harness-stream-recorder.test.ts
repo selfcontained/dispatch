@@ -583,6 +583,167 @@ describe("StreamRecorder interrupted turns", () => {
   });
 });
 
+describe("StreamRecorder open tool calls at turn end", () => {
+  const openCall = (
+    id: string,
+    status: "pending" | "in_progress"
+  ): DriverEvent => ({
+    type: "update",
+    agentId: A,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title: `step ${id}`,
+      kind: "think",
+      status,
+    },
+  });
+  const toolPayload = async (id: string) =>
+    (await store.getByKey(A, "tool_call", id))?.payload as
+      | { status: string; error?: string }
+      | undefined;
+
+  it("settles a call the user's stop left open, and leaves finished ones alone", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(openCall("sub1", "pending"));
+    await rec.handle(openCall("sh1", "in_progress"));
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "done1",
+        title: "Read x",
+        kind: "read",
+        status: "completed",
+      },
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "cancelled",
+    });
+    expect(await toolPayload("sub1")).toMatchObject({
+      status: "failed",
+      error: "stopped before it finished",
+    });
+    expect(await toolPayload("sh1")).toMatchObject({
+      status: "failed",
+      error: "stopped before it finished",
+    });
+    expect(await toolPayload("done1")).toMatchObject({ status: "completed" });
+    expect((await toolPayload("done1"))?.error).toBeUndefined();
+  });
+
+  it("settles a call still open when the turn ends on its own", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(openCall("c1", "in_progress"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    expect(await toolPayload("c1")).toMatchObject({
+      status: "failed",
+      error: "the turn ended before it reported",
+    });
+  });
+
+  it("leaves an earlier turn's rows alone", async () => {
+    const rec = new StreamRecorder(store);
+    // A row a past defect left open must not be relabelled with this
+    // turn's reason: it belongs to a turn that ended some other way.
+    await store.upsertByKey(A, "tool_call", "old1", {
+      toolKind: "other",
+      title: "old",
+      status: "pending",
+      locations: [],
+      diff: null,
+      terminalOutput: null,
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(openCall("new1", "pending"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "cancelled",
+    });
+    expect(await toolPayload("old1")).toMatchObject({ status: "pending" });
+    expect(await toolPayload("new1")).toMatchObject({ status: "failed" });
+  });
+
+  it("settles open calls when the engine exits mid-turn", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(openCall("c1", "in_progress"));
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      expected: true,
+      code: null,
+      signal: "SIGTERM",
+    } as DriverEvent);
+    expect(await toolPayload("c1")).toMatchObject({
+      status: "failed",
+      error: "stopped before it finished",
+    });
+  });
+
+  it("lets a late report from the engine overwrite the settlement", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(openCall("c1", "in_progress"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "cancelled",
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "c1",
+        status: "completed",
+      },
+    });
+    const late = await toolPayload("c1");
+    expect(late).toMatchObject({ status: "completed" });
+    expect(late?.error).toBeUndefined();
+  });
+});
+
 describe("StreamRecorder autonomous turns", () => {
   const call = (id: string): DriverEvent => ({
     type: "update",

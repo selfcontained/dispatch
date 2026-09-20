@@ -18,10 +18,16 @@ const PREVIEW_PENDING = 3;
  */
 export function TasksStrip({
   items,
+  paused = false,
   open,
   onOpenChange,
 }: {
   items: TodoItem[];
+  /**
+   * No turn is running, so nothing on the list is being worked on. The list
+   * stays, since the work is still to do, and says that it is waiting.
+   */
+  paused?: boolean;
   /** Whether the list is shown; the host keeps it so it survives a re-render. */
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -36,7 +42,7 @@ export function TasksStrip({
     <ComposerStrip
       title="Tasks"
       icon={ListChecks}
-      summary={`${done} of ${total} done`}
+      summary={`${done} of ${total} done${paused ? " · paused" : ""}`}
       preview={
         active ? (
           <>

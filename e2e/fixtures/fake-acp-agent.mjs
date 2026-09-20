@@ -69,6 +69,9 @@ const cwdBySession = new Map();
 const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
+// "hang:<ms>": start a step and never finish it. A stop ends the turn with
+// the step still open, which is how a real engine leaves a subagent step.
+const HANG = /hang:(\d+)/;
 const sleeping = new Map();
 
 const MODEL_OPTION = (current) => ({
@@ -150,6 +153,26 @@ const agent = {
     if (sleep) {
       const cancelled = await new Promise((resolve) => {
         const timer = setTimeout(() => resolve(false), Number(sleep[1]));
+        sleeping.set(params.sessionId, () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+      sleeping.delete(params.sessionId);
+      if (cancelled) return { stopReason: "cancelled" };
+    }
+    const hang = HANG.exec(text);
+    if (hang) {
+      await emit({
+        sessionUpdate: "tool_call",
+        toolCallId: "hang1",
+        title: "Review the pull request",
+        kind: "think",
+        status: "pending",
+        content: [],
+      });
+      const cancelled = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), Number(hang[1]));
         sleeping.set(params.sessionId, () => {
           clearTimeout(timer);
           resolve(true);
