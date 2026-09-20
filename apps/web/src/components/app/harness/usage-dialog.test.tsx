@@ -77,6 +77,8 @@ const report: HarnessUsageReport = {
   ],
 };
 
+const providerRefresh = vi.hoisted(() => vi.fn(async () => {}));
+
 const providerReport: HarnessProviderUsageReport = {
   checkedAt: "2026-09-11T00:00:00.000Z",
   providers: [
@@ -151,6 +153,8 @@ vi.mock("./use-provider-usage", () => ({
   useHarnessProviderUsage: () => ({
     data: providerReport,
     refetch: vi.fn(),
+    refresh: providerRefresh,
+    refreshing: false,
     isFetching: false,
   }),
 }));
@@ -254,6 +258,15 @@ describe("UsageDialog", () => {
     );
     fireEvent.click(screen.getByTestId("harness-usage-login"));
     expect(onLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("UsageDialog refresh", () => {
+  it("asks the provider for a real refresh, not the cached report", () => {
+    providerRefresh.mockClear();
+    renderDialog();
+    fireEvent.click(screen.getByTestId("harness-usage-refresh"));
+    expect(providerRefresh).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -161,11 +161,22 @@ The usage dialog distinguishes the last provider report from the time Dispatch
 checked for it. Codex reports are selected by their event timestamps. Claude's
 interactive `.claude.json` cache can remain unchanged during ACP sessions, so
 Dispatch attempts a read-only subscription usage request using the CLI's existing
-`.claude/.credentials.json` (under `CLAUDE_CONFIG_DIR` when configured). It never
-returns or saves credentials. If that credential is unavailable or the provider
-request fails, the dialog keeps the last report and identifies it as potentially
-out of date. Open `/usage` in Claude Code to refresh the local fallback. Refresh
-requests are shared and cached for one minute across sessions.
+login. Where that login lives depends on the platform: `.claude/.credentials.json`
+on Linux (under `CLAUDE_CONFIG_DIR` when configured), and the login Keychain on
+macOS, item `Claude Code-credentials`, where the file does not exist at all. The
+file is tried first and the Keychain second, on macOS only. Dispatch never returns
+or saves credentials, and it never spends the refresh token: refresh tokens
+rotate, so exchanging one would sign Claude Code itself out. An expired login
+renews the next time Claude Code runs.
+
+If the login is unavailable or the provider request fails, the dialog keeps the
+last report, identifies it as potentially out of date, and says which of the two
+happened. The server logs the reason at `warn` as `could not refresh Claude plan
+usage`, with a `reason` field (`not_signed_in`, `login_expired`,
+`login_rejected`, `http_error`, `request_failed`, `no_usage_reported`) and at most
+an HTTP status. Reports are shared and cached for one minute across sessions. The
+dialog's Refresh button bypasses that cache, and is itself held to one provider
+request every five seconds.
 
 ## Database
 

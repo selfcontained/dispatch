@@ -413,10 +413,13 @@ export function UsageDialog({
             onClick={() => {
               void usage.refetch();
               void auth.refetch();
-              void providerUsage.refetch();
+              void providerUsage.refresh();
             }}
             disabled={
-              usage.isFetching || auth.isFetching || providerUsage.isFetching
+              usage.isFetching ||
+              auth.isFetching ||
+              providerUsage.isFetching ||
+              providerUsage.refreshing
             }
             data-testid="harness-usage-refresh"
           >
@@ -425,7 +428,8 @@ export function UsageDialog({
                 "mr-1 h-3 w-3",
                 (usage.isFetching ||
                   auth.isFetching ||
-                  providerUsage.isFetching) &&
+                  providerUsage.isFetching ||
+                  providerUsage.refreshing) &&
                   "animate-spin"
               )}
             />

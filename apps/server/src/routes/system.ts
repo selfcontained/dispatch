@@ -73,7 +73,9 @@ type SystemRouteDeps = {
   rewriteForColor: (color: string) => void;
   usageReport: () => Promise<HarnessUsageReport>;
   authReport: () => Promise<HarnessAuthReport>;
-  providerUsageReport: () => Promise<HarnessProviderUsageReport>;
+  providerUsageReport: (request?: {
+    force?: boolean;
+  }) => Promise<HarnessProviderUsageReport>;
 };
 
 export async function registerSystemRoutes(
@@ -483,8 +485,13 @@ export async function registerSystemRoutes(
     return await deps.authReport();
   });
 
-  app.get("/api/v1/harness/provider-usage", async () => {
-    return await deps.providerUsageReport();
+  // `?refresh=1` is the dialog's Refresh button: a real attempt, not the
+  // minute-old report the reporter would otherwise answer with.
+  app.get("/api/v1/harness/provider-usage", async (request) => {
+    const refresh = (request.query as { refresh?: string }).refresh;
+    return await deps.providerUsageReport({
+      force: refresh === "1" || refresh === "true",
+    });
   });
 
   app.get("/api/v1/app/settings/usage-budgets", async () => {

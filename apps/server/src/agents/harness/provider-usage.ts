@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,15 @@ type ProviderUsageOptions = {
   modifiedAt?: (file: string) => Promise<number>;
   fetchUsage?: typeof fetch;
   env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  /**
+   * Claude Code's login as it sits in the macOS Keychain: the same JSON the
+   * credentials file holds elsewhere. Defaults to the real Keychain, except
+   * under an injected `read`, so a test never reaches the host's login.
+   */
+  readKeychain?: () => Promise<string>;
+  /** Told why a refresh failed. Never given a token or a provider body. */
+  log?: { warn: (fields: Record<string, unknown>, message: string) => void };
 };
 
 type JsonObject = Record<string, unknown>;
@@ -258,6 +268,113 @@ function unavailable(
   };
 }
 
+const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+/** The Keychain item Claude Code keeps its login in on macOS. */
+const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+type RefreshFailureReason =
+  | "not_signed_in"
+  | "login_expired"
+  | "login_rejected"
+  | "request_failed"
+  | "http_error"
+  | "no_usage_reported"
+  | "unexpected";
+
+const COULD_NOT_REFRESH =
+  "Could not refresh Claude plan usage. Open /usage in Claude Code to refresh its local report.";
+const RENEW_LOGIN =
+  "Claude Code's login on this machine has expired, so plan usage cannot be refreshed. It renews the next time Claude Code runs; then refresh.";
+
+/** What the dialog says for each way a refresh can fail. */
+const REFRESH_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
+  not_signed_in:
+    "Claude Code is not signed in with a subscription on this machine, so plan usage cannot be refreshed.",
+  login_expired: RENEW_LOGIN,
+  login_rejected: RENEW_LOGIN,
+  request_failed: COULD_NOT_REFRESH,
+  http_error: COULD_NOT_REFRESH,
+  no_usage_reported: COULD_NOT_REFRESH,
+  unexpected: COULD_NOT_REFRESH,
+};
+
+class RefreshFailure extends Error {
+  constructor(
+    readonly reason: RefreshFailureReason,
+    readonly detail?: string
+  ) {
+    super(reason);
+  }
+}
+
+function readMacKeychain(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "/usr/bin/security",
+      [
+        "find-generic-password",
+        "-s",
+        CLAUDE_KEYCHAIN_SERVICE,
+        "-a",
+        os.userInfo().username,
+        "-w",
+      ],
+      { timeout: 5_000, maxBuffer: 64 * 1024 },
+      (error, stdout) => {
+        if (error) reject(new Error("keychain read failed"));
+        else resolve(stdout);
+      }
+    );
+  });
+}
+
+/**
+ * The signed-in CLI's subscription token. Claude Code keeps its login in
+ * `.credentials.json` on Linux and in the login Keychain on macOS, where the
+ * file does not exist at all; reading only the file meant a macOS host could
+ * never refresh and showed whatever the interactive `/usage` last cached.
+ *
+ * The access token is used as found. Its refresh token is never exchanged
+ * here: refresh tokens rotate, so spending one would sign Claude Code itself
+ * out. An expired login renews the next time the CLI runs.
+ */
+async function readClaudeLogin(
+  options: ProviderUsageOptions,
+  read: (file: string) => Promise<string>,
+  homeDir: string,
+  env: NodeJS.ProcessEnv
+): Promise<{ token: string; expiresAt: number | null }> {
+  const sources: (() => Promise<string>)[] = [
+    () =>
+      read(
+        path.join(
+          env.CLAUDE_CONFIG_DIR?.trim() || path.join(homeDir, ".claude"),
+          ".credentials.json"
+        )
+      ),
+  ];
+  const readKeychain =
+    options.readKeychain ?? (options.read ? undefined : readMacKeychain);
+  if ((options.platform ?? process.platform) === "darwin" && readKeychain) {
+    sources.push(readKeychain);
+  }
+  for (const source of sources) {
+    try {
+      const oauth = object(object(JSON.parse(await source()))?.claudeAiOauth);
+      const token = text(oauth?.accessToken);
+      if (!token) continue;
+      const expiresAt =
+        typeof oauth?.expiresAt === "number" && Number.isFinite(oauth.expiresAt)
+          ? oauth.expiresAt
+          : null;
+      return { token, expiresAt };
+    } catch {
+      // Absent or unreadable: try the next place the login can live.
+    }
+  }
+  throw new RefreshFailure("not_signed_in");
+}
+
 /**
  * Claude Code's state file, `.claude.json`, sits in the home directory
  * itself (or in `CLAUDE_CONFIG_DIR` when that is set), not under `~/.claude/`,
@@ -336,30 +453,34 @@ export async function loadHarnessProviderUsage(
   // never return credentials or provider error bodies to the browser.
   if (now.valueOf() - observationTime(claude.observedAt) > 60_000) {
     try {
-      const credentials = object(
-        JSON.parse(
-          await read(
-            path.join(
-              env.CLAUDE_CONFIG_DIR?.trim() || path.join(homeDir, ".claude"),
-              ".credentials.json"
-            )
-          )
-        )
-      );
-      const token = text(object(credentials?.claudeAiOauth)?.accessToken);
-      if (!token) throw new Error("no subscription token");
-      const response = await (options.fetchUsage ?? fetch)(
-        "https://api.anthropic.com/api/oauth/usage",
-        {
+      const login = await readClaudeLogin(options, read, homeDir, env);
+      if (login.expiresAt !== null && login.expiresAt <= now.valueOf()) {
+        throw new RefreshFailure("login_expired");
+      }
+      let response: Response;
+      try {
+        response = await (options.fetchUsage ?? fetch)(CLAUDE_USAGE_URL, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${login.token}`,
             "anthropic-beta": "oauth-2025-04-20",
           },
           signal: AbortSignal.timeout(5_000),
           redirect: "error",
-        }
-      );
-      if (!response.ok) throw new Error("usage request failed");
+        });
+      } catch (error) {
+        throw new RefreshFailure(
+          "request_failed",
+          error instanceof Error ? error.name : undefined
+        );
+      }
+      if (!response.ok) {
+        throw new RefreshFailure(
+          response.status === 401 || response.status === 403
+            ? "login_rejected"
+            : "http_error",
+          String(response.status)
+        );
+      }
       const live = parseClaudeProviderUsage(
         JSON.stringify({
           cachedUsageUtilization: {
@@ -369,11 +490,22 @@ export async function loadHarnessProviderUsage(
         })
       );
       if (!live.windows.length && !live.spend)
-        throw new Error("no usage reported");
+        throw new RefreshFailure("no_usage_reported");
       claude = live;
-    } catch {
-      claude.unavailableReason =
-        "Could not refresh Claude plan usage. Open /usage in Claude Code to refresh its local report.";
+    } catch (error) {
+      const failure =
+        error instanceof RefreshFailure
+          ? error
+          : new RefreshFailure("unexpected");
+      // The reason and, at most, an HTTP status or an error's class name.
+      options.log?.warn(
+        {
+          reason: failure.reason,
+          ...(failure.detail ? { detail: failure.detail } : {}),
+        },
+        "could not refresh Claude plan usage"
+      );
+      claude.unavailableReason = REFRESH_FAILURE_TEXT[failure.reason];
     }
   }
   return {
@@ -398,17 +530,30 @@ function observationTime(value: string | null): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+/** A forced refresh still reuses a report this young: a guard on the provider, not a cache. */
+const FORCE_REFRESH_FLOOR_MS = 5_000;
+
 export function createHarnessProviderUsageReporter(
   options: Omit<ProviderUsageOptions, "now"> = {},
   cacheMs = 60_000
-): () => Promise<HarnessProviderUsageReport> {
-  let cached: { expiresAt: number; report: HarnessProviderUsageReport } | null =
-    null;
+): (request?: { force?: boolean }) => Promise<HarnessProviderUsageReport> {
+  let cached: {
+    loadedAt: number;
+    expiresAt: number;
+    report: HarnessProviderUsageReport;
+  } | null = null;
   let pending: Promise<HarnessProviderUsageReport> | null = null;
   const rollouts: RolloutCache = new Map();
-  return async () => {
+  return async (request = {}) => {
     const now = Date.now();
-    if (cached && cached.expiresAt > now) return cached.report;
+    // The Refresh button asks for a real attempt. Without `force` a click
+    // inside the cache window was answered from memory and looked broken.
+    const fresh =
+      cached !== null &&
+      (request.force
+        ? now - cached.loadedAt < FORCE_REFRESH_FLOOR_MS
+        : cached.expiresAt > now);
+    if (cached && fresh) return cached.report;
     if (pending) return pending;
     pending = loadHarnessProviderUsage(options, rollouts)
       .then((report) => {
@@ -429,7 +574,8 @@ export function createHarnessProviderUsageReporter(
             unavailableReason: claude.unavailableReason,
           };
         }
-        cached = { expiresAt: Date.now() + cacheMs, report };
+        const loadedAt = Date.now();
+        cached = { loadedAt, expiresAt: loadedAt + cacheMs, report };
         return report;
       })
       .finally(() => {

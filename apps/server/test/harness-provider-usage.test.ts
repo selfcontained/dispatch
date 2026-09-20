@@ -264,3 +264,201 @@ describe("claudeConfigPath", () => {
     );
   });
 });
+
+describe("Claude login sources", () => {
+  const NOW = new Date("2026-09-20T20:00:00.000Z");
+  const noFile = async (file: string): Promise<string> => {
+    if (file.endsWith(".credentials.json")) {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    }
+    return "{}";
+  };
+  const login = (expiresAt?: number) =>
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "keychain-secret",
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+      },
+    });
+  const usageOk = () =>
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ five_hour: { utilization: 7 } }))
+    );
+
+  it("reads the login from the macOS Keychain when there is no credentials file", async () => {
+    // macOS keeps Claude Code's login in the Keychain; the file the refresh
+    // used to insist on does not exist there, so it failed on every call.
+    const fetchUsage = usageOk();
+    const report = await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "darwin",
+      codexFiles: async () => [],
+      read: noFile,
+      readKeychain: async () => login(NOW.valueOf() + 60_000),
+      fetchUsage,
+    });
+    expect(report.providers[0].unavailableReason).toBeUndefined();
+    expect(report.providers[0]).toMatchObject({
+      observedAt: NOW.toISOString(),
+      windows: [{ usedPercent: 7 }],
+    });
+    const headers = (fetchUsage.mock.calls[0] as unknown[])[1] as {
+      headers: Record<string, string>;
+    };
+    expect(headers.headers.Authorization).toBe("Bearer keychain-secret");
+  });
+
+  it("prefers the credentials file, and never opens the Keychain off macOS", async () => {
+    const readKeychain = vi.fn(async () => login());
+    const fetchUsage = usageOk();
+    await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "darwin",
+      codexFiles: async () => [],
+      read: async (file) =>
+        file.endsWith(".credentials.json")
+          ? JSON.stringify({ claudeAiOauth: { accessToken: "file-secret" } })
+          : "{}",
+      readKeychain,
+      fetchUsage,
+    });
+    expect(readKeychain).not.toHaveBeenCalled();
+
+    const linux = await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "linux",
+      codexFiles: async () => [],
+      read: noFile,
+      readKeychain,
+      fetchUsage: usageOk(),
+    });
+    expect(readKeychain).not.toHaveBeenCalled();
+    expect(linux.providers[0].unavailableReason).toContain("not signed in");
+  });
+
+  it("does not spend an expired login, and says how it renews", async () => {
+    const fetchUsage = usageOk();
+    const warn = vi.fn();
+    const report = await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "darwin",
+      codexFiles: async () => [],
+      read: noFile,
+      readKeychain: async () => login(NOW.valueOf() - 1),
+      fetchUsage,
+      log: { warn },
+    });
+    expect(fetchUsage).not.toHaveBeenCalled();
+    expect(report.providers[0].unavailableReason).toContain("has expired");
+    expect(warn).toHaveBeenCalledWith(
+      { reason: "login_expired" },
+      "could not refresh Claude plan usage"
+    );
+  });
+
+  it("logs why a refresh failed without the token or the provider's body", async () => {
+    const warn = vi.fn();
+    const report = await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "darwin",
+      codexFiles: async () => [],
+      read: noFile,
+      readKeychain: async () => login(),
+      fetchUsage: vi.fn(
+        async () => new Response("secret provider detail", { status: 429 })
+      ),
+      log: { warn },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      { reason: "http_error", detail: "429" },
+      "could not refresh Claude plan usage"
+    );
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain("keychain-secret");
+    expect(logged).not.toContain("secret provider detail");
+    expect(report.providers[0].unavailableReason).not.toContain(
+      "secret provider detail"
+    );
+  });
+
+  it("reads a rejected login as one to renew", async () => {
+    const report = await loadHarnessProviderUsage({
+      now: NOW,
+      env: {},
+      homeDir: "/test",
+      platform: "darwin",
+      codexFiles: async () => [],
+      read: noFile,
+      readKeychain: async () => login(),
+      fetchUsage: vi.fn(async () => new Response("", { status: 401 })),
+    });
+    expect(report.providers[0].unavailableReason).toContain("has expired");
+  });
+});
+
+describe("forced refresh", () => {
+  const options = (fetchUsage: typeof fetch) => ({
+    env: {},
+    homeDir: "/test",
+    codexFiles: async () => [],
+    fetchUsage,
+    read: async (file: string) =>
+      file.endsWith(".credentials.json")
+        ? JSON.stringify({ claudeAiOauth: { accessToken: "t" } })
+        : "{}",
+  });
+  const counting = () =>
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ five_hour: { utilization: 1 } }))
+    );
+
+  it("answers a plain read from the cache but a forced one from the provider", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-20T20:00:00.000Z"));
+      const fetchUsage = counting();
+      const reporter = createHarnessProviderUsageReporter(
+        options(fetchUsage as never),
+        60_000
+      );
+      await reporter();
+      vi.setSystemTime(new Date("2026-09-20T20:00:30.000Z"));
+      await reporter();
+      expect(fetchUsage).toHaveBeenCalledTimes(1);
+      await reporter({ force: true });
+      expect(fetchUsage).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a burst of forced reads hammer the provider", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-20T20:00:00.000Z"));
+      const fetchUsage = counting();
+      const reporter = createHarnessProviderUsageReporter(
+        options(fetchUsage as never),
+        60_000
+      );
+      await reporter({ force: true });
+      vi.setSystemTime(new Date("2026-09-20T20:00:02.000Z"));
+      await reporter({ force: true });
+      expect(fetchUsage).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

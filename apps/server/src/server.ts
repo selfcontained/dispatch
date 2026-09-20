@@ -829,7 +829,11 @@ async function registerRoutes() {
     // The probes must find a bare engine name where the harness spawn does.
     { PATH: harnessSearchPath(config) }
   );
-  const harnessProviderUsageReport = createHarnessProviderUsageReporter();
+  const harnessProviderUsageReport = createHarnessProviderUsageReporter({
+    log: {
+      warn: (fields, message) => app.log.warn(fields, message),
+    },
+  });
   await registerSystemRoutes(app, {
     pool,
     appLog: app.log,
