@@ -259,6 +259,28 @@ describe("ReviewBlockBody", () => {
     });
   });
 
+  it("in the stream is a summary line that opens the review", () => {
+    const onOpen = vi.fn();
+    render(
+      <ReviewBlockBody
+        block={review()}
+        disabled={false}
+        compact
+        onOpen={onOpen}
+        defaultExpanded
+      />
+    );
+    const card = screen.getByTestId("chat-review-block");
+    expect(card.getAttribute("data-compact")).toBe("true");
+    expect(screen.getByTestId("chat-review-summary-line").textContent).toBe(
+      "Two things need work."
+    );
+    expect(screen.queryByTestId("chat-review-details")).toBeNull();
+    expect(screen.queryByTestId("chat-review-finding")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-review-header"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
   it("marks findings with unseen agent comments and counts them on the header", () => {
     render(
       <ReviewBlockBody

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
+import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -576,22 +577,31 @@ function FindingPath({
 }): JSX.Element | null {
   if (!finding.path) return null;
   const label = `${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`;
+  // Clipped from the front, as file names are everywhere else: the name
+  // and line at the end are what tell one finding from the next.
+  const value = (
+    <FrontTruncatedValue
+      value={label}
+      mono
+      className="text-[11px] text-muted-foreground"
+    />
+  );
   return onOpenPath ? (
     <button
       type="button"
-      className="min-w-0 truncate font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      className="min-w-0 max-w-full flex-1 text-left underline-offset-2 hover:text-foreground hover:underline"
       title="Open in Changes"
       data-testid="chat-review-finding-path"
       onClick={() => onOpenPath(finding.path!, finding.line ?? null)}
     >
-      {label}
+      {value}
     </button>
   ) : (
     <span
-      className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+      className="min-w-0 max-w-full flex-1"
       data-testid="chat-review-finding-path"
     >
-      {label}
+      {value}
     </span>
   );
 }
@@ -758,7 +768,11 @@ function FindingRecordLine({
 }): JSX.Element {
   const outcome = findingOutcome(record);
   const verb =
-    outcome === "open" ? "Reopened" : outcome === "fixed" ? "Fixed" : "Dismissed";
+    outcome === "open"
+      ? "Reopened"
+      : outcome === "fixed"
+        ? "Fixed"
+        : "Dismissed";
   const who = authorName
     ? authorName(record.by)
     : record.by.kind === "user"
@@ -853,6 +867,8 @@ export function ReviewBlockBody({
   defaultExpanded = false,
   commentCounts,
   unreadCounts,
+  compact = false,
+  onOpen,
 }: {
   block: Extract<Block, { kind: "review" }>;
   /** State changes are unavailable (no callback, or nothing can be sent). */
@@ -868,11 +884,20 @@ export function ReviewBlockBody({
   commentCounts?: Readonly<Record<string, number>>;
   /** Agent replies about each finding the person has not seen, by finding id. */
   unreadCounts?: Readonly<Record<string, number>>;
+  /**
+   * The stream's card: the verdict, the counts and the summary's first
+   * sentence, and a click opens the review in the drawer, where the
+   * findings and their details are. Off in the drawer, which shows it all.
+   */
+  compact?: boolean;
+  /** Opens the review's page; the compact card's click. */
+  onOpen?: () => void;
 }): JSX.Element {
-  const [expanded, setExpanded] = useOpened(
+  const [expandedState, setExpanded] = useOpened(
     `review:${block.id}`,
     defaultExpanded
   );
+  const expanded = compact ? false : expandedState;
   const verdict = VERDICT[block.data.verdict] ?? VERDICT.comment;
   const findings = block.data.findings;
   const open = findings.filter(
@@ -890,21 +915,25 @@ export function ReviewBlockBody({
       )}
       data-testid="chat-review-block"
       data-expanded={expanded ? "true" : undefined}
+      data-compact={compact ? "true" : undefined}
     >
       <button
         type="button"
         className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-muted/30"
-        aria-expanded={expanded}
+        aria-expanded={compact ? undefined : expanded}
+        aria-label={compact ? "Open the review" : undefined}
         data-testid="chat-review-header"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => (compact ? onOpen?.() : setExpanded(!expanded))}
       >
-        <ChevronRight
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-300",
-            expanded && "rotate-90"
-          )}
-          aria-hidden="true"
-        />
+        {compact ? null : (
+          <ChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-300",
+              expanded && "rotate-90"
+            )}
+            aria-hidden="true"
+          />
+        )}
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Review
         </span>
@@ -930,108 +959,129 @@ export function ReviewBlockBody({
             {unread}
           </span>
         ) : null}
+        {compact ? (
+          <>
+            {block.data.summary ? (
+              <span
+                className="basis-full truncate text-[13px] text-foreground/85"
+                data-testid="chat-review-summary-line"
+              >
+                {summarySentence(block.data.summary)}
+              </span>
+            ) : null}
+            <ChevronRight
+              className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+              aria-hidden="true"
+            />
+          </>
+        ) : null}
       </button>
-      <Collapse open={expanded} data-testid="chat-review-details">
-        <div className="border-t border-border/40 px-3 pb-2 pt-2">
-          {block.data.summary ? (
-            <Markdown className="mb-2 text-[13px] text-foreground/90 prose-p:my-0.5">
-              {block.data.summary}
-            </Markdown>
-          ) : null}
-          {findings.length > 0 ? (
-            <ol
-              className="-mx-1 flex flex-col divide-y divide-border/40 border-t border-border/40"
-              data-testid="chat-review-findings"
-            >
-              {findings.map((finding) => {
-                const record = findingRecord(block, finding.id);
-                const status = record?.status ?? "open";
-                const comments = commentCounts?.[finding.id] ?? 0;
-                const fresh = unreadCounts?.[finding.id] ?? 0;
-                const highlighted = highlightFindingId === finding.id;
-                const row = (
-                  <>
-                    <FindingStatusPill record={record} />
-                    <SeverityChip severity={finding.severity} />
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
-                        status === "resolved" &&
-                          "text-muted-foreground line-through"
-                      )}
-                      title={finding.title}
-                    >
-                      {finding.title}
-                    </span>
-                    {comments > 0 ? (
+      {compact ? null : (
+        <Collapse open={expanded} data-testid="chat-review-details">
+          <div className="border-t border-border/40 px-3 pb-2 pt-2">
+            {block.data.summary ? (
+              <Markdown className="mb-2 text-[13px] text-foreground/90 prose-p:my-0.5">
+                {block.data.summary}
+              </Markdown>
+            ) : null}
+            {findings.length > 0 ? (
+              <ol
+                className="-mx-1 flex flex-col divide-y divide-border/40 border-t border-border/40"
+                data-testid="chat-review-findings"
+              >
+                {findings.map((finding) => {
+                  const record = findingRecord(block, finding.id);
+                  const status = record?.status ?? "open";
+                  const comments = commentCounts?.[finding.id] ?? 0;
+                  const fresh = unreadCounts?.[finding.id] ?? 0;
+                  const highlighted = highlightFindingId === finding.id;
+                  const row = (
+                    <>
+                      <FindingStatusPill record={record} />
+                      <SeverityChip severity={finding.severity} />
                       <span
                         className={cn(
-                          "shrink-0 text-[11px]",
-                          fresh > 0
-                            ? "font-semibold text-foreground"
-                            : "text-muted-foreground"
+                          "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
+                          status === "resolved" &&
+                            "text-muted-foreground line-through"
                         )}
-                        data-testid="chat-review-finding-comments"
+                        title={finding.title}
                       >
-                        {comments} {comments === 1 ? "comment" : "comments"}
+                        {finding.title}
                       </span>
-                    ) : null}
-                    {fresh > 0 ? (
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                        data-testid="chat-review-finding-unread"
-                        aria-label={`${fresh} new`}
+                      {comments > 0 ? (
+                        <span
+                          className={cn(
+                            "shrink-0 text-[11px]",
+                            fresh > 0
+                              ? "font-semibold text-foreground"
+                              : "text-muted-foreground"
+                          )}
+                          data-testid="chat-review-finding-comments"
+                        >
+                          {comments} {comments === 1 ? "comment" : "comments"}
+                        </span>
+                      ) : null}
+                      {fresh > 0 ? (
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                          data-testid="chat-review-finding-unread"
+                          aria-label={`${fresh} new`}
+                        />
+                      ) : null}
+                      <ChevronRight
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                        aria-hidden="true"
                       />
-                    ) : null}
-                    <ChevronRight
-                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                      aria-hidden="true"
-                    />
-                  </>
-                );
-                return (
-                  <li
-                    key={finding.id}
-                    className={cn(
-                      "px-1",
-                      highlighted && "rounded-md bg-primary/[0.08]"
-                    )}
-                    data-testid="chat-review-finding"
-                    data-finding-id={finding.id}
-                    data-status={status}
-                    data-outcome={findingOutcome(record)}
-                    data-highlighted={highlighted ? "true" : undefined}
-                  >
-                    {onOpenFinding ? (
-                      <button
-                        type="button"
-                        className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
-                        data-testid="chat-review-finding-link"
-                        aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
-                        onClick={() => onOpenFinding(finding.id)}
-                      >
-                        {row}
-                      </button>
-                    ) : (
-                      <div className="flex w-full min-w-0 items-center gap-2 py-2">
-                        {row}
+                    </>
+                  );
+                  return (
+                    <li
+                      key={finding.id}
+                      className={cn(
+                        "px-1",
+                        highlighted && "rounded-md bg-primary/[0.08]"
+                      )}
+                      data-testid="chat-review-finding"
+                      data-finding-id={finding.id}
+                      data-status={status}
+                      data-outcome={findingOutcome(record)}
+                      data-highlighted={highlighted ? "true" : undefined}
+                    >
+                      {onOpenFinding ? (
+                        <button
+                          type="button"
+                          className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
+                          data-testid="chat-review-finding-link"
+                          aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
+                          onClick={() => onOpenFinding(finding.id)}
+                        >
+                          {row}
+                        </button>
+                      ) : (
+                        <div className="flex w-full min-w-0 items-center gap-2 py-2">
+                          {row}
+                        </div>
+                      )}
+                      <div className="pb-1.5 pl-1">
+                        <FindingPath
+                          finding={finding}
+                          onOpenPath={onOpenPath}
+                        />
                       </div>
-                    )}
-                    <div className="pb-1.5 pl-1">
-                      <FindingPath finding={finding} onOpenPath={onOpenPath} />
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : null}
-          {open === 0 && findings.length > 0 ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Every finding is resolved.
-            </p>
-          ) : null}
-        </div>
-      </Collapse>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : null}
+            {open === 0 && findings.length > 0 ? (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Every finding is resolved.
+              </p>
+            ) : null}
+          </div>
+        </Collapse>
+      )}
     </div>
   );
 }

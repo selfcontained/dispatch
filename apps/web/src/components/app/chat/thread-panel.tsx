@@ -181,12 +181,24 @@ export function ThreadPanel({
     [agentId]
   );
 
-  // New replies land at the bottom; keep the newest in view.
+  // The page opens at its top: the review, the finding, the post the
+  // thread is under. A reply that lands while it is open scrolls into
+  // view at the bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
   const replyCount = thread.replies.length;
+  const seenRepliesRef = useRef<{ blockId: string; count: number } | null>(
+    null
+  );
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    const seen = seenRepliesRef.current;
+    if (!seen || seen.blockId !== blockId) {
+      seenRepliesRef.current = { blockId, count: replyCount };
+      if (el) el.scrollTop = 0;
+      return;
+    }
+    if (replyCount > seen.count && el) el.scrollTop = el.scrollHeight;
+    seen.count = replyCount;
   }, [replyCount, blockId]);
 
   // Escape closes the panel, as it would a sheet.

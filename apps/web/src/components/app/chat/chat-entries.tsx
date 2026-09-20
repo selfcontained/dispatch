@@ -673,6 +673,7 @@ function BlockBody({
         <ReviewBlockWithCounts
           block={block}
           rootId={ctx.rootId ?? null}
+          inThread={inThread}
           disabled={answersDisabled}
           onSetState={setState}
           onOpenFinding={
@@ -681,10 +682,11 @@ function BlockBody({
               : undefined
           }
           onOpenPath={onOpenPath}
-          // A review with work left in it opens on its findings; a settled
-          // one folds to its verdict. In the panel the review is the whole
-          // subject and always open.
-          defaultExpanded={inThread || hasOpenFindings(block)}
+          // In the stream the card is a summary that opens the review in
+          // the drawer; in the drawer it is the whole subject, open.
+          compact={!inThread}
+          onOpen={onOpenThread ? () => onOpenThread(block.id) : undefined}
+          defaultExpanded={inThread}
           highlightFindingId={highlightFindingId}
         />
       );
@@ -760,16 +762,19 @@ export function unreadCommentsOf(
  */
 function ReviewBlockWithCounts({
   rootId,
+  inThread,
   ...props
 }: Omit<
   Parameters<typeof ReviewBlockBody>[0],
   "commentCounts" | "unreadCounts"
 > & {
   rootId: string | null;
+  /** Already on the review's page: its thread is loaded whatever the count says. */
+  inThread: boolean;
 }): JSX.Element {
   const thread = useThread(
     rootId,
-    (props.block.replyCount ?? 0) > 0 ? props.block.id : null
+    inThread || (props.block.replyCount ?? 0) > 0 ? props.block.id : null
   );
   const commentCounts = useMemo(
     () => commentCountsOf(thread.replies),
@@ -785,14 +790,6 @@ function ReviewBlockWithCounts({
       commentCounts={commentCounts}
       unreadCounts={unreadCounts}
     />
-  );
-}
-
-/** Whether any finding on a review is still open. */
-function hasOpenFindings(block: Extract<Block, { kind: "review" }>): boolean {
-  return block.data.findings.some(
-    (finding) =>
-      (block.state?.findings[finding.id]?.status ?? "open") === "open"
   );
 }
 

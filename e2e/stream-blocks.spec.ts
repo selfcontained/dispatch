@@ -74,16 +74,28 @@ test.describe("Stream blocks", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     const pane = page.getByTestId("chat-pane");
-    const review = pane.getByTestId("chat-review-block");
-    await expect(review).toBeVisible();
+    const card = pane.getByTestId("chat-review-block");
+    await expect(card).toBeVisible();
 
-    // A card of its own: the verdict and counts in the header, and, since
-    // findings are open, the rows already showing.
-    await expect(review.getByTestId("chat-review-verdict")).toHaveText(
+    // In the stream the review is a summary line: verdict, counts, the
+    // summary's first sentence. Clicking it opens the review in the drawer.
+    await expect(card.getByTestId("chat-review-verdict")).toHaveText(
       "Changes requested"
     );
-    await expect(review.getByTestId("chat-review-counts")).toHaveText(
+    await expect(card.getByTestId("chat-review-counts")).toHaveText(
       "2 findings · 2 open"
+    );
+    await expect(card.getByTestId("chat-review-summary-line")).toHaveText(
+      "Two things to fix before this ships."
+    );
+    await expect(card.getByTestId("chat-review-finding")).toHaveCount(0);
+    await card.getByTestId("chat-review-header").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}$`)
+    );
+    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
+    const review = page.locator(
+      '[data-testid="drawer-page"][data-page-key^="thread:"] [data-testid="chat-review-block"]'
     );
     await expect(review.getByTestId("chat-review-details")).toHaveAttribute(
       "data-open",
@@ -136,7 +148,12 @@ test.describe("Stream blocks", () => {
         findings: { f1: { status: "resolved", resolution: "fixed" } },
       });
 
-    // Dismissing wants a reason and records it; Reopen takes it back.
+    // Dismissing wants a reason and records it; Reopen takes it back. The
+    // review page is under the finding's: back first, then the next row.
+    await page.getByTestId("drawer-back").click();
+    await page.waitForURL(
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}$`)
+    );
     await findings.nth(1).getByTestId("chat-review-finding-link").click();
     await page.waitForURL(
       new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f2$`)
