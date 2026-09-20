@@ -332,7 +332,7 @@ export class BlockStore {
    */
   async recordAnswer(
     questionId: string,
-    answer: BlockActor & { value: string; label?: string; blockId: string }
+    answer: BlockActor & { value: string; label?: string; blockId?: string }
   ): Promise<Block | null> {
     if (!isBlockId(questionId)) return null;
     const result = await this.db.query<BlockRow>(

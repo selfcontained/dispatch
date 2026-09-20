@@ -1197,6 +1197,44 @@ describe("StreamService.update", () => {
     expect(updated.state).toEqual({ note: "hint" });
   });
 
+  it("lets the author close its own question with what settled it", async () => {
+    const q = await service.post(A, {
+      text: "Discard the stray edit?",
+      question: { options: [{ label: "Discard it" }, { label: "Keep it" }] },
+    });
+    await expect(
+      service.update(A, q.id, { state: { answer: "  " } })
+    ).rejects.toThrow(/state\.answer must be the answer as text/);
+    const closed = await service.update(A, q.id, {
+      state: { answer: "Discard it" },
+    });
+    expect(closed.state).toEqual({
+      answer: {
+        value: "Discard it",
+        label: "Discard it",
+        by: { kind: "agent", agentId: A },
+        at: expect.any(String),
+      },
+    });
+    await expect(
+      service.update(A, q.id, { state: { answer: "Keep it" } })
+    ).rejects.toBeInstanceOf(StreamConflictError);
+    // Freeform closes with the words given; the rail no longer lists it.
+    const q2 = await service.post(A, {
+      question: { options: [{ label: "Yes" }] },
+    });
+    const done = await service.update(A, q2.id, {
+      state: { answer: { value: "Resolved on my own" } },
+    });
+    expect(done.state).toMatchObject({
+      answer: {
+        value: "Resolved on my own",
+        by: { kind: "agent", agentId: A },
+      },
+    });
+    expect(await service.store.countUnread(A)).toBeGreaterThanOrEqual(0);
+  });
+
   it("lets the recipient change only the state of a block addressed to it", async () => {
     const { svc, injected } = build();
     const review = await svc.post(B, {
@@ -2114,9 +2152,9 @@ describe("StreamService review threads", () => {
     await expect(
       service.post(A, {
         text: "Which?",
-        question: { options: [{ label: "x".repeat(61) }] },
+        question: { options: [{ label: "x".repeat(33) }] },
       })
-    ).rejects.toThrow(/Each option label must be 1–60 characters/);
+    ).rejects.toThrow(/Each option label must be 1–32 characters/);
     await expect(
       service.post(A, {
         text: "Which?",

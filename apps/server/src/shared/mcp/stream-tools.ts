@@ -28,7 +28,9 @@ const optionSchema = z.object({
     .string()
     .min(1)
     .max(BLOCK_OPTION_LABEL_MAX_CHARS)
-    .describe("A button's text: a few words, not a sentence."),
+    .describe(
+      'The button\'s text: a short action ("Ship it", "Use SQLite"). Explain the choices in the post\'s text, not here.'
+    ),
   value: z
     .string()
     .min(1)
@@ -46,7 +48,7 @@ const questionSchema = z
       .describe("Hint that a typed reply is also acceptable."),
   })
   .describe(
-    "Ask the user (or the agent in `to`) something with options. The options render as buttons; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting."
+    'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you no longer need the answer, close it with update({ id, state: { answer: "<what settled it>" } }).'
   );
 
 const formSchema = z
@@ -184,7 +186,7 @@ const POST_DESCRIPTION =
 
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
-  '(close a finding on a review you received: { state: { findings: { <id>: "fixed" } } }, or { <id>: { status: "resolved", resolution: "dismissed", note } }; reopen with "open"; tick a task: { state: { items: { <id>: "done" } } }). ' +
+  '(close a finding on a review you received: { state: { findings: { <id>: "fixed" } } }, or { <id>: { status: "resolved", resolution: "dismissed", note } }; reopen with "open"; tick a task: { state: { items: { <id>: "done" } } }; close your own question: { state: { answer: "<what settled it>" } }). ' +
   "Supply only the fields to change; attachments, when given, replace the whole list. Returns { id, updatedAt }.";
 
 const REACT_DESCRIPTION =

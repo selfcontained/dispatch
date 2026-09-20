@@ -55,8 +55,11 @@ export type BlockQuestionState = {
   answer?: BlockActor & {
     value: string;
     label?: string;
-    /** The reply block that carried the answer to the author. */
-    blockId: string;
+    /**
+     * The reply block that carried the answer to the author. Absent when
+     * the author closed its own question (nothing to answer any more).
+     */
+    blockId?: string;
   };
 };
 
@@ -373,8 +376,11 @@ export type StreamReadEvent = {
 export const BLOCK_TEXT_MAX_CHARS = 20_000;
 export const BLOCK_ATTACHMENTS_MAX = 20;
 export const BLOCK_OPTIONS_MAX = 10;
-/** An option is a button: its label stays on one line. */
-export const BLOCK_OPTION_LABEL_MAX_CHARS = 60;
+/**
+ * An option is a button: a short action, not the explanation (that goes
+ * in the text). Short enough for one line on a phone.
+ */
+export const BLOCK_OPTION_LABEL_MAX_CHARS = 32;
 export const BLOCK_FORM_FIELDS_MAX = 20;
 export const BLOCK_REVIEW_FINDINGS_MAX = 50;
 export const BLOCK_TASKS_MAX = 50;

@@ -342,7 +342,7 @@ export function resolveKindAndData(input: PostInput): {
         const label = typeof o.label === "string" ? o.label.trim() : "";
         if (!label || label.length > BLOCK_OPTION_LABEL_MAX_CHARS) {
           throw new StreamValidationError(
-            `Each option label must be 1–${BLOCK_OPTION_LABEL_MAX_CHARS} characters: a button, not a sentence. Put the explanation in the text.`
+            `Each option label must be 1–${BLOCK_OPTION_LABEL_MAX_CHARS} characters: a short action for a button. Put the explanation in the text.`
           );
         }
       }
@@ -1224,6 +1224,14 @@ export class StreamService {
           input.state,
           author
         );
+      } else if (block.kind === "question" && "answer" in input.state) {
+        // The author closing its own question: it found the answer, or no
+        // longer needs one. The word given becomes the answer on record.
+        updated = await this.closeOwnQuestion(
+          block,
+          input.state.answer,
+          author
+        );
       } else {
         updated =
           (await this.store.mergeState(block.id, input.state)) ?? updated;
@@ -1231,6 +1239,40 @@ export class StreamService {
     }
     await this.publishEntry(updated.streamId, updated.id);
     return updated;
+  }
+
+  private async closeOwnQuestion(
+    block: Block,
+    answer: unknown,
+    author: BlockAuthor
+  ): Promise<Block> {
+    if (block.kind !== "question") return block;
+    if (block.state?.answer) {
+      throw new StreamConflictError("Question already answered.");
+    }
+    const raw =
+      typeof answer === "string"
+        ? answer
+        : answer && typeof answer === "object"
+          ? (answer as { value?: unknown }).value
+          : undefined;
+    const value = typeof raw === "string" ? raw.trim() : "";
+    if (!value) {
+      throw new StreamValidationError(
+        "state.answer must be the answer as text (or { value }): what settled the question."
+      );
+    }
+    const option = block.data.options.find(
+      (o) => o.label.trim() === value || (o.value ?? o.label) === value
+    );
+    const closed = await this.store.recordAnswer(block.id, {
+      value: option ? (option.value ?? option.label) : value,
+      ...(option ? { label: option.label } : {}),
+      by: author,
+      at: new Date().toISOString(),
+    });
+    if (!closed) throw new StreamConflictError("Question already answered.");
+    return closed;
   }
 
   // -------------------------------------------------------------------------
