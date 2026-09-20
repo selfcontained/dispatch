@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Block, BlockOption } from "@dispatch/shared";
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -22,6 +22,29 @@ import { cn } from "@/lib/utils";
 
 /** Posts by one author this close together share a header, as in the feed. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+/** What the thread is about, in a few words: the root's text, or its kind. */
+function threadSubject(root: Block): string {
+  const text = root.text.replace(/\s+/g, " ").trim();
+  if (text) return text.length > 70 ? `${text.slice(0, 69).trimEnd()}…` : text;
+  if (root.kind === "review" && root.data && "summary" in root.data) {
+    const summary = String(root.data.summary ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return summary.length > 70 ? `${summary.slice(0, 69).trimEnd()}…` : summary;
+  }
+  return (
+    {
+      text: "",
+      question: "a question",
+      form: "a form",
+      file: "a file",
+      link: "a link",
+      review: "a review",
+      tasks: "a task list",
+    }[root.kind] ?? ""
+  );
+}
 
 /**
  * Whether each reply continues the one above it: same author within the
@@ -132,26 +155,47 @@ export function ThreadPanel({
       data-block-id={blockId}
       data-mobile={isMobile ? "true" : undefined}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/40 px-4 py-2">
-        <div className="min-w-0">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/30 px-3 py-2">
+        {isMobile ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            aria-label="Back to the channel"
+            data-testid="chat-thread-close"
+            onClick={onClose}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        ) : null}
+        <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-foreground">Thread</div>
           {thread.root ? (
-            <div className="truncate text-[11px] text-muted-foreground">
-              {blockAuthor(thread.root, ctx).name}
+            <div
+              className="truncate text-[11.5px] text-muted-foreground"
+              data-testid="chat-thread-subject"
+            >
+              on {blockAuthor(thread.root, ctx).name}
+              {threadSubject(thread.root)
+                ? `: ${threadSubject(thread.root)}`
+                : ""}
             </div>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          aria-label="Close thread"
-          data-testid="chat-thread-close"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
+        {isMobile ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            aria-label="Close thread"
+            data-testid="chat-thread-close"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
       </div>
       <div
         ref={scrollRef}

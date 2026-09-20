@@ -10,6 +10,7 @@ import {
   MessagesSquare,
   Rocket,
   UserRound,
+  MessageSquare,
 } from "lucide-react";
 
 import {
@@ -299,6 +300,30 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
  * shifts in and the body narrows by the same amount.
  */
 export const SIDE_POST_INDENT = "pl-[3.75rem]";
+
+/** Opens the post's thread with the composer ready: a person replying to one post. */
+export function ReplyInThreadButton({
+  onClick,
+}: {
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={POST_ACTION_BUTTON}
+      onClick={onClick}
+      title="Reply in thread"
+      aria-label="Reply in thread"
+      data-testid="chat-reply-in-thread"
+    >
+      <span className={POST_ACTION_FACE}>
+        <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    </Button>
+  );
+}
 
 /** A post-local clipboard action with the same confirmation used elsewhere. */
 export function MessageCopyButton({ text }: { text: string }): JSX.Element {
@@ -698,10 +723,20 @@ export const BlockView = memo(function BlockView({
   highlightFindingId = null,
 }: BlockViewProps): JSX.Element {
   const author = blockAuthor(block, ctx);
-  const side = blockSide(block, ctx);
-  const copyAction = block.text ? (
-    <MessageCopyButton text={block.text} />
-  ) : undefined;
+  // Inside the panel the thread itself says who is talking to whom; the
+  // side indent would only push the replies off the left edge.
+  const side = inThread ? undefined : blockSide(block, ctx);
+  const replyAction =
+    !inThread && ctx.onOpenThread ? (
+      <ReplyInThreadButton onClick={() => ctx.onOpenThread?.(block.id)} />
+    ) : null;
+  const copyAction =
+    block.text || replyAction ? (
+      <div className="flex items-center">
+        {replyAction}
+        {block.text ? <MessageCopyButton text={block.text} /> : null}
+      </div>
+    ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : (
     <ThreadLine block={block} onOpen={ctx.onOpenThread} />

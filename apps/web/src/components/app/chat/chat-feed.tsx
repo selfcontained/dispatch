@@ -82,7 +82,11 @@ export function entryVersion(entry: StreamEntry): string {
  * in twice.
  */
 export function rowIdentity(entry: StreamEntry): string {
-  return entry.type === "turn" && entry.prompt.chatMessageId
+  // Only a person's post ("chat") is drawn by its turn; a launch block or
+  // another agent's post stays a row of its own beside the turn it opened.
+  return entry.type === "turn" &&
+    entry.prompt.source === "chat" &&
+    entry.prompt.chatMessageId
     ? entry.prompt.chatMessageId
     : entry.id;
 }

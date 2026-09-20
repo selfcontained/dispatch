@@ -151,7 +151,11 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
 export function withoutTurnPrompts(entries: StreamEntry[]): StreamEntry[] {
   const prompts = new Set<string>();
   for (const entry of entries) {
-    if (entry.type === "turn" && entry.prompt.chatMessageId) {
+    if (
+      entry.type === "turn" &&
+      entry.prompt.source === "chat" &&
+      entry.prompt.chatMessageId
+    ) {
       prompts.add(entry.prompt.chatMessageId);
     }
   }
