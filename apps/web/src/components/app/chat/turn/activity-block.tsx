@@ -176,27 +176,31 @@ export function turnSummary(
   };
 }
 
+/** The same braille spinner a running step shows in the rail, on the shared tick. */
+function RunningGlyph(): JSX.Element {
+  const { braille } = useStreamTicker(true);
+  return (
+    <span
+      className="text-[12px] leading-none text-status-working"
+      data-testid="harness-turn-live"
+      aria-hidden="true"
+    >
+      {braille}
+    </span>
+  );
+}
+
 /**
- * The glyph for a turn's state: a steady dot while it runs, nothing once it
- * is done, a cross when it failed, a stop square when it was interrupted.
- * Nothing animates: with several agents working the column would otherwise
- * be a wall of flicker.
+ * The glyph for a turn's state: the rail's own spinner while it runs,
+ * nothing once it is done, a cross when it failed, a stop square when it
+ * was interrupted.
  */
 export function TurnGlyph({
   summary,
 }: {
   summary: Pick<TurnSummary, "done" | "failed" | "interrupted">;
 }): JSX.Element | null {
-  if (!summary.done) {
-    // A slow breath, not a flicker: enough to read as "alive" from across
-    // the column, quiet enough that three of them do not fight.
-    return (
-      <span
-        className="inline-block h-1.5 w-1.5 rounded-full bg-status-working animate-[pulse_1.8s_ease-in-out_infinite] motion-reduce:animate-none"
-        data-testid="harness-turn-live"
-      />
-    );
-  }
+  if (!summary.done) return <RunningGlyph />;
   if (summary.failed) {
     return <X className="h-3 w-3 text-status-blocked" strokeWidth={2.5} />;
   }
