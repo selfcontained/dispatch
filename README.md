@@ -1,6 +1,6 @@
 # Dispatch
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents, with browser-based terminal access and media sharing. It runs on macOS and Linux.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents, with one stream per agent and media sharing in the browser. It runs on macOS and Linux.
 
 ## Quick Install
 
@@ -42,11 +42,11 @@ replace the fixed executable and restart the service.
 - Token usage tracking by day, project, and model.
 - Agent history with soft-delete preservation, filtering, and per-agent detail views.
 - Release management — cut releases, deploy tags, and self-update from the UI.
-- Theming with multiple color themes and per-theme terminal palettes.
+- Theming with multiple color themes.
 - Password-based login with first-run setup and per-device session cookies.
 - Browser UI with:
-  - quick phrases — reusable text snippets with template variables, injectable into agent terminals
-  - interactive terminal access (xterm.js over WebSocket, resumable after browser reconnect)
+  - quick phrases — reusable text snippets with template variables, sent to an agent as a prompt
+  - durable agents: each runs under its own host process that outlives the server, so a restart never cuts a turn
   - agent lifecycle controls (create, start, stop, delete — with background archive cleanup)
   - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
   - one stream per agent: replies, questions and forms you answer in one click, files, links, checklists and reviews, with threads
@@ -75,14 +75,12 @@ Production installs run the released, compiled Bun binary from `dist/bun/`; the 
 
 Dispatch spawns agents via their CLI tools. Install at least one:
 
-| Agent        | Install                                    | Authenticate                                  |
-| ------------ | ------------------------------------------ | --------------------------------------------- |
-| **Claude**   | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)               |
-| **Codex**    | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile    |
-| **Cursor**   | Install [Cursor](https://www.cursor.com/)  | Configure in Cursor settings                  |
-| **OpenCode** | `npm install -g opencode`                  | Set `ANTHROPIC_API_KEY` in your shell profile |
+| Agent      | Install                                    | Authenticate                               |
+| ---------- | ------------------------------------------ | ------------------------------------------ |
+| **Claude** | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)            |
+| **Codex**  | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile |
 
-The agent CLI must be authenticated before Dispatch can spawn agents of that type. Dispatch invokes the CLI directly, so any API keys or login state in your shell environment are inherited automatically.
+Dispatch drives each CLI through its Agent Client Protocol adapter: `npm i -g @agentclientprotocol/claude-agent-acp` for Claude, `npm i -g @agentclientprotocol/codex-acp` for Codex. The CLI must be authenticated before Dispatch can spawn agents of that type; the agent host starts through your login shell, so login state and API keys in your profile are inherited automatically.
 
 ## Setup
 
@@ -245,7 +243,6 @@ User-facing documentation (agents, keyboard shortcuts, personalities, repo tools
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, host contract
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
-- [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Jobs](docs/17-jobs.md) — scheduled/on-demand agent tasks with structured reports
 

@@ -1,13 +1,13 @@
 ---
 import Base from "../layouts/Base.astro";
 ---
-<Base title="A shared workspace for humans and coding agents" description="Dispatch is a local-first shared workspace where humans and coding agents collaborate using persistent terminals, worktrees, shared context, and reusable capabilities.">
+<Base title="A shared workspace for humans and coding agents" description="Dispatch is a local-first shared workspace where humans and coding agents collaborate using durable agents, worktrees, shared context, and reusable capabilities.">
   <section class="hero">
     <img class="hero-logo" src="/brand-full-logo.svg" alt="Dispatch" />
     <p class="eyebrow">Durable collaboration for software teams</p>
     <h1>Software engineering is collaborative. AI should be, too.</h1>
     <p class="summary">Developers share context, ask questions, investigate problems, review work, leave notes, and hand work to one another. Coding agents should participate in that work—not disappear into isolated conversations.</p>
-    <p class="product-definition">Dispatch is a local-first shared workspace where humans and coding agents collaborate using persistent terminals, worktrees, shared context, and reusable capabilities.</p>
+    <p class="product-definition">Dispatch is a local-first shared workspace where humans and coding agents collaborate using durable agents, worktrees, shared context, and reusable capabilities.</p>
     <div class="actions">
       <a class="button primary" href="/collaboration">See how it works</a>
       <a class="button" href="https://github.com/selfcontained/dispatch">Browse GitHub ↗</a>
@@ -29,7 +29,7 @@ import Base from "../layouts/Base.astro";
         </div>
       </article>
       <article class="scene scene-yellow">
-        <img src="/shared-pinned-context.png" alt="Dispatch Pins panel showing a staging preview, changed file, and review focus beside the active work" />
+        <img src="/shared-pinned-context.png" alt="Dispatch drawer showing a staging link, a shared file, and an open review beside the active work" />
         <div>
           <p class="eyebrow">Context that remains usable</p>
           <h3>The starting point should be there when someone joins.</h3>
@@ -45,7 +45,7 @@ import Base from "../layouts/Base.astro";
         </div>
       </article>
       <article class="scene scene-green">
-        <img src="/review-feedback-items.png" alt="Dispatch review panel showing one open and two fixed feedback items with their affected files" />
+        <img src="/review-feedback-items.png" alt="A Dispatch review showing one open and two fixed findings with their affected files" />
         <div>
           <p class="eyebrow">The reviewer found something</p>
           <h3>Feedback should stay close enough to be acted on.</h3>
@@ -61,9 +61,9 @@ import Base from "../layouts/Base.astro";
       <div class="prose"><p>Dispatch is the space around an agent session where people can see what is happening, contribute context, and return to the work. The browser is the control surface; the work continues in the local environment that owns it.</p></div>
     </div>
     <div class="capability-groups">
-      <article class="cyan"><h3>Persistent terminals</h3><p>Agents keep working in terminals that survive a browser session, a disconnect, and the time between decisions.</p></article>
+      <article class="cyan"><h3>Durable agents</h3><p>Each agent runs in its own host process that survives a browser session, a disconnect, a Dispatch restart, and the time between decisions.</p></article>
       <article class="green"><h3>Independent worktrees</h3><p>Humans and agents can change the same repository without borrowing or disturbing each other’s directory.</p></article>
-      <article class="yellow"><h3>Shared context</h3><p>Messages, screenshots, media, pins, whiteboards, and Brain preserve the evidence behind a decision.</p></article>
+      <article class="yellow"><h3>Shared context</h3><p>One stream per agent—replies, questions, screenshots, links, and reviews—plus media and Brain preserve the evidence behind a decision.</p></article>
       <article class="pink"><h3>Reusable practices</h3><p>Review personas, jobs, notifications, and repo-aware tools make a good way of working available again.</p></article>
     </div>
   </section>
@@ -73,9 +73,9 @@ import Base from "../layouts/Base.astro";
     <div class="prose">
       <ol class="usage-path">
         <li>A developer launches an agent to investigate a bug in an isolated worktree.</li>
-        <li>The agent finds a staging URL, shares a screenshot, and pins both where the team can find them.</li>
-        <li>A reviewer launches a persona, reads the same artifacts, and leaves feedback in the shared workspace.</li>
-        <li>Later, the developer joins from another device. The terminal is still running; the worktree, conversation, evidence, and feedback are all still available.</li>
+        <li>The agent finds a staging URL and shares it with a screenshot in its stream, where the team can find both.</li>
+        <li>A reviewer launches a persona, reads the same artifacts, and posts a review with findings in the shared workspace.</li>
+        <li>Later, the developer joins from another device. The agent is still running; the worktree, stream, evidence, and findings are all still available.</li>
       </ol>
     </div>
   </section>
@@ -99,7 +99,7 @@ import Base from "../layouts/Base.astro";
   <section class="content-section two-column accent-violet">
     <div><p class="eyebrow">An ongoing experiment</p><h2>Useful context should not disappear between sessions.</h2></div>
     <div class="prose">
-      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal sessions, browser tabs, temporary screenshots, and isolated conversations.</p>
+      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal windows, browser tabs, temporary screenshots, and isolated conversations.</p>
       <p>It is an ongoing experiment in making collaboration with AI feel more like collaboration with another engineer: durable, visible, and grounded in shared work. It is not an attempt to replace developers; it is an attempt to give them a better place to work alongside agents.</p>
     </div>
   </section>
