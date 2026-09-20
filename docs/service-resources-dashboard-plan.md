@@ -19,27 +19,26 @@ Dispatch is primarily one Bun/Fastify server process. That process coordinates
 several kinds of work:
 
 - a PostgreSQL connection pool with a maximum of 10 connections;
-- tmux-backed agent sessions and their CLI process trees;
+- detached agent host processes (`dispatch-agent-host`) and the engine
+  process trees under them;
 - a 30-second agent reconciliation pass;
-- pane activity checks that run as part of the reconciliation cadence;
 - signal-driven Git diff-stat computations, deduplicated in flight and cached
   for 3 seconds;
 - per-job cron schedulers and active-run monitors;
 - an automatic release check after startup and every six hours;
-- SSE clients, terminal WebSockets, and optional browser screencast streams;
-- viewer-driven terminal copy-mode polling;
-- periodic tmux diagnostic capture and log maintenance.
+- SSE clients and optional browser screencast streams;
+- periodic diagnostic capture and log maintenance.
 
 There is no continuously running Git watcher today. The closest unit is
 `DiffStatsRefresher`, which runs Git subprocesses when agent activity or a UI
 request signals it. The dashboard should call this **Git diff refreshes** and
 show request, duration, cache/deduplication, and failure information.
 
-Postgres and the tmux server are dependencies that may be shared with other
-applications or Dispatch instances. Their entire host-process CPU and memory
-must not be presented as Dispatch-owned usage. Dispatch can accurately report
-its database pool and query health, its own tmux sessions, and resource totals
-for process trees rooted at those sessions.
+Postgres is a dependency that may be shared with other applications or
+Dispatch instances. Its entire host-process CPU and memory must not be
+presented as Dispatch-owned usage. Dispatch can accurately report its database
+pool and query health, its own agent hosts, and resource totals for process
+trees rooted at those hosts.
 
 ## Proposed information architecture
 
@@ -73,8 +72,8 @@ The first viewport should contain:
 - agent process CPU and RSS aggregate;
 - database round-trip latency and pool use;
 - event-loop delay;
-- active workload summary: running agents, SSE clients, terminal sockets,
-  stream sessions, and scheduled jobs.
+- active workload summary: running agents, SSE clients, browser
+  streams, and scheduled jobs.
 
 CPU must be labeled as **one-core percentage** so an expensive process can
 legitimately exceed 100% on a multicore host. Also show host load separately;
@@ -117,12 +116,10 @@ for that unit.
 | API server              | requests/min, in flight, error rate, p50/p95 duration             | recent 5xx burst or sustained latency/event-loop delay |
 | Database                | probe latency, pool total/idle/waiting                            | failed probe, waiting clients, sustained slow probe    |
 | Agent reconciliation    | cadence, last success, last duration, agents scanned, corrections | failed or stale beyond twice its cadence               |
-| Activity monitor        | last success, duration, panes scanned, corrections                | failure or stale beyond twice its cadence              |
 | Git diff refreshes      | requests, in flight, completed, failures, p95 duration, last run  | repeated failures, timeout, or growing in-flight work  |
 | Job schedulers          | enabled schedules, active monitors, next run                      | scheduler error or missed run                          |
 | Update checker          | mode, last result, last duration, next run                        | last attempt failed; `off` is Disabled, not unhealthy  |
 | UI event stream         | connected clients, events sent, write failures                    | repeated write failures                                |
-| Terminal observers      | viewers, active observers, fast/slow poll counts                  | repeated tmux probe failures                           |
 | Browser streams         | live streams, viewers, frames/second, bytes/second                | CDP disconnect/error                                   |
 | Diagnostics maintenance | last capture/prune, last duration, failure                        | stale or failed beyond expected cadence                |
 
@@ -142,8 +139,7 @@ Show operational totals that help explain pressure:
 
 - agents by lifecycle state and number of agent process trees found;
 - Postgres pool use (`total`, `idle`, `waiting`, configured max);
-- active SSE clients, terminal WebSockets/viewers, copy-mode observers, and
-  browser streams/viewers;
+- active SSE clients and browser streams/viewers;
 - scheduled jobs and in-flight job monitors;
 - current database size via `pg_database_size(current_database())`;
 - media, logs, diagnostics, and release-cache directory size.
@@ -156,12 +152,12 @@ HTTP request.
 Label every figure by scope:
 
 - **Dispatch**: server process and Dispatch-owned files;
-- **Agents**: process trees rooted at Dispatch tmux panes;
-- **Dependency**: database health/pool and tmux service state;
+- **Agents**: process trees rooted at Dispatch agent hosts;
+- **Dependency**: database health/pool;
 - **Host**: whole-machine context.
 
-This prevents users from reading shared Postgres or tmux resource totals as
-resources caused solely by Dispatch.
+This prevents users from reading shared Postgres resource totals as resources
+caused solely by Dispatch.
 
 ### 5. Diagnostics actions (post-MVP)
 
@@ -196,8 +192,8 @@ Use separate slower cadences for collection that crosses a process or storage
 boundary:
 
 - database probe and database pool snapshot every 10 seconds;
-- one OS process snapshot every 10 seconds for known Dispatch tmux pane roots
-  and descendants;
+- one OS process snapshot every 10 seconds for known agent host pids and
+  descendants;
 - storage and database-size sampling every 60 seconds.
 
 Process sampling should use one `ps` invocation per sample, parse the full
@@ -398,16 +394,16 @@ This phase delivers a useful dashboard without modifying every subsystem.
 
 ### Phase 2: real subsystem health
 
-1. Instrument reconciliation and activity monitoring separately.
+1. Instrument reconciliation.
 2. Instrument Git diff refresh requests, dedupes, durations, and failures.
 3. Instrument job schedulers/monitors and automatic update checks.
-4. Expose UI event, terminal observer, and browser stream gauges/counters.
+4. Expose UI event and browser stream gauges/counters.
 5. Add the runtime-health table and stable health-reason tests.
 
 ### Phase 3: resource attribution and storage
 
 1. Implement cross-platform, single-pass process-tree sampling for Dispatch
-   agent tmux pane roots.
+   agent host pids.
 2. Add slow cached storage sampling and database size.
 3. Add capacity/storage UI and partial/unsupported states.
 4. Validate overhead under idle, many-agent, and active-stream scenarios.
@@ -471,6 +467,6 @@ opening a terminal:
 - running agent processes are consuming the resources instead;
 - Postgres is reachable but its pool is saturated;
 - the event loop/API is slow;
-- reconciliation, activity monitoring, or Git diff refreshes are failing or
+- reconciliation or Git diff refreshes are failing or
   stale;
 - everything is healthy and the observed host pressure is outside Dispatch.

@@ -12,7 +12,7 @@ Agents in Dispatch can currently launch personas for review-style tasks, but the
 
 A **parent agent** spawns one or more **child agents** via an MCP tool. The parent stays alive and retains orchestration control: it decides when to spawn, what task each child works on, how to react to child output, and when the overall task is done.
 
-A child agent is a full Dispatch agent (worktree, tmux session, MCP tools) with two additions:
+A child agent is a full Dispatch agent (worktree, host process, MCP tools) with two additions:
 
 1. It knows it was spawned by a parent (has a `parent_id`).
 2. It has a `dispatch_report` MCP tool for sending structured results back to the parent.

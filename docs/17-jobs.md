@@ -22,7 +22,7 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 | `description` | Optional short description shown in Cmd+K and launch views  |
 | `directory`   | Absolute path of the repo the template runs against         |
 | `prompt`      | User-supplied prompt used as the agent's first turn         |
-| `agentType`   | Any of `claude`, `codex`, `cursor`, `opencode`, `terminal`  |
+| `agentType`   | `claude` or `codex`                                         |
 | `model`       | Optional model id, validated against the agent type         |
 | `useWorktree` | If true, the agent gets its own git worktree                |
 | `baseBranch`  | Base branch for the worktree (optional)                     |
@@ -32,7 +32,7 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 | `allowMedia`  | Default true: show a Context area for files/links at launch |
 | `selfImprove` | Append run-only guidance to revise the saved prompt         |
 
-Templates take the full agent-type table (`AGENT_TYPES`); jobs take the CLI subset (`CLI_AGENT_TYPES`), since a terminal agent cannot run a job.
+Templates and jobs validate `agentType` against the same table (`AGENT_TYPES`; `CLI_AGENT_TYPES` is the same list, kept for its importers).
 
 ### Runtime Arguments
 
@@ -98,9 +98,9 @@ Agent configuration (prompt, agentType, model, useWorktree, fullAccess, selfImpr
 States: `started` → `running` → (`completed` | `failed` | `needs_input` | `timed_out` | `crashed`).
 
 - The runner creates an agent named `job-<slug>-<runId[:8]>` and waits for a terminal MCP call from it (`job_complete` or `job_failed`).
-- A run that calls `job_needs_input` transitions to `needs_input` and pauses. The Jobs UI surfaces the pending question on the run's History entry but has no answer box — you reply in the agent's own terminal session and the agent then calls a terminal tool. An unanswered `needs_input` times out per `needsInputTimeoutMs`.
+- A run that calls `job_needs_input` transitions to `needs_input` and pauses. The Jobs UI surfaces the pending question on the run's History entry but has no answer box — you reply in the agent's stream and the agent then calls a terminal tool. An unanswered `needs_input` times out per `needsInputTimeoutMs`.
 - `timeoutMs` is checked against the run's start time on every monitor tick, for every active status. A run sitting in `needs_input` is therefore killed by `timeoutMs` first whenever `timeoutMs < needsInputTimeoutMs` — which the 30 min / 24 h defaults guarantee.
-- If the agent session ends before a terminal call (agent `stopped`/`error`, or its tmux session gone), the monitor marks the run `crashed`.
+- If the agent session ends before a terminal call (agent `stopped`/`error`, or its host process gone), the monitor marks the run `crashed`.
 - Both timeouts are snapshotted into `run.config` when the run is created, so editing the job mid-run does not change the run already in flight.
 - Singleton jobs (the default) only allow one active run at a time. Attempting to launch a second run while one is active returns an error.
 

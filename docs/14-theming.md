@@ -148,16 +148,14 @@ export type ThemeId = "default" | "cool-navy" | "midnight";
 
 The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` in `use-theme.ts` for an example.
 
-The `Light` theme intentionally reuses `MONOKAI` so terminal output from TUIs like the Claude CLI — which emit truecolor escapes tuned for dark backgrounds and bypass xterm's `minimumContrastRatio` — remains readable. Keep the terminal pane dark when authoring light UI themes.
+The `Light` theme intentionally reuses `MONOKAI`: ANSI output from CLIs is tuned for dark backgrounds, so light UI themes keep a dark ANSI palette. Nothing in the app renders the palette today (the terminal pane went with the ACP runtime), but the field is still part of the theme type.
 
-When the user switches themes, the terminal palette is updated live and the session reconnects so tmux re-sends the viewport with the correct colors.
-
-That's it — the theme picker, localStorage persistence, flash-free loading, and terminal palette all work automatically.
+That's it — the theme picker, localStorage persistence and flash-free loading all work automatically.
 
 ### Step 3: Validate
 
 1. Run `pnpm run finalize:web` to verify the build compiles.
-2. Start a dev server and visually check: sidebar, status footer, badges, buttons, terminal pane, settings pane, and the create-agent dialog.
+2. Start a dev server and visually check: sidebar, status footer, badges, buttons, the stream, the drawer, settings pane, and the create-agent dialog.
 3. Run `pnpm run test:e2e` to confirm no regressions.
 
 ## Color design tips
@@ -166,7 +164,7 @@ That's it — the theme picker, localStorage persistence, flash-free loading, an
 - **Primary** is the most prominent accent — used on the Create button, selected states, and focus rings. Pick something that pops against the background.
 - **Status colors** should be visually distinct from each other. They appear as small dots and text labels, so they need good contrast against both `--background` and `--card`.
 - **Border** should be subtle — lightness around 18–22% works well for dark themes.
-- **Terminal ANSI palette** — each theme defines a full 16-color ANSI palette in its `terminal` field. For dark themes, the Monokai base palette works well — just override the background to match. For themes with a distinctive palette (Solarized), define all 16 colors. Ensure good contrast between ANSI colors and the terminal background. Light UI themes should keep a dark terminal palette (see note above).
+- **ANSI palette** — each theme defines a full 16-color ANSI palette in its `terminal` field. For dark themes, the Monokai base palette works well — just override the background to match. For themes with a distinctive palette (Solarized), define all 16 colors. Light UI themes should keep a dark palette (see note above).
 
 ## What NOT to do
 
