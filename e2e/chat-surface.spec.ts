@@ -304,11 +304,16 @@ test.describe("Chat surface", () => {
           entries: Array<{
             type: string;
             block?: { attachments: Array<{ type: string; url?: string }> };
+            // On the live runtime the post opened a turn, which draws it
+            // and carries its attachments.
+            prompt?: { attachments: Array<{ type: string; url?: string }> };
           }>;
         };
         return body.entries
-          .filter((entry) => entry.type === "block")
-          .flatMap((entry) => entry.block?.attachments ?? [])
+          .flatMap(
+            (entry) =>
+              entry.block?.attachments ?? entry.prompt?.attachments ?? []
+          )
           .map((attachment) => `${attachment.type}:${attachment.url ?? ""}`);
       })
       .toEqual(["link:https://example.com/design"]);

@@ -86,6 +86,25 @@ async function thread(
   };
 }
 
+/** On the live runtime an agent's host takes a moment; its tools wait for it. */
+async function launched(
+  request: APIRequestContext,
+  agentId: string
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`/api/v1/agents/${agentId}`, {
+          headers: authHeaders(),
+        });
+        return ((await res.json()) as { agent: { status: string } }).agent
+          .status;
+      },
+      { timeout: 30_000 }
+    )
+    .not.toBe("creating");
+}
+
 function postedId(result: Record<string, unknown>): string {
   const text = (result as { result?: { content?: Array<{ text?: string }> } })
     .result?.content?.[0]?.text;
@@ -108,12 +127,14 @@ test.describe("Review loop", () => {
       type: "claude",
       cwd: repo,
     });
+    await launched(request, builder.id);
     const reviewer = await createAgentViaAPI(request, {
       name: `e2e-loop-reviewer-${Date.now()}`,
       type: "codex",
       cwd: repo,
       parentAgentId: builder.id,
     });
+    await launched(request, reviewer.id);
 
     // The reviewer posts its review to the builder: two findings on the
     // changed lines.
@@ -318,11 +339,13 @@ test.describe("Review loop", () => {
       name: `e2e-q-builder-${Date.now()}`,
       type: "claude",
     });
+    await launched(request, builder.id);
     const reviewer = await createAgentViaAPI(request, {
       name: `e2e-q-reviewer-${Date.now()}`,
       type: "codex",
       parentAgentId: builder.id,
     });
+    await launched(request, reviewer.id);
 
     await expect(
       callMcpToolViaAPI(request, reviewer.id, "post", {
@@ -391,6 +414,7 @@ test.describe("Review loop", () => {
       name: `e2e-loop-mobile-${Date.now()}`,
       type: "claude",
     });
+    await launched(request, builder.id);
     const posted = await callMcpToolViaAPI(request, builder.id, "post", {
       text: "",
       review: {

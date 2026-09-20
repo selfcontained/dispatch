@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { cleanupE2EAgents, loadApp } from "./helpers";
+import {
+  authHeaders,
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  loadApp,
+} from "./helpers";
 
 // Live mode only (`pnpm run test:e2e:live`): the server spawns real agent
 // hosts against the fake ACP engine in e2e/fixtures/fake-acp-agent.mjs, which
@@ -24,6 +29,63 @@ async function sendChat(page: Page, text: string): Promise<void> {
 test.describe("Live agent", () => {
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
+  });
+
+  test("a reply in a thread opens a turn drawn in that thread, not the main column", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-live-thread-${Date.now()}`,
+      type: "claude",
+    });
+    // The host is up once the agent leaves `creating`.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/api/v1/agents/${agent.id}`, {
+            headers: authHeaders(),
+          });
+          return ((await res.json()) as { agent: { status: string } }).agent
+            .status;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe("running");
+
+    const post = async (body: Record<string, unknown>) => {
+      const res = await request.post(`/api/v1/streams/${agent.id}/blocks`, {
+        headers: authHeaders(),
+        data: body,
+      });
+      return ((await res.json()) as { block: { id: string } }).block.id;
+    };
+    const rootId = await post({ text: "root post" });
+    await post({ text: "in the thread", replyTo: rootId });
+
+    await page.goto(`/agents/${agent.id}?thread=${rootId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const threadPage = page.locator(
+      '[data-testid="drawer-page"][data-top="true"]'
+    );
+    const threadTurn = threadPage.getByTestId("chat-thread-turn");
+    await expect(threadTurn).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await expect(threadTurn.getByTestId("harness-result")).toContainText(
+      "You said:",
+      { timeout: TURN_TIMEOUT }
+    );
+    await expect(threadTurn.getByTestId("harness-result")).toContainText(
+      "in the thread"
+    );
+    // The main column keeps only the turn the root post opened.
+    const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");
+    await expect(mainTurns).toHaveCount(1);
+    await expect(mainTurns.first().getByTestId("harness-result")).toContainText(
+      "root post",
+      { timeout: TURN_TIMEOUT }
+    );
   });
 
   test("create, chat, cancel a turn, stop, start and archive", async ({
