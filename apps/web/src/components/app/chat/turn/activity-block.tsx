@@ -11,8 +11,7 @@ import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
 import { computeUnaccountedMs } from "./trace";
-import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
-import { useStreamTicker } from "./use-stream-ticker";
+import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useChatRowState } from "../chat-row-state";
 
 /**
@@ -219,7 +218,6 @@ function SummaryRow({
   onToggle: () => void;
 }): JSX.Element {
   const done = trace.endedAt != null;
-  const { dots } = useStreamTicker(!done);
   const summary = turnSummary(trace, label);
   const { verb, steps, ms, thinking } = summary;
   const glyph = <TurnGlyph summary={summary} />;
@@ -259,11 +257,7 @@ function SummaryRow({
           {verb}
         </motion.span>
       </AnimatePresence>
-      {thinking ? (
-        <span className="text-[12px] text-muted-foreground" aria-hidden="true">
-          {dots}
-        </span>
-      ) : (
+      {thinking ? null : (
         <span className="shrink-0 text-[11px] text-muted-foreground">
           {steps} · {formatStepDuration(ms)}
         </span>
@@ -326,7 +320,6 @@ function ThinkingRow({
       <span className="shrink-0 text-[12px] font-medium text-status-working">
         thinking
       </span>
-      <RunningDots />
       <LiveDuration startedAt={since} />
       <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
         <ChevronRight className="h-3 w-3" />

@@ -65,9 +65,7 @@ export function StepRow({
           </span>
         ) : null}
       </span>
-      {running ? (
-        <RunningDots />
-      ) : summary ? (
+      {running ? null : summary ? (
         <span className="hidden min-w-0 max-w-[35%] truncate text-[11px] text-muted-foreground sm:block">
           · {summary}
         </span>
@@ -184,18 +182,6 @@ export function StatusGlyph({
         </span>
       );
   }
-}
-
-export function RunningDots(): JSX.Element {
-  const { dots } = useStreamTicker(true);
-  return (
-    <span
-      className="w-5 shrink-0 text-[11px] text-muted-foreground"
-      aria-hidden="true"
-    >
-      {dots}
-    </span>
-  );
 }
 
 export function LiveDuration({

@@ -98,13 +98,12 @@ describe("assembleTurns", () => {
     });
     expect(first.trace.finalResult).toBe("ok");
     expect(first.trace.steps.map((s) => [s.kind, s.label, s.status])).toEqual([
-      ["note", "Let me look.", "ok"],
       ["execute", "bash", "ok"],
       ["think", "thinking", "ok"],
     ]);
-    expect(first.trace.steps[1].durMs).toBe(2000);
+    expect(first.trace.steps[0].durMs).toBe(2000);
     expect(first.result).toEqual({
-      text: "Done: two files.",
+      text: "Let me look.\n\nDone: two files.",
       streaming: false,
     });
     expect(second.prompt).toEqual({
@@ -494,8 +493,8 @@ describe("assembleTurns with agent questions", () => {
   });
 });
 
-describe("assembleTurns narration", () => {
-  it("keeps a live tool-using turn's newest text in the rail, streaming, until it settles", () => {
+describe("assembleTurns answer text", () => {
+  it("keeps text written before a tool call in the answer and appends what follows", () => {
     seq = 0;
     const live = assembleTurns(
       [
@@ -504,27 +503,26 @@ describe("assembleTurns narration", () => {
           { state: "started", prompt: { source: "system", text: "go" } },
           0
         ),
+        row("assistant", { text: "TypeScript.", streaming: false }, 1),
         row(
           "tool_call",
           { toolKind: "execute", title: "Bash", status: "completed" },
-          1,
-          2
-        ),
-        row(
-          "assistant",
-          { text: "Listing done, reading…", streaming: true },
+          2,
           3
         ),
+        row("assistant", { text: "Answer above stands", streaming: true }, 4),
       ],
       new Map()
     );
-    expect(live[0].result).toBeNull();
-    expect(live[0].trace.steps.map((s) => [s.kind, s.status, s.label])).toEqual(
-      [
-        ["execute", "ok", "Bash"],
-        ["note", "running", "Listing done, reading…"],
-      ]
-    );
+    // The first text never moves into the rail; the newer text streams
+    // under it as one answer.
+    expect(live[0].result).toEqual({
+      text: "TypeScript.\n\nAnswer above stands",
+      streaming: true,
+    });
+    expect(live[0].trace.steps.map((s) => [s.kind, s.status])).toEqual([
+      ["execute", "ok"],
+    ]);
 
     seq = 0;
     const settled = assembleTurns(
@@ -539,26 +537,21 @@ describe("assembleTurns narration", () => {
           0,
           9
         ),
+        row("assistant", { text: "TypeScript.", streaming: false }, 1),
         row(
           "tool_call",
           { toolKind: "execute", title: "Bash", status: "completed" },
-          1,
-          2
-        ),
-        row(
-          "assistant",
-          { text: "Listing done, reading…", streaming: false },
+          2,
           3
         ),
-        row("assistant", { text: "Two files.", streaming: false }, 8),
+        row("assistant", { text: "Answer above stands.", streaming: false }, 8),
       ],
       new Map()
     );
-    expect(settled[0].result).toMatchObject({ text: "Two files." });
-    expect(settled[0].trace.steps.map((s) => [s.kind, s.status])).toEqual([
-      ["execute", "ok"],
-      ["note", "ok"],
-    ]);
+    expect(settled[0].result).toEqual({
+      text: "TypeScript.\n\nAnswer above stands.",
+      streaming: false,
+    });
   });
 
   it("streams a tool-free turn's text as the answer from the start", () => {

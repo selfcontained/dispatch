@@ -319,19 +319,17 @@ export function assembleTurns(
     const turnQuestions = byGroup.get(index);
     const settled = turnPayload?.state === "settled";
     let result: AssembledTurn["result"] = null;
-    const assistants = group.rows.filter((r) => r.kind === "assistant");
-    const last = assistants[assistants.length - 1];
     // In a turn still running, a thought that is the newest row is the one
     // being written now: it reads as a running step, not a finished one.
     const live = group.turn !== null && !settled;
     const newest = group.rows[group.rows.length - 1];
-    // In a tool-using turn, text written before the turn settles is
-    // narration ("listing done, now reading…"): it rides in the rail with
-    // the steps around it, streaming in place, and only the text the turn
-    // ends on becomes the answer. Otherwise the newest text kept jumping
-    // from the answer slot into the rail each time a tool call followed
-    // it. A turn with no tools streams its text as the answer from the start.
-    const narrates = live && group.rows.some((r) => r.kind === "tool_call");
+    // Everything the engine says is the answer, in the order it said it:
+    // text written between tool calls stays where the reader first saw it
+    // and later text is appended under it. Moving earlier text into the
+    // rail once a tool call followed made it vanish mid-read, and the
+    // closing text ("as above") then referred to something no longer shown.
+    const spoken: string[] = [];
+    let truncated = false;
     const flat: {
       step: ChatTurnStep;
       key: string | null;
@@ -357,23 +355,14 @@ export function assembleTurns(
         });
       } else if (row.kind === "assistant") {
         const p = row.payload as Partial<AssistantPayload>;
-        if (row === last && !narrates) {
-          result = {
-            text: p.text ?? "",
-            streaming: p.streaming === true && !settled,
-            ...(p.truncated ? { truncated: true } : {}),
-          };
-        } else {
-          flat.push({
-            step: noteStep(
-              row,
-              "note",
-              live && row === newest && p.streaming === true
-            ),
-            key: null,
-            parent: null,
-          });
-        }
+        const text = p.text ?? "";
+        if (text.trim()) spoken.push(text.trim());
+        if (p.truncated) truncated = true;
+        result = {
+          text: spoken.join("\n\n"),
+          streaming: row === newest && p.streaming === true && !settled,
+          ...(truncated ? { truncated: true } : {}),
+        };
       } else if (row.kind === "plan") {
         plan = planEntriesOf(row);
       }
