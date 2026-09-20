@@ -342,9 +342,9 @@ export async function getFeedbackSummary(
                 END AS severity,
                 COALESCE(fd->>'title', '') AS description,
                 fd->>'path' AS "filePath",
-                CASE COALESCE(b.state->'findings'->(fd->>'id')->>'status', 'open')
-                  WHEN 'resolved' THEN 'fixed'
-                  WHEN 'disputed' THEN 'dismissed'
+                CASE
+                  WHEN b.state->'findings'->(fd->>'id')->>'status' = 'resolved'
+                  THEN COALESCE(b.state->'findings'->(fd->>'id')->>'resolution', 'fixed')
                   ELSE 'open'
                 END AS status,
                 COALESCE(pa.git_context->>'repoRoot', pa.cwd) AS "projectRoot"

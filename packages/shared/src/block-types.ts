@@ -111,11 +111,60 @@ export type BlockReviewData = {
   findings: BlockReviewFinding[];
 };
 
-export type BlockFindingStatus = "open" | "resolved" | "disputed";
+export type BlockFindingStatus = "open" | "resolved";
+/** How a resolved finding was closed: the change was made, or it was set aside. */
+export type BlockFindingResolution = "fixed" | "dismissed";
+
+/**
+ * One finding's record: open until someone resolves it as fixed or
+ * dismissed, with an optional note saying why; reopening keeps the note
+ * given for that. `by`/`at` are whoever last changed it.
+ */
+export type BlockFindingState = BlockActor & {
+  status: BlockFindingStatus;
+  resolution?: BlockFindingResolution;
+  note?: string;
+};
 
 export type BlockReviewState = {
-  findings: Record<string, BlockActor & { status: BlockFindingStatus }>;
+  findings: Record<string, BlockFindingState>;
 };
+
+/** Where a review stands, derived from its findings. */
+export type BlockReviewStatus = "open" | "partially_resolved" | "resolved";
+
+/**
+ * The wire form of a finding change, as `update`/`PATCH …/state` take it:
+ * a word (`open`, `fixed`, `dismissed`; `resolved` means fixed) or the
+ * full record with a note.
+ */
+export type BlockFindingPatch =
+  | "open"
+  | "fixed"
+  | "dismissed"
+  | "resolved"
+  | {
+      status: BlockFindingStatus;
+      resolution?: BlockFindingResolution;
+      note?: string;
+    };
+
+/**
+ * A review is resolved once every finding is (or it never had any),
+ * partially resolved while some are, and open until the first one is.
+ */
+export function reviewStatus(
+  data: Pick<BlockReviewData, "findings">,
+  state: BlockReviewState | null | undefined
+): BlockReviewStatus {
+  const total = data.findings.length;
+  if (total === 0) return "resolved";
+  const resolved = data.findings.filter(
+    (finding) => state?.findings?.[finding.id]?.status === "resolved"
+  ).length;
+  if (resolved === total) return "resolved";
+  return resolved === 0 ? "open" : "partially_resolved";
+}
 
 export type BlockTasksData = { items: Array<{ id: string; text: string }> };
 export type BlockTaskStatus = "todo" | "now" | "done";
@@ -307,6 +356,10 @@ export type StreamReactionResponse = {
 export type StreamChangedEvent = { type: "stream.changed"; agentId: string };
 
 /** A mark-read landed; see ChatReadEvent for the field meanings. */
+/** `POST /streams/:rootId/blocks/:blockId/read`: a thread (or one finding's discussion) seen. */
+export type StreamThreadReadRequest = { finding?: string };
+export type StreamThreadReadResponse = { ids: string[]; readAt: string | null };
+
 export type StreamReadEvent = {
   type: "stream.read";
   agentId: string;

@@ -14,11 +14,16 @@ import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachm
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import {
   BlockView,
+  agentDisplayName,
   blockAuthor,
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
-import { usePostBlock, useThread } from "@/hooks/use-stream";
+import {
+  useMarkThreadRead,
+  usePostBlock,
+  useThread,
+} from "@/hooks/use-stream";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -122,6 +127,19 @@ export function ThreadPanel({
     [finding, thread.replies]
   );
   const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
+
+  // Seeing the discussion is reading it: agent comments in view lose their
+  // unread mark, on the finding's own panel only that finding's.
+  const markRead = useMarkThreadRead(rootId);
+  const { mutate: markReadNow, isPending: marking } = markRead;
+  const unseen = replies.some(
+    (reply) => reply.author.kind === "agent" && reply.readAt === null
+  );
+  const findingKey = finding?.id ?? null;
+  useEffect(() => {
+    if (!unseen || marking) return;
+    markReadNow({ blockId, finding: findingKey });
+  }, [unseen, marking, blockId, findingKey, markReadNow]);
 
   const onSend = useCallback(
     async (
@@ -275,6 +293,9 @@ export function ThreadPanel({
                   : undefined
               }
               onOpenPath={ctx.onOpenPath}
+              authorName={(by) =>
+                by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+              }
             />
           </div>
         ) : thread.root ? (

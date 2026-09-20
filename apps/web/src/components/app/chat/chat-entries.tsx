@@ -719,13 +719,34 @@ export function commentCountsOf(
 }
 
 /**
- * The review card with each finding's comment count, read from the
- * review's thread once it has replies.
+ * Agent comments the person has not seen, by finding id. Comments on the
+ * review as a whole (no finding) count under `""`.
+ */
+export function unreadCommentsOf(
+  replies: readonly Block[]
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const reply of replies) {
+    if (reply.author.kind !== "agent" || reply.readAt !== null) continue;
+    const findingId =
+      (reply.kind === "text" && reply.data ? reply.data.findingId : undefined) ??
+      "";
+    counts[findingId] = (counts[findingId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * The review card with each finding's comment count and the comments not
+ * yet seen, read from the review's thread once it has replies.
  */
 function ReviewBlockWithCounts({
   rootId,
   ...props
-}: Omit<Parameters<typeof ReviewBlockBody>[0], "commentCounts"> & {
+}: Omit<
+  Parameters<typeof ReviewBlockBody>[0],
+  "commentCounts" | "unreadCounts"
+> & {
   rootId: string | null;
 }): JSX.Element {
   const thread = useThread(
@@ -736,7 +757,17 @@ function ReviewBlockWithCounts({
     () => commentCountsOf(thread.replies),
     [thread.replies]
   );
-  return <ReviewBlockBody {...props} commentCounts={commentCounts} />;
+  const unreadCounts = useMemo(
+    () => unreadCommentsOf(thread.replies),
+    [thread.replies]
+  );
+  return (
+    <ReviewBlockBody
+      {...props}
+      commentCounts={commentCounts}
+      unreadCounts={unreadCounts}
+    />
+  );
 }
 
 /** Whether any finding on a review is still open. */

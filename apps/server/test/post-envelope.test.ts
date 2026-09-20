@@ -360,7 +360,12 @@ describe("describeReview", () => {
       {
         findings: {
           f1: { status: "open", by: { kind: "user" }, at: "t" },
-          f2: { status: "resolved", by: { kind: "user" }, at: "t" },
+          f2: {
+            status: "resolved",
+            resolution: "dismissed",
+            by: { kind: "user" },
+            at: "t",
+          },
         },
       }
     );
@@ -371,10 +376,11 @@ describe("describeReview", () => {
       "1. [blocker] Button on every block (id: f1, open) — apps/web/src/x.tsx:33"
     );
     expect(text).toContain("   Gate it behind a prop.\n   Or remove it.");
-    expect(text).toContain("2. [nit] Naming (id: f2, resolved)");
+    expect(text).toContain("2. [nit] Naming (id: f2, dismissed)");
     expect(text).toContain(
-      'update({ id: "b1", state: { findings: { "<finding id>": "resolved" } } })'
+      'update({ id: "b1", state: { findings: { "<finding id>": "fixed" } } })'
     );
+    expect(text).toContain('resolution: "dismissed"');
     expect(text).toContain('post({ replyTo: "b1"');
   });
 

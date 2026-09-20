@@ -70,6 +70,7 @@ export {
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
   BLOCK_TEXT_MAX_CHARS,
+  reviewStatus,
 } from "./block-types.js";
 export type {
   Block,
@@ -77,6 +78,9 @@ export type {
   BlockAuthor,
   BlockAuthorKind,
   BlockBody,
+  BlockFindingPatch,
+  BlockFindingResolution,
+  BlockFindingState,
   BlockFindingStatus,
   BlockFormData,
   BlockFormField,
@@ -93,6 +97,7 @@ export type {
   BlockReviewFinding,
   BlockReviewSeverity,
   BlockReviewState,
+  BlockReviewStatus,
   BlockReviewVerdict,
   BlockTaskStatus,
   BlockTasksData,
@@ -112,6 +117,8 @@ export type {
   StreamReadEvent,
   StreamStateRequest,
   StreamSubmitRequest,
+  StreamThreadReadRequest,
+  StreamThreadReadResponse,
   StreamThreadResponse,
 } from "./block-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";

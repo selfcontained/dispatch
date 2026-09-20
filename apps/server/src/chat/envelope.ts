@@ -81,7 +81,11 @@ export function describeReview(
   if (data.findings.length > 0) {
     lines.push("", `Findings (${data.findings.length}):`);
     data.findings.forEach((finding, index) => {
-      const status = state?.findings[finding.id]?.status ?? "open";
+      const record = state?.findings[finding.id];
+      const status =
+        record?.status === "resolved"
+          ? (record.resolution ?? "fixed")
+          : "open";
       const where = finding.path
         ? ` — ${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`
         : "";
@@ -96,7 +100,7 @@ export function describeReview(
     if (open > 0) {
       lines.push(
         "",
-        `What to do: address each open finding, then mark it on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "resolved" } } }), and say what changed under that finding: post({ replyTo: "${blockId}", finding: "<finding id>", text: "…" }). Disagree with one by marking it "disputed" and saying why the same way. You are done when no finding is open.`
+        `What to do: address each open finding, then mark it fixed on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "fixed" } } }), and say what changed under that finding: post({ replyTo: "${blockId}", finding: "<finding id>", text: "…" }). Set one aside instead with { "<finding id>": { status: "resolved", resolution: "dismissed", note: "why" } }. The reviewer can reopen either. You are done when no finding is open.`
       );
     }
   }

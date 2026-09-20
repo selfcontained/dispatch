@@ -119,7 +119,7 @@ test.describe("Stream blocks", () => {
     await expect(detail).toContainText("Retry spinner never settles");
     await detail.getByTestId("chat-review-resolve").click();
     await expect(detail.getByTestId("chat-review-finding-status")).toHaveText(
-      "Resolved"
+      "Fixed"
     );
     await expect(findings.nth(0)).toHaveAttribute("data-status", "resolved");
     await expect(review.getByTestId("chat-review-counts")).toHaveText(
@@ -127,20 +127,38 @@ test.describe("Stream blocks", () => {
     );
     await expect
       .poll(() => blockState(request, agent.id, reviewId!))
-      .toMatchObject({ findings: { f1: { status: "resolved" } } });
+      .toMatchObject({
+        findings: { f1: { status: "resolved", resolution: "fixed" } },
+      });
 
-    // Disputing a finding is a state too, and Reopen takes it back.
+    // Dismissing wants a reason and records it; Reopen takes it back.
     await findings.nth(1).getByTestId("chat-review-finding-link").click();
     await page.waitForURL(
       new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f2$`)
     );
     await expect(detail).toContainText("Left over from debugging.");
-    await detail.getByTestId("chat-review-dispute").click();
-    await expect(findings.nth(1)).toHaveAttribute("data-status", "disputed");
+    await detail.getByTestId("chat-review-dismiss").click();
+    await page
+      .getByTestId("chat-review-dismiss-note")
+      .fill("Debug logging stays until the beta.");
+    await page.getByTestId("chat-review-dismiss-confirm").click();
+    await expect(findings.nth(1)).toHaveAttribute("data-outcome", "dismissed");
+    await expect(detail.getByTestId("chat-review-finding-note")).toHaveText(
+      "Debug logging stays until the beta."
+    );
     await expect
       .poll(() => blockState(request, agent.id, reviewId!))
-      .toMatchObject({ findings: { f2: { status: "disputed" } } });
+      .toMatchObject({
+        findings: {
+          f2: {
+            status: "resolved",
+            resolution: "dismissed",
+            note: "Debug logging stays until the beta.",
+          },
+        },
+      });
     await detail.getByTestId("chat-review-reopen").click();
+    await page.getByTestId("chat-review-reopen-confirm").click();
     await expect(findings.nth(1)).toHaveAttribute("data-status", "open");
     await expect
       .poll(() => blockState(request, agent.id, reviewId!))

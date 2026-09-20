@@ -179,7 +179,7 @@ const POST_DESCRIPTION =
 
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
-  '(resolve a finding on a review you received: { state: { findings: { <id>: "resolved" } } }; tick a task: { state: { items: { <id>: "done" } } }). ' +
+  '(close a finding on a review you received: { state: { findings: { <id>: "fixed" } } }, or { <id>: { status: "resolved", resolution: "dismissed", note } }; reopen with "open"; tick a task: { state: { items: { <id>: "done" } } }). ' +
   "Supply only the fields to change; attachments, when given, replace the whole list. Returns { id, updatedAt }.";
 
 const REACT_DESCRIPTION =
@@ -277,7 +277,7 @@ export function registerStreamTools(
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-              "Partial state to merge: { findings: { <id>: <status> } } or { items: { <id>: <status> } }."
+              "Partial state to merge: { findings: { <id>: \"fixed\" | \"dismissed\" | \"open\" | { status, resolution?, note? } } } or { items: { <id>: <status> } }."
             ),
           attachments: attachmentsSchema.optional(),
         },

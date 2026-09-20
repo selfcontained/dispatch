@@ -5,6 +5,9 @@ import type { Pool } from "pg";
 import type {
   Block,
   BlockAuthor,
+  BlockFindingResolution,
+  BlockFindingState,
+  BlockFindingStatus,
   BlockFormData,
   BlockKind,
   BlockLinkData,
@@ -30,6 +33,7 @@ import {
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
   BLOCK_TEXT_MAX_CHARS,
+  reviewStatus,
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
@@ -494,60 +498,60 @@ export class StreamService {
    * agent on the other side of the thread's root (its author, or the agent
    * it was addressed to). Null when the thread has no agent on it.
    */
+  /**
+   * Who a reply in a thread is for. A thread has two sides: the root's
+   * author and whoever it was addressed to (on a review: the reviewer and
+   * the agent whose work it is). Each reply goes to exactly one of them,
+   * never to everyone in the thread:
+   *
+   * - answering a particular comment goes to that comment's author;
+   * - one side writing goes to the other side;
+   * - a person writing goes to whoever's move it is: on an open finding
+   *   (or an open review) the agent that has to act on it, on a resolved
+   *   one the reviewer who checks it.
+   *
+   * Falls back to any other agent in the thread, then null.
+   */
   private async threadCounterpart(
-    threadId: string,
-    author: BlockAuthor
+    thread: { threadId: string; replyTo: string },
+    author: BlockAuthor,
+    finding: { id: string } | null
   ): Promise<string | null> {
-    const root = await this.store.getById(threadId);
+    const root = await this.store.getById(thread.threadId);
     if (!root) return null;
-    if (root.author.kind === "agent" && !sameAuthor(root.author, author)) {
-      return root.author.agentId;
+    const agentOf = (candidate: BlockAuthor | null | undefined) =>
+      candidate?.kind === "agent" && !sameAuthor(candidate, author)
+        ? candidate.agentId
+        : null;
+    if (thread.replyTo !== thread.threadId) {
+      const target = await this.store.getById(thread.replyTo);
+      const direct = agentOf(target?.author);
+      if (direct) return direct;
     }
-    if (
+    const reviewer = agentOf(root.author);
+    const requester =
       root.toAgentId &&
       !(author.kind === "agent" && author.agentId === root.toAgentId)
-    ) {
-      return root.toAgentId;
+        ? root.toAgentId
+        : null;
+    if (author.kind === "agent") {
+      if (sameAuthor(root.author, author)) return requester;
+      if (author.agentId === root.toAgentId) return reviewer;
+    } else if (root.kind === "review" && reviewer && requester) {
+      const data = root.data as BlockReviewData;
+      const state = root.state as BlockReviewState | null;
+      const open = finding
+        ? (state?.findings?.[finding.id]?.status ?? "open") === "open"
+        : reviewStatus(data, state) !== "resolved";
+      return open ? requester : reviewer;
     }
-    const others = await this.store.threadParticipants(threadId, author);
+    if (requester) return requester;
+    if (reviewer) return reviewer;
+    const others = await this.store.threadParticipants(thread.threadId, author);
     const agent = others.find(
       (p): p is { kind: "agent"; agentId: string } => p.kind === "agent"
     );
     return agent?.agentId ?? null;
-  }
-
-  /**
-   * Everyone else on a thread hears about a reply: the agents in it other
-   * than the writer and the primary recipient get the same envelope, so a
-   * conversation on a finding reaches the reviewer and the builder alike.
-   */
-  private async notifyThread(
-    block: Block,
-    from: EnvelopeSender,
-    attachmentLines: string[],
-    except: string[]
-  ): Promise<void> {
-    if (!block.threadId) return;
-    const author = block.author;
-    const others = await this.store.threadParticipants(block.threadId, author);
-    const finding = await this.findingOf(block);
-    for (const party of others) {
-      if (party.kind !== "agent" || except.includes(party.agentId)) continue;
-      if (!(await this.canDeliver(party.agentId, true))) continue;
-      this.injectDetached({
-        agentId: party.agentId,
-        envelope: buildPostEnvelope({
-          blockId: block.id,
-          from,
-          text: envelopeText(block),
-          attachmentLines,
-          threadId: block.threadId,
-          finding,
-        }),
-        record: async () => undefined,
-        logContext: { blockId: block.id, participant: party.agentId },
-      });
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -593,7 +597,7 @@ export class StreamService {
     // top-level post goes to the stream's agent unless addressed elsewhere.
     const toAgentId =
       input.to ??
-      (thread ? await this.threadCounterpart(thread.threadId, USER) : null) ??
+      (thread ? await this.threadCounterpart(thread, USER, finding) : null) ??
       streamId;
     const recipient = await this.requireAgent(toAgentId);
     let resolved: ChatAttachment[] = [];
@@ -627,11 +631,6 @@ export class StreamService {
     }
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
-    if (thread) {
-      void this.notifyThread(block, { kind: "user" }, attachmentLines, [
-        toAgentId,
-      ]);
-    }
     if (!live) return { block, delivered: false, held: false };
     const { held } = await this.deliverBlock(
       block,
@@ -872,22 +871,28 @@ export class StreamService {
     const updated = await this.store.mergeState(block.id, stamped);
     if (!updated) throw new StreamNotFoundError("Block not found.");
     await this.publishEntry(streamId, updated.id);
-    if (
-      updated.author.kind === "agent" &&
-      !sameAuthor(updated.author, by) &&
-      (await this.canDeliver(updated.author.agentId, true))
-    ) {
-      const summary = describeStateChange(kind, stamped);
+    // The two sides of the block hear about a change the other made: the
+    // author (a reviewer) when the recipient or a person resolves a
+    // finding, the recipient (the one whose work it is) when the author or
+    // a person reopens or dismisses one.
+    const sides = new Set<string>();
+    if (updated.author.kind === "agent") sides.add(updated.author.agentId);
+    if (updated.toAgentId) sides.add(updated.toAgentId);
+    if (by.kind === "agent") sides.delete(by.agentId);
+    const summary = describeStateChange(kind, stamped);
+    const from = await this.senderOf(by);
+    for (const agentId of sides) {
+      if (!(await this.canDeliver(agentId, true))) continue;
       this.injectDetached({
-        agentId: updated.author.agentId,
+        agentId,
         envelope: buildPostEnvelope({
           blockId: updated.id,
-          from: await this.senderOf(by),
+          from,
           text: summary,
           threadId: updated.threadId,
         }),
         record: async () => undefined,
-        logContext: { blockId: updated.id },
+        logContext: { blockId: updated.id, side: agentId },
       });
     }
     return updated;
@@ -1054,7 +1059,7 @@ export class StreamService {
     const finding = await this.resolveFinding(thread, input.finding ?? null);
     if (finding && kind === "text") data = { findingId: finding.id };
     if (toAgentId === null && thread) {
-      toAgentId = await this.threadCounterpart(thread.threadId, author);
+      toAgentId = await this.threadCounterpart(thread, author, finding);
     }
     const attachments = await this.resolveAgentAttachments(
       agent,
@@ -1082,14 +1087,6 @@ export class StreamService {
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
     if (toAgentId && live) {
       await this.deliverBlock(block, from, attachmentLines);
-    }
-    if (thread) {
-      void this.notifyThread(
-        block,
-        from,
-        attachmentLines,
-        toAgentId ? [toAgentId] : []
-      );
     }
     if (
       toAgentId === null &&
@@ -1544,7 +1541,13 @@ export class StreamService {
     thread: { threadId: string; replyTo: string } | null,
     finding: string | null
   ): Promise<{ id: string; title: string } | null> {
-    if (finding === null || finding.trim() === "") return null;
+    if (finding === null || finding.trim() === "") {
+      // Unnamed, a reply to a comment about a finding is about that
+      // finding too: the discussion stays under the item it started on.
+      if (!thread || thread.replyTo === thread.threadId) return null;
+      const parent = await this.store.getById(thread.replyTo);
+      return parent ? this.findingOf(parent) : null;
+    }
     if (!thread) {
       throw new StreamValidationError(
         "finding needs replyTo: the review the finding is on."
@@ -1713,6 +1716,58 @@ export class StreamService {
   }
 }
 
+/**
+ * One finding's change, as the wire carries it: a word or a record. Both
+ * end up as the stored record: `open`, or `resolved` with a resolution
+ * (`fixed` unless it says `dismissed`) and an optional note.
+ */
+function parseFindingPatch(
+  id: string,
+  value: unknown
+): { status: BlockFindingStatus; resolution?: BlockFindingResolution; note?: string } {
+  const bad = () =>
+    new StreamValidationError(
+      `finding "${id}" must be open, fixed or dismissed (or { status, resolution?, note? }).`
+    );
+  const word =
+    typeof value === "string"
+      ? value
+      : value && typeof value === "object"
+        ? (value as { status?: unknown }).status
+        : undefined;
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  let status: BlockFindingStatus;
+  let resolution: BlockFindingResolution | undefined;
+  if (word === "open") {
+    status = "open";
+  } else if (word === "fixed" || word === "dismissed") {
+    status = "resolved";
+    resolution = word;
+  } else if (word === "resolved") {
+    status = "resolved";
+    const given = record.resolution;
+    if (given !== undefined && given !== "fixed" && given !== "dismissed") {
+      throw bad();
+    }
+    resolution = (given as BlockFindingResolution | undefined) ?? "fixed";
+  } else {
+    throw bad();
+  }
+  const note = record.note;
+  if (note !== undefined && typeof note !== "string") throw bad();
+  const trimmed = typeof note === "string" ? note.trim() : "";
+  if (trimmed.length > BLOCK_TEXT_MAX_CHARS) {
+    throw new StreamValidationError(
+      `finding "${id}" note must be ${BLOCK_TEXT_MAX_CHARS} characters or fewer.`
+    );
+  }
+  return {
+    status,
+    ...(resolution ? { resolution } : {}),
+    ...(trimmed ? { note: trimmed } : {}),
+  };
+}
+
 /** A state patch with `by`/`at` stamped onto each item it touches. */
 function stampState(
   kind: "review" | "tasks",
@@ -1727,20 +1782,11 @@ function stampState(
         "state.findings is required for a review."
       );
     }
-    const stamped: Record<string, unknown> = {};
+    const stamped: Record<string, BlockFindingState> = {};
     for (const [id, value] of Object.entries(
       findings as Record<string, unknown>
     )) {
-      const status =
-        typeof value === "string"
-          ? value
-          : (value as { status?: unknown })?.status;
-      if (!["open", "resolved", "disputed"].includes(status as string)) {
-        throw new StreamValidationError(
-          `finding "${id}" status must be open, resolved or disputed.`
-        );
-      }
-      stamped[id] = { status, by, at };
+      stamped[id] = { ...parseFindingPatch(id, value), by, at };
     }
     return { findings: stamped };
   }
@@ -1760,13 +1806,24 @@ function stampState(
   return { items: stamped };
 }
 
+/** "Finding f1 fixed: note" / "Finding f2 dismissed" / "Finding f3 reopened". */
+function describeFindingChange(id: string, state: BlockFindingState): string {
+  const what =
+    state.status === "open"
+      ? "reopened"
+      : state.resolution === "dismissed"
+        ? "dismissed"
+        : "fixed";
+  return `Finding ${id} ${what}${state.note ? `: ${state.note}` : "."}`;
+}
+
 function describeStateChange(
   kind: "review" | "tasks",
   patch: Record<string, unknown>
 ): string {
   if (kind === "review") {
-    return Object.entries(patch.findings as Record<string, { status: string }>)
-      .map(([id, v]) => `Finding ${id} is now ${v.status}.`)
+    return Object.entries(patch.findings as Record<string, BlockFindingState>)
+      .map(([id, v]) => describeFindingChange(id, v))
       .join("\n");
   }
   return Object.entries(patch.items as Record<string, string>)

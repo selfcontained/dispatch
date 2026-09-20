@@ -351,7 +351,43 @@ describe("useSetBlockState", () => {
       items: { t1: "done" },
     });
     expect(optimisticStatePatch({ findings: { a: "resolved" } }, "T")).toEqual({
-      findings: { a: { status: "resolved", by: { kind: "user" }, at: "T" } },
+      findings: {
+        a: {
+          status: "resolved",
+          resolution: "fixed",
+          by: { kind: "user" },
+          at: "T",
+        },
+      },
+    });
+    expect(
+      optimisticStatePatch(
+        {
+          findings: {
+            a: "open",
+            b: { status: "resolved", resolution: "dismissed", note: " Nope " },
+            c: "dismissed",
+          },
+        },
+        "T"
+      )
+    ).toEqual({
+      findings: {
+        a: { status: "open", by: { kind: "user" }, at: "T" },
+        b: {
+          status: "resolved",
+          resolution: "dismissed",
+          note: "Nope",
+          by: { kind: "user" },
+          at: "T",
+        },
+        c: {
+          status: "resolved",
+          resolution: "dismissed",
+          by: { kind: "user" },
+          at: "T",
+        },
+      },
     });
     expect(optimisticStatePatch({ items: { t1: "done" } }, "T")).toEqual({
       items: { t1: "done" },
@@ -390,7 +426,9 @@ describe("useSetBlockState and the thread cache", () => {
       state: {
         findings: {
           f1: {
-            status: "disputed",
+            status: "resolved",
+            resolution: "dismissed",
+            note: "Not ours.",
             by: { kind: "user" },
             at: "2026-09-02T10:05:00.000Z",
           },
@@ -404,7 +442,11 @@ describe("useSetBlockState and the thread cache", () => {
     await act(async () => {
       await result.current.mutateAsync({
         blockId: "rv1",
-        state: { findings: { f1: "disputed" } },
+        state: {
+          findings: {
+            f1: { status: "resolved", resolution: "dismissed", note: "Not ours." },
+          },
+        },
       });
     });
     const thread = client.getQueryData<StreamThreadResponse>(threadKey);

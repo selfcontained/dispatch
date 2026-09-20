@@ -79,7 +79,7 @@ dropped. Rows are not migrated.
 | `form`     | `{ fields: [{id, label, type, options?, required?}] }`                        | `{ submission?: {values, by, blockId, at} }`                           | agent                           |
 | `file`     | — (the file is an attachment)                                                 | —                                                                      | agent, user                     |
 | `link`     | `{ url, title? }` (a PR is a link)                                            | —                                                                      | agent, user                     |
-| `review`   | `{ verdict, summary, findings: [{id, severity, title, body, path?, line?}] }` | `{ findings: { [id]: { status: open\|resolved\|disputed, by, at } } }` | agent, user                     |
+| `review`   | `{ verdict, summary, findings: [{id, severity, title, body, path?, line?}] }` | `{ findings: { [id]: { status: open\|resolved, resolution?: fixed\|dismissed, note?, by, at } } }` | agent, user                     |
 | `tasks`    | `{ items: [{id, text}] }`                                                     | `{ items: { [id]: done\|now\|todo } }`                                 | agent                           |
 | `board`    | later: kanban, table                                                          |                                                                        |                                 |
 | `preview`  | later: a served URL with a live status                                        |                                                                        |                                 |

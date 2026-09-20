@@ -146,13 +146,20 @@ issues caused or worsened by this diff.`}</CodeBlock>
           The agent that received the review works the findings the same way you
           do: it changes a finding&apos;s status with <Code>update</Code> on the
           block (
-          <Code>{'{ id, state: { findings: { <id>: "resolved" } } }'}</Code>, or{" "}
-          <Code>disputed</Code>), and it replies in a finding&apos;s thread with{" "}
-          <Code>post</Code> and <Code>replyTo</Code> set to the review block. A
-          reply in a thread reaches the reviewer as a new prompt, so it can
-          re-inspect a fix or answer a question without polling; the reviewer
-          answers in the same thread. Only the block&apos;s author and the agent
-          it is addressed to may change its state.
+          <Code>{'{ id, state: { findings: { <id>: "fixed" } } }'}</Code>, or
+          dismissed with a note:{" "}
+          <Code>
+            {'{ <id>: { status: "resolved", resolution: "dismissed", note } }'}
+          </Code>
+          ), and it comments on a finding with <Code>post</Code>,{" "}
+          <Code>replyTo</Code> set to the review block and <Code>finding</Code>{" "}
+          to the finding&apos;s id. Each comment goes to one side of the review,
+          reviewer or builder, as a new prompt, so a fix can be re-inspected
+          without polling; the reviewer answers in the same thread and can reopen
+          a finding. The review is open until a finding is resolved, partially
+          resolved while some are, and resolved once every one is. Only the
+          block&apos;s author and the agent it is addressed to may change its
+          state.
         </P>
         <P>
           You can also leave a review by hand from the Changes tab:{" "}

@@ -635,7 +635,7 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
     const res = await authedInject(
       "PATCH",
       `/api/v1/streams/${agentId}/blocks/${r.id}/state`,
-      { state: { findings: { f1: "resolved" } } }
+      { state: { findings: { f1: "fixed" } } }
     );
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -645,6 +645,7 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
           findings: {
             f1: {
               status: "resolved",
+              resolution: "fixed",
               by: { kind: "user" },
               at: expect.any(String),
             },
@@ -675,10 +676,10 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
       (await authedInject("PATCH", url, { state: "resolved" })).statusCode
     ).toBe(400);
     const badStatus = await authedInject("PATCH", url, {
-      state: { findings: { f1: "fixed" } },
+      state: { findings: { f1: "disputed" } },
     });
     expect(badStatus.statusCode).toBe(400);
-    expect(badStatus.json().error).toMatch(/open, resolved or disputed/);
+    expect(badStatus.json().error).toMatch(/open, fixed or dismissed/);
     const text = await store.insert({
       streamId: agentId,
       author: agentAuthor(agentId),
@@ -792,6 +793,56 @@ describe("stream reaction routes (inert runtime)", () => {
       { emoji: "👍" }
     );
     expect(other.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/v1/streams/:rootId/blocks/:blockId/read", () => {
+  it("marks the thread's agent replies read and returns their ids", async () => {
+    const r = await review(agentId);
+    const reply = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      threadId: r.id,
+      replyTo: r.id,
+      text: "on it",
+      data: { findingId: "f1" },
+    });
+    const other = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      threadId: r.id,
+      replyTo: r.id,
+      text: "general",
+    });
+    const miss = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
+      { finding: "f9" }
+    );
+    expect(miss.json()).toEqual({ ids: [], readAt: null });
+    const one = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
+      { finding: "f1" }
+    );
+    expect(one.json()).toEqual({ ids: [reply.id], readAt: expect.any(String) });
+    const all = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
+      {}
+    );
+    expect(all.json()).toEqual({ ids: [other.id], readAt: expect.any(String) });
+    expect(
+      (await authedInject("POST", `/api/v1/streams/${agentId}/blocks/nope/read`, {}))
+        .statusCode
+    ).toBe(400);
+    expect(
+      (
+        await authedInject("POST", `/api/v1/streams/${agentId}/blocks/${r.id}/read`, {
+          finding: 3,
+        })
+      ).statusCode
+    ).toBe(400);
   });
 });
 
@@ -1487,7 +1538,13 @@ describe("stream routes with a deliverable engine", () => {
     const res = await app.inject({
       method: "PATCH",
       url: `/api/v1/streams/${agentId}/blocks/${r.id}/state`,
-      payload: { state: { findings: { f1: "resolved" } } },
+      payload: {
+        state: {
+          findings: {
+            f1: { status: "resolved", resolution: "dismissed", note: "Out of scope" },
+          },
+        },
+      },
     });
     expect(res.statusCode).toBe(200);
     expect(entryIds(published)).toEqual([["stream.entry", r.id, null]]);
@@ -1496,7 +1553,7 @@ describe("stream routes with a deliverable engine", () => {
       {
         agentId,
         prompt: expect.stringContaining(
-          `--- DISPATCH POST (id: ${r.id}, from: user) ---\nFinding f1 is now resolved.\n--- END DISPATCH POST ---`
+          `--- DISPATCH POST (id: ${r.id}, from: user) ---\nFinding f1 dismissed: Out of scope\n--- END DISPATCH POST ---`
         ),
       },
     ]);

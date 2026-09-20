@@ -295,6 +295,29 @@ export async function registerStreamRoutes(
     }
   );
 
+  app.post(
+    "/api/v1/streams/:rootId/blocks/:blockId/read",
+    async (request, reply) => {
+      const { rootId = "", blockId = "" } = request.params as {
+        rootId?: string;
+        blockId?: string;
+      };
+      const body = request.body as { finding?: unknown } | null;
+      const finding = body?.finding;
+      if (finding != null && typeof finding !== "string") {
+        return reply.code(400).send({ error: "finding must be a string." });
+      }
+      if (!isBlockId(blockId)) {
+        return reply.code(400).send({ error: "blockId must be a UUID." });
+      }
+      if (!(await agentExists(rootId))) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      const marked = await store.markThreadRead(rootId, blockId, finding);
+      return { ids: marked.ids, readAt: marked.readAt };
+    }
+  );
+
   app.post("/api/v1/streams/:rootId/read", async (request, reply) => {
     const rootId = (request.params as { rootId?: string }).rootId ?? "";
     const body = request.body as { upTo?: unknown } | null;

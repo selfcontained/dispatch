@@ -90,6 +90,7 @@ vi.mock("@/hooks/use-stream", () => ({
     isPending: false,
     variables: undefined,
   }),
+  useMarkThreadRead: () => ({ mutate: vi.fn(), isPending: false }),
   useAnswerQuestion: () => ({
     mutate: H.answerNow,
     mutateAsync: H.answer,

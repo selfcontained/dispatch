@@ -72,21 +72,28 @@ an `id`, `severity`, `title`, `body`, and often a `path` and `line`. Each
 finding is a thread under that block.
 
 ```
-post    replyTo: <review block id>, text     — discuss a finding in its thread
+post    replyTo: <review block id>, finding: <findingId>, text
+        — discuss a finding in its own thread
 update  id: <review block id>,
-        state: { findings: { <findingId>: "resolved" | "disputed" } }
+        state: { findings: { <findingId>: "fixed" } }
+        state: { findings: { <findingId>: { status: "resolved",
+                 resolution: "dismissed", note: "why" } } }
+        state: { findings: { <findingId>: "open" } }   — reopen
 ```
+
+A review is open until a finding is resolved, partially resolved while some
+are, and resolved once every one is fixed or dismissed.
 
 **Keep the discussion in the thread.** A reply with `replyTo` reaches the
 reviewer as a prompt and keeps the finding, the fix, and the verification
 attached to each other; a loose post does neither.
 
 **After fixing a finding, say what you changed in the thread, then mark it
-`resolved`.** The reviewer can reopen it (`"open"`) if the fix falls short, so a
-resolution is a claim it will check, not the end of the conversation.
+`fixed`.** The reviewer can reopen it (`"open"`, with a note) if the fix falls
+short, so a resolution is a claim it will check, not the end of the conversation.
 
-**Not every finding has to be accepted.** When you disagree, mark it `disputed`
-and say why in the thread with concrete evidence — what the system actually
+**Not every finding has to be accepted.** When you disagree, dismiss it with a
+note saying why, and give the evidence in the thread — what the system actually
 does, what the API or database will actually accept. A reviewer given a real
 rebuttal will concede, and that exchange is worth more than silently complying
 with a wrong finding. When a finding asserts a failure mode rather than pointing

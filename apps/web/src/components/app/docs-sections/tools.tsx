@@ -217,9 +217,9 @@ export function ToolsContent() {
                 "{ verdict, summary, findings: [{ id, severity, title, body, path?, line? }] }"
               }
             </Code>
-            ; each finding keeps a status of <Code>open</Code>,{" "}
-            <Code>resolved</Code>, or <Code>disputed</Code> in the block&apos;s
-            state (see Reviewers).
+            ; each finding is <Code>open</Code> until it is resolved as{" "}
+            <Code>fixed</Code> or <Code>dismissed</Code> (with a note) in the
+            block&apos;s state, and can be reopened (see Reviewers).
           </li>
           <li>
             <Code>tasks</Code> — <Code>{"{ items: [{ id, text }] }"}</Code>, a

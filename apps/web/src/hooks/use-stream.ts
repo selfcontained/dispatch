@@ -24,6 +24,8 @@ import type {
   StreamReactionResponse,
   StreamStateRequest,
   StreamSubmitRequest,
+  StreamThreadReadRequest,
+  StreamThreadReadResponse,
   StreamThreadResponse,
 } from "@dispatch/shared";
 import {
@@ -1002,10 +1004,33 @@ export function optimisticStatePatch(
   if (!isPlainObject(findings)) return patch;
   const filled: Record<string, unknown> = {};
   for (const [id, value] of Object.entries(findings)) {
-    filled[id] =
+    const word =
       typeof value === "string"
-        ? { status: value, by: { kind: "user" }, at: now }
-        : value;
+        ? value
+        : isPlainObject(value)
+          ? (value as { status?: string }).status
+          : undefined;
+    const record = isPlainObject(value) ? (value as Record<string, unknown>) : {};
+    const status = word === "open" ? "open" : "resolved";
+    const resolution =
+      word === "dismissed"
+        ? "dismissed"
+        : word === "fixed"
+          ? "fixed"
+          : word === "resolved"
+            ? ((record.resolution as string | undefined) ?? "fixed")
+            : undefined;
+    const note =
+      typeof record.note === "string" && record.note.trim()
+        ? record.note.trim()
+        : undefined;
+    filled[id] = {
+      status,
+      ...(resolution ? { resolution } : {}),
+      ...(note ? { note } : {}),
+      by: { kind: "user" },
+      at: now,
+    };
   }
   return { ...patch, findings: filled };
 }
@@ -1212,6 +1237,46 @@ export function useToggleReaction(rootId: string | null) {
 // ---------------------------------------------------------------------------
 // Read state
 // ---------------------------------------------------------------------------
+
+/**
+ * `POST …/blocks/:id/read`: the person saw a thread, or one finding's
+ * discussion in it. The agent replies it names are marked read in the
+ * thread cache, which is what the review card's unread marks read from.
+ */
+export function useMarkThreadRead(rootId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    StreamThreadReadResponse,
+    Error,
+    { blockId: string; finding?: string | null }
+  >({
+    mutationFn: async ({ blockId, finding }) =>
+      api<StreamThreadReadResponse>(`${blockPath(rootId, blockId)}/read`, {
+        method: "POST",
+        body: JSON.stringify(
+          (finding ? { finding } : {}) satisfies StreamThreadReadRequest
+        ),
+      }),
+    onSuccess: (data, { blockId }) => {
+      if (data.ids.length === 0 || !data.readAt) return;
+      const ids = new Set(data.ids);
+      queryClient.setQueryData<StreamThreadResponse>(
+        threadQueryKey(rootId, blockId),
+        (old) =>
+          old
+            ? {
+                ...old,
+                replies: old.replies.map((reply) =>
+                  ids.has(reply.id) && reply.readAt === null
+                    ? { ...reply, readAt: data.readAt }
+                    : reply
+                ),
+              }
+            : old
+      );
+    },
+  });
+}
 
 /**
  * Marks the agent's blocks read up to `upTo` (or all of them). The returned

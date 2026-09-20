@@ -8,6 +8,8 @@
 import { type FormEvent, useState } from "react";
 import type {
   Block,
+  BlockFindingPatch,
+  BlockFindingState,
   BlockFindingStatus,
   BlockFormField,
   BlockOption,
@@ -22,8 +24,8 @@ import {
   CircleDot,
   ExternalLink,
   Link2,
-  MessageSquareWarning,
   RotateCcw,
+  XCircle,
 } from "lucide-react";
 
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
@@ -33,6 +35,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -40,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { Collapse } from "./collapse";
@@ -431,18 +439,37 @@ const SEVERITY_CHIP: Record<BlockReviewSeverity, string> = {
   nit: "border-border text-muted-foreground/80",
 };
 
-const FINDING_STATUS_LABEL: Record<BlockFindingStatus, string> = {
+/** What a finding's record reads as: open, fixed or dismissed. */
+export type FindingOutcome = "open" | "fixed" | "dismissed";
+
+const FINDING_OUTCOME_LABEL: Record<FindingOutcome, string> = {
   open: "Open",
-  resolved: "Resolved",
-  disputed: "Disputed",
+  fixed: "Fixed",
+  dismissed: "Dismissed",
 };
+
+/** `state.findings[id]`, or an open record when nothing has been recorded. */
+export function findingRecord(
+  block: Extract<Block, { kind: "review" }>,
+  findingId: string
+): BlockFindingState | null {
+  return block.state?.findings?.[findingId] ?? null;
+}
 
 /** `state.findings[id].status`, `open` when nothing has been recorded. */
 export function findingStatus(
   block: Extract<Block, { kind: "review" }>,
   findingId: string
 ): BlockFindingStatus {
-  return block.state?.findings?.[findingId]?.status ?? "open";
+  return findingRecord(block, findingId)?.status ?? "open";
+}
+
+/** A resolved finding was fixed unless it says dismissed; an open one is open. */
+export function findingOutcome(
+  record: BlockFindingState | null | undefined
+): FindingOutcome {
+  if (record?.status !== "resolved") return "open";
+  return record.resolution === "dismissed" ? "dismissed" : "fixed";
 }
 
 /** "5 findings · 2 open", or "No findings". */
@@ -473,19 +500,19 @@ export function summarySentence(summary: string): string {
   return (match ? match[1]! : line).replace(/[*_`]/g, "");
 }
 
-/** The wire shape of a finding status change: a bare status per finding. */
+/** The wire shape of a finding change: a word, or a record with a note. */
 export function findingStatePatch(
   findingId: string,
-  status: BlockFindingStatus
+  patch: BlockFindingPatch
 ): BlockStatePatch {
-  return { findings: { [findingId]: status } };
+  return { findings: { [findingId]: patch } };
 }
 
 /** Colours for a finding's status pill. */
-const FINDING_STATUS_PILL: Record<BlockFindingStatus, string> = {
+const FINDING_STATUS_PILL: Record<FindingOutcome, string> = {
   open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
-  resolved: "border-status-done/40 bg-status-done/10 text-status-done",
-  disputed: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
+  fixed: "border-status-done/40 bg-status-done/10 text-status-done",
+  dismissed: "border-border bg-muted/60 text-muted-foreground",
 };
 
 /** The card's left edge and header tint follow the verdict. */
@@ -495,25 +522,27 @@ const VERDICT_EDGE: Record<BlockReviewVerdict, string> = {
   comment: "border-l-border",
 };
 
-/** A finding's status as a small pill. */
+/** A finding's outcome as a small pill: Open, Fixed or Dismissed. */
 export function FindingStatusPill({
-  status,
+  record,
   className,
 }: {
-  status: BlockFindingStatus;
+  record: BlockFindingState | null | undefined;
   className?: string;
 }): JSX.Element {
+  const outcome = findingOutcome(record);
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide",
-        FINDING_STATUS_PILL[status],
+        FINDING_STATUS_PILL[outcome],
         className
       )}
       data-testid="chat-review-finding-status"
-      data-status={status}
+      data-status={record?.status ?? "open"}
+      data-outcome={outcome}
     >
-      {FINDING_STATUS_LABEL[status]}
+      {FINDING_OUTCOME_LABEL[outcome]}
     </span>
   );
 }
@@ -568,18 +597,108 @@ function FindingPath({
 }
 
 /**
- * The status controls for one finding, sized for a thumb: Resolve and
- * Dispute while it is open, Reopen once it is not.
+ * A button that asks for a note before it acts: Dismiss wants a reason,
+ * Reopen may carry one. The note goes into the finding's record.
+ */
+function NotedAction({
+  label,
+  icon,
+  prompt,
+  required,
+  disabled,
+  variant,
+  testId,
+  onConfirm,
+}: {
+  label: string;
+  icon: JSX.Element;
+  prompt: string;
+  required: boolean;
+  disabled: boolean;
+  variant: "default" | "success";
+  testId: string;
+  onConfirm: (note: string) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = note.trim();
+    if (required && !trimmed) return;
+    onConfirm(trimmed);
+    setNote("");
+    setOpen(false);
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant={variant}
+          className="h-9 flex-1 gap-1.5 sm:flex-none"
+          disabled={disabled}
+          data-testid={testId}
+        >
+          {icon}
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-3">
+        <form className="flex flex-col gap-2" onSubmit={submit}>
+          <label
+            className="text-xs font-medium text-foreground"
+            htmlFor={`${testId}-note`}
+          >
+            {prompt}
+          </label>
+          <Textarea
+            id={`${testId}-note`}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={3}
+            autoFocus
+            placeholder={required ? "Why?" : "Optional"}
+            data-testid={`${testId}-note`}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              variant={variant}
+              disabled={required && !note.trim()}
+              data-testid={`${testId}-confirm`}
+            >
+              {label}
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The status controls for one finding, sized for a thumb: Fixed and
+ * Dismiss (with a reason) while it is open, Reopen once it is not.
  */
 export function FindingActions({
-  status,
+  record,
   disabled,
-  onSetStatus,
+  onPatch,
 }: {
-  status: BlockFindingStatus;
+  record: BlockFindingState | null | undefined;
   disabled: boolean;
-  onSetStatus: (status: BlockFindingStatus) => void;
+  onPatch: (patch: BlockFindingPatch) => void;
 }): JSX.Element {
+  const status = record?.status ?? "open";
   return (
     <div
       className="flex flex-wrap gap-2"
@@ -593,36 +712,75 @@ export function FindingActions({
             className="h-9 flex-1 gap-1.5 sm:flex-none"
             disabled={disabled}
             data-testid="chat-review-resolve"
-            onClick={() => onSetStatus("resolved")}
+            onClick={() => onPatch("fixed")}
           >
             <Check className="h-4 w-4" aria-hidden="true" />
-            Resolve
+            Fixed
           </Button>
-          <Button
-            type="button"
-            variant="default"
-            className="h-9 flex-1 gap-1.5 sm:flex-none"
+          <NotedAction
+            label="Dismiss"
+            icon={<XCircle className="h-4 w-4" aria-hidden="true" />}
+            prompt="Why set this finding aside?"
+            required
             disabled={disabled}
-            data-testid="chat-review-dispute"
-            onClick={() => onSetStatus("disputed")}
-          >
-            <MessageSquareWarning className="h-4 w-4" aria-hidden="true" />
-            Dispute
-          </Button>
+            variant="default"
+            testId="chat-review-dismiss"
+            onConfirm={(note) =>
+              onPatch({ status: "resolved", resolution: "dismissed", note })
+            }
+          />
         </>
       ) : (
-        <Button
-          type="button"
-          variant="default"
-          className="h-9 gap-1.5"
+        <NotedAction
+          label="Reopen"
+          icon={<RotateCcw className="h-4 w-4" aria-hidden="true" />}
+          prompt="What still needs doing?"
+          required={false}
           disabled={disabled}
-          data-testid="chat-review-reopen"
-          onClick={() => onSetStatus("open")}
-        >
-          <RotateCcw className="h-4 w-4" aria-hidden="true" />
-          Reopen
-        </Button>
+          variant="default"
+          testId="chat-review-reopen"
+          onConfirm={(note) =>
+            onPatch(note ? { status: "open", note } : "open")
+          }
+        />
       )}
+    </div>
+  );
+}
+
+/** "Fixed by Codex · 2m ago", with the note under it when there is one. */
+function FindingRecordLine({
+  record,
+  authorName,
+}: {
+  record: BlockFindingState;
+  authorName?: (by: BlockFindingState["by"]) => string;
+}): JSX.Element {
+  const outcome = findingOutcome(record);
+  const verb =
+    outcome === "open" ? "Reopened" : outcome === "fixed" ? "Fixed" : "Dismissed";
+  const who = authorName
+    ? authorName(record.by)
+    : record.by.kind === "user"
+      ? "you"
+      : record.by.agentId;
+  return (
+    <div
+      className="flex flex-col gap-0.5 text-xs text-muted-foreground"
+      data-testid="chat-review-finding-record"
+    >
+      <span>
+        {verb} by {who}
+        {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
+      </span>
+      {record.note ? (
+        <span
+          className="text-foreground/80"
+          data-testid="chat-review-finding-note"
+        >
+          {record.note}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -638,31 +796,39 @@ export function FindingDetail({
   disabled,
   onSetState,
   onOpenPath,
+  authorName,
 }: {
   block: Extract<Block, { kind: "review" }>;
   finding: BlockReviewFinding;
   disabled: boolean;
   onSetState?: (patch: BlockStatePatch) => void;
   onOpenPath?: (path: string, line: number | null) => void;
+  /** Names whoever last changed the finding. */
+  authorName?: (by: BlockFindingState["by"]) => string;
 }): JSX.Element {
-  const status = findingStatus(block, finding.id);
+  const record = findingRecord(block, finding.id);
+  // A record with no note and an "open" status is the reviewer's initial
+  // stamp, not a change worth a line.
+  const changed =
+    record && (record.status !== "open" || record.note !== undefined);
   return (
     <div className="flex flex-col gap-3" data-testid="chat-finding-detail">
       <div className="flex flex-wrap items-center gap-2">
-        <FindingStatusPill status={status} />
+        <FindingStatusPill record={record} />
         <SeverityChip severity={finding.severity} />
         <FindingPath finding={finding} onOpenPath={onOpenPath} />
       </div>
       <h3 className="text-[15px] font-semibold leading-snug text-foreground">
         {finding.title}
       </h3>
+      {changed ? (
+        <FindingRecordLine record={record} authorName={authorName} />
+      ) : null}
       {onSetState ? (
         <FindingActions
-          status={status}
+          record={record}
           disabled={disabled}
-          onSetStatus={(next) =>
-            onSetState(findingStatePatch(finding.id, next))
-          }
+          onPatch={(patch) => onSetState(findingStatePatch(finding.id, patch))}
         />
       ) : null}
       <Markdown className="text-sm text-foreground/90">{finding.body}</Markdown>
@@ -686,6 +852,7 @@ export function ReviewBlockBody({
   highlightFindingId = null,
   defaultExpanded = false,
   commentCounts,
+  unreadCounts,
 }: {
   block: Extract<Block, { kind: "review" }>;
   /** State changes are unavailable (no callback, or nothing can be sent). */
@@ -699,6 +866,8 @@ export function ReviewBlockBody({
   defaultExpanded?: boolean;
   /** Replies about each finding, by finding id. */
   commentCounts?: Readonly<Record<string, number>>;
+  /** Agent replies about each finding the person has not seen, by finding id. */
+  unreadCounts?: Readonly<Record<string, number>>;
 }): JSX.Element {
   const [expanded, setExpanded] = useOpened(
     `review:${block.id}`,
@@ -709,6 +878,10 @@ export function ReviewBlockBody({
   const open = findings.filter(
     (finding) => findingStatus(block, finding.id) === "open"
   ).length;
+  const unread = Object.values(unreadCounts ?? {}).reduce(
+    (sum: number, n: number) => sum + n,
+    0
+  );
   return (
     <div
       className={cn(
@@ -748,6 +921,15 @@ export function ReviewBlockBody({
         >
           {findingsSummary(block)}
         </span>
+        {unread > 0 ? (
+          <span
+            className="shrink-0 rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
+            data-testid="chat-review-unread"
+            aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
+          >
+            {unread}
+          </span>
+        ) : null}
       </button>
       <Collapse open={expanded} data-testid="chat-review-details">
         <div className="border-t border-border/40 px-3 pb-2 pt-2">
@@ -762,12 +944,14 @@ export function ReviewBlockBody({
               data-testid="chat-review-findings"
             >
               {findings.map((finding) => {
-                const status = findingStatus(block, finding.id);
+                const record = findingRecord(block, finding.id);
+                const status = record?.status ?? "open";
                 const comments = commentCounts?.[finding.id] ?? 0;
+                const fresh = unreadCounts?.[finding.id] ?? 0;
                 const highlighted = highlightFindingId === finding.id;
                 const row = (
                   <>
-                    <FindingStatusPill status={status} />
+                    <FindingStatusPill record={record} />
                     <SeverityChip severity={finding.severity} />
                     <span
                       className={cn(
@@ -781,11 +965,23 @@ export function ReviewBlockBody({
                     </span>
                     {comments > 0 ? (
                       <span
-                        className="shrink-0 text-[11px] text-muted-foreground"
+                        className={cn(
+                          "shrink-0 text-[11px]",
+                          fresh > 0
+                            ? "font-semibold text-foreground"
+                            : "text-muted-foreground"
+                        )}
                         data-testid="chat-review-finding-comments"
                       >
                         {comments} {comments === 1 ? "comment" : "comments"}
                       </span>
+                    ) : null}
+                    {fresh > 0 ? (
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                        data-testid="chat-review-finding-unread"
+                        aria-label={`${fresh} new`}
+                      />
                     ) : null}
                     <ChevronRight
                       className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
@@ -803,6 +999,7 @@ export function ReviewBlockBody({
                     data-testid="chat-review-finding"
                     data-finding-id={finding.id}
                     data-status={status}
+                    data-outcome={findingOutcome(record)}
                     data-highlighted={highlighted ? "true" : undefined}
                   >
                     {onOpenFinding ? (
@@ -810,7 +1007,7 @@ export function ReviewBlockBody({
                         type="button"
                         className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
                         data-testid="chat-review-finding-link"
-                        aria-label={`${finding.title}, ${FINDING_STATUS_LABEL[status]}, open finding`}
+                        aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
                         onClick={() => onOpenFinding(finding.id)}
                       >
                         {row}
@@ -830,7 +1027,7 @@ export function ReviewBlockBody({
           ) : null}
           {open === 0 && findings.length > 0 ? (
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Every finding is resolved or disputed.
+              Every finding is resolved.
             </p>
           ) : null}
         </div>

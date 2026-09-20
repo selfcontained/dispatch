@@ -363,7 +363,7 @@ describe("registerStreamTools", () => {
     });
     expect(tool("update").config.description).toContain("addressed to you");
     expect(tool("update").config.description).toContain(
-      '{ state: { findings: { <id>: "resolved" } } }'
+      '{ state: { findings: { <id>: "fixed" } } }'
     );
   });
 

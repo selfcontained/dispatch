@@ -619,6 +619,32 @@ export class BlockStore {
     };
   }
 
+  /**
+   * A person read a thread: every agent reply in it (or only those about
+   * one finding) is marked read. Replies between agents carry a
+   * `to_agent_id` and never count toward the stream's own unread total;
+   * this mark is what the thread and its findings show as seen.
+   */
+  async markThreadRead(
+    streamId: string,
+    threadId: string,
+    findingId?: string | null
+  ): Promise<{ ids: string[]; readAt: string | null }> {
+    if (!isBlockId(threadId)) return { ids: [], readAt: null };
+    const result = await this.db.query<{ id: string; read_at: Date }>(
+      `UPDATE blocks SET read_at = now()
+        WHERE stream_id = $1 AND thread_id = $2
+          AND author_kind = 'agent' AND read_at IS NULL
+          AND ($3::text IS NULL OR data->>'findingId' = $3::text)
+        RETURNING id, read_at`,
+      [streamId, threadId, findingId ?? null]
+    );
+    return {
+      ids: result.rows.map((row) => row.id),
+      readAt: result.rows[0]?.read_at.toISOString() ?? null,
+    };
+  }
+
   async countUnread(streamId: string): Promise<number> {
     const result = await this.db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM blocks

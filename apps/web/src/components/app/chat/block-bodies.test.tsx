@@ -147,6 +147,8 @@ describe("ReviewBlockBody", () => {
           findings: {
             f2: {
               status: "resolved",
+              resolution: "dismissed",
+              note: "Not worth a change.",
               by: { kind: "user" },
               at: "2026-09-02T10:00:30.000Z",
             },
@@ -185,12 +187,14 @@ describe("ReviewBlockBody", () => {
     expect(rows[0]!.textContent).toContain("blocker");
     expect(rows[0]!.textContent).toContain("src/a.ts:12");
     expect(rows[1]!.getAttribute("data-status")).toBe("resolved");
+    expect(rows[1]!.getAttribute("data-outcome")).toBe("dismissed");
+    expect(rows[1]!.textContent).toContain("Dismissed");
     // Compact rows: the body and the controls wait for the finding panel.
     expect(rows[0]!.textContent).not.toContain("Guard the lookup.");
     expect(screen.queryByTestId("chat-review-resolve")).toBeNull();
   });
 
-  it("resolves and reopens a finding from its detail through a bare-status patch", () => {
+  it("marks a finding fixed, dismisses it with a reason, and reopens it with a note", () => {
     const onSetState = vi.fn();
     const r = review();
     render(
@@ -201,12 +205,29 @@ describe("ReviewBlockBody", () => {
         onSetState={onSetState}
       />
     );
-    expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
-      "Guard the lookup."
-    );
+    const detail = screen.getByTestId("chat-finding-detail");
+    expect(detail.textContent).toContain("Guard the lookup.");
+    // Never touched: no record line.
+    expect(screen.queryByTestId("chat-review-finding-record")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-review-resolve"));
-    expect(onSetState).toHaveBeenCalledWith({
-      findings: { f1: "resolved" },
+    expect(onSetState).toHaveBeenCalledWith({ findings: { f1: "fixed" } });
+
+    // Dismiss asks why, and will not go without an answer.
+    fireEvent.click(screen.getByTestId("chat-review-dismiss"));
+    const confirm = screen.getByTestId("chat-review-dismiss-confirm");
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("chat-review-dismiss-note"), {
+      target: { value: "Out of scope here." },
+    });
+    fireEvent.click(confirm);
+    expect(onSetState).toHaveBeenLastCalledWith({
+      findings: {
+        f1: {
+          status: "resolved",
+          resolution: "dismissed",
+          note: "Out of scope here.",
+        },
+      },
     });
     cleanup();
 
@@ -216,10 +237,46 @@ describe("ReviewBlockBody", () => {
         finding={r.data.findings[1]!}
         disabled={false}
         onSetState={onSetState}
+        authorName={() => "Brad"}
       />
     );
+    // The dismissed finding shows who and why.
+    const record = screen.getByTestId("chat-review-finding-record");
+    expect(record.textContent).toContain("Dismissed by Brad");
+    expect(screen.getByTestId("chat-review-finding-note").textContent).toBe(
+      "Not worth a change."
+    );
     fireEvent.click(screen.getByTestId("chat-review-reopen"));
-    expect(onSetState).toHaveBeenCalledWith({ findings: { f2: "open" } });
+    fireEvent.click(screen.getByTestId("chat-review-reopen-confirm"));
+    expect(onSetState).toHaveBeenLastCalledWith({ findings: { f2: "open" } });
+    fireEvent.click(screen.getByTestId("chat-review-reopen"));
+    fireEvent.change(screen.getByTestId("chat-review-reopen-note"), {
+      target: { value: "Still wrong on mobile." },
+    });
+    fireEvent.click(screen.getByTestId("chat-review-reopen-confirm"));
+    expect(onSetState).toHaveBeenLastCalledWith({
+      findings: { f2: { status: "open", note: "Still wrong on mobile." } },
+    });
+  });
+
+  it("marks findings with unseen agent comments and counts them on the header", () => {
+    render(
+      <ReviewBlockBody
+        block={review()}
+        disabled={false}
+        defaultExpanded
+        commentCounts={{ f1: 2, f2: 1 }}
+        unreadCounts={{ f1: 2 }}
+      />
+    );
+    expect(screen.getByTestId("chat-review-unread").textContent).toBe("2");
+    const rows = screen.getAllByTestId("chat-review-finding");
+    expect(
+      rows[0]!.querySelector("[data-testid='chat-review-finding-unread']")
+    ).not.toBeNull();
+    expect(
+      rows[1]!.querySelector("[data-testid='chat-review-finding-unread']")
+    ).toBeNull();
   });
 
   it("opens a finding from its row, counts its comments, and highlights the one named", () => {

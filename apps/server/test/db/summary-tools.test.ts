@@ -169,12 +169,12 @@ async function insertFeedback(
     body: opts.description ?? "Test finding",
     ...(opts.filePath ? { path: opts.filePath } : {}),
   };
-  const status =
+  const record =
     opts.status === "fixed"
-      ? "resolved"
+      ? { status: "resolved", resolution: "fixed" }
       : opts.status === "dismissed" || opts.status === "ignored"
-        ? "disputed"
-        : "open";
+        ? { status: "resolved", resolution: "dismissed" }
+        : { status: "open" };
   await pool.query(
     `UPDATE blocks
         SET data = jsonb_set(data, '{findings}', data->'findings' || $2::jsonb),
@@ -184,7 +184,7 @@ async function insertFeedback(
       block.rows[0]!.id,
       JSON.stringify([finding]),
       findingId,
-      JSON.stringify({ status, by: "user", at: new Date().toISOString() }),
+      JSON.stringify({ ...record, by: "user", at: new Date().toISOString() }),
     ]
   );
 }
