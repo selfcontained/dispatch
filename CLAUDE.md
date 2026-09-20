@@ -171,5 +171,5 @@ unrelated changes or CI.
 - Make the briefing thorough: what was built, key files changed, areas of concern, and any specific instructions from the user.
 - Be explicit about scope in the briefing — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
 - Available personas are defined in `.dispatch/personas/` as markdown files, plus Dispatch's built-in `code-review` generalist. Call `list_personas` for the effective list.
-- A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread. The launcher resolves or disputes findings with `update` on that block's `state` and answers questions in the thread.
+- A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread. The launcher marks findings fixed, or dismisses them with a note, with `update` on that block's `state` (`{ findings: { <id>: "fixed" } }`), and answers questions in the finding's thread (`post` with `replyTo` and `finding`).
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.
