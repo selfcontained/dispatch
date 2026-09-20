@@ -315,12 +315,12 @@ export function AgentsView({
   );
 
   const {
-    attachToAgent,
+    openAgent,
     startAgent,
     stopAgent,
     deleteAgent,
     handleAgentCreated,
-    detachAndClearSelection,
+    closeAgentAndClearSelection,
   } = useAgentActions({
     routeAgentId,
     setExpandedAgentId,
@@ -484,8 +484,8 @@ export function AgentsView({
               borderForAgentState={borderForAgentState}
               toggleAgentDetails={toggleAgentDetails}
               isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={detachAndClearSelection}
-              attachToAgent={attachToAgent}
+              closeAgent={closeAgentAndClearSelection}
+              openAgent={openAgent}
               startAgent={startAgent}
               connectedAgentId={validatedSelectedAgentId}
               onRequestClose={

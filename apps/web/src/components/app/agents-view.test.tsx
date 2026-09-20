@@ -276,12 +276,12 @@ vi.mock("@/hooks/use-agent-actions", () => ({
     H.record("useAgentActions", args as Record<string, unknown>);
     const s = H.state;
     return {
-      attachToAgent: s.unused,
+      openAgent: s.unused,
       startAgent: s.unused,
       stopAgent: s.unused,
       deleteAgent: s.unused,
       handleAgentCreated: s.unused,
-      detachAndClearSelection: s.unused,
+      closeAgentAndClearSelection: s.unused,
     };
   },
 }));

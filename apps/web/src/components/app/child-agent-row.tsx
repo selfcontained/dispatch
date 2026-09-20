@@ -5,7 +5,7 @@ import {
   Pause,
   Pencil,
   Play,
-  Terminal,
+  MessageSquare,
   Unplug,
 } from "lucide-react";
 
@@ -32,8 +32,8 @@ export type ChildAgentRowProps = {
   agent: Agent;
   state: AgentVisualState;
   isInitialReviewActive: boolean;
-  attachToAgent: (agent: Agent) => Promise<void>;
-  detachTerminal: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
   startAgent: (agent: Agent) => Promise<void>;
   setStopTarget: (agent: Agent | null) => void;
   setStopConfirmOpen: (open: boolean) => void;
@@ -48,8 +48,8 @@ export function ChildAgentRow({
   agent,
   state,
   isInitialReviewActive,
-  attachToAgent,
-  detachTerminal,
+  openAgent,
+  closeAgent,
   startAgent,
   setStopTarget,
   setStopConfirmOpen,
@@ -94,7 +94,7 @@ export function ChildAgentRow({
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
       onClick={(event) => {
-        // Mirrors the top-level agent card's row-click-to-attach/detach
+        // Mirrors the top-level agent card's row-click-to-open/close
         // (agent-card-header.tsx): a data-agent-control="true" marker plus
         // closest() lets interactive descendants (the overflow menu, the
         // resume button) opt out of the row's own click, the same
@@ -110,11 +110,11 @@ export function ChildAgentRow({
         if (target.closest("[data-agent-control='true']")) return;
         if (isStopped) return;
         if (isConnectedActive) {
-          detachTerminal();
+          closeAgent();
           return;
         }
         if (closeOnSessionAction) onRequestClose?.();
-        void attachToAgent(agent);
+        void openAgent(agent);
       }}
       className={cn(
         // Rounded on every corner, like an ordinary pill, with a normal
@@ -225,11 +225,9 @@ export function ChildAgentRow({
           </Tooltip>
         ) : null}
         {/*
-          Session lifecycle controls. A sub agent used to offer only terminal
-          attach and resume, so moving plain children into this section would
-          have stripped the pause/rename/archive an agent card carries in its
-          footer. They live behind an overflow menu because the row has one
-          action slot.
+          Session lifecycle controls: the pause/rename/archive an agent card
+          carries in its footer. They live behind an overflow menu because the
+          row has one action slot.
         */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -255,29 +253,28 @@ export function ChildAgentRow({
           */}
           <DropdownMenuContent align="end" data-agent-control="true">
             {!isStopped ? (
-              // The keyboard/screen-reader path to connect — the row's own
-              // click-to-attach has no non-mouse equivalent, so this is the
-              // only accessible way to reach a sub agent's terminal. Label
-              // and action both follow isConnectedActive, matching what the
-              // row's own accent and click already mean by "connected."
+              // The keyboard/screen-reader path to open the sub agent's page
+              // (the row's own click has no non-mouse equivalent). Label and
+              // action both follow isConnectedActive, matching what the row's
+              // own accent and click already mean by "open."
               <DropdownMenuItem
                 className={menuItemClass}
-                data-testid={`child-agent-terminal-${agent.id}`}
+                data-testid={`child-agent-open-${agent.id}`}
                 onSelect={() => {
                   if (isConnectedActive) {
-                    detachTerminal();
+                    closeAgent();
                     return;
                   }
                   if (closeOnSessionAction) onRequestClose?.();
-                  void attachToAgent(agent);
+                  void openAgent(agent);
                 }}
               >
                 {isConnectedActive ? (
                   <Unplug className="h-3.5 w-3.5" />
                 ) : (
-                  <Terminal className="h-3.5 w-3.5" />
+                  <MessageSquare className="h-3.5 w-3.5" />
                 )}
-                {isConnectedActive ? "Detach" : "View terminal"}
+                {isConnectedActive ? "Close" : "Open"}
               </DropdownMenuItem>
             ) : null}
             {!isStopped && !isArchiving ? (

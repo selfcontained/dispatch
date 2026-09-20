@@ -36,8 +36,8 @@ export type AgentCardHeaderProps = {
   connectedAgentId?: string | null;
   closeOnSessionAction: boolean;
   onRequestClose?: () => void;
-  detachTerminal: () => void;
-  attachToAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
   toggleAgentDetails: (agentId: string) => void;
 };
@@ -54,8 +54,8 @@ export function AgentCardHeader({
   connectedAgentId,
   closeOnSessionAction,
   onRequestClose,
-  detachTerminal,
-  attachToAgent,
+  closeAgent,
+  openAgent,
   startAgent,
   toggleAgentDetails,
 }: AgentCardHeaderProps): JSX.Element {
@@ -100,12 +100,12 @@ export function AgentCardHeader({
         if (target.closest("[data-agent-control='true']")) return;
         // A stopped agent's Chat history stays readable.
         if (connectedAgentId === agent.id) {
-          detachTerminal();
+          closeAgent();
           if (isExpanded) toggleAgentDetails(agent.id);
           return;
         }
         if (closeOnSessionAction) onRequestClose?.();
-        void attachToAgent(agent);
+        void openAgent(agent);
       }}
     >
       <div className="flex flex-1 min-w-0 items-center gap-1.5">
@@ -245,7 +245,7 @@ export function AgentCardHeader({
                 connectedAgentId &&
                 childAgents.some((c) => c.id === connectedAgentId)
               ) {
-                detachTerminal();
+                closeAgent();
               }
               toggleAgentDetails(agent.id);
             }}

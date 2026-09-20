@@ -48,8 +48,8 @@ export type AgentListContentProps = {
   isFullAccessEnabled: (
     agent: Pick<Agent, "agentArgs" | "fullAccess">
   ) => boolean;
-  detachTerminal: () => void;
-  attachToAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
   connectedAgentId?: string | null;
   onRequestClose?: () => void;
@@ -74,8 +74,8 @@ export function AgentListContent({
   borderForAgentState,
   toggleAgentDetails,
   isFullAccessEnabled,
-  detachTerminal,
-  attachToAgent,
+  closeAgent,
+  openAgent,
   startAgent,
   connectedAgentId,
   onRequestClose,
@@ -338,8 +338,8 @@ export function AgentListContent({
                   borderForAgentState={borderForAgentState}
                   toggleAgentDetails={toggleAgentDetails}
                   isFullAccessEnabled={isFullAccessEnabled}
-                  detachTerminal={detachTerminal}
-                  attachToAgent={attachToAgent}
+                  closeAgent={closeAgent}
+                  openAgent={openAgent}
                   startAgent={startAgent}
                   setDeleteTarget={setDeleteTarget}
                   setDeleteConfirmOpen={setDeleteConfirmOpen}

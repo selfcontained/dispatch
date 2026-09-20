@@ -34,7 +34,7 @@ export function useAgentActions({
     [setExpandedAgentId]
   );
 
-  const attachToAgent = useCallback(
+  const openAgent = useCallback(
     async (agent: Agent) => {
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
@@ -56,7 +56,7 @@ export function useAgentActions({
     [ensureAuxExpanded, navigate, refreshMedia]
   );
 
-  const detachAndClearSelection = useCallback(() => {
+  const closeAgentAndClearSelection = useCallback(() => {
     navigate("/agents");
   }, [navigate]);
 
@@ -118,12 +118,12 @@ export function useAgentActions({
   );
 
   return {
-    attachToAgent,
+    openAgent,
     startAgent,
     stopAgent,
     deleteAgent,
     handleAgentCreated,
-    detachAndClearSelection,
+    closeAgentAndClearSelection,
     ensureAuxExpanded,
   };
 }

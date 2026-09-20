@@ -51,8 +51,8 @@ function renderRow(
   agent: Agent,
   overrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
 ) {
-  const attachToAgent = vi.fn().mockResolvedValue(undefined);
-  const detachTerminal = vi.fn();
+  const openAgent = vi.fn().mockResolvedValue(undefined);
+  const closeAgent = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
   const setStopTarget = vi.fn();
   const setStopConfirmOpen = vi.fn();
@@ -68,8 +68,8 @@ function renderRow(
           agent={agent}
           state="idle"
           isInitialReviewActive={true}
-          attachToAgent={attachToAgent}
-          detachTerminal={detachTerminal}
+          openAgent={openAgent}
+          closeAgent={closeAgent}
           startAgent={startAgent}
           setStopTarget={setStopTarget}
           setStopConfirmOpen={setStopConfirmOpen}
@@ -83,8 +83,8 @@ function renderRow(
   );
   const { rerender } = render(buildElement(overrides));
   return {
-    attachToAgent,
-    detachTerminal,
+    openAgent,
+    closeAgent,
     startAgent,
     setStopTarget,
     setStopConfirmOpen,
@@ -182,31 +182,31 @@ describe("ChildAgentRow", () => {
     ).toBeNull();
   });
 
-  describe("keyboard/screen-reader terminal access (the overflow menu's View terminal / Detach item)", () => {
+  describe("keyboard/screen-reader open access (the overflow menu's Open / Close item)", () => {
     it("attaches from the menu when not connected", () => {
-      const { attachToAgent } = renderRow(
+      const { openAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       openMenu();
-      fireEvent.click(screen.getByTestId("child-agent-terminal-agt_child"));
-      expect(attachToAgent).toHaveBeenCalledWith(
+      fireEvent.click(screen.getByTestId("child-agent-open-agt_child"));
+      expect(openAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "agt_child" })
       );
     });
 
     it("detaches from the menu when connected", () => {
-      const { detachTerminal } = renderRow(
+      const { closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "active" }
       );
 
       openMenu();
-      const item = screen.getByTestId("child-agent-terminal-agt_child");
-      expect(item.textContent).toContain("Detach");
+      const item = screen.getByTestId("child-agent-open-agt_child");
+      expect(item.textContent).toContain("Close");
       fireEvent.click(item);
-      expect(detachTerminal).toHaveBeenCalledOnce();
+      expect(closeAgent).toHaveBeenCalledOnce();
     });
 
     it("is absent for a stopped agent, which uses Resume instead", () => {
@@ -214,7 +214,7 @@ describe("ChildAgentRow", () => {
       renderRow(stopped, { state: "stopped" });
 
       openMenu();
-      expect(screen.queryByTestId("child-agent-terminal-agt_child")).toBeNull();
+      expect(screen.queryByTestId("child-agent-open-agt_child")).toBeNull();
     });
   });
 
@@ -270,27 +270,27 @@ describe("ChildAgentRow", () => {
 
   describe("click-to-connect (mirrors the top-level agent card)", () => {
     it("attaches by clicking anywhere on the row", () => {
-      const { attachToAgent, detachTerminal } = renderRow(
+      const { openAgent, closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-      expect(attachToAgent).toHaveBeenCalledWith(
+      expect(openAgent).toHaveBeenCalledWith(
         expect.objectContaining({ id: "agt_child" })
       );
-      expect(detachTerminal).not.toHaveBeenCalled();
+      expect(closeAgent).not.toHaveBeenCalled();
     });
 
     it("detaches by clicking an already-connected row", () => {
-      const { attachToAgent, detachTerminal } = renderRow(
+      const { openAgent, closeAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "active" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
-      expect(detachTerminal).toHaveBeenCalledOnce();
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(closeAgent).toHaveBeenCalledOnce();
+      expect(openAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach or detach by clicking a stopped row", () => {
@@ -299,25 +299,25 @@ describe("ChildAgentRow", () => {
         role: "standard" as const,
         status: "stopped" as const,
       };
-      const { attachToAgent, detachTerminal } = renderRow(stopped, {
+      const { openAgent, closeAgent } = renderRow(stopped, {
         state: "stopped",
       });
 
       const row = screen.getByTestId("child-agent-row-agt_child");
       expect(row.className).not.toContain("cursor-pointer");
       fireEvent.click(row);
-      expect(attachToAgent).not.toHaveBeenCalled();
-      expect(detachTerminal).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
+      expect(closeAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach when clicking the overflow menu button", () => {
-      const { attachToAgent } = renderRow(
+      const { openAgent } = renderRow(
         { ...baseAgent, role: "standard" },
         { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-menu-agt_child"));
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
     });
 
     it("does not attach when clicking the resume button on a stopped row", () => {
@@ -326,13 +326,13 @@ describe("ChildAgentRow", () => {
         role: "standard" as const,
         status: "stopped" as const,
       };
-      const { attachToAgent, startAgent } = renderRow(stopped, {
+      const { openAgent, startAgent } = renderRow(stopped, {
         state: "stopped",
       });
 
       fireEvent.click(screen.getByTestId("child-agent-resume-agt_child"));
       expect(startAgent).toHaveBeenCalledWith(stopped);
-      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(openAgent).not.toHaveBeenCalled();
     });
   });
 

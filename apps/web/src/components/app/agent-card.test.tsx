@@ -124,8 +124,8 @@ function baseProps(agent: Agent): AgentCardProps {
     borderForAgentState: (state) => `border-state-${state}`,
     toggleAgentDetails: vi.fn(),
     isFullAccessEnabled: (a) => a.fullAccess,
-    detachTerminal: vi.fn(),
-    attachToAgent: vi.fn().mockResolvedValue(undefined),
+    closeAgent: vi.fn(),
+    openAgent: vi.fn().mockResolvedValue(undefined),
     startAgent: vi.fn().mockResolvedValue(undefined),
     setDeleteTarget: vi.fn(),
     setDeleteConfirmOpen: vi.fn(),
@@ -238,7 +238,7 @@ describe("AgentCard state and selection", () => {
 
     // A stopped agent's Chat history stays readable.
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.attachToAgent).toHaveBeenCalledWith(props.agent);
+    expect(props.openAgent).toHaveBeenCalledWith(props.agent);
 
     fireEvent.click(screen.getByRole("button", { name: "Resume session" }));
     expect(props.startAgent).toHaveBeenCalledWith(props.agent);
@@ -250,14 +250,14 @@ describe("AgentCardHeader wiring", () => {
     const { props, rerender } = renderCard();
 
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.attachToAgent).toHaveBeenCalledWith(props.agent);
-    expect(props.detachTerminal).not.toHaveBeenCalled();
+    expect(props.openAgent).toHaveBeenCalledWith(props.agent);
+    expect(props.closeAgent).not.toHaveBeenCalled();
 
     rerender({ connectedAgentId: AGENT_ID, expandedAgentId: AGENT_ID });
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
-    expect(props.detachTerminal).toHaveBeenCalledTimes(1);
+    expect(props.closeAgent).toHaveBeenCalledTimes(1);
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
-    expect(props.attachToAgent).toHaveBeenCalledTimes(1);
+    expect(props.openAgent).toHaveBeenCalledTimes(1);
   });
 
   it("does not attach when the click lands on a control inside the row", () => {
@@ -266,7 +266,7 @@ describe("AgentCardHeader wiring", () => {
     fireEvent.click(screen.getByTestId(`agent-expand-toggle-${AGENT_ID}`));
 
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
-    expect(props.attachToAgent).not.toHaveBeenCalled();
+    expect(props.openAgent).not.toHaveBeenCalled();
   });
 
   it("detaches a connected child when the card is collapsed", () => {
@@ -279,7 +279,7 @@ describe("AgentCardHeader wiring", () => {
 
     fireEvent.click(screen.getByTestId(`agent-expand-toggle-${AGENT_ID}`));
 
-    expect(props.detachTerminal).toHaveBeenCalledTimes(1);
+    expect(props.closeAgent).toHaveBeenCalledTimes(1);
     expect(props.toggleAgentDetails).toHaveBeenCalledWith(AGENT_ID);
   });
 

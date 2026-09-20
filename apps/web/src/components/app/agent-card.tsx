@@ -50,8 +50,8 @@ export type AgentCardProps = {
   isFullAccessEnabled: (
     agent: Pick<Agent, "agentArgs" | "fullAccess">
   ) => boolean;
-  detachTerminal: () => void;
-  attachToAgent: (agent: Agent) => Promise<void>;
+  closeAgent: () => void;
+  openAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
@@ -75,8 +75,8 @@ export function AgentCard({
   borderForAgentState,
   toggleAgentDetails,
   isFullAccessEnabled,
-  detachTerminal,
-  attachToAgent,
+  closeAgent,
+  openAgent,
   startAgent,
   setDeleteTarget,
   setDeleteConfirmOpen,
@@ -157,8 +157,8 @@ export function AgentCard({
           connectedAgentId={connectedAgentId}
           closeOnSessionAction={closeOnSessionAction}
           onRequestClose={onRequestClose}
-          detachTerminal={detachTerminal}
-          attachToAgent={attachToAgent}
+          closeAgent={closeAgent}
+          openAgent={openAgent}
           startAgent={startAgent}
           toggleAgentDetails={toggleAgentDetails}
         />
@@ -229,8 +229,8 @@ export function AgentCard({
                             agent={child}
                             state={getVisualState(child)}
                             isInitialReviewActive={child.role === "review"}
-                            attachToAgent={attachToAgent}
-                            detachTerminal={detachTerminal}
+                            openAgent={openAgent}
+                            closeAgent={closeAgent}
                             startAgent={startAgent}
                             setStopTarget={setStopTarget}
                             setStopConfirmOpen={setStopConfirmOpen}
