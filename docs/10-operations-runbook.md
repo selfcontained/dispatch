@@ -208,6 +208,7 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DISPATCH_HOST`               | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
 | `DISPATCH_PORT`               | `6767`                                                 | HTTP port the server listens on                                                                          |
 | `DATABASE_URL`                | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
+| `DISPATCH_STATE_DIR`          | `$HOME/.dispatch`                                      | Root for one install's state: release/update stores, diagnostics, logs, and the defaults for `MEDIA_ROOT` and `DISPATCH_AGENT_STATE_ROOT`. Point a second instance at its own directory. |
 | `MEDIA_ROOT`                  | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                        |
 | `DISPATCH_AGENT_RUNTIME`      | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                      |
 | `DISPATCH_AGENT_STATE_ROOT`   | `$HOME/.dispatch/agents`                               | Per-agent host state directories                                                                         |

@@ -7,6 +7,7 @@ import {
   resolveConfiguredPath,
   resolveTilde,
 } from "./shared/lib/resolve-tilde.js";
+import { statePath } from "./state-dir.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -83,7 +84,7 @@ export function loadConfig(): AppConfig {
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
     mediaRoot: resolveConfiguredPath(
-      process.env.MEDIA_ROOT ?? path.join(os.homedir(), ".dispatch", "media")
+      process.env.MEDIA_ROOT ?? statePath("media")
     ),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
@@ -100,10 +101,7 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_AGENT_STATE_ROOT ??
         path.join(
           path.dirname(
-            resolveConfiguredPath(
-              process.env.MEDIA_ROOT ??
-                path.join(os.homedir(), ".dispatch", "media")
-            )
+            resolveConfiguredPath(process.env.MEDIA_ROOT ?? statePath("media"))
           ),
           "agents"
         )

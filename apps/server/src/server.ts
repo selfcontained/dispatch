@@ -154,6 +154,7 @@ import {
 } from "./observability/service-resources.js";
 import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
+import { statePath } from "./state-dir.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -253,8 +254,7 @@ function withStreamFlag<T extends AgentRecord>(
 }
 
 const serverDir = resolveConfiguredPath(
-  process.env.DISPATCH_SERVER_DIR ??
-    path.join(os.homedir(), ".dispatch", "server")
+  process.env.DISPATCH_SERVER_DIR ?? statePath("server")
 );
 const releaseRuntime = createReleaseRuntime({
   pool,

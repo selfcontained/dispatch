@@ -7,6 +7,7 @@ import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import type { AssistedUpdateMetadata } from "./release-metadata.js";
 import type { CheckResult } from "./release-checks.js";
 import type { UpdateMigrationManifest } from "./update-migrations.js";
+import { statePath } from "./state-dir.js";
 
 export const ASSISTED_PHASES = [
   "inspect",
@@ -75,7 +76,7 @@ export type AssistedUpdateState = {
 function assistedStorePath(): string {
   return resolveConfiguredPath(
     process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH ??
-      path.join(os.homedir(), ".dispatch", "assisted-update.json")
+      statePath("assisted-update.json")
   );
 }
 

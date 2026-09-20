@@ -4,6 +4,7 @@ import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
+import { statePath } from "./state-dir.js";
 
 /**
  * Local source of truth for which install-update migrations (CRU-146) have
@@ -18,7 +19,7 @@ import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 function appliedStorePath(): string {
   return resolveConfiguredPath(
     process.env.DISPATCH_APPLIED_MIGRATIONS_STORE_PATH ??
-      path.join(os.homedir(), ".dispatch", "applied-migrations.json")
+      statePath("applied-migrations.json")
   );
 }
 

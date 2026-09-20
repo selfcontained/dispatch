@@ -11,6 +11,7 @@ import { pipeline } from "node:stream/promises";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import { formatBytes } from "./shared/lib/format-bytes.js";
 import { runCommand } from "./shared/lib/run-command.js";
+import { statePath } from "./state-dir.js";
 
 /**
  * Local cache for the prebuilt release tarball. Replaces the previous
@@ -35,8 +36,7 @@ export const RELEASE_ARTIFACT_NAME = "dispatch-release.tar.gz";
 // the lookup cost is negligible.
 function cacheDir(): string {
   return resolveConfiguredPath(
-    process.env.DISPATCH_RELEASE_CACHE_DIR ??
-      path.join(os.homedir(), ".dispatch", "cache")
+    process.env.DISPATCH_RELEASE_CACHE_DIR ?? statePath("cache")
   );
 }
 

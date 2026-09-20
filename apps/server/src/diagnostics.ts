@@ -16,6 +16,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import { errorMessage } from "./shared/lib/error-message.js";
 import { runCommand } from "./shared/lib/run-command.js";
+import { statePath } from "./state-dir.js";
 
 const TMUX_INVENTORY_INTERVAL_MS = 60_000;
 const LOG_MAINTENANCE_INTERVAL_MS = 5 * 60_000;
@@ -23,11 +24,9 @@ const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const SERVER_LOG_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
-const diagnosticsRoot = (): string =>
-  path.join(os.homedir(), ".dispatch", "diagnostics");
+const diagnosticsRoot = (): string => statePath("diagnostics");
 
-const serverLogPath = (): string =>
-  path.join(os.homedir(), ".dispatch", "logs", "dispatch.log");
+const serverLogPath = (): string => statePath("logs", "dispatch.log");
 
 /**
  * Wrapper that swallows runCommand failures into a structured result so
@@ -194,7 +193,7 @@ export function createDiagnosticsRecorder(
 
         // Delete old rotated server logs (> 14 days)
         await deleteOldFiles(
-          path.join(os.homedir(), ".dispatch", "logs"),
+          statePath("logs"),
           /dispatch\.log\.\d+$/,
           SERVER_LOG_MAX_AGE_MS
         );
