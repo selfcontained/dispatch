@@ -89,6 +89,7 @@ export function rowIdentity(entry: StreamEntry, ownerId?: string): string {
   return entry.type === "turn" &&
     entry.prompt.source === "chat" &&
     entry.prompt.chatMessageId &&
+    (entry.prompt.kind ?? "text") === "text" &&
     (ownerId === undefined || entry.agentId === ownerId)
     ? entry.prompt.chatMessageId
     : entry.id;

@@ -1,3 +1,4 @@
+import type { BlockKind } from "./block-types.js";
 /**
  * Runtime-free wire contract for the chat surface — the Chat tab that sits
  * above an agent's terminal. See docs/design/blocks.md.
@@ -244,6 +245,12 @@ export type ChatTurnPrompt = {
   text: string;
   /** The block behind a chat or launch prompt. */
   chatMessageId?: string;
+  /**
+   * That block's kind. A text post is drawn by the turn it opened; any other
+   * kind (a review left by hand, a question) stays a block of its own and
+   * the turn draws no prompt post for it.
+   */
+  kind?: BlockKind;
   /**
    * A chat prompt that is a thread reply (an answer to a question, a reply
    * under a block): the thread's root. The block already shows the reply

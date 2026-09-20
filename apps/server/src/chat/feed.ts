@@ -98,7 +98,7 @@ async function listBlockEntries(
          FROM blocks b
         WHERE b.stream_id = $1
           ${scope}
-          AND NOT (b.author_kind = 'user' AND EXISTS (
+          AND NOT (b.author_kind = 'user' AND b.kind = 'text' AND EXISTS (
             SELECT 1
               FROM agent_stream_events s
              WHERE s.agent_id = $1

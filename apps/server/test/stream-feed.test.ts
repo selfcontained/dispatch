@@ -389,6 +389,40 @@ describe("composeStreamFeed", () => {
     });
     // Neither is it readable back as its own feed row.
     expect(await loadBlockEntry(pool, A, prompt.id)).toBeNull();
+    // A review left by hand opens a turn too, but stays a row of its own:
+    // the turn says what kind it was and draws no prompt post for it.
+    const review = await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: A,
+      kind: "review",
+      text: "",
+      data: { verdict: "approve", summary: "Fine.", findings: [] },
+      state: { findings: {} },
+      delivered: true,
+    });
+    await stamp(review.id, at(4));
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 2, 'turn', $2::jsonb, $3, $3)`,
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          stopReason: "end_turn",
+          prompt: { source: "chat", chatMessageId: review.id },
+          endedAt: at(5).toISOString(),
+        }),
+        at(5),
+      ]
+    );
+    const withReview = await composeStreamFeed(store, A);
+    expect(blockEntries(withReview).map((e) => e.id)).toContain(review.id);
+    expect(
+      withReview.entries.find(
+        (e) => e.type === "turn" && e.prompt.chatMessageId === review.id
+      )
+    ).toMatchObject({ prompt: { kind: "review" } });
     // A prompt on another agent's stream is not hidden by this agent's turn.
     const foreign = await store.insert({
       streamId: OTHER,
@@ -398,7 +432,7 @@ describe("composeStreamFeed", () => {
     });
     await pool.query(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
-       VALUES ($1, 2, 'turn', $2::jsonb)`,
+       VALUES ($1, 3, 'turn', $2::jsonb)`,
       [
         A,
         JSON.stringify({

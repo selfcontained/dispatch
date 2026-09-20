@@ -286,7 +286,13 @@ test.describe("Chat surface", () => {
     await expect(
       post.getByRole("link", { name: "https://example.com/design" })
     ).toHaveAttribute("href", "https://example.com/design");
-    await expect(post.getByTestId("chat-delivery-failed")).toBeVisible();
+    // Inert runtime: nothing to deliver to, so the post shows as failed.
+    // Live runtime: the fake engine takes it and answers.
+    if (process.env.DISPATCH_AGENT_RUNTIME === "acp") {
+      await expect(post.getByTestId("chat-delivery-failed")).toHaveCount(0);
+    } else {
+      await expect(post.getByTestId("chat-delivery-failed")).toBeVisible();
+    }
 
     // The server stored the attachment on the message.
     await expect

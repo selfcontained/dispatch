@@ -103,6 +103,7 @@ function promptFor(
       text: block?.text ?? "",
       chatMessageId: source.chatMessageId,
       ...(block?.threadId ? { threadId: block.threadId } : {}),
+      ...(block && block.kind !== "text" ? { kind: block.kind } : {}),
       attachments: block?.attachments ?? [],
     };
   }

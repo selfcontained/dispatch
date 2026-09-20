@@ -154,7 +154,8 @@ export function withoutTurnPrompts(entries: StreamEntry[]): StreamEntry[] {
     if (
       entry.type === "turn" &&
       entry.prompt.source === "chat" &&
-      entry.prompt.chatMessageId
+      entry.prompt.chatMessageId &&
+      (entry.prompt.kind ?? "text") === "text"
     ) {
       prompts.add(entry.prompt.chatMessageId);
     }

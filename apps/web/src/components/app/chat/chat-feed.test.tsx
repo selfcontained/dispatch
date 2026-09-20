@@ -1713,5 +1713,13 @@ describe("rowIdentity", () => {
     expect(rowIdentity(turn("turn:1", "agt_1"), "agt_1")).toBe("msg-1");
     expect(rowIdentity(turn("turn:2", "agt_child"), "agt_1")).toBe("turn:2");
     expect(rowIdentity(turn("turn:2", "agt_child"))).toBe("msg-1");
+    // A review left by hand opened the turn: the review stays its own row.
+    const fromReview = turn("turn:3", "agt_1");
+    expect(
+      rowIdentity(
+        { ...fromReview, prompt: { ...fromReview.prompt, kind: "review" } },
+        "agt_1"
+      )
+    ).toBe("turn:3");
   });
 });

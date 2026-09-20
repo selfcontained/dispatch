@@ -279,9 +279,13 @@ function TurnBody({
    * apart whenever the prompt had queued.
    */
   // A reply in a thread (an answer to a question) is already shown by the
-  // block it answers, so the turn it opened draws no prompt post either.
+  // block it answers, and a block of another kind (a review left by hand)
+  // is a row of its own, so the turn either opened draws no prompt post.
   const showsPrompt =
-    !hidePrompt && entry.prompt.source !== "agent" && !entry.prompt.threadId;
+    !hidePrompt &&
+    entry.prompt.source !== "agent" &&
+    !entry.prompt.threadId &&
+    (entry.prompt.kind ?? "text") === "text";
   const promptTurn = useMemo(() => promptTurnModel(entry), [entry]);
   const prompt = useMemo(() => promptBlock(entry), [entry]);
   return (
