@@ -379,6 +379,7 @@ export function Post({
   rule = false,
   side,
   action,
+  flush = false,
   children,
   ...rest
 }: {
@@ -391,6 +392,11 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
+  /**
+   * No avatar gutter and a narrower inset: for a card that is the whole
+   * subject of a narrow panel (a review in the drawer) and wants the width.
+   */
+  flush?: boolean;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
@@ -398,7 +404,7 @@ export function Post({
     <div
       className={cn(
         "group relative flex min-w-0 max-w-full gap-3 transition-colors",
-        side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
+        flush ? "px-3" : side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
         side ? POST_TINT.peer : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
@@ -408,23 +414,29 @@ export function Post({
       data-author-kind={author.kind}
       data-rule={rule ? "true" : undefined}
       data-side={side ? "true" : undefined}
+      data-flush={flush ? "true" : undefined}
       {...rest}
     >
-      <div className="flex w-8 shrink-0 justify-end">
-        {grouped ? (
-          <span
-            className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
-            title={formatDateTime(at)}
-            data-testid="chat-gutter-time"
-          >
-            {gutterTime(at)}
-          </span>
-        ) : (
-          <Avatar author={author} side={side !== undefined} />
-        )}
-      </div>
+      {flush ? null : (
+        <div className="flex w-8 shrink-0 justify-end">
+          {grouped ? (
+            <span
+              className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
+              title={formatDateTime(at)}
+              data-testid="chat-gutter-time"
+            >
+              {gutterTime(at)}
+            </span>
+          ) : (
+            <Avatar author={author} side={side !== undefined} />
+          )}
+        </div>
+      )}
       <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
-        {action ? (
+        {/* Floated beside the body, except in a flush post: there a card
+            with its own overflow context would shrink to dodge the float,
+            so the action sits in the header row instead. */}
+        {action && !flush ? (
           <div
             className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
             data-testid="chat-post-action"
@@ -466,6 +478,11 @@ export function Post({
             >
               {clockTime(at)}
             </span>
+            {action && flush ? (
+              <div className="ml-auto -my-1" data-testid="chat-post-action">
+                {action}
+              </div>
+            ) : null}
           </div>
         )}
         <div
@@ -729,8 +746,9 @@ export function unreadCommentsOf(
   for (const reply of replies) {
     if (reply.author.kind !== "agent" || reply.readAt !== null) continue;
     const findingId =
-      (reply.kind === "text" && reply.data ? reply.data.findingId : undefined) ??
-      "";
+      (reply.kind === "text" && reply.data
+        ? reply.data.findingId
+        : undefined) ?? "";
     counts[findingId] = (counts[findingId] ?? 0) + 1;
   }
   return counts;
@@ -895,6 +913,8 @@ export const BlockView = memo(function BlockView({
       grouped={grouped}
       rule={rule}
       side={side}
+      // The drawer's review page is the review: give the card the width.
+      flush={inThread && block.kind === "review"}
       data-testid="chat-message"
       data-author={author.kind === "peer" ? "peer" : "agent"}
       data-kind={block.kind}

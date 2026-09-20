@@ -306,7 +306,7 @@ export function ThreadPanel({
           </div>
         ) : null}
         {thread.root && finding && thread.root.kind === "review" ? (
-          <div className="px-4 pb-2 pt-1">
+          <div className="px-3 pb-2 pt-1">
             <FindingDetail
               block={thread.root}
               finding={finding}

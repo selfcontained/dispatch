@@ -81,12 +81,15 @@ export function entryVersion(entry: StreamEntry): string {
  * row has to be the same element through that swap or the message fades
  * in twice.
  */
-export function rowIdentity(entry: StreamEntry): string {
-  // Only a person's post ("chat") is drawn by its turn; a launch block or
-  // another agent's post stays a row of its own beside the turn it opened.
+export function rowIdentity(entry: StreamEntry, ownerId?: string): string {
+  // Only a person's post ("chat") is drawn by its turn, and only the page
+  // agent's turn: a launch block or another agent's post stays a row of
+  // its own beside the turn it opened, and a child answering the same
+  // message keeps its own row rather than colliding with the parent's.
   return entry.type === "turn" &&
     entry.prompt.source === "chat" &&
-    entry.prompt.chatMessageId
+    entry.prompt.chatMessageId &&
+    (ownerId === undefined || entry.agentId === ownerId)
     ? entry.prompt.chatMessageId
     : entry.id;
 }
@@ -125,7 +128,8 @@ export function entryGrowthKey(entry: StreamEntry): string {
  * mode) settles on the same result.
  */
 export function useEnteringEntries(
-  entries: StreamEntry[]
+  entries: StreamEntry[],
+  ownerId?: string
 ): ReadonlyMap<string, string> {
   const seenRef = useRef<Map<string, string> | null>(null);
   const newestAtRef = useRef("");
@@ -133,7 +137,7 @@ export function useEnteringEntries(
 
   if (seenRef.current === null) {
     seenRef.current = new Map(
-      entries.map((entry) => [rowIdentity(entry), entryVersion(entry)])
+      entries.map((entry) => [rowIdentity(entry, ownerId), entryVersion(entry)])
     );
     for (const entry of entries) {
       if (entry.at > newestAtRef.current) newestAtRef.current = entry.at;
@@ -147,7 +151,7 @@ export function useEnteringEntries(
   let newest = newestAtRef.current;
   let afterSeen = false;
   for (const entry of entries) {
-    const id = rowIdentity(entry);
+    const id = rowIdentity(entry, ownerId);
     present.add(id);
     const version = entryVersion(entry);
     const prior = seen.get(id);
@@ -434,7 +438,7 @@ export function ChatFeed({
   onAnswer,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
-  const entering = useEnteringEntries(entries);
+  const entering = useEnteringEntries(entries, ctx.agentId);
   // Disclosure state per row (an expanded step, a folded rail), owned here so
   // it survives a row re-rendering; entries that left the feed drop theirs.
   const rowStates = useRef(new Map<string, ChatRowState>());
@@ -559,8 +563,8 @@ export function ChatFeed({
         })();
         return (
           <Enter
-            key={rowIdentity(entry)}
-            id={rowIdentity(entry)}
+            key={rowIdentity(entry, ctx.agentId)}
+            id={rowIdentity(entry, ctx.agentId)}
             entering={entering}
           >
             <ChatRowStateContext.Provider value={rowState(entry.id)}>

@@ -43,6 +43,7 @@ import {
   latestOpenFreeformQuestion,
   latestUserBlockId,
   layoutFeed,
+  rowIdentity,
   useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
 
@@ -1684,5 +1685,33 @@ describe("turn entries", () => {
     expect(
       latestOpenFreeformQuestion([turnEntry(), blockEntry(question)])?.id
     ).toBe("q1");
+  });
+});
+
+describe("rowIdentity", () => {
+  const turn = (id: string, agentId: string): StreamEntry => ({
+    type: "turn",
+    id,
+    agentId,
+    at: "2026-09-02T10:00:00.000Z",
+    updatedAt: "2026-09-02T10:00:00.000Z",
+    prompt: {
+      source: "chat",
+      chatMessageId: "msg-1",
+      text: "hi",
+      attachments: [],
+    },
+    trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+    result: null,
+    settled: true,
+    interrupted: false,
+  });
+
+  it("draws only the page agent's turn as the message that opened it", () => {
+    // The parent's turn is the message's row; a child's turn on the same
+    // message keeps its own, so the two never share a key.
+    expect(rowIdentity(turn("turn:1", "agt_1"), "agt_1")).toBe("msg-1");
+    expect(rowIdentity(turn("turn:2", "agt_child"), "agt_1")).toBe("turn:2");
+    expect(rowIdentity(turn("turn:2", "agt_child"))).toBe("msg-1");
   });
 });
