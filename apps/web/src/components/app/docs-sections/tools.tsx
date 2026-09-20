@@ -153,8 +153,8 @@ export function ToolsContent() {
           <strong>stream</strong> as a block. The Chat tab renders the stream;
           the sidebar&apos;s Rail tab and notifications derive from it. There is
           one stream per root agent — children post into their parent&apos;s
-          stream — and every top-level block has a thread that opens in the side
-          panel. Three tools cover the whole surface:
+          stream — and every top-level block has a thread that opens as a page
+          in the drawer. Three tools cover it:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>

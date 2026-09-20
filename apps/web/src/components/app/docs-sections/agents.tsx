@@ -24,7 +24,6 @@ export function AgentsContent() {
           <li>
             <strong>Name</strong> — optional display name. Leave it blank and
             the agent picks its own name once it has a sense of the task.
-            Terminal agents fall back to a generated name.
           </li>
           <li>
             <strong>Working directory</strong> — path to the repo. Autocompletes
@@ -66,11 +65,10 @@ export function AgentsContent() {
           per directory and agent type.
         </P>
         <P>
-          Click <strong>Create</strong> to start the agent immediately. For CLI
-          types, <strong>Create with context</strong> opens a second step where
-          you can add startup instructions, attach files, and add links for the
-          new session before launch; terminal agents skip this since there is no
-          CLI to send a message to.
+          Click <strong>Create</strong> to start the agent immediately.{" "}
+          <strong>Create with context</strong> opens a second step where you can
+          add startup instructions, attach files, and add links for the new
+          session before launch.
         </P>
       </Section>
 
@@ -87,13 +85,12 @@ export function AgentsContent() {
       <Section>
         <H3>Status indicators</H3>
         <P>
-          CLI agents in the sidebar show a color-coded status from their latest
-          event: green for <strong>working</strong>, red for{" "}
-          <strong>blocked</strong>, yellow for <strong>waiting</strong>, and
-          blue for <strong>done</strong>. Collapsed cards show the status,
-          elapsed time, and the repo or directory name; expand the card to see
-          the full event message. Terminal agents have no CLI to emit events, so
-          their card stays neutral.
+          Agents in the sidebar show a color-coded status derived from their
+          stream: green for <strong>working</strong> (a turn is running), red
+          for <strong>blocked</strong> (the turn ended in an error), yellow for{" "}
+          <strong>waiting</strong> (an open question or form for you), and idle
+          otherwise. Collapsed cards show the status, elapsed time, and the repo
+          or directory name; expand the card to see the full status line.
         </P>
       </Section>
 
@@ -138,8 +135,8 @@ export function AgentsContent() {
           Press the play button on a stopped agent's row to resume it. To stop a
           running agent, expand its card and press the pause button in the
           footer — a confirmation dialog appears first, and you can resume the
-          session later. Click an agent card to attach your terminal to its
-          session, or click again to detach without stopping.
+          session later. Click an agent card to open its Chat; a stopped
+          agent&apos;s Chat stays readable.
         </P>
       </Section>
 
@@ -189,13 +186,14 @@ export function AgentsContent() {
       <Section>
         <H3 id="split-tabs">Changes tab</H3>
         <P>
-          The <strong>Changes</strong> tab next to <strong>Terminal</strong> in
-          the center pane shows a diff of the agent's uncommitted work against
-          its base branch. Each file is syntax-highlighted and can be collapsed
-          individually. A file tree sidebar lists all changed files with their
-          status (added, modified, deleted) and line counts — click a file to
-          scroll to it. Large diffs are truncated by default with a button to
-          load the full content.
+          The <strong>Changes</strong> tab next to <strong>Agent</strong> in the
+          center pane shows a diff of the agent's uncommitted work against its
+          base branch, with any review findings placed at the lines they name.
+          Each file is syntax-highlighted and can be collapsed individually. A
+          file tree sidebar lists all changed files with their status (added,
+          modified, deleted) and line counts — click a file to scroll to it.
+          Large diffs are truncated by default with a button to load the full
+          content.
         </P>
         <P>
           Click the <strong>gear icon</strong> in the tab bar to open diff
@@ -212,8 +210,8 @@ export function AgentsContent() {
         </P>
         <P>
           On desktop, drag any center-pane tab onto the left or right side of
-          the pane to split the workspace. Split panes let you keep the terminal
-          and diff visible together, resize them with the center handle, and
+          the pane to split the workspace. Split panes let you keep the Chat and
+          the diff visible together, resize them with the center handle, and
           return to a single pane with the unsplit control.
         </P>
         <P>
@@ -341,8 +339,8 @@ export function AgentsContent() {
           prompt asking it to set a descriptive session name via the{" "}
           <Code>rename_session</Code> tool. You can also trigger this manually
           by clicking the <strong>Tag</strong> icon that appears next to a
-          running agent that still has a default name. Terminal agents, persona
-          agents, and job agents are excluded from both paths.
+          running agent that still has a default name. Persona agents and job
+          agents are excluded from both paths.
         </P>
         <P>
           To rename any agent yourself, expand its sidebar card and click the
@@ -383,11 +381,9 @@ export function AgentsContent() {
         </P>
         <P>
           Nesting stops at one level: a sub agent can only launch independent
-          agents, not children or personas of its own. Clicking a sub agent
-          row's own body connects or disconnects its terminal, the same way a
-          top-level card's row does. An overflow menu carries the rest of its
-          session controls: <strong>View terminal</strong>/
-          <strong>Detach</strong>, <strong>Pause</strong>/
+          agents, not children or personas of its own. Clicking a sub agent row
+          opens its page, the same way a top-level card's row does. An overflow
+          menu carries the rest of its session controls: <strong>Pause</strong>/
           <strong>Resume</strong>, <strong>Session details</strong>, and{" "}
           <strong>Archive</strong>. Selecting a sub agent expands the card it
           lives in.

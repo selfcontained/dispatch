@@ -132,9 +132,7 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
         <P>
           Dispatch never reads the CLI's plugin state, so this is your
           assertion, not a detection: switching it on without the plugin
-          installed drops that guidance with nothing replacing it. Only Claude
-          Code and Codex agents are ever trimmed — OpenCode and Cursor have no
-          plugin, so they keep the full ruleset either way — and job runs are
+          installed drops that guidance with nothing replacing it. Job runs are
           untouched. Guidance is composed at launch, so a change only affects
           agents started afterwards.
         </P>

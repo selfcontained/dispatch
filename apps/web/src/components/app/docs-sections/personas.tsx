@@ -28,9 +28,8 @@ export function PersonasContent() {
           where the git diff is not the subject.
         </P>
         <P>
-          Persona agents always run as a CLI-type agent (claude / codex / cursor
-          / opencode); the launcher only offers types that have a CLI assistant,
-          so terminal-type agents are not selectable.
+          Persona agents run as <Code>claude</Code> or <Code>codex</Code> agents
+          like any other; the launcher lets you pick which.
         </P>
         <P>
           From the UI, the <strong>Launch personas</strong> button on the
@@ -145,9 +144,8 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <P>
           The agent that received the review works the findings the same way you
           do: it changes a finding&apos;s status with <Code>update</Code> on the
-          block (
-          <Code>{'{ id, state: { findings: { <id>: "fixed" } } }'}</Code>, or
-          dismissed with a note:{" "}
+          block (<Code>{'{ id, state: { findings: { <id>: "fixed" } } }'}</Code>
+          , or dismissed with a note:{" "}
           <Code>
             {'{ <id>: { status: "resolved", resolution: "dismissed", note } }'}
           </Code>
@@ -155,11 +153,11 @@ issues caused or worsened by this diff.`}</CodeBlock>
           <Code>replyTo</Code> set to the review block and <Code>finding</Code>{" "}
           to the finding&apos;s id. Each comment goes to one side of the review,
           reviewer or builder, as a new prompt, so a fix can be re-inspected
-          without polling; the reviewer answers in the same thread and can reopen
-          a finding. The review is open until a finding is resolved, partially
-          resolved while some are, and resolved once every one is. Only the
-          block&apos;s author and the agent it is addressed to may change its
-          state.
+          without polling; the reviewer answers in the same thread and can
+          reopen a finding. The review is open until a finding is resolved,
+          partially resolved while some are, and resolved once every one is.
+          Only the block&apos;s author and the agent it is addressed to may
+          change its state.
         </P>
         <P>
           You can also leave a review by hand from the Changes tab:{" "}

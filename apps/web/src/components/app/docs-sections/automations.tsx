@@ -48,11 +48,8 @@ export function AutomationsContent() {
             <Code>{"{{D:Arg Name|required|multiline}}"}</Code> (see below).
           </li>
           <li>
-            <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>, or{" "}
-            <Code>terminal</Code>. Terminal templates launch a plain shell
-            session and skip the prompt, worktree, full access, media, and
-            self-improve fields below.
+            <strong>Agent type</strong> — <Code>claude</Code> or{" "}
+            <Code>codex</Code>.
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model
@@ -211,9 +208,8 @@ export function AutomationsContent() {
             can save the schedule without firing it yet.
           </li>
           <li>
-            <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-            <Code>codex</Code>, <Code>cursor</Code>, or <Code>opencode</Code>.
-            Terminal-type agents can't run jobs.
+            <strong>Agent type</strong> — <Code>claude</Code> or{" "}
+            <Code>codex</Code>.
           </li>
           <li>
             <strong>Model</strong> — shown for agent types with a curated model
@@ -355,11 +351,10 @@ export function AutomationsContent() {
             shape.
           </li>
           <li>
-            <Code>job_needs_input</Code> — pause the run and surface the
-            question on its History entry. Answer the agent in its own terminal
-            session; the run stays in <Code>needs_input</Code> until the agent
-            calls a terminal tool or a timeout fires. There is no answer box in
-            the Jobs UI.
+            <Code>job_needs_input</Code> — pause the run and show the question
+            on its History entry. Answer the agent in its Chat; the run stays in{" "}
+            <Code>needs_input</Code> until the agent reports again or a timeout
+            fires. There is no answer box in the Jobs UI.
           </li>
         </ul>
         <P>
