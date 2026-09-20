@@ -16,7 +16,7 @@ import {
   loadApp,
   setAgentLatestEventViaAPI,
   seedBlockViaDB,
-  uploadMediaViaAPI,
+  uploadFileViaAPI,
 } from "./helpers";
 
 const AUTH_HEADERS = {
@@ -122,7 +122,7 @@ test.describe("Overflow layout", () => {
     await rm(overflowCwd, { recursive: true, force: true });
   });
 
-  test("agents workspace keeps sidebar, media, and agent pane overflow isolated", async ({
+  test("agents workspace keeps sidebar, drawer, and agent pane overflow isolated", async ({
     page,
     request,
   }) => {
@@ -143,25 +143,25 @@ test.describe("Overflow layout", () => {
 
     await Promise.all(
       Array.from({ length: 14 }, (_, index) =>
-        uploadMediaViaAPI(
+        uploadFileViaAPI(
           request,
           focusAgent.id,
-          `Overflow media item ${index + 1}`,
-          `overflow-media-${index + 1}.png`
+          `Overflow file item ${index + 1}`,
+          `overflow-file-${index + 1}.png`
         )
       )
     );
 
     await loadApp(page);
     await clickAgentRow(page, focusAgent.id);
-    await page.getByTestId("toggle-media-sidebar").click();
+    await page.getByTestId("toggle-drawer").click();
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
     const railScroll = page.getByTestId("stream-rail");
     const agentPane = page.getByTestId("agent-pane");
-    const mediaSidebar = page.getByTestId("media-sidebar");
+    const drawer = page.getByTestId("drawer");
 
-    await mediaSidebar.getByTestId("sidebar-tab-rail").click();
+    await drawer.getByTestId("sidebar-tab-rail").click();
 
     await expect(agentSidebarScroll).toBeVisible();
     await expect(railScroll).toBeVisible();
@@ -192,23 +192,23 @@ test.describe("Overflow layout", () => {
       Math.abs(agentBoxAfterSidebarScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
 
-    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await drawer.getByRole("button", { name: "Files" }).click();
 
-    const mediaPanelScroll = page.getByTestId("media-panel-scroll");
-    await expect(mediaPanelScroll).toBeVisible();
-    await expectOverflow(mediaPanelScroll);
+    const filesPanelScroll = page.getByTestId("files-panel-scroll");
+    await expect(filesPanelScroll).toBeVisible();
+    await expectOverflow(filesPanelScroll);
 
-    await scrollToBottom(mediaPanelScroll);
+    await scrollToBottom(filesPanelScroll);
 
     await expect
-      .poll(async () => (await getScrollMetrics(mediaPanelScroll)).scrollTop)
+      .poll(async () => (await getScrollMetrics(filesPanelScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 
-    const agentBoxAfterMediaScroll = await agentPane.boundingBox();
-    expect(agentBoxAfterMediaScroll).not.toBeNull();
+    const agentBoxAfterDrawerScroll = await agentPane.boundingBox();
+    expect(agentBoxAfterDrawerScroll).not.toBeNull();
     expect(
-      Math.abs(agentBoxAfterMediaScroll!.height - agentBoxBefore!.height)
+      Math.abs(agentBoxAfterDrawerScroll!.height - agentBoxBefore!.height)
     ).toBeLessThan(2);
   });
 

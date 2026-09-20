@@ -34,8 +34,8 @@ function baseContext(): AgentLifecycleContext {
     agentId: AGENT_ID,
     upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
-    listMedia: vi.fn(async () => []),
-    deleteMedia: vi.fn(async () => {}),
+    listFiles: vi.fn(async () => []),
+    deleteFile: vi.fn(async () => {}),
   };
 }
 
@@ -50,11 +50,11 @@ describe("registerAgentLifecycleTools", () => {
 
   describe("conditional registration", () => {
     it("registers all lifecycle tools when all are allowed and context is complete", () => {
-      const allowed = new Set(["rename_session", "list_media", "delete_media"]);
+      const allowed = new Set(["rename_session", "list_files", "delete_file"]);
       registerAgentLifecycleTools(server as never, allowed, baseContext());
 
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["rename_session", "list_media", "delete_media"]);
+      expect(names).toEqual(["rename_session", "list_files", "delete_file"]);
     });
 
     it("registers nothing when allowed set is empty", () => {
@@ -73,23 +73,23 @@ describe("registerAgentLifecycleTools", () => {
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips list_media when listMedia is missing", () => {
+    it("skips list_files when listFiles is missing", () => {
       const ctx = baseContext();
-      delete ctx.listMedia;
+      delete ctx.listFiles;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media"]),
+        new Set(["list_files"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
     });
 
-    it("skips delete_media when deleteMedia is missing", () => {
+    it("skips delete_file when deleteFile is missing", () => {
       const ctx = baseContext();
-      delete ctx.deleteMedia;
+      delete ctx.deleteFile;
       registerAgentLifecycleTools(
         server as never,
-        new Set(["delete_media"]),
+        new Set(["delete_file"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
@@ -98,11 +98,11 @@ describe("registerAgentLifecycleTools", () => {
     it("only registers tools that are in the allowed set", () => {
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media", "delete_media"]),
+        new Set(["list_files", "delete_file"]),
         baseContext()
       );
       const names = server.tools.map((t) => t.name);
-      expect(names).toEqual(["list_media", "delete_media"]);
+      expect(names).toEqual(["list_files", "delete_file"]);
     });
   });
 
@@ -153,10 +153,10 @@ describe("registerAgentLifecycleTools", () => {
     expect(server.tools.map((t) => t.name)).toEqual(["rename_session"]);
   });
 
-  // ── list_media handler ─────────────────────────────────
+  // ── list_files handler ─────────────────────────────────
 
-  describe("list_media handler", () => {
-    it("calls listMedia and returns JSON items", async () => {
+  describe("list_files handler", () => {
+    it("calls listFiles and returns JSON items", async () => {
       const items = [
         {
           fileName: "screenshot.png",
@@ -168,16 +168,16 @@ describe("registerAgentLifecycleTools", () => {
         },
       ];
       const ctx = baseContext();
-      ctx.listMedia = vi.fn(async () => items);
+      ctx.listFiles = vi.fn(async () => items);
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       const result = await server.tools[0]!.handler({ source: "screenshot" });
 
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: "screenshot",
         ownerAgentId: undefined,
       });
@@ -190,12 +190,12 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       await server.tools[0]!.handler({});
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: undefined,
         ownerAgentId: undefined,
       });
@@ -205,12 +205,12 @@ describe("registerAgentLifecycleTools", () => {
       const ctx = baseContext();
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
       await server.tools[0]!.handler({ ownerAgentId: "agt_child" });
-      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+      expect(ctx.listFiles).toHaveBeenCalledWith(AGENT_ID, {
         source: undefined,
         ownerAgentId: "agt_child",
       });
@@ -218,12 +218,12 @@ describe("registerAgentLifecycleTools", () => {
 
     it("returns tool error on failure", async () => {
       const ctx = baseContext();
-      ctx.listMedia = vi.fn(async () => {
+      ctx.listFiles = vi.fn(async () => {
         throw new Error("Storage unavailable");
       });
       registerAgentLifecycleTools(
         server as never,
-        new Set(["list_media"]),
+        new Set(["list_files"]),
         ctx
       );
 
@@ -235,13 +235,13 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
-  describe("delete_media handler", () => {
-    it("deletes the named media file", async () => {
+  describe("delete_file handler", () => {
+    it("deletes the named file", async () => {
       const ctx = baseContext();
-      ctx.deleteMedia = vi.fn(async () => {});
+      ctx.deleteFile = vi.fn(async () => {});
       registerAgentLifecycleTools(
         server as never,
-        new Set(["delete_media"]),
+        new Set(["delete_file"]),
         ctx
       );
 
@@ -249,9 +249,9 @@ describe("registerAgentLifecycleTools", () => {
         fileName: "screenshot.png",
       });
 
-      expect(ctx.deleteMedia).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
+      expect(ctx.deleteFile).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
       expect(result).toEqual({
-        content: [{ type: "text", text: 'Deleted media "screenshot.png".' }],
+        content: [{ type: "text", text: 'Deleted file "screenshot.png".' }],
       });
     });
   });

@@ -4,7 +4,7 @@ import type {
   HistoryChildAgent,
   HistoryEvent,
   HistoryLatestEvent,
-  HistoryMedia,
+  HistoryFile,
   HistoryTokenUsage,
 } from "../../../server/src/routes/activity/history-wire";
 
@@ -17,12 +17,7 @@ const HISTORY_QUERY_OPTIONS = {
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type {
-  HistoryChildAgent,
-  HistoryEvent,
-  HistoryMedia,
-  HistoryTokenUsage,
-};
+export type { HistoryChildAgent, HistoryEvent, HistoryFile, HistoryTokenUsage };
 
 export type HistoryAgent = {
   id: string;
@@ -59,7 +54,7 @@ export type HistoryAgentDetail = {
   agent: Omit<HistoryAgent, "durationMs" | "totalTokens">;
   events: HistoryEvent[];
   tokenUsage: HistoryTokenUsage;
-  media: HistoryMedia[];
+  files: HistoryFile[];
   stateDurations: Record<string, number>;
 };
 

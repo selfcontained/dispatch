@@ -36,7 +36,7 @@ const createdAgent = {
   agentArgs: [],
   model: null,
   fullAccess: false,
-  mediaDir: null,
+  filesDir: null,
   createdAt: "2026-07-31T00:00:00.000Z",
   updatedAt: "2026-07-31T00:00:00.000Z",
 } as Agent;

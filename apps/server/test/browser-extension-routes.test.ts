@@ -89,7 +89,7 @@ function submissionPayload(clientSubmissionId = crypto.randomUUID()) {
 async function createSubmissionTestApp(
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>,
   opts: {
-    mediaRoot?: string;
+    filesRoot?: string;
     publishUiEvent?: (event: { type: string; agentId: string }) => void;
   } = {}
 ) {
@@ -106,7 +106,7 @@ async function createSubmissionTestApp(
       listAgents: async () => [runningAgent],
     },
     sendAgentPrompt,
-    mediaRoot: opts.mediaRoot,
+    filesRoot: opts.filesRoot,
     publishUiEvent: opts.publishUiEvent,
   });
   return app;
@@ -670,20 +670,20 @@ describe("browser extension scoped API", () => {
     }
   });
 
-  it("stores an attached screenshot as media and links it in the prompt", async () => {
+  it("stores an attached screenshot as a file and links it in the prompt", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd)
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const events: Array<{ type: string; agentId: string }> = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot, publishUiEvent: (event) => events.push(event) }
+      { filesRoot, publishUiEvent: (event) => events.push(event) }
     );
 
     try {
@@ -695,30 +695,30 @@ describe("browser extension scoped API", () => {
       });
       expect(response.statusCode).toBe(200);
 
-      const media = await ctx.pool.query<{
+      const stored = await ctx.pool.query<{
         file_name: string;
         source: string;
         size_bytes: number;
       }>(
-        `SELECT file_name, source, size_bytes FROM media WHERE agent_id = $1`,
+        `SELECT file_name, source, size_bytes FROM files WHERE agent_id = $1`,
         ["agt_running"]
       );
-      expect(media.rows).toHaveLength(1);
-      expect(media.rows[0].source).toBe("screenshot");
-      expect(media.rows[0].file_name).toMatch(/^browser-selection-.*\.png$/);
-      expect(media.rows[0].size_bytes).toBeGreaterThan(0);
+      expect(stored.rows).toHaveLength(1);
+      expect(stored.rows[0].source).toBe("screenshot");
+      expect(stored.rows[0].file_name).toMatch(/^browser-selection-.*\.png$/);
+      expect(stored.rows[0].size_bytes).toBeGreaterThan(0);
 
       const savedPath = path.join(
-        mediaRoot,
+        filesRoot,
         "agt_running",
-        media.rows[0].file_name
+        stored.rows[0].file_name
       );
       await expect(stat(savedPath)).resolves.toBeDefined();
 
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain(savedPath);
       expect(events).toContainEqual({
-        type: "media.changed",
+        type: "files.changed",
         agentId: "agt_running",
       });
     } finally {
@@ -732,13 +732,13 @@ describe("browser extension scoped API", () => {
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot }
+      { filesRoot }
     );
 
     try {
@@ -752,11 +752,11 @@ describe("browser extension scoped API", () => {
         },
       });
       expect(response.statusCode).toBe(200);
-      const media = await ctx.pool.query(
-        `SELECT 1 FROM media WHERE agent_id = $1`,
+      const stored = await ctx.pool.query(
+        `SELECT 1 FROM files WHERE agent_id = $1`,
         ["agt_running"]
       );
-      expect(media.rows).toHaveLength(0);
+      expect(stored.rows).toHaveLength(0);
       expect(prompts[0]).not.toContain("is saved at:");
     } finally {
       await app.close();
@@ -769,13 +769,13 @@ describe("browser extension scoped API", () => {
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
     const { token } = await approveAndExchange();
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
     const prompts: string[] = [];
     const app = await createSubmissionTestApp(
       async (_agentId, prompt) => {
         prompts.push(prompt);
       },
-      { mediaRoot }
+      { filesRoot }
     );
 
     try {
@@ -796,16 +796,16 @@ describe("browser extension scoped API", () => {
       expect(first.statusCode).toBe(200);
       expect(second.statusCode).toBe(200);
 
-      const media = await ctx.pool.query<{ file_name: string }>(
-        `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY id`,
+      const stored = await ctx.pool.query<{ file_name: string }>(
+        `SELECT file_name FROM files WHERE agent_id = $1 ORDER BY id`,
         ["agt_running"]
       );
-      const fileNames = media.rows.map((row) => row.file_name);
+      const fileNames = stored.rows.map((row) => row.file_name);
       expect(fileNames).toHaveLength(2);
       expect(new Set(fileNames).size).toBe(2);
       for (const fileName of fileNames) {
         await expect(
-          stat(path.join(mediaRoot, "agt_running", fileName))
+          stat(path.join(filesRoot, "agt_running", fileName))
         ).resolves.toBeDefined();
         expect(prompts.some((p) => p.includes(fileName))).toBe(true);
       }
@@ -814,13 +814,13 @@ describe("browser extension scoped API", () => {
     }
   });
 
-  it("prunes expired browser-feedback screenshots but keeps fresh/other media", async () => {
+  it("prunes expired browser-feedback screenshots but keeps fresh/other files", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd)
        VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
     );
-    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
-    const agentDir = path.join(mediaRoot, "agt_running");
+    const filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-files-"));
+    const agentDir = path.join(filesRoot, "agt_running");
     await mkdir(agentDir, { recursive: true });
 
     const staleName = `browser-selection-old-${crypto.randomUUID()}.png`;
@@ -830,7 +830,7 @@ describe("browser extension scoped API", () => {
       await writeFile(path.join(agentDir, name), Buffer.from("x"));
     }
     await ctx.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
        VALUES
          ('agt_running', $1, 'screenshot', 1, now() - interval '91 days'),
          ('agt_running', $2, 'screenshot', 1, now()),
@@ -838,10 +838,10 @@ describe("browser extension scoped API", () => {
       [staleName, freshName, uploadName]
     );
 
-    await cleanupBrowserExtensionData(ctx.pool, mediaRoot);
+    await cleanupBrowserExtensionData(ctx.pool, filesRoot);
 
     const remaining = await ctx.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY file_name`,
+      `SELECT file_name FROM files WHERE agent_id = $1 ORDER BY file_name`,
       ["agt_running"]
     );
     const names = remaining.rows.map((row) => row.file_name);

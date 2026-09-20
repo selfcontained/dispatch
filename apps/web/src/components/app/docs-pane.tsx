@@ -24,7 +24,7 @@ import {
   AutomationsContent,
   BrowserFeedbackContent,
   EventsContent,
-  MediaContent,
+  FilesContent,
   NotificationsContent,
   PersonalitiesContent,
   PersonasContent,
@@ -45,7 +45,7 @@ export type DocsSection =
   | "worktrees"
   | "personas"
   | "events"
-  | "media"
+  | "files"
   | "browser-feedback"
   | "plugin"
   | "notifications"
@@ -118,11 +118,11 @@ const SECTIONS: SectionDef[] = [
     content: <EventsContent />,
   },
   {
-    id: "media",
-    label: "Media",
+    id: "files",
+    label: "Files",
     icon: Image,
-    title: "Media & Sharing",
-    content: <MediaContent />,
+    title: "Files & Sharing",
+    content: <FilesContent />,
   },
   {
     id: "browser-feedback",

@@ -4,19 +4,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   reconcileAgentSidebarOrder,
-  reconcileMediaSidebarStateStorage,
-  MEDIA_SIDEBAR_STATE_STORAGE_PREFIX,
-  defaultMediaSidebarState,
+  reconcileDrawerStateStorage,
+  DRAWER_STATE_STORAGE_PREFIX,
+  defaultDrawerState,
   reconcileDiffViewStateStorage,
   DIFF_VIEW_STATE_STORAGE_PREFIX,
   reconcileSplitPaneStateStorage,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
   splitPaneStateAtomFamily,
   defaultSplitPaneState,
-  type SplitPaneState,
   atomWithLocalStorage,
   isSplitPaneState,
-  asMediaSidebarTab,
+  asDrawerTab,
   reconcileAgentScopedStorage,
   REVIEW_DRAFTS_STORAGE_PREFIX,
   CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
@@ -48,20 +47,17 @@ describe("sidebar tab and scoped storage helpers", () => {
   afterEach(() => window.localStorage.clear());
 
   it("maps a stored tab id to a live tab, falling back to the rail", () => {
-    expect(asMediaSidebarTab("media")).toBe("media");
-    expect(asMediaSidebarTab("rail")).toBe("rail");
+    expect(asDrawerTab("files")).toBe("files");
+    expect(asDrawerTab("rail")).toBe("rail");
     // Ids from before the cutover: the pins/reviews tabs and surface ids.
-    expect(asMediaSidebarTab("pins")).toBe("rail");
-    expect(asMediaSidebarTab("reviews")).toBe("rail");
-    expect(asMediaSidebarTab("srf_abc")).toBe("rail");
-    expect(asMediaSidebarTab(undefined)).toBe("rail");
+    expect(asDrawerTab("pins")).toBe("rail");
+    expect(asDrawerTab("reviews")).toBe("rail");
+    expect(asDrawerTab("srf_abc")).toBe("rail");
+    expect(asDrawerTab(undefined)).toBe("rail");
   });
 
   it("reconciles all per-agent storage in one pass", () => {
-    window.localStorage.setItem(
-      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
-      "{}"
-    );
+    window.localStorage.setItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`, "{}");
     window.localStorage.setItem(
       `${REVIEW_DRAFTS_STORAGE_PREFIX}agt_dead`,
       "{}"
@@ -82,14 +78,12 @@ describe("sidebar tab and scoped storage helpers", () => {
       window.localStorage.getItem(`${REVIEW_DRAFTS_STORAGE_PREFIX}agt_live`)
     ).not.toBeNull();
     expect(
-      window.localStorage.getItem(
-        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
-      )
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`)
     ).not.toBeNull();
   });
 });
 
-describe("reconcileMediaSidebarStateStorage", () => {
+describe("reconcileDrawerStateStorage", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -100,8 +94,8 @@ describe("reconcileMediaSidebarStateStorage", () => {
 
   const storeForAgent = (agentId: string) => {
     window.localStorage.setItem(
-      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}${agentId}`,
-      JSON.stringify(defaultMediaSidebarState)
+      `${DRAWER_STATE_STORAGE_PREFIX}${agentId}`,
+      JSON.stringify(defaultDrawerState)
     );
   };
 
@@ -110,16 +104,16 @@ describe("reconcileMediaSidebarStateStorage", () => {
     storeForAgent("agt_2");
     storeForAgent("agt_3");
 
-    reconcileMediaSidebarStateStorage(["agt_1", "agt_3"]);
+    reconcileDrawerStateStorage(["agt_1", "agt_3"]);
 
     expect(
-      window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_1`)
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_1`)
     ).not.toBeNull();
     expect(
-      window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_2`)
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_2`)
     ).toBeNull();
     expect(
-      window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_3`)
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_3`)
     ).not.toBeNull();
   });
 
@@ -127,41 +121,39 @@ describe("reconcileMediaSidebarStateStorage", () => {
     storeForAgent("agt_1");
     storeForAgent("agt_2");
 
-    reconcileMediaSidebarStateStorage(["agt_1", "agt_2"]);
+    reconcileDrawerStateStorage(["agt_1", "agt_2"]);
 
     expect(window.localStorage.length).toBe(2);
   });
 
-  it("removes all media sidebar keys when live set is empty", () => {
+  it("removes all drawer keys when live set is empty", () => {
     storeForAgent("agt_1");
     storeForAgent("agt_2");
 
-    reconcileMediaSidebarStateStorage([]);
+    reconcileDrawerStateStorage([]);
 
     expect(window.localStorage.length).toBe(0);
   });
 
   it("does nothing when localStorage is empty", () => {
-    reconcileMediaSidebarStateStorage(["agt_1"]);
+    reconcileDrawerStateStorage(["agt_1"]);
 
     expect(window.localStorage.length).toBe(0);
   });
 
-  it("does not affect non-media-sidebar keys", () => {
+  it("does not affect non-drawer keys", () => {
     window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
     window.localStorage.setItem("unrelated-key", "value");
     storeForAgent("agt_dead");
 
-    reconcileMediaSidebarStateStorage([]);
+    reconcileDrawerStateStorage([]);
 
     expect(window.localStorage.getItem("dispatch:leftSidebarOpen")).toBe(
       "true"
     );
     expect(window.localStorage.getItem("unrelated-key")).toBe("value");
     expect(
-      window.localStorage.getItem(
-        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_dead`
-      )
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_dead`)
     ).toBeNull();
   });
 
@@ -169,13 +161,13 @@ describe("reconcileMediaSidebarStateStorage", () => {
     storeForAgent("agt_1");
     storeForAgent("agt_2");
 
-    reconcileMediaSidebarStateStorage(new Set(["agt_1"]));
+    reconcileDrawerStateStorage(new Set(["agt_1"]));
 
     expect(
-      window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_1`)
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_1`)
     ).not.toBeNull();
     expect(
-      window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_2`)
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_2`)
     ).toBeNull();
   });
 });
@@ -246,10 +238,7 @@ describe("reconcileDiffViewStateStorage", () => {
 
   it("does not affect non-diff-view keys", () => {
     window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
-    window.localStorage.setItem(
-      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
-      "{}"
-    );
+    window.localStorage.setItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`, "{}");
     storeDiffForAgent("agt_dead");
 
     reconcileDiffViewStateStorage([]);
@@ -258,9 +247,7 @@ describe("reconcileDiffViewStateStorage", () => {
       "true"
     );
     expect(
-      window.localStorage.getItem(
-        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
-      )
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`)
     ).toBe("{}");
     expect(
       window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_dead`)
@@ -357,10 +344,7 @@ describe("reconcileSplitPaneStateStorage", () => {
 
   it("does not affect non-split-pane keys", () => {
     window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
-    window.localStorage.setItem(
-      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
-      "{}"
-    );
+    window.localStorage.setItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`, "{}");
     storeForAgent("agt_dead");
 
     reconcileSplitPaneStateStorage([]);
@@ -369,9 +353,7 @@ describe("reconcileSplitPaneStateStorage", () => {
       "true"
     );
     expect(
-      window.localStorage.getItem(
-        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
-      )
+      window.localStorage.getItem(`${DRAWER_STATE_STORAGE_PREFIX}agt_live`)
     ).toBe("{}");
     expect(
       window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_dead`)
@@ -407,13 +389,6 @@ describe("splitPaneStateAtomFamily storage migration", () => {
   afterEach(() => {
     window.localStorage.clear();
   });
-
-  const split: SplitPaneState = {
-    mode: "split",
-    left: "agent",
-    right: "changes",
-    sizes: [40, 60],
-  };
 
   it("reads an off-shape stored value as the default", () => {
     window.localStorage.setItem(

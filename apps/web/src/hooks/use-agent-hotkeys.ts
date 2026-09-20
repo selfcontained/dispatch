@@ -17,8 +17,8 @@ type UseAgentHotkeysArgs = {
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
-  mediaOpen: boolean;
-  setMediaOpen: (open: boolean) => void;
+  drawerOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
   leftPanelOpen: boolean;
   handleSetLeftPanelOpen: (open: boolean) => void;
   openCreateDialog: () => void;
@@ -43,8 +43,8 @@ export function useAgentHotkeys({
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
-  mediaOpen,
-  setMediaOpen,
+  drawerOpen,
+  setDrawerOpen,
   leftPanelOpen,
   handleSetLeftPanelOpen,
   openCreateDialog,
@@ -56,9 +56,9 @@ export function useAgentHotkeys({
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
-  useHotkey("toggle-media-sidebar", () => {
+  useHotkey("toggle-drawer", () => {
     if (!isMobile && !sidebarAgentId) return;
-    setMediaOpen(!mediaOpen);
+    setDrawerOpen(!drawerOpen);
   });
 
   useHotkey("toggle-agent-sidebar", () => {

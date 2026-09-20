@@ -123,7 +123,7 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
-  onOpenMedia: (mediaId: number) => void;
+  onOpenFile: (fileId: number) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;
   /**

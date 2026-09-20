@@ -67,7 +67,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       },
       createdDaysAgo: 1,
     },
-    // Rich agent — has media. Base branch set.
+    // Rich agent — has files. Base branch set.
     {
       id: "seed-agent-running-feature",
       name: "add activity heatmap",
@@ -94,7 +94,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
     await client.query(
       `
       INSERT INTO agents (
-        id, name, type, status, cwd, media_dir, agent_args, full_access,
+        id, name, type, status, cwd, files_dir, agent_args, full_access,
         setup_phase, archive_phase, last_error,
         persona, parent_agent_id, persona_context,
         worktree_path, worktree_branch, base_branch,

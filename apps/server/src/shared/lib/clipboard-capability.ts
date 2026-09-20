@@ -5,7 +5,7 @@ import os from "node:os";
  * back via Ctrl+V: the macOS pasteboard, or a Linux Xvfb display advertised
  * through `DISPATCH_COPY_DISPLAY`.
  *
- * Used by the media upload inject flow to decide between native clipboard paste
+ * Used by the file upload inject flow to decide between native clipboard paste
  * and handing the agent the file's path.
  */
 export function hostClipboardImageCapable(): boolean {

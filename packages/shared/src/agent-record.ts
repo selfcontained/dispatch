@@ -65,7 +65,7 @@ export type AgentRecord = {
   worktreePath: string | null;
   worktreeBranch: string | null;
   simulatorUdid: string | null;
-  mediaDir: string | null;
+  filesDir: string | null;
   agentArgs: string[];
   model: string | null;
   fullAccess: boolean;

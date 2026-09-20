@@ -9,7 +9,11 @@ import {
   Square,
 } from "lucide-react";
 
-import { DayDivider, Post, type PostAuthor } from "@/components/app/chat/chat-entries";
+import {
+  DayDivider,
+  Post,
+  type PostAuthor,
+} from "@/components/app/chat/chat-entries";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,8 +49,7 @@ const STARTUP: PostAuthor = {
   relation: "sibling",
 };
 
-const T = (h: number, m: number) =>
-  new Date(2026, 8, 19, h, m).toISOString();
+const T = (h: number, m: number) => new Date(2026, 8, 19, h, m).toISOString();
 
 // ---------------------------------------------------------------------------
 // Block renderers
@@ -144,9 +147,11 @@ function Card({
     <div
       className={cn(
         "max-w-[72ch] overflow-hidden rounded-lg border bg-card",
-        tone === "waiting" && "border-l-2 border-l-status-waiting border-border",
+        tone === "waiting" &&
+          "border-l-2 border-l-status-waiting border-border",
         tone === "live" && "border-status-working/50",
-        tone === "blocked" && "border-l-2 border-l-status-blocked border-border",
+        tone === "blocked" &&
+          "border-l-2 border-l-status-blocked border-border",
         tone === "default" && "border-border"
       )}
     >
@@ -390,13 +395,7 @@ function Finding({
   );
 }
 
-function SentTo({
-  to,
-  text,
-}: {
-  to: string;
-  text: string;
-}): JSX.Element {
+function SentTo({ to, text }: { to: string; text: string }): JSX.Element {
   return (
     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground">
       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
@@ -435,7 +434,9 @@ function Filters({
         >
           {f.label}
           {f.count !== undefined ? (
-            <span className="ml-1 font-semibold text-foreground">{f.count}</span>
+            <span className="ml-1 font-semibold text-foreground">
+              {f.count}
+            </span>
           ) : null}
         </span>
       ))}
@@ -470,11 +471,19 @@ function Presence({
           tone === "idle" && "text-status-working"
         )}
       >
-        {tone === "working" ? "Working" : tone === "waiting" ? "Waiting" : "Idle"}
+        {tone === "working"
+          ? "Working"
+          : tone === "waiting"
+            ? "Waiting"
+            : "Idle"}
       </span>
       <span>· {text}</span>
       {stop ? (
-        <Button size="sm" variant="default" className="ml-auto h-6 gap-1 px-2 text-xs">
+        <Button
+          size="sm"
+          variant="default"
+          className="ml-auto h-6 gap-1 px-2 text-xs"
+        >
           <Square className="h-3 w-3 fill-current" /> Stop
         </Button>
       ) : null}
@@ -570,7 +579,10 @@ function RunScene(): JSX.Element {
         { label: "Activity" },
       ]}
       presence={
-        <Presence tone="waiting" text="Asking whether to keep or delete hello.js" />
+        <Presence
+          tone="waiting"
+          text="Asking whether to keep or delete hello.js"
+        />
       }
       composer="Answer, or message ui smoke…"
       rail={
@@ -596,7 +608,10 @@ function RunScene(): JSX.Element {
                 "Commit, pin, share",
               ].map((t) => (
                 <div key={t} className="flex items-center gap-2">
-                  <Check className="h-3 w-3 text-status-working" strokeWidth={2.5} />
+                  <Check
+                    className="h-3 w-3 text-status-working"
+                    strokeWidth={2.5}
+                  />
                   <span className="line-through">{t}</span>
                 </div>
               ))}
@@ -610,9 +625,9 @@ function RunScene(): JSX.Element {
       <Post author={YOU} at={T(9, 20)} grouped={false}>
         <Markdown>
           Do a small multi-step task in this worktree: create hello.js that
-          prints the current date, run it, write a NOTES.md describing the
-          repo, commit, pin the commit hash and a preview URL, share NOTES.md,
-          and finally ask me whether to keep or delete hello.js.
+          prints the current date, run it, write a NOTES.md describing the repo,
+          commit, pin the commit hash and a preview URL, share NOTES.md, and
+          finally ask me whether to keep or delete hello.js.
         </Markdown>
       </Post>
       <Post author={SMOKE} at={T(9, 20)} grouped={false}>
@@ -631,7 +646,8 @@ function RunScene(): JSX.Element {
               {
                 label: "node hello.js",
                 ms: 613,
-                output: "Sat Sep 19 2026 09:20:20 GMT-0600 (Mountain Daylight Time)",
+                output:
+                  "Sat Sep 19 2026 09:20:20 GMT-0600 (Mountain Daylight Time)",
               },
               { label: "Write NOTES.md", ms: 4556 },
               {
@@ -713,7 +729,9 @@ function ChatScene(): JSX.Element {
       }
     >
       <DayDivider label="Yesterday" />
-      <Mark>session started 11:52 PM · worktree, deps and Claude Code up in 9s</Mark>
+      <Mark>
+        session started 11:52 PM · worktree, deps and Claude Code up in 9s
+      </Mark>
       <Post author={YOU} at={T(23, 52)} grouped={false}>
         <div className="mb-1">
           <Badge variant="default" className="text-[10px]">
@@ -729,10 +747,10 @@ function ChatScene(): JSX.Element {
         dependency versions, and large refactors much easier. The cost is
         heavier build and CI infrastructure (you need incremental builds and
         scoped tests), weaker ownership boundaries, and tooling that strains as
-        the repo grows. Polyrepos give teams independence, clear access
-        control, and simpler per-repo pipelines. In exchange, cross-repo
-        changes need coordinated versioning and releases, dependencies drift
-        apart, and shared code is harder to discover and reuse.
+        the repo grows. Polyrepos give teams independence, clear access control,
+        and simpler per-repo pipelines. In exchange, cross-repo changes need
+        coordinated versioning and releases, dependencies drift apart, and
+        shared code is harder to discover and reuse.
       </Post>
       <Post author={YOU} at={T(23, 53)} grouped={false} rule>
         Think hard and at length (really deliberate) about whether Postgres or
@@ -805,12 +823,16 @@ function PreviewScene(): JSX.Element {
         { label: "Artifacts", count: 1 },
         { label: "Preview", count: 1 },
       ]}
-      presence={<Presence tone="working" text="restarting preview on :4174" stop />}
+      presence={
+        <Presence tone="working" text="restarting preview on :4174" stop />
+      }
       composer="Message ui smoke…"
       rail={
         <>
           <div className="rounded-lg border border-status-working/60 bg-card px-3 py-2">
-            <div className="font-terminal text-xs font-semibold">localhost:4174</div>
+            <div className="font-terminal text-xs font-semibold">
+              localhost:4174
+            </div>
             <div className="text-[11px] text-muted-foreground">
               Preview · live since 9:31 · Open ↗
             </div>
@@ -853,7 +875,12 @@ function PreviewScene(): JSX.Element {
         <Blocks>
           <Activity
             total="2.4s"
-            steps={[{ label: "kill serve; npx serve -l 4174 . (background)", ms: 2400 }]}
+            steps={[
+              {
+                label: "kill serve; npx serve -l 4174 . (background)",
+                ms: 2400,
+              },
+            ]}
           />
         </Blocks>
         <div className="mt-2">
@@ -875,7 +902,11 @@ function PreviewScene(): JSX.Element {
         <Post author={SMOKE} at={T(9, 52)} grouped={false}>
           Stopped the preview server.
           <Blocks>
-            <Preview url="http://localhost:4174" meta="turned off 9:52 · drops out of the rail" off />
+            <Preview
+              url="http://localhost:4174"
+              meta="turned off 9:52 · drops out of the rail"
+              off
+            />
           </Blocks>
         </Post>
       </div>
@@ -886,14 +917,18 @@ function PreviewScene(): JSX.Element {
 function Gallery(): JSX.Element {
   const cap = (k: string, d: string) => (
     <div className="text-xs text-muted-foreground">
-      <span className="font-terminal font-medium text-foreground">{k}</span> · {d}
+      <span className="font-terminal font-medium text-foreground">{k}</span> ·{" "}
+      {d}
     </div>
   );
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <div className="grid content-start gap-2">
         {cap("activity", "tool calls and thoughts, folded")}
-        <Activity total="10.5s" steps={[{ label: "read README.md", ms: 200 }]} />
+        <Activity
+          total="10.5s"
+          steps={[{ label: "read README.md", ms: 200 }]}
+        />
         <Thinking since="4s" />
       </div>
       <div className="grid content-start gap-2">
@@ -907,7 +942,7 @@ function Gallery(): JSX.Element {
         />
       </div>
       <div className="grid content-start gap-2">
-        {cap("file", "shared file or screenshot (replaces media)")}
+        {cap("file", "shared file or screenshot")}
         <File name="ui-turn.png" meta="104 KB · screenshot" />
       </div>
       <div className="grid content-start gap-2">

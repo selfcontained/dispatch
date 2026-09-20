@@ -50,7 +50,7 @@ export type HistoryTokenUsage = HistoryTokenTotals & {
   by_model: HistoryTokenByModel[];
 };
 
-export type HistoryMedia = {
+export type HistoryFile = {
   id: number;
   file_name: string;
   source: string;
@@ -68,7 +68,7 @@ export type HistoryFeedbackItem = {
   lineNumber: number | null;
   description: string;
   suggestion: string | null;
-  mediaRef: string | null;
+  fileRef: string | null;
   status: string;
   createdAt: string;
 };

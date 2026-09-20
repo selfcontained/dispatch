@@ -13,7 +13,7 @@ import { setSetting } from "../src/db/settings.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
-let mediaRoot: string;
+let filesRoot: string;
 const logger = {
   info: () => {},
   warn: () => {},
@@ -27,12 +27,12 @@ const logger = {
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-retention-"));
+  filesRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-retention-"));
 });
 
 afterAll(async () => {
   await teardownTestDb();
-  await rm(mediaRoot, { recursive: true, force: true });
+  await rm(filesRoot, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
@@ -64,11 +64,11 @@ async function seedAgent(
      VALUES ($1, 1, 'assistant', '{}'::jsonb)`,
     [id]
   );
-  const dir = path.join(mediaRoot, id);
+  const dir = path.join(filesRoot, id);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "shot.png"), "png");
   await pool.query(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes)
+    `INSERT INTO files (agent_id, file_name, source, size_bytes)
      VALUES ($1, 'shot.png', 'screenshot', 3)`,
     [id]
   );
@@ -97,7 +97,7 @@ async function count(table: string, column: string, id: string) {
 }
 
 describe("purgeExpiredArchivedAgents", () => {
-  it("removes an agent archived past the window with its stream, history and media", async () => {
+  it("removes an agent archived past the window with its stream, history and files", async () => {
     await seedAgent("old", { archivedDaysAgo: 40 });
     await seedAgent("child", { archivedDaysAgo: 40, parent: "old" });
     await seedBlock("old", "old");
@@ -109,7 +109,7 @@ describe("purgeExpiredArchivedAgents", () => {
     const removed = await purgeExpiredArchivedAgents({
       pool,
       logger,
-      mediaRoot,
+      filesRoot,
     });
     expect(removed.sort()).toEqual(["child", "old"]);
 
@@ -117,8 +117,8 @@ describe("purgeExpiredArchivedAgents", () => {
       expect(await count("agents", "id", id)).toBe(0);
       expect(await count("agent_events", "agent_id", id)).toBe(0);
       expect(await count("agent_stream_events", "agent_id", id)).toBe(0);
-      expect(await count("media", "agent_id", id)).toBe(0);
-      await expect(stat(path.join(mediaRoot, id))).rejects.toThrow();
+      expect(await count("files", "agent_id", id)).toBe(0);
+      await expect(stat(path.join(filesRoot, id))).rejects.toThrow();
     }
     expect(await count("blocks", "stream_id", "old")).toBe(0);
     expect(await count("block_reactions", "stream_id", "old")).toBe(0);
@@ -126,7 +126,7 @@ describe("purgeExpiredArchivedAgents", () => {
     for (const id of ["recent", "live"]) {
       expect(await count("agents", "id", id)).toBe(1);
       expect(await count("agent_events", "agent_id", id)).toBe(1);
-      await expect(stat(path.join(mediaRoot, id))).resolves.toBeTruthy();
+      await expect(stat(path.join(filesRoot, id))).resolves.toBeTruthy();
     }
     expect(await count("blocks", "stream_id", "live")).toBe(1);
   });
@@ -135,20 +135,20 @@ describe("purgeExpiredArchivedAgents", () => {
     await seedAgent("week", { archivedDaysAgo: 8 });
     await setSetting(pool, ARCHIVED_AGENT_RETENTION_SETTING, "0");
     expect(
-      await purgeExpiredArchivedAgents({ pool, logger, mediaRoot })
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
     ).toEqual([]);
     expect(await count("agents", "id", "week")).toBe(1);
 
     await setSetting(pool, ARCHIVED_AGENT_RETENTION_SETTING, "7");
     expect(
-      await purgeExpiredArchivedAgents({ pool, logger, mediaRoot })
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
     ).toEqual(["week"]);
   });
 
   it("does nothing when nothing has expired", async () => {
     await seedAgent("fresh", { archivedDaysAgo: 1 });
     expect(
-      await purgeExpiredArchivedAgents({ pool, logger, mediaRoot })
+      await purgeExpiredArchivedAgents({ pool, logger, filesRoot })
     ).toEqual([]);
   });
 });

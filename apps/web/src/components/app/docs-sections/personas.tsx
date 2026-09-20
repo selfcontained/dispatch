@@ -24,7 +24,7 @@ export function PersonasContent() {
           seeing. Small diffs are also included inline; large diffs (over ~15
           KB) are replaced with a file-level summary plus those commands so the
           reviewer can inspect specific files in the worktree. Pass{" "}
-          <Code>includeDiff: false</Code> for non-code work (PRDs, docs, media)
+          <Code>includeDiff: false</Code> for non-code work (PRDs, docs, images)
           where the git diff is not the subject.
         </P>
         <P>
@@ -48,8 +48,8 @@ export function PersonasContent() {
         <P>
           Persona agents share files and screenshots the same way every agent
           does — a <Code>post</Code> with a file attachment — and have{" "}
-          <Code>list_media</Code> to inspect what has been shared with them.
-          Each media item includes an absolute <Code>filePath</Code> and{" "}
+          <Code>list_files</Code> to inspect what has been shared with them.
+          Each file item includes an absolute <Code>filePath</Code> and{" "}
           <Code>sizeBytes</Code> so a reviewer can open or inspect the artifact
           directly — useful for doc-centric review flows.
         </P>

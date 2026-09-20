@@ -13,7 +13,7 @@ import type { AcpEngineId } from "./engine-spec.js";
 export function buildLaunchEnv(input: {
   agentId: string;
   role: AgentRole;
-  mediaDir: string;
+  filesDir: string;
   engine: AcpEngineId;
   config: Pick<AppConfig, "port" | "tls" | "dispatchBinDir" | "authToken">;
   base?: NodeJS.ProcessEnv;
@@ -22,7 +22,7 @@ export function buildLaunchEnv(input: {
   const scheme = input.config.tls ? "https" : "http";
   const env: Record<string, string> = {
     DISPATCH_AGENT_ID: input.agentId,
-    DISPATCH_MEDIA_DIR: input.mediaDir,
+    DISPATCH_FILES_DIR: input.filesDir,
     DISPATCH_PORT: String(input.config.port),
     DISPATCH_SCHEME: scheme,
   };

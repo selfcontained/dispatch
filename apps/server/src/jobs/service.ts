@@ -603,7 +603,7 @@ export class JobService {
       prompt: input.prompt ?? null,
       ...agentConfig,
       callable: false,
-      allowMedia: false,
+      allowFiles: false,
       selfImprove: input.selfImprove ?? false,
     });
 

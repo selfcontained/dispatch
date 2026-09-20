@@ -21,7 +21,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     agentArgs: [],
     model: null,
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     ...overrides,
   } as Agent;
 }

@@ -68,7 +68,7 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
  * again would show the prompt twice.
  *
  * The page is materialized first, then its attachments are expanded once,
- * joined to `media` for live image dimensions, and re-aggregated — one
+ * joined to `files` for live image dimensions, and re-aggregated — one
  * function scan and a hash join for the planner to price instead of a
  * per-row lookup it would estimate at a hundred index scans.
  */
@@ -121,11 +121,11 @@ async function listBlockEntries(
          FROM page p
          CROSS JOIN LATERAL
            jsonb_array_elements(p.attachments) WITH ORDINALITY AS t(a, ord)
-         LEFT JOIN media md
+         LEFT JOIN files md
            ON md.id = CASE
                         WHEN t.a->>'type' = 'file'
-                             AND jsonb_typeof(t.a->'mediaId') = 'number'
-                        THEN (t.a->>'mediaId')::int
+                             AND jsonb_typeof(t.a->'fileId') = 'number'
+                        THEN (t.a->>'fileId')::int
                       END
      ), live AS (
        SELECT block_id, jsonb_agg(attachment ORDER BY ord) AS attachments

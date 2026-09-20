@@ -26,7 +26,7 @@ import {
   useStreamFeedCache,
   useThread,
 } from "@/hooks/use-stream";
-import { uploadAgentMedia } from "@/lib/media-upload";
+import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
 /** Posts by one author this close together share a header, as in the feed. */
@@ -97,7 +97,7 @@ type ThreadItem =
   | { kind: "turn"; at: string; turn: ChatTurnEntry };
 
 export type ThreadPanelProps = {
-  /** The page's agent: owns the media a reply attaches. */
+  /** The page's agent: owns the files a reply attaches. */
   agentId: string;
   /** The root of its lineage: the stream the thread lives in. */
   rootId: string;
@@ -221,7 +221,7 @@ export function ThreadPanel({
 
   const uploadFile = useCallback(
     (file: File) =>
-      uploadAgentMedia(agentId, file, { source: "user", inject: false }),
+      uploadAgentFile(agentId, file, { source: "user", inject: false }),
     [agentId]
   );
 

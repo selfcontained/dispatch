@@ -1,0 +1,155 @@
+/**
+ * File-type tables and predicates for agent file uploads.
+ *
+ * Single source of truth shared by the server (upload validation, MIME
+ * lookup) and the web client (file-picker accept list, file viewers,
+ * clipboard uploads) — web imports this module directly across the
+ * workspace boundary (see apps/web/src/lib/file-accept.ts). Keep it
+ * dependency-free: no node imports, no browser globals.
+ */
+
+/**
+ * The image formats Dispatch renders, and what to serve them as. One table so
+ * a format cannot be accepted by one surface and refused by another: both the
+ * upload accept-list and the Changes pane's image previews derive from it.
+ */
+const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+const IMAGE_EXTENSIONS = Object.keys(IMAGE_MIME_BY_EXTENSION);
+const VIDEO_EXTENSIONS = [".mp4"];
+const DOCUMENT_EXTENSION_LIST = [".pdf"];
+
+const TEXT_EXTENSION_LIST = [
+  ".txt",
+  ".md",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".log",
+  ".csv",
+  ".xml",
+  ".html",
+  ".css",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".go",
+  ".rs",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".sql",
+  ".diff",
+  ".patch",
+  ".env",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".swift",
+  ".kt",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".rb",
+  ".php",
+  ".lua",
+  ".zig",
+  ".nim",
+  ".r",
+  ".m",
+  ".ex",
+  ".exs",
+  ".erl",
+  ".hs",
+];
+
+export const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(
+  TEXT_EXTENSION_LIST
+);
+const DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set(
+  DOCUMENT_EXTENSION_LIST
+);
+const IMAGE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
+  ...IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+]);
+
+/** Lower-cased extension including the leading dot, or "" when there is none. */
+export function fileExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot).toLowerCase();
+}
+
+export function isTextFile(name: string): boolean {
+  const ext = fileExtension(name);
+  return ext !== "" && TEXT_EXTENSIONS.has(ext);
+}
+
+export function isDocumentFile(name: string): boolean {
+  return DOCUMENT_EXTENSIONS.has(fileExtension(name));
+}
+
+/**
+ * Raster image formats every browser renders without a plugin. Deliberately
+ * without `.svg`: SVG is text (so git already produces a real textual diff for
+ * it) and it carries script, which an <img> in the Changes pane must never
+ * load.
+ */
+export function isImageFile(name: string): boolean {
+  return imageMimeType(name) !== null;
+}
+
+/** The MIME type to serve an image as, or null when it is not one we render. */
+export function imageMimeType(name: string): string | null {
+  const ext = fileExtension(name);
+  // Own-key only: the predicate and the MIME lookup must answer for the
+  // declared formats and nothing inherited from Object.prototype.
+  return Object.hasOwn(IMAGE_MIME_BY_EXTENSION, ext)
+    ? IMAGE_MIME_BY_EXTENSION[ext]!
+    : null;
+}
+
+export function isSupportedFile(name: string): boolean {
+  return (
+    IMAGE_VIDEO_EXTENSIONS.has(fileExtension(name)) ||
+    isTextFile(name) ||
+    isDocumentFile(name)
+  );
+}
+
+/** Every accepted upload extension, as an `accept=""`-ready comma list. */
+export const FILE_UPLOAD_ACCEPT = [
+  ...IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+  ...DOCUMENT_EXTENSION_LIST,
+  ...TEXT_EXTENSION_LIST,
+].join(",");
+
+const MIME_TO_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "application/pdf": ".pdf",
+};
+
+/** Map a MIME type to a file extension (with leading dot). */
+export function extensionForMime(mime: string): string {
+  if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
+  if (mime.startsWith("image/")) return ".png";
+  return ".bin";
+}

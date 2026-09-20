@@ -21,7 +21,7 @@ export type TemplateRecord = {
   branchName: string | null;
   fullAccess: boolean;
   callable: boolean;
-  allowMedia: boolean;
+  allowFiles: boolean;
   selfImprove: boolean;
   createdAt: string;
   updatedAt: string;
@@ -39,7 +39,7 @@ export type TemplateConfigUpdate = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
-  allowMedia?: boolean;
+  allowFiles?: boolean;
   selfImprove?: boolean;
 };
 
@@ -58,14 +58,14 @@ export class TemplateStore {
     branchName: string | null;
     fullAccess: boolean;
     callable: boolean;
-    allowMedia: boolean;
+    allowFiles: boolean;
     selfImprove?: boolean;
   }): Promise<TemplateRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_media, self_improve)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_files, self_improve)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING ${this.columns()}
         `,
@@ -82,7 +82,7 @@ export class TemplateStore {
           input.branchName,
           input.fullAccess,
           input.callable,
-          input.allowMedia,
+          input.allowFiles,
           input.selfImprove ?? false,
         ]
       );
@@ -175,7 +175,7 @@ export class TemplateStore {
             branch_name = CASE WHEN $14 THEN $15 ELSE branch_name END,
             full_access = COALESCE($16, full_access),
             callable = COALESCE($17, callable),
-            allow_media = COALESCE($18, allow_media),
+            allow_files = COALESCE($18, allow_files),
             self_improve = COALESCE($19, self_improve),
             updated_at = NOW()
         WHERE id = $1
@@ -199,7 +199,7 @@ export class TemplateStore {
           input.branchName ?? null,
           input.fullAccess,
           input.callable,
-          input.allowMedia,
+          input.allowFiles,
           input.selfImprove,
         ]
       );
@@ -250,7 +250,7 @@ export class TemplateStore {
       branch_name AS "branchName",
       full_access AS "fullAccess",
       callable,
-      allow_media AS "allowMedia",
+      allow_files AS "allowFiles",
       self_improve AS "selfImprove",
       created_at AS "createdAt",
       updated_at AS "updatedAt"

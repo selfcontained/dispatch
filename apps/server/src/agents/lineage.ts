@@ -113,7 +113,7 @@ export function relationTo(
 }
 
 /**
- * Whether `owner`'s sidebar state (pins, media) is readable by `requester`.
+ * Whether `owner`'s sidebar state (pins, files) is readable by `requester`.
  *
  * A family is one agent, its parent, and its direct children — exactly the
  * sidebar card, since a child cannot launch children of its own. Both
@@ -121,7 +121,7 @@ export function relationTo(
  * its parent pinned; a parent wants the screenshots its child shared. Siblings
  * and `launched_by` provenance (child: false launches) are outside the family.
  *
- * Deliberately a pure relation on the two rows, with no liveness check: media
+ * Deliberately a pure relation on the two rows, with no liveness check: files
  * outlives an archive, and a parent that archives a finished child still needs
  * that child's screenshots to write its report.
  */

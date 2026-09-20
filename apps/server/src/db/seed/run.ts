@@ -1,11 +1,11 @@
 // Standalone CLI: seed demo data into a dispatch-dev database.
 //
 // Invoked by `dispatch-dev up` — not by the server runtime. Reads DATABASE_URL
-// and MEDIA_ROOT from the environment (the same variables dispatch-dev sets
+// and DISPATCH_FILES_ROOT from the environment (the same variables dispatch-dev sets
 // for the server process) and refuses to run against any non-dev database.
 //
 // Usage:
-//   DATABASE_URL=postgres://.../dispatch_dev-xyz MEDIA_ROOT=/tmp/... \
+//   DATABASE_URL=postgres://.../dispatch_dev-xyz DISPATCH_FILES_ROOT=/tmp/... \
 //     tsx apps/server/src/db/seed/run.ts
 
 import path from "node:path";
@@ -20,9 +20,9 @@ async function main(): Promise<void> {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required.");
   }
-  const mediaRoot =
-    process.env.MEDIA_ROOT ??
-    path.join(process.env.HOME ?? "/tmp", ".dispatch", "media");
+  const filesRoot =
+    process.env.DISPATCH_FILES_ROOT ??
+    path.join(process.env.HOME ?? "/tmp", ".dispatch", "files");
 
   // Migrations are idempotent and take an advisory lock, so running them here
   // before the server boots is safe — when the server then runs its own
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
   try {
-    await seedDevData(pool, { databaseUrl, mediaRoot });
+    await seedDevData(pool, { databaseUrl, filesRoot });
   } finally {
     await pool.end().catch(() => {});
   }

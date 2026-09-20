@@ -2,20 +2,20 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { createStore, getDefaultStore, Provider } from "jotai";
+import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { LIVE_HEAD_ROWS } from "@/hooks/use-stream";
-import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
+import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { showWebNotification } from "@/lib/web-notifications";
 
 import {
   type Agent,
   type AuthState,
-  type MediaFile,
+  type FileItem,
 } from "@/components/app/types";
 
 import { applyDiffStateChanged, useSSE } from "./use-sse";
@@ -565,17 +565,17 @@ describe("useSSE message handling", () => {
     ]);
   });
 
-  it("marks seen only the media files named in the event", () => {
+  it("marks seen only the files named in the event", () => {
     const { queryClient, emit } = renderMessages();
-    const file = (name: string, updatedAt: string): MediaFile => ({
+    const file = (name: string, updatedAt: string): FileItem => ({
       id: name.length,
       name,
       updatedAt,
       size: 1,
-      url: `/media/${name}`,
+      url: `/files/${name}`,
     });
-    queryClient.setQueryData<MediaFile[]>(
-      ["media", "a1"],
+    queryClient.setQueryData<FileItem[]>(
+      ["files", "a1"],
       [
         file("shot.png", "2026-07-16T10:00:00.000Z"),
         file("other.png", "2026-07-16T10:00:00.000Z"),
@@ -586,30 +586,30 @@ describe("useSSE message handling", () => {
     );
 
     emit({
-      type: "media.seen",
+      type: "files.seen",
       agentId: "a1",
       keys: ["shot.png:2026-07-16T10:00:00.000Z"],
     });
 
     expect(
       queryClient
-        .getQueryData<MediaFile[]>(["media", "a1"])
+        .getQueryData<FileItem[]>(["files", "a1"])
         ?.map((f) => f.seen ?? false)
     ).toEqual([true, false, false]);
   });
 
-  it("invalidates one agent's list and open media items on media.changed", () => {
+  it("invalidates one agent's list and open file items on files.changed", () => {
     const { emit, invalidateQueries } = renderMessages();
 
-    emit({ type: "media.changed", agentId: "a1" });
+    emit({ type: "files.changed", agentId: "a1" });
 
-    // Exact, or every other agent's media list refetches on one screenshot.
+    // Exact, or every other agent's file list refetches on one screenshot.
     expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["media", "a1"],
+      queryKey: ["files", "a1"],
       exact: true,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: MEDIA_ITEM_QUERY_PREFIX,
+      queryKey: FILE_ITEM_QUERY_PREFIX,
     });
   });
 

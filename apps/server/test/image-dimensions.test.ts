@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { imageDimensionsFromBuffer } from "../src/media/image-dimensions.js";
+import { imageDimensionsFromBuffer } from "../src/files/image-dimensions.js";
 
 /**
  * Real encoder output, not hand-built headers: each buffer below came out of

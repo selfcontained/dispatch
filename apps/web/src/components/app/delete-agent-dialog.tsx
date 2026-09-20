@@ -244,7 +244,7 @@ export function DeleteAgentDialog({
           <DialogTitle>Archive Agent</DialogTitle>
           <DialogDescription>
             {deleteTarget
-              ? `Archive "${deleteTarget.name}"? This removes the agent record and all media files.${cascadeNote}`
+              ? `Archive "${deleteTarget.name}"? This removes the agent record and all files.${cascadeNote}`
               : "Archive this agent?"}
           </DialogDescription>
         </DialogHeader>

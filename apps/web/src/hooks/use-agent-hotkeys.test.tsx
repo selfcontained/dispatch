@@ -61,7 +61,7 @@ function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
     worktreeBranch: null,
     agentArgs: [],
     fullAccess: false,
-    mediaDir: null,
+    filesDir: null,
     ...overrides,
   } as Agent;
 }
@@ -83,8 +83,8 @@ function defaultArgs(overrides: Partial<HookArgs> = {}): HookArgs {
     isMobile: false,
     sidebarAgentId: null,
     validatedSelectedAgentId: null,
-    mediaOpen: false,
-    setMediaOpen: vi.fn(),
+    drawerOpen: false,
+    setDrawerOpen: vi.fn(),
     leftPanelOpen: true,
     handleSetLeftPanelOpen: vi.fn(),
     openCreateDialog: vi.fn(),
@@ -327,47 +327,47 @@ describe("useAgentHotkeys", () => {
     });
   });
 
-  describe("toggle-media-sidebar", () => {
+  describe("toggle-drawer", () => {
     it("is a no-op on desktop with no sidebar agent", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
-        defaultArgs({ isMobile: false, sidebarAgentId: null, setMediaOpen })
+        defaultArgs({ isMobile: false, sidebarAgentId: null, setDrawerOpen })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).not.toHaveBeenCalled();
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).not.toHaveBeenCalled();
     });
 
     it("toggles on desktop when a sidebar agent is present", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
         defaultArgs({
           isMobile: false,
           sidebarAgentId: "agt_1",
-          mediaOpen: false,
-          setMediaOpen,
+          drawerOpen: false,
+          setDrawerOpen,
         })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).toHaveBeenCalledTimes(1);
-      expect(setMediaOpen).toHaveBeenCalledWith(true);
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).toHaveBeenCalledTimes(1);
+      expect(setDrawerOpen).toHaveBeenCalledWith(true);
     });
 
     it("toggles closed on mobile even without a sidebar agent", () => {
-      const setMediaOpen = vi.fn();
+      const setDrawerOpen = vi.fn();
       renderAgentHotkeys(
         defaultArgs({
           isMobile: true,
           sidebarAgentId: null,
-          mediaOpen: true,
-          setMediaOpen,
+          drawerOpen: true,
+          setDrawerOpen,
         })
       );
 
-      pressHotkey("toggle-media-sidebar");
-      expect(setMediaOpen).toHaveBeenCalledTimes(1);
-      expect(setMediaOpen).toHaveBeenCalledWith(false);
+      pressHotkey("toggle-drawer");
+      expect(setDrawerOpen).toHaveBeenCalledTimes(1);
+      expect(setDrawerOpen).toHaveBeenCalledWith(false);
     });
   });
 

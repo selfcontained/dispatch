@@ -53,7 +53,7 @@ const ctx: FeedContext = {
   agentId: "agt_1",
   agentName: "builder",
   agentType: "claude",
-  onOpenMedia: vi.fn(),
+  onOpenFile: vi.fn(),
 };
 
 const root = block({

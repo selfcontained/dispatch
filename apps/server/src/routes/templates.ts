@@ -17,10 +17,10 @@ import type { AgentRecord } from "../agents/manager.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
 import {
-  isMediaFile,
+  isSupportedFile,
   isTextFile,
   sanitizeUploadedFileName,
-} from "../shared/media.js";
+} from "../shared/files.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
@@ -40,7 +40,7 @@ const AddTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
-  allowMedia: z.boolean().optional(),
+  allowFiles: z.boolean().optional(),
   selfImprove: z.boolean().optional(),
 });
 
@@ -56,7 +56,7 @@ const UpdateTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
-  allowMedia: z.boolean().optional(),
+  allowFiles: z.boolean().optional(),
   selfImprove: z.boolean().optional(),
 });
 
@@ -198,7 +198,7 @@ export async function registerTemplateRoutes(
             const fileName = sanitizeUploadedFileName(
               path.basename(part.filename || "")
             );
-            if (!fileName || !isMediaFile(fileName)) {
+            if (!fileName || !isSupportedFile(fileName)) {
               return reply.code(400).send({
                 error:
                   "Unsupported file type. Use images, video, documents, or text files.",

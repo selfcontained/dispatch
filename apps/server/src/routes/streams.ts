@@ -24,11 +24,11 @@ type StreamRouteDeps = {
 /**
  * `POST /streams/:rootId/blocks` body. Shape only: the cross-field rule
  * (blank text needs an attachment) and attachment resolution live in the
- * service. The user path takes files by `mediaId` only — the row came from
- * `POST /agents/:id/media` moments ago.
+ * service. The user path takes files by `fileId` only — the row came from
+ * `POST /agents/:id/files` moments ago.
  */
 const userAttachmentSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("file"), mediaId: z.int().positive() }),
+  z.strictObject({ type: z.literal("file"), fileId: z.int().positive() }),
   z.strictObject({
     type: z.literal("link"),
     url: chatUrlSchema,

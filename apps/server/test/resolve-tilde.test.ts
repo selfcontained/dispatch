@@ -51,8 +51,8 @@ describe("resolveConfiguredPath", () => {
     // The bug this exists to prevent: a config value is never read by a
     // shell, so an unexpanded "~/..." becomes a literal "~" directory next
     // to the process cwd, and writes succeed where nothing can find them.
-    const resolved = resolveConfiguredPath("~/.dispatch/media");
-    expect(resolved).toBe(path.join(home, ".dispatch", "media"));
+    const resolved = resolveConfiguredPath("~/.dispatch/files");
+    expect(resolved).toBe(path.join(home, ".dispatch", "files"));
     expect(resolved).not.toContain("~");
   });
 
@@ -61,8 +61,8 @@ describe("resolveConfiguredPath", () => {
   });
 
   it("leaves an absolute path unchanged", () => {
-    expect(resolveConfiguredPath("/var/lib/dispatch/media")).toBe(
-      "/var/lib/dispatch/media"
+    expect(resolveConfiguredPath("/var/lib/dispatch/files")).toBe(
+      "/var/lib/dispatch/files"
     );
   });
 

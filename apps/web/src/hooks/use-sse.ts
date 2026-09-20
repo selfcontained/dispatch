@@ -13,7 +13,7 @@ import {
   type Agent,
   type AuthState,
   type DiffStats,
-  type MediaFile,
+  type FileItem,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
@@ -30,7 +30,7 @@ import {
 } from "@/hooks/use-stream";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
+import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -324,13 +324,13 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "media.changed") {
+        if (payload.type === "files.changed") {
           void queryClient.invalidateQueries({
-            queryKey: ["media", payload.agentId],
+            queryKey: ["files", payload.agentId],
             exact: true,
           });
           void queryClient.invalidateQueries({
-            queryKey: MEDIA_ITEM_QUERY_PREFIX,
+            queryKey: FILE_ITEM_QUERY_PREFIX,
           });
           invalidateStreamFeed(queryClient, payload.agentId);
           return;
@@ -346,10 +346,10 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "media.seen") {
+        if (payload.type === "files.seen") {
           const seen = new Set(payload.keys);
-          queryClient.setQueryData<MediaFile[]>(
-            ["media", payload.agentId],
+          queryClient.setQueryData<FileItem[]>(
+            ["files", payload.agentId],
             (old) =>
               old?.map((file) =>
                 seen.has(`${file.name}:${file.updatedAt}`) && !file.seen

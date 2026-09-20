@@ -136,11 +136,11 @@ const attachmentSchema = z.discriminatedUnion("type", [
         .min(1)
         .optional()
         .describe("A file you attached before, by the fileName in its block."),
-      mediaId: z.int().positive().optional(),
+      fileId: z.int().positive().optional(),
       description: z.string().max(500).optional(),
     })
     .describe(
-      "One of path (upload now), fileName or mediaId (already uploaded)."
+      "One of path (upload now), fileName or fileId (already uploaded)."
     ),
   z.object({
     type: z.literal("link"),
@@ -168,7 +168,7 @@ const attachmentsSchema = z
   .array(attachmentSchema)
   .max(BLOCK_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/mediaId of one already shared), link, pr, or code.`
+    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code.`
   );
 
 const textSchema = z

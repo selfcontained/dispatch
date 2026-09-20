@@ -1,10 +1,10 @@
 import path from "node:path";
 
 import {
-  isMediaFile,
+  isSupportedFile,
   isTextFile,
   sanitizeUploadedFileName,
-} from "../shared/media.js";
+} from "../shared/files.js";
 
 export type CreateAgentBody = {
   name?: unknown;
@@ -165,7 +165,7 @@ export async function parseCreateAgentRequest(request: {
       if (!fileName) {
         throw new Error("Invalid file name.");
       }
-      if (!isMediaFile(fileName)) {
+      if (!isSupportedFile(fileName)) {
         throw new Error(
           "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
         );

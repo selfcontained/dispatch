@@ -116,8 +116,8 @@ export interface TemplateConfigFieldsProps {
   onFullAccessChange: (checked: boolean) => void;
   callable: boolean;
   onCallableChange: (checked: boolean) => void;
-  allowMedia: boolean;
-  onAllowMediaChange: (checked: boolean) => void;
+  allowFiles: boolean;
+  onAllowFilesChange: (checked: boolean) => void;
   selfImprove: boolean;
   onSelfImproveChange: (checked: boolean) => void;
   prompt: string;
@@ -147,8 +147,8 @@ export function TemplateConfigFields({
   onFullAccessChange,
   callable,
   onCallableChange,
-  allowMedia,
-  onAllowMediaChange,
+  allowFiles,
+  onAllowFilesChange,
   selfImprove,
   onSelfImproveChange,
   prompt,
@@ -264,14 +264,14 @@ export function TemplateConfigFields({
       <>
         <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
           <Checkbox
-            checked={allowMedia}
-            onCheckedChange={() => onAllowMediaChange(!allowMedia)}
+            checked={allowFiles}
+            onCheckedChange={() => onAllowFilesChange(!allowFiles)}
             className="mt-0.5"
           />
           <span className="space-y-1">
             <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
               <Paperclip className="h-3.5 w-3.5" />
-              Allow media attachments on launch
+              Allow file attachments on launch
             </span>
             <span className="block text-xs text-muted-foreground">
               Show a context area for files and links when launching this

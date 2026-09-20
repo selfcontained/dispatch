@@ -38,7 +38,7 @@ export type {
   ChatReadEvent,
   ChatFeedEntry,
   ChatFeedResponse,
-  ChatMediaEntry,
+  ChatFileEntry,
   ChatMessage,
   ChatMessageEntry,
   ChatMessageKind,

@@ -12,8 +12,8 @@ let sessionCookie: string;
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
-  await ctx.pool.query("DELETE FROM media_seen");
-  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM files_seen");
+  await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM sessions");
   await ctx.pool.query("DELETE FROM agents");
   sessionCookie = await ctx.sessionCookie();
@@ -168,7 +168,7 @@ describe("MCP auth integration", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("rename_session");
     expect(response.body).toContain("rename_session");
-    expect(response.body).toContain("list_media");
+    expect(response.body).toContain("list_files");
     expect(response.body).toContain("list_personas");
     expect(response.body).toContain("launch_agent");
     expect(response.body).not.toContain("launch_persona");

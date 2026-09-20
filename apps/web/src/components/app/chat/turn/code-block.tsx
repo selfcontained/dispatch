@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   highlightCodeLanguage,
   resolveHighlightLanguage,
-} from "@/components/app/media-lightbox-syntax";
+} from "@/components/app/file-lightbox-syntax";
 import { cn } from "@/lib/utils";
 
 /** The read tool's wrapper: <path>…</path>\n<type>file</type>\n<content>\n1: …</content>. */

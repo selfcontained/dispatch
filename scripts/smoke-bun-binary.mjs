@@ -38,7 +38,7 @@ const child = spawn(binaryPath, {
     DISPATCH_PORT: String(port),
     DISPATCH_AGENT_RUNTIME: "inert",
     DISPATCH_AGENT_STATE_ROOT: path.join(tempRoot, "agents"),
-    MEDIA_ROOT: path.join(tempRoot, "media"),
+    DISPATCH_FILES_ROOT: path.join(tempRoot, "files"),
     DISPATCH_RELEASE_STORE_PATH: path.join(tempRoot, "release.json"),
     TLS_CERT: "",
     TLS_KEY: "",

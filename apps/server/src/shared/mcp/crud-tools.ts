@@ -222,7 +222,7 @@ export type CrudToolCallbacks = {
     branchName?: string | null;
     fullAccess?: boolean;
     callable?: boolean;
-    allowMedia?: boolean;
+    allowFiles?: boolean;
     selfImprove?: boolean;
   }) => Promise<unknown>;
   updateTemplate: (
@@ -239,7 +239,7 @@ export type CrudToolCallbacks = {
       branchName?: string | null;
       fullAccess?: boolean;
       callable?: boolean;
-      allowMedia?: boolean;
+      allowFiles?: boolean;
       selfImprove?: boolean;
     }
   ) => Promise<unknown>;
@@ -743,10 +743,10 @@ export function registerCrudTools(
             .boolean()
             .default(true)
             .describe("Show in Cmd+K launcher."),
-          allowMedia: z
+          allowFiles: z
             .boolean()
             .default(true)
-            .describe("Allow media attachments when launching."),
+            .describe("Allow file attachments when launching."),
           selfImprove: z
             .boolean()
             .default(false)
@@ -813,10 +813,10 @@ export function registerCrudTools(
             .optional()
             .describe("Grant full filesystem access."),
           callable: z.boolean().optional().describe("Show in Cmd+K launcher."),
-          allowMedia: z
+          allowFiles: z
             .boolean()
             .optional()
-            .describe("Allow media attachments when launching."),
+            .describe("Allow file attachments when launching."),
           selfImprove: z
             .boolean()
             .optional()

@@ -349,7 +349,7 @@ describe("POST /api/v1/jobs/run", () => {
     const cookie = await ctx.sessionCookie();
     // Create a job directly via DB to have no prompt
     const templateRes = await ctx.pool.query(
-      `INSERT INTO templates (id, name, directory, prompt, agent_type, use_worktree, full_access, callable, allow_media)
+      `INSERT INTO templates (id, name, directory, prompt, agent_type, use_worktree, full_access, callable, allow_files)
        VALUES ('tpl_no_prompt', 'no-prompt', '/tmp', NULL, 'claude', false, false, false, false)
        RETURNING id`
     );

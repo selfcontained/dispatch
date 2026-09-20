@@ -13,7 +13,7 @@ import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import {
   registerAgentLifecycleTools,
-  type ListedMediaItem,
+  type ListedFileItem,
 } from "./agent-lifecycle-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
@@ -45,7 +45,7 @@ export type McpAgent = {
   baseBranch?: string | null;
 };
 
-export type MediaResult = {
+export type FileResult = {
   fileName: string;
   url: string;
   sizeBytes: number;
@@ -59,8 +59,8 @@ export type MediaResult = {
 const AGENT_TOOLS = new Set([
   "login_link",
   "rename_session",
-  "list_media",
-  "delete_media",
+  "list_files",
+  "delete_file",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -108,8 +108,8 @@ const AGENT_TOOLS = new Set([
 
 const JOB_TOOLS = new Set([
   "rename_session",
-  "list_media",
-  "delete_media",
+  "list_files",
+  "delete_file",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -204,7 +204,7 @@ export type McpRequestContext = {
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
-  shareMedia?: (
+  shareFile?: (
     agentId: string,
     opts: {
       filePath: string;
@@ -213,12 +213,12 @@ export type McpRequestContext = {
       name?: string;
       update?: string;
     }
-  ) => Promise<MediaResult>;
-  listMedia?: (
+  ) => Promise<FileResult>;
+  listFiles?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
-  ) => Promise<ListedMediaItem[]>;
-  deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
+  ) => Promise<ListedFileItem[]>;
+  deleteFile?: (agentId: string, fileName: string) => Promise<void>;
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
@@ -385,15 +385,15 @@ export async function createDispatchMcpServer(
     issueLoginLink: context.issueLoginLink,
   });
 
-  // ── Agent lifecycle tools (rename, notify, list_media) ──
+  // ── Agent lifecycle tools (rename, notify, list_files) ──
   if (context.agent) {
     registerAgentLifecycleTools(server, allowed, {
       agentId: context.agent.id,
       upsertEvent: context.upsertEvent,
       renameSession: context.renameSession,
       sendNotify: context.sendNotify,
-      listMedia: context.listMedia,
-      deleteMedia: context.deleteMedia,
+      listFiles: context.listFiles,
+      deleteFile: context.deleteFile,
     });
   }
 

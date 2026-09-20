@@ -23,7 +23,7 @@ const agent: Agent = {
   model: null,
   fullAccess: false,
   latestEvent: null,
-  mediaDir: null,
+  filesDir: null,
   persona: null,
   parentAgentId: null,
   createdAt: "2026-08-08T12:00:00.000Z",

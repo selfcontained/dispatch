@@ -23,25 +23,22 @@ import {
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
-import {
-  MediaSidebar,
-  MediaSidebarContent,
-} from "@/components/app/media-sidebar";
+import { Drawer, DrawerContent } from "@/components/app/drawer";
 import { BottomBar } from "@/components/app/bottom-bar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import { uploadAgentMedia } from "@/lib/media-upload";
+import { uploadAgentFile } from "@/lib/file-upload";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
-import { useMedia } from "@/hooks/use-media";
+import { useFiles } from "@/hooks/use-files";
 import { useStreamRail } from "@/hooks/use-stream-rail";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
-import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
+import { useDrawerState } from "@/hooks/use-drawer-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
@@ -57,10 +54,10 @@ type AgentsViewProps = {
   leftOpen: boolean;
   leftPanelOpen: boolean;
   mobileLeftOpen: boolean;
-  mobileMediaOpen: boolean;
+  mobileDrawerOpen: boolean;
   setLeftOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
-  setMobileMediaOpen: (open: boolean) => void;
+  setMobileDrawerOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
   pulsingNavItem: string | null;
   triggerNavAnimation: (navItem: string) => void;
@@ -74,10 +71,10 @@ export function AgentsView({
   leftOpen,
   leftPanelOpen,
   mobileLeftOpen,
-  mobileMediaOpen,
+  mobileDrawerOpen,
   setLeftOpen,
   setMobileLeftOpen,
-  setMobileMediaOpen,
+  setMobileDrawerOpen,
   handleSetLeftPanelOpen,
   pulsingNavItem,
   triggerNavAnimation,
@@ -124,21 +121,21 @@ export function AgentsView({
   const sidebarAgentId = validatedSelectedAgentId;
   const agentIds = useMemo(() => agents.map((a) => a.id), [agents]);
   const {
-    mediaOpen,
-    mediaPanelOpen,
-    mediaActiveTab,
-    mediaPinned,
-    setMediaOpen,
-    setMediaActiveTab,
-    toggleMediaPinned,
-    finishMediaResizeSettle,
-  } = useMediaSidebarState({
+    drawerOpen,
+    drawerPanelOpen,
+    drawerActiveTab,
+    drawerPinned,
+    setDrawerOpen: setDrawerOpenState,
+    setDrawerActiveTab,
+    toggleDrawerPinned,
+    finishDrawerResizeSettle,
+  } = useDrawerState({
     sidebarAgentId,
     isMobile,
     agentIds: agentsLoaded ? agentIds : [],
-    mobileMediaOpen,
+    mobileDrawerOpen,
     setMobileLeftOpen,
-    setMobileMediaOpen,
+    setMobileDrawerOpen,
   });
 
   const focusedAgentId = validatedSelectedAgentId;
@@ -167,10 +164,10 @@ export function AgentsView({
     activeTab,
   });
 
-  // The focused agent's direct children, whose media the sidebar groups
+  // The focused agent's direct children, whose files the drawer groups
   // under it. Direct children only — the same family the server's
   // ownerAgentId reads allow — and live ones only, since this is the live
-  // agent list; an archived child's media stays reachable from its history.
+  // agent list; an archived child's files stay reachable from its history.
   const focusedSubAgents = useMemo(
     () =>
       focusedAgentId
@@ -186,20 +183,20 @@ export function AgentsView({
     [agents, focusedAgentId]
   );
   const {
-    mediaFiles,
-    visibleMediaFiles,
-    subAgentMedia,
-    mediaOwnerId,
-    setMediaOwnerId,
-    animatingMediaKeys,
-    unseenMediaCount,
-    lightboxMediaId,
-    lightboxMediaIds,
-    setLightboxMediaId,
+    files,
+    visibleFiles,
+    subAgentFiles,
+    filesOwnerId,
+    setFilesOwnerId,
+    animatingFileKeys,
+    unseenFileCount,
+    lightboxFileId,
+    lightboxFileIds,
+    setLightboxFileId,
     openLightbox,
-    mediaViewportRef,
-    refreshMedia,
-  } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
+    drawerViewportRef,
+    refreshFiles,
+  } = useFiles(focusedAgentId, drawerPanelOpen, focusedSubAgents);
 
   const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
 
@@ -228,8 +225,8 @@ export function AgentsView({
       !prevFocusedAgentHasStreamRef.current && focusedAgentHasStream;
     prevFocusedAgentHasStreamRef.current = focusedAgentHasStream;
     if (!streamStarted) return;
-    setMediaOpen(true);
-  }, [focusedAgentHasStream, setMediaOpen]);
+    setDrawerOpenState(true);
+  }, [focusedAgentHasStream, setDrawerOpenState]);
 
   useAgentFocus(focusedAgentId, "authenticated");
 
@@ -245,7 +242,7 @@ export function AgentsView({
   );
 
   const uploadFile = useCallback(async (agentId: string, file: File) => {
-    await uploadAgentMedia(agentId, file);
+    await uploadAgentFile(agentId, file);
   }, []);
 
   /**
@@ -263,9 +260,9 @@ export function AgentsView({
       navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
         replace: true,
       });
-      if (isMobile) setMobileMediaOpen(false);
+      if (isMobile) setMobileDrawerOpen(false);
     },
-    [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
+    [focusedAgentId, isMobile, navTo, setMobileDrawerOpen]
   );
 
   // The drawer's pages live in the URL. Opening one opens the drawer;
@@ -275,18 +272,18 @@ export function AgentsView({
     drawerRoute;
   const drawerThreadId = drawerRoute.threadId;
   useEffect(() => {
-    if (drawerThreadId) setMediaOpen(true);
-  }, [drawerThreadId, setMediaOpen]);
+    if (drawerThreadId) setDrawerOpenState(true);
+  }, [drawerThreadId, setDrawerOpenState]);
   const closeDrawer = useCallback(() => {
     closeDrawerPages();
-    setMediaOpen(false);
-  }, [closeDrawerPages, setMediaOpen]);
+    setDrawerOpenState(false);
+  }, [closeDrawerPages, setDrawerOpenState]);
   const setDrawerOpen = useCallback(
     (open: boolean) => {
-      if (open) setMediaOpen(true);
+      if (open) setDrawerOpenState(true);
       else closeDrawer();
     },
-    [closeDrawer, setMediaOpen]
+    [closeDrawer, setDrawerOpenState]
   );
 
   /** Pushes a block's thread (or a review) onto the drawer; from the rail. */
@@ -327,7 +324,7 @@ export function AgentsView({
     setCreateOpen,
     setRequestedCreateType,
     setLastUsedAgentType,
-    refreshMedia,
+    refreshFiles,
   });
 
   const resolveCreateDefaultCwd = useCallback((): string => {
@@ -355,8 +352,8 @@ export function AgentsView({
     isMobile,
     sidebarAgentId,
     validatedSelectedAgentId,
-    mediaOpen,
-    setMediaOpen,
+    drawerOpen,
+    setDrawerOpen: setDrawerOpenState,
     leftPanelOpen,
     handleSetLeftPanelOpen,
     openCreateDialog,
@@ -431,7 +428,7 @@ export function AgentsView({
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {
             if (isMobile) {
-              if (open) setMobileMediaOpen(false);
+              if (open) setMobileDrawerOpen(false);
               setMobileLeftOpen(open);
             } else {
               setLeftOpen(open);
@@ -521,9 +518,9 @@ export function AgentsView({
                 splitState={splitState}
                 exitSplit={exitSplit}
                 onTabChange={onTabChange}
-                mediaPanelOpen={mediaPanelOpen}
-                setMediaOpen={setMediaOpen}
-                unseenMediaCount={unseenMediaCount}
+                drawerPanelOpen={drawerPanelOpen}
+                setDrawerOpen={setDrawerOpenState}
+                unseenFileCount={unseenFileCount}
                 openInputCount={rail.inputs.length}
               />
               <div
@@ -574,24 +571,24 @@ export function AgentsView({
         </main>
 
         <div className="hidden shrink-0 md:block">
-          <MediaSidebar
-            mediaOpen={mediaOpen && hasActiveAgent}
-            mediaFiles={visibleMediaFiles}
+          <Drawer
+            drawerOpen={drawerOpen && hasActiveAgent}
+            files={visibleFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            subAgentMedia={subAgentMedia}
-            ownMediaFiles={mediaFiles}
-            mediaOwnerId={mediaOwnerId}
-            onMediaOwnerChange={setMediaOwnerId}
-            animatingMediaKeys={animatingMediaKeys}
-            unseenMediaCount={unseenMediaCount}
-            mediaViewportRef={mediaViewportRef}
-            setMediaOpen={setDrawerOpen}
-            activeTab={mediaActiveTab}
-            setActiveTab={setMediaActiveTab}
-            pinned={mediaPinned}
-            onTogglePin={toggleMediaPinned}
-            onWidthTransitionEnd={finishMediaResizeSettle}
+            subAgentFiles={subAgentFiles}
+            ownFiles={files}
+            filesOwnerId={filesOwnerId}
+            onFilesOwnerChange={setFilesOwnerId}
+            animatingFileKeys={animatingFileKeys}
+            unseenFileCount={unseenFileCount}
+            drawerViewportRef={drawerViewportRef}
+            setDrawerOpen={setDrawerOpen}
+            activeTab={drawerActiveTab}
+            setActiveTab={setDrawerActiveTab}
+            pinned={drawerPinned}
+            onTogglePin={toggleDrawerPinned}
+            onWidthTransitionEnd={finishDrawerResizeSettle}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
@@ -609,29 +606,29 @@ export function AgentsView({
 
       {isMobile ? (
         <GlassSidebar
-          open={mobileMediaOpen}
+          open={mobileDrawerOpen}
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
             else closeDrawerPages();
-            setMobileMediaOpen(open);
+            setMobileDrawerOpen(open);
           }}
           side="right"
           mobile={true}
-          label="Media sidebar"
+          label="Drawer"
         >
-          <MediaSidebarContent
-            mediaFiles={visibleMediaFiles}
+          <DrawerContent
+            files={visibleFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            subAgentMedia={subAgentMedia}
-            ownMediaFiles={mediaFiles}
-            mediaOwnerId={mediaOwnerId}
-            onMediaOwnerChange={setMediaOwnerId}
-            animatingMediaKeys={animatingMediaKeys}
-            unseenMediaCount={unseenMediaCount}
-            mediaViewportRef={mediaViewportRef}
-            activeTab={mediaActiveTab}
-            setActiveTab={setMediaActiveTab}
+            subAgentFiles={subAgentFiles}
+            ownFiles={files}
+            filesOwnerId={filesOwnerId}
+            onFilesOwnerChange={setFilesOwnerId}
+            animatingFileKeys={animatingFileKeys}
+            unseenFileCount={unseenFileCount}
+            drawerViewportRef={drawerViewportRef}
+            activeTab={drawerActiveTab}
+            setActiveTab={setDrawerActiveTab}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
@@ -672,9 +669,9 @@ export function AgentsView({
         setStopConfirmOpen={setStopConfirmOpen}
         setStopTarget={setStopTarget}
         onStop={stopAgent}
-        lightboxMediaId={lightboxMediaId}
-        lightboxMediaIds={lightboxMediaIds}
-        setLightboxMediaId={setLightboxMediaId}
+        lightboxFileId={lightboxFileId}
+        lightboxFileIds={lightboxFileIds}
+        setLightboxFileId={setLightboxFileId}
       />
     </div>
   );

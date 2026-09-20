@@ -361,7 +361,7 @@ export function AgentsContent() {
           branch Dispatch created for the agent — see <strong>Worktrees</strong>{" "}
           for exactly what that throws away. Archived agents are preserved in
           the History section of the Activity page, where you can review their
-          events and media.
+          events and files.
         </P>
       </Section>
 

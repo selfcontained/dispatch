@@ -5,7 +5,7 @@ import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 /**
  * Where one install keeps its state: release and update stores, diagnostics,
- * logs, and the defaults for media and agent host state. `~/.dispatch` for
+ * logs, and the defaults for files and agent host state. `~/.dispatch` for
  * the machine's install; `DISPATCH_STATE_DIR` points a second instance (a
  * new version being tried next to the old one) at a directory of its own,
  * so the two never read each other's files. Each file's own `DISPATCH_*_PATH`

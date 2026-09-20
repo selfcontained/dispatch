@@ -17,7 +17,7 @@ import {
   worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
-import { resolveMediaDir } from "../shared/media.js";
+import { resolveFilesDir } from "../shared/files.js";
 import {
   buildGitContextForWorktree,
   probeGitContext,
@@ -40,7 +40,7 @@ import {
   writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
+import { type SeededFile, seedInitialFiles } from "./file-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
@@ -163,7 +163,7 @@ type PreparedCreateInputs = {
   role: AgentRole;
   name: string;
   originalCwd: string;
-  mediaDir: string;
+  filesDir: string;
   agentArgs: string[];
   model: string | undefined;
   fullAccess: boolean;
@@ -198,7 +198,7 @@ export type LaunchContextInput = {
   id: string;
   agentId: string;
   text?: string;
-  files?: Array<{ mediaId: number }>;
+  files?: Array<{ fileId: number }>;
   links?: string[];
   launchedByAgentId?: string | null;
 };
@@ -743,20 +743,20 @@ export class AgentManager {
       }
     }
 
-    let initialMedia: SeededMedia[] = [];
+    let initialFiles: SeededFile[] = [];
     if (input.initialFiles && input.initialFiles.length > 0) {
       try {
-        initialMedia = await seedInitialMedia(
+        initialFiles = await seedInitialFiles(
           this.pool,
           p.id,
-          p.mediaDir,
+          p.filesDir,
           input.initialFiles
         );
       } catch (error) {
         await this.pool
           .query("DELETE FROM agents WHERE id = $1", [p.id])
           .catch(() => {});
-        await rm(p.mediaDir, { recursive: true, force: true }).catch(() => {});
+        await rm(p.filesDir, { recursive: true, force: true }).catch(() => {});
         throw error;
       }
     }
@@ -777,7 +777,7 @@ export class AgentManager {
     const wantsEnvelope = recorder !== null && !input.jobRunId;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
-      ? this.launchContextInput(p, input, initialMedia, launchPostId)
+      ? this.launchContextInput(p, input, initialFiles, launchPostId)
       : null;
     let launchContextWrite: Promise<void> = Promise.resolve();
     const resolveLaunchPost = async (): Promise<ChatLaunchPost | null> => {
@@ -809,7 +809,7 @@ export class AgentManager {
       normalizedBaseBranch: p.normalizedBaseBranch,
       worktreePathOverride: p.worktreePathOverride,
       initialPrompt: input.initialPrompt,
-      initialMedia,
+      initialFiles,
       resolveLaunchPost,
       launchGuidanceFlags,
       jobRunId: input.jobRunId,
@@ -840,14 +840,14 @@ export class AgentManager {
   private launchContextInput(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    initialMedia: Array<{ mediaId: number }>,
+    initialFiles: Array<{ fileId: number }>,
     launchPostId: string
   ): LaunchContextInput {
     return {
       id: launchPostId,
       agentId: p.id,
       text: input.launchContext?.prompt,
-      files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
+      files: initialFiles.map((file) => ({ fileId: file.fileId })),
       links: input.launchContext?.links ?? [],
       launchedByAgentId: input.launchedByAgentId ?? null,
     };
@@ -980,8 +980,8 @@ export class AgentManager {
         ? Array.from(new Set([...(input.agentArgs ?? []), fullAccessArg]))
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
-    const mediaDir = path.join(this.config.mediaRoot, id);
-    await mkdir(mediaDir, { recursive: true });
+    const filesDir = path.join(this.config.filesRoot, id);
+    await mkdir(filesDir, { recursive: true });
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
@@ -1051,7 +1051,7 @@ export class AgentManager {
       role,
       name,
       originalCwd,
-      mediaDir,
+      filesDir,
       agentArgs,
       model: input.model,
       fullAccess,
@@ -1071,7 +1071,7 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, media_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
+      INSERT INTO agents (id, name, type, role, status, cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
       VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
       `,
       [
@@ -1080,7 +1080,7 @@ export class AgentManager {
         p.type,
         p.role,
         p.originalCwd,
-        p.mediaDir,
+        p.filesDir,
         JSON.stringify(p.agentArgs),
         p.model ?? null,
         p.fullAccess,
@@ -1113,7 +1113,7 @@ export class AgentManager {
     normalizedBaseBranch: string | undefined;
     worktreePathOverride: string | undefined;
     initialPrompt: string | undefined;
-    initialMedia: SeededMedia[];
+    initialFiles: SeededFile[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     launchGuidanceFlags: { trimmedGuidance: boolean };
@@ -1167,7 +1167,7 @@ export class AgentManager {
       const firstTurn = buildStartupTurn(
         {
           initialPrompt: opts.initialPrompt,
-          initialMedia: opts.initialMedia,
+          initialFiles: opts.initialFiles,
           chatLaunchPost,
         },
         { jobRunId: opts.jobRunId }
@@ -1236,12 +1236,12 @@ export class AgentManager {
         400
       );
     }
-    const mediaDir = resolveMediaDir(
+    const filesDir = resolveFilesDir(
       agent.id,
-      agent.mediaDir,
-      this.config.mediaRoot
+      agent.filesDir,
+      this.config.filesRoot
     );
-    await mkdir(mediaDir, { recursive: true });
+    await mkdir(filesDir, { recursive: true });
     const personality =
       agent.persona || opts.jobRunId || agent.role === "assisted_update"
         ? null
@@ -1261,7 +1261,7 @@ export class AgentManager {
     const { env, pathPrefix } = buildLaunchEnv({
       agentId: agent.id,
       role: agent.role,
-      mediaDir,
+      filesDir,
       engine: agent.type,
       config: this.config,
     });
@@ -1580,9 +1580,9 @@ export class AgentManager {
     }
   }
 
-  // --- Media ---
+  // --- Files ---
 
-  async listMedia(agentId: string): Promise<
+  async listFiles(agentId: string): Promise<
     Array<{
       fileName: string;
       filePath: string;
@@ -1592,8 +1592,8 @@ export class AgentManager {
       createdAt: string;
     }>
   > {
-    return telemetry.listMedia(this.pool, agentId, (id) =>
-      this.defaultMediaDir(id)
+    return telemetry.listFiles(this.pool, agentId, (id) =>
+      this.defaultFilesDir(id)
     );
   }
 
@@ -1609,7 +1609,7 @@ export class AgentManager {
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
         simulator_udid AS "simulatorUdid",
-        media_dir AS "mediaDir",
+        files_dir AS "filesDir",
         agent_args AS "agentArgs",
         model,
         full_access AS "fullAccess",
@@ -1664,8 +1664,8 @@ export class AgentManager {
     return `agt_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   }
 
-  private defaultMediaDir(agentId: string): string {
-    return path.join(this.config.mediaRoot, agentId);
+  private defaultFilesDir(agentId: string): string {
+    return path.join(this.config.filesRoot, agentId);
   }
 
   private async setSetupPhase(id: string, phase: SetupPhase): Promise<void> {

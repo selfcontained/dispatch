@@ -43,8 +43,8 @@ import {
   EMPTY_CHAT_DRAFT,
   readChatComposerDraft,
 } from "@/lib/chat-draft";
-import { isImageFile } from "@/lib/media-accept";
-import { isAcceptedUploadFile } from "@/lib/media-upload";
+import { isImageFile } from "@/lib/file-accept";
+import { isAcceptedUploadFile } from "@/lib/file-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +69,7 @@ export type ChatComposerProps = {
     attachments: ChatUserAttachmentInput[]
   ) => Promise<void>;
   /**
-   * Uploads one attached file and resolves to its media id. Called at send
+   * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
    */
   uploadFile?: (file: File) => Promise<{ id: number }>;
@@ -104,7 +104,7 @@ function describeFile(file: File, pasted?: string): ChatDraftFile {
 /**
  * Identity of a draft file entry, and of the live `File` standing behind it
  * (`describeFile` of the `File` gives the same key). Keys the in-memory
- * bookkeeping: live files, previews, media ids, upload state.
+ * bookkeeping: live files, previews, file ids, upload state.
  */
 function draftFileKey(entry: ChatDraftFile): string {
   return `${entry.name}:${entry.size}:${entry.mime}`;
@@ -220,10 +220,10 @@ export function ChatComposer({
   // Live `File` objects by `draftFileKey`. A pasted-text entry's file is
   // rebuilt from the text in the draft on demand, so it is always live.
   const filesRef = useRef<Map<string, File>>(new Map());
-  // Per-file bookkeeping, same key: the media id once uploaded (so a retry
+  // Per-file bookkeeping, same key: the file id once uploaded (so a retry
   // after a later failure does not upload it twice), image previews, and
   // the upload state.
-  const mediaIdsRef = useRef<Map<string, number>>(new Map());
+  const fileIdsRef = useRef<Map<string, number>>(new Map());
   const previewsRef = useRef<Map<string, string>>(new Map());
   const [fileStatus, setFileStatus] = useState<
     Record<string, "uploading" | "failed">
@@ -249,7 +249,7 @@ export function ChatComposer({
   /** Drops everything remembered about a file that is no longer attached. */
   const forgetFile = useCallback((key: string) => {
     filesRef.current.delete(key);
-    mediaIdsRef.current.delete(key);
+    fileIdsRef.current.delete(key);
     const preview = previewsRef.current.get(key);
     if (preview) {
       URL.revokeObjectURL(preview);
@@ -542,14 +542,14 @@ export function ChatComposer({
         // `canSend` ruled out placeholders; this is the same check for the
         // type system's sake.
         if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
-        let mediaId = mediaIdsRef.current.get(key);
-        if (mediaId === undefined) {
+        let fileId = fileIdsRef.current.get(key);
+        if (fileId === undefined) {
           if (!uploadFile) throw new Error("File uploads are not available.");
           setFileStatus((current) => ({ ...current, [key]: "uploading" }));
           try {
-            const media = await uploadFile(file);
-            mediaId = media.id;
-            mediaIdsRef.current.set(key, mediaId);
+            const uploaded = await uploadFile(file);
+            fileId = uploaded.id;
+            fileIdsRef.current.set(key, fileId);
             setFileStatus((current) => {
               const next = { ...current };
               delete next[key];
@@ -563,7 +563,7 @@ export function ChatComposer({
             );
           }
         }
-        attachments.push({ type: "file", mediaId });
+        attachments.push({ type: "file", fileId });
       }
       for (const url of submittedLinks) attachments.push({ type: "link", url });
       await onSend(submittedText.trim(), attachments);

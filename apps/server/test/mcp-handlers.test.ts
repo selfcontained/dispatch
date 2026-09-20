@@ -56,10 +56,10 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
 }));
 
-vi.mock("../src/shared/media.js", () => ({
-  isMediaFile: vi.fn(() => true),
+vi.mock("../src/shared/files.js", () => ({
+  isSupportedFile: vi.fn(() => true),
   isTextFile: vi.fn(() => false),
-  resolveMediaDir: vi.fn(() => "/tmp/media/agt_test1"),
+  resolveFilesDir: vi.fn(() => "/tmp/files/agt_test1"),
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -81,10 +81,10 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import {
-  isMediaFile,
+  isSupportedFile,
   isTextFile,
-  resolveMediaDir,
-} from "../src/shared/media.js";
+  resolveFilesDir,
+} from "../src/shared/files.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -100,7 +100,7 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
     branchName: null,
     fullAccess: false,
     callable: true,
-    allowMedia: false,
+    allowFiles: false,
     selfImprove: false,
     ...overrides,
   };
@@ -109,7 +109,7 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
 function createMockDeps() {
   return {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
-    mediaRoot: "/tmp/media",
+    filesRoot: "/tmp/files",
     agentManager: {
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
@@ -123,7 +123,7 @@ function createMockDeps() {
         worktreeBranch: null,
         baseBranch: null,
         reviewAgentType: null,
-        mediaDir: null,
+        filesDir: null,
       })),
       upsertLatestEvent: vi.fn(async (_id: string, ev: any) => ({
         id: _id,
@@ -156,7 +156,7 @@ function createMockDeps() {
           callbacks.onComplete([id]);
         }
       ),
-      listMedia: vi.fn(async () => []),
+      listFiles: vi.fn(async () => []),
     },
     jobService: {
       getActiveRunForAgent: vi.fn(async () => null),
@@ -312,32 +312,32 @@ describe("createMcpHandlers", () => {
     {
       id: string;
       name: string;
-      media_dir: string | null;
+      files_dir: string | null;
       parent_agent_id: string | null;
     }
   > = {
     agt_test1: {
       id: "agt_test1",
       name: "parent",
-      media_dir: null,
+      files_dir: null,
       parent_agent_id: null,
     },
     agt_child: {
       id: "agt_child",
       name: "child",
-      media_dir: "/custom/child-media",
+      files_dir: "/custom/child-files",
       parent_agent_id: "agt_test1",
     },
     agt_grandchild: {
       id: "agt_grandchild",
       name: "grandchild",
-      media_dir: null,
+      files_dir: null,
       parent_agent_id: "agt_child",
     },
     agt_stranger: {
       id: "agt_stranger",
       name: "stranger",
-      media_dir: null,
+      files_dir: null,
       parent_agent_id: null,
     },
   };
@@ -349,7 +349,7 @@ describe("createMcpHandlers", () => {
           const ids = (params?.[0] as string[]) ?? [];
           return { rows: ids.map((id) => FAMILY_ROWS[id]).filter(Boolean) };
         }
-        if (sql.includes("FROM media")) {
+        if (sql.includes("FROM files")) {
           return {
             rows: [
               {
@@ -367,74 +367,74 @@ describe("createMcpHandlers", () => {
     );
   }
 
-  describe("listMedia", () => {
-    it("lists a child's media from the child's own directory", async () => {
+  describe("listFiles", () => {
+    it("lists a child's files from the child's own directory", async () => {
       mockFamilyRows();
-      const items = await handlers.listMedia("agt_test1", {
+      const items = await handlers.listFiles("agt_test1", {
         ownerAgentId: "agt_child",
       });
       expect(items).toEqual([
         {
           ownerAgentId: "agt_child",
           fileName: "shot.png",
-          // resolveMediaDir is mocked to a fixed path in this file; the call
+          // resolveFilesDir is mocked to a fixed path in this file; the call
           // below is what proves the child's own directory was requested.
-          filePath: "/tmp/media/agt_test1/shot.png",
+          filePath: "/tmp/files/agt_test1/shot.png",
           source: "screenshot",
           description: "the shot",
           sizeBytes: 10,
           createdAt: "2026-01-01T00:00:00.000Z",
         },
       ]);
-      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+      expect(resolveFilesDir).toHaveBeenLastCalledWith(
         "agt_child",
-        "/custom/child-media",
-        "/tmp/media"
+        "/custom/child-files",
+        "/tmp/files"
       );
-      const mediaCall = deps.pool.query.mock.calls.find(([sql]: [string]) =>
-        sql.includes("FROM media")
+      const filesCall = deps.pool.query.mock.calls.find(([sql]: [string]) =>
+        sql.includes("FROM files")
       );
-      expect(mediaCall?.[1]).toEqual(["agt_child"]);
+      expect(filesCall?.[1]).toEqual(["agt_child"]);
     });
 
-    it("defaults to the caller's own media directory", async () => {
+    it("defaults to the caller's own files directory", async () => {
       mockFamilyRows();
-      const items = await handlers.listMedia("agt_test1", {});
+      const items = await handlers.listFiles("agt_test1", {});
       expect(items[0]).toMatchObject({
         ownerAgentId: "agt_test1",
-        filePath: "/tmp/media/agt_test1/shot.png",
+        filePath: "/tmp/files/agt_test1/shot.png",
       });
-      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+      expect(resolveFilesDir).toHaveBeenLastCalledWith(
         "agt_test1",
         null,
-        "/tmp/media"
+        "/tmp/files"
       );
     });
 
     it("refuses an unrelated owner", async () => {
       mockFamilyRows();
       await expect(
-        handlers.listMedia("agt_test1", { ownerAgentId: "agt_stranger" })
+        handlers.listFiles("agt_test1", { ownerAgentId: "agt_stranger" })
       ).rejects.toThrow("Agent not found.");
     });
   });
 
-  describe("deleteMedia", () => {
-    it("removes the file, media record, seen records, and publishes an update", async () => {
+  describe("deleteFile", () => {
+    it("removes the file, file record, seen records, and publishes an update", async () => {
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "shot.png" }],
       });
-      await handlers.deleteMedia("agt_test1", "shot.png");
+      await handlers.deleteFile("agt_test1", "shot.png");
 
       const { unlink } = await import("node:fs/promises");
-      expect(unlink).toHaveBeenCalledWith("/tmp/media/agt_test1/shot.png");
+      expect(unlink).toHaveBeenCalledWith("/tmp/files/agt_test1/shot.png");
       expect(deps.pool.query).toHaveBeenNthCalledWith(
         2,
-        "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+        "DELETE FROM files WHERE agent_id = $1 AND file_name = $2",
         ["agt_test1", "shot.png"]
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
-        type: "media.changed",
+        type: "files.changed",
         agentId: "agt_test1",
       });
     });
@@ -2132,11 +2132,11 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("shareMedia", () => {
+  describe("shareFile", () => {
     it("rejects unsupported file types", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(false);
+      vi.mocked(isSupportedFile).mockReturnValue(false);
       await expect(
-        handlers.shareMedia("agt_test1", {
+        handlers.shareFile("agt_test1", {
           filePath: "/tmp/file.exe",
           description: "binary",
         })
@@ -2146,16 +2146,16 @@ describe("createMcpHandlers", () => {
     it("throws when agent not found", async () => {
       deps.agentManager.getAgent.mockResolvedValue(null);
       await expect(
-        handlers.shareMedia("agt_missing", {
+        handlers.shareFile("agt_missing", {
           filePath: "/tmp/shot.png",
           description: "screenshot",
         })
       ).rejects.toThrow("Agent not found.");
     });
 
-    it("creates new media entry and publishes event", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
-      const result = await handlers.shareMedia("agt_test1", {
+    it("creates new file entry and publishes event", async () => {
+      vi.mocked(isSupportedFile).mockReturnValue(true);
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "a screenshot",
       });
@@ -2164,26 +2164,26 @@ describe("createMcpHandlers", () => {
       expect(result.source).toBe("screenshot");
       expect(result.description).toBe("a screenshot");
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "media.changed", agentId: "agt_test1" })
+        expect.objectContaining({ type: "files.changed", agentId: "agt_test1" })
       );
     });
 
     it("uses text source for text files", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
+      vi.mocked(isSupportedFile).mockReturnValue(true);
       vi.mocked(isTextFile).mockReturnValue(true);
-      const result = await handlers.shareMedia("agt_test1", {
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/notes.md",
         description: "notes",
       });
       expect(result.source).toBe("text");
     });
 
-    it("updates existing media when update option is provided", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
+    it("updates existing file when update option is provided", async () => {
+      vi.mocked(isSupportedFile).mockReturnValue(true);
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
-      const result = await handlers.shareMedia("agt_test1", {
+      const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "updated",
         update: "existing.png",
@@ -2196,22 +2196,22 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when update target not found", async () => {
-      vi.mocked(isMediaFile).mockReturnValue(true);
+      vi.mocked(isSupportedFile).mockReturnValue(true);
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
-        handlers.shareMedia("agt_test1", {
+        handlers.shareFile("agt_test1", {
           filePath: "/tmp/shot.png",
           description: "updated",
           update: "missing.png",
         })
-      ).rejects.toThrow("No media file found");
+      ).rejects.toThrow("No file found");
     });
   });
 
-  describe("listMedia (own)", () => {
-    it("returns media for agent", async () => {
+  describe("listFiles (own)", () => {
+    it("returns files for agent", async () => {
       mockFamilyRows();
-      const result = await handlers.listMedia("agt_test1", {});
+      const result = await handlers.listFiles("agt_test1", {});
       expect(result).toHaveLength(1);
       expect(result[0].fileName).toBe("shot.png");
       expect(result[0].sizeBytes).toBe(10);
@@ -2219,14 +2219,14 @@ describe("createMcpHandlers", () => {
 
     it("throws when agent not found", async () => {
       mockFamilyRows();
-      await expect(handlers.listMedia("agt_missing", {})).rejects.toThrow(
+      await expect(handlers.listFiles("agt_missing", {})).rejects.toThrow(
         "Agent not found."
       );
     });
 
     it("filters by source when provided", async () => {
       mockFamilyRows();
-      await handlers.listMedia("agt_test1", { source: "screenshot" });
+      await handlers.listFiles("agt_test1", { source: "screenshot" });
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.stringContaining("source = $2"),
         ["agt_test1", "screenshot"]
@@ -2235,7 +2235,7 @@ describe("createMcpHandlers", () => {
 
     it("omits source filter when not provided", async () => {
       mockFamilyRows();
-      await handlers.listMedia("agt_test1", {});
+      await handlers.listFiles("agt_test1", {});
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.not.stringContaining("source = $2"),
         ["agt_test1"]

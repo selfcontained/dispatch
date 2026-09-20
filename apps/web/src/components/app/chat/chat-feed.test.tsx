@@ -99,7 +99,7 @@ const REVIEWER_PEER = {
 function fileAttachment(
   fields: Pick<
     Extract<ChatAttachment, { type: "file" }>,
-    "mediaId" | "fileName" | "sizeBytes" | "mimeType"
+    "fileId" | "fileName" | "sizeBytes" | "mimeType"
   >
 ): ChatAttachment {
   return { type: "file", ...fields };
@@ -116,13 +116,13 @@ function status(
 
 function makeCtx(
   overrides: Partial<FeedContext> = {},
-  onOpenMedia = vi.fn()
+  onOpenFile = vi.fn()
 ): FeedContext {
   return {
     agentId: AGENT_ID,
     agentName: "builder",
     agentType: "claude",
-    onOpenMedia,
+    onOpenFile,
     ...overrides,
   };
 }
@@ -153,12 +153,12 @@ function renderFeed(
   ctxOverrides: Partial<FeedContext> = {}
 ) {
   const onAnswer = vi.fn();
-  const onOpenMedia = vi.fn();
-  const ctx = makeCtx(ctxOverrides, onOpenMedia);
+  const onOpenFile = vi.fn();
+  const ctx = makeCtx(ctxOverrides, onOpenFile);
   const view = render(feedElement(entries, ctx, onAnswer, extra));
   const rerenderWith = (next: StreamEntry[]) =>
     view.rerender(feedElement(next, ctx, onAnswer, extra));
-  return { onAnswer, onOpenMedia, rerenderWith };
+  return { onAnswer, onOpenFile, rerenderWith };
 }
 
 describe("collapseFeed", () => {
@@ -295,7 +295,7 @@ describe("layoutFeed", () => {
             text: "",
             body: FILE_BODY,
             attachments: [
-              fileAttachment({ mediaId: 1, fileName: "x.png", sizeBytes: 1 }),
+              fileAttachment({ fileId: 1, fileName: "x.png", sizeBytes: 1 }),
             ],
             createdAt: at("10:01"),
           })
@@ -639,7 +639,7 @@ describe("ChatFeed", () => {
       text: "Build the widget",
       attachments: [
         { type: "link", url: "https://example.com/spec" },
-        fileAttachment({ mediaId: 7, fileName: "brief.md", sizeBytes: 300 }),
+        fileAttachment({ fileId: 7, fileName: "brief.md", sizeBytes: 300 }),
       ],
       delivered: true,
       createdAt: "2026-09-02T10:00:00.000Z",
@@ -964,13 +964,13 @@ describe("ChatFeed", () => {
           id: "a0",
           attachments: [
             fileAttachment({
-              mediaId: 9,
+              fileId: 9,
               fileName: "clipboard-image",
               sizeBytes: 512,
               mimeType: "image/png",
             }),
             fileAttachment({
-              mediaId: 10,
+              fileId: 10,
               fileName: "archive",
               sizeBytes: 512,
               mimeType: "application/zip",
@@ -981,7 +981,7 @@ describe("ChatFeed", () => {
     ]);
     const image = screen.getByTestId("chat-attachment-image");
     expect(image.querySelector("img")?.getAttribute("src")).toBe(
-      `/api/v1/agents/${AGENT_ID}/media/clipboard-image`
+      `/api/v1/agents/${AGENT_ID}/files/clipboard-image`
     );
     expect(image.querySelector("button")).not.toBeNull();
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
@@ -990,18 +990,18 @@ describe("ChatFeed", () => {
   });
 
   it("renders every attachment type", () => {
-    const { onOpenMedia } = renderFeed([
+    const { onOpenFile } = renderFeed([
       blockEntry(
         block({
           id: "a1",
           attachments: [
             fileAttachment({
-              mediaId: 7,
+              fileId: 7,
               fileName: "shot.png",
               sizeBytes: 2048,
             }),
             fileAttachment({
-              mediaId: 8,
+              fileId: 8,
               fileName: "notes.md",
               sizeBytes: 100,
             }),
@@ -1020,10 +1020,10 @@ describe("ChatFeed", () => {
 
     const image = screen.getByTestId("chat-attachment-image");
     expect(image.querySelector("img")?.getAttribute("src")).toBe(
-      `/api/v1/agents/${AGENT_ID}/media/shot.png`
+      `/api/v1/agents/${AGENT_ID}/files/shot.png`
     );
     fireEvent.click(image.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(7);
+    expect(onOpenFile).toHaveBeenCalledWith(7);
 
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
       "notes.md"
@@ -1238,7 +1238,7 @@ describe("ChatFeed", () => {
   });
 
   it("renders a file block as the agent's post with its image, opening the lightbox", () => {
-    const { onOpenMedia } = renderFeed([
+    const { onOpenFile } = renderFeed([
       blockEntry(
         block({
           id: "md1",
@@ -1246,7 +1246,7 @@ describe("ChatFeed", () => {
           body: FILE_BODY,
           attachments: [
             fileAttachment({
-              mediaId: 3,
+              fileId: 3,
               fileName: "screen.png",
               sizeBytes: 4096,
             }),
@@ -1263,7 +1263,7 @@ describe("ChatFeed", () => {
     const image = screen.getByTestId("chat-attachment-image");
     expect(image.querySelector("img")).toBeTruthy();
     fireEvent.click(image.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(3);
+    expect(onOpenFile).toHaveBeenCalledWith(3);
   });
 });
 

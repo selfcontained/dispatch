@@ -70,7 +70,7 @@ const testConfig = {
   port: 6767,
   databaseUrl: "",
   authToken: "test-token",
-  mediaRoot: "/tmp/dispatch-test-media",
+  filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp/dispatch-test-bin",
   codexBin: "/bin/codex",
   claudeBin: "/bin/claude",
@@ -184,8 +184,8 @@ afterAll(async () => {
 beforeEach(async () => {
   chatEvents = [];
   await pool.query("DELETE FROM blocks");
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM files_seen");
+  await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
   vi.mocked(createGitWorktree).mockReset();
   vi.mocked(createGitWorktree).mockImplementation(
@@ -204,7 +204,7 @@ beforeEach(async () => {
       pool,
       publishUiEvent: (event) => chatEvents.push(event),
       getAgent: (id) => manager.getAgent(id),
-      mediaRoot: testConfig.mediaRoot,
+      filesRoot: testConfig.filesRoot,
     })
   );
 });
@@ -224,7 +224,7 @@ describe("AgentManager", () => {
       expect(agent.type).toBe("claude");
       expect(agent.role).toBe("standard");
       expect(agent.cliSessionId).toBe("sess_1");
-      expect(agent.mediaDir).toBeTruthy();
+      expect(agent.filesDir).toBeTruthy();
       expect(agent.createdAt).toBeTruthy();
       expect(agent.latestEvent?.message).toBe("Claude Code session started.");
       expect(runtime.launch).toHaveBeenCalledTimes(1);
@@ -256,7 +256,7 @@ describe("AgentManager", () => {
       });
       expect(launch.env).toMatchObject({
         DISPATCH_AGENT_ID: agent.id,
-        DISPATCH_MEDIA_DIR: path.join(testConfig.mediaRoot, agent.id),
+        DISPATCH_FILES_DIR: path.join(testConfig.filesRoot, agent.id),
         DISPATCH_PORT: "6767",
         DISPATCH_SCHEME: "http",
       });
@@ -497,8 +497,8 @@ describe("AgentManager", () => {
         });
         const posts = await launchPosts(agent.id);
         expect(posts).toHaveLength(1);
-        const media = await pool.query<{ id: number; file_name: string }>(
-          `SELECT id, file_name FROM media WHERE agent_id = $1`,
+        const seeded = await pool.query<{ id: number; file_name: string }>(
+          `SELECT id, file_name FROM files WHERE agent_id = $1`,
           [agent.id]
         );
         expect(posts[0]).toMatchObject({
@@ -512,8 +512,8 @@ describe("AgentManager", () => {
           attachments: [
             {
               type: "file",
-              mediaId: media.rows[0].id,
-              fileName: media.rows[0].file_name,
+              fileId: seeded.rows[0].id,
+              fileName: seeded.rows[0].file_name,
               sizeBytes: 7,
             },
             { type: "link", url: "https://example.com/spec" },
@@ -629,12 +629,12 @@ describe("AgentManager", () => {
         expect(firstTurn).toContain("--- END DISPATCH POST ---");
         expect(firstTurn).toContain("Build the widget");
         // Attachment lines come from the recorder, so turn and post agree.
-        const media = await pool.query<{ file_name: string }>(
-          `SELECT file_name FROM media WHERE agent_id = $1`,
+        const seeded = await pool.query<{ file_name: string }>(
+          `SELECT file_name FROM files WHERE agent_id = $1`,
           [agent.id]
         );
         expect(firstTurn).toContain(
-          `- file: ${path.join(testConfig.mediaRoot, agent.id, media.rows[0].file_name)} (text/markdown, 7 B)`
+          `- file: ${path.join(testConfig.filesRoot, agent.id, seeded.rows[0].file_name)} (text/markdown, 7 B)`
         );
         expect(firstTurn).toContain("- link: https://example.com/spec");
       });
@@ -775,7 +775,7 @@ describe("AgentManager", () => {
           pool,
           publishUiEvent: (event) => chatEvents.push(event),
           getAgent: (id) => racing.getAgent(id),
-          mediaRoot: testConfig.mediaRoot,
+          filesRoot: testConfig.filesRoot,
         });
         racing.attachLaunchContextRecorder({
           prepareLaunchContext: async (input) => {
@@ -1518,34 +1518,34 @@ describe("AgentManager", () => {
       expect(agents.find((a) => a.id === agent.id)).toBeUndefined();
     });
 
-    it("should preserve media rows after soft delete", async () => {
+    it("should preserve file rows after soft delete", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
 
-      // Insert media directly
+      // Insert a file row directly
       await pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes) VALUES ($1, 'test.png', 'screenshot', 100)`,
+        `INSERT INTO files (agent_id, file_name, source, size_bytes) VALUES ($1, 'test.png', 'screenshot', 100)`,
         [agent.id]
       );
       await pool.query(
-        `INSERT INTO media_seen (agent_id, media_key) VALUES ($1, 'test.png')`,
+        `INSERT INTO files_seen (agent_id, file_key) VALUES ($1, 'test.png')`,
         [agent.id]
       );
 
       await archiveAgent(agent.id);
 
-      // Media rows are preserved since soft delete doesn't trigger CASCADE
-      const media = await pool.query(
-        "SELECT * FROM media WHERE agent_id = $1",
+      // File rows are preserved since soft delete doesn't trigger CASCADE
+      const remaining = await pool.query(
+        "SELECT * FROM files WHERE agent_id = $1",
         [agent.id]
       );
       const seen = await pool.query(
-        "SELECT * FROM media_seen WHERE agent_id = $1",
+        "SELECT * FROM files_seen WHERE agent_id = $1",
         [agent.id]
       );
-      expect(media.rowCount).toBe(1);
+      expect(remaining.rowCount).toBe(1);
       expect(seen.rowCount).toBe(1);
     });
 
@@ -1792,20 +1792,20 @@ describe("AgentManager", () => {
       }
     });
 
-    it("should resolve a legacy home-relative media_dir before restarting", async () => {
+    it("should resolve a legacy home-relative files_dir before restarting", async () => {
       const agent = await createStoppedAgent();
       const fakeHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-home-"));
       const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
       try {
-        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
+        await pool.query(`UPDATE agents SET files_dir = $2 WHERE id = $1`, [
           agent.id,
-          `~/.dispatch/legacy-media-${agent.id}`,
+          `~/.dispatch/legacy-files-${agent.id}`,
         ]);
 
         await manager.startAgent(agent.id);
 
-        expect(lastLaunch().env.DISPATCH_MEDIA_DIR).toBe(
-          path.join(fakeHome, ".dispatch", `legacy-media-${agent.id}`)
+        expect(lastLaunch().env.DISPATCH_FILES_DIR).toBe(
+          path.join(fakeHome, ".dispatch", `legacy-files-${agent.id}`)
         );
       } finally {
         homedirSpy.mockRestore();
@@ -1922,22 +1922,22 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("listMedia", () => {
-    it("should include filePath and sizeBytes for each media item", async () => {
+  describe("listFiles", () => {
+    it("should include filePath and sizeBytes for each file item", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
 
       await pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
          VALUES ($1, 'doc.pdf', 'upload', 4096, 'Product brief')`,
         [agent.id]
       );
 
-      const media = await manager.listMedia(agent.id);
-      expect(media).toHaveLength(1);
-      const item = media[0]!;
+      const files = await manager.listFiles(agent.id);
+      expect(files).toHaveLength(1);
+      const item = files[0]!;
       expect(item.fileName).toBe("doc.pdf");
       expect(item.description).toBe("Product brief");
       expect(item.source).toBe("upload");
@@ -1946,36 +1946,36 @@ describe("AgentManager", () => {
       expect(item.filePath.endsWith(`${agent.id}/doc.pdf`)).toBe(true);
       expect(path.isAbsolute(item.filePath)).toBe(true);
 
-      await writeFile(item.filePath, "shared media");
+      await writeFile(item.filePath, "shared files");
       await expect(readFile(item.filePath, "utf-8")).resolves.toBe(
-        "shared media"
+        "shared files"
       );
     });
 
-    it("should resolve filePath using the agent's media_dir override", async () => {
+    it("should resolve filePath using the agent's files_dir override", async () => {
       const customDir = await mkdtemp(
-        path.join(os.tmpdir(), "dispatch-media-")
+        path.join(os.tmpdir(), "dispatch-files-")
       );
       try {
         const agent = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
         });
-        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
+        await pool.query(`UPDATE agents SET files_dir = $2 WHERE id = $1`, [
           agent.id,
           customDir,
         ]);
 
         await pool.query(
-          `INSERT INTO media (agent_id, file_name, source, size_bytes)
+          `INSERT INTO files (agent_id, file_name, source, size_bytes)
            VALUES ($1, 'screen.png', 'screenshot', 256)`,
           [agent.id]
         );
 
-        const media = await manager.listMedia(agent.id);
-        expect(media).toHaveLength(1);
-        expect(media[0]!.filePath).toBe(path.join(customDir, "screen.png"));
-        expect(media[0]!.sizeBytes).toBe(256);
+        const files = await manager.listFiles(agent.id);
+        expect(files).toHaveLength(1);
+        expect(files[0]!.filePath).toBe(path.join(customDir, "screen.png"));
+        expect(files[0]!.sizeBytes).toBe(256);
       } finally {
         await rm(customDir, { recursive: true, force: true });
       }
