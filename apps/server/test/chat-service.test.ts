@@ -1456,13 +1456,16 @@ describe("ChatService reactions", () => {
   });
 });
 
-describe("ChatService.recallOpenTurn", () => {
+describe("ChatService.recallTurn", () => {
   beforeEach(async () => {
     await pool.query("DELETE FROM agent_stream_events");
   });
 
-  /** A user message plus the open turn that claims it as its prompt. */
-  async function seedOpenTurn(text: string): Promise<string> {
+  /** A user message plus the turn that claims it as its prompt. */
+  async function seedOpenTurn(
+    text: string,
+    state: "started" | "settled" = "started"
+  ): Promise<string> {
     const messageId = randomUUID();
     await pool.query(
       `INSERT INTO agent_chat_messages
@@ -1478,7 +1481,7 @@ describe("ChatService.recallOpenTurn", () => {
       [
         A,
         JSON.stringify({
-          state: "started",
+          state,
           prompt: { source: "chat", chatMessageId: messageId },
         }),
       ]
@@ -1495,7 +1498,7 @@ describe("ChatService.recallOpenTurn", () => {
   it("returns the prompt and leaves no trace of the turn", async () => {
     const messageId = await seedOpenTurn("run the wrong thing");
 
-    await expect(service.recallOpenTurn(A)).resolves.toMatchObject({
+    await expect(service.recallTurn(A, messageId)).resolves.toMatchObject({
       text: "run the wrong thing",
     });
 
@@ -1514,8 +1517,8 @@ describe("ChatService.recallOpenTurn", () => {
   });
 
   it("tells clients the feed changed", async () => {
-    await seedOpenTurn("oops");
-    await service.recallOpenTurn(A);
+    const messageId = await seedOpenTurn("oops");
+    await service.recallTurn(A, messageId);
     expect(published).toContainEqual({ type: "chat.changed", agentId: A });
   });
 
@@ -1538,9 +1541,9 @@ describe("ChatService.recallOpenTurn", () => {
         }),
       ]
     );
-    await seedOpenTurn("the bad one");
+    const badId = await seedOpenTurn("the bad one");
 
-    await service.recallOpenTurn(A);
+    await service.recallTurn(A, badId);
 
     const rows = await pool.query(
       "SELECT payload->>'state' AS state FROM agent_stream_events WHERE agent_id = $1",
@@ -1554,7 +1557,48 @@ describe("ChatService.recallOpenTurn", () => {
     expect(still.rowCount).toBe(1);
   });
 
-  it("is null when no turn is open", async () => {
-    await expect(service.recallOpenTurn(A)).resolves.toBeNull();
+  it("recalls a turn that has already settled", async () => {
+    // The caller cancels and waits first, so by now the turn is settled.
+    // Looking for "the open turn" found nothing here and lost the recall.
+    const messageId = await seedOpenTurn("cancelled by now", "settled");
+    await expect(service.recallTurn(A, messageId)).resolves.toMatchObject({
+      text: "cancelled by now",
+    });
+    const stream = await pool.query(
+      "SELECT 1 FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    expect(stream.rowCount).toBe(0);
+  });
+
+  it("leaves a turn that started after it untouched", async () => {
+    // A queued prompt can start the next turn before the recall runs.
+    const cutId = await seedOpenTurn("the one to replace", "settled");
+    const nextId = await seedOpenTurn("queued behind it");
+
+    await service.recallTurn(A, cutId);
+
+    const turns = await pool.query(
+      `SELECT payload->'prompt'->>'chatMessageId' AS id
+         FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'`,
+      [A]
+    );
+    expect(turns.rows).toEqual([{ id: nextId }]);
+    const next = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE id = $1",
+      [nextId]
+    );
+    expect(next.rowCount).toBe(1);
+    const rows = await pool.query(
+      "SELECT 1 FROM agent_stream_events WHERE agent_id = $1",
+      [A]
+    );
+    // The next turn keeps both of its rows.
+    expect(rows.rowCount).toBe(2);
+  });
+
+  it("is null for a message that started no turn, or is not a message", async () => {
+    await expect(service.recallTurn(A, randomUUID())).resolves.toBeNull();
+    await expect(service.recallTurn(A, "not-a-uuid")).resolves.toBeNull();
   });
 });

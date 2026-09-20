@@ -91,6 +91,8 @@ export type SupervisorDeps = {
    * "running" over a dead harness. Falls back to a blocked event.
    */
   markExited?: (id: string, message: string) => Promise<void>;
+  /** How long a released queue waits for the prompt promised its next slot (tests). */
+  firstPromptWaitMs?: number;
 };
 
 /**
@@ -262,6 +264,11 @@ export const RESTART_PROMPT = [
   "--- END DISPATCH: RESTART ---",
 ].join("\n");
 
+/** How long the queue waits for a replacement prompt that was promised the next slot. */
+const FIRST_PROMPT_WAIT_MS = 5_000;
+/** How long a cancelled turn gets to settle before a replace gives up. */
+const INTERRUPT_SETTLE_TIMEOUT_MS = 15_000;
+
 type Pending = QueuedPrompt & {
   text: string;
   started: Promise<void>;
@@ -309,6 +316,17 @@ export class HarnessSupervisor {
    */
   private readonly pending = new Map<string, Pending[]>();
   private readonly running = new Map<string, Pending>();
+  /** Agents whose queue must not advance yet, by how many holds are open. */
+  private readonly held = new Map<string, number>();
+  /**
+   * A prompt that must start before anything already queued, and that may
+   * not have reached the queue yet: chat delivery enqueues a beat after
+   * the message is stored. The queue waits for it, up to the timer.
+   */
+  private readonly awaitedFirst = new Map<
+    string,
+    { id: string; timer: ReturnType<typeof setTimeout> }
+  >();
   /**
    * Claude Code has no `auth_required` error; it answers a turn with a plain
    * "Please run /login" reply instead. What the current Claude turn has
@@ -477,6 +495,78 @@ export class HarnessSupervisor {
     // row before it closes and no driver event is mid-write underneath.
     await this.chain(agentId, () => this.streams.interruptAutonomous(agentId));
     return true;
+  }
+
+  /** The queue id of the prompt whose turn is running: a chat message's id for one sent from Chat. */
+  runningPromptId(agentId: string): string | null {
+    return this.running.get(agentId)?.id ?? null;
+  }
+
+  /**
+   * Keep the queue from advancing until `release` is called.
+   *
+   * Cancelling a turn pumps the queue the moment it settles, so anything a
+   * caller does "after the cancel" races the next queued prompt starting.
+   * Replacing a running turn needs that gap closed: cancel, take the old
+   * turn out of the feed, send its replacement, and only then let the queue
+   * move, replacement first.
+   *
+   * `release(firstId)` names the prompt that must start next. It may not be
+   * queued yet (chat delivery enqueues asynchronously), so the queue waits
+   * for it for up to `FIRST_PROMPT_WAIT_MS` before moving on without it.
+   */
+  holdQueue(agentId: string): { release: (firstId?: string) => void } {
+    this.held.set(agentId, (this.held.get(agentId) ?? 0) + 1);
+    let released = false;
+    return {
+      release: (firstId?: string) => {
+        if (released) return;
+        released = true;
+        const left = (this.held.get(agentId) ?? 1) - 1;
+        if (left > 0) this.held.set(agentId, left);
+        else this.held.delete(agentId);
+        if (firstId && !this.promoteQueued(agentId, firstId)) {
+          const prior = this.awaitedFirst.get(agentId);
+          if (prior) clearTimeout(prior.timer);
+          const timer = setTimeout(() => {
+            if (this.awaitedFirst.get(agentId)?.id !== firstId) return;
+            this.awaitedFirst.delete(agentId);
+            this.pump(agentId);
+          }, this.deps.firstPromptWaitMs ?? FIRST_PROMPT_WAIT_MS);
+          timer.unref?.();
+          this.awaitedFirst.set(agentId, { id: firstId, timer });
+        }
+        this.pump(agentId);
+      },
+    };
+  }
+
+  /**
+   * Cancel the running turn and wait until it has fully settled: the engine
+   * answered the cancel, every stream write it caused has landed, and the
+   * turn's slot is free. False when nothing was running. Throws when the
+   * engine does not settle in time, leaving everything as it was.
+   */
+  async interruptAndWait(
+    agentId: string,
+    timeoutMs = INTERRUPT_SETTLE_TIMEOUT_MS
+  ): Promise<boolean> {
+    const running = this.running.get(agentId);
+    const interrupted = await this.interrupt(agentId);
+    if (running) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), timeoutMs);
+        timer.unref?.();
+      });
+      const outcome = await Promise.race([running.settled, timedOut]);
+      if (timer) clearTimeout(timer);
+      if (outcome === "timeout") {
+        throw new Error("The agent did not stop in time.");
+      }
+    }
+    await this.drained(agentId);
+    return interrupted;
   }
 
   async sendQueuedNow(agentId: string, id: string): Promise<boolean> {
@@ -842,7 +932,14 @@ export class HarnessSupervisor {
       markSettled,
     };
     const list = this.pendingOf(agentId);
-    list.push(item);
+    const awaited = this.awaitedFirst.get(agentId);
+    if (awaited && awaited.id === item.id) {
+      clearTimeout(awaited.timer);
+      this.awaitedFirst.delete(agentId);
+      list.unshift(item);
+    } else {
+      list.push(item);
+    }
     this.pending.set(agentId, list);
     this.pump(agentId);
     // Still waiting: no stream write announces it, so tell the feed here
@@ -858,6 +955,8 @@ export class HarnessSupervisor {
     // keeps its undelivered row for the next boot to redeliver rather than
     // starting a turn the teardown is about to cut.
     if (this.shuttingDown) return;
+    // A caller is between cancelling a turn and replacing it; see holdQueue.
+    if (this.held.has(agentId) || this.awaitedFirst.has(agentId)) return;
     // Some adapters emit tool activity after their prompt promise resolves.
     // That becomes an autonomous stream turn, and ACP still permits only one
     // active session turn, so defer queued prompts until it settles.
@@ -1050,16 +1149,6 @@ export class HarnessSupervisor {
 
   private async drained(agentId: string): Promise<void> {
     await this.queues.get(agentId);
-  }
-
-  /**
-   * Wait for the agent's in-flight stream writes to land. A cancel returns
-   * when the RPC does, but the turn's own settle arrives as a later event on
-   * the chain; a caller that deletes rows before it lands leaves the settle
-   * to recreate one behind it.
-   */
-  async drainEvents(agentId: string): Promise<void> {
-    await this.drained(agentId);
   }
 
   private async onEvent(event: DriverEvent): Promise<void> {

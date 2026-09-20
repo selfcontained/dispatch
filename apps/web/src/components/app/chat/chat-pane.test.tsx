@@ -63,6 +63,14 @@ const API = vi.hoisted(() => ({
 // origin, and a resolved directory re-renders every post.
 vi.mock("@/lib/api", () => ({
   api: API.call,
+  ApiError: class ApiError extends Error {
+    constructor(
+      readonly status: number,
+      message: string
+    ) {
+      super(message);
+    }
+  },
 }));
 
 vi.mock("@/hooks/use-chat", () => ({
@@ -101,7 +109,12 @@ const HARNESS = vi.hoisted(() => ({
   sendNow: vi.fn(async (_id: string) => {}),
   remove: vi.fn(async (_id: string) => {}),
   interrupt: vi.fn(async () => {}),
-  recall: vi.fn(async () => ({ text: "the original prompt", attachments: [] })),
+  editTurn: vi.fn(
+    async (_input: {
+      chatMessageId: string;
+      text: string;
+    }): Promise<unknown> => ({})
+  ),
 }));
 
 vi.mock("@/components/app/harness/use-harness-queue", () => ({
@@ -120,7 +133,7 @@ vi.mock("@/components/app/harness/use-harness-queue", () => ({
     interrupt: HARNESS.interrupt,
     interrupting: false,
   }),
-  useRecallTurn: () => ({ recall: HARNESS.recall, recalling: false }),
+  useEditTurn: () => ({ editTurn: HARNESS.editTurn, replacing: false }),
 }));
 vi.mock(
   "@/components/app/harness/use-harness-config",
@@ -325,6 +338,8 @@ beforeEach(() => {
   HARNESS.sendNow.mockClear();
   HARNESS.remove.mockClear();
   HARNESS.interrupt.mockClear();
+  HARNESS.editTurn.mockReset();
+  HARNESS.editTurn.mockImplementation(async () => ({}));
   // The draft atom is keyed by agent and outlives a render, so an unsent
   // draft left by an earlier case would make ArrowUp a history walk
   // instead of a recall.
@@ -1502,6 +1517,8 @@ describe("ChatPane harness chrome", () => {
   it("pins the current task list above the composer and folds it", () => {
     H.entries = [
       turnEntry({
+        // Running: a task is only ever active while a turn is.
+        settled: false,
         plan: [
           { content: "Read the README", status: "completed", priority: "high" },
           {
@@ -1530,6 +1547,31 @@ describe("ChatPane harness chrome", () => {
     fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
     expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
     expect(strip.textContent).toContain("Echo the prompt");
+  });
+
+  it("shows no task as active once the turn is over, and says the list is paused", () => {
+    // The agent is idle, so nothing on its list is being worked on. A list
+    // left "in progress" used to keep its spinner for as long as it idled.
+    H.entries = [
+      turnEntry({
+        settled: true,
+        plan: [
+          { content: "Read the README", status: "completed", priority: "high" },
+          {
+            content: "Echo the prompt",
+            status: "in_progress",
+            priority: "medium",
+          },
+        ],
+      }),
+    ];
+    renderPane({ agent: dispatchAgent });
+    const strip = screen.getByTestId("harness-tasks");
+    expect(strip.textContent).toContain("1 of 2 done · paused");
+    const statuses = Array.from(
+      strip.querySelectorAll('[data-testid="harness-todo-item"]')
+    ).map((item) => item.getAttribute("data-status"));
+    expect(statuses).not.toContain("in_progress");
   });
 
   it("drops the strip once every task is done", () => {
@@ -1648,28 +1690,156 @@ describe("ChatPane harness chrome", () => {
     expect(HARNESS.interrupt).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Edit on a running turn the user prompted, and refills the draft", async () => {
+  const runningChatTurn = (text = "the original prompt") =>
+    turnEntry({
+      settled: false,
+      prompt: {
+        source: "chat",
+        text,
+        chatMessageId: "m-prompt",
+        attachments: [],
+      },
+      trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
+      result: { text: "working", streaming: true },
+    });
+  const field = () =>
+    screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
+
+  it("opens the running turn's message for editing without touching the turn", async () => {
+    H.entries = [runningChatTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
+    // Nothing is stopped, recalled or sent by opening the editor.
+    expect(HARNESS.editTurn).not.toHaveBeenCalled();
+    expect(HARNESS.interrupt).not.toHaveBeenCalled();
+    expect(H.send).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-edit-context").textContent).toContain(
+      "Sending stops the agent and replaces it."
+    );
+    // The helper line stops promising that Enter queues.
+    expect(screen.getByTestId("chat-pane").textContent).toContain(
+      "Enter stops the agent and sends your edit"
+    );
+    // The pill steps aside while the editor is open; Cancel is in the banner.
+    expect(screen.getByTestId("harness-edit-turn").className).toContain(
+      "hidden"
+    );
+  });
+
+  it("sends the edit as a replacement, not as a new message", async () => {
+    H.entries = [runningChatTurn("summarise teh README")];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("summarise teh README"));
+    typeAndSend("summarise the README");
+    await waitFor(() =>
+      expect(HARNESS.editTurn).toHaveBeenCalledWith({
+        chatMessageId: "m-prompt",
+        text: "summarise the README",
+      })
+    );
+    expect(H.send).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-edit-context")).toBeNull()
+    );
+    expect(field().value).toBe("");
+  });
+
+  it("cancels an edit and leaves the agent working", async () => {
+    H.entries = [runningChatTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.change(field(), { target: { value: "a draft I was writing" } });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
+    fireEvent.click(screen.getByTestId("chat-edit-cancel"));
+    // What was in the field before the edit comes back.
+    await waitFor(() => expect(field().value).toBe("a draft I was writing"));
+    expect(screen.queryByTestId("chat-edit-context")).toBeNull();
+    expect(HARNESS.editTurn).not.toHaveBeenCalled();
+    expect(HARNESS.interrupt).not.toHaveBeenCalled();
+    expect(screen.getByTestId("harness-edit-turn").className).not.toContain(
+      "hidden"
+    );
+  });
+
+  it("cancels an edit on Escape", async () => {
+    H.entries = [runningChatTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
+    fireEvent.keyDown(field(), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-edit-context")).toBeNull()
+    );
+    expect(field().value).toBe("");
+    expect(HARNESS.editTurn).not.toHaveBeenCalled();
+  });
+
+  it("restores the earlier draft once the edit is sent", async () => {
+    H.entries = [runningChatTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.change(field(), { target: { value: "my next question" } });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
+    typeAndSend("the corrected prompt");
+    await waitFor(() => expect(HARNESS.editTurn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(field().value).toBe("my next question"));
+  });
+
+  it("keeps the text as a new message when the turn ended before the edit arrived", async () => {
+    const { ApiError } = await import("@/lib/api");
+    HARNESS.editTurn.mockRejectedValueOnce(
+      new ApiError(409, "That turn is no longer running.")
+    );
+    H.entries = [runningChatTurn()];
+    renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
+    typeAndSend("the corrected prompt");
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-edit-context")).toBeNull()
+    );
+    // Nothing was lost: the text stays, and the next Enter is a plain send.
+    expect(field().value).toBe("the corrected prompt");
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("drops out of the editor when the turn ends underneath it", async () => {
+    H.entries = [runningChatTurn()];
+    const view = renderPane({ agent: dispatchAgent });
+    fireEvent.click(screen.getByTestId("harness-edit-turn"));
+    await waitFor(() => expect(field().value).toBe("the original prompt"));
     H.entries = [
       turnEntry({
-        settled: false,
+        settled: true,
         prompt: {
           source: "chat",
           text: "the original prompt",
           chatMessageId: "m-prompt",
           attachments: [],
         },
-        trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
-        result: { text: "working", streaming: true },
       }),
     ];
-    renderPane({ agent: dispatchAgent });
-    fireEvent.click(screen.getByTestId("harness-edit-turn"));
-    expect(HARNESS.recall).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(
-        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
-      ).toBe("the original prompt")
+    view.rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={dispatchAgent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
     );
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-edit-context")).toBeNull()
+    );
+    // The words are kept; they are just an ordinary draft now.
+    expect(field().value).toBe("the original prompt");
+    expect(HARNESS.editTurn).not.toHaveBeenCalled();
   });
 
   it("hides Edit when the prompt carried attachments", () => {

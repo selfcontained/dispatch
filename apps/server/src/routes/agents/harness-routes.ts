@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import type {
-  HarnessCommandsResponse,
-  HarnessConfigResponse,
-  HarnessConfigUpdateRequest,
-  HarnessPathsResponse,
-  HarnessQueueResponse,
+import {
+  CHAT_MESSAGE_MAX_CHARS,
+  type HarnessCommandsResponse,
+  type HarnessConfigResponse,
+  type HarnessConfigUpdateRequest,
+  type HarnessEditTurnRequest,
+  type HarnessPathsResponse,
+  type HarnessQueueResponse,
 } from "@dispatch/shared";
 
 import { listHarnessPaths } from "../../agents/harness/paths.js";
@@ -13,7 +15,7 @@ import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
-  deps: Pick<AgentRouteDeps, "pool" | "harness" | "chat">
+  deps: Pick<AgentRouteDeps, "pool" | "harness" | "chat" | "appLog">
 ): Promise<void> {
   const exists = async (id: string): Promise<boolean> => {
     const row = await deps.pool.query(
@@ -182,25 +184,70 @@ export async function registerAgentHarnessRoutes(
   });
 
   /**
-   * Take back the running turn: cancel it, drop it and the message that
-   * started it, and hand the text back so the composer can be refilled.
+   * Replace the running turn with an edited prompt. Nothing happens to the
+   * turn until this is called: opening the editor and cancelling it are the
+   * client's business alone.
    *
-   * Cancel first. Deleting the rows under a live turn would leave the engine
-   * writing into a group that no longer exists, and the next stream write
-   * would open a fresh turn mid-answer.
+   * The order is the point. Everything that can refuse does so before the
+   * cancel, so a refusal leaves the turn running. Then, with the queue held
+   * so no queued prompt can slip into the gap: cancel and wait for the turn
+   * to settle (deleting rows under a live turn would leave the engine
+   * writing into a group that no longer exists), take the old turn and its
+   * message out of the feed, send the new text, and release the queue with
+   * the new message first in line.
    */
-  app.post("/api/v1/agents/:id/harness/turn/recall", async (request, reply) => {
+  app.post("/api/v1/agents/:id/harness/turn/edit", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await exists(id))) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    await deps.harness.interrupt(id);
-    await deps.harness.drainEvents?.(id);
-    const recalled = await deps.chat.recallOpenTurn(id);
-    if (!recalled) {
-      return reply.code(409).send({ error: "No turn is running." });
+    const body = (request.body ?? {}) as Partial<HarnessEditTurnRequest>;
+    const chatMessageId =
+      typeof body.chatMessageId === "string" ? body.chatMessageId : "";
+    const text = typeof body.text === "string" ? body.text : "";
+    if (!chatMessageId) {
+      return reply.code(400).send({ error: "chatMessageId is required." });
     }
-    return recalled;
+    if (!text.trim()) {
+      return reply.code(400).send({ error: "text is required." });
+    }
+    if (text.length > CHAT_MESSAGE_MAX_CHARS) {
+      return reply.code(400).send({
+        error: `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`,
+      });
+    }
+    if (deps.harness.runningPromptId(id) !== chatMessageId) {
+      return reply
+        .code(409)
+        .send({ error: "That turn is no longer running.", code: "TURN_ENDED" });
+    }
+    const hold = deps.harness.holdQueue(id);
+    let firstId: string | undefined;
+    try {
+      await deps.harness.interruptAndWait(id);
+      const recalled = await deps.chat.recallTurn(id, chatMessageId);
+      if (!recalled) {
+        return reply.code(409).send({
+          error: "That turn is no longer running.",
+          code: "TURN_ENDED",
+        });
+      }
+      const sent = await deps.chat.sendUserMessage(id, text, [], {
+        allowInert: true,
+      });
+      firstId = sent.message.id;
+      return sent;
+    } catch (error) {
+      deps.appLog.warn({ err: error, agentId: id }, "harness turn edit failed");
+      return reply.code(502).send({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not replace the turn.",
+      });
+    } finally {
+      hold.release(firstId);
+    }
   });
 
   app.get("/api/v1/agents/:id/harness/commands", async (request, reply) => {

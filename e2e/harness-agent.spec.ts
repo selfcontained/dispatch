@@ -477,7 +477,71 @@ test.describe("harness agent", () => {
     );
   });
 
-  test("edits the running turn: it vanishes and the text comes back", async ({
+  test("a stopped turn shows no step still running", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex"]);
+    await setDispatchHarnessViaAPI(request, true);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-harness-stop-step-${Date.now()}`,
+      type: "dispatch",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const pane = page.getByTestId("chat-pane");
+    const input = pane.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    // The engine starts a step and never finishes it; Stop ends the turn
+    // with that step still open on the wire.
+    await input.fill("hang:60000 review it");
+    await input.press("Enter");
+    const turn = pane.getByTestId("chat-turn");
+    // The rail shows step labels in lower case.
+    await expect(turn).toContainText(/review the pull request/i, {
+      timeout: 30_000,
+    });
+    await pane.getByTestId("harness-stop").click();
+    await expect(turn).toHaveAttribute("data-settled", /.*/, {
+      timeout: 30_000,
+    });
+
+    // The stored step is settled, so no reader can see it as running.
+    await expect
+      .poll(
+        async () => {
+          const feed = await request.get(`/api/v1/agents/${agent.id}/chat`);
+          const body = (await feed.json()) as {
+            entries: {
+              type: string;
+              trace?: { steps: { label: string; status: string }[] };
+            }[];
+          };
+          return body.entries
+            .filter((entry) => entry.type === "turn")
+            .flatMap((entry) => entry.trace?.steps ?? [])
+            .filter((step) => /review the pull request/i.test(step.label))
+            .map((step) => step.status);
+        },
+        { timeout: 30_000 }
+      )
+      .toEqual(["error"]);
+    await page.screenshot({
+      path: test.info().outputPath("harness-stopped-step.png"),
+      fullPage: true,
+    });
+  });
+
+  test("edits the running turn: nothing stops until the edit is sent, and Cancel backs out", async ({
     page,
     request,
   }) => {
@@ -508,35 +572,44 @@ test.describe("harness agent", () => {
     );
     await expect(runningTurn).toBeVisible({ timeout: 30_000 });
 
+    // Opening the editor puts the words in the field and touches nothing
+    // else: the turn is still there and still running.
     await pane.getByTestId("harness-edit-turn").click();
+    await expect(input).toHaveValue("sleep:60000 summarise teh README");
+    await expect(pane.getByTestId("chat-edit-context")).toBeVisible();
+    await expect(runningTurn).toBeVisible();
+    await expect(pane.getByTestId("harness-stop")).toBeVisible();
 
-    // The turn goes entirely: the prompt row it claimed goes with it, so the
-    // feed holds no trace of the typo.
-    await expect(pane.getByTestId("chat-turn")).toHaveCount(0, {
+    // Cancel backs out: the field empties and the agent was never stopped.
+    await pane.getByTestId("chat-edit-cancel").click();
+    await expect(pane.getByTestId("chat-edit-context")).toHaveCount(0);
+    await expect(input).toHaveValue("");
+    await expect(runningTurn).toBeVisible();
+
+    // Again, and this time send it. Only now does the turn stop.
+    await pane.getByTestId("harness-edit-turn").click();
+    await expect(pane.getByTestId("chat-edit-context")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath("harness-edit-turn.png"),
+      fullPage: true,
+    });
+    await input.fill("say:summarised the README");
+    await input.press("Enter");
+
+    // One turn, the new text, nothing of the old: the typo's turn and the
+    // prompt row it claimed are both gone from the feed.
+    await expect(pane.getByTestId("chat-scroll")).toContainText(
+      "summarised the README",
+      { timeout: 30_000 }
+    );
+    await expect(pane.getByTestId("chat-turn")).toHaveCount(1, {
       timeout: 30_000,
     });
     await expect(pane.getByTestId("chat-scroll")).not.toContainText(
       "summarise teh README"
     );
-    // And the words are back in the composer, ready to fix.
-    await expect(input).toHaveValue("sleep:60000 summarise teh README", {
-      timeout: 30_000,
-    });
-    await page.screenshot({
-      path: test.info().outputPath("harness-edit-turn.png"),
-      fullPage: true,
-    });
-
-    // Corrected and sent: one turn, the new text, nothing of the old.
-    await input.fill("say:summarised the README");
-    await input.press("Enter");
-    await expect(pane.getByTestId("chat-turn")).toHaveCount(1, {
-      timeout: 30_000,
-    });
-    await expect(pane.getByTestId("chat-scroll")).toContainText(
-      "summarised the README",
-      { timeout: 30_000 }
-    );
+    await expect(pane.getByTestId("chat-edit-context")).toHaveCount(0);
+    await expect(input).toHaveValue("");
   });
 
   test("folds the queue past two rows and opens it on the count", async ({

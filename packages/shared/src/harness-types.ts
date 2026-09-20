@@ -16,6 +16,13 @@ export type HarnessQueuedPrompt = HarnessPrompt & {
 
 export type HarnessQueueResponse = { queued: HarnessQueuedPrompt[] };
 
+/**
+ * Replace the running turn with an edited prompt: the turn `chatMessageId`
+ * started is stopped and taken out of the feed, and `text` is sent in its
+ * place, ahead of anything queued.
+ */
+export type HarnessEditTurnRequest = { chatMessageId: string; text: string };
+
 export const HARNESS_ENGINE_IDS = [
   "claude",
   "codex",

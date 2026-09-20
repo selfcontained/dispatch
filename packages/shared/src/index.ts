@@ -74,6 +74,7 @@ export type {
 export type {
   HarnessPrompt,
   HarnessQueuedPrompt,
+  HarnessEditTurnRequest,
   HarnessQueueResponse,
   UsageBudgets,
   UsageBudgetsResponse,

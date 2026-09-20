@@ -160,7 +160,12 @@ describe("GET /api/v1/agents/:id/harness/queue", () => {
         sendQueuedNow: async () => false,
         removeQueued: () => false,
         interrupt: async () => false,
+        runningPromptId: () => null,
+        holdQueue: () => ({ release: () => {} }),
+        interruptAndWait: async () => false,
       },
+      chat: {} as never,
+      appLog: app.log,
     });
     const res = await app.inject({
       method: "GET",
@@ -188,6 +193,146 @@ describe("GET /api/v1/agents/:id/harness/queue", () => {
         },
       ],
     });
+    await app.close();
+  });
+});
+
+describe("POST /api/v1/agents/:id/harness/turn/edit", () => {
+  const RUNNING = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
+
+  /** The route over stubs that record the order things happen in. */
+  async function build(
+    opts: {
+      running?: string | null;
+      recalled?: boolean;
+      sendFails?: boolean;
+      stopFails?: boolean;
+    } = {}
+  ) {
+    const calls: string[] = [];
+    const app = Fastify();
+    await registerAgentHarnessRoutes(app, {
+      pool: ctx.pool,
+      appLog: app.log,
+      harness: {
+        getConfigOptions: () => null,
+        getSessionStartedAt: () => null,
+        setConfigOption: async () => [],
+        getCommands: () => null,
+        listQueued: () => [],
+        sendQueuedNow: async () => false,
+        removeQueued: () => false,
+        interrupt: async () => false,
+        runningPromptId: () =>
+          opts.running === undefined ? RUNNING : opts.running,
+        holdQueue: () => {
+          calls.push("hold");
+          return {
+            release: (firstId?: string) => {
+              calls.push(`release:${firstId ?? ""}`);
+            },
+          };
+        },
+        interruptAndWait: async () => {
+          calls.push("interruptAndWait");
+          if (opts.stopFails)
+            throw new Error("The agent did not stop in time.");
+          return true;
+        },
+      },
+      chat: {
+        recallTurn: async (_agent: string, id: string) => {
+          calls.push(`recall:${id}`);
+          return opts.recalled === false
+            ? null
+            : { text: "teh typo", attachments: [] };
+        },
+        sendUserMessage: async (_agent: string, text: string) => {
+          calls.push(`send:${text}`);
+          if (opts.sendFails) throw new Error("delivery broke");
+          return { message: { id: "new-id" }, delivered: null, held: true };
+        },
+      } as never,
+    });
+    const post = (payload: unknown, id = agentId) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/agents/${id}/harness/turn/edit`,
+        headers: { "content-type": "application/json" },
+        payload: payload as never,
+      });
+    return { app, calls, post };
+  }
+
+  it("stops the turn, recalls it, sends the edit, and releases it first in line", async () => {
+    const { app, calls, post } = await build();
+    const res = await post({ chatMessageId: RUNNING, text: "the typo" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().message.id).toBe("new-id");
+    expect(calls).toEqual([
+      "hold",
+      "interruptAndWait",
+      `recall:${RUNNING}`,
+      "send:the typo",
+      "release:new-id",
+    ]);
+    await app.close();
+  });
+
+  it("refuses without touching the turn when it is no longer the running one", async () => {
+    for (const running of [null, "some-other-message"]) {
+      const { app, calls, post } = await build({ running });
+      const res = await post({ chatMessageId: RUNNING, text: "the typo" });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe("TURN_ENDED");
+      expect(calls).toEqual([]);
+      await app.close();
+    }
+  });
+
+  it("validates before it stops anything", async () => {
+    const { app, calls, post } = await build();
+    expect(
+      (await post({ chatMessageId: RUNNING, text: "  " })).statusCode
+    ).toBe(400);
+    expect((await post({ text: "x" })).statusCode).toBe(400);
+    expect(
+      (await post({ chatMessageId: RUNNING, text: "x".repeat(20_001) }))
+        .statusCode
+    ).toBe(400);
+    expect(
+      (await post({ chatMessageId: RUNNING, text: "x" }, "agt_nope")).statusCode
+    ).toBe(404);
+    expect(calls).toEqual([]);
+    await app.close();
+  });
+
+  it("releases the queue when the agent will not stop, and deletes nothing", async () => {
+    const { app, calls, post } = await build({ stopFails: true });
+    const res = await post({ chatMessageId: RUNNING, text: "the typo" });
+    expect(res.statusCode).toBe(502);
+    expect(calls).toEqual(["hold", "interruptAndWait", "release:"]);
+    await app.close();
+  });
+
+  it("releases the queue when the send fails", async () => {
+    const { app, calls, post } = await build({ sendFails: true });
+    const res = await post({ chatMessageId: RUNNING, text: "the typo" });
+    expect(res.statusCode).toBe(502);
+    expect(calls[calls.length - 1]).toBe("release:");
+    await app.close();
+  });
+
+  it("409s when the turn's rows are already gone", async () => {
+    const { app, calls, post } = await build({ recalled: false });
+    const res = await post({ chatMessageId: RUNNING, text: "the typo" });
+    expect(res.statusCode).toBe(409);
+    expect(calls).toEqual([
+      "hold",
+      "interruptAndWait",
+      `recall:${RUNNING}`,
+      "release:",
+    ]);
     await app.close();
   });
 });

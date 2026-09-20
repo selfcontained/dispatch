@@ -47,6 +47,8 @@ async function build(
     resumeFails?: boolean;
     /** The child ignores stdin EOF, SIGTERM and SIGKILL. */
     ignoreSignals?: boolean;
+    /** How long a released queue waits for a promised replacement. */
+    firstPromptWaitMs?: number;
   } = {}
 ) {
   home = await mkdtemp(path.join(os.tmpdir(), "harness-sup-"));
@@ -157,6 +159,9 @@ async function build(
     launchPromptFor: vi.fn(async () => opts.launchPrompt ?? null),
     listRunningAgentIds: vi.fn(async () => [] as string[]),
     markStartFailed: vi.fn(async () => {}),
+    ...(opts.firstPromptWaitMs !== undefined
+      ? { firstPromptWaitMs: opts.firstPromptWaitMs }
+      : {}),
   };
   const sup = new HarnessSupervisor(deps);
   return { fake, deps, events, sup, query };
@@ -986,6 +991,118 @@ describe("HarnessSupervisor message queue", () => {
     await second.settled;
     expect(fake.seen.cancels).toBe(1);
     expect(fake.seen.prompts).toEqual(["one", envelope("three"), "two"]);
+    await sup.stop("agt_1");
+  });
+
+  const cancellableTurn: FakeTurn = async (_p, _emit, _ask, signal) => {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 400);
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    return signal.aborted ? "cancelled" : "end_turn";
+  };
+  const REPLACEMENT_ID = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const replacement = (text: string) =>
+    `--- DISPATCH CHAT (id: ${REPLACEMENT_ID}) ---\n${text}\n--- END DISPATCH CHAT ---`;
+
+  it("names the running turn's prompt", async () => {
+    const { sup } = await build({ turn: cancellableTurn });
+    await sup.start("agt_1");
+    expect(sup.runningPromptId("agt_1")).toBeNull();
+    const first = sup.enqueuePrompt("agt_1", envelope("one"));
+    await first.started;
+    expect(sup.runningPromptId("agt_1")).toBe(CHAT_ID);
+    await sup.interruptAndWait("agt_1");
+    expect(sup.runningPromptId("agt_1")).toBeNull();
+    await sup.stop("agt_1");
+  });
+
+  it("holds the queue across a replace, then starts the replacement first", async () => {
+    const { sup, fake } = await build({ turn: cancellableTurn });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", envelope("teh typo"));
+    const queued = sup.enqueuePrompt("agt_1", "queued behind it");
+    await first.started;
+
+    const hold = sup.holdQueue("agt_1");
+    expect(await sup.interruptAndWait("agt_1")).toBe(true);
+    // The cancelled turn has settled and the slot is free, but the prompt
+    // that was queued must not take it: the replacement is not in yet.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.seen.prompts).toEqual([envelope("teh typo")]);
+    expect(sup.runningPromptId("agt_1")).toBeNull();
+
+    // Chat delivery enqueues a beat after the message is stored, so the
+    // release can name a prompt the queue has not seen yet.
+    hold.release(REPLACEMENT_ID);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.seen.prompts).toEqual([envelope("teh typo")]);
+    const edited = sup.enqueuePrompt("agt_1", replacement("the typo"));
+    await edited.started;
+    expect(sup.runningPromptId("agt_1")).toBe(REPLACEMENT_ID);
+    await sup.interruptAndWait("agt_1");
+    await queued.settled;
+    expect(fake.seen.prompts).toEqual([
+      envelope("teh typo"),
+      replacement("the typo"),
+      "queued behind it",
+    ]);
+    await sup.stop("agt_1");
+  });
+
+  it("promotes a replacement that is already queued when the hold lifts", async () => {
+    const { sup, fake } = await build({ turn: cancellableTurn });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", envelope("one"));
+    const queued = sup.enqueuePrompt("agt_1", "two");
+    await first.started;
+    const hold = sup.holdQueue("agt_1");
+    await sup.interruptAndWait("agt_1");
+    const edited = sup.enqueuePrompt("agt_1", replacement("one, fixed"));
+    hold.release(REPLACEMENT_ID);
+    await edited.started;
+    await sup.interruptAndWait("agt_1");
+    await queued.settled;
+    expect(fake.seen.prompts).toEqual([
+      envelope("one"),
+      replacement("one, fixed"),
+      "two",
+    ]);
+    await sup.stop("agt_1");
+  });
+
+  it("moves on when a promised replacement never arrives", async () => {
+    const { sup, fake } = await build({
+      turn: async () => "end_turn",
+      firstPromptWaitMs: 80,
+    });
+    await sup.start("agt_1");
+    const hold = sup.holdQueue("agt_1");
+    const queued = sup.enqueuePrompt("agt_1", "two");
+    hold.release(REPLACEMENT_ID);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fake.seen.prompts).toEqual([]);
+    await queued.settled;
+    expect(fake.seen.prompts).toEqual(["two"]);
+    await sup.stop("agt_1");
+  });
+
+  it("a second release is a no-op", async () => {
+    const { sup, fake } = await build({ turn: async () => "end_turn" });
+    await sup.start("agt_1");
+    const a = sup.holdQueue("agt_1");
+    const b = sup.holdQueue("agt_1");
+    const queued = sup.enqueuePrompt("agt_1", "two");
+    a.release();
+    a.release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.seen.prompts).toEqual([]);
+    b.release();
+    await queued.settled;
+    expect(fake.seen.prompts).toEqual(["two"]);
     await sup.stop("agt_1");
   });
 

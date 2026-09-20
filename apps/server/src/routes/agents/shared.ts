@@ -44,8 +44,12 @@ export type AgentRouteDeps = {
     removeQueued: (agentId: string, id: string) => boolean;
     /** Cancel the running turn; false when nothing runs. */
     interrupt: (agentId: string) => Promise<boolean>;
-    /** Await in-flight stream writes, so a delete cannot race a settle. */
-    drainEvents?: (agentId: string) => Promise<void>;
+    /** The queue id of the running turn's prompt (a chat message id for Chat). */
+    runningPromptId: (agentId: string) => string | null;
+    /** Stop the queue advancing until released (HarnessSupervisor.holdQueue). */
+    holdQueue: (agentId: string) => { release: (firstId?: string) => void };
+    /** Cancel the running turn and wait for it to settle fully. */
+    interruptAndWait: (agentId: string) => Promise<boolean>;
   };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;

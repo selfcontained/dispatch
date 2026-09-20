@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  HarnessEditTurnRequest,
   HarnessQueuedPrompt,
   HarnessQueueResponse,
 } from "@dispatch/shared";
@@ -79,24 +80,25 @@ export function useHarnessQueue(agentId: string | null): {
 }
 
 /**
- * Take the running turn back to the composer: the engine is cancelled, and
- * the turn and the message that started it are deleted. Returns the prompt
- * so the caller can refill the draft.
+ * Replace the running turn with an edited prompt. The one call that touches
+ * the turn: opening the editor and cancelling it never reach the server.
+ * The engine is stopped, the turn and the message that started it leave the
+ * feed, and the new text is sent ahead of anything queued.
  *
- * Both caches move: the turn leaves the feed, and cancelling lets whatever
- * was queued start, which changes the queue too.
+ * Both caches move: the old turn leaves the feed and the new message enters
+ * it, and the queue may hold the replacement for a beat.
  */
-export function useRecallTurn(agentId: string | null): {
-  recall: () => Promise<{ text: string; attachments: unknown[] }>;
-  recalling: boolean;
+export function useEditTurn(agentId: string | null): {
+  editTurn: (input: HarnessEditTurnRequest) => Promise<unknown>;
+  replacing: boolean;
 } {
   const queryClient = useQueryClient();
-  const recall = useMutation<{ text: string; attachments: unknown[] }, Error>({
-    mutationFn: () =>
-      api<{ text: string; attachments: unknown[] }>(
-        `/api/v1/agents/${agentId}/harness/turn/recall`,
-        { method: "POST" }
-      ),
+  const edit = useMutation<unknown, Error, HarnessEditTurnRequest>({
+    mutationFn: (input) =>
+      api<unknown>(`/api/v1/agents/${agentId}/harness/turn/edit`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: harnessQueueQueryKey(agentId),
@@ -105,7 +107,7 @@ export function useRecallTurn(agentId: string | null): {
       void queryClient.invalidateQueries({ queryKey: ["chat", agentId] });
     },
   });
-  return { recall: recall.mutateAsync, recalling: recall.isPending };
+  return { editTurn: edit.mutateAsync, replacing: edit.isPending };
 }
 
 /** Stop: cancel the running turn. What is queued runs next. */

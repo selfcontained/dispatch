@@ -84,9 +84,9 @@ vi.mock("@/components/app/harness/use-harness-queue", () => ({
     busyId: null,
   }),
   useHarnessInterrupt: () => ({ interrupt: vi.fn(), interrupting: false }),
-  useRecallTurn: () => ({
-    recall: vi.fn(async () => ({ text: "", attachments: [] })),
-    recalling: false,
+  useEditTurn: () => ({
+    editTurn: vi.fn(async () => ({})),
+    replacing: false,
   }),
 }));
 vi.mock("@/components/app/harness/use-harness-usage", () => ({

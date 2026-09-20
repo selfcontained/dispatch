@@ -1,12 +1,20 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
   ChatFeedEntry,
   ChatTurnEntry,
+  ChatUserAttachmentInput,
   HarnessPath,
 } from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { AnimatePresence, motion } from "framer-motion";
-import { useSetAtom } from "jotai";
+import { useStore } from "jotai";
 import { CircleDollarSign, Cpu, LogIn, Pencil, Square } from "lucide-react";
 
 import { chatDraftAtomFamily } from "@/lib/store";
@@ -38,12 +46,12 @@ import {
   useHarnessInterrupt,
   useHarnessQueue,
   useQueuedPrompts,
-  useRecallTurn,
+  useEditTurn,
 } from "@/components/app/harness/use-harness-queue";
 import type { Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { agentStartupStage } from "./agent-startup";
 
@@ -184,7 +192,17 @@ export type HarnessComposerProps = {
   atItems?: HarnessPath[];
   onAtQuery?: (query: string | null) => void;
   onInterrupt?: () => void;
+  editContext?: {
+    onSubmit: (
+      text: string,
+      attachments: ChatUserAttachmentInput[]
+    ) => Promise<void>;
+    onCancel: () => void;
+  } | null;
 };
+
+/** A running turn's message open in the composer, and what the field held before. */
+type EditingTurn = { agentId: string; chatMessageId: string; stash: string };
 
 /** Frozen so a non-dispatch pane hands the composer the same object every render. */
 const EMPTY_COMPOSER_PROPS: HarnessComposerProps = Object.freeze({});
@@ -218,8 +236,10 @@ export function useHarnessChrome({
     busyId: queueBusyId,
   } = useHarnessQueue(agentId);
   const { interrupt, interrupting } = useHarnessInterrupt(agentId);
-  const { recall, recalling } = useRecallTurn(agentId);
-  const setDraft = useSetAtom(chatDraftAtomFamily(agentId ?? ""));
+  const { editTurn } = useEditTurn(agentId);
+  const store = useStore();
+  const [editing, setEditing] = useState<EditingTurn | null>(null);
+  const replacingRef = useRef(false);
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
   const commands = useHarnessCommands(agentId);
@@ -234,7 +254,19 @@ export function useHarnessChrome({
 
   const newest = useMemo(() => newestTurnEntry(entries), [entries]);
   const streaming = newest !== null && !newest.settled;
-  const tasks = useMemo(() => latestTurnPlan(entries), [entries]);
+  // Nothing is in progress unless a turn is running. The server settles
+  // the list when a turn ends; this keeps the strip honest in the moment
+  // between the turn ending and the settled list arriving.
+  const tasks = useMemo(() => {
+    const plan = latestTurnPlan(entries);
+    return streaming
+      ? plan
+      : plan.map((task) =>
+          task.status === "in_progress"
+            ? { ...task, status: "pending" as const }
+            : task
+        );
+  }, [entries, streaming]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const history = useMemo(() => harnessPromptHistory(entries), [entries]);
   const contextUsage = useMemo(
@@ -310,22 +342,96 @@ export function useHarnessChrome({
 
   // Edit is offered only for a turn the user's own message started, and only
   // when that message carried no attachments: the draft takes text, not
-  // chips, so a recall with attachments would silently drop them. Same rule
-  // the queued ArrowUp recall follows.
-  const editable =
+  // chips, and the replacement is sent as text. Same rule the queued ArrowUp
+  // recall follows.
+  const editableId =
     streaming &&
     newest?.prompt.source === "chat" &&
-    newest.prompt.attachments.length === 0;
+    newest.prompt.attachments.length === 0
+      ? (newest.prompt.chatMessageId ?? null)
+      : null;
+  const editable = editableId !== null && editing === null;
+
+  // Opening the editor touches nothing but the draft: the agent keeps
+  // working until the edit is sent. What was in the field is kept aside and
+  // comes back when the edit is sent or cancelled.
   const onEdit = useCallback(() => {
+    if (!agentId || !editableId || !newest) return;
     onError(null);
-    recall()
-      .then((prompt) => {
-        setDraft((draft) => ({ ...draft, text: prompt.text }));
-      })
-      .catch((err: unknown) => {
-        onError(errorText(err, "Could not take that message back."));
-      });
-  }, [onError, recall, setDraft]);
+    const draftAtom = chatDraftAtomFamily(agentId);
+    const stash = store.get(draftAtom).text;
+    store.set(draftAtom, (draft) => ({ ...draft, text: newest.prompt.text }));
+    setEditing({ agentId, chatMessageId: editableId, stash });
+  }, [agentId, editableId, newest, onError, store]);
+
+  const leaveEdit = useCallback(
+    (from: EditingTurn, restore: boolean) => {
+      if (restore) {
+        store.set(chatDraftAtomFamily(from.agentId), (draft) => ({
+          ...draft,
+          text: from.stash,
+        }));
+      }
+      setEditing(null);
+    },
+    [store]
+  );
+
+  const onCancelEdit = useCallback(() => {
+    if (editing) leaveEdit(editing, true);
+  }, [editing, leaveEdit]);
+
+  const onSubmitEdit = useCallback(
+    async (text: string, attachments: ChatUserAttachmentInput[]) => {
+      if (!editing) return;
+      if (attachments.length > 0) {
+        throw new Error(
+          "An edit is sent as text. Remove the attachments, or cancel the edit and send a new message."
+        );
+      }
+      onError(null);
+      replacingRef.current = true;
+      try {
+        await editTurn({ chatMessageId: editing.chatMessageId, text });
+        // The stash goes back before the composer clears what it sent: it
+        // only clears a field that still holds the sent text.
+        leaveEdit(editing, true);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          // The turn ended on its own first. Nothing was stopped or
+          // deleted, and the text stays in the field as a new message.
+          setEditing(null);
+          throw new Error(
+            "The agent finished that turn before your edit arrived. Your text is still here: send it as a new message."
+          );
+        }
+        throw err;
+      } finally {
+        replacingRef.current = false;
+      }
+    },
+    [editTurn, editing, leaveEdit, onError]
+  );
+
+  // The turn being edited can end underneath the editor. There is then
+  // nothing to replace, so the edit becomes an ordinary draft, and says so.
+  // While a replace is in flight the turn ends because we stopped it.
+  useEffect(() => {
+    if (!editing || replacingRef.current) return;
+    if (editing.agentId !== agentId) {
+      leaveEdit(editing, true);
+      return;
+    }
+    const stillRunning =
+      newest !== null &&
+      !newest.settled &&
+      newest.prompt.chatMessageId === editing.chatMessageId;
+    if (stillRunning) return;
+    setEditing(null);
+    onError(
+      "The agent finished that turn, so there is nothing to replace. Your text is still in the field and will send as a new message."
+    );
+  }, [agentId, editing, leaveEdit, newest, onError]);
 
   // ArrowUp on an empty field takes the newest message the user queued back
   // to edit. Only their own: the queue also holds prompts another agent or
@@ -424,16 +530,30 @@ export function useHarnessChrome({
         : {
             slashItems,
             onSlashCommand,
-            hint: composerHint(streaming, queued.length, isMobile),
+            // While editing, Enter does not queue: it replaces.
+            hint: editing
+              ? "Enter stops the agent and sends your edit · Esc cancels"
+              : composerHint(streaming, queued.length, isMobile),
             history,
             recallQueued,
             atItems: pathPicker.items,
             onAtQuery: pathPicker.onQuery,
             // Absent when nothing runs, so Ctrl+C keeps its meaning.
             ...(streaming ? { onInterrupt: onStop } : {}),
+            ...(editing
+              ? {
+                  editContext: {
+                    onSubmit: onSubmitEdit,
+                    onCancel: onCancelEdit,
+                  },
+                }
+              : {}),
           },
     [
       agentId,
+      editing,
+      onCancelEdit,
+      onSubmitEdit,
       history,
       isMobile,
       onSlashCommand,
@@ -530,6 +650,7 @@ export function useHarnessChrome({
               >
                 <TasksStrip
                   items={tasks}
+                  paused={!streaming}
                   open={tasksExpanded}
                   onOpenChange={setTasksExpanded}
                 />
@@ -602,16 +723,16 @@ export function useHarnessChrome({
                 ? `${Math.round((contextUsage.used / contextUsage.size) * 100)}% context`
                 : "usage"}
             </button>
-            {/* Edit takes the running turn back to the composer: the turn and
-              the message that started it go, and the text returns to the
-              draft to be corrected and sent again. */}
+            {/* Edit opens the running turn's message in the composer. Nothing
+              is stopped until the edit is sent; then the turn and its message
+              go and the new text runs in their place. */}
             <button
               type="button"
               onClick={onEdit}
-              disabled={recalling || !editable}
+              disabled={!editable}
               aria-hidden={!editable}
               tabIndex={editable ? 0 : -1}
-              title="Stop this turn, delete it, and put your message back in the composer to edit"
+              title="Edit your message. The agent keeps working until you send the edit."
               data-testid="harness-edit-turn"
               className={cn(
                 "ml-auto inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/60 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
@@ -619,7 +740,7 @@ export function useHarnessChrome({
               )}
             >
               <Pencil className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-              {recalling ? "Taking back…" : "Edit"}
+              Edit
             </button>
             {/* The Stop slot is always laid out, so the row does not reflow
               when a turn starts; the button only shows while one runs. */}

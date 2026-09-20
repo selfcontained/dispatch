@@ -884,44 +884,43 @@ export class ChatService {
    * fallback.
    */
   /**
-   * Take the running turn back: hand the prompt to the caller and delete the
-   * turn along with the Chat row that started it.
+   * Take a turn out of the feed: delete it along with the Chat row that
+   * started it, and hand that row's text back. Half of replacing a running
+   * turn with an edited prompt; the caller cancels the engine and waits for
+   * the turn to settle first, since this settles the feed, not the turn.
    *
    * The Chat row has to go with it. The feed hides a message whose turn
    * claims it as its prompt (`TURN_PROMPT_CHAT_ID_PATH`, the anti-join in
    * feed.ts), so dropping only the stream rows would hand the message back
-   * as a loose one — the turn would vanish and the text would stay.
+   * as a loose one: the turn would vanish and the text would stay.
    *
-   * Deletion, not a tombstone: recalling is for a prompt the user wants
-   * unsaid. Whatever the agent did in those seconds is still done on disk;
-   * only the record of the exchange goes. The caller cancels the engine
-   * first — this settles the feed, not the turn.
+   * Deletion, not a tombstone: the edit is the user unsaying the prompt.
+   * Whatever the agent did in those seconds is still done on disk; only the
+   * record of the exchange goes.
    *
-   * Null when no turn is open, or when the open turn is one the engine
-   * started itself and there is no prompt of the user's to give back.
+   * The turn is found by its message, never as "the newest open turn": by
+   * the time this runs the cancelled turn has settled, and only its own
+   * rows go, so a turn that started after it is untouched.
+   *
+   * Null when the message is not this agent's or never started a turn.
    */
-  async recallOpenTurn(
-    agentId: string
+  async recallTurn(
+    agentId: string,
+    chatMessageId: string
   ): Promise<{ text: string; attachments: ChatAttachment[] } | null> {
+    if (!isChatMessageId(chatMessageId)) return null;
+    const message = await this.store.getById(chatMessageId);
+    if (!message || message.agentId !== agentId) return null;
     const streams = new StreamStore(this.deps.pool);
-    const anchor = await streams.openTurnAnchor(agentId);
+    const anchor = await streams.turnAnchorForMessage(agentId, chatMessageId);
     if (!anchor) return null;
-    const message = anchor.chatMessageId
-      ? await this.store.getById(anchor.chatMessageId)
-      : null;
-    if (anchor.chatMessageId && !message) return null;
-    await streams.deleteFrom(agentId, anchor.seq);
-    if (message) {
-      await this.deps.pool.query(
-        "DELETE FROM agent_chat_messages WHERE id = $1",
-        [message.id]
-      );
-    }
+    await streams.deleteRange(agentId, anchor.seq, anchor.nextSeq);
+    await this.deps.pool.query(
+      "DELETE FROM agent_chat_messages WHERE id = $1",
+      [message.id]
+    );
     this.publishChanged(agentId);
-    return {
-      text: message?.text ?? "",
-      attachments: message?.attachments ?? [],
-    };
+    return { text: message.text, attachments: message.attachments };
   }
 
   publishChanged(agentId: string): void {

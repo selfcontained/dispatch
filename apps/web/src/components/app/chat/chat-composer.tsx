@@ -23,6 +23,7 @@ import {
   File,
   Folder,
   Paperclip,
+  Pencil,
   SendHorizontal,
   X,
 } from "lucide-react";
@@ -101,6 +102,19 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  /**
+   * When set, the field holds a message being edited rather than a new one:
+   * a banner says so and offers Cancel (Escape does the same), and sending
+   * goes to `onSubmit` instead of `onSend`. Nothing has happened to the
+   * original yet; the host decides what replacing it means.
+   */
+  editContext?: {
+    onSubmit: (
+      text: string,
+      attachments: ChatUserAttachmentInput[]
+    ) => Promise<void>;
+    onCancel: () => void;
+  } | null;
   /**
    * Slash-menu entries. A "/" typed at a word boundary (the start of the
    * message or after whitespace) opens a picker over them at the caret;
@@ -287,6 +301,7 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  editContext = null,
   slashItems,
   onSlashCommand,
   dropTargetRef,
@@ -838,7 +853,10 @@ export function ChatComposer({
         attachments.push({ type: "file", mediaId });
       }
       for (const url of submittedLinks) attachments.push({ type: "link", url });
-      await onSend(submittedText.trim(), attachments);
+      await (editContext?.onSubmit ?? onSend)(
+        submittedText.trim(),
+        attachments
+      );
     };
 
     run()
@@ -870,6 +888,7 @@ export function ChatComposer({
       });
   }, [
     canSend,
+    editContext,
     fileViews,
     forgetFile,
     links,
@@ -916,6 +935,12 @@ export function ChatComposer({
           return;
         }
       }
+      // Escape backs out of an edit. A menu, handled above, takes it first.
+      if (editContext && event.key === "Escape") {
+        event.preventDefault();
+        editContext.onCancel();
+        return;
+      }
       // Ctrl+C, terminal-style: stop the turn. A selection keeps the copy.
       if (
         onInterrupt &&
@@ -941,6 +966,7 @@ export function ChatComposer({
     [
       atMatches,
       atToken,
+      editContext,
       historyKeys,
       menuActive,
       menuCount,
@@ -1040,6 +1066,29 @@ export function ChatComposer({
               );
             }}
           />
+        ) : null}
+        {editContext && !disabled ? (
+          <div className="px-2 pt-2">
+            <div
+              className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-md border border-status-working/40 bg-status-working/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
+              data-testid="chat-edit-context"
+            >
+              <Pencil className="h-3 w-3 shrink-0 text-status-working" />
+              <span>Editing your message.</span>
+              <span className="text-muted-foreground">
+                Sending stops the agent and replaces it.
+              </span>
+              <button
+                type="button"
+                onClick={editContext.onCancel}
+                className="ml-0.5 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:px-3"
+                title="Keep the agent working and discard this edit (Esc)"
+                data-testid="chat-edit-cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : null}
         {replyContext && !disabled ? (
           <div className="px-2 pt-2">
@@ -1183,8 +1232,8 @@ export function ChatComposer({
             size="icon"
             variant={canSend ? "success" : "ghost"}
             disabled={!canSend}
-            title="Send (Enter)"
-            aria-label="Send message"
+            title={editContext ? "Replace message (Enter)" : "Send (Enter)"}
+            aria-label={editContext ? "Replace message" : "Send message"}
             data-testid="chat-composer-send"
             // Keep a 44px touch target without stretching the visible disc to
             // the full height of a one-line composer.

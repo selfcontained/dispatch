@@ -955,6 +955,10 @@ async function registerRoutes() {
       removeQueued: (agentId, id) =>
         harnessSupervisor.removeQueued(agentId, id),
       interrupt: (agentId) => harnessSupervisor.interrupt(agentId),
+      runningPromptId: (agentId) => harnessSupervisor.runningPromptId(agentId),
+      holdQueue: (agentId) => harnessSupervisor.holdQueue(agentId),
+      interruptAndWait: (agentId) =>
+        harnessSupervisor.interruptAndWait(agentId),
     },
     appLog: app.log,
     agentManager,
