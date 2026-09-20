@@ -1,25 +1,22 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo } from "react";
-import { motion } from "framer-motion";
 
 import { Markdown } from "@/components/ui/markdown";
 
 import type { Turn } from "./contracts";
-import { arrive, DURATION } from "./motion";
 
 function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
   const error = turn.error;
   const interrupted = turn.trace?.finalResult === "interrupted";
   const showContent = !!turn.content;
   return (
-    <motion.div
+    <div
       // The message arrives like a new message would: after the activity
-      // line has settled, sliding up as it fades in.
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...arrive(0.45), delay: 0.12 }}
-      className="space-y-2"
+      // line has come to rest, sliding up as it fades in. A CSS keyframe,
+      // not a framer animation, so it runs on phones too, where the pane
+      // keeps framer's layout work off.
+      className="space-y-2 animate-message-in motion-reduce:animate-none"
       data-testid="harness-result"
     >
       {showContent ? <ResultText content={turn.content} /> : null}
@@ -37,7 +34,7 @@ function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
           Interrupted mid-turn: the agent was stopped before it finished.
         </p>
       ) : null}
-    </motion.div>
+    </div>
   );
 }
 

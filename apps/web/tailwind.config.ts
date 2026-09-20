@@ -70,6 +70,12 @@ export default {
           from: { opacity: "0", transform: "translateY(3px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // A turn's message landing once the turn settles: like a new
+        // message, after the activity line has come to rest.
+        "message-in": {
+          from: { opacity: "0", transform: "translateY(10px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
         // The Chat reaction picker, grown from its trigger.
         "reaction-picker-in": {
           from: { opacity: "0", transform: "translateY(4px) scale(0.94)" },
@@ -106,6 +112,7 @@ export default {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
         "chat-enter": "chat-enter 200ms ease-out both",
+        "message-in": "message-in 450ms cubic-bezier(0.2, 0, 0, 1) 120ms both",
         "reaction-picker-in": "reaction-picker-in 160ms ease-out both",
         "reaction-picker-out": "reaction-picker-out 100ms ease-in both",
         // A slight overshoot, so each emoji lands with a pop.

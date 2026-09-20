@@ -745,7 +745,10 @@ export function ChatPane({
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
 
   return (
-    <MotionConfig reducedMotion="user">
+    // Phones keep framer's layout and height work off: on a small screen a
+    // column that keeps easing reads as one that never holds still. The
+    // fades that matter there are CSS keyframes and run regardless.
+    <MotionConfig reducedMotion={isMobile ? "always" : "user"}>
       <div
         className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden bg-background"
         data-testid="chat-pane"
