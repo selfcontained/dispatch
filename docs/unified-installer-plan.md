@@ -122,11 +122,10 @@ package installation remains outside it.
   explicit cleanup command; never automatically drop user data.
 
 The script may create Dispatch's database identity, but should not install a
-package manager, PostgreSQL, tmux, or agent CLIs. Its diagnostics should name
+package manager, PostgreSQL, or agent CLIs. Its diagnostics should name
 the missing prerequisite and the platform-appropriate next command. In
-particular, it must warn that Dispatch can start without `tmux` or an enabled
-agent CLI, but cannot perform the corresponding agent work until those tools
-are installed.
+particular, it must warn that Dispatch can start without an agent CLI or its
+ACP adapter, but cannot run agents of that type until they are installed.
 
 ## Security and integrity
 

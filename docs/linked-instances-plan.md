@@ -262,13 +262,13 @@ Sequential releases, each merged and shipped before the next starts — not a PR
 stack. The feature is self-gating (nothing changes until a host is registered), so
 pieces can land on `main` independently and `main` stays releasable throughout.
 
-| #   | Release                       | Ships                                                                                                                                    | Value                                                                                       |
-| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| R1  | Connect two hosts             | Instance identity, cert generation, mTLS peer port, registration flow, capability table, hosts settings panel with health and unregister | Machines are linked; you can see the link is healthy                                        |
-| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, terminal, launch, media, diffs, pins |
-| R3  | Attention badge               | Per-host blocked/unread counts on the selector                                                                                           | Flipping hosts is informed rather than a guess                                              |
-| R4  | Agent-initiated remote launch | `host` parameter on the MCP launch tool, provenance recorded on both ends                                                                | Agents delegate across machines (humans already can, via R2)                                |
-| R5  | Cross-host agent messaging    | Outbox, idempotency receipts, dead-lettering, two-sided message record                                                                   | Agents coordinate across machines                                                           |
+| #   | Release                       | Ships                                                                                                                                    | Value                                                                               |
+| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| R1  | Connect two hosts             | Instance identity, cert generation, mTLS peer port, registration flow, capability table, hosts settings panel with health and unregister | Machines are linked; you can see the link is healthy                                |
+| R2  | Host selector                 | Prefix proxy (REST, WS upgrade, streaming, capability enforcement) + the selector and its URL state                                      | **All of Dispatch pointed at another machine** — list, stream, launch, media, diffs |
+| R3  | Attention badge               | Per-host blocked/unread counts on the selector                                                                                           | Flipping hosts is informed rather than a guess                                      |
+| R4  | Agent-initiated remote launch | `host` parameter on the MCP launch tool, provenance recorded on both ends                                                                | Agents delegate across machines (humans already can, via R2)                        |
+| R5  | Cross-host agent messaging    | Outbox, idempotency receipts, dead-lettering, two-sided message record                                                                   | Agents coordinate across machines                                                   |
 
 R1 and R2 could reasonably ship together — the selector makes R2 small.
 
@@ -358,10 +358,9 @@ cross-host `post` must land as a block on the stream's host, not only as a
 prompt on the recipient's.
 
 **The launching host cannot intervene.** On the launching instance a remote agent
-is read-only for humans. The terminal is inert by design, but `inject-text`,
-`inject-phrase`, and `inject-pin` all call `getTerminalAccess` and return 409, so
-quick phrases, pin shortcuts, and the mobile keyboard break too; the messages UI
-is read-only with no compose box. The only channel into a remote agent is another
-_agent_ posting to it. Nobody chose this — those routes branch on
-the mechanism (is there a tmux session?) instead of the capability (can I deliver
-text to this agent?). Moot under the proxy design.
+is read-only for humans. The prompt routes call `getTerminalAccess` and return
+409 when there is no local host, so quick phrases and the compose box break too.
+The only channel into a remote agent is another _agent_ posting to it. Nobody
+chose this — those routes branch on the mechanism (is there a live host here?)
+instead of the capability (can I deliver a prompt to this agent?). Moot under
+the proxy design.

@@ -3,9 +3,7 @@
 Dispatch exposes a source-controlled model catalog for its Codex and Claude
 launchers in `apps/server/src/shared/agent-models.ts`. The catalog is
 the allowlist used by the create-agent API and `launch_agent` MCP tool.
-Omitting a model uses the CLI default. Agent types with no catalog entry
-(currently Cursor and OpenCode) hide the model picker entirely and always
-launch with the CLI default.
+Omitting a model uses the CLI default.
 
 Agents launching agents over MCP cannot see the catalog any other way, so
 `describeAgentModelCatalog()` renders it into the `model` parameter description
@@ -47,14 +45,6 @@ provider API:
   prefer an alias so the entry tracks the provider's current model, and add a
   full ID only when a specific pinned version is wanted and available to the
   intended account.
-- **Cursor Agent:** The same rule applies — entries must be cross-checked
-  against the installed CLI's model registry — and no Cursor list has passed
-  that bar yet: its public docs carry display names rather than verified CLI
-  slugs, and a logged-out `cursor-agent` reports no models at all. Until a
-  verified list exists, Cursor has no catalog entry and launches use the CLI
-  default. To add one on the same terms as Codex, run
-  `cursor-agent --list-models` on the logged-in account Dispatch runs under
-  and use those exact slugs.
 
 Keep the `Default` UI option untouched: it deliberately sends no model flag.
 Update the catalog, its labels, and this document when a provider adds, retires,
@@ -74,8 +64,8 @@ before opening a draft PR.
 
 `pnpm tsx scripts/audit-agent-models.ts` re-verifies the whole catalog against
 the installed CLIs mechanically — the Codex binary's embedded registry and
-per-account cache, the Claude binary's accepted ids, `cursor-agent
---list-models` when Cursor entries exist, and the retirement dates below. It
+per-account cache, the Claude binary's accepted ids, and the retirement
+dates below. It
 exits 1 on drift. Run it whenever you edit the catalog; it also backs the
 recurring `model-catalog-audit` Dispatch job (prompt in
 `docs/jobs/model-catalog-audit.md`) so drift is caught without anyone

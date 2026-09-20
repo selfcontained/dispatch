@@ -42,15 +42,16 @@ existing VM will be modified, and cleanup intent before proceeding.
 | Existing fixed-path install   | Normal artifact update          | Checksum, atomic replacement, `.previous`, health, release promotion                                    |
 | Existing legacy Linux service | Last-hop migration safety       | Version-pinned symlink/wrapper fixture, fixed-path cutover before restart, actual target binary running |
 | Existing legacy macOS service | Bridge behavior                 | Exact target selection; no mtime-based binary choice; launchd recovery path if needed                   |
-| Assisted update on Linux      | Agent survival                  | A tmux-backed child inside `dispatch.service` survives the restart after `KillMode=process` is loaded   |
+| Assisted update on Linux      | Agent survival                  | An agent host inside `dispatch.service` survives the restart after `KillMode=process` is loaded         |
 
 Run only the rows relevant to the change. Fresh installer tests do not replace
 legacy-upgrade tests, and unit tests do not replace a service-manager restart.
 
 ## Linux assisted-update procedure
 
-This procedure models the failure mode where an assisted-update agent is a
-tmux child of the Dispatch user service.
+This procedure models the failure mode where an assisted-update agent's host
+process (`dispatch-agent-host`, spawned detached in its own process group) is
+a child of the Dispatch user service and must outlive the server's restart.
 
 1. Start from a disposable Ubuntu VM with a healthy, supported user unit and
    record its unit file, `MainPID`, current release record, and health result.
@@ -63,9 +64,10 @@ tmux child of the Dispatch user service.
 3. Download the published target tarball, select the exact platform/arch
    member, reject unexpected archive members, and compare its SHA-256 to the
    tarball manifest.
-4. Launch a harmless tmux heartbeat process from within the service cgroup.
-   Confirm its cgroup is `dispatch.service`; a shell-launched tmux session is
-   not a valid substitute.
+4. Launch a harmless agent through the running service (the API or the UI)
+   and record its host pid from `~/.dispatch/agents/<agentId>/host.pid`.
+   Confirm that pid's cgroup is `dispatch.service`; a host started from a
+   shell is not a valid substitute.
 5. Apply the migration's pre-restart service changes. For supported systemd
    units this includes `KillMode=process` and `systemctl --user daemon-reload`.
    Confirm the loaded value with:
@@ -80,15 +82,17 @@ tmux child of the Dispatch user service.
    `ExecStart` **before** the first restart. Do not trust a release record to
    prove the service changed binaries.
 7. Perform the update/restart. Confirm all of the following after it returns:
-   - the tmux heartbeat advanced and the same session remains available;
+   - the agent host pid is unchanged and alive, the server reattached to it,
+     and the agent is `running` with its stream intact;
    - systemd is active and the health endpoint reports `ok`;
    - `ExecStart` invokes the fixed runtime path;
    - the running process resolves to the expected target binary/version;
    - `release.json` was promoted by the healthy target binary;
    - `dispatch.previous` exists and is a usable rollback asset.
 
-8. Restore a normal fixed-path service definition, remove only temporary test
-   wrappers/heartbeat sessions/artifacts, and verify one final healthy boot.
+8. Restore a normal fixed-path service definition, stop and archive the test
+   agent, remove only temporary test wrappers/artifacts, and verify one final
+   healthy boot.
 
 ## Release decision
 

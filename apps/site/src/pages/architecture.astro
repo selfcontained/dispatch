@@ -12,23 +12,23 @@ import PageIntro from "../components/PageIntro.astro";
         Dispatch server
         <div class="system-capabilities">
           <span class="green">Agent lifecycle</span>
-          <span class="yellow">Messages, media, pins</span>
+          <span class="yellow">Streams, media, Brain</span>
           <span class="pink">Jobs, reviews, MCP</span>
         </div>
       </div>
       <div class="system-link split" aria-hidden="true"><i></i><i></i></div>
       <div class="system-services">
-        <div class="map-node green">tmux sessions <small>Agent CLIs + project worktrees</small></div>
+        <div class="map-node green">Agent hosts <small>One durable process per agent + project worktrees</small></div>
         <div class="map-node yellow">PostgreSQL <small>Shared, durable state</small></div>
       </div>
       <figcaption id="system-map-caption">The browser is the shared control surface for durable local work. Processes and context continue independently of a tab or one person’s connection.</figcaption>
     </figure>
-    <h2>tmux: collaboration survives disconnects</h2>
-    <p>Agents run as ordinary local processes inside tmux sessions. Work keeps moving when a browser closes or a connection drops, because the browser is a view into the terminal—not the thing keeping it alive.</p>
+    <h2>Agent hosts: collaboration survives disconnects</h2>
+    <p>Each agent runs under its own durable host process, an ordinary local process that outlives the Dispatch server itself. Work keeps moving when a browser closes, a connection drops, or Dispatch restarts, because the browser is a view into the agent’s stream—not the thing keeping it alive.</p>
     <h2>Git worktrees: collaborate without interfering</h2>
     <p>Worktrees give each agent an isolated directory and branch. A developer can keep working while an agent investigates a bug or prepares a change, without either borrowing the other’s working directory.</p>
-    <h2>PostgreSQL: shared context outlasts a terminal</h2>
-    <p>Messages, reviews, pins, media, whiteboards, Brain state, jobs, and activity are persisted independently from terminal output. They preserve the record of a collaboration after an agent exits, a page refreshes, or someone returns later.</p>
+    <h2>PostgreSQL: shared context outlasts a session</h2>
+    <p>Every agent has one stream: its turns, replies, questions, files, links, and reviews with their findings. Streams, media, Brain state, jobs, and activity are persisted independently from the agent process. They preserve the record of a collaboration after an agent exits, a page refreshes, or someone returns later.</p>
     <h2>MCP: reusable capabilities in a shared environment</h2>
     <p>MCP exposes reusable, project-aware capabilities to agents as narrow tools. Agent-scoped tools carry the relevant repository context and permissions, allowing useful practices to be shared rather than hidden inside a single prompt or chat.</p>
     <h2>Local execution: keep the environment people already use</h2>

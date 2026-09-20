@@ -35,7 +35,7 @@ Your job is to review frontend component changes for usability issues, visual co
 
 ### Edge Cases
 
-- 0 feedback items, 1 item, 20+ items
+- 0 findings, 1 finding, 20+ findings
 - Very long description or suggestion text
 - Multiple persona children on one parent
 - Rapid clicking of action buttons

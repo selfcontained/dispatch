@@ -2,7 +2,7 @@
 
 Clean up stale or orphaned resources left behind by Dispatch development and test processes that were not shut down properly. Run the four cleanup tasks in order and report results using the structured job tools.
 
-You have repo tools available for gathering data: `list_dev_containers`, `list_agents`, `list_dispatch_sessions`, `list_candidate_databases`. Use these instead of running the equivalent commands manually. You also have `dev_down` with an optional `suffix` param for cleaning up dev instances. Use Docker commands directly for the E2E resource inspection in Task 2.
+You have repo tools available for gathering data: `list_dev_containers`, `list_agents`, `list_agent_hosts`, `list_candidate_databases`. Use these instead of running the equivalent commands manually. You also have `dev_down` with an optional `suffix` param for cleaning up dev instances. Use Docker commands directly for the E2E resource inspection in Task 2.
 
 ## Safety rules for every task
 
@@ -51,21 +51,20 @@ Find and remove stale, unused Docker resources from isolated Dispatch E2E Compos
 8. Inspect related `dispatch-e2e-*` containers or volumes only when their names or Compose labels establish Dispatch ownership. Remove them only if they are at least 24 hours old, stopped/unattached, belong to no active E2E project, and pass a fresh state check. Otherwise preserve them or ask for input.
 9. Log every candidate inspected, every active or ambiguous resource preserved, and every orphan removed.
 
-## Task 3: tmux-cleanup
+## Task 3: host-cleanup
 
-Find and kill abandoned Dispatch tmux sessions.
+Find and stop orphaned agent host processes. Every agent runs under its own detached `dispatch-agent-host` process, which deliberately outlives the Dispatch server; one whose agent is no longer running is an orphan.
 
 ### Procedure
 
-1. Call `list_dispatch_sessions` to get tmux sessions belonging to this Dispatch server.
-2. If none are found, log "No dispatch tmux sessions found" and skip to Task 4.
+1. Call `list_agent_hosts` to get the live host processes under this server's agent state root. Each line is `<agentId> <pid>`.
+2. If none are found, log "No agent hosts found" and skip to Task 4.
 3. Call `list_agents` (reuse the response from Task 1 if available) to get agent statuses.
-4. Extract the agent ID from each session name (the `agt_<12hex>` portion).
-5. Classify each session:
+4. Classify each host:
    - **Active**: Agent ID is in `running` or `creating` status. Do not touch.
    - **Abandoned**: Agent ID is `stopped`, `error`, `archiving`, or not found in the API.
-6. Re-check the agent status immediately before cleanup. For each session that is still abandoned and has no ambiguous signs of active work, run `tmux kill-session -t <session_name>`.
-7. Log each action taken.
+5. Re-check the agent status immediately before cleanup. For each host that is still abandoned and has no ambiguous signs of active work, send `SIGTERM` to its process group: `kill -TERM -- -<pid>` (the host is its own group leader). Re-check after a few seconds and escalate to `SIGKILL` only if it is still alive.
+6. Log each action taken.
 
 ## Task 4: db-cleanup
 
@@ -100,4 +99,4 @@ When all tasks are complete, call `job_complete` with a report containing one en
 
 If a fatal error prevents the job from continuing (for example, Docker is unavailable, the Dispatch API cannot be reached, or Postgres cannot be reached), call `job_failed` with a report explaining what happened and which tasks completed before the failure.
 
-Use `job_needs_input` when you encounter ambiguous resources that need human judgment—for example, dev containers with non-agent suffixes, E2E resources whose activity cannot be established, or tmux sessions with uncommitted work for an agent in error state. Pause and ask rather than guess.
+Use `job_needs_input` when you encounter ambiguous resources that need human judgment—for example, dev containers with non-agent suffixes, E2E resources whose activity cannot be established, or a live host whose agent is in error state but has uncommitted work in its worktree. Pause and ask rather than guess.

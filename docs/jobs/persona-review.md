@@ -2,7 +2,7 @@ Assess the effectiveness of persona-driven code reviews and tune the persona set
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (verdict, summary, findings) to the agent that launched it, and each finding is resolved or disputed in that block's state. The primary codebase conventions are documented in `CLAUDE.md`.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (verdict, summary, findings) to the agent that launched it, and each finding is open, fixed or dismissed (with a note) in that block's state, and can be reopened. The primary codebase conventions are documented in `CLAUDE.md`.
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 
@@ -44,9 +44,9 @@ Do a broad assessment to seed the Brain. The goal is to produce a baseline for f
 2. **Gather recent data.** Call `get_feedback_summary` for the last 14 days to get aggregate patterns, then call it again with `group` set to each persona's key to read that group's findings in full. Call `get_activity_summary` for the same range for volume and outcomes.
 3. **Baseline each persona.** For each persona, determine:
    - How many reviews were run and completed
-   - How many feedback items were produced
+   - How many findings were produced
    - Severity distribution
-   - Resolution vs dismiss rate
+   - Fixed vs dismissed rate
    - A brief qualitative assessment (specific and actionable, or generic/noisy?)
 4. **Assess coverage.** Are there recurring classes of feedback or review gaps that no current persona covers?
 5. **Seed the Brain** with per-persona baselines in the core state object, the top issue as `next_focus`, everything else in the backlog list, and any recurring themes in the patterns list.
@@ -78,7 +78,7 @@ For each persona in scope, assess:
 
 ### Resolution rate
 
-- What percentage of feedback items got resolved vs dismissed?
+- What percentage of findings were fixed vs dismissed?
 - A high dismiss rate suggests noise. A high open rate may mean findings are weak or poorly phrased.
 
 ### Patterns

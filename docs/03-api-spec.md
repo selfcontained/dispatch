@@ -18,7 +18,6 @@
   "role": "standard",
   "cwd": "/home/user/projects/myproject",
   "effectiveCwd": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
-  "tmuxSession": "dispatch_agt_01abc2def345",
   "fullAccess": true,
   "setupPhase": null,
   "latestEvent": { "type": "working", "message": "Running tests" },
@@ -73,7 +72,7 @@
 }
 ```
 
-`type` is one of `claude`, `codex`, `cursor`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
+`type` is the engine, `claude` or `codex`, and defaults to `codex` if omitted. The type must be enabled in app settings.
 
 `model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
 
@@ -253,7 +252,7 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 }
 ```
 
-Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, media). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
+Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be `claude` or `codex`. `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, media). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
 A reviewer persona finishes its pass by posting one `review` block (`{ verdict, summary, findings }`) to the parent; the parent (or a person, via `PATCH /streams/:rootId/blocks/:blockId/state`) marks each finding fixed, dismisses it with a note, or reopens it in that block's `state`, and discussion is the block's thread (`finding` on a reply names the item). There is no separate review API.
 
@@ -357,7 +356,7 @@ Returns `204` regardless of whether the notification was still pending.
 | GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)                         |
 | POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                               |
 | GET    | `/app/settings/agent-types`          | Get enabled agent types                                                                   |
-| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)             |
+| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`)                                               |
 | GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                              |
 | POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                              |
 | GET    | `/app/settings/launch-guidance-trim` | Whether launch guidance is trimmed to the short rules (the plugin skills carry the depth) |
@@ -518,7 +517,7 @@ Returns `{ "state": <AssistedUpdateState> | null }`.
 - `schedule` — cron expression for automatic runs (nullable; null means manual-only).
 - `timeoutMs` — maximum run duration in milliseconds.
 - `needsInputTimeoutMs` — how long a run can stay in `needs_input` before timing out.
-- `agentType` — one of `claude`, `codex`, `cursor`, `opencode`.
+- `agentType` — `claude` or `codex`.
 - `useWorktree` — run in a managed git worktree.
 - `baseBranch` — branch to fork worktrees from (nullable).
 - `branchName` — branch name for the worktree (nullable).
@@ -586,7 +585,7 @@ Query params: `name` (required), `directory` (required), `limit` (1–100, optio
 }
 ```
 
-`name` and `directory` are required. All other fields are optional. `agentType` must be one of `claude`, `codex`, `cursor`, `opencode`. `callable` controls whether the template appears in the command palette for on-demand use. `allowMedia` (defaults `true`) enables media file attachments on launch. `~` in `directory` is expanded to the user's home directory.
+`name` and `directory` are required. All other fields are optional. `agentType` must be `claude` or `codex`. `callable` controls whether the template appears in the command palette for on-demand use. `allowMedia` (defaults `true`) enables media file attachments on launch. `~` in `directory` is expanded to the user's home directory.
 
 Template prompts support `{{arg_name}}` placeholder syntax — arguments are parsed from the prompt and presented to the user in the launch dialog.
 

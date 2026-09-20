@@ -139,8 +139,7 @@ cat ~/.dispatch/release.json
 **MCP tool renames do not roll back cleanly.** Agents hold the tool list they
 fetched at session start, so after rolling back past a release that renamed an
 MCP tool, already-running agents call a name the older server does not register.
-Restart those agent sessions so they refetch `tools/list`. See
-[11-backend-compatibility-checklist.md](11-backend-compatibility-checklist.md#mcp-tool-names).
+Stop and start those agents so they refetch `tools/list`.
 
 If the failed update went through the assisted-update flow, the launched agent can drive rollback explicitly (it has the bearer token and follows the recovery guidance in its initial prompt). The state lands in `~/.dispatch/assisted-update.json` with `phase: "rollback"` if it goes that route.
 
@@ -163,7 +162,7 @@ curl -X DELETE http://127.0.0.1:6767/api/v1/release/assisted/state
 
 What the launch endpoint does:
 
-- Picks the first enabled CLI agent type (`claude` / `codex` / `cursor` / `opencode`) — terminal-type agents can't drive assisted updates.
+- Picks the first enabled agent type (`claude` / `codex`).
 - Snapshots pending update-migrations from `update-migrations/*.yaml` in the target tarball, or falls back to the `dispatch-update` block in the release body.
 - Creates an `assisted_update` agent rooted at `~/.dispatch/server/` with `fullAccess: true`, no worktree, and an initial prompt that includes recovery instructions plus a bearer token (`DISPATCH_RELEASE_UPDATE_TOKEN`).
 - Persists `~/.dispatch/assisted-update.json` with the token, target tag, snapshotted manifests, and the required-checks list.
@@ -204,19 +203,19 @@ PRs must pass CI before merge.
 
 Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
-| Variable                 | Default                                                | Description                                                                                              |
-| ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `DISPATCH_HOST`          | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
-| `DISPATCH_PORT`          | `6767`                                                 | HTTP port the server listens on                                                                          |
-| `DATABASE_URL`           | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
-| `MEDIA_ROOT`             | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                        |
-| `DISPATCH_AGENT_RUNTIME` | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                     |
-| `DISPATCH_AGENT_STATE_ROOT` | `$HOME/.dispatch/agents`                            | Per-agent host state directories                                                                         |
-| `DISPATCH_CLAUDE_ADAPTER_BIN` | `claude-agent-acp`                                | The Claude engine's ACP adapter (`npm i -g @agentclientprotocol/claude-agent-acp`)                    |
-| `DISPATCH_CODEX_ADAPTER_BIN` | `codex-acp`                                        | The Codex engine's ACP adapter (`npm i -g @agentclientprotocol/codex-acp`; uses the host `codex` login)          |
-| `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
-| `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
-| `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
+| Variable                      | Default                                                | Description                                                                                              |
+| ----------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `DISPATCH_HOST`               | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
+| `DISPATCH_PORT`               | `6767`                                                 | HTTP port the server listens on                                                                          |
+| `DATABASE_URL`                | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
+| `MEDIA_ROOT`                  | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                        |
+| `DISPATCH_AGENT_RUNTIME`      | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                      |
+| `DISPATCH_AGENT_STATE_ROOT`   | `$HOME/.dispatch/agents`                               | Per-agent host state directories                                                                         |
+| `DISPATCH_CLAUDE_ADAPTER_BIN` | `claude-agent-acp`                                     | The Claude engine's ACP adapter (`npm i -g @agentclientprotocol/claude-agent-acp`)                       |
+| `DISPATCH_CODEX_ADAPTER_BIN`  | `codex-acp`                                            | The Codex engine's ACP adapter (`npm i -g @agentclientprotocol/codex-acp`; uses the host `codex` login)  |
+| `DISPATCH_COPY_DISPLAY`       | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
+| `TLS_CERT`                    | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
+| `TLS_KEY`                     | —                                                      | Path to TLS private key file                                                                             |
 
 Changes to `.env` require a service restart to take effect.
 
@@ -301,15 +300,15 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 
 ## File Locations
 
-| Path                                                       | Description                                                                 |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `~/.dispatch/server/`                                      | Server checkout (deploy target)                                             |
-| `~/.dispatch/server/.env`                                  | Server environment config                                                   |
-| `~/.dispatch/server/dist/bun/`                             | Compiled Bun binaries the wrapper execs                                     |
-| `~/.dispatch/release.json`                                 | Currently deployed tag + `deployedAt` timestamp                             |
-| `~/.dispatch/assisted-update.json`                         | In-progress assisted-update state (token, phase, checks, notes)             |
-| `~/.dispatch/applied-migrations.json`                      | Install-update migration ids that have been applied locally (CRU-146)       |
-| `~/.dispatch/cache/release-<tag>.tar.gz`                   | Cached pre-built release artifacts keyed by tag                             |
-| `~/.dispatch/logs/dispatch.log`                            | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days)  |
-| `~/.dispatch/agents/<agentId>/`                            | Per-agent host state: launch file, socket, pid, journal, host log           |
-| `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition (points at the fixed runtime)                    |
+| Path                                               | Description                                                                |
+| -------------------------------------------------- | -------------------------------------------------------------------------- |
+| `~/.dispatch/server/`                              | Server checkout (deploy target)                                            |
+| `~/.dispatch/server/.env`                          | Server environment config                                                  |
+| `~/.dispatch/server/dist/bun/`                     | Compiled Bun binaries the wrapper execs                                    |
+| `~/.dispatch/release.json`                         | Currently deployed tag + `deployedAt` timestamp                            |
+| `~/.dispatch/assisted-update.json`                 | In-progress assisted-update state (token, phase, checks, notes)            |
+| `~/.dispatch/applied-migrations.json`              | Install-update migration ids that have been applied locally (CRU-146)      |
+| `~/.dispatch/cache/release-<tag>.tar.gz`           | Cached pre-built release artifacts keyed by tag                            |
+| `~/.dispatch/logs/dispatch.log`                    | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days) |
+| `~/.dispatch/agents/<agentId>/`                    | Per-agent host state: launch file, socket, pid, journal, host log          |
+| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition (points at the fixed runtime)                   |
