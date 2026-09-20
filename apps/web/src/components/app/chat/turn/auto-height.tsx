@@ -56,7 +56,13 @@ export function AutoHeight({
       transition={reduced ? { duration: 0 } : arrive()}
       onAnimationStart={() => setMoving(true)}
       onAnimationComplete={() => setMoving(false)}
-      style={{ ...rest.style, overflow: moving ? "hidden" : undefined }}
+      // Clip only the axis being animated. `overflow: hidden` also makes
+      // the horizontal axis non-visible, which changes a flex item's
+      // automatic minimum width: the content reflowed narrower every time
+      // an animation started and wider when it ended, the ResizeObserver
+      // saw a new height each time, and the wrapper animated forever,
+      // rocking the whole column above it.
+      style={{ ...rest.style, overflowY: moving ? "clip" : undefined }}
     >
       <div ref={content}>{children}</div>
     </motion.div>
