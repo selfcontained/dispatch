@@ -255,7 +255,7 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 
 Launches one child agent per slug with that persona's instructions, the same launch an agent makes with `launch_agent` and `persona`. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true` and gives the reviewer a file-level map of the parent's changes against its base branch; set it to `false` for non-code reviews (PRDs, docs, media). `note` is optional free text (max 2,000 characters, `null` allowed) used as the briefing; without it the briefing is "Review the agent's current work in this worktree." Returns `{ ok: true, launched: [...] }`.
 
-A reviewer persona finishes its pass by posting one `review` block (`{ verdict, summary, findings }`) to the parent; the parent (or a person, via `PATCH /streams/:rootId/blocks/:blockId/state`) resolves, disputes or reopens each finding in that block's `state`, and discussion is the block's thread. There is no separate review API.
+A reviewer persona finishes its pass by posting one `review` block (`{ verdict, summary, findings }`) to the parent; the parent (or a person, via `PATCH /streams/:rootId/blocks/:blockId/state`) marks each finding fixed, dismisses it with a note, or reopens it in that block's `state`, and discussion is the block's thread (`finding` on a reply names the item). There is no separate review API.
 
 ## Personalities
 

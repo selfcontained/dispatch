@@ -200,7 +200,7 @@ Pull requests are opened with the `gh` CLI and posted to the stream as a `pr` at
 
 ### Persona agents
 
-A persona is a launch profile, not a different tool set: `launch_agent` with `persona: <slug>` gives the new agent the persona's instructions and your prompt as its briefing, and it gets the same tools as any interactive agent. A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread, and the launcher resolves or disputes findings by updating the block's state.
+A persona is a launch profile, not a different tool set: `launch_agent` with `persona: <slug>` gives the new agent the persona's instructions and your prompt as its briefing, and it gets the same tools as any interactive agent. A reviewer persona posts one `review` block (verdict, summary, findings) to the agent that launched it; each finding is a thread, and the launcher marks findings fixed or dismisses them by updating the block's state.
 
 ### Job agents
 

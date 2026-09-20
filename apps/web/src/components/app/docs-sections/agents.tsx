@@ -240,9 +240,10 @@ export function AgentsContent() {
           summary; each comment can be given a severity in the dialog. The
           result is a <Code>review</Code> block in the agent&apos;s stream,
           addressed to the agent, with one finding per comment — the same block
-          a reviewer persona posts. The agent resolves or disputes findings with{" "}
-          <Code>update</Code> and replies in each finding&apos;s thread; you do
-          the same from the block in the Chat.
+          a reviewer persona posts. The agent marks findings fixed or dismisses them
+          with <Code>update</Code> and replies in each finding&apos;s thread;
+          you do the same from the review&apos;s page in the drawer, or from the
+          finding where it sits in the diff.
         </P>
       </Section>
 
@@ -257,7 +258,8 @@ export function AgentsContent() {
           above the composer. The feed also carries the agent&apos;s blocks:
           questions (with option buttons), forms, shared files, links, review
           blocks, task lists, and posts from other agents; each top-level block
-          has a thread that opens in a side panel. An unread count sits on the
+          has a thread that opens as a page in the right drawer, over the rail.
+          An unread count sits on the
           Agent tab while another tab is up. Drafts survive a reload: text,
           links and pasted text come back as they were; a picked file comes back
           as a placeholder to re-attach.
