@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BlockReviewSeverity } from "@dispatch/shared";
+import type { BlockFindingPatch, BlockReviewSeverity } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
@@ -7,6 +7,13 @@ import { parseDiff } from "react-diff-view";
 
 import { useAgentDiff } from "@/hooks/use-agent-diff";
 import { useRootAgentId } from "@/hooks/use-agent-tree";
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { useSetBlockState } from "@/hooks/use-stream";
+import { useStreamRail } from "@/hooks/use-stream-rail";
+import type {
+  DiffFinding,
+  DiffFindingsProps,
+} from "@/components/app/diff-review-annotation-props";
 import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
@@ -22,6 +29,7 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { type AgentType } from "@/lib/agent-types";
+import { FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import {
   findLastChangeKeyInRange,
   type LineSelection,
@@ -37,6 +45,8 @@ type ChangesTabProps = {
   isMobile?: boolean;
   /** A hand-written review was posted as a review block. */
   onReviewPosted?: (blockId: string) => void;
+  /** Names an agent in the tree, for who left a finding. */
+  agentNameById?: (agentId: string) => string;
 };
 
 /**
@@ -100,10 +110,79 @@ export const ChangesTab = memo(function ChangesTab({
   active,
   isMobile,
   onReviewPosted,
+  agentNameById,
 }: ChangesTabProps): JSX.Element {
   // A hand-written review is a block in the agent's stream: the root's.
   // Nothing is fetched while the tab is inactive.
   const rootId = useRootAgentId(active ? agentId : null);
+
+  // The reviews of this agent's work, from the stream the Chat tab holds:
+  // each finding with a path is placed in the diff at its line.
+  const rail = useStreamRail(active ? agentId : null);
+  const nameOf = useCallback(
+    (id: string) =>
+      id === agentId
+        ? (agent?.name ?? "Agent")
+        : (agentNameById?.(id) ?? "Agent"),
+    [agent?.name, agentId, agentNameById]
+  );
+  const findingItems = useMemo<DiffFinding[]>(
+    () =>
+      rail.reviews.flatMap((block) =>
+        block.data.findings
+          .filter((finding) => finding.path)
+          .map((finding) => ({
+            key: `${block.id}:${finding.id}`,
+            block,
+            finding,
+            record: block.state?.findings?.[finding.id] ?? null,
+            reviewerName:
+              block.author.kind === "agent"
+                ? nameOf(block.author.agentId)
+                : "You",
+          }))
+      ),
+    [nameOf, rail.reviews]
+  );
+  const [focusedFindingKey, setFocusedFindingKey] = useState<string | null>(
+    null
+  );
+  const onFindingFocusComplete = useCallback((key: string) => {
+    setFocusedFindingKey((current) => (current === key ? null : current));
+  }, []);
+  const { openThread } = useDrawerRoute();
+  const { mutate: setBlockStateNow } = useSetBlockState(rootId);
+  const onSetFindingState = useCallback(
+    (blockId: string, findingId: string, patch: BlockFindingPatch) =>
+      setBlockStateNow({
+        blockId,
+        state: { findings: { [findingId]: patch } },
+      }),
+    [setBlockStateNow]
+  );
+  const findings = useMemo<DiffFindingsProps | undefined>(
+    () =>
+      findingItems.length > 0
+        ? {
+            items: findingItems,
+            focusedKey: focusedFindingKey,
+            onFocusComplete: onFindingFocusComplete,
+            onOpen: openThread,
+            onSetState: onSetFindingState,
+            disabled: !agent || agent.status !== "running",
+            nameOf,
+          }
+        : undefined,
+    [
+      agent,
+      findingItems,
+      focusedFindingKey,
+      nameOf,
+      onFindingFocusComplete,
+      onSetFindingState,
+      openThread,
+    ]
+  );
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
@@ -238,6 +317,12 @@ export const ChangesTab = memo(function ChangesTab({
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
+  // `?thread=<review>&finding=<id>` beside `file`: the finding to open in
+  // place. Those two stay in the URL; they are the drawer's page.
+  const navFindingKey =
+    searchParams.get(THREAD_PARAM) && searchParams.get(FINDING_PARAM)
+      ? `${searchParams.get(THREAD_PARAM)}:${searchParams.get(FINDING_PARAM)}`
+      : null;
 
   const files = useVisibleDiffFiles(data, navFileTarget);
 
@@ -262,11 +347,20 @@ export const ChangesTab = memo(function ChangesTab({
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
     if (isMobile) setFileTreeOpen(false);
-    setSearchParams({}, { replace: true });
+    setFocusedFindingKey(navFindingKey);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        next.delete("line");
+        return next;
+      },
+      { replace: true }
+    );
     if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (navLineTarget && targetFile.diff) {
+        if (!navFindingKey && navLineTarget && targetFile.diff) {
           const lineNum = Number(navLineTarget);
           if (Number.isInteger(lineNum) && lineNum > 0) {
             requestAnimationFrame(() => {
@@ -299,6 +393,7 @@ export const ChangesTab = memo(function ChangesTab({
   }, [
     navFileTarget,
     navLineTarget,
+    navFindingKey,
     files,
     isMobile,
     scrollToFile,
@@ -443,6 +538,7 @@ export const ChangesTab = memo(function ChangesTab({
           onRemoveDraft={removeDraft}
           onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
+          findings={findings}
         />
       </div>
     </div>

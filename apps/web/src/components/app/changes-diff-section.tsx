@@ -70,6 +70,7 @@ export function DiffPane({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
+  findings,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -104,6 +105,7 @@ export function DiffPane({
           onRemoveDraft={onRemoveDraft}
           onUpdateDraft={onUpdateDraft}
           onStartReview={onStartReview}
+          findings={findings}
         />
       ))}
     </div>
@@ -142,6 +144,7 @@ function FileDiffSection({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
+  findings,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div
@@ -203,6 +206,7 @@ function FileDiffSection({
               onRemoveDraft={onRemoveDraft}
               onUpdateDraft={onUpdateDraft}
               onStartReview={onStartReview}
+              findings={findings}
             />
           </motion.div>
         )}
@@ -237,6 +241,7 @@ function FileDiffContent({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
+  findings,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -321,6 +326,7 @@ function FileDiffContent({
       onRemoveDraft={onRemoveDraft}
       onUpdateDraft={onUpdateDraft}
       onStartReview={onStartReview}
+      findings={findings}
     />
   );
 }

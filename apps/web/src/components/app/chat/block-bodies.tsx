@@ -548,7 +548,7 @@ export function FindingStatusPill({
 }
 
 /** A finding's severity as a small chip. */
-function SeverityChip({
+export function SeverityChip({
   severity,
 }: {
   severity: BlockReviewSeverity;

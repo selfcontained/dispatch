@@ -6,6 +6,8 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type DraftComment } from "@/components/app/review-mode";
+import type { DiffFinding } from "@/components/app/diff-review-annotation-props";
+import { block, reviewBody } from "@/test-utils/blocks";
 
 import { UnifiedDiffView } from "./unified-diff-view";
 
@@ -330,6 +332,87 @@ describe("UnifiedDiffView draft annotations", () => {
     });
 
     expect(widgetRows(container)).toHaveLength(0);
+  });
+});
+
+describe("UnifiedDiffView review findings", () => {
+  const review = block({
+    id: "rv",
+    author: { kind: "agent", agentId: "agt_rev" },
+    body: reviewBody("request_changes", "s", [
+      {
+        id: "f1",
+        severity: "major",
+        title: "Off by one",
+        body: "c should be 5.",
+        path: FILE_PATH,
+        line: 3,
+      },
+      {
+        id: "f2",
+        severity: "nit",
+        title: "Elsewhere",
+        body: "x",
+        path: "src/other.ts",
+        line: 3,
+      },
+      { id: "f3", severity: "nit", title: "No place", body: "y" },
+    ]),
+  }) as Extract<ReturnType<typeof block>, { kind: "review" }>;
+  const items: DiffFinding[] = review.data.findings.map((finding) => ({
+    key: `rv:${finding.id}`,
+    block: review,
+    finding,
+    record: null,
+    reviewerName: "reviewer",
+  }));
+
+  it("places a finding under the line it names, and only in its own file", () => {
+    const onOpen = vi.fn();
+    const onSetState = vi.fn();
+    const { container } = renderView({
+      findings: {
+        items,
+        focusedKey: null,
+        onFocusComplete: vi.fn(),
+        onOpen,
+        onSetState,
+        disabled: false,
+        nameOf: () => "reviewer",
+      },
+    });
+    expect(widgetRows(container)).toHaveLength(1);
+    const widget = widgetAfter(container, "const c = 4;");
+    const card = widget.querySelector("[data-testid='diff-finding']")!;
+    expect(card.getAttribute("data-finding-key")).toBe("rv:f1");
+    expect(card.textContent).toContain("Off by one");
+    expect(card.textContent).toContain("reviewer");
+    expect(card.getAttribute("data-expanded")).toBe("false");
+
+    fireEvent.click(card.querySelector("[data-testid='diff-finding-header']")!);
+    expect(card.getAttribute("data-expanded")).toBe("true");
+    expect(card.textContent).toContain("c should be 5.");
+    fireEvent.click(card.querySelector("[data-testid='chat-review-resolve']")!);
+    expect(onSetState).toHaveBeenCalledWith("rv", "f1", "fixed");
+    fireEvent.click(card.querySelector("[data-testid='diff-finding-open']")!);
+    expect(onOpen).toHaveBeenCalledWith("rv", "f1");
+  });
+
+  it("expands and reports the focused finding", () => {
+    const onFocusComplete = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    const { container } = renderView({
+      findings: {
+        items,
+        focusedKey: "rv:f1",
+        onFocusComplete,
+        onOpen: vi.fn(),
+        disabled: false,
+        nameOf: () => "reviewer",
+      },
+    });
+    const card = container.querySelector("[data-testid='diff-finding']")!;
+    expect(card.getAttribute("data-expanded")).toBe("true");
   });
 });
 

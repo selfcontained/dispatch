@@ -248,13 +248,18 @@ export function AgentsView({
     await uploadAgentMedia(agentId, file);
   }, []);
 
-  /** Opens the Changes tab on a file, at a line when one is given. */
+  /**
+   * Opens the Changes tab on a file, at a line when one is given. The
+   * drawer's pages stay in the URL, so a finding opened from the drawer
+   * is the one the diff scrolls to and expands.
+   */
   const handleOpenPath = useCallback(
     (filePath: string, line: number | null) => {
       if (!focusedAgentId) return;
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(window.location.search);
       params.set("file", filePath);
       if (line != null) params.set("line", String(line));
+      else params.delete("line");
       navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
         replace: true,
       });
@@ -388,6 +393,7 @@ export function AgentsView({
       active={true}
       isMobile={isMobile}
       onReviewPosted={handleReviewPosted}
+      agentNameById={agentNameById}
     />
   ) : null;
 

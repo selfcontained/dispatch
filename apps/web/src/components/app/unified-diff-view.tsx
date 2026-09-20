@@ -51,6 +51,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
   onRemoveDraft,
   onUpdateDraft,
   onStartReview,
+  findings,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -139,6 +140,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
     onRemoveDraft,
     onUpdateDraft,
     onStartReview,
+    findings,
   });
 
   const diffRef = useRef<HTMLDivElement>(null);
