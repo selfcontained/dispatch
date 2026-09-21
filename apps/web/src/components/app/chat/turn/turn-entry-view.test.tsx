@@ -172,10 +172,27 @@ describe("TurnEntryView", () => {
       screen.getByTestId("chat-turn").getAttribute("data-settled")
     ).toBeNull();
     expect(screen.queryByTestId("harness-result")).toBeNull();
-    expect(screen.getByTestId("chat-message").textContent).not.toContain(
+    // The answer is not in the column: the post is its header and the
+    // activity line. What the turn has said so far is inside that line's
+    // fold, for a reader who opens it to follow along.
+    const fold = screen.getByTestId("harness-activity-fold");
+    expect(fold).toBeTruthy();
+    expect(screen.getByTestId("harness-live-text").textContent).toBe(
       "reading now"
     );
-    expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
+    const post = screen.getByTestId("chat-message").cloneNode(true) as HTMLElement;
+    post.querySelector('[data-testid="harness-activity-fold"]')?.remove();
+    expect(post.textContent).not.toContain("reading now");
+  });
+
+  it("puts nothing in the activity fold once the turn has settled", () => {
+    renderTurn(
+      turnEntry({
+        text: "It documents the CLI.",
+        turn: { result: { text: "It documents the CLI.", streaming: false } },
+      })
+    );
+    expect(screen.queryByTestId("harness-live-text")).toBeNull();
   });
 
   it("draws no post for a prompt another agent sent: that post is its own feed row", () => {

@@ -189,7 +189,15 @@ export function TurnAnswer({
         <TurnAttachments items={folded} ctx={ctx} />
         {showsRail(trace, result) || !turn.settled ? (
           <div className={cn(turn.settled && result.content && "mt-2")}>
-            <ActivityBlock trace={trace} label={foldLabel} />
+            <ActivityBlock
+              trace={trace}
+              label={foldLabel}
+              // Only while it runs: once the turn settles the answer is the
+              // post itself, and showing it twice would be noise.
+              {...(!turn.settled && turn.result?.text
+                ? { liveText: turn.result.text }
+                : {})}
+            />
           </div>
         ) : null}
       </AutoHeight>

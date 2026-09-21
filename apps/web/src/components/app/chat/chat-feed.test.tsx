@@ -1561,7 +1561,10 @@ describe("turn entries", () => {
     const { rerenderWith } = renderFeed([prompt, running]);
     const before = screen.getAllByTestId("chat-message")[1]!;
     expect(before.getAttribute("data-block-id")).toBe("turn:12");
-    expect(before.textContent).not.toContain("so far");
+    // Not in the column while it runs; the activity fold carries it.
+    const column = before.cloneNode(true) as HTMLElement;
+    column.querySelector('[data-testid="harness-activity-fold"]')?.remove();
+    expect(column.textContent).not.toContain("so far");
     expect(
       screen.getByTestId("chat-turn").getAttribute("data-settled")
     ).toBeNull();

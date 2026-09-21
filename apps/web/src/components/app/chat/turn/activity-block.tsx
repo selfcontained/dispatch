@@ -34,10 +34,19 @@ export function showsActivity(trace: Trace | null | undefined): trace is Trace {
 function ActivityBlockImpl({
   trace,
   label,
+  liveText,
 }: {
   trace: Trace;
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
+  /**
+   * What the agent has said so far in a turn still running. The column
+   * shows a turn's answer only once it lands, so this is where a reader
+   * who wants to follow along can watch it being written: opening the
+   * activity line is the opt-in, and nothing changes for anyone who
+   * leaves it closed.
+   */
+  liveText?: string;
 }): JSX.Element {
   const done = trace.endedAt != null;
   const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
@@ -89,6 +98,14 @@ function ActivityBlockImpl({
           style={{ overflow: "hidden" }}
           aria-hidden={!open}
         >
+          {liveText ? (
+            <div
+              className="mb-1 whitespace-pre-wrap break-words border-l-2 border-status-working/40 pl-2 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]"
+              data-testid="harness-live-text"
+            >
+              {liveText}
+            </div>
+          ) : null}
           {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
           <div className="relative pb-1">
             <span
