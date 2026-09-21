@@ -1004,38 +1004,58 @@ function ReviewBlockWithCounts({
 }
 
 /**
- * What the agent was told at launch: one quiet line at the head of the
- * stream that opens into the whole prompt. Not a post — nobody wrote it to
- * anybody — so it gets no avatar, no author and none of a post's actions.
+ * What the agent was told at launch, as a row of the stream rather than a
+ * chip in it: the full width and the same gutter every post uses, its icon
+ * where an avatar would be, and the prompt itself folded away until asked
+ * for. Not a post — nobody wrote it to anybody — so it carries no author
+ * and none of a post's actions, and it reads as the startup record it is.
  */
 function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
   const [open, setOpen] = useChatRowState<boolean>("system-prompt-open", false);
+  const lines = block.text.split("\n").length;
   return (
     <div
-      className="px-4 pt-2"
+      className="group mt-3 flex min-w-0 max-w-full gap-3 px-4 pb-1.5 pt-2"
       data-testid="chat-system-prompt"
       data-open={open ? "true" : "false"}
       data-block-id={block.id}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1.5 rounded border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-        data-testid="chat-system-prompt-toggle"
-      >
-        <ScrollText className="h-3 w-3" aria-hidden="true" />
-        System prompt
-        <ChevronRight
-          className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
+      <div className="flex w-8 shrink-0 justify-end">
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
           aria-hidden="true"
-        />
-      </button>
-      <Collapse open={open} data-testid="chat-system-prompt-body">
-        <pre className="mt-1.5 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-          {block.text}
-        </pre>
-      </Collapse>
+        >
+          <ScrollText className="h-4 w-4" />
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex w-full min-w-0 items-center gap-2 text-left"
+          data-testid="chat-system-prompt-toggle"
+        >
+          <span className="text-sm font-semibold text-foreground">
+            Started with these instructions
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {lines} lines
+          </span>
+          <ChevronRight
+            className={cn(
+              "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90"
+            )}
+            aria-hidden="true"
+          />
+        </button>
+        <Collapse open={open} data-testid="chat-system-prompt-body">
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            {block.text}
+          </pre>
+        </Collapse>
+      </div>
     </div>
   );
 }
