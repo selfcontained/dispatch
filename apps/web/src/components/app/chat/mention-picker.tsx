@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { seatClasses } from "@/lib/agent-seat";
 import type { Mentionable, MentionSpan } from "@/lib/mentions";
@@ -12,16 +14,27 @@ export function MentionPicker({
   activeIndex,
   onPick,
   onHover,
+  anchor,
 }: {
   candidates: readonly Mentionable[];
   activeIndex: number;
   onPick: (agent: Mentionable) => void;
   onHover: (index: number) => void;
+  /** The field the list sits over; the composer's box clips, so the list is portalled. */
+  anchor: HTMLElement | null;
 }): JSX.Element | null {
   if (candidates.length === 0) return null;
-  return (
+  const rect = anchor?.getBoundingClientRect();
+  const style = rect
+    ? {
+        left: Math.max(8, rect.left),
+        bottom: Math.max(8, window.innerHeight - rect.top + 4),
+      }
+    : { left: 8, bottom: 8 };
+  return createPortal(
     <div
-      className="absolute bottom-full left-0 z-20 mb-1 w-64 max-w-full overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className="fixed z-50 w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      style={style}
       role="listbox"
       aria-label="Mention an agent"
       data-testid="mention-picker"
@@ -57,7 +70,8 @@ export function MentionPicker({
           ) : null}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 

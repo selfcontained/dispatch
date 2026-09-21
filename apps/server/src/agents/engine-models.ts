@@ -34,14 +34,20 @@ export function modelOptionOf(
   );
   if (!option || option.type !== "select") return null;
   const choices: AgentModelOption[] = [];
-  const add = (o: { value: string; name: string }) => {
+  const add = (o: { value: string; name: string }, group?: string) => {
     // The picker has its own "Default" (no override); the engine's entry
     // for the same thing would be a second one.
     if (o.value === "default") return;
-    choices.push({ id: o.value, label: o.name });
+    // A grouped choice is named within its group ("GPT" › "6 Astra"); the
+    // flat list needs the whole name.
+    const label =
+      group && !o.name.toLowerCase().startsWith(group.toLowerCase())
+        ? `${group} ${o.name}`
+        : o.name;
+    choices.push({ id: o.value, label });
   };
   for (const entry of option.options) {
-    if ("group" in entry) entry.options.forEach(add);
+    if ("group" in entry) entry.options.forEach((o) => add(o, entry.name));
     else add(entry);
   }
   const current = String(option.currentValue);

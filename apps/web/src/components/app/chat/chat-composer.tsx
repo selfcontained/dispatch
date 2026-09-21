@@ -820,6 +820,7 @@ export function ChatComposer({
               activeIndex={activeMention}
               onPick={pickMention}
               onHover={setMentionIndex}
+              anchor={textareaRef.current}
             />
           ) : null}
           <Textarea

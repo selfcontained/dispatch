@@ -73,23 +73,30 @@ describe("modelOptionOf", () => {
     });
   });
 
-  it("flattens grouped choices in the engine's order", () => {
+  it("flattens grouped choices in the engine's order, naming each within its group", () => {
     expect(
       modelOptionOf([
-        modelOption("claude-opus-5", [
+        modelOption("gpt-6-astra", [
           {
-            group: "latest",
-            name: "Latest",
-            options: [{ value: "claude-opus-5", name: "Opus 5" }],
+            group: "gpt",
+            name: "GPT",
+            options: [
+              { value: "gpt-6-astra", name: "6 Astra" },
+              { value: "gpt-5.5", name: "GPT 5.5" },
+            ],
           },
           {
             group: "older",
             name: "Older",
-            options: [{ value: "claude-opus-4-8", name: "Opus 4.8" }],
+            options: [{ value: "gpt-4.1", name: "Older 4.1" }],
           },
         ]),
-      ])?.choices.map((c) => c.id)
-    ).toEqual(["claude-opus-5", "claude-opus-4-8"]);
+      ])?.choices
+    ).toEqual([
+      { id: "gpt-6-astra", label: "GPT 6 Astra" },
+      { id: "gpt-5.5", label: "GPT 5.5" },
+      { id: "gpt-4.1", label: "Older 4.1" },
+    ]);
   });
 
   it("is null when the engine publishes no model option", () => {
