@@ -6,29 +6,20 @@ import type {
   StreamBlockEntry,
   StreamEntry,
 } from "@dispatch/shared";
-import { Bot, ChevronDown, ChevronRight } from "lucide-react";
-
-import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
-import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import {
-  agentDisplayName,
   BlockView,
   type FeedContext,
-  peerAuthor,
   POST_BODY_MEASURE,
 } from "@/components/app/chat/chat-entries";
 import { cn } from "@/lib/utils";
 
-import { useChatRowState } from "../chat-row-state";
-import { ActivityBlock, TurnGlyph, turnSummary } from "./activity-block";
+import { ActivityBlock } from "./activity-block";
 import { AutoHeight } from "./auto-height";
 import type { Step, Trace, Turn } from "./contracts";
-import { formatStepDuration } from "./format";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { ResultTurn } from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
-import { useStreamTicker } from "./use-stream-ticker";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
@@ -112,16 +103,19 @@ export type TurnEntryViewProps = {
 };
 
 /**
- * A turn as a feed row: the agent's answer block. The page agent's turns
- * render as posts (the block view draws the answer with its rail); a turn
- * run by another agent than the page's folds to one row under that
- * agent's name (see {@link ChildTurnView}).
+ * A turn as a feed row: the agent's answer block, whoever ran it. A child's
+ * turn is a post under the child's name and seat, its steps folded under
+ * the answer like the parent's; the "show child agents" filter is where a
+ * reader turns their traffic off.
  */
-function TurnEntryViewImpl(props: TurnEntryViewProps): JSX.Element {
-  const { block, turn, ctx, grouped, rule, folded } = props;
-  if (block.author.kind === "agent" && block.author.agentId !== ctx.agentId) {
-    return <ChildTurnView {...props} />;
-  }
+function TurnEntryViewImpl({
+  block,
+  turn,
+  grouped,
+  rule,
+  ctx,
+  folded,
+}: TurnEntryViewProps): JSX.Element {
   return (
     <BlockView
       block={block.turn === turn ? block : { ...block, turn }}
@@ -134,124 +128,6 @@ function TurnEntryViewImpl(props: TurnEntryViewProps): JSX.Element {
       onAnswer={NO_ANSWER}
       folded={folded}
     />
-  );
-}
-
-/**
- * A turn run by an agent under this one, folded to one row: the child's
- * icon and name, then what the rail's own summary row would say of the
- * turn (its verb, step count and time). In the stream the row opens the
- * turn as a page in the drawer; where there is no drawer to open, it
- * unfolds to the child's answer in full.
- */
-export function ChildTurnView({
-  block,
-  turn,
-  rule = false,
-  ctx,
-  folded = NO_FOLDED,
-}: TurnEntryViewProps): JSX.Element {
-  const [open, setOpen] = useChatRowState<boolean>("child-turn-open", false);
-  const trace = useMemo(() => turnTrace(turn), [turn]);
-  const label = useMemo(() => turnLabelFromSteps(trace.steps), [trace.steps]);
-  const done = trace.endedAt != null;
-  // Re-render on the shared tick while the turn runs, so the time counts.
-  useStreamTicker(!done);
-  const summary = turnSummary(trace, label);
-  const agentId = block.author.kind === "agent" ? block.author.agentId : "";
-  const name = agentDisplayName(agentId, ctx);
-  const author = peerAuthor(agentId, name, ctx);
-  const duration = formatStepDuration(summary.ms);
-  return (
-    <div
-      data-testid="chat-child-turn"
-      data-turn-id={block.id}
-      data-agent-id={agentId}
-      data-open={open ? "true" : "false"}
-      data-settled={turn.settled ? "true" : undefined}
-      className={cn(rule && "border-t border-border/40")}
-    >
-      <button
-        type="button"
-        onClick={() =>
-          ctx.onOpenTurn ? ctx.onOpenTurn(block.id) : setOpen(!open)
-        }
-        aria-expanded={ctx.onOpenTurn ? undefined : open}
-        aria-label={`${name}, ${summary.verb}, ${summary.steps}, ${duration}, ${
-          ctx.onOpenTurn ? "open" : open ? "collapse" : "expand"
-        } turn`}
-        data-testid="chat-child-turn-summary"
-        className={cn(
-          "group flex w-full min-w-0 items-center gap-3 px-4 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/30",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
-          open ? "mt-3" : "mt-1"
-        )}
-      >
-        <span className="flex w-8 shrink-0 justify-end">
-          {author.seat !== undefined ? (
-            <AgentSeatBadge seat={author.seat} name={name} size="sm" />
-          ) : (
-            <span
-              className="flex h-5 w-5 items-center justify-center rounded border border-border bg-muted/50 text-foreground/80"
-              aria-hidden="true"
-            >
-              <Bot className="h-3 w-3" />
-            </span>
-          )}
-        </span>
-        <span
-          className="flex w-3 shrink-0 justify-center leading-none"
-          aria-hidden="true"
-        >
-          <TurnGlyph summary={summary} />
-        </span>
-        <span
-          className="min-w-0 max-w-[40%] truncate font-semibold text-foreground"
-          data-testid="chat-child-turn-agent"
-        >
-          {name}
-        </span>
-        {author.relation && author.relation !== "agent" ? (
-          <AgentRelationBadge relation={author.relation} />
-        ) : null}
-        <span
-          className={cn(
-            "min-w-0 truncate",
-            summary.done ? "text-foreground" : "font-medium text-status-working"
-          )}
-          title={summary.verb}
-        >
-          {summary.verb}
-        </span>
-        {summary.thinking ? null : (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {summary.steps} · {duration}
-          </span>
-        )}
-        <span
-          aria-hidden="true"
-          className="ml-auto shrink-0 text-[9px] text-muted-foreground/70"
-        >
-          {open ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-        </span>
-      </button>
-      {open ? (
-        <BlockView
-          block={block.turn === turn ? block : { ...block, turn }}
-          held={false}
-          grouped={false}
-          ctx={ctx}
-          answering={false}
-          answersDisabled
-          onAnswer={NO_ANSWER}
-          folded={folded}
-        />
-      ) : null}
-    </div>
   );
 }
 

@@ -159,8 +159,6 @@ export type FeedContext = {
   onToggleReaction?: (blockId: string, emoji: string, remove: boolean) => void;
   /** Opens a block's thread in the drawer, on one finding when given. */
   onOpenThread?: (blockId: string, findingId?: string) => void;
-  /** Opens another agent's turn (folded in the stream) as a drawer page. */
-  onOpenTurn?: (turnId: string) => void;
   /** Submits a form block's values. */
   onSubmitForm?: (
     blockId: string,

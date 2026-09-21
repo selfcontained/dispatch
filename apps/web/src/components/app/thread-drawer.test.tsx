@@ -11,12 +11,8 @@ import {
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  type FeedCache,
-  streamFeedQueryKey,
-  threadQueryKey,
-} from "@/hooks/use-stream";
-import { block, reviewBody, turnEntry } from "@/test-utils/blocks";
+import { threadQueryKey } from "@/hooks/use-stream";
+import { block, reviewBody } from "@/test-utils/blocks";
 
 import { ThreadDrawer } from "./thread-drawer";
 
@@ -174,46 +170,6 @@ describe("ThreadDrawer", () => {
     fireEvent.click(screen.getByTestId("drawer-close"));
     expect(screen.getByTestId("location-search").textContent).toBe("");
     expect(screen.queryByTestId("thread-drawer")).toBeNull();
-  });
-
-  it("shows another agent's turn as a page of its own from the URL", () => {
-    // The reviewer's turn as the feed carries it: its answer block, the
-    // turn attached, by an agent other than the page's.
-    const childTurn = turnEntry({
-      id: "turn9",
-      author: { kind: "agent", agentId: "agt_rev" },
-      text: "All clear from the reviewer.",
-      createdAt: "2026-09-02T10:00:00.000Z",
-      turn: {
-        prompt: { source: "chat", text: "check the diff", attachments: [] },
-      },
-    });
-    client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1"), {
-      pages: [
-        {
-          entries: [childTurn],
-          hasMore: false,
-          nextCursor: null,
-          unreadCount: 0,
-        },
-      ],
-      pageParams: [undefined],
-    });
-    renderThreadDrawer("?turn=turn9");
-    expect(screen.getByTestId("thread-drawer").getAttribute("data-depth")).toBe(
-      "1"
-    );
-    expect(screen.getByTestId("drawer-title").textContent).toBe("Turn");
-    expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
-      "by reviewer"
-    );
-    const page = screen.getByTestId("drawer-turn-page");
-    // The turn in full, not a child's folded row.
-    expect(page.querySelector('[data-testid="chat-child-turn"]')).toBeNull();
-    expect(page.textContent).toContain("All clear from the reviewer.");
-    expect(screen.queryByTestId("drawer-back")).toBeNull();
-    fireEvent.click(screen.getByTestId("drawer-close"));
-    expect(screen.getByTestId("location-search").textContent).toBe("");
   });
 
   it("opens a finding's page from a row on the review page", () => {

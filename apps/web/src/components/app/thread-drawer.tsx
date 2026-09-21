@@ -8,7 +8,6 @@ import {
   type DrawerPage,
 } from "@/components/app/drawer/drawer-stack";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
-import { TurnPage, useTurnEntry } from "@/components/app/drawer/turn-page";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
@@ -53,43 +52,16 @@ export function ThreadDrawer({
   const live = Boolean(selectedAgentId && rootId);
   const threadId = live ? route.threadId : null;
   const findingId = threadId ? route.findingId : null;
-  const turnId = live ? route.turnId : null;
   const thread = useThread(rootId, threadId);
-  const turn = useTurnEntry(rootId, turnId);
   const nameOf = (agentId: string) =>
     agentId === selectedAgentId
       ? (selectedAgentName ?? "Agent")
       : (agentNameById?.(agentId) ?? "Agent");
-  const heading = turnId
-    ? {
-        title: "Turn",
-        subtitle:
-          turn?.block.author.kind === "agent"
-            ? `by ${nameOf(turn.block.author.agentId)}`
-            : "",
-      }
-    : threadTitle(thread.root, findingId !== null, nameOf);
-  const { openThread, openTurn, back, closeAll } = route;
+  const heading = threadTitle(thread.root, findingId !== null, nameOf);
+  const { openThread, back, closeAll } = route;
 
   const pages = useMemo<DrawerPage[]>(() => {
-    if (!selectedAgentId || !rootId) return [];
-    if (turnId) {
-      return [
-        {
-          key: `turn:${turnId}`,
-          node: (
-            <TurnPage
-              rootId={rootId}
-              turnId={turnId}
-              openLightbox={openLightbox}
-              onOpenPath={onOpenPath}
-              onOpenThread={openThread}
-            />
-          ),
-        },
-      ];
-    }
-    if (!threadId) return [];
+    if (!selectedAgentId || !rootId || !threadId) return [];
     // One page per level: moving between findings on the same review
     // changes what the finding page shows rather than swapping pages.
     const page = (finding: string | null): DrawerPage => ({
@@ -105,7 +77,6 @@ export function ThreadDrawer({
           openLightbox={openLightbox}
           onOpenPath={onOpenPath}
           onOpenThread={openThread}
-          onOpenTurn={openTurn}
           onBack={back}
         />
       ),
@@ -119,11 +90,9 @@ export function ThreadDrawer({
     onOpenPath,
     openLightbox,
     openThread,
-    openTurn,
     rootId,
     selectedAgentId,
     threadId,
-    turnId,
   ]);
 
   if (pages.length === 0) return null;

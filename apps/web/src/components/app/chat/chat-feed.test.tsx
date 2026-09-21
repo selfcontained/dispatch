@@ -1574,7 +1574,7 @@ describe("turn entries", () => {
     );
   });
 
-  it("folds a turn run by another agent to a row under that agent's name", () => {
+  it("shows a turn run by another agent as a post under that agent's name", () => {
     renderFeed(
       [
         turnEntry({
@@ -1587,14 +1587,14 @@ describe("turn entries", () => {
       {},
       { peers: REVIEWER_PEER }
     );
-    const row = screen.getByTestId("chat-child-turn");
-    expect(row.getAttribute("data-turn-id")).toBe("turn:kid");
-    expect(row.getAttribute("data-agent-id")).toBe("agt_2");
-    expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
-      "Reviewer"
+    const post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author")).toBe("peer");
+    expect(post.getAttribute("data-origin")).toBe("turn");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("Reviewer");
+    expect(post.textContent).toContain("Reviewed.");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
+      "turn:kid"
     );
-    expect(screen.queryByTestId("chat-message")).toBeNull();
-    expect(row.textContent).not.toContain("Reviewed.");
   });
 
   it("lifts what the agent produced mid-turn into the turn's post", () => {

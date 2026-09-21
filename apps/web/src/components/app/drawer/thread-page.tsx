@@ -30,7 +30,6 @@ export type ThreadPageProps = {
   openLightbox: (fileId: number) => void;
   onOpenPath?: (path: string, line: number | null) => void;
   onOpenThread: (blockId: string, findingId?: string) => void;
-  onOpenTurn?: (turnId: string) => void;
   onBack: () => void;
 };
 
@@ -44,7 +43,6 @@ export function ThreadPage({
   openLightbox,
   onOpenPath,
   onOpenThread,
-  onOpenTurn,
   onBack,
 }: ThreadPageProps): JSX.Element {
   const answer = useAnswerQuestion(rootId);
@@ -110,7 +108,6 @@ export function ThreadPage({
     onOpenPath,
     onToggleReaction,
     onOpenThread,
-    onOpenTurn,
     onSubmitForm,
     onSetBlockState,
   });

@@ -369,7 +369,6 @@ export function ChatPane({
   const {
     threadId: openThreadId,
     openThread: onOpenThread,
-    openTurn: onOpenTurn,
   } = useDrawerRoute();
 
   const entries = feed.entries;
@@ -801,7 +800,6 @@ export function ChatPane({
     onOpenPath,
     onToggleReaction,
     onOpenThread,
-    onOpenTurn,
     onSubmitForm,
     onSetBlockState,
   });

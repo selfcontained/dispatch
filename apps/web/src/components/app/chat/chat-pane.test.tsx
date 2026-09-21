@@ -421,11 +421,9 @@ describe("ChatPane", () => {
     expect(screen.queryByText("for people")).toBeNull();
     expect(screen.getByText("answer child-turn")).toBeTruthy();
     expect(screen.getByText("please review")).toBeTruthy();
-    // The child's own turn is its own here, not a folded child row.
-    expect(screen.queryByTestId("chat-child-turn")).toBeNull();
   });
 
-  it("folds a child's turn to one row under the child's name, which opens in the drawer", async () => {
+  it("shows a child's turn as a post under the child's name, like the parent's", async () => {
     H.agents = [
       { ...agent, id: "agt_1", name: "demo" },
       { ...agent, id: "agt_child", name: "reviewer", parentAgentId: "agt_1" },
@@ -436,27 +434,24 @@ describe("ChatPane", () => {
       turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
     ];
     renderPane();
-    const row = screen.getByTestId("chat-child-turn");
-    expect(row.getAttribute("data-agent-id")).toBe("agt_child");
-    expect(row.getAttribute("data-open")).toBe("false");
-    // The child's answer is folded away; the root's own turn is in full.
-    expect(screen.queryByText("answer child-turn")).toBeNull();
+    // Both answers are in full; the child's under its own name.
     expect(screen.getByText("answer root-turn")).toBeTruthy();
-    const summary = screen.getByTestId("chat-child-turn-summary");
+    expect(screen.getByText("answer child-turn")).toBeTruthy();
+    const posts = screen.getAllByTestId("chat-message");
+    const childPost = posts.find(
+      (post) => post.getAttribute("data-block-id") === "child-turn"
+    )!;
+    expect(childPost.getAttribute("data-author")).toBe("peer");
+    expect(childPost.getAttribute("data-origin")).toBe("turn");
     await waitFor(() =>
-      expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
-        "reviewer"
-      )
+      expect(
+        childPost.querySelector('[data-testid="chat-post-author"]')?.textContent
+      ).toBe("reviewer")
     );
-    // The same reading as the rail's own summary row: verb, steps, time.
-    expect(summary.textContent).toContain("ran pnpm test");
-    expect(summary.textContent).toContain("2 steps");
-
-    // The row is a link to the turn's own page in the drawer, not a fold.
-    expect(summary.getAttribute("aria-label")).toMatch(/open turn$/);
-    fireEvent.click(summary);
-    expect(row.getAttribute("data-open")).toBe("false");
-    expect(screen.queryByText("answer child-turn")).toBeNull();
+    // Its steps fold under the answer, as the parent's do.
+    expect(
+      childPost.querySelector('[data-testid="chat-turn"]')
+    ).not.toBeNull();
   });
 
   it("removes child activity from the rendered feed when filtered", () => {
@@ -470,7 +465,7 @@ describe("ChatPane", () => {
     renderPane({ showChildAgents: false });
 
     expect(screen.queryByText("child update")).toBeNull();
-    expect(screen.queryByTestId("chat-child-turn")).toBeNull();
+    expect(screen.queryByText("answer child-turn")).toBeNull();
     expect(screen.getByText("visible reply")).toBeTruthy();
   });
 
@@ -1141,22 +1136,6 @@ describe("ChatPane threads", () => {
     );
     // The thread itself is the drawer's, not the pane's.
     expect(screen.queryByTestId("chat-thread-panel")).toBeNull();
-  });
-
-  it("puts a child's turn into the URL for the drawer", () => {
-    H.agents = [
-      { ...agent, id: "agt_1", name: "demo" },
-      { ...agent, id: "agt_child", name: "reviewer", parentAgentId: "agt_1" },
-    ];
-    H.descendants = new Set(["agt_child"]);
-    H.entries = [
-      turnEntry("child-turn", "agt_child", "2026-09-02T10:01:00.000Z"),
-    ];
-    renderWithUrl("");
-    fireEvent.click(screen.getByTestId("chat-child-turn-summary"));
-    expect(screen.getByTestId("location-search").textContent).toBe(
-      "?turn=child-turn"
-    );
   });
 
   it("leaves the composer unfocused while a thread is open in the drawer", () => {

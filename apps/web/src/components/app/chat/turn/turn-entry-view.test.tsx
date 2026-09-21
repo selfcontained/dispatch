@@ -273,7 +273,7 @@ describe("TurnEntryView", () => {
     expect(summary.getAttribute("aria-label")).toContain("read README.md");
   });
 
-  it("folds a turn run by another agent to a child row under that agent's name", () => {
+  it("renders another agent's turn as a post under that agent's name", () => {
     const entry = turnEntry({
       id: "turn:child",
       author: { kind: "agent", agentId: "agt_child" },
@@ -294,15 +294,12 @@ describe("TurnEntryView", () => {
         agt_child: { name: "reviewer", agentType: "codex", relation: "child" },
       },
     });
-    const row = screen.getByTestId("chat-child-turn");
-    expect(row.getAttribute("data-turn-id")).toBe("turn:child");
-    expect(row.getAttribute("data-agent-id")).toBe("agt_child");
-    expect(row.getAttribute("data-settled")).toBe("true");
-    expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
-      "reviewer"
+    const post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author")).toBe("peer");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("reviewer");
+    expect(post.textContent).toContain("All clear.");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-settled")).toBe(
+      "true"
     );
-    // Folded: the answer waits behind the row.
-    expect(screen.queryByTestId("chat-message")).toBeNull();
-    expect(row.textContent).not.toContain("All clear.");
   });
 });

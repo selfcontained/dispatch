@@ -12,10 +12,7 @@ import {
   type FoldedEntry,
   foldAttachments,
 } from "@/components/app/chat/turn/turn-attachments";
-import {
-  ChildTurnView,
-  isTurnEntry,
-} from "@/components/app/chat/turn/turn-entry-view";
+import { isTurnEntry } from "@/components/app/chat/turn/turn-entry-view";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 
@@ -372,32 +369,20 @@ export function ChatFeed({
           return <DayDivider key={row.key} label={row.label} />;
         }
         const entry = row.entry;
-        const view =
-          isTurnEntry(entry) &&
-          entry.block.author.kind === "agent" &&
-          entry.block.author.agentId !== ctx.agentId ? (
-            <ChildTurnView
-              block={entry.block}
-              turn={entry.block.turn}
-              grouped={row.grouped}
-              rule={row.rule}
-              ctx={ctx}
-              folded={row.folded}
-            />
-          ) : (
-            <BlockView
-              block={entry.block}
-              held={heldBlockId === entry.block.id}
-              grouped={row.grouped}
-              rule={row.rule}
-              ctx={ctx}
-              answering={answeringBlockId === entry.block.id}
-              submitting={submittingBlockId === entry.block.id}
-              answersDisabled={answersDisabled}
-              onAnswer={onAnswer}
-              folded={row.folded}
-            />
-          );
+        const view = (
+          <BlockView
+            block={entry.block}
+            held={heldBlockId === entry.block.id}
+            grouped={row.grouped}
+            rule={row.rule}
+            ctx={ctx}
+            answering={answeringBlockId === entry.block.id}
+            submitting={submittingBlockId === entry.block.id}
+            answersDisabled={answersDisabled}
+            onAnswer={onAnswer}
+            folded={row.folded}
+          />
+        );
         return (
           <Enter
             key={rowIdentity(entry, ctx.agentId)}
