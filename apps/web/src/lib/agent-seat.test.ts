@@ -21,8 +21,8 @@ describe("lineageSeats", () => {
   });
 
   it("gives each seat its own accent and wraps past the palette", () => {
-    expect(seatClasses(1)).not.toBe(seatClasses(2));
-    expect(seatClasses(11)).toBe(seatClasses(1));
-    expect(seatClasses(0)).toBe(seatClasses(1));
+    expect(seatClasses(1)).not.toEqual(seatClasses(2));
+    expect(seatClasses(11)).toEqual(seatClasses(1));
+    expect(seatClasses(0)).toEqual(seatClasses(1));
   });
 });
