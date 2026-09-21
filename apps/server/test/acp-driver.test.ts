@@ -117,6 +117,42 @@ describe("AcpDriver", () => {
     await driver.stop("agt_1");
   });
 
+  it("reports the engine's config options when the session opens and when they change", async () => {
+    const fake = createFakeAcpAgent({
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "opus",
+          options: [
+            { value: "opus", name: "Opus" },
+            { value: "sonnet", name: "Sonnet" },
+          ],
+        },
+      ],
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((e) => events.push(e));
+    await driver.start(launch());
+    const configs = () =>
+      events.filter(
+        (e): e is Extract<DriverEvent, { type: "config" }> =>
+          e.type === "config"
+      );
+    expect(configs()).toHaveLength(1);
+    expect(configs()[0]?.options[0]).toMatchObject({
+      id: "model",
+      currentValue: "opus",
+    });
+    await driver.setConfigOption("agt_1", "model", "sonnet");
+    expect(configs()).toHaveLength(2);
+    expect(configs()[1]?.options[0]).toMatchObject({ currentValue: "sonnet" });
+    await driver.stop("agt_1");
+  });
+
   it("resumes over session/resume and sends the persona again for claude", async () => {
     const fake = createFakeAcpAgent();
     const { driver } = driverWith(fake);
@@ -156,8 +192,8 @@ describe("AcpDriver", () => {
     await driver.start(launch());
     await driver.prompt("agt_1", "hello");
     expect(fake.seen.prompts).toEqual(["hello"]);
-    expect(events.map((e) => e.type)).toEqual(["turn", "update", "turn"]);
-    expect(events[2]).toMatchObject({
+    expect(events.map((e) => e.type)).toEqual(["config", "turn", "update", "turn"]);
+    expect(events[3]).toMatchObject({
       type: "turn",
       state: "settled",
       stopReason: "end_turn",

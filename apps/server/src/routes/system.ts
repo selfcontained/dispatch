@@ -24,7 +24,7 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
-import { AGENT_MODEL_OPTIONS } from "../shared/agent-models.js";
+import { agentModelCatalog } from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -71,7 +71,7 @@ export async function registerSystemRoutes(
   });
 
   app.get("/api/v1/agent-models", async () => {
-    return { models: AGENT_MODEL_OPTIONS };
+    return { models: agentModelCatalog() };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {

@@ -132,6 +132,13 @@ queue is busy.
 - `agents.type` is the engine: `claude` or `codex`. No new type, no flag.
 - `agents.cli_session_id` holds the ACP session id.
 - `agents.host_seq` is the replay watermark.
+- `agents.model` is the model the engine reports, not the one requested. The
+  driver emits a `config` event with the session's config options when the
+  session opens and whenever they change; the manager takes the `model`
+  option's current value onto the agent, and its choices become the model
+  catalog for that engine (`settings` key `agent_models:<type>`, loaded at
+  boot). The shipped list in `shared/agent-models.ts` is only the seed for an
+  engine that has never run here.
 - `agent_stream_events` (from #1067) is the durable projection of the stream.
   `chat/turns.ts` assembles turns from it into `ChatTurnEntry` feed rows.
 - Migrations are additive: `0052_agent-stream-events`, `0053_agents-host-seq`.

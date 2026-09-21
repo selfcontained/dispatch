@@ -2,6 +2,11 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  agentModelLabel,
+  useAgentModelCatalogData,
+} from "@/hooks/use-agent-model-catalog";
+
+import {
   type FeedContext,
   type PeerDirectory,
   peerDirectory,
@@ -87,6 +92,12 @@ export function useChatFeedContext({
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
   const agentModel = agent?.model ?? null;
+  const catalog = useAgentModelCatalogData();
+  const modelLabel = useCallback(
+    (type: string | null, model: string) =>
+      agentModelLabel(catalog, type, model),
+    [catalog]
+  );
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
@@ -94,6 +105,7 @@ export function useChatFeedContext({
       agentName,
       agentType,
       agentModel,
+      modelLabel,
       ...(agentSeat != null ? { agentSeat } : {}),
       peers,
       onOpenFile: openLightbox,
@@ -110,6 +122,7 @@ export function useChatFeedContext({
       agentName,
       agentType,
       agentModel,
+      modelLabel,
       agentSeat,
       onOpenPath,
       onToggleReaction,

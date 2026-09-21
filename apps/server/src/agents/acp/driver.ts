@@ -22,6 +22,12 @@ export type DriverLaunch = {
 
 export type DriverEvent =
   | { type: "update"; agentId: string; update: DriverUpdate }
+  /**
+   * The engine's session config options, whole: once the session opens and
+   * again whenever the engine changes them. The model option is where the
+   * server learns which model is really running and which it could run.
+   */
+  | { type: "config"; agentId: string; options: acp.SessionConfigOption[] }
   | { type: "turn"; agentId: string; state: "started"; text: string }
   | {
       type: "turn";
@@ -271,6 +277,12 @@ export class AcpDriver {
       sessionUpdate: async (params) => {
         if (params.update.sessionUpdate === "config_option_update") {
           config.options = params.update.configOptions ?? [];
+          this.emit({
+            type: "config",
+            agentId: launch.agentId,
+            options: config.options,
+          });
+          return;
         } else if (
           params.update.sessionUpdate === "available_commands_update"
         ) {
@@ -416,6 +428,7 @@ export class AcpDriver {
       commands,
     };
     this.live.set(launch.agentId, entry);
+    this.emit({ type: "config", agentId: launch.agentId, options: config.options });
     void exited.then((exit) => {
       if (this.live.get(launch.agentId) === entry) {
         this.live.delete(launch.agentId);
@@ -465,6 +478,7 @@ export class AcpDriver {
         value,
       });
       entry.config.options = res.configOptions ?? entry.config.options;
+      this.emit({ type: "config", agentId, options: entry.config.options });
       return entry.config.options;
     } catch (err) {
       throw new Error(describeRpcError(err), { cause: err });

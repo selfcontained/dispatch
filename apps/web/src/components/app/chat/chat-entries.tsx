@@ -131,6 +131,8 @@ export type FeedContext = {
   agentName?: string;
   /** The agent's engine model, for the line under its name. */
   agentModel?: string | null;
+  /** A model id as the catalog names it; absent, the chip shows the id. */
+  modelLabel?: (agentType: string | null, model: string) => string;
   /** The agent's number in its tree, drawn as its avatar. */
   agentSeat?: number;
   agentType?: string | null;
@@ -166,6 +168,8 @@ export type PostAuthor = {
   agentType?: string | null;
   /** The engine's model, when the agent list knows it. */
   model?: string | null;
+  /** The model as the catalog names it, when it does. */
+  modelLabel?: string;
   /** Peers only: how the sender stands to this agent. */
   relation?: AgentRelation;
   /** Its number in the tree, drawn as its avatar. */
@@ -183,8 +187,18 @@ export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
     kind: "agent",
     agentType: ctx.agentType ?? null,
     model: ctx.agentModel ?? null,
+    ...labelled(ctx, ctx.agentType ?? null, ctx.agentModel ?? null),
     ...(ctx.agentSeat !== undefined ? { seat: ctx.agentSeat } : {}),
   };
+}
+
+function labelled(
+  ctx: FeedContext,
+  agentType: string | null,
+  model: string | null
+): { modelLabel?: string } {
+  if (!model || !ctx.modelLabel) return {};
+  return { modelLabel: ctx.modelLabel(agentType, model) };
 }
 
 /**
@@ -204,6 +218,7 @@ export function peerAuthor(
     kind: "peer",
     agentType: peer?.agentType ?? null,
     model: peer?.model ?? null,
+    ...labelled(ctx, peer?.agentType ?? null, peer?.model ?? null),
     relation: peer?.relation ?? "agent",
     ...(peer?.seat !== undefined ? { seat: peer.seat } : {}),
   };
@@ -298,9 +313,10 @@ export function AuthorMeta({
 }): JSX.Element | null {
   if (author.kind === "user") return null;
   const engine = agentTypeLabel(author.agentType);
+  const model = author.model ? (author.modelLabel ?? author.model) : null;
   const relation =
     author.relation && author.relation !== "agent" ? author.relation : null;
-  if (!engine && !author.model && !relation) return null;
+  if (!engine && !model && !relation) return null;
   return (
     <span
       className="flex basis-full flex-wrap items-center gap-1 leading-4"
@@ -314,13 +330,13 @@ export function AuthorMeta({
           {engine}
         </span>
       ) : null}
-      {author.model ? (
+      {model ? (
         <span
-          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground"
-          title={author.model}
+          className="max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-[10px] text-muted-foreground"
+          title={author.model ?? undefined}
           data-testid="chat-author-model"
         >
-          {author.model}
+          {model}
         </span>
       ) : null}
       {relation ? <AgentRelationBadge relation={relation} /> : null}

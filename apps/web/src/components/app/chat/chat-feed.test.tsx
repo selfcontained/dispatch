@@ -566,7 +566,12 @@ describe("ChatFeed", () => {
         from("p5", "agt_gone", "40"),
       ],
       {},
-      { peers }
+      {
+        peers,
+        // The catalog names the model; the chip shows the name, keeps the id.
+        modelLabel: (type, model) =>
+          type === "codex" && model === "gpt-5-codex" ? "GPT-5 Codex" : model,
+      }
     );
     const posts = sidePosts();
     // Under the name: the engine, the model when known, and the relation
@@ -585,9 +590,9 @@ describe("ChatFeed", () => {
             ?.textContent ?? null
       )
     ).toEqual(["Codex", "Claude", "Codex", "Claude", null]);
-    expect(
-      posts[0]!.querySelector('[data-testid="chat-author-model"]')?.textContent
-    ).toBe("gpt-5-codex");
+    const modelChip = posts[0]!.querySelector('[data-testid="chat-author-model"]');
+    expect(modelChip?.textContent).toBe("GPT-5 Codex");
+    expect(modelChip?.getAttribute("title")).toBe("gpt-5-codex");
     expect(
       posts[1]!.querySelector('[data-testid="chat-author-model"]')
     ).toBeNull();

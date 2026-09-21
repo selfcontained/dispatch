@@ -50,7 +50,9 @@ import {
 } from "./launch-guidance.js";
 import { prepareWorkspace } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
+import { recordEngineModels } from "./engine-models.js";
 import { parsePromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
@@ -363,6 +365,9 @@ export class AgentManager {
     if (event.type === "turn") {
       await this.deriveTurnStatus(agentId, event);
     }
+    if (event.type === "config") {
+      await this.applyEngineConfig(agentId, event.options);
+    }
     if (event.type === "exit" && !event.expected) {
       const how =
         event.code === null
@@ -377,6 +382,21 @@ export class AgentManager {
       agentId,
       event.type === "turn" || event.type === "exit"
     );
+  }
+
+  /** The engine told us its options: record the model it really runs. */
+  private async applyEngineConfig(
+    agentId: string,
+    options: SessionConfigOption[]
+  ): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent) return;
+    const { modelChanged } = await recordEngineModels(
+      { pool: this.pool, logger: this.logger },
+      { id: agent.id, type: agent.type, model: agent.model ?? null },
+      options
+    );
+    if (modelChanged) this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 
   /**

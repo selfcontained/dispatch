@@ -33,6 +33,7 @@ import {
 import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { loadLearnedAgentModels } from "./agents/engine-models.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
@@ -827,6 +828,8 @@ export async function initializeApp(options?: {
     await runMigrations();
   }
   config.authToken = await getOrCreateAuthToken(pool);
+  // The model lists engines published in earlier sessions, for the pickers.
+  await loadLearnedAgentModels(pool);
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );

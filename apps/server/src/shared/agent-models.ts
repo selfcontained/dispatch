@@ -3,7 +3,9 @@ import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 export type AgentModelOption = { id: string; label: string };
 
 /**
- * Source-controlled model catalog for the launchers Dispatch supports.
+ * Seed model catalog for the launchers Dispatch supports: what the picker
+ * offers before an engine has run here. Once one has, the list it published
+ * over ACP takes over (see setLearnedAgentModels).
  *
  * Agent types absent from this map hide the
  * model picker and always launch with the CLI default.
@@ -41,10 +43,41 @@ export const AGENT_MODEL_OPTIONS: Partial<
   ],
 };
 
+/**
+ * What each engine said it could run, the last time one of its sessions
+ * opened on this machine. Learned lists replace the seed above for their
+ * type: they are the engine's own words, for this install and this login.
+ */
+const learned = new Map<AgentType, readonly AgentModelOption[]>();
+
+export function setLearnedAgentModels(
+  agentType: AgentType,
+  options: readonly AgentModelOption[]
+): void {
+  if (options.length === 0) return;
+  learned.set(agentType, options.map((o) => ({ id: o.id, label: o.label })));
+}
+
+/** Tests reset what earlier tests taught. */
+export function forgetLearnedAgentModels(): void {
+  learned.clear();
+}
+
 export function getAgentModelOptions(
   agentType: AgentType
 ): readonly AgentModelOption[] {
-  return AGENT_MODEL_OPTIONS[agentType] ?? [];
+  return learned.get(agentType) ?? AGENT_MODEL_OPTIONS[agentType] ?? [];
+}
+
+/** The catalog the pickers read: learned lists over the seed, per type. */
+export function agentModelCatalog(): Partial<
+  Record<AgentType, readonly AgentModelOption[]>
+> {
+  const catalog: Partial<Record<AgentType, readonly AgentModelOption[]>> = {
+    ...AGENT_MODEL_OPTIONS,
+  };
+  for (const [agentType, options] of learned) catalog[agentType] = options;
+  return catalog;
 }
 
 function joinWithAnd(values: readonly string[]): string {

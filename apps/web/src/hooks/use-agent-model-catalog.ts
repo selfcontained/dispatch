@@ -8,10 +8,12 @@ export type AgentModelOption = { id: string; label: string };
 export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 /**
- * Source-controlled model catalog, keyed by runtime. Every dialog that offers a
+ * The model catalog, keyed by runtime: what each engine last said it could
+ * run here, or the shipped seed until one has. Every dialog that offers a
  * model picker reads it through here so they share one cache entry — a second
  * copy of this query with a different key or cache config would silently split
- * the cache.
+ * the cache. It goes stale after a few minutes so a list an engine published
+ * since reaches the picker without a reload.
  */
 export function useAgentModelCatalog(agentType: AgentType): {
   options: AgentModelOption[];
@@ -31,7 +33,7 @@ export function useAgentModelCatalog(agentType: AgentType): {
   const { data, isLoading } = useQuery<{ models: AgentModelCatalog }>({
     queryKey: ["agent-models"],
     queryFn: () => api("/api/v1/agent-models"),
-    staleTime: Infinity,
+    staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
   });
 
@@ -50,4 +52,29 @@ export function useAgentModelCatalog(agentType: AgentType): {
   );
 
   return { options, loading: isLoading, loaded, normalizeModel };
+}
+
+/**
+ * A model id as the catalog names it ("Fable 5.1" for
+ * "claude-fable-5-1[1m]"), or the id itself when the catalog does not know
+ * it. For the chips in the stream; the id stays in the title.
+ */
+export function agentModelLabel(
+  catalog: AgentModelCatalog | undefined,
+  agentType: string | null | undefined,
+  model: string
+): string {
+  const options = agentType ? catalog?.[agentType as AgentType] : undefined;
+  return options?.find((o) => o.id === model)?.label ?? model;
+}
+
+/** The whole catalog, for a component that labels many agents' models at once. */
+export function useAgentModelCatalogData(): AgentModelCatalog | undefined {
+  const { data } = useQuery<{ models: AgentModelCatalog }>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+    staleTime: 5 * 60 * 1000,
+    gcTime: Infinity,
+  });
+  return data?.models;
 }
