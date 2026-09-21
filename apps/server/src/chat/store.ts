@@ -145,7 +145,7 @@ export type BlockRow = {
  * unread and mark-read never stamps it.
  */
 const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL
-          AND (origin IS NULL OR origin <> 'system_prompt')`;
+          AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`;
 
 /**
  * Where each recipient's copy of a post got to, in the order the post
@@ -613,6 +613,11 @@ export class BlockStore {
           AND later.author_kind = b.author_kind
           AND later.author_agent_id IS NOT DISTINCT FROM b.author_agent_id
           AND later.thread_id IS NULL
+          -- What an agent was told and its workspace coming up are records
+          -- of the launch, not things it posted; counting them would put a
+          -- fresh agent's first post already in the past.
+          AND (later.origin IS NULL
+               OR later.origin NOT IN ('system_prompt', 'workspace'))
           AND (later.created_at, later.id) > (b.created_at, b.id)
         WHERE b.id = $1`,
       [blockId]
@@ -733,7 +738,7 @@ export class BlockStore {
            WHERE bound.id = $2 AND bound.stream_id = $1
              AND b.stream_id = $1 AND b.read_at IS NULL
              AND b.author_kind = 'agent' AND b.to_agent_id IS NULL
-             AND (b.origin IS NULL OR b.origin <> 'system_prompt')
+             AND (b.origin IS NULL OR b.origin NOT IN ('system_prompt', 'workspace'))
              AND b.created_at <= bound.created_at
            RETURNING b.read_at, bound.created_at AS up_to_at`,
           [streamId, upTo]
@@ -806,7 +811,7 @@ export class BlockStore {
          FROM blocks b
          JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
         WHERE b.author_kind = 'agent' AND b.to_agent_id IS NULL
-          AND (b.origin IS NULL OR b.origin <> 'system_prompt')
+          AND (b.origin IS NULL OR b.origin NOT IN ('system_prompt', 'workspace'))
           AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL})
         GROUP BY b.stream_id`
     );

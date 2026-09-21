@@ -21,6 +21,7 @@ import {
   type StreamDeliveryAdapter,
   type StreamServiceDeps,
   StreamValidationError,
+  workspaceBlockId,
 } from "../src/chat/service.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
@@ -3275,5 +3276,87 @@ describe("StreamService delivery state", () => {
       { agentId: "agt_m_kid2", state: "failed" },
       { agentId: "agt_m_kid1", state: "failed" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The workspace coming up
+// ---------------------------------------------------------------------------
+
+describe("StreamService workspace block", () => {
+  const startupOf = async (svc: StreamService) => {
+    const rows = await pool.query<{ id: string; data: { startup?: unknown } }>(
+      `SELECT id, data FROM blocks WHERE stream_id = $1 AND origin = 'workspace'`,
+      [A]
+    );
+    expect(rows.rowCount).toBe(1);
+    void svc;
+    return rows.rows[0]!.data.startup as {
+      steps: Array<{ phase: string; label: string; status: string; endedAt?: string; detail?: string }>;
+      readyAt?: string;
+      failed?: string;
+      cwd?: string;
+    };
+  };
+
+  it("keeps one block per agent and ends the step before as each phase starts", async () => {
+    const { svc, events } = build();
+    await svc.recordStartupStep({ agentId: A, phase: "worktree", label: "Creating git worktree" });
+    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    const startup = await startupOf(svc);
+    expect(startup.steps).toMatchObject([
+      { phase: "worktree", status: "done" },
+      { phase: "deps", status: "running" },
+    ]);
+    expect(startup.steps[0]!.endedAt).toBeTruthy();
+    // Every change is published, so the row moves while the person watches.
+    expect(
+      events.filter((e) => (e as { type: string }).type === "stream.entry")
+    ).toHaveLength(2);
+  });
+
+  it("reads as the running step, then as ready", async () => {
+    const { svc } = build();
+    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    const during = await svc.store.getById(workspaceBlockId(A));
+    expect(during!.text).toBe("Installing dependencies");
+    await svc.recordStartupDone({ agentId: A, cwd: "/tmp/work" });
+    const after = await svc.store.getById(workspaceBlockId(A));
+    expect(after!.text).toBe("Workspace ready");
+    const startup = await startupOf(svc);
+    expect(startup.readyAt).toBeTruthy();
+    expect(startup.cwd).toBe("/tmp/work");
+    expect(startup.steps.every((step) => step.status === "done")).toBe(true);
+  });
+
+  it("marks the step that was running as the one that failed", async () => {
+    const { svc } = build();
+    await svc.recordStartupStep({ agentId: A, phase: "worktree", label: "Creating git worktree" });
+    await svc.recordStartupDone({ agentId: A, error: "branch already checked out" });
+    const startup = await startupOf(svc);
+    expect(startup.failed).toBe("branch already checked out");
+    expect(startup.steps[0]).toMatchObject({
+      status: "failed",
+      detail: "branch already checked out",
+    });
+    const block = await svc.store.getById(workspaceBlockId(A));
+    expect(block!.text).toContain("branch already checked out");
+  });
+
+  it("does not repeat a phase it already recorded", async () => {
+    const { svc } = build();
+    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    const startup = await startupOf(svc);
+    expect(startup.steps).toHaveLength(1);
+  });
+
+  it("never counts as something the agent said to the person", async () => {
+    const { svc } = build();
+    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupDone({ agentId: A });
+    // The workspace record is not a message: it leaves no unread mark, the
+    // way the system-prompt record does not.
+    expect(await svc.store.countUnread(A)).toBe(0);
   });
 });

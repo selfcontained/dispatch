@@ -305,7 +305,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     const posts = await ctx.pool.query(
       `SELECT text, origin, attachments FROM blocks
          WHERE stream_id = $1
-           AND (origin IS NULL OR origin <> 'system_prompt')`,
+           AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
       [agent.id]
     );
     expect(posts.rows).toHaveLength(1);

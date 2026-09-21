@@ -225,6 +225,19 @@ export type LaunchContextRecorder = {
     agentId: string;
     prompt: string;
   }) => Promise<unknown>;
+  /** One phase of the workspace coming up, drawn in the stream as it runs. */
+  recordStartupStep?: (input: {
+    agentId: string;
+    phase: string;
+    label: string;
+    cwd?: string;
+  }) => Promise<unknown>;
+  /** The workspace finished coming up, or failed to. */
+  recordStartupDone?: (input: {
+    agentId: string;
+    error?: string;
+    cwd?: string;
+  }) => Promise<unknown>;
 };
 
 /** The two settings-backed switches the launch guidance is built from. */
@@ -1191,6 +1204,12 @@ export class AgentManager {
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
       );
+      await this.recordStartup(() =>
+        this.launchContextRecorder?.recordStartupDone?.({
+          agentId: id,
+          cwd: workspace.effectiveCwd,
+        })
+      );
       await this.populateGitContext(id);
       await this.setSystemLatestEvent(id, {
         type: "idle",
@@ -1232,23 +1251,46 @@ export class AgentManager {
     phase: SetupPhase,
     type: AgentType
   ): Promise<void> {
-    const message =
+    const step =
       phase === "worktree"
-        ? "Creating git worktree…"
+        ? { phase, label: "Creating git worktree" }
         : phase === "env"
-          ? "Copying local config…"
+          ? { phase, label: "Copying local config" }
           : phase === "deps"
-            ? "Installing dependencies…"
+            ? { phase, label: "Installing dependencies" }
             : phase === "session"
-              ? `Starting ${ENGINE_LABELS[type]}…`
+              ? { phase, label: `Starting ${ENGINE_LABELS[type]}` }
               : null;
-    if (!message) return;
+    if (!step) return;
+    const message = `${step.label}…`;
     await this.setSystemLatestEvent(id, {
       type: "working",
       message,
       metadata: { source: "system", phase: "setup", setupPhase: phase },
     });
-    this.eventBus.publish(await this.getRequiredAgent(id));
+    // The same phase in the stream, where there is room to show it as the
+    // work it is. A recorder that is absent or fails must never take the
+    // launch down with it.
+    await this.recordStartup(() =>
+      this.launchContextRecorder?.recordStartupStep?.({
+        agentId: id,
+        ...step,
+      })
+    );
+  }
+
+  /** Stream bookkeeping for a launch: best effort, never fatal. */
+  private async recordStartup(
+    write: () => Promise<unknown> | undefined
+  ): Promise<void> {
+    try {
+      await write();
+    } catch (error) {
+      this.logger.warn(
+        { err: error },
+        "could not record the workspace step in the stream"
+      );
+    }
   }
 
   /**
@@ -1373,6 +1415,13 @@ export class AgentManager {
   private async failCreate(id: string, error: unknown): Promise<never> {
     const message = errorMessage(error);
     await this.setAgentStatus(id, "error", message);
+    // A workspace that never came up says so where it was being watched.
+    await this.recordStartup(() =>
+      this.launchContextRecorder?.recordStartupDone?.({
+        agentId: id,
+        error: message,
+      })
+    );
     await this.setSetupPhase(id, null);
     await this.setSystemLatestEvent(id, {
       type: "blocked",

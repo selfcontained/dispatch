@@ -3,6 +3,7 @@ import type {
   Block,
   BlockAuthor,
   BlockDeliveryState,
+  BlockStartupStep,
   BlockOption,
 } from "@dispatch/shared";
 import {
@@ -11,6 +12,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  FolderCog,
   Hourglass,
   Loader2,
   MessageSquarePlus,
@@ -32,6 +34,7 @@ import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { Collapse } from "@/components/app/chat/collapse";
+import { formatStepDuration } from "@/components/app/chat/turn/format";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import {
   type FoldedEntry,
@@ -1108,6 +1111,136 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
   );
 }
 
+/**
+ * The workspace coming up, as a row of the stream: the step running now
+ * while it runs, what it ended as afterwards, and the steps themselves
+ * folded away with how long each took. Same shape as the instructions
+ * row, because it is the same kind of thing — a record of the startup,
+ * not something anybody said.
+ */
+function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
+  const [open, setOpen] = useChatRowState<boolean>("workspace-open", false);
+  const startup =
+    block.kind === "text" ? block.data?.startup : undefined;
+  const steps = startup?.steps ?? [];
+  const running = steps.find((step) => step.status === "running");
+  const failed = startup?.failed;
+  const ready = startup?.readyAt;
+  const title = failed
+    ? "Workspace setup failed"
+    : running
+      ? `${running.label}…`
+      : ready
+        ? "Workspace ready"
+        : "Starting the workspace";
+  const done = steps.filter((step) => step.status === "done").length;
+  return (
+    <div
+      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
+      data-testid="chat-workspace"
+      data-open={open ? "true" : "false"}
+      data-state={failed ? "failed" : ready ? "ready" : "running"}
+      data-block-id={block.id}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-3 text-left"
+        data-testid="chat-workspace-toggle"
+      >
+        <span
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md border p-2",
+            failed
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-border/60 bg-muted/40 text-muted-foreground"
+          )}
+          aria-hidden="true"
+        >
+          {running ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <FolderCog className="h-4 w-4" />
+          )}
+        </span>
+        <span
+          className={cn(
+            "truncate text-sm font-semibold",
+            failed ? "text-destructive" : "text-foreground"
+          )}
+          data-testid="chat-workspace-title"
+        >
+          {title}
+        </span>
+        {steps.length > 0 ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {done} of {steps.length}
+          </span>
+        ) : null}
+        <ChevronRight
+          className={cn(
+            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90"
+          )}
+          aria-hidden="true"
+        />
+      </button>
+      <Collapse open={open} data-testid="chat-workspace-body">
+        <ul className="mt-2 flex flex-col gap-1 rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed">
+          {steps.map((step) => (
+            <li
+              key={step.phase}
+              className="flex min-w-0 items-center gap-2"
+              data-testid="chat-workspace-step"
+              data-phase={step.phase}
+              data-status={step.status}
+            >
+              <span
+                className={cn(
+                  "shrink-0",
+                  step.status === "failed"
+                    ? "text-destructive"
+                    : step.status === "done"
+                      ? "text-muted-foreground"
+                      : "text-foreground"
+                )}
+                aria-hidden="true"
+              >
+                {step.status === "failed" ? "×" : step.status === "done" ? "✓" : "·"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {step.label}
+                {step.detail ? `: ${step.detail}` : ""}
+              </span>
+              {stepDuration(step) ? (
+                <span className="shrink-0 text-muted-foreground/70">
+                  {stepDuration(step)}
+                </span>
+              ) : null}
+            </li>
+          ))}
+          {startup?.cwd ? (
+            <li
+              className="mt-1 truncate border-t border-border/60 pt-2 font-mono text-muted-foreground/80"
+              data-testid="chat-workspace-cwd"
+            >
+              {startup.cwd}
+            </li>
+          ) : null}
+        </ul>
+      </Collapse>
+    </div>
+  );
+}
+
+/** How long a finished step took; nothing while it is still running. */
+function stepDuration(step: BlockStartupStep): string | null {
+  if (!step.endedAt) return null;
+  const ms = Date.parse(step.endedAt) - Date.parse(step.startedAt);
+  return Number.isFinite(ms) && ms >= 0 ? formatStepDuration(ms) : null;
+}
+
 export const BlockView = memo(function BlockView({
   block,
   grouped,
@@ -1123,6 +1256,9 @@ export const BlockView = memo(function BlockView({
 }: BlockViewProps): JSX.Element {
   if (block.origin === "system_prompt") {
     return <SystemPromptBlock block={block} />;
+  }
+  if (block.origin === "workspace") {
+    return <WorkspaceBlock block={block} />;
   }
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the

@@ -146,10 +146,15 @@ let chatEvents: unknown[] = [];
  * The published stream entries a launch produced, minus the system-prompt
  * record every launch writes. These tests are about launch context.
  */
+/**
+ * The launch's own chat events, without the records a launch writes about
+ * itself: what the agent was told, and its workspace coming up.
+ */
 function launchChatEvents(): unknown[] {
   return chatEvents.filter((event) => {
     const entry = (event as { entry?: { block?: { origin?: string } } }).entry;
-    return entry?.block?.origin !== "system_prompt";
+    const origin = entry?.block?.origin;
+    return origin !== "system_prompt" && origin !== "workspace";
   });
 }
 

@@ -49,6 +49,9 @@ async function createAgent(name: string): Promise<string> {
 let agentId: string;
 let store: BlockStore;
 
+/** Rows a launch writes about itself, which no message assertion wants. */
+const STARTUP_ORIGINS = ["system_prompt", "workspace"];
+
 function question(
   streamId: string,
   extra: {
@@ -204,9 +207,11 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
     expect(body.nextCursor).toBeNull();
     expect(body.unreadCount).toBe(1);
     const blocks = body.entries.filter(
-      (e: { type: string }) => e.type === "block"
+      (e: { type: string; block: { origin?: string } }) =>
+        e.type === "block" && !STARTUP_ORIGINS.includes(e.block.origin ?? "")
     );
-    // The agent create emitted status rows too; the reply stays in its thread.
+    // Creating the agent records what it was told and its workspace coming
+    // up; neither is conversation. The reply stays in its thread.
     expect(blocks).toEqual([
       expect.objectContaining({
         id: root.id,
@@ -397,7 +402,7 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     // record the launch wrote is not one of them.
     const rows = await ctx.pool.query(
       `SELECT 1 FROM blocks
-        WHERE stream_id = $1 AND (origin IS NULL OR origin <> 'system_prompt')`,
+        WHERE stream_id = $1 AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
       [agentId]
     );
     expect(rows.rows).toHaveLength(0);
@@ -427,7 +432,7 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
     // launch; this is about what the post stored.
     const rows = await ctx.pool.query(
       `SELECT text, delivered, to_agent_id FROM blocks
-        WHERE stream_id = $1 AND (origin IS NULL OR origin <> 'system_prompt')`,
+        WHERE stream_id = $1 AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
       [agentId]
     );
     expect(rows.rows).toEqual([

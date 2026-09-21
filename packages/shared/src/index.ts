@@ -80,6 +80,8 @@ export type {
   BlockAuthorKind,
   BlockDelivery,
   BlockDeliveryState,
+  BlockStartup,
+  BlockStartupStep,
   BlockBody,
   BlockFindingPatch,
   BlockFindingResolution,

@@ -141,7 +141,7 @@ CREATE TABLE blocks (
   attachments jsonb NOT NULL DEFAULT '[]'::jsonb,
   -- 'launch': the launch-context post. 'turn': an agent's answer for one
   -- turn. 'system_prompt': the guidance the agent was started with.
-  origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn', 'system_prompt')),
+  origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn', 'system_prompt')), -- widened in 0003
   launched_by_agent_id text,
   -- Blocks with to_agent_id: whether the prompt reached every agent it was
   -- addressed to; NULL while pending. Per-recipient outcomes live in

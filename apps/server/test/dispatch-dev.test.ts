@@ -92,15 +92,22 @@ describe("dispatch-dev", () => {
     expect(logsOutput.length).toBeGreaterThan(0);
 
     // --- down ---
+    // Stopping a stack keeps its database: pulling a change that needs a
+    // restart should not cost the agents on it.
     const downOutput = run("down");
     expect(downOutput).toContain("Stopped API server");
-    expect(downOutput).toContain("Removed database container");
+    expect(downOutput).toContain("Stopped database container (data kept");
     expect(downOutput).toContain("Dev environment torn down");
+    expect(existsSync(STATE_FILE)).toBe(false);
+    expect(existsSync(LOG_DIR)).toBe(true);
 
-    // State file cleaned
+    // --- down --wipe ---
+    // Starting over is the explicit ask, and takes the data and the logs.
+    const wipeOutput = run("up") && run("down --wipe");
+    expect(wipeOutput).toContain("Removed database container and its data");
     expect(existsSync(STATE_FILE)).toBe(false);
     expect(existsSync(LOG_DIR)).toBe(false);
-  }, 60_000);
+  }, 120_000);
 
   it("reports a custom DISPATCH_HOST in status and url output", () => {
     // The stack binds to DISPATCH_HOST, but 0.0.0.0 is not a host a browser

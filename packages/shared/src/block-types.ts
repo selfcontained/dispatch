@@ -182,6 +182,8 @@ export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
  */
 export type BlockTextData = {
   findingId?: string;
+  /** Workspace blocks (`origin: "workspace"`): the startup's steps. */
+  startup?: BlockStartup;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
   /**
@@ -207,7 +209,40 @@ export type BlockBody =
  * agent's event log. `system_prompt`: the guidance the agent was started
  * with, kept at the head of the stream so what it was told is readable.
  */
-export type BlockOrigin = "launch" | "turn" | "system_prompt";
+export type BlockOrigin =
+  | "launch"
+  | "turn"
+  | "system_prompt"
+  /** The workspace coming up: worktree, config, dependencies, engine. */
+  | "workspace";
+
+/** One step of bringing an agent's workspace up. */
+export type BlockStartupStep = {
+  /** The setup phase this step reports: worktree, env, deps, session. */
+  phase: string;
+  /** What it is doing, in the present tense: "Installing dependencies". */
+  label: string;
+  startedAt: string;
+  endedAt?: string;
+  status: "running" | "done" | "failed";
+  /** Why it failed, when it did. */
+  detail?: string;
+};
+
+/**
+ * The workspace block's record of an agent starting: the steps so far,
+ * and how it ended. Written as the phases happen, so the stream shows the
+ * startup as live activity rather than after the fact.
+ */
+export type BlockStartup = {
+  steps: BlockStartupStep[];
+  /** When every step finished and the agent was running. */
+  readyAt?: string;
+  /** Set when startup failed; the message says what went wrong. */
+  failed?: string;
+  /** The directory the agent works in, once it is known. */
+  cwd?: string;
+};
 
 export type BlockReaction = {
   id: string;

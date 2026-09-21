@@ -395,10 +395,13 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  // The system-prompt record is not a conversation: a stream holding only
-  // that still reads as empty, which is what a fresh agent should look like.
+  // The startup records — what the agent was told, and its workspace
+  // coming up — are not a conversation: a stream holding only those still
+  // reads as empty, which is what a fresh agent should look like.
   const hasConversation = visibleEntries.some(
-    (entry) => entry.block.origin !== "system_prompt"
+    (entry) =>
+      entry.block.origin !== "system_prompt" &&
+      entry.block.origin !== "workspace"
   );
   const hasHiddenChildActivity = useMemo(
     () =>

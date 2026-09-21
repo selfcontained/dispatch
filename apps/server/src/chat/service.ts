@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import type {
   Block,
   BlockAuthor,
+  BlockStartup,
   BlockFindingResolution,
   BlockFindingState,
   BlockFindingStatus,
@@ -228,7 +229,16 @@ export type LaunchContextInput = {
  * UUID over the agent id, which the column requires.
  */
 export function systemPromptBlockId(agentId: string): string {
-  const h = createHash("sha256").update(`system-prompt:${agentId}`).digest("hex");
+  return derivedBlockId(`system-prompt:${agentId}`);
+}
+
+/** The workspace block's id; one row per agent, updated as it starts. */
+export function workspaceBlockId(agentId: string): string {
+  return derivedBlockId(`workspace:${agentId}`);
+}
+
+function derivedBlockId(seed: string): string {
+  const h = createHash("sha256").update(seed).digest("hex");
   return [
     h.slice(0, 8),
     h.slice(8, 12),
@@ -236,6 +246,17 @@ export function systemPromptBlockId(agentId: string): string {
     ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
     h.slice(20, 32),
   ].join("-");
+}
+
+/**
+ * The workspace block's text: what the row says to anything that reads
+ * blocks as text rather than drawing the steps.
+ */
+function startupText(startup: BlockStartup): string {
+  if (startup.failed) return `Workspace setup failed: ${startup.failed}`;
+  if (startup.readyAt) return "Workspace ready";
+  const running = startup.steps.find((step) => step.status === "running");
+  return running ? running.label : "Starting the workspace";
 }
 
 /** A launch block resolved but not yet written; see `prepareLaunchContext`. */
@@ -1478,6 +1499,111 @@ export class StreamService {
       author: { kind: "agent", agentId: input.agentId },
       kind: "text",
       origin: "system_prompt",
+      text,
+    });
+    if (block) await this.publishEntry(streamId, id);
+    return block;
+  }
+
+  /**
+   * The workspace coming up, as the first block of the agent's stream: one
+   * row per agent that is rewritten as each phase runs, so the person
+   * watches the worktree, the config, the dependencies and the engine
+   * happen rather than waiting at an empty stream.
+   *
+   * These were status marks before the stream became blocks only, which
+   * left them with nowhere to go but the sidebar.
+   */
+  async recordStartupStep(input: {
+    agentId: string;
+    phase: string;
+    label: string;
+    cwd?: string;
+  }): Promise<Block | null> {
+    const at = new Date().toISOString();
+    return this.updateStartup(input.agentId, (startup) => {
+      // Reaching a phase ends the one before it: the phases run in turn,
+      // and nothing else reports when one finishes.
+      const steps = startup.steps.map((step) =>
+        step.status === "running"
+          ? { ...step, status: "done" as const, endedAt: at }
+          : step
+      );
+      if (steps.some((step) => step.phase === input.phase)) return null;
+      steps.push({
+        phase: input.phase,
+        label: input.label,
+        startedAt: at,
+        status: "running",
+      });
+      return {
+        ...startup,
+        steps,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+      };
+    });
+  }
+
+  /** The workspace is up, or it failed: the block stops at its last step. */
+  async recordStartupDone(input: {
+    agentId: string;
+    error?: string;
+    cwd?: string;
+  }): Promise<Block | null> {
+    const at = new Date().toISOString();
+    return this.updateStartup(input.agentId, (startup) => {
+      if (startup.steps.length === 0 && !input.error) return null;
+      const steps = startup.steps.map((step) =>
+        step.status === "running"
+          ? {
+              ...step,
+              status: input.error ? ("failed" as const) : ("done" as const),
+              endedAt: at,
+              ...(input.error ? { detail: input.error } : {}),
+            }
+          : step
+      );
+      return {
+        ...startup,
+        steps,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+        ...(input.error ? { failed: input.error } : { readyAt: at }),
+      };
+    });
+  }
+
+  /**
+   * Read the agent's workspace block, apply a change to its record, and
+   * write it back. The whole record is rewritten each time, which is safe
+   * because one launch owns it and its phases run one after another.
+   */
+  private async updateStartup(
+    agentId: string,
+    change: (startup: BlockStartup) => BlockStartup | null
+  ): Promise<Block | null> {
+    const streamId = await this.streamOf(agentId);
+    const id = workspaceBlockId(agentId);
+    const existing = await this.store.getById(id);
+    const current: BlockStartup =
+      existing?.kind === "text" && existing.data?.startup
+        ? existing.data.startup
+        : { steps: [] };
+    const next = change(current);
+    if (!next) return existing;
+    const data = { startup: next };
+    const text = startupText(next);
+    if (existing) {
+      const updated = await this.store.update(id, { data, text });
+      if (updated) await this.publishEntry(streamId, id);
+      return updated;
+    }
+    const block = await this.store.insertIfAbsent({
+      id,
+      streamId,
+      author: { kind: "agent", agentId },
+      kind: "text",
+      origin: "workspace",
+      data,
       text,
     });
     if (block) await this.publishEntry(streamId, id);

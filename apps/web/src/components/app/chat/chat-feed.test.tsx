@@ -534,6 +534,130 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
+  it("shows the workspace coming up as a row, with the step it is on", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "w1",
+          origin: "workspace",
+          text: "Installing dependencies",
+          body: {
+            kind: "text",
+            data: {
+              startup: {
+                steps: [
+                  {
+                    phase: "worktree",
+                    label: "Creating git worktree",
+                    startedAt: "2026-09-02T10:00:00.000Z",
+                    endedAt: "2026-09-02T10:00:04.000Z",
+                    status: "done",
+                  },
+                  {
+                    phase: "deps",
+                    label: "Installing dependencies",
+                    startedAt: "2026-09-02T10:00:04.000Z",
+                    status: "running",
+                  },
+                ],
+              },
+            },
+            state: null,
+          },
+        })
+      ),
+    ]);
+    const row = screen.getByTestId("chat-workspace");
+    expect(row.getAttribute("data-state")).toBe("running");
+    expect(screen.getByTestId("chat-workspace-title").textContent).toBe(
+      "Installing dependencies…"
+    );
+    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
+    const steps = screen.getAllByTestId("chat-workspace-step");
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.textContent).toContain("Creating git worktree");
+    expect(steps[0]!.textContent).toContain("4.0s");
+  });
+
+  it("reads as ready once the workspace is up", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "w1",
+          origin: "workspace",
+          text: "Workspace ready",
+          body: {
+            kind: "text",
+            data: {
+              startup: {
+                steps: [
+                  {
+                    phase: "deps",
+                    label: "Installing dependencies",
+                    startedAt: "2026-09-02T10:00:00.000Z",
+                    endedAt: "2026-09-02T10:00:09.000Z",
+                    status: "done",
+                  },
+                ],
+                readyAt: "2026-09-02T10:00:09.000Z",
+                cwd: "/Users/brad/dev/thing",
+              },
+            },
+            state: null,
+          },
+        })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
+      "ready"
+    );
+    expect(screen.getByTestId("chat-workspace-title").textContent).toBe(
+      "Workspace ready"
+    );
+    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
+    expect(screen.getByTestId("chat-workspace-cwd").textContent).toBe(
+      "/Users/brad/dev/thing"
+    );
+  });
+
+  it("says which step failed when the workspace never came up", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "w1",
+          origin: "workspace",
+          text: "Workspace setup failed: branch already checked out",
+          body: {
+            kind: "text",
+            data: {
+              startup: {
+                steps: [
+                  {
+                    phase: "worktree",
+                    label: "Creating git worktree",
+                    startedAt: "2026-09-02T10:00:00.000Z",
+                    endedAt: "2026-09-02T10:00:02.000Z",
+                    status: "failed",
+                    detail: "branch already checked out",
+                  },
+                ],
+                failed: "branch already checked out",
+              },
+            },
+            state: null,
+          },
+        })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
+      "failed"
+    );
+    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
+    expect(screen.getByTestId("chat-workspace-step").textContent).toContain(
+      "branch already checked out"
+    );
+  });
+
   it("offers no Retry when the feed has no way to send again", () => {
     renderFeed([
       blockEntry(
