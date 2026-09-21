@@ -12,7 +12,7 @@ import {
   Copy,
   Hourglass,
   Loader2,
-  MessageSquare,
+  MessageSquarePlus,
   MessagesSquare,
   Rocket,
   UserRound,
@@ -400,7 +400,7 @@ export function ReplyInThreadButton({
       data-testid="chat-reply-in-thread"
     >
       <span className={POST_ACTION_FACE}>
-        <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     </Button>
   );
