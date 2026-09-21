@@ -69,13 +69,24 @@ find_free_port() {
 }
 
 
+# One stack per checkout. The suffix names the stack's state file, log
+# directory, container and database, so every command has to derive the
+# same one: a PID and timestamp would mean `down` never finds what `up`
+# started. `--suffix` still runs more than one stack from a checkout.
 resolve_suffix() {
   if [ -n "$OPT_SUFFIX" ]; then
     echo "$OPT_SUFFIX"
   elif [ -n "${DISPATCH_AGENT_ID:-}" ]; then
     echo "$DISPATCH_AGENT_ID"
   else
-    echo "dev-$$-$(date +%s)"
+    local root
+    root="$(cd "${OPT_CWD:-$(pwd)}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || root=""
+    [ -n "$root" ] || root="${OPT_CWD:-$(pwd)}"
+    local name
+    name="$(basename "$root")"
+    # Keep the checkout's name for a readable container, and a short hash of
+    # its path so two clones of the same repo never share a stack.
+    echo "dev-${name}-$(printf '%s' "$root" | shasum | cut -c1-8)"
   fi
 }
 
