@@ -5,6 +5,7 @@ import type {
   BlockActor,
   BlockAuthor,
   BlockAuthorKind,
+  BlockDelivery,
   BlockKind,
   BlockOrigin,
   BlockReaction,
@@ -124,6 +125,8 @@ export type BlockRow = {
   origin: BlockOrigin | null;
   launched_by_agent_id: string | null;
   delivered: boolean | null;
+  /** Per-recipient outcomes on a post addressed to several agents. */
+  deliveries?: Record<string, boolean | null> | null;
   read_at: Date | null;
   /** Only on rows read through the feed query. */
   reactions?: ReactionJson[] | null;
@@ -144,6 +147,41 @@ export type BlockRow = {
 const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL
           AND (origin IS NULL OR origin <> 'system_prompt')`;
 
+/**
+ * Where each recipient's copy of a post got to, in the order the post
+ * named them.
+ *
+ * Three of the four states are stored: a recipient's own outcome when the
+ * post named several agents, and the block's single outcome when it named
+ * one. The fourth, `held`, is added when the stream is read, because only
+ * the running agent knows whether it is mid-turn.
+ */
+function deliveryOf(row: BlockRow): BlockDelivery[] {
+  if (!row.to_agent_id) return [];
+  const data = row.data as { mentions?: string[] } | null;
+  const mentions = row.kind === "text" ? data?.mentions : undefined;
+  const recipients =
+    mentions && mentions.length > 0 ? mentions : [row.to_agent_id];
+  const outcomes = row.deliveries ?? null;
+  return recipients.map((agentId) => {
+    // A recipient with no outcome of its own shares the block's: either it
+    // is the only one, or nothing has settled for anybody yet — including
+    // the case where a restart failed the whole post before any recipient
+    // reported back.
+    const own =
+      outcomes && agentId in outcomes ? outcomes[agentId] : row.delivered;
+    return {
+      agentId,
+      state:
+        own === true
+          ? ("delivered" as const)
+          : own === false
+            ? ("failed" as const)
+            : ("pending" as const),
+    };
+  });
+}
+
 export function toBlock(row: BlockRow): Block {
   const base = {
     id: row.id,
@@ -155,6 +193,7 @@ export function toBlock(row: BlockRow): Block {
     text: row.text,
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
     delivered: row.delivered,
+    ...(row.to_agent_id ? { delivery: deliveryOf(row) } : {}),
     readAt: row.read_at ? row.read_at.toISOString() : null,
     // Absent, not null, on the wire: ordinary posts carry neither key.
     ...(row.origin ? { origin: row.origin } : {}),
@@ -383,15 +422,77 @@ export class BlockStore {
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
-  /** Blocks with a recipient: record whether the prompt reached it. */
-  /** Back to pending, for a retry. Returns false when the row is gone. */
-  async markDelivering(id: string): Promise<boolean> {
+  /**
+   * Back to pending, for a retry: the block as a whole, and the recipients
+   * being sent to again. The ones not named keep the outcome they have, so
+   * an agent that already took the post is not shown as waiting for it a
+   * second time. Returns false when the row is gone.
+   */
+  async markDelivering(id: string, agentIds: readonly string[]): Promise<boolean> {
     if (!isBlockId(id)) return false;
     const result = await this.db.query(
-      `UPDATE blocks SET delivered = NULL WHERE id = $1 AND to_agent_id IS NOT NULL`,
-      [id]
+      `UPDATE blocks
+          SET delivered = NULL,
+              deliveries = CASE
+                WHEN deliveries IS NULL THEN NULL
+                ELSE deliveries || (
+                  SELECT COALESCE(jsonb_object_agg(k, 'null'::jsonb), '{}'::jsonb)
+                    FROM unnest($2::text[]) AS k
+                )
+              END
+        WHERE id = $1 AND to_agent_id IS NOT NULL`,
+      [id, [...agentIds]]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * One recipient's outcome on a post that went to several agents, written
+   * as its own key so two deliveries settling at once cannot overwrite
+   * each other's result.
+   */
+  async setRecipientDelivered(
+    id: string,
+    agentId: string,
+    delivered: boolean
+  ): Promise<void> {
+    if (!isBlockId(id)) return;
+    await this.db.query(
+      `UPDATE blocks
+          SET deliveries = jsonb_set(
+                COALESCE(deliveries, '{}'::jsonb), ARRAY[$2], to_jsonb($3::boolean), true)
+        WHERE id = $1`,
+      [id, agentId, delivered]
+    );
+  }
+
+  /**
+   * The whole post's outcome, computed from the recipients' own: delivered
+   * once every one of them took it, failed once one has missed and none is
+   * still out, pending while any is. Done in one statement so two
+   * deliveries settling at the same time cannot write a stale answer.
+   */
+  async settleDelivered(
+    id: string,
+    agentIds: readonly string[]
+  ): Promise<void> {
+    if (!isBlockId(id)) return;
+    await this.db.query(
+      `UPDATE blocks
+          SET delivered = CASE
+            WHEN EXISTS (
+              SELECT 1 FROM unnest($2::text[]) AS k
+               WHERE deliveries -> k IS NULL OR deliveries -> k = 'null'::jsonb
+            ) THEN NULL
+            WHEN EXISTS (
+              SELECT 1 FROM unnest($2::text[]) AS k
+               WHERE deliveries -> k = 'false'::jsonb
+            ) THEN false
+            ELSE true
+          END
+        WHERE id = $1`,
+      [id, [...agentIds]]
+    );
   }
 
   async setDelivered(id: string, delivered: boolean): Promise<void> {
@@ -410,7 +511,15 @@ export class BlockStore {
    */
   async sweepPendingDeliveries(): Promise<string[]> {
     const result = await this.db.query<{ stream_id: string }>(
-      `UPDATE blocks SET delivered = false
+      `UPDATE blocks
+          SET delivered = false,
+              -- Each recipient still waiting died with that queue too.
+              deliveries = CASE
+                WHEN deliveries IS NULL THEN NULL
+                ELSE (SELECT jsonb_object_agg(
+                               k, CASE WHEN v = 'null'::jsonb THEN 'false'::jsonb ELSE v END)
+                        FROM jsonb_each(deliveries) AS e(k, v))
+              END
         WHERE to_agent_id IS NOT NULL AND delivered IS NULL
         RETURNING stream_id`
     );

@@ -46,11 +46,36 @@ export function block(overrides: BlockOverrides = {}): Block {
       ? { kind: "user" }
       : { kind: "agent", agentId: streamId });
   const createdAt = rest.createdAt ?? "2026-09-02T10:00:00.000Z";
+  const toAgentId =
+    rest.toAgentId !== undefined
+      ? rest.toAgentId
+      : author.kind === "user"
+        ? streamId
+        : null;
+  // The server attaches one delivery entry per recipient at read time, so
+  // the fixture does too unless a test states its own.
+  const delivered = rest.delivered ?? null;
+  const delivery =
+    rest.delivery ??
+    (toAgentId
+      ? [
+          {
+            agentId: toAgentId,
+            state:
+              delivered === true
+                ? ("delivered" as const)
+                : delivered === false
+                  ? ("failed" as const)
+                  : ("pending" as const),
+          },
+        ]
+      : undefined);
   return {
     id: rest.id ?? `blk_${Math.random().toString(36).slice(2, 8)}`,
     streamId,
     author,
-    toAgentId: author.kind === "user" ? streamId : null,
+    toAgentId,
+    ...(delivery ? { delivery } : {}),
     threadId: null,
     replyTo: null,
     text: "Hello **there**",

@@ -321,8 +321,6 @@ export function latestAgentBlockId(entries: StreamEntry[]): string | null {
 export type ChatFeedProps = {
   entries: StreamEntry[];
   ctx: FeedContext;
-  /** Block currently waiting to be delivered, if any. */
-  heldBlockId?: string | null;
   /** Question whose answer is in flight, if any. */
   answeringBlockId: string | null;
   /** Form whose submission is in flight, if any. */
@@ -335,7 +333,6 @@ export type ChatFeedProps = {
 export function ChatFeed({
   entries,
   ctx,
-  heldBlockId,
   answeringBlockId,
   submittingBlockId = null,
   answersDisabled = false,
@@ -372,7 +369,6 @@ export function ChatFeed({
         const view = (
           <BlockView
             block={entry.block}
-            held={heldBlockId === entry.block.id}
             grouped={row.grouped}
             rule={row.rule}
             ctx={ctx}

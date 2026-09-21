@@ -21,6 +21,7 @@ import type {
   StreamBlockEntry,
   StreamChangedEvent,
   StreamEntryEvent,
+  StreamFeedResponse,
   StreamPostResponse,
   StreamReactionResponse,
   StreamReadEvent,
@@ -47,7 +48,11 @@ import {
   type EnvelopeSender,
   formatAttachmentSize,
 } from "./envelope.js";
-import { loadBlockEntry } from "./feed.js";
+import {
+  type ComposeFeedOptions,
+  composeStreamFeed,
+  loadBlockEntry,
+} from "./feed.js";
 import { loadNewestTurnBlockId, loadTurnEntries } from "./turns.js";
 import { findMentions, type Mentionable } from "./mentions.js";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
@@ -510,6 +515,16 @@ function envelopeText(block: Block): string {
     return block.text.trim() ? `${block.text.trim()}\n\n${review}` : review;
   }
   return block.text;
+}
+
+/**
+ * Who a post is addressed to, in the order it named them: the agents it
+ * mentioned, or its single recipient. Empty for a block meant for people.
+ */
+export function addressedTo(block: Block): string[] {
+  const mentions = block.kind === "text" ? block.data?.mentions : undefined;
+  if (mentions && mentions.length > 0) return mentions;
+  return block.toAgentId ? [block.toAgentId] : [];
 }
 
 export class StreamService {
@@ -1523,12 +1538,48 @@ export class StreamService {
     }
   }
 
+  /**
+   * This stream's feed, with each post's delivery state resolved against
+   * what its recipients are doing right now.
+   */
+  async feed(
+    streamId: string,
+    opts: Omit<ComposeFeedOptions, "isHeld"> = {}
+  ): Promise<StreamFeedResponse> {
+    return composeStreamFeed(this.store, streamId, {
+      ...opts,
+      isHeld: this.heldCheck(),
+    });
+  }
+
+  /**
+   * Whether an agent is mid-turn, so a prompt waits behind it. Read from
+   * the adapter rather than stored: it is true only for as long as the
+   * turn runs. Nothing is held when there is no adapter to ask.
+   */
+  private heldCheck(): (agentId: string) => boolean {
+    const delivery = this.deps.delivery;
+    if (!delivery) return () => false;
+    return (agentId) => {
+      try {
+        return delivery.held(agentId);
+      } catch {
+        return false;
+      }
+    };
+  }
+
   /** One block (a turn's, with its turn attached) as a feed row event. */
   private async publishBlockEntry(
     streamId: string,
     blockId: string
   ): Promise<void> {
-    const entry = await loadBlockEntry(this.store.db, streamId, blockId);
+    const entry = await loadBlockEntry(
+      this.store.db,
+      streamId,
+      blockId,
+      this.heldCheck()
+    );
     if (!entry) return;
     this.deps.publishUiEvent({ type: "stream.entry", agentId: streamId, entry });
   }
@@ -1626,7 +1677,12 @@ export class StreamService {
   private async publishEntry(streamId: string, blockId: string): Promise<void> {
     let entry: StreamBlockEntry | null = null;
     try {
-      entry = await loadBlockEntry(this.store.db, streamId, blockId);
+      entry = await loadBlockEntry(
+        this.store.db,
+        streamId,
+        blockId,
+        this.heldCheck()
+      );
     } catch (error) {
       this.log.warn(
         { err: error, streamId, blockId },
@@ -1714,6 +1770,13 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
     const outcomes = new Map<string, boolean>();
+    // A post to several agents keeps each outcome of its own, so one
+    // recipient that never took it can be seen, and sent again, without
+    // disturbing the ones that did. What decides this is who the post was
+    // addressed to, not how many are being sent to now: a retry of one
+    // copy must not overwrite the other recipients' results.
+    const named = addressedTo(block);
+    const perAgent = named.length > 1;
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
@@ -1731,9 +1794,23 @@ export class StreamService {
         }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
-          if (outcomes.size < recipients.length) return;
-          const all = [...outcomes.values()].every(Boolean);
-          await this.store.setDelivered(block.id, all);
+          if (perAgent) {
+            await this.store.setRecipientDelivered(block.id, agentId, delivered);
+          }
+          if (outcomes.size < recipients.length) {
+            // Say so as each one lands: a reader watching a post to three
+            // agents sees it arrive three times, not once at the end.
+            if (perAgent) await this.publishEntry(block.streamId, block.id);
+            return;
+          }
+          if (perAgent) {
+            await this.store.settleDelivered(block.id, named);
+          } else {
+            await this.store.setDelivered(
+              block.id,
+              [...outcomes.values()].every(Boolean)
+            );
+          }
           await this.publishEntry(block.streamId, block.id);
         },
         logContext: { blockId: block.id },
@@ -1947,11 +2024,15 @@ export class StreamService {
     }
     const mentioned =
       block.kind === "text" ? (block.data?.mentions ?? []) : undefined;
-    const recipients =
-      mentioned && mentioned.length > 0 ? mentioned : [block.toAgentId];
-    const agents = await Promise.all(
-      recipients.map((id) => this.requireAgent(id))
-    );
+    const named = addressedTo(block);
+    // Only the agents that never took it. A post to three agents where one
+    // engine died is sent again to that one alone; the other two have read
+    // it, and a second copy would read as the person repeating themselves.
+    const missed = (block.delivery ?? [])
+      .filter((entry) => entry.state === "failed")
+      .map((entry) => entry.agentId);
+    const recipients = missed.length > 0 ? missed : named;
+    const agents = await Promise.all(named.map((id) => this.requireAgent(id)));
     // An agent that cannot take a prompt gets the reason now rather than a
     // second spinner: a retry is for a message that missed, not a way to
     // wake something that is not running.
@@ -1982,7 +2063,7 @@ export class StreamService {
     }
     const names = new Map(agents.map((agent) => [agent.id, agent.name]));
     const from = await this.senderOf(block.author);
-    if (!(await this.store.markDelivering(block.id))) {
+    if (!(await this.store.markDelivering(block.id, recipients))) {
       throw new StreamValidationError("Block not found.");
     }
     const pending = { ...block, delivered: null };
@@ -1994,10 +2075,12 @@ export class StreamService {
       (agentId) => ({
         attachmentLines: lines.get(agentId) ?? [],
         answers,
+        // "also to" names everyone the post was addressed to, not just the
+        // ones being sent again: that is who is in the conversation.
         mention:
           mentioned && mentioned.length > 0
             ? {
-                alsoTo: recipients
+                alsoTo: named
                   .filter((id) => id !== agentId)
                   .map((id) => names.get(id) ?? id),
               }

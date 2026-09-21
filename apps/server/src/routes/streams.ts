@@ -9,7 +9,7 @@ import type {
 } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
-import { composeStreamFeed, decodeFeedCursor } from "../chat/feed.js";
+import { decodeFeedCursor } from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
@@ -147,7 +147,7 @@ export async function registerStreamRoutes(
     if (limit !== undefined && !Number.isFinite(limit)) {
       return reply.code(400).send({ error: "limit must be a number." });
     }
-    return composeStreamFeed(store, rootId, { cursor, limit });
+    return streams.feed(rootId, { cursor, limit });
   });
 
   app.get(

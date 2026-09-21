@@ -119,7 +119,6 @@ function TurnEntryViewImpl({
   return (
     <BlockView
       block={block.turn === turn ? block : { ...block, turn }}
-      held={false}
       grouped={grouped}
       rule={rule}
       ctx={ctx}

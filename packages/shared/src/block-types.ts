@@ -221,6 +221,21 @@ export type BlockReaction = {
   createdAt: string;
 };
 
+/**
+ * Where one recipient's copy of a post has got to.
+ *
+ * `held` is the state a person most needs to see and the only one that is
+ * not stored: the agent is mid-turn, so the prompt waits for it to finish
+ * rather than being lost. It is derived whenever the stream is read, so a
+ * reload, a second tab and another device all agree on it.
+ */
+export type BlockDeliveryState = "pending" | "held" | "delivered" | "failed";
+
+export type BlockDelivery = {
+  agentId: string;
+  state: BlockDeliveryState;
+};
+
 export type Block = {
   id: string;
   /** The root agent whose stream this is. */
@@ -245,10 +260,18 @@ export type Block = {
   /** Launch blocks only: the agent that launched this one, when not a person. */
   launchedByAgentId?: string;
   /**
-   * Blocks with `toAgentId`: whether the prompt reached the agent. `null`
-   * while queued; a `stream.entry` follows once it settles.
+   * Blocks with `toAgentId`: whether the prompt reached every agent it was
+   * addressed to. `null` while queued; a `stream.entry` follows once it
+   * settles. `delivery` says where each recipient's copy got to.
    */
   delivered: boolean | null;
+  /**
+   * Where the post has got to, one entry per agent it was addressed to,
+   * in the order it named them. Attached at read time, because `held`
+   * depends on what the agent is doing right now. Absent on a block that
+   * is for people.
+   */
+  delivery?: BlockDelivery[];
   /** Agent blocks for people: when the user saw it. */
   readAt: string | null;
   /** Reactions on this block, oldest first. Absent when there are none. */

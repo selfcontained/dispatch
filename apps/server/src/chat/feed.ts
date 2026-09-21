@@ -1,4 +1,5 @@
 import type {
+  Block,
   StreamBlockEntry,
   StreamEntry,
   StreamFeedResponse,
@@ -29,6 +30,8 @@ export type ComposeFeedOptions = {
   /** Opaque cursor from a previous page's `nextCursor`; already decoded. */
   cursor?: FeedCursor | null;
   limit?: number;
+  /** Whether an agent is mid-turn, for the `held` delivery state. */
+  isHeld?: (agentId: string) => boolean;
 };
 
 /**
@@ -50,6 +53,7 @@ const BLOCK_COLUMNS = [
   "origin",
   "launched_by_agent_id",
   "delivered",
+  "deliveries",
   "read_at",
   "created_at",
   "updated_at",
@@ -175,17 +179,39 @@ async function listBlockEntries(
 }
 
 /**
+ * The state a stored outcome cannot carry: the agent has the prompt
+ * queued behind the turn it is running, so the post is waiting rather
+ * than lost. Applied wherever the stream is read, so a reload, a second
+ * tab and another device all say the same thing.
+ */
+export function markHeld(
+  blocks: readonly Block[],
+  isHeld: (agentId: string) => boolean
+): void {
+  for (const block of blocks) {
+    if (!block.delivery) continue;
+    for (const entry of block.delivery) {
+      if (entry.state === "pending" && isHeld(entry.agentId)) {
+        entry.state = "held";
+      }
+    }
+  }
+}
+
+/**
  * One block as the feed would list it, or a reply as its thread lists it.
  * Null when it is not on this stream.
  */
 export async function loadBlockEntry(
   db: Queryable,
   streamId: string,
-  blockId: string
+  blockId: string,
+  isHeld?: (agentId: string) => boolean
 ): Promise<StreamBlockEntry | null> {
   const [found] = await listBlockEntries(db, streamId, null, 1, blockId);
   if (!found) return null;
   await attachTurns(db, [found.entry.block]);
+  if (isHeld) markHeld([found.entry.block], isHeld);
   return found.entry;
 }
 
@@ -203,17 +229,16 @@ export async function composeStreamFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [blocks, unreadCount] = await Promise.all([
+  const [rows, unreadCount] = await Promise.all([
     listBlockEntries(db, streamId, cursor, limit + 1),
     store.countUnread(streamId),
   ]);
-  const merged: Keyed<StreamEntry>[] = blocks.sort(compareNewestFirst);
+  const merged: Keyed<StreamEntry>[] = rows.sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
-  await attachTurns(
-    db,
-    page.map((item) => item.entry.block)
-  );
+  const blocks = page.map((item) => item.entry.block);
+  await attachTurns(db, blocks);
+  if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest

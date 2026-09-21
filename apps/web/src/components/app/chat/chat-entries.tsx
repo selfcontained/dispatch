@@ -2,6 +2,7 @@ import { memo, type ReactNode, useMemo } from "react";
 import type {
   Block,
   BlockAuthor,
+  BlockDeliveryState,
   BlockOption,
 } from "@dispatch/shared";
 import {
@@ -665,44 +666,58 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // Blocks
 // ---------------------------------------------------------------------------
 
+/** The recipients of a post in one of the states worth reporting. */
+function inState(
+  block: Block,
+  state: BlockDeliveryState
+): readonly string[] {
+  return (block.delivery ?? [])
+    .filter((entry) => entry.state === state)
+    .map((entry) => entry.agentId);
+}
+
+/** "builder", "builder and reviewer", "builder, reviewer and scout". */
+function nameList(agentIds: readonly string[], ctx: FeedContext): string {
+  const names = agentIds.map((id) => agentDisplayName(id, ctx));
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /**
- * Delivery state of a block addressed to an agent (a person's, or another
- * agent's); nothing once it has landed, and nothing on a block for people.
+ * Where a post addressed to agents has got to, and nothing once every
+ * recipient has it. A message here is queued rather than posted, which is
+ * the part a reader has to be able to see: waiting behind a turn is a
+ * normal state a message sits in, not a failure, and it says so in as many
+ * words. Recipients are named only when a post went to more than one, so
+ * an ordinary message keeps its quiet single line.
  */
 function DeliveryMeta({
   block,
-  held,
   ctx,
 }: {
   block: Block;
-  held: boolean;
   ctx: FeedContext;
 }): JSX.Element | null {
-  if (block.toAgentId === null) return null;
-  if (held && block.author.kind === "user") {
-    return (
-      <div
-        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-        title="Waiting for the agent's running turn to finish."
-        data-testid="chat-held-hint"
-      >
-        <Hourglass className="h-3 w-3" />
-        Waiting to deliver
-      </div>
-    );
-  }
-  if (block.delivered === false) {
-    const retrying = ctx.retrying?.has(block.id) ?? false;
+  if (block.toAgentId === null || !block.delivery?.length) return null;
+  const several = block.delivery.length > 1;
+  const failed = inState(block, "failed");
+  const held = inState(block, "held");
+  const pending = inState(block, "pending");
+  const retrying = ctx.retrying?.has(block.id) ?? false;
+
+  if (failed.length > 0) {
     return (
       <div
         className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive"
-        title="The agent never received this message: it had no session, or its engine stopped responding."
+        title="The message was not taken: the agent had no session, or its engine stopped responding."
         data-testid="chat-delivery-failed"
       >
         <AlertTriangle className="h-3 w-3" />
-        Not delivered
-        {/* The same post, sent again: nothing new lands in the stream, this
-            row simply goes back to pending. */}
+        {several
+          ? `Not delivered to ${nameList(failed, ctx)}`
+          : "Not delivered"}
+        {/* The same post, sent again, and only to whoever missed it:
+            nothing new lands in the stream and nobody reads it twice. */}
         {ctx.onRetryDelivery ? (
           <button
             type="button"
@@ -717,15 +732,29 @@ function DeliveryMeta({
       </div>
     );
   }
-  if (block.delivered === null) {
+  if (held.length > 0) {
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-        title="Delivering to the agent."
+        title="The agent is mid-turn. Your message is queued and reaches it when the turn ends; Send now cuts the turn short."
+        data-testid="chat-held-hint"
+      >
+        <Hourglass className="h-3 w-3" />
+        {several
+          ? `Queued for ${nameList(held, ctx)}, until the turn ends`
+          : "Queued until the turn ends"}
+      </div>
+    );
+  }
+  if (pending.length > 0) {
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        title="On its way to the agent."
         data-testid="chat-delivery-pending"
       >
         <Loader2 className="h-3 w-3 animate-spin" />
-        Sending
+        {several ? `Sending to ${nameList(pending, ctx)}` : "Sending"}
       </div>
     );
   }
@@ -934,7 +963,6 @@ function BlockBody({
 
 export type BlockViewProps = {
   block: Block;
-  held: boolean;
   grouped: boolean;
   rule?: boolean;
   ctx: FeedContext;
@@ -1082,7 +1110,6 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
 
 export const BlockView = memo(function BlockView({
   block,
-  held,
   grouped,
   rule = false,
   ctx,
@@ -1164,7 +1191,7 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList attachments={block.attachments} ctx={ctx} />
-        <DeliveryMeta block={block} held={held} ctx={ctx} />
+        <DeliveryMeta block={block} ctx={ctx} />
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}
@@ -1229,7 +1256,7 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {body}
       <AttachmentList attachments={block.attachments} ctx={ctx} />
-      <DeliveryMeta block={block} held={false} ctx={ctx} />
+      <DeliveryMeta block={block} ctx={ctx} />
       <ReactionBar
         reactions={reactions}
         agentName={author.name}

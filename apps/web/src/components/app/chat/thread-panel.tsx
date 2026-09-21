@@ -357,7 +357,6 @@ export function ThreadPanel({
         ) : thread.root ? (
           <BlockView
             block={thread.root}
-            held={false}
             grouped={false}
             ctx={ctx}
             answering={answeringBlockId === thread.root.id}
@@ -394,7 +393,6 @@ export function ThreadPanel({
                 >
                   <BlockView
                     block={reply}
-                    held={false}
                     grouped={groupedById.get(reply.id) ?? false}
                     ctx={ctx}
                     answering={answeringBlockId === reply.id}

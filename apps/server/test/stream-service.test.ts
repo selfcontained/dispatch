@@ -72,6 +72,8 @@ function build(
     /** Resolve to release deliveries; absent = deliver immediately. */
     gate?: Promise<void>;
     fail?: boolean;
+    /** Agents whose injection throws, for a partial delivery. */
+    failFor?: readonly string[];
     deps?: Partial<StreamServiceDeps>;
     withDelivery?: boolean;
   } = {}
@@ -92,7 +94,9 @@ function build(
             inject: async (agentId, text) => {
               if (opts.gate) await opts.gate;
               injected.push({ agentId, text });
-              if (opts.fail) throw new Error("engine gone");
+              if (opts.fail || opts.failFor?.includes(agentId)) {
+                throw new Error("engine gone");
+              }
             },
             held: () => opts.held ?? false,
             cancel: async (agentId) => {
@@ -3156,5 +3160,120 @@ describe("StreamService.retryDelivery", () => {
     await svc.retryDelivery(A, failed.id);
     await settled(svc, failed.id);
     expect(injected[0]!.text).toContain("trace.log");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Where a post has got to, per recipient
+// ---------------------------------------------------------------------------
+
+describe("StreamService delivery state", () => {
+  const never = new Promise<void>(() => {});
+
+  // Two children of the stream's agent, so a post can name more than one.
+  beforeEach(async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+       VALUES ('agt_m_kid1', 'reviewer', '/tmp', 'running', $1),
+              ('agt_m_kid2', 'builder', '/tmp', 'running', $1)
+       ON CONFLICT (id) DO UPDATE SET parent_agent_id = EXCLUDED.parent_agent_id, deleted_at = NULL`,
+      [A]
+    );
+    AGENTS["agt_m_kid1"] = {
+      id: "agt_m_kid1",
+      name: "reviewer",
+      filesDir: null,
+      status: "running",
+    };
+    AGENTS["agt_m_kid2"] = {
+      id: "agt_m_kid2",
+      name: "builder",
+      filesDir: null,
+      status: "running",
+    };
+  });
+
+  it("reads a prompt waiting behind a turn as held, not merely pending", async () => {
+    const { svc } = build({ gate: never, held: true });
+    const res = await svc.sendUserPost(A, { text: "when you're free" });
+    const feed = await svc.feed(A);
+    const row = feed.entries.find((e) => e.block.id === res.block.id)!;
+    expect(row.block.delivery).toEqual([{ agentId: A, state: "held" }]);
+    // The stored row knows nothing of it: held is true only while the turn
+    // runs, so it is worked out whenever the stream is read.
+    expect((await svc.store.getById(res.block.id))!.delivered).toBeNull();
+  });
+
+  it("reads the same prompt as sending once the agent is free", async () => {
+    const { svc } = build({ gate: never, held: false });
+    const res = await svc.sendUserPost(A, { text: "when you're free" });
+    const feed = await svc.feed(A);
+    const row = feed.entries.find((e) => e.block.id === res.block.id)!;
+    expect(row.block.delivery).toEqual([{ agentId: A, state: "pending" }]);
+  });
+
+  it("keeps each recipient's outcome when a post goes to several agents", async () => {
+    const { svc } = build({ failFor: ["agt_m_kid1"] });
+    const res = await svc.sendUserPost(A, {
+      text: "@builder and @reviewer, please look",
+    });
+    await settled(svc, res.block.id);
+    const block = await svc.store.getById(res.block.id);
+    // One of them never took it, so the post as a whole did not land.
+    expect(block!.delivered).toBe(false);
+    expect(block!.delivery).toEqual([
+      { agentId: "agt_m_kid2", state: "delivered" },
+      { agentId: "agt_m_kid1", state: "failed" },
+    ]);
+  });
+
+  it("sends a partly delivered post again only to the agent that missed it", async () => {
+    const { svc: failing } = build({ failFor: ["agt_m_kid1"] });
+    const res = await failing.sendUserPost(A, {
+      text: "@builder and @reviewer, please look",
+    });
+    await settled(failing, res.block.id);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, res.block.id);
+    await settled(svc, res.block.id);
+    // The builder already read it; a second copy would read as the person
+    // saying the same thing twice.
+    expect(injected.map((i) => i.agentId)).toEqual(["agt_m_kid1"]);
+    const block = await svc.store.getById(res.block.id);
+    expect(block!.delivered).toBe(true);
+    expect(block!.delivery).toEqual([
+      { agentId: "agt_m_kid2", state: "delivered" },
+      { agentId: "agt_m_kid1", state: "delivered" },
+    ]);
+  });
+
+  it("still names everyone when it sends the missed copy again", async () => {
+    const { svc: failing } = build({ failFor: ["agt_m_kid1"] });
+    const res = await failing.sendUserPost(A, {
+      text: "@builder and @reviewer, please look",
+    });
+    await settled(failing, res.block.id);
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, res.block.id);
+    await settled(svc, res.block.id);
+    expect(injected[0]!.text).toContain(
+      "Addressed to you by @mention, and also to builder."
+    );
+  });
+
+  it("marks every recipient still waiting as failed when the process died under them", async () => {
+    const { svc } = build({ gate: never, failFor: ["agt_m_kid1"] });
+    const res = await svc.sendUserPost(A, {
+      text: "@builder and @reviewer, still there?",
+    });
+    expect(res.block.delivered).toBeNull();
+    await svc.store.sweepPendingDeliveries();
+    const block = await svc.store.getById(res.block.id);
+    expect(block!.delivered).toBe(false);
+    expect(block!.delivery).toEqual([
+      { agentId: "agt_m_kid2", state: "failed" },
+      { agentId: "agt_m_kid1", state: "failed" },
+    ]);
   });
 });

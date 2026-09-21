@@ -1105,7 +1105,21 @@ export function useRetryDelivery(rootId: string | null) {
     onMutate: async (blockId) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        mapBlock(old, blockId, (block) => ({ ...block, delivered: null }))
+        mapBlock(old, blockId, (block) => ({
+          ...block,
+          delivered: null,
+          // Only the recipients being sent to again go back to pending; an
+          // agent that already read the post keeps its state.
+          ...(block.delivery
+            ? {
+                delivery: block.delivery.map((entry) =>
+                  entry.state === "failed"
+                    ? { ...entry, state: "pending" as const }
+                    : entry
+                ),
+              }
+            : {}),
+        }))
       );
     },
     // A refused retry (the agent is not running) puts the row back as it

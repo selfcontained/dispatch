@@ -78,6 +78,8 @@ export type {
   BlockActor,
   BlockAuthor,
   BlockAuthorKind,
+  BlockDelivery,
+  BlockDeliveryState,
   BlockBody,
   BlockFindingPatch,
   BlockFindingResolution,

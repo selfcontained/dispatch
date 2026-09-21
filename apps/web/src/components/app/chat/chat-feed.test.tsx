@@ -127,7 +127,6 @@ function feedElement(
       <ChatFeed
         entries={entries}
         ctx={ctx}
-        heldBlockId={null}
         answeringBlockId={null}
         onAnswer={onAnswer}
         {...extra}
@@ -459,6 +458,80 @@ describe("ChatFeed", () => {
     const button = screen.getByTestId("chat-delivery-retry") as HTMLButtonElement;
     expect(button.textContent).toBe("Retrying…");
     expect(button.disabled).toBe(true);
+  });
+
+  it("names who a post to several agents is still waiting on", () => {
+    const peers = {
+      agt_2: { name: "reviewer", agentType: "claude", relation: "child" as const },
+      agt_3: { name: "scout", agentType: "claude", relation: "child" as const },
+    };
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "u1",
+            authorKind: "user",
+            text: "@reviewer @scout have a look",
+            delivery: [
+              { agentId: "agt_2", state: "delivered" },
+              { agentId: "agt_3", state: "held" },
+            ],
+          })
+        ),
+      ],
+      {},
+      { peers }
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toContain(
+      "Queued for scout, until the turn ends"
+    );
+  });
+
+  it("names only the agent that missed a post, and offers one Retry", () => {
+    const peers = {
+      agt_2: { name: "reviewer", agentType: "claude", relation: "child" as const },
+      agt_3: { name: "scout", agentType: "claude", relation: "child" as const },
+    };
+    const onRetryDelivery = vi.fn();
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "u1",
+            authorKind: "user",
+            text: "@reviewer @scout have a look",
+            delivered: false,
+            delivery: [
+              { agentId: "agt_2", state: "delivered" },
+              { agentId: "agt_3", state: "failed" },
+            ],
+          })
+        ),
+      ],
+      {},
+      { peers, onRetryDelivery }
+    );
+    expect(screen.getByTestId("chat-delivery-failed").textContent).toContain(
+      "Not delivered to scout"
+    );
+    fireEvent.click(screen.getByTestId("chat-delivery-retry"));
+    expect(onRetryDelivery).toHaveBeenCalledWith("u1");
+  });
+
+  it("says nothing once every recipient has the post", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "done",
+          delivered: true,
+        })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+    expect(screen.queryByTestId("chat-held-hint")).toBeNull();
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
   it("offers no Retry when the feed has no way to send again", () => {
@@ -835,23 +908,29 @@ describe("ChatFeed", () => {
             authorKind: "user",
             text: "one",
             delivered: null,
+            delivery: [{ agentId: "agt_1", state: "held" }],
           })
         ),
-      ],
-      { heldBlockId: "u1" }
+      ]
     );
-    expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
+    expect(screen.getByTestId("chat-held-hint").textContent).toContain(
+      "Queued until the turn ends"
+    );
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
-  it("shows the hold hint on the held user message only", () => {
-    renderFeed(
-      [
-        blockEntry(block({ id: "u1", authorKind: "user", text: "one" })),
-        blockEntry(block({ id: "u2", authorKind: "user", text: "two" })),
-      ],
-      { heldBlockId: "u2" }
-    );
+  it("shows the hold hint on the queued message only", () => {
+    renderFeed([
+      blockEntry(block({ id: "u1", authorKind: "user", text: "one" })),
+      blockEntry(
+        block({
+          id: "u2",
+          authorKind: "user",
+          text: "two",
+          delivery: [{ agentId: "agt_1", state: "held" }],
+        })
+      ),
+    ]);
     const hints = screen.getAllByTestId("chat-held-hint");
     expect(hints).toHaveLength(1);
     expect(
