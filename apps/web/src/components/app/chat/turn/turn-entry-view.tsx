@@ -185,19 +185,24 @@ export function TurnAnswer({
           inside it eases instead of snapping, so the feed above glides
           rather than jumps while it follows the bottom. */}
       <AutoHeight data-testid="chat-turn-body">
-        {turn.settled ? <ResultTurn turn={result} /> : null}
+        {turn.settled ? (
+          <ResultTurn turn={result} />
+        ) : result.content ? (
+          // The reply as it is being written: the agent's own words, in the
+          // quiet tone of something still in progress, so a long turn reads
+          // as it happens rather than landing whole at the end. It takes its
+          // final styling when the turn settles and this becomes the answer.
+          <div
+            className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]"
+            data-testid="chat-turn-live-text"
+          >
+            {result.content}
+          </div>
+        ) : null}
         <TurnAttachments items={folded} ctx={ctx} />
         {showsRail(trace, result) || !turn.settled ? (
-          <div className={cn(turn.settled && result.content && "mt-2")}>
-            <ActivityBlock
-              trace={trace}
-              label={foldLabel}
-              // Only while it runs: once the turn settles the answer is the
-              // post itself, and showing it twice would be noise.
-              {...(!turn.settled && turn.result?.text
-                ? { liveText: turn.result.text }
-                : {})}
-            />
+          <div className={cn(result.content && "mt-2")}>
+            <ActivityBlock trace={trace} label={foldLabel} />
           </div>
         ) : null}
       </AutoHeight>

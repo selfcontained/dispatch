@@ -143,9 +143,9 @@ describe("TurnEntryView", () => {
     expect(wrapper.getAttribute("data-settled")).toBe("true");
   });
 
-  it("holds a running turn's text back: the post is its header and the activity line until settle", () => {
-    // The block's text is empty until the turn settles; whatever the turn
-    // has so far stays out of the column too.
+  it("shows a running turn's reply as it is written, quietly, above its activity line", () => {
+    // The block's text is empty until the turn settles, so what the reader
+    // sees meanwhile is the turn's own text, in the muted in-progress tone.
     renderTurn(
       turn(
         {
@@ -171,28 +171,29 @@ describe("TurnEntryView", () => {
     expect(
       screen.getByTestId("chat-turn").getAttribute("data-settled")
     ).toBeNull();
+    // Not the settled answer yet, but the words are in the message.
     expect(screen.queryByTestId("harness-result")).toBeNull();
-    // The answer is not in the column: the post is its header and the
-    // activity line. What the turn has said so far is inside that line's
-    // fold, for a reader who opens it to follow along.
-    const fold = screen.getByTestId("harness-activity-fold");
-    expect(fold).toBeTruthy();
-    expect(screen.getByTestId("harness-live-text").textContent).toBe(
+    expect(screen.getByTestId("chat-turn-live-text").textContent).toBe(
       "reading now"
     );
-    const post = screen.getByTestId("chat-message").cloneNode(true) as HTMLElement;
-    post.querySelector('[data-testid="harness-activity-fold"]')?.remove();
-    expect(post.textContent).not.toContain("reading now");
+    expect(screen.getByTestId("chat-message").textContent).toContain(
+      "reading now"
+    );
+    // The activity line is still there, and still its own fold.
+    expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
   });
 
-  it("puts nothing in the activity fold once the turn has settled", () => {
+  it("hands the reply over to its settled rendering once the turn ends", () => {
     renderTurn(
       turnEntry({
         text: "It documents the CLI.",
         turn: { result: { text: "It documents the CLI.", streaming: false } },
       })
     );
-    expect(screen.queryByTestId("harness-live-text")).toBeNull();
+    expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
+    expect(screen.getByTestId("harness-result").textContent).toContain(
+      "It documents the CLI."
+    );
   });
 
   it("draws no post for a prompt another agent sent: that post is its own feed row", () => {
