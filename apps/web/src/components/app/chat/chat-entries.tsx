@@ -1033,7 +1033,10 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          className="flex w-full min-w-0 items-center gap-2 text-left"
+          // The title row is the icon's own height, so the two centre on
+          // each other while the row is one line and stay aligned when the
+          // prompt unfolds beneath them.
+          className="flex h-8 w-full min-w-0 items-center gap-2 text-left"
           data-testid="chat-system-prompt-toggle"
         >
           <span className="text-sm font-semibold text-foreground">
