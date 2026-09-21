@@ -33,13 +33,26 @@ import { cn } from "@/lib/utils";
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /** What the thread is about, in a few words: the root's text, or its kind. */
+/** Markdown's marks, off a line that is shown as plain text. */
+function plainLine(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(^|\s)[*_](\S(?:.*?\S)?)[*_](?=\s|$)/g, "$1$2")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function threadSubject(root: Block): string {
-  const text = root.text.replace(/\s+/g, " ").trim();
+  const text = plainLine(root.text);
   if (text) return text.length > 70 ? `${text.slice(0, 69).trimEnd()}…` : text;
   if (root.kind === "review" && root.data && "summary" in root.data) {
-    const summary = String(root.data.summary ?? "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const summary = plainLine(String(root.data.summary ?? ""));
     return summary.length > 70 ? `${summary.slice(0, 69).trimEnd()}…` : summary;
   }
   return (

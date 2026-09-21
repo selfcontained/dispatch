@@ -20,7 +20,7 @@ import {
 } from "@/hooks/use-stream";
 import { block, questionBody, reviewBody } from "@/test-utils/blocks";
 
-import { groupReplies, ThreadPanel } from "./thread-panel";
+import { groupReplies, ThreadPanel, threadTitle } from "./thread-panel";
 
 const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api: apiMock }));
@@ -360,5 +360,18 @@ describe("groupReplies", () => {
       block({ id: "d", createdAt: at("20") }),
     ];
     expect(groupReplies(replies, ctx)).toEqual([false, true, false, false]);
+  });
+});
+
+describe("threadTitle", () => {
+  it("strips markdown marks from the subject", () => {
+    const root = block({
+      id: "r",
+      author: { kind: "agent", agentId: "agt_1" },
+      text: "**Question block.** Pick a `demo` option; see [docs](http://x).",
+    });
+    expect(threadTitle(root, false, () => "demo").subtitle).toBe(
+      "demo: Question block. Pick a demo option; see docs."
+    );
   });
 });
