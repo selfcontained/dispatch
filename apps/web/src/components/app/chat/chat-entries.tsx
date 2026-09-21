@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   Bot,
   Check,
-  ChevronRight,
   Copy,
   Hourglass,
   Loader2,
@@ -685,8 +684,7 @@ const THREAD_FACES = 4;
 /**
  * The row under a post that has a thread: who has written in it (their
  * faces, in order of appearance), how many replies, when the last one
- * came, and how many the person has not read. A row with a border and a
- * hover, not a line of link text, so it reads as a door into the thread.
+ * came, and how many the person has not read. The count is the link.
  */
 function ThreadLine({
   block,
@@ -704,13 +702,7 @@ function ThreadLine({
   return (
     <button
       type="button"
-      className={cn(
-        "mt-2 flex w-fit max-w-full items-center gap-2 rounded-md border py-1 pl-1.5 pr-2 text-[11px] leading-none transition-colors",
-        unread > 0
-          ? "border-status-done/40 bg-status-done/[0.08] hover:bg-status-done/[0.14]"
-          : "border-border/60 bg-muted/30 hover:border-border hover:bg-muted/60",
-        "disabled:cursor-default disabled:hover:bg-muted/30"
-      )}
+      className="group/thread mt-2 flex w-fit max-w-full items-center gap-2 text-[11px] leading-none disabled:cursor-default"
       disabled={!onOpen}
       data-testid="chat-thread-line"
       data-reply-count={String(count)}
@@ -731,7 +723,7 @@ function ThreadLine({
       ) : (
         <MessagesSquare className="ml-0.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
       )}
-      <span className="font-medium text-foreground">
+      <span className="font-medium text-status-done underline-offset-2 group-hover/thread:underline group-disabled/thread:no-underline">
         {count} {count === 1 ? "reply" : "replies"}
       </span>
       {unread > 0 ? (
@@ -743,7 +735,6 @@ function ThreadLine({
         </span>
       ) : null}
       {last ? <span className="text-muted-foreground">last {last}</span> : null}
-      <ChevronRight className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
     </button>
   );
 }
