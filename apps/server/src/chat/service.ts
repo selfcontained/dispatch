@@ -108,6 +108,14 @@ export type UpdateInput = {
  * envelope, outcome, events); this adapter owns the runtime, so tests can
  * stand in a fake and the service never imports it.
  */
+/**
+ * How long a prompt may sit unaccepted by an idle engine before Dispatch
+ * calls it undelivered. Long enough that an engine merely slow to pick a
+ * prompt up is not written off; short enough that nobody watches a
+ * spinner for the rest of the session.
+ */
+const DELIVERY_GIVE_UP_MS = 90_000;
+
 export type StreamDeliveryAdapter = {
   /**
    * Whether the agent can receive a prompt right now. Throws `AgentError`
@@ -1753,6 +1761,7 @@ export class StreamService {
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
+    let accepted = false;
     const settlement = delivery
       .inject(agentId, input.envelope)
       .then(
@@ -1765,7 +1774,10 @@ export class StreamService {
           return false;
         }
       )
-      .then(input.record)
+      .then(async (delivered) => {
+        accepted = true;
+        await input.record(delivered);
+      })
       .catch((error: unknown) => {
         this.log.error(
           { err: error, agentId, ...logContext },
@@ -1773,7 +1785,63 @@ export class StreamService {
         );
       });
     this.trackDelivery(settlement);
+    this.giveUpIfUnwanted({
+      agentId,
+      taken: () => accepted,
+      record: input.record,
+      logContext,
+    });
     return { held: delivery.held(agentId) };
+  }
+
+  /**
+   * A prompt an engine never takes would otherwise sit unresolved for the
+   * life of the process: the injection promise simply never settles, and a
+   * person is left watching "Sending" with nothing scheduled to end it.
+   * That is the engine having gone unresponsive — most likely right after
+   * being interrupted — so the post is marked undelivered and the reader
+   * gets the failed state they can retry from.
+   *
+   * Waiting behind a long turn is not that. While the agent is busy the
+   * prompt is queued exactly as intended, however long that takes, so the
+   * watch re-arms instead of failing it. The real outcome always wins: if
+   * the engine takes the prompt later, that write lands after this one.
+   */
+  private giveUpIfUnwanted(input: {
+    agentId: string;
+    taken: () => boolean;
+    record: (delivered: boolean) => Promise<void>;
+    logContext: Record<string, string>;
+  }): void {
+    const { agentId, logContext } = input;
+    const wait = () =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, DELIVERY_GIVE_UP_MS);
+        // Never a reason to hold the process open.
+        timer.unref?.();
+      });
+    void (async () => {
+      for (;;) {
+        await wait();
+        if (input.taken()) return;
+        // Still queued behind the agent's own work: that is the queue
+        // doing its job, so keep waiting.
+        if (this.delivery().held(agentId)) continue;
+        this.log.warn(
+          { agentId, ...logContext },
+          "stream: the engine never took this prompt; marking it undelivered"
+        );
+        await input
+          .record(false)
+          .catch((error: unknown) =>
+            this.log.error(
+              { err: error, agentId, ...logContext },
+              "stream: failed to record a given-up delivery"
+            )
+          );
+        return;
+      }
+    })();
   }
 
   async recoverPendingDeliveries(): Promise<string[]> {

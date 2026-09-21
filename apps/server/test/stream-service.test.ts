@@ -1,5 +1,6 @@
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -77,6 +78,7 @@ function build(
 ) {
   const events: unknown[] = [];
   const injected: Injected[] = [];
+  const cancelled: string[] = [];
   const svc = new StreamService({
     pool,
     publishUiEvent: (event) => events.push(event),
@@ -93,11 +95,14 @@ function build(
               if (opts.fail) throw new Error("engine gone");
             },
             held: () => opts.held ?? false,
+            cancel: async (agentId) => {
+              cancelled.push(agentId);
+            },
           },
         }),
     ...opts.deps,
   });
-  return { svc, events, injected };
+  return { svc, events, injected, cancelled };
 }
 
 /**
@@ -2975,5 +2980,43 @@ describe("StreamService @mentions", () => {
     const res = await svc.sendUserPost(A, { text: "@Peer is not in this tree" });
     expect(res.block.toAgentId).toBe(A);
     expect(res.block.kind === "text" && res.block.data?.mentions).toBeUndefined();
+  });
+});
+
+describe("StreamService delivery that is never taken", () => {
+  const never = new Promise<void>(() => {});
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives up on a prompt an idle engine never takes, so the post can be retried", async () => {
+    vi.useFakeTimers();
+    const { svc } = build({ gate: never, held: false });
+    const res = await svc.sendUserPost(A, { text: "are you there?" });
+    expect(res.block.delivered).toBeNull();
+    // Nothing has taken it, and the agent is not busy: past the bound it
+    // reads as undelivered rather than sending forever.
+    await vi.advanceTimersByTimeAsync(95_000);
+    // The give-up writes to the database, which is real work the timer
+    // flush does not wait for.
+    vi.useRealTimers();
+    let row = await svc.store.getById(res.block.id);
+    for (let i = 0; i < 50 && row?.delivered === null; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      row = await svc.store.getById(res.block.id);
+    }
+    expect(row).toMatchObject({ delivered: false });
+  });
+
+  it("keeps waiting while the agent is busy, however long that takes", async () => {
+    vi.useFakeTimers();
+    const { svc } = build({ gate: never, held: true });
+    const res = await svc.sendUserPost(A, { text: "after you finish" });
+    // Queued behind the agent's own work is the queue doing its job.
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(await svc.store.getById(res.block.id)).toMatchObject({
+      delivered: null,
+    });
   });
 });

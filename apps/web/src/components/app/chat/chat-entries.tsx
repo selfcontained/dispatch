@@ -689,7 +689,7 @@ function DeliveryMeta({
     return (
       <div
         className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
-        title="The agent had no session to receive this message."
+        title="The agent never received this message: it had no session, or its engine stopped responding. Send it again to retry."
         data-testid="chat-delivery-failed"
       >
         <AlertTriangle className="h-3 w-3" />
