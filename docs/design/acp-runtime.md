@@ -25,7 +25,8 @@ dispatch server
 dispatch-agent-host  (one per agent; daemonized, own process group)
   │  ACP over stdio
   ▼
-claude-agent-acp  →  claude   (or codex-acp → codex)
+dispatch claude-acp  →  claude   (or dispatch codex-acp → codex)
+          (the adapter ships inside the Dispatch binary; the engine CLI is the user's)
 ```
 
 The host is the same executable as the server, invoked as

@@ -212,13 +212,41 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DISPATCH_FILES_ROOT`         | `$HOME/.dispatch/files`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                                                                                                                 |
 | `DISPATCH_AGENT_RUNTIME`      | `acp`                                                  | Agent runtime mode (`acp`, or `inert` for dev/test with no engines)                                                                                                                               |
 | `DISPATCH_AGENT_STATE_ROOT`   | `$HOME/.dispatch/agents`                               | Per-agent host state directories                                                                                                                                                                  |
-| `DISPATCH_CLAUDE_ADAPTER_BIN` | `claude-agent-acp`                                     | The Claude engine's ACP adapter (`npm i -g @agentclientprotocol/claude-agent-acp`)                                                                                                                |
-| `DISPATCH_CODEX_ADAPTER_BIN`  | `codex-acp`                                            | The Codex engine's ACP adapter (`npm i -g @agentclientprotocol/codex-acp`; uses the host `codex` login)                                                                                           |
 | `DISPATCH_COPY_DISPLAY`       | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                                                                                                                 |
 | `TLS_CERT`                    | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                                                                                                                       |
 | `TLS_KEY`                     | —                                                      | Path to TLS private key file                                                                                                                                                                      |
 
 Changes to `.env` require a service restart to take effect.
+
+## Engines
+
+Dispatch drives Claude Code and Codex. The ACP adapter for each ships inside
+the Dispatch binary and runs as a mode of it (`dispatch claude-acp`,
+`dispatch codex-acp`), so there is nothing to install or configure for them.
+
+What the machine needs is the engine CLI itself, which the person installs
+and signs into:
+
+```bash
+npm i -g @anthropic-ai/claude-code   # then: claude   (sign in)
+npm i -g @openai/codex               # then: codex    (sign in)
+```
+
+Dispatch finds each CLI on `PATH`, and failing that in the usual install
+locations (`~/.local/bin`, `~/.bun/bin`, `~/.volta/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin`), which is what a launchd or systemd service needs since its
+`PATH` is minimal. `DISPATCH_CLAUDE_BIN` and `DISPATCH_CODEX_BIN` override the
+lookup with an absolute path.
+
+What is installed, and where it was found:
+
+```bash
+curl -s http://127.0.0.1:6767/api/v1/system/engines | jq
+```
+
+An engine whose CLI is missing is marked "not installed" in the create-agent
+picker, and launching an agent of that type fails with the command to install
+it rather than a spawn error.
 
 ## Diagnostics
 

@@ -61,10 +61,10 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
     engine: "claude",
     model: null,
     bins: {
-      claudeAdapterBin: fakeAgent,
       claudeBin: "claude",
-      codexAdapterBin: "codex-acp",
       codexBin: null,
+      // Stands a fake engine in place of the adapter this binary carries.
+      adapter: { bin: fakeAgent },
     },
     systemPrompt: "Be brief.",
     mcp: { url: "http://127.0.0.1:1/api/mcp/agt_1", token: "tok" },
@@ -185,10 +185,9 @@ describe("agent host", () => {
       runtime.launch({
         ...launchFor("agt_host_test_2", cwd),
         bins: {
-          claudeAdapterBin: "/definitely/not/a/binary",
           claudeBin: "claude",
-          codexAdapterBin: "codex-acp",
           codexBin: null,
+          adapter: { bin: "/definitely/not/a/binary" },
         },
       })
     ).rejects.toThrow(/engine failed|not executable|Host log/);

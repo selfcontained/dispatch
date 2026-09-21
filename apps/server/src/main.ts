@@ -1,10 +1,21 @@
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
-// `dispatch agent-host --state <dir>` runs one agent's ACP host instead of
-// the server. Checked before anything else so the host never touches the
-// server's environment restoration, database, or config.
+// Modes of this binary, checked before anything else so none of them
+// touches the server's environment restoration, database, or config:
+//
+// - `agent-host --state <dir>` runs one agent's ACP host.
+// - `claude-acp` / `codex-acp` run the engine's ACP adapter over stdio.
+//   The adapters ship inside this binary rather than as a global npm
+//   install, so there is nothing for anyone to install or configure; each
+//   one drives the engine CLI the user already has (see engine-spec.ts).
 if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
+} else if (process.argv[2] === "claude-acp") {
+  // The CLI entry, not the package's `main`: that one is a library whose
+  // import starts nothing, and the adapter would sit there reading no stdin.
+  await import("@agentclientprotocol/claude-agent-acp/dist/index.js");
+} else if (process.argv[2] === "codex-acp") {
+  await import("@agentclientprotocol/codex-acp/dist/index.js");
 } else {
   await serve();
 }

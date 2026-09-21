@@ -9,6 +9,7 @@ import {
   type DriverEvent,
   type DriverLaunch,
 } from "../src/agents/acp/driver.js";
+import { selfCommand } from "../src/agents/acp/runtime.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -17,9 +18,7 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 const resolveBinary = async (bin: string) => bin;
 
 const bins: EngineBins = {
-  claudeAdapterBin: "/bin/claude-agent-acp",
   claudeBin: "/home/u/.local/bin/claude",
-  codexAdapterBin: "/bin/codex-acp",
   codexBin: null,
 };
 
@@ -50,9 +49,10 @@ describe("AcpDriver", () => {
     const { spawn, driver } = driverWith(fake);
     const { sessionId } = await driver.start(launch());
     expect(sessionId).toBe("sess_1");
+    // The adapter is a mode of this executable, not something on PATH.
     expect(spawn).toHaveBeenCalledWith(
-      "/bin/claude-agent-acp",
-      ["--dangerously-skip-permissions"],
+      selfCommand("claude-acp")[0],
+      [...selfCommand("claude-acp").slice(1), "--dangerously-skip-permissions"],
       expect.objectContaining({
         cwd: "/tmp/w",
         env: expect.objectContaining({
@@ -85,8 +85,8 @@ describe("AcpDriver", () => {
     const { spawn, driver } = driverWith(fake);
     await driver.start(launch({}, "codex"));
     expect(spawn).toHaveBeenCalledWith(
-      "/bin/codex-acp",
-      [],
+      selfCommand("codex-acp")[0],
+      selfCommand("codex-acp").slice(1),
       expect.objectContaining({
         env: expect.objectContaining({
           INITIAL_AGENT_MODE: "agent-full-access",

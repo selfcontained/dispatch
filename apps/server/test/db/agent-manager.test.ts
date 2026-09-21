@@ -72,11 +72,10 @@ const testConfig = {
   authToken: "test-token",
   filesRoot: "/tmp/dispatch-test-files",
   dispatchBinDir: "/tmp/dispatch-test-bin",
-  codexBin: "/bin/codex",
-  claudeBin: "/bin/claude",
+  // Real executables: the launch path checks the engine CLI is installed.
+  codexBin: "/bin/echo",
+  claudeBin: "/bin/echo",
   opencodeBin: "/bin/opencode",
-  claudeAdapterBin: "/bin/claude-agent-acp",
-  codexAdapterBin: "/bin/codex-acp",
   agentStateRoot: "/tmp/dispatch-test-agents",
   agentRuntime: "acp",
   sessionPrefix: "dispatch",
@@ -243,10 +242,8 @@ describe("AgentManager", () => {
         cwd: "/tmp",
         engine: "claude",
         bins: {
-          claudeAdapterBin: "/bin/claude-agent-acp",
-          claudeBin: "/bin/claude",
-          codexAdapterBin: "/bin/codex-acp",
-          codexBin: "/bin/codex",
+          claudeBin: "/bin/echo",
+          codexBin: "/bin/echo",
         },
         mcp: {
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,

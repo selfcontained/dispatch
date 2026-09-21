@@ -58,6 +58,10 @@ import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import { StreamRecorder, type TurnBlocks } from "./acp/stream-recorder.js";
+import {
+  engineStatuses,
+  missingEngineMessage,
+} from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
@@ -1290,11 +1294,30 @@ export class AgentManager {
       engine: agent.type,
       config: this.config,
     });
+    // The adapter ships in this binary, but the engine itself is the
+    // person's: say so plainly here rather than letting the spawn fail with
+    // ENOENT once the host is already up. The inert runtime spawns nothing,
+    // so it needs no engine.
+    const engine = this.runtime.tracksProcesses()
+      ? (
+          await engineStatuses({
+            claude: this.config.claudeBin,
+            codex: this.config.codexBin ?? undefined,
+          })
+        ).find((status) => status.id === agent.type)
+      : undefined;
+    if (engine && !engine.installed) {
+      throw new AgentError(missingEngineMessage(engine), 422);
+    }
+    // The engine this agent runs takes the path we just resolved (a
+    // service's PATH rarely has it); the other keeps its configured value.
     const bins: EngineBins = {
-      claudeAdapterBin: this.config.claudeAdapterBin,
-      claudeBin: this.config.claudeBin,
-      codexAdapterBin: this.config.codexAdapterBin,
-      codexBin: this.config.codexBin,
+      claudeBin:
+        agent.type === "claude"
+          ? (engine?.path ?? this.config.claudeBin)
+          : this.config.claudeBin,
+      codexBin:
+        agent.type === "codex" ? (engine?.path ?? null) : this.config.codexBin,
     };
     this.streamRecorder.setCwd(agent.id, agent.cwd);
     // Rows a previous host left open (a crash mid-turn) settle first, so the

@@ -14,8 +14,6 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     codexBin: "",
     claudeBin: "",
     opencodeBin: "",
-    claudeAdapterBin: "",
-    codexAdapterBin: "",
     agentStateRoot: "",
     agentRuntime: "acp",
     sessionPrefix: "dispatch",

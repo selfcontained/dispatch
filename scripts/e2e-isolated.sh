@@ -47,8 +47,9 @@ export E2E_PORT="$API_PORT"
 # run's own state root and are stopped on teardown.
 export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
 export DISPATCH_AGENT_STATE_ROOT="/tmp/dispatch-agents-${RUN_ID}"
-export DISPATCH_CLAUDE_ADAPTER_BIN="$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs"
-export DISPATCH_CODEX_ADAPTER_BIN="$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs"
+# The adapters ship inside the binary; this stands a fake engine in for both
+# so the runtime can be driven with no engine installed (test seam only).
+export DISPATCH_ACP_ADAPTER_COMMAND="[\"$ROOT_DIR/e2e/fixtures/fake-acp-agent.mjs\"]"
 
 # `pnpm install` does not fetch Playwright browser binaries, so a Playwright
 # version bump in the lockfile leaves the newly pinned revision missing and

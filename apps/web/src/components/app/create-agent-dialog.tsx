@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { useEngines } from "@/hooks/use-engines";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
@@ -65,6 +66,21 @@ function CreateAgentDialogContent({
   onCreated,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  // Engines whose CLI this machine does not have: pickable, but the picker
+  // says what to install rather than letting the launch fail.
+  const { engines } = useEngines();
+  const missingEngines = useMemo(
+    () =>
+      Object.fromEntries(
+        engines
+          .filter((engine) => !engine.installed)
+          .map((engine) => [
+            engine.id,
+            { label: engine.label, install: engine.install },
+          ])
+      ),
+    [engines]
+  );
   const form = useCreateAgentForm({
     enabledAgentTypes,
     initialAgentType,
@@ -117,6 +133,7 @@ function CreateAgentDialogContent({
                     onChange={form.setCreateType}
                     agentTypes={enabledAgentTypes}
                     onOpenChange={setTypeDropdownOpen}
+                    missing={missingEngines}
                   />
 
                   {showModelSelect ? (

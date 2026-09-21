@@ -25,10 +25,6 @@ export type AppConfig = {
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
-  /** The Claude engine's ACP adapter (`claude-agent-acp`). */
-  claudeAdapterBin: string;
-  /** The Codex engine's ACP adapter (`codex-acp`). */
-  codexAdapterBin: string;
   /** Per-agent host state (launch file, socket, journal, log). */
   agentStateRoot: string;
   agentRuntime: "acp" | "inert";
@@ -91,12 +87,6 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex",
     claudeBin:
       process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude",
-    claudeAdapterBin: resolveConfiguredBin(
-      process.env.DISPATCH_CLAUDE_ADAPTER_BIN ?? "claude-agent-acp"
-    ),
-    codexAdapterBin: resolveConfiguredBin(
-      process.env.DISPATCH_CODEX_ADAPTER_BIN ?? "codex-acp"
-    ),
     agentStateRoot: resolveConfiguredPath(
       process.env.DISPATCH_AGENT_STATE_ROOT ??
         path.join(

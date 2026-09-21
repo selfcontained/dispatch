@@ -50,11 +50,20 @@ export function hostCommand(env: NodeJS.ProcessEnv = process.env): string[] {
     }
     return override.split(/\s+/).filter(Boolean);
   }
+  return selfCommand("agent-host");
+}
+
+/**
+ * This executable plus one of its modes. Under `bun src/main.ts` that is bun
+ * plus the script; a compiled binary is itself. Both the agent host and the
+ * bundled ACP adapters are modes of this binary, so both are spawned this way.
+ */
+export function selfCommand(mode: string): string[] {
   const script = process.argv[1];
   if (script && /\.[cm]?[jt]s$/.test(script) && existsSync(script)) {
-    return [process.execPath, script, "agent-host"];
+    return [process.execPath, script, mode];
   }
-  return [process.execPath, "agent-host"];
+  return [process.execPath, mode];
 }
 
 /**
