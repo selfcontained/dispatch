@@ -109,6 +109,10 @@ vi.mock("@/hooks/use-stream", () => ({
       variables: undefined,
     });
   })(),
+  useRetryDelivery: (() => {
+    const mutate = vi.fn();
+    return () => ({ mutate, isPending: false, variables: undefined });
+  })(),
   useSetBlockState: (() => {
     const mutate = vi.fn();
     return () => ({ mutate, isPending: false, variables: undefined });

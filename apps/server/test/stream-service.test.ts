@@ -3020,3 +3020,141 @@ describe("StreamService delivery that is never taken", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Retrying a post the agent never took
+// ---------------------------------------------------------------------------
+
+describe("StreamService.retryDelivery", () => {
+  /** A post whose delivery failed: the row the Retry button acts on. */
+  async function undelivered(text: string, to?: string) {
+    const { svc } = build({ fail: true });
+    const res = await svc.sendUserPost(A, {
+      text,
+      ...(to ? { to } : {}),
+    });
+    const block = await settled(svc, res.block.id);
+    expect(block.delivered).toBe(false);
+    return block;
+  }
+
+  it("sends the same block again and marks it delivered, with no second post", async () => {
+    const failed = await undelivered("did you get this?");
+    const before = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM blocks WHERE stream_id = $1`,
+      [A]
+    );
+    const { svc, injected, events } = build();
+    const { block } = await svc.retryDelivery(A, failed.id);
+    // Pending the moment it is pressed, so the row stops saying "not
+    // delivered" while the prompt is on its way.
+    expect(block.delivered).toBeNull();
+    expect(events.some((e) => (e as { type: string }).type === "stream.entry")).toBe(true);
+    const after = await settled(svc, failed.id);
+    expect(after.delivered).toBe(true);
+    expect(injected).toEqual([
+      { agentId: A, text: expect.stringContaining("did you get this?") },
+    ]);
+    const count = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM blocks WHERE stream_id = $1`,
+      [A]
+    );
+    expect(count.rows[0]!.n).toBe(before.rows[0]!.n);
+  });
+
+  it("says why when the agent cannot take a prompt, and leaves the row failed", async () => {
+    const failed = await undelivered("still there?");
+    const { svc, injected } = build({ access: inert });
+    await expect(svc.retryDelivery(A, failed.id)).rejects.toThrow("No engine.");
+    expect(injected).toEqual([]);
+    expect(await svc.store.getById(failed.id)).toMatchObject({
+      delivered: false,
+    });
+  });
+
+  it("refuses a post that already landed", async () => {
+    const { svc } = build();
+    const res = await svc.sendUserPost(A, { text: "landed" });
+    await settled(svc, res.block.id);
+    await expect(svc.retryDelivery(A, res.block.id)).rejects.toBeInstanceOf(
+      StreamConflictError
+    );
+  });
+
+  it("rebuilds the answer envelope, so the agent still learns what it answers", async () => {
+    const asked = await service.post(A, {
+      text: "Ship it?",
+      question: { options: [{ label: "Yes", value: "yes" }, { label: "No" }] },
+    });
+    const { svc: failing } = build({ fail: true });
+    const answered = await failing.answerQuestion(A, asked.id, {
+      value: "yes",
+    });
+    const reply = await settled(failing, answered.reply.id);
+    expect(reply.delivered).toBe(false);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, reply.id);
+    await settled(svc, reply.id);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain(
+      `This answers your question ${asked.id}.`
+    );
+  });
+
+  it("does not claim a plain comment in a question's thread is the answer", async () => {
+    const asked = await service.post(A, {
+      text: "Which one?",
+      question: { options: [{ label: "Left" }, { label: "Right" }] },
+    });
+    const { svc: failing } = build({ fail: true });
+    const comment = await failing.sendUserPost(A, {
+      text: "thinking about it",
+      replyTo: asked.id,
+    });
+    const failed = await settled(failing, comment.block.id);
+    expect(failed.delivered).toBe(false);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected[0]!.text).not.toContain("This answers your");
+    expect(injected[0]!.text).toContain(`In the thread under ${asked.id}.`);
+  });
+
+  it("sends a multi-mention post to everyone it named, each told who else has it", async () => {
+    const { svc: failing } = build({ fail: true });
+    const res = await failing.sendUserPost(A, {
+      text: "@builder and @reviewer, together please",
+    });
+    const failed = await settled(failing, res.block.id);
+    expect(failed.delivered).toBe(false);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected.map((i) => i.agentId).sort()).toEqual([
+      "agt_m_kid1",
+      "agt_m_kid2",
+    ]);
+    const toBuilder = injected.find((i) => i.agentId === "agt_m_kid2")!.text;
+    expect(toBuilder).toContain(
+      "Addressed to you by @mention, and also to reviewer."
+    );
+  });
+
+  it("carries the attachments again, described for the recipient", async () => {
+    const fileId = await seedFiles(A, "trace.log", 40);
+    const { svc: failing } = build({ fail: true });
+    const res = await failing.sendUserPost(A, {
+      text: "here is the log",
+      attachments: [{ type: "file", fileId }],
+    });
+    const failed = await settled(failing, res.block.id);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected[0]!.text).toContain("trace.log");
+  });
+});

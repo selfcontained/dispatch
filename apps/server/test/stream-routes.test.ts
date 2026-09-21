@@ -170,7 +170,16 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
     expect(second.statusCode).toBe(200);
     const ids = (r: { json: () => { entries: Array<{ id: string }> } }) =>
       r.json().entries.map((e) => e.id);
-    expect(new Set([...ids(first), ...ids(second)]).size).toBe(3);
+    // Paging never repeats a row and never invents one: the two pages are
+    // distinct entries, each of them in the stream's own list. The count is
+    // not asserted — a launched agent's stream also holds the record of the
+    // instructions it started with.
+    const paged = [...ids(first), ...ids(second)];
+    expect(new Set(paged).size).toBe(paged.length);
+    const all = ids(
+      await authedInject("GET", `/api/v1/streams/${agentId}/blocks?limit=50`)
+    );
+    expect(paged.every((id) => all.includes(id))).toBe(true);
   });
 
   it("returns the composed feed with unreadCount and reply counts", async () => {

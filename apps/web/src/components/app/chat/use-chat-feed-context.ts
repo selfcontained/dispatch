@@ -26,6 +26,9 @@ export type ChatFeedContextInput = {
   onOpenThread?: FeedContext["onOpenThread"];
   onSubmitForm?: FeedContext["onSubmitForm"];
   onSetBlockState?: FeedContext["onSetBlockState"];
+  onRetryDelivery?: FeedContext["onRetryDelivery"];
+  /** Must keep its identity while nothing retries: the rows memo on it. */
+  retrying?: FeedContext["retrying"];
 };
 
 export type ChatFeedContextResult = {
@@ -58,6 +61,8 @@ export function useChatFeedContext({
   onOpenThread,
   onSubmitForm,
   onSetBlockState,
+  onRetryDelivery,
+  retrying,
 }: ChatFeedContextInput): ChatFeedContextResult {
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
@@ -112,6 +117,8 @@ export function useChatFeedContext({
       onOpenThread,
       onSubmitForm,
       onSetBlockState,
+      onRetryDelivery,
+      retrying,
     }),
     [
       agentId,
@@ -126,6 +133,8 @@ export function useChatFeedContext({
       onOpenThread,
       onSubmitForm,
       onSetBlockState,
+      onRetryDelivery,
+      retrying,
       openLightbox,
       peers,
     ]

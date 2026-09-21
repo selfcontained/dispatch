@@ -221,6 +221,24 @@ export async function registerStreamRoutes(
     }
   );
 
+  // Send a post the agent never took, again. The block is the one already
+  // in the stream: its row goes back to pending and the same words are
+  // queued once more.
+  app.post(
+    "/api/v1/streams/:rootId/blocks/:blockId/retry",
+    async (request, reply) => {
+      const params = request.params as { rootId?: string; blockId?: string };
+      try {
+        return await streams.retryDelivery(
+          params.rootId ?? "",
+          params.blockId ?? ""
+        );
+      } catch (error) {
+        return sendError(reply, error);
+      }
+    }
+  );
+
   app.post(
     "/api/v1/streams/:rootId/blocks/:blockId/submit",
     async (request, reply) => {

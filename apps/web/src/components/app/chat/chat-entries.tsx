@@ -170,6 +170,10 @@ export type FeedContext = {
   ) => void;
   /** `PATCH …/state`: resolve, dispute or reopen a finding. */
   onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
+  /** Sends a post the agent never took to it again. */
+  onRetryDelivery?: (blockId: string) => void;
+  /** Blocks with a retry in flight, so the row can say so. */
+  retrying?: ReadonlySet<string>;
 };
 
 export type PostAuthor = {
@@ -668,9 +672,11 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 function DeliveryMeta({
   block,
   held,
+  ctx,
 }: {
   block: Block;
   held: boolean;
+  ctx: FeedContext;
 }): JSX.Element | null {
   if (block.toAgentId === null) return null;
   if (held && block.author.kind === "user") {
@@ -686,14 +692,28 @@ function DeliveryMeta({
     );
   }
   if (block.delivered === false) {
+    const retrying = ctx.retrying?.has(block.id) ?? false;
     return (
       <div
-        className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
-        title="The agent never received this message: it had no session, or its engine stopped responding. Send it again to retry."
+        className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive"
+        title="The agent never received this message: it had no session, or its engine stopped responding."
         data-testid="chat-delivery-failed"
       >
         <AlertTriangle className="h-3 w-3" />
         Not delivered
+        {/* The same post, sent again: nothing new lands in the stream, this
+            row simply goes back to pending. */}
+        {ctx.onRetryDelivery ? (
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            disabled={retrying}
+            onClick={() => ctx.onRetryDelivery?.(block.id)}
+            data-testid="chat-delivery-retry"
+          >
+            {retrying ? "Retrying…" : "Retry"}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -1144,7 +1164,7 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList attachments={block.attachments} ctx={ctx} />
-        <DeliveryMeta block={block} held={held} />
+        <DeliveryMeta block={block} held={held} ctx={ctx} />
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}
@@ -1209,7 +1229,7 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {body}
       <AttachmentList attachments={block.attachments} ctx={ctx} />
-      <DeliveryMeta block={block} held={false} />
+      <DeliveryMeta block={block} held={false} ctx={ctx} />
       <ReactionBar
         reactions={reactions}
         agentName={author.name}

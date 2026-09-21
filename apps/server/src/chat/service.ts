@@ -1916,6 +1916,97 @@ export class StreamService {
    * no finding was named.
    */
   /** The finding a reply names (its id and title), for the envelope. */
+  /**
+   * Send a post that never arrived to its agent again. The same block, not
+   * a new one: the words keep their place in the stream and the row's
+   * state goes back to pending.
+   *
+   * The envelope is rebuilt from what the block itself records rather than
+   * from the send that first made it — who else it named, the files it
+   * carries, the ask it answers. Each is derivable, and getting one wrong
+   * is quiet (an answer that never says what it answers), so this is the
+   * one place that knows how to reconstruct all of them.
+   */
+  async retryDelivery(
+    streamId: string,
+    blockId: string
+  ): Promise<{ block: Block; held: boolean }> {
+    const block = await this.store.getById(blockId);
+    if (!block || block.streamId !== streamId) {
+      throw new StreamValidationError("Block not found.");
+    }
+    if (!block.toAgentId) {
+      throw new StreamValidationError("That post was not addressed to anyone.");
+    }
+    if (block.delivered !== false) {
+      throw new StreamConflictError(
+        block.delivered === true
+          ? "That post was already delivered."
+          : "That post is still being delivered."
+      );
+    }
+    const mentioned =
+      block.kind === "text" ? (block.data?.mentions ?? []) : undefined;
+    const recipients =
+      mentioned && mentioned.length > 0 ? mentioned : [block.toAgentId];
+    const agents = await Promise.all(
+      recipients.map((id) => this.requireAgent(id))
+    );
+    // An agent that cannot take a prompt gets the reason now rather than a
+    // second spinner: a retry is for a message that missed, not a way to
+    // wake something that is not running.
+    for (const id of recipients) await this.canDeliver(id, false);
+    const lines = new Map(
+      agents.map((agent) => [
+        agent.id,
+        block.attachments.length > 0
+          ? this.describeAttachments(agent, block.attachments)
+          : [],
+      ])
+    );
+    // The ask this post answers, from the ask's own record of who answered
+    // it — not from the fact that the post replies to a question, which a
+    // plain comment in the same thread also does.
+    const answered = block.replyTo
+      ? await this.store.getById(block.replyTo)
+      : null;
+    let answers: { blockId: string; kind: BlockKind } | null = null;
+    if (answered?.kind === "question") {
+      if (answered.state?.answer?.blockId === block.id) {
+        answers = { blockId: answered.id, kind: "question" };
+      }
+    } else if (answered?.kind === "form") {
+      if (answered.state?.submission?.blockId === block.id) {
+        answers = { blockId: answered.id, kind: "form" };
+      }
+    }
+    const names = new Map(agents.map((agent) => [agent.id, agent.name]));
+    const from = await this.senderOf(block.author);
+    if (!(await this.store.markDelivering(block.id))) {
+      throw new StreamValidationError("Block not found.");
+    }
+    const pending = { ...block, delivered: null };
+    await this.publishEntry(streamId, block.id);
+    const { held } = await this.deliverBlockTo(
+      pending,
+      recipients,
+      from,
+      (agentId) => ({
+        attachmentLines: lines.get(agentId) ?? [],
+        answers,
+        mention:
+          mentioned && mentioned.length > 0
+            ? {
+                alsoTo: recipients
+                  .filter((id) => id !== agentId)
+                  .map((id) => names.get(id) ?? id),
+              }
+            : null,
+      })
+    );
+    return { block: pending, held };
+  }
+
   private async findingOf(
     block: Block
   ): Promise<{ id: string; title: string } | null> {

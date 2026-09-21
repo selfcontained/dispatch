@@ -40,6 +40,7 @@ import {
   useAnswerQuestion,
   useMarkStreamRead,
   usePostBlock,
+  useRetryDelivery,
   useSetBlockState,
   useStreamFeed,
   useSubmitForm,
@@ -357,6 +358,7 @@ export function ChatPane({
   const answer = useAnswerQuestion(rootId);
   const submitForm = useSubmitForm(rootId);
   const setBlockState = useSetBlockState(rootId);
+  const retry = useRetryDelivery(rootId);
   const reaction = useToggleReaction(rootId);
   const markRead = useMarkStreamRead(rootId, feed.unreadCount);
   // A post from a child's page goes to the child; the root's page posts to
@@ -780,6 +782,25 @@ export function ChatPane({
     [setBlockStateNow]
   );
 
+  // The post the agent never took, sent again. Only one can be in flight
+  // at a time in practice, but the set keeps the row that is retrying
+  // distinct from the others when a few failed together.
+  const { mutate: retryNow } = retry;
+  const retrying = useMemo(
+    () => new Set(retry.isPending && retry.variables ? [retry.variables] : []),
+    [retry.isPending, retry.variables]
+  );
+  const onRetryDelivery = useCallback(
+    (blockId: string) => {
+      setSendError(null);
+      retryNow(blockId, {
+        onError: (err) =>
+          setSendError(`Couldn't send that message again: ${err.message}`),
+      });
+    },
+    [retryNow]
+  );
+
   const { mutate: toggleReactionNow } = reaction;
   const onToggleReaction = useCallback(
     (blockId: string, emoji: string, remove: boolean) => {
@@ -808,6 +829,8 @@ export function ChatPane({
     onOpenThread,
     onSubmitForm,
     onSetBlockState,
+    onRetryDelivery,
+    retrying,
   });
 
   const disabledReason = composerDisabledReason(agent, {

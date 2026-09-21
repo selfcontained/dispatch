@@ -384,6 +384,16 @@ export class BlockStore {
   }
 
   /** Blocks with a recipient: record whether the prompt reached it. */
+  /** Back to pending, for a retry. Returns false when the row is gone. */
+  async markDelivering(id: string): Promise<boolean> {
+    if (!isBlockId(id)) return false;
+    const result = await this.db.query(
+      `UPDATE blocks SET delivered = NULL WHERE id = $1 AND to_agent_id IS NOT NULL`,
+      [id]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async setDelivered(id: string, delivered: boolean): Promise<void> {
     if (!isBlockId(id)) return;
     await this.db.query(`UPDATE blocks SET delivered = $2 WHERE id = $1`, [

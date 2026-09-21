@@ -445,6 +445,31 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
   });
 
+  it("offers Retry on a post the agent never took, and says so while it goes", () => {
+    const onRetryDelivery = vi.fn();
+    const failed = blockEntry(
+      block({ id: "u1", authorKind: "user", text: "Ship it", delivered: false })
+    );
+    renderFeed([failed], {}, { onRetryDelivery });
+    fireEvent.click(screen.getByTestId("chat-delivery-retry"));
+    expect(onRetryDelivery).toHaveBeenCalledWith("u1");
+
+    cleanup();
+    renderFeed([failed], {}, { onRetryDelivery, retrying: new Set(["u1"]) });
+    const button = screen.getByTestId("chat-delivery-retry") as HTMLButtonElement;
+    expect(button.textContent).toBe("Retrying…");
+    expect(button.disabled).toBe(true);
+  });
+
+  it("offers no Retry when the feed has no way to send again", () => {
+    renderFeed([
+      blockEntry(
+        block({ id: "u1", authorKind: "user", text: "Ship it", delivered: false })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-delivery-retry")).toBeNull();
+  });
+
   it("collapses consecutive posts by one author under a single header", () => {
     renderFeed([
       blockEntry(block({ id: "a1", text: "first" })),

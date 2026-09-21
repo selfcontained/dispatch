@@ -1087,6 +1087,40 @@ export function replaceThreadRoot(
  * applies to the cached block at once; the response, and then the
  * `stream.entry`, carry the server's merge.
  */
+/**
+ * Send a post the agent never took to it again. The block already in the
+ * stream is the one that goes: its row returns to pending here so the state
+ * changes the moment the button is pressed, and the server's answer (or the
+ * delivery event that follows it) settles it.
+ */
+export function useRetryDelivery(rootId: string | null) {
+  const queryClient = useQueryClient();
+  const key = streamFeedQueryKey(rootId);
+  return useMutation<{ block: Block; held: boolean }, Error, string>({
+    mutationFn: async (blockId) =>
+      api<{ block: Block; held: boolean }>(
+        `${blockPath(rootId, blockId)}/retry`,
+        { method: "POST" }
+      ),
+    onMutate: async (blockId) => {
+      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        mapBlock(old, blockId, (block) => ({ ...block, delivered: null }))
+      );
+    },
+    // A refused retry (the agent is not running) puts the row back as it
+    // was, with the reason surfaced by the caller.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        replaceBlock(old, data.block.id, data.block)
+      );
+    },
+  });
+}
+
 export function useSetBlockState(rootId: string | null) {
   const queryClient = useQueryClient();
   const key = streamFeedQueryKey(rootId);
