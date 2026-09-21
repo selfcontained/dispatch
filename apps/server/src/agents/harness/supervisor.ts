@@ -307,6 +307,9 @@ export class HarnessSupervisor {
    * dies on the unique index, and chunk accumulation sees stale open-row
    * state. Chaining each agent's events keeps order and the invariant.
    */
+  /** Starts in flight, so a second caller joins rather than racing. */
+  private readonly starting = new Map<string, Promise<{ resumed: boolean }>>();
+
   private readonly queues = new Map<string, Promise<void>>();
   /**
    * One turn at a time per agent. ACP allows one active prompt per session;
@@ -654,7 +657,28 @@ export class HarnessSupervisor {
     return this.backgroundProcesses.start(agentId, input, agent.cwd, env);
   }
 
+  /**
+   * One start per agent at a time: a caller arriving while another start is
+   * in flight joins it rather than racing it.
+   *
+   * The driver already refuses a second engine, but only from the moment the
+   * first registers as live — which is after its handshake, up to 30s later.
+   * Inside that window two starts each spawned an engine. For Codex that
+   * meant two app-servers initialising the same `~/.codex` sqlite state, one
+   * of them dying on the contention, and then the stale attempt's generic
+   * "did not complete the ACP handshake" overwriting the real error.
+   */
   async start(agentId: string): Promise<{ resumed: boolean }> {
+    const inFlight = this.starting.get(agentId);
+    if (inFlight) return inFlight;
+    const run = this.startOnce(agentId).finally(() => {
+      if (this.starting.get(agentId) === run) this.starting.delete(agentId);
+    });
+    this.starting.set(agentId, run);
+    return run;
+  }
+
+  private async startOnce(agentId: string): Promise<{ resumed: boolean }> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent || agent.type !== "dispatch") {
       throw new Error(`${agentId} is not a Dispatch agent`);

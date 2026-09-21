@@ -1538,3 +1538,35 @@ describe("RESTART_PROMPT", () => {
     expect(RESTART_PROMPT).toContain("interrupted by restart");
   });
 });
+
+describe("HarnessSupervisor.start concurrency", () => {
+  it("joins a start already in flight instead of spawning a second engine", async () => {
+    // Two starts for one agent raced on 2026-09-21: each spawned its own
+    // engine, both codex app-servers initialised the same ~/.codex sqlite,
+    // one died on the contention, and the loser's generic handshake timeout
+    // then overwrote the useful error.
+    const { sup, deps } = await build({});
+    const personaCalls = () =>
+      (deps.personaPromptFor as unknown as { mock: { calls: unknown[] } }).mock
+        .calls.length;
+
+    const [a, b] = await Promise.all([sup.start("agt_1"), sup.start("agt_1")]);
+
+    expect(a).toEqual(b);
+    expect(personaCalls()).toBe(1);
+  });
+
+  it("releases the slot once the first start has settled", async () => {
+    // The fake child cannot be respawned, so the second start is expected to
+    // fail — what matters is that it was attempted at all, which is what says
+    // the in-flight entry was cleared rather than cached forever.
+    const { sup, deps } = await build({});
+    await sup.start("agt_1");
+    await sup.stop("agt_1");
+    await expect(sup.start("agt_1")).rejects.toThrow();
+    expect(
+      (deps.personaPromptFor as unknown as { mock: { calls: unknown[] } }).mock
+        .calls.length
+    ).toBe(2);
+  });
+});
