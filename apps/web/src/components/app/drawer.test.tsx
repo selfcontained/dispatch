@@ -1,21 +1,11 @@
 // @vitest-environment jsdom
-import type { ChatTurnEntry, StreamThreadResponse } from "@dispatch/shared";
+import type { StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  type FeedCache,
-  streamFeedQueryKey,
-  threadQueryKey,
-} from "@/hooks/use-stream";
+import { threadQueryKey } from "@/hooks/use-stream";
 import { block, reviewBody } from "@/test-utils/blocks";
 
 import { DrawerContent } from "./drawer";
@@ -108,14 +98,6 @@ function renderDrawer(search: string) {
           }}
           railDisabledReason={null}
           agentNameById={(id) => (id === "agt_rev" ? "reviewer" : "Agent")}
-          agent={
-            {
-              id: "agt_1",
-              name: "builder",
-              status: "running",
-              type: "claude",
-            } as never
-          }
           onOpenBlock={vi.fn()}
         />
         <LocationProbe />
@@ -139,11 +121,11 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("DrawerContent as the drawer", () => {
+describe("DrawerContent as the sidebar", () => {
   it("shows the home tabs with the review in the rail, and its unseen comments", () => {
     renderDrawer("");
-    expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("0");
     expect(screen.getByTestId("sidebar-tab-rail")).toBeTruthy();
+    // A thread is the thread drawer's, never a page over the sidebar.
     expect(screen.queryByTestId("drawer-back")).toBeNull();
     const card = screen.getByTestId("rail-review");
     expect(card.textContent).toContain("reviewer");
@@ -151,94 +133,10 @@ describe("DrawerContent as the drawer", () => {
     expect(screen.getByTestId("rail-review-unread").textContent).toBe("1");
   });
 
-  it("stacks the review page and then the finding page from the URL, with a way back", async () => {
+  it("keeps its home even when the URL names a thread", () => {
     renderDrawer("?thread=rv&finding=f1");
-    expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("2");
-    const pages = screen.getAllByTestId("drawer-page");
-    expect(pages.map((p) => p.getAttribute("data-page-key"))).toEqual([
-      "home",
-      "thread:rv",
-      "finding:rv",
-    ]);
-    expect(screen.getByTestId("drawer-title").textContent).toBe("Finding");
-    expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
-      "in the review by reviewer"
-    );
-    // The finding page is the top one: its detail, its own composer.
-    expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
-      "Null deref"
-    );
-    // Opening the finding marks its comments seen.
-    await waitFor(() =>
-      expect(apiMock).toHaveBeenCalledWith(
-        "/api/v1/streams/agt_1/blocks/rv/read",
-        { method: "POST", body: JSON.stringify({ finding: "f1" }) }
-      )
-    );
-
-    fireEvent.click(screen.getByTestId("drawer-back"));
-    expect(screen.getByTestId("location-search").textContent).toBe(
-      "?thread=rv"
-    );
-    expect(screen.getByTestId("drawer-title").textContent).toBe("Review");
-    expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
-      "by reviewer"
-    );
-    expect(screen.queryByTestId("chat-finding-detail")).toBeNull();
-    expect(screen.getAllByTestId("chat-review-finding")).toHaveLength(2);
-
-    fireEvent.click(screen.getByTestId("drawer-back"));
-    expect(screen.getByTestId("location-search").textContent).toBe("");
-    expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("0");
-  });
-
-  it("shows another agent's turn as a page of its own from the URL", () => {
-    const at = "2026-09-02T10:00:00.000Z";
-    const childTurn: ChatTurnEntry = {
-      type: "turn",
-      id: "turn:9",
-      agentId: "agt_rev",
-      at,
-      updatedAt: at,
-      prompt: { source: "chat", text: "check the diff", attachments: [] },
-      trace: { startedAt: at, endedAt: at, finalResult: "ok", steps: [] },
-      result: { text: "All clear from the reviewer.", streaming: false },
-      settled: true,
-      interrupted: false,
-    };
-    client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1"), {
-      pages: [
-        {
-          entries: [childTurn],
-          hasMore: false,
-          nextCursor: null,
-          unreadCount: 0,
-        },
-      ],
-      pageParams: [undefined],
-    });
-    renderDrawer("?turn=turn%3A9");
-    expect(screen.getByTestId("drawer").getAttribute("data-depth")).toBe("1");
-    expect(screen.getByTestId("drawer-title").textContent).toBe("Turn");
-    expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
-      "by reviewer"
-    );
-    const page = screen.getByTestId("drawer-turn-page");
-    // The turn in full, not a child's folded row.
-    expect(page.querySelector('[data-testid="chat-child-turn"]')).toBeNull();
-    expect(page.textContent).toContain("All clear from the reviewer.");
-    fireEvent.click(screen.getByTestId("drawer-back"));
-    expect(screen.getByTestId("location-search").textContent).toBe("");
-  });
-
-  it("opens a finding's page from a row on the review page", () => {
-    renderDrawer("?thread=rv");
-    fireEvent.click(screen.getAllByTestId("chat-review-finding-link")[1]!);
-    expect(screen.getByTestId("location-search").textContent).toBe(
-      "?thread=rv&finding=f2"
-    );
-    expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
-      "Typo"
-    );
+    expect(screen.getByTestId("sidebar-tab-rail")).toBeTruthy();
+    expect(screen.queryByTestId("drawer-page")).toBeNull();
+    expect(screen.queryByTestId("drawer-title")).toBeNull();
   });
 });

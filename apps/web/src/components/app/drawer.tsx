@@ -1,24 +1,10 @@
-import { type RefObject, useMemo } from "react";
-import { MotionConfig } from "framer-motion";
-import { ArrowLeft, ChevronRight, Pin, PinOff, X } from "lucide-react";
+import { type ReactNode, type RefObject } from "react";
+import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
-import { threadTitle } from "@/components/app/chat/thread-panel";
-import {
-  DrawerStack,
-  type DrawerPage,
-} from "@/components/app/drawer/drawer-stack";
-import { ThreadPage } from "@/components/app/drawer/thread-page";
-import { TurnPage, useTurnEntry } from "@/components/app/drawer/turn-page";
-import {
-  type Agent,
-  type FileItem,
-  type SubAgentFiles,
-} from "@/components/app/types";
+import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab } from "@/lib/store";
 import { FilesContent } from "@/components/app/files-content";
 import { StreamRailPanel } from "@/components/app/stream-rail";
-import { useDrawerRoute } from "@/hooks/use-drawer-route";
-import { useThread } from "@/hooks/use-stream";
 import { type StreamRail } from "@/hooks/use-stream-rail";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
@@ -57,13 +43,8 @@ type DrawerSharedProps = {
   railDisabledReason: string | null;
   /** Names an agent in the selected agent's tree, for a child's question. */
   agentNameById?: (agentId: string) => string;
-  /** Pushes a block's thread (or a review) over the drawer's home page. */
+  /** Opens a block's thread (or a review) in the thread drawer. */
   onOpenBlock?: (blockId: string) => void;
-  /** The page's agent: the thread pages post as it and read its state. */
-  agent?: Agent | null;
-  /** Opens the Changes tab on a file, at a line when one is given. */
-  onOpenPath?: (path: string, line: number | null) => void;
-  isMobile?: boolean;
 };
 
 type DrawerProps = DrawerSharedProps & {
@@ -158,129 +139,20 @@ export function DrawerContent({
   railDisabledReason,
   agentNameById,
   onOpenBlock,
-  agent = null,
-  onOpenPath,
-  isMobile = false,
 }: DrawerContentProps & {
   unseenFileCount: number;
 }): JSX.Element {
-  // The pages over the home tabs come from the URL: a thread (or a review),
-  // and a finding on that review.
-  const route = useDrawerRoute();
-  const rootId = rail.rootId;
-  const threadId = selectedAgentId && rootId ? route.threadId : null;
-  const findingId = threadId ? route.findingId : null;
-  const turnId = selectedAgentId && rootId ? route.turnId : null;
-  const thread = useThread(rootId, threadId);
-  const turn = useTurnEntry(rootId, turnId);
-  const nameOf = (agentId: string) =>
-    agentId === selectedAgentId
-      ? (selectedAgentName ?? "Agent")
-      : (agentNameById?.(agentId) ?? "Agent");
-  const heading = turnId
-    ? { title: "Turn", subtitle: turn ? `by ${nameOf(turn.agentId)}` : "" }
-    : threadTitle(thread.root, findingId !== null, nameOf);
-  const { openThread, openTurn, back } = route;
-  const pages = useMemo<DrawerPage[]>(() => {
-    const list: DrawerPage[] = [{ key: "home", node: null }];
-    if (!selectedAgentId || !rootId) return list;
-    if (turnId) {
-      list.push({
-        key: `turn:${turnId}`,
-        node: (
-          <TurnPage
-            rootId={rootId}
-            turnId={turnId}
-            openLightbox={openLightbox}
-            onOpenPath={onOpenPath}
-            onOpenThread={openThread}
-          />
-        ),
-      });
-      return list;
-    }
-    if (!threadId) return list;
-    // One page per level: moving between findings on the same review
-    // changes what the finding page shows rather than swapping pages.
-    const page = (finding: string | null): DrawerPage => ({
-      key: finding ? `finding:${threadId}` : `thread:${threadId}`,
-      node: (
-        <ThreadPage
-          agentId={selectedAgentId}
-          agent={agent}
-          rootId={rootId}
-          blockId={threadId}
-          findingId={finding}
-          isMobile={isMobile}
-          openLightbox={openLightbox}
-          onOpenPath={onOpenPath}
-          onOpenThread={openThread}
-          onOpenTurn={openTurn}
-          onBack={back}
-        />
-      ),
-    });
-    list.push(page(null));
-    if (findingId) list.push(page(findingId));
-    return list;
-  }, [
-    agent,
-    back,
-    findingId,
-    isMobile,
-    onOpenPath,
-    openLightbox,
-    openThread,
-    openTurn,
-    rootId,
-    selectedAgentId,
-    threadId,
-    turnId,
-  ]);
-  const depth = pages.length - 1;
-
   return (
     <aside
       data-testid="drawer"
-      data-depth={depth}
       className={cn(
         "flex h-full min-h-0 w-full flex-col text-foreground",
         className
       )}
     >
-      {/* Chrome: the home tabs, or the page's title with the way back */}
+      {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
-        {depth > 0 ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1 pl-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              aria-label="Back"
-              data-testid="drawer-back"
-              onClick={back}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <div className="min-w-0 flex-1">
-              <div
-                className="truncate text-sm font-semibold text-foreground"
-                data-testid="drawer-title"
-              >
-                {heading.title}
-              </div>
-              {heading.subtitle ? (
-                <div
-                  className="truncate text-[11.5px] text-muted-foreground"
-                  data-testid="drawer-subtitle"
-                >
-                  {heading.subtitle}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : (
+        {(
           <div className="flex min-w-0 flex-1">
             <SidebarTab
               label="Rail"
@@ -338,79 +210,77 @@ export function DrawerContent({
         </div>
       </div>
 
-      <MotionConfig reducedMotion="user">
-        <DrawerStack
-          pages={pages.map((page, index) =>
-            index === 0
-              ? {
-                  key: page.key,
-                  node: (
-                    <>
-                      {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
-                      <div
-                        className={cn(
-                          "flex min-h-0 flex-1 flex-col",
-                          activeTab !== "rail" && "hidden"
-                        )}
-                      >
-                        <StreamRailPanel
-                          rail={rail}
-                          agentName={selectedAgentName}
-                          agentNameById={agentNameById}
-                          disabledReason={railDisabledReason}
-                          onOpenBlock={onOpenBlock}
-                        />
-                      </div>
-                      <div
-                        className={cn(
-                          "flex min-h-0 flex-1 flex-col",
-                          activeTab !== "files" && "hidden"
-                        )}
-                      >
-                        <FilesContent
-                          files={files}
-                          ownFiles={ownFiles}
-                          subAgentFiles={subAgentFiles}
-                          filesOwnerId={filesOwnerId}
-                          onFilesOwnerChange={onFilesOwnerChange}
-                          selectedAgentId={selectedAgentId}
-                          selectedAgentName={selectedAgentName}
-                          animatingFileKeys={animatingFileKeys}
-                          drawerViewportRef={drawerViewportRef}
-                          openLightbox={openLightbox}
-                          hasStream={hasStream}
-                          streamUrl={streamUrl}
-                          onUploadFile={onUploadFile}
-                        />
-                      </div>
-                    </>
-                  ),
-                }
-              : page
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            activeTab !== "rail" && "hidden"
           )}
-        />
-      </MotionConfig>
+        >
+          <StreamRailPanel
+            rail={rail}
+            agentName={selectedAgentName}
+            agentNameById={agentNameById}
+            disabledReason={railDisabledReason}
+            onOpenBlock={onOpenBlock}
+          />
+        </div>
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            activeTab !== "files" && "hidden"
+          )}
+        >
+          <FilesContent
+            files={files}
+            ownFiles={ownFiles}
+            subAgentFiles={subAgentFiles}
+            filesOwnerId={filesOwnerId}
+            onFilesOwnerChange={onFilesOwnerChange}
+            selectedAgentId={selectedAgentId}
+            selectedAgentName={selectedAgentName}
+            animatingFileKeys={animatingFileKeys}
+            drawerViewportRef={drawerViewportRef}
+            openLightbox={openLightbox}
+            hasStream={hasStream}
+            streamUrl={streamUrl}
+            onUploadFile={onUploadFile}
+          />
+        </div>
+      </div>
     </aside>
   );
 }
 
-export function Drawer({
-  drawerOpen,
-  setDrawerOpen,
+/**
+ * The slot at the right edge, in the sidebar's mode: pinned, it takes
+ * layout width (0 when closed) and shrinks the centre; unpinned, it floats
+ * over the centre and slides in from the edge. The sidebar and the thread
+ * drawer each sit in one, so a thread takes the sidebar's place while it
+ * is open and gives it back on close.
+ */
+export function DrawerFrame({
+  open,
   pinned,
-  onTogglePin,
   onWidthTransitionEnd,
-  ...props
-}: DrawerProps): JSX.Element {
+  children,
+  testId = "drawer-wrapper",
+}: {
+  open: boolean;
+  pinned: boolean;
+  onWidthTransitionEnd?: () => void;
+  children: ReactNode;
+  testId?: string;
+}): JSX.Element {
   if (pinned) {
-    // Inline mode: takes layout space and shrinks the terminal.
     return (
       <div
-        data-testid="drawer-wrapper"
+        data-testid={testId}
         data-pinned="true"
         className="h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
         style={{
-          width: drawerOpen ? DRAWER_WIDTH_PX : 0,
+          width: open ? DRAWER_WIDTH_PX : 0,
           transitionDuration: `${DRAWER_TRANSITION_MS}ms`,
         }}
         onTransitionEnd={(event) => {
@@ -420,14 +290,7 @@ export function Drawer({
         }}
       >
         <div className="h-full min-h-0" style={{ width: DRAWER_WIDTH_PX }}>
-          <DrawerContent
-            {...props}
-            onRequestClose={() => setDrawerOpen(false)}
-            closeButtonIcon="chevron"
-            pinned={pinned}
-            onTogglePin={onTogglePin}
-            className={cn("rounded-l-lg border-l", glassPanel)}
-          />
+          {children}
         </div>
       </div>
     );
@@ -443,19 +306,36 @@ export function Drawer({
   // dragging the whole app sideways.
   return (
     <div
-      data-testid="drawer-wrapper"
+      data-testid={testId}
       data-pinned="false"
       className={cn(
         "fixed bottom-0 right-0 top-0 z-30 transition-transform ease-out",
-        !drawerOpen && "pointer-events-none"
+        !open && "pointer-events-none"
       )}
       style={{
         width: DRAWER_WIDTH_PX,
-        transform: drawerOpen
-          ? "translateX(0)"
-          : `translateX(${DRAWER_WIDTH_PX}px)`,
+        transform: open ? "translateX(0)" : `translateX(${DRAWER_WIDTH_PX}px)`,
         transitionDuration: `${DRAWER_TRANSITION_MS}ms`,
       }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function Drawer({
+  drawerOpen,
+  setDrawerOpen,
+  pinned,
+  onTogglePin,
+  onWidthTransitionEnd,
+  ...props
+}: DrawerProps): JSX.Element {
+  return (
+    <DrawerFrame
+      open={drawerOpen}
+      pinned={pinned}
+      onWidthTransitionEnd={onWidthTransitionEnd}
     >
       <DrawerContent
         {...props}
@@ -463,8 +343,12 @@ export function Drawer({
         closeButtonIcon="chevron"
         pinned={pinned}
         onTogglePin={onTogglePin}
-        className={cn("rounded-l-lg border-l shadow-2xl", glassPanel)}
+        className={cn(
+          "rounded-l-lg border-l",
+          !pinned && "shadow-2xl",
+          glassPanel
+        )}
       />
-    </div>
+    </DrawerFrame>
   );
 }

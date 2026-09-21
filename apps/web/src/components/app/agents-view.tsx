@@ -23,7 +23,9 @@ import {
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
-import { Drawer, DrawerContent } from "@/components/app/drawer";
+import { Drawer, DrawerContent, DrawerFrame } from "@/components/app/drawer";
+import { ThreadDrawer } from "@/components/app/thread-drawer";
+import { glassPanel } from "@/lib/glass";
 import { BottomBar } from "@/components/app/bottom-bar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
@@ -265,26 +267,25 @@ export function AgentsView({
     [focusedAgentId, isMobile, navTo, setMobileDrawerOpen]
   );
 
-  // The drawer's pages live in the URL. Opening one opens the drawer;
-  // closing the drawer pops them all, so it reopens on its home.
+  // A thread (or a review, or a child's turn) lives in the URL and opens
+  // in a drawer of its own, in the sidebar's slot. The sidebar keeps its
+  // own open state underneath: closing the thread gives the slot back.
+  const hasActiveAgent = Boolean(validatedSelectedAgentId);
   const drawerRoute = useDrawerRoute();
   const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
     drawerRoute;
-  const drawerPageOpen = drawerRoute.depth > 0;
+  const threadDrawerOpen = drawerRoute.depth > 0 && hasActiveAgent;
+  // On a phone the two are sheets over the same edge: a thread opening
+  // takes the sidebar's sheet down.
   useEffect(() => {
-    if (drawerPageOpen) setDrawerOpenState(true);
-  }, [drawerPageOpen, setDrawerOpenState]);
+    if (isMobile && threadDrawerOpen && mobileDrawerOpen) {
+      setMobileDrawerOpen(false);
+    }
+  }, [isMobile, mobileDrawerOpen, setMobileDrawerOpen, threadDrawerOpen]);
   const closeDrawer = useCallback(() => {
-    closeDrawerPages();
     setDrawerOpenState(false);
-  }, [closeDrawerPages, setDrawerOpenState]);
-  const setDrawerOpen = useCallback(
-    (open: boolean) => {
-      if (open) setDrawerOpenState(true);
-      else closeDrawer();
-    },
-    [closeDrawer, setDrawerOpenState]
-  );
+  }, [setDrawerOpenState]);
+  const setDrawerOpen = setDrawerOpenState;
 
   /** Pushes a block's thread (or a review) onto the drawer; from the rail. */
   const handleOpenBlock = useCallback(
@@ -380,7 +381,6 @@ export function AgentsView({
     setCreateOpen(open);
   }, []);
 
-  const hasActiveAgent = Boolean(validatedSelectedAgentId);
 
   const changesElement = changesVisible ? (
     <ChangesTab
@@ -570,9 +570,31 @@ export function AgentsView({
           </div>
         </main>
 
-        <div className="hidden shrink-0 md:block">
+        <div className="hidden shrink-0 md:flex">
+          <DrawerFrame
+            open={threadDrawerOpen}
+            pinned={drawerPinned}
+            onWidthTransitionEnd={finishDrawerResizeSettle}
+            testId="thread-drawer-wrapper"
+          >
+            <ThreadDrawer
+              selectedAgentId={focusedAgentId}
+              selectedAgentName={focusedAgent?.name ?? null}
+              rootId={rail.rootId}
+              agentNameById={agentNameById}
+              agent={focusedAgent}
+              openLightbox={openLightbox}
+              onOpenPath={handleOpenPath}
+              isMobile={false}
+              className={cn(
+                "rounded-l-lg border-l",
+                !drawerPinned && "shadow-2xl",
+                glassPanel
+              )}
+            />
+          </DrawerFrame>
           <Drawer
-            drawerOpen={drawerOpen && hasActiveAgent}
+            drawerOpen={drawerOpen && hasActiveAgent && !threadDrawerOpen}
             files={visibleFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
@@ -597,19 +619,38 @@ export function AgentsView({
             railDisabledReason={railDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
-            agent={focusedAgent}
-            onOpenPath={handleOpenPath}
-            isMobile={false}
           />
         </div>
       </div>
 
       {isMobile ? (
         <GlassSidebar
+          open={threadDrawerOpen}
+          onOpenChange={(open) => {
+            if (!open) closeDrawerPages();
+          }}
+          side="right"
+          mobile={true}
+          label="Thread"
+        >
+          <ThreadDrawer
+            selectedAgentId={focusedAgentId}
+            selectedAgentName={focusedAgent?.name ?? null}
+            rootId={rail.rootId}
+            agentNameById={agentNameById}
+            agent={focusedAgent}
+            openLightbox={openLightbox}
+            onOpenPath={handleOpenPath}
+            isMobile
+          />
+        </GlassSidebar>
+      ) : null}
+
+      {isMobile ? (
+        <GlassSidebar
           open={mobileDrawerOpen}
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
-            else closeDrawerPages();
             setMobileDrawerOpen(open);
           }}
           side="right"
@@ -638,9 +679,6 @@ export function AgentsView({
             railDisabledReason={railDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
-            agent={focusedAgent}
-            onOpenPath={handleOpenPath}
-            isMobile
           />
         </GlassSidebar>
       ) : null}

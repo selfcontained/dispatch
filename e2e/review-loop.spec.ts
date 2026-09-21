@@ -220,8 +220,9 @@ test.describe("Review loop", () => {
         `/agents/${builder.id}/changes\\?thread=${reviewId}&finding=f-ten$`
       )
     );
-    const drawer = page.getByTestId("drawer");
-    await expect(drawer).toHaveAttribute("data-depth", "2");
+    // A thread has a drawer of its own; the sidebar keeps its place.
+    const threadDrawer = page.getByTestId("thread-drawer");
+    await expect(threadDrawer).toHaveAttribute("data-depth", "2");
     await expect(page.getByTestId("drawer-title")).toHaveText("Finding");
     const top = page.locator('[data-testid="drawer-page"][data-top="true"]');
     await expect(top.getByTestId("chat-review-finding-status")).toHaveText(
@@ -272,7 +273,7 @@ test.describe("Review loop", () => {
     // the reviewer's answer to it comes back to the builder, inherits the
     // finding, and is unseen until the finding's page is opened again.
     await page.getByTestId("drawer-back").click();
-    await expect(drawer).toHaveAttribute("data-depth", "1");
+    await expect(threadDrawer).toHaveAttribute("data-depth", "1");
     await expect(page.getByTestId("drawer-title")).toHaveText("Review");
     const builderSaid = await callMcpToolViaAPI(request, builder.id, "post", {
       replyTo: reviewId,
@@ -295,11 +296,14 @@ test.describe("Review loop", () => {
     );
     // Seen from the review page as they land (it lists every comment), so
     // the unread marks show where the review is only a card: the rail.
-    await page.getByTestId("drawer-back").click();
-    await expect(drawer).toHaveAttribute("data-depth", "0");
+    await page.getByTestId("drawer-close").click();
     // The review page slides out before it unmounts; until then it still
-    // counts as reading, so wait for the home page to be alone.
-    await expect(page.getByTestId("drawer-page")).toHaveCount(1);
+    // counts as reading, so wait for the thread drawer to be gone.
+    await expect(threadDrawer).toHaveCount(0);
+    await expect(page.getByTestId("drawer-page")).toHaveCount(0);
+    // The sidebar is a surface of its own: open it for the rail.
+    await page.getByTestId("toggle-drawer").click();
+    const drawer = page.getByTestId("drawer");
     await drawer.getByTestId("sidebar-tab-rail").click();
     const railCard = drawer.getByTestId("rail-review");
     await expect(railCard).toHaveCount(1);
@@ -312,7 +316,7 @@ test.describe("Review loop", () => {
     await expect(railCard.getByTestId("rail-review-unread")).toHaveText("1");
     // Opening the review reads them.
     await railCard.click();
-    await expect(drawer).toHaveAttribute("data-depth", "1");
+    await expect(threadDrawer).toHaveAttribute("data-depth", "1");
     await expect
       .poll(async () =>
         (await thread(request, builder.id, reviewId)).replies
@@ -321,9 +325,10 @@ test.describe("Review loop", () => {
       )
       .toEqual([true]);
 
-    // Back home: the rail lists the review with where it stands.
-    await page.getByTestId("drawer-back").click();
-    await expect(drawer).toHaveAttribute("data-depth", "0");
+    // Closed, the thread drawer gives the slot back to the sidebar, still
+    // open where it was: the rail lists the review with where it stands.
+    await page.getByTestId("drawer-close").click();
+    await expect(threadDrawer).toHaveCount(0);
     await page.waitForURL(new RegExp(`/agents/${builder.id}/changes$`));
     await drawer.getByTestId("sidebar-tab-rail").click();
     await expect(railCard.getByTestId("rail-review-status")).toHaveText(
@@ -429,18 +434,15 @@ test.describe("Review loop", () => {
     await page.goto(`/agents/${builder.id}?thread=${reviewId}&finding=f1`, {
       waitUntil: "domcontentloaded",
     });
-    const sheet = page.getByRole("dialog", { name: "Drawer" });
-    await expect(sheet.getByTestId("drawer")).toHaveAttribute(
+    const sheet = page.getByRole("dialog", { name: "Thread" });
+    await expect(sheet.getByTestId("thread-drawer")).toHaveAttribute(
       "data-depth",
       "2"
     );
     await expect(sheet.getByTestId("drawer-title")).toHaveText("Finding");
     await sheet.getByTestId("drawer-back").click();
     await expect(sheet.getByTestId("drawer-title")).toHaveText("Review");
-    await sheet.getByTestId("drawer-back").click();
-    await expect(sheet.getByTestId("drawer")).toHaveAttribute(
-      "data-depth",
-      "0"
-    );
+    await sheet.getByTestId("drawer-close").click();
+    await expect(page.getByTestId("thread-drawer")).toHaveCount(0);
   });
 });

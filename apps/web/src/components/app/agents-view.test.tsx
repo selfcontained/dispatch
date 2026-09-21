@@ -118,7 +118,11 @@ vi.mock(
   "@/components/app/agents-view-dialogs",
   stubModule("AgentsViewDialogs")
 );
-vi.mock("@/components/app/drawer", stubModule("Drawer", "DrawerContent"));
+vi.mock(
+  "@/components/app/drawer",
+  stubModule("Drawer", "DrawerContent", "DrawerFrame")
+);
+vi.mock("@/components/app/thread-drawer", stubModule("ThreadDrawer"));
 vi.mock("@/components/app/bottom-bar", stubModule("BottomBar"));
 vi.mock("@/components/app/sidebar-shell", stubWrapper("SidebarShell"));
 // Recorded rather than left real: the mobile slide-over can only ever call
