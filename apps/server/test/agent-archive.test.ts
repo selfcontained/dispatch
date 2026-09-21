@@ -336,6 +336,48 @@ describe("executeArchive", () => {
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
     });
 
+    it("preserves the worktree when the state could not be read", async () => {
+      // The failure this guards: a git timeout on a loaded host answered
+      // "no changes found", which is indistinguishable from a clean tree, and
+      // the worktree was deleted on it.
+      vi.mocked(getUnmergedChanges).mockResolvedValue({
+        hasUnmergedCommits: false,
+        changedFiles: [],
+        undetermined: true,
+      });
+      const agent = makeAgent("a1", {
+        worktreePath: "/tmp/wt",
+        archiveCleanupMode: "auto",
+      });
+      const pool = makePool();
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(agent),
+        getAgent: vi.fn().mockResolvedValue(agent),
+      });
+
+      await executeArchive(deps, "a1", makeCallbacks());
+
+      expect(cleanupGitWorktree).not.toHaveBeenCalled();
+    });
+
+    it("still removes a worktree the check read as genuinely clean", async () => {
+      const agent = makeAgent("a1", {
+        worktreePath: "/tmp/wt",
+        archiveCleanupMode: "auto",
+      });
+      const pool = makePool();
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(agent),
+        getAgent: vi.fn().mockResolvedValue(agent),
+      });
+
+      await executeArchive(deps, "a1", makeCallbacks());
+
+      expect(cleanupGitWorktree).toHaveBeenCalled();
+    });
+
     it("preserves the worktree when there are uncommitted changes", async () => {
       vi.mocked(getUncommittedChanges).mockResolvedValue({
         hasUncommittedChanges: true,

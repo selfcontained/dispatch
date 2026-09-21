@@ -51,12 +51,15 @@ describe("getUncommittedChanges", () => {
     ]);
   });
 
-  it("falls back to clean on git failure (soft-clean philosophy)", async () => {
+  it("reports no files on git failure, and says it could not tell", async () => {
+    // Still soft for the status badge: no files, no throw. The difference is
+    // that the answer now admits it is a failure rather than a clean tree.
     vi.mocked(runCommand).mockRejectedValue(new Error("git not found"));
     const result = await getUncommittedChanges("/wt");
     expect(result).toEqual({
       hasUncommittedChanges: false,
       uncommittedFiles: [],
+      undetermined: true,
     });
   });
 
@@ -199,10 +202,14 @@ describe("getUnmergedChanges", () => {
     expect(fetchCall?.[1]).not.toContain("origin/feature-x");
   });
 
-  it("returns clean on any thrown error (soft-clean philosophy)", async () => {
+  it("returns no files on any thrown error, and says it could not tell", async () => {
     vi.mocked(runCommand).mockRejectedValue(new Error("boom"));
     const result = await getUnmergedChanges("/wt");
-    expect(result).toEqual({ hasUnmergedCommits: false, changedFiles: [] });
+    expect(result).toEqual({
+      hasUnmergedCommits: false,
+      changedFiles: [],
+      undetermined: true,
+    });
   });
 });
 
@@ -375,5 +382,39 @@ describe("readWorktreeStatus", () => {
       changedFiles: ["src/feature.ts"],
       uncommittedFiles: ["M src/dirty.ts"], // leading space lost via outer .trim()
     });
+  });
+});
+
+describe("undetermined state", () => {
+  // The archive deletes a worktree when the check says there is nothing to
+  // keep. A git call that throws — a timeout on a loaded host is the common
+  // one — used to answer "nothing", which is the same answer as "clean" and
+  // the reason a worktree could be destroyed without anyone deciding to.
+  it("marks uncommitted changes undetermined when git fails", async () => {
+    vi.mocked(runCommand).mockRejectedValue(new Error("Command timed out"));
+    const result = await getUncommittedChanges("/wt");
+    expect(result.hasUncommittedChanges).toBe(false);
+    expect(result.undetermined).toBe(true);
+  });
+
+  it("marks unmerged commits undetermined when git fails", async () => {
+    vi.mocked(runCommand).mockRejectedValue(new Error("Command timed out"));
+    const result = await getUnmergedChanges("/wt");
+    expect(result.hasUnmergedCommits).toBe(false);
+    expect(result.undetermined).toBe(true);
+  });
+
+  it("leaves a genuinely clean worktree determined", async () => {
+    vi.mocked(runCommand).mockResolvedValue(ok(""));
+    const result = await getUncommittedChanges("/wt");
+    expect(result.hasUncommittedChanges).toBe(false);
+    expect(result.undetermined).toBeFalsy();
+  });
+
+  it("reports outstanding work when the state cannot be read", async () => {
+    // hasOutstandingChanges gates the delete, so "cannot tell" has to read as
+    // "there is something", not as "there is nothing".
+    vi.mocked(runCommand).mockRejectedValue(new Error("Command timed out"));
+    await expect(hasOutstandingChanges("/wt")).resolves.toBe(true);
   });
 });
