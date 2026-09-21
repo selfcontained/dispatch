@@ -166,7 +166,7 @@ with a single Continue button.
 ```sql
 CREATE TABLE IF NOT EXISTS agent_scheduled_resumes (
   agent_id   text PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
-  turn_seq   integer NOT NULL,
+  turn_id    bigint NOT NULL,   -- the turn's agent_stream_events row, as in the feed's `turn:<id>`
   resume_at  timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
