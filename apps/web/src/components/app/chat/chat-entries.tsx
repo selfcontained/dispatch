@@ -1015,50 +1015,47 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
   const lines = block.text.split("\n").length;
   return (
     <div
-      className="group mt-3 flex min-w-0 max-w-full gap-3 px-4 pb-1.5 pt-2"
+      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
       data-testid="chat-system-prompt"
       data-open={open ? "true" : "false"}
       data-block-id={block.id}
     >
-      <div className="flex w-8 shrink-0 justify-end">
+      {/* The header is its own flex row, so the icon and the title centre
+          on each other whatever either one's height turns out to be. The
+          prompt unfolds underneath rather than beside, so nothing here
+          depends on the icon's size. */}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-3 text-left"
+        data-testid="chat-system-prompt-toggle"
+      >
         <span
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
+          className="flex shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 p-2 text-muted-foreground"
           aria-hidden="true"
         >
           <ScrollText className="h-4 w-4" />
         </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          // The title row is the icon's own height, so the two centre on
-          // each other while the row is one line and stay aligned when the
-          // prompt unfolds beneath them.
-          className="flex h-8 w-full min-w-0 items-center gap-2 text-left"
-          data-testid="chat-system-prompt-toggle"
-        >
-          <span className="text-sm font-semibold text-foreground">
-            Started with these instructions
-          </span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {lines} lines
-          </span>
-          <ChevronRight
-            className={cn(
-              "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90"
-            )}
-            aria-hidden="true"
-          />
-        </button>
-        <Collapse open={open} data-testid="chat-system-prompt-body">
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-            {block.text}
-          </pre>
-        </Collapse>
-      </div>
+        <span className="truncate text-sm font-semibold text-foreground">
+          Started with these instructions
+        </span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {lines} lines
+        </span>
+        <ChevronRight
+          className={cn(
+            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90"
+          )}
+          aria-hidden="true"
+        />
+      </button>
+      <Collapse open={open} data-testid="chat-system-prompt-body">
+        <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+          {block.text}
+        </pre>
+      </Collapse>
     </div>
   );
 }
