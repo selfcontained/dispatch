@@ -39,7 +39,7 @@ import {
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveFilesDir } from "../shared/files.js";
-import { parentAgentId, rootAgentId } from "../agents/tree.js";
+import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
   describeReview,
@@ -49,6 +49,7 @@ import {
 } from "./envelope.js";
 import { loadBlockEntry } from "./feed.js";
 import { loadNewestTurnBlockId, loadTurnEntries } from "./turns.js";
+import { findMentions, type Mentionable } from "./mentions.js";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
 import type { StreamEventRow } from "../agents/acp/stream-store.js";
 import {
@@ -606,20 +607,51 @@ export class StreamService {
       ? null
       : await this.resolveThread(streamId, input.replyTo ?? null);
     const finding = await this.resolveFinding(thread, input.finding ?? null);
-    // A reply in a thread goes to the agent on the other side of it; a
-    // top-level post goes to the stream's agent unless addressed elsewhere.
-    const toAgentId =
-      input.to ??
-      (thread ? await this.threadCounterpart(thread, USER, finding) : null) ??
-      streamId;
-    const recipient = await this.requireAgent(toAgentId);
+    // `@name` in the text names the recipients, in the stream's tree; it
+    // wins over the page's default. Otherwise a reply in a thread goes to
+    // the agent on the other side of it, and a top-level post to the
+    // stream's agent unless addressed elsewhere.
+    const tree = review ? [] : await this.treeAgents(streamId);
+    const mentioned = findMentions(text, tree);
+    const recipients =
+      mentioned.length > 0
+        ? mentioned
+        : [
+            input.to ??
+              (thread
+                ? await this.threadCounterpart(thread, USER, finding)
+                : null) ??
+              streamId,
+          ];
+    const toAgentId = recipients[0]!;
+    const recipientAgents = await Promise.all(
+      recipients.map((id) => this.requireAgent(id))
+    );
+    const recipient = recipientAgents[0]!;
     let resolved: ChatAttachment[] = [];
-    let attachmentLines: string[] = [];
     if (attachments.length > 0) {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
-      attachmentLines = this.describeAttachments(recipient, resolved);
     }
-    const live = await this.canDeliver(toAgentId, input.allowInert ?? true);
+    const linesFor = new Map(
+      recipientAgents.map((agent) => [
+        agent.id,
+        resolved.length > 0 ? this.describeAttachments(agent, resolved) : [],
+      ])
+    );
+    const liveFor = new Map(
+      await Promise.all(
+        recipients.map(
+          async (id) =>
+            [id, await this.canDeliver(id, input.allowInert ?? true)] as const
+        )
+      )
+    );
+    const liveRecipients = recipients.filter((id) => liveFor.get(id));
+    const live = liveRecipients.length === recipients.length;
+    const textData = {
+      ...(finding ? { findingId: finding.id } : {}),
+      ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+    };
     const row = {
       streamId,
       author: USER,
@@ -630,8 +662,8 @@ export class StreamService {
       text,
       ...(review
         ? { data: review, state: initialState("review", review) }
-        : finding
-          ? { data: { findingId: finding.id } }
+        : Object.keys(textData).length > 0
+          ? { data: textData }
           : {}),
       attachments: resolved,
       delivered: live ? null : false,
@@ -645,10 +677,22 @@ export class StreamService {
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
     if (!live) return { block, delivered: false, held: false };
-    const { held } = await this.deliverBlock(
+    const nameOf = new Map(recipientAgents.map((a) => [a.id, a.name]));
+    const { held } = await this.deliverBlockTo(
       block,
+      recipients,
       { kind: "user" },
-      attachmentLines
+      (agentId) => ({
+        attachmentLines: linesFor.get(agentId) ?? [],
+        mention:
+          mentioned.length > 0
+            ? {
+                alsoTo: recipients
+                  .filter((id) => id !== agentId)
+                  .map((id) => nameOf.get(id) ?? id),
+              }
+            : null,
+      })
     );
     return { block, delivered: null, held };
   }
@@ -1551,23 +1595,66 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
     if (!toAgentId) return { held: false };
-    return this.injectDetached({
-      agentId: toAgentId,
-      envelope: buildPostEnvelope({
-        blockId: block.id,
-        from,
-        text: envelopeText(block),
-        attachmentLines,
-        threadId: block.threadId,
-        finding: await this.findingOf(block),
-        answers: extra.answers ?? null,
-      }),
-      record: async (delivered) => {
-        await this.store.setDelivered(block.id, delivered);
-        await this.publishEntry(block.streamId, block.id);
-      },
-      logContext: { blockId: block.id },
-    });
+    return this.deliverBlockTo(block, [toAgentId], from, () => ({
+      attachmentLines,
+      answers: extra.answers ?? null,
+    }));
+  }
+
+  /**
+   * One block to one or more agents (a post with several `@mentions`):
+   * each gets its own envelope; the block reads as delivered once every
+   * delivery succeeded, and as held while any is waiting behind a turn.
+   */
+  private async deliverBlockTo(
+    block: Block,
+    recipients: readonly string[],
+    from: EnvelopeSender,
+    perRecipient: (agentId: string) => {
+      attachmentLines?: string[];
+      answers?: { blockId: string; kind: BlockKind } | null;
+      mention?: { alsoTo: string[] } | null;
+    }
+  ): Promise<{ held: boolean }> {
+    const finding = await this.findingOf(block);
+    const outcomes = new Map<string, boolean>();
+    let held = false;
+    for (const agentId of recipients) {
+      const own = perRecipient(agentId);
+      const result = this.injectDetached({
+        agentId,
+        envelope: buildPostEnvelope({
+          blockId: block.id,
+          from,
+          text: envelopeText(block),
+          attachmentLines: own.attachmentLines ?? [],
+          threadId: block.threadId,
+          finding,
+          answers: own.answers ?? null,
+          mention: own.mention ?? null,
+        }),
+        record: async (delivered) => {
+          outcomes.set(agentId, delivered);
+          if (outcomes.size < recipients.length) return;
+          const all = [...outcomes.values()].every(Boolean);
+          await this.store.setDelivered(block.id, all);
+          await this.publishEntry(block.streamId, block.id);
+        },
+        logContext: { blockId: block.id },
+      });
+      held = held || result.held;
+    }
+    return { held };
+  }
+
+  /** The agents a person can name with `@` in this stream: its tree. */
+  private async treeAgents(streamId: string): Promise<Mentionable[]> {
+    const ids = await agentTree(this.deps.pool, streamId);
+    const result = await this.deps.pool.query<{ id: string; name: string }>(
+      `SELECT id, name FROM agents WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      [ids]
+    );
+    return result.rows;
   }
 
   private injectDetached(input: {

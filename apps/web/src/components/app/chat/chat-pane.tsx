@@ -27,6 +27,7 @@ import {
 } from "@/components/app/chat/chat-feed";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
+import { mentionablesOf } from "@/components/app/chat/chat-entries";
 import {
   latestTurnPlan,
   newestTurnEntry,
@@ -816,6 +817,7 @@ export function ChatPane({
     ? (submitForm.variables?.blockId ?? null)
     : null;
 
+  const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
   const turnRunning = newestTurn !== null && !newestTurn.block.turn?.settled;
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
@@ -992,6 +994,7 @@ export function ChatPane({
               sending={send.isPending || answer.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
+              mentionables={mentionables}
               action={
                 agentId && turnRunning ? (
                   <StopTurnButton agentId={agentId} onError={setSendError} />

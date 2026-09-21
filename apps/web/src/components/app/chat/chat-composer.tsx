@@ -35,8 +35,15 @@ import {
   STARTUP_FILE_ACCEPT,
   getClipboardFilesFromEvent,
 } from "@/components/app/create-agent-dialog-clipboard";
+import { MentionPicker } from "@/components/app/chat/mention-picker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  insertMention,
+  matchMentionables,
+  type Mentionable,
+  mentionQueryAt,
+} from "@/lib/mentions";
 import {
   type ChatComposerDraft,
   type ChatDraftFile,
@@ -89,6 +96,8 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  /** The agents a typed `@` can name: the stream's tree. */
+  mentionables?: readonly Mentionable[];
 };
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
@@ -181,6 +190,7 @@ export function ChatComposer({
   autoFocus = false,
   replyContext = null,
   action,
+  mentionables,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -212,6 +222,45 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ---- @mentions: the token under the caret opens the picker ---------------
+  const [caret, setCaret] = useState(0);
+  // Escape closes the list until the text changes again.
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionQuery =
+    mentionables && mentionables.length > 0 && dismissedFor !== text
+      ? mentionQueryAt(text, caret)
+      : null;
+  const mentionCandidates = useMemo(
+    () =>
+      mentionQuery && mentionables
+        ? matchMentionables(mentionQuery.query, mentionables).slice(0, 8)
+        : [],
+    [mentionQuery, mentionables]
+  );
+  const mentionOpen = mentionCandidates.length > 0;
+  const activeMention = Math.min(mentionIndex, mentionCandidates.length - 1);
+  const pickMention = useCallback(
+    (agent: Mentionable) => {
+      if (!mentionQuery) return;
+      const next = insertMention(text, mentionQuery.start, caret, agent);
+      setText(next.text);
+      setCaret(next.caret);
+      setMentionIndex(0);
+      // The name just placed still matches itself; the list stays closed
+      // until the text moves on.
+      setDismissedFor(next.text);
+      const el = textareaRef.current;
+      if (el) {
+        requestAnimationFrame(() => {
+          el.focus();
+          el.setSelectionRange(next.caret, next.caret);
+        });
+      }
+    },
+    [caret, mentionQuery, setText, text]
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
@@ -609,13 +658,39 @@ export function ChatComposer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.nativeEvent.isComposing) return;
+      if (mentionOpen) {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const n = mentionCandidates.length;
+          setMentionIndex(
+            (i) => (i + (event.key === "ArrowDown" ? 1 : n - 1)) % n
+          );
+          return;
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          pickMention(mentionCandidates[activeMention]!);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDismissedFor(text);
+          return;
+        }
+      }
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
-      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       submit();
     },
-    [submit]
+    [activeMention, mentionCandidates, mentionOpen, pickMention, submit, text]
+  );
+  const syncCaret = useCallback(
+    (event: { currentTarget: HTMLTextAreaElement }) => {
+      setCaret(event.currentTarget.selectionStart ?? 0);
+    },
+    []
   );
 
   const uploadingName = fileViews.find(
@@ -714,7 +789,7 @@ export function ChatComposer({
             ))}
           </div>
         ) : null}
-        <div className="flex items-end">
+        <div className="relative flex items-end">
           <div className="flex shrink-0 items-center gap-0.5 pb-1.5 pl-1.5 pointer-coarse:pb-0 pointer-coarse:pl-0">
             <input
               ref={fileInputRef}
@@ -739,10 +814,25 @@ export function ChatComposer({
               <Paperclip className="h-4 w-4" />
             </Button>
           </div>
+          {mentionOpen ? (
+            <MentionPicker
+              candidates={mentionCandidates}
+              activeIndex={activeMention}
+              onPick={pickMention}
+              onHover={setMentionIndex}
+            />
+          ) : null}
           <Textarea
             ref={textareaRef}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCaret(event.target.selectionStart ?? 0);
+              setMentionIndex(0);
+            }}
+            onSelect={syncCaret}
+            onClick={syncCaret}
+            onKeyUp={syncCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             disabled={disabled}

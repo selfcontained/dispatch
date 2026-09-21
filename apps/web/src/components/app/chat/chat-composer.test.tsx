@@ -214,3 +214,52 @@ describe("ChatComposer", () => {
     expect(disc.className).toContain("pointer-coarse:w-7");
   });
 });
+
+describe("ChatComposer @mentions", () => {
+  const mentionables = [
+    { id: "agt_1", name: "orchestrator", seat: 1 },
+    { id: "agt_2", name: "reviewer", seat: 2 },
+    { id: "agt_3", name: "builder", seat: 3 },
+  ];
+  const type = (input: HTMLTextAreaElement, value: string) => {
+    fireEvent.change(input, { target: { value, selectionStart: value.length } });
+  };
+
+  it("opens the picker on @, filters as you type, and Enter inserts the name instead of sending", async () => {
+    const { onSend, input } = renderComposer({ mentionables });
+    expect(screen.queryByTestId("mention-picker")).toBeNull();
+    type(input, "@");
+    expect(screen.getAllByTestId("mention-option")).toHaveLength(3);
+    type(input, "@rev");
+    const options = screen.getAllByTestId("mention-option");
+    expect(options).toHaveLength(1);
+    expect(options[0]!.textContent).toContain("reviewer");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    await waitFor(() => expect(input.value).toBe("@reviewer "));
+    expect(screen.queryByTestId("mention-picker")).toBeNull();
+    type(input, "@reviewer look at this");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0]![0]).toBe("@reviewer look at this");
+  });
+
+  it("matches a seat number, moves with the arrows, and Escape closes it", () => {
+    const { input } = renderComposer({ mentionables });
+    type(input, "@3");
+    expect(screen.getAllByTestId("mention-option")).toHaveLength(1);
+    expect(screen.getByTestId("mention-option").textContent).toContain("builder");
+    type(input, "@");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const options = screen.getAllByTestId("mention-option");
+    expect(options[1]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("mention-picker")).toBeNull();
+  });
+
+  it("shows no picker without mentionables", () => {
+    const { input } = renderComposer();
+    type(input, "@rev");
+    expect(screen.queryByTestId("mention-picker")).toBeNull();
+  });
+});

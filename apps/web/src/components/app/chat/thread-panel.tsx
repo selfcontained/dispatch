@@ -17,6 +17,7 @@ import {
   agentDisplayName,
   blockAuthor,
   type FeedContext,
+  mentionablesOf,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
 import {
@@ -160,6 +161,7 @@ export function ThreadPanel({
     [finding, thread.replies]
   );
   const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
+  const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const groupedById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, grouped[index]])),
     [grouped, replies]
@@ -430,6 +432,7 @@ export function ThreadPanel({
             finding ? "Comment on this finding…" : "Reply in thread…"
           }
           autoFocus={!isMobile}
+          mentionables={mentionables}
         />
       </div>
     </aside>

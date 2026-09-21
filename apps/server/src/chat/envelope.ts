@@ -129,6 +129,8 @@ export function buildPostEnvelope(input: {
   answers?: { blockId: string; kind: BlockKind } | null;
   /** The review finding this thread reply is about. */
   finding?: { id: string; title: string } | null;
+  /** A person named the agent with `@`; `alsoTo` names the others it went to. */
+  mention?: { alsoTo: string[] } | null;
 }): string {
   const body: string[] = [];
   if (input.text.trim().length > 0) body.push(input.text);
@@ -146,6 +148,13 @@ export function buildPostEnvelope(input: {
   }
   if (input.threadId) {
     context.push(`In the thread under ${input.threadId}.`);
+  }
+  if (input.mention) {
+    context.push(
+      input.mention.alsoTo.length > 0
+        ? `Addressed to you by @mention, and also to ${input.mention.alsoTo.join(", ")}.`
+        : "Addressed to you by @mention."
+    );
   }
   if (input.finding) {
     context.push(

@@ -1747,3 +1747,55 @@ describe("turn entries", () => {
     ).toBe("q1");
   });
 });
+
+describe("@mentions in a person's post", () => {
+  it("says whom the post was for and paints the names", () => {
+    const peers = {
+      agt_rev: {
+        name: "reviewer",
+        agentType: "codex",
+        relation: "child" as const,
+        seat: 2,
+      },
+      agt_build: {
+        name: "builder",
+        agentType: "claude",
+        relation: "child" as const,
+        seat: 3,
+      },
+    };
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "m1",
+            authorKind: "user",
+            text: "@builder take it, @reviewer check it",
+            toAgentId: "agt_build",
+            body: {
+              kind: "text",
+              data: { mentions: ["agt_build", "agt_rev"] },
+              state: null,
+            },
+          })
+        ),
+        blockEntry(
+          block({ id: "m2", authorKind: "user", text: "plain, for the page's agent" })
+        ),
+      ],
+      {},
+      { peers, agentSeat: 1 }
+    );
+    const posts = screen.getAllByTestId("chat-message");
+    expect(
+      posts[0]!.querySelector('[data-testid="chat-side-recipient"]')?.textContent
+    ).toContain("builder, reviewer");
+    expect(
+      posts[0]!.querySelectorAll('[data-testid="chat-mention"]')
+    ).toHaveLength(2);
+    // A post for the page's own agent says nothing about it.
+    expect(
+      posts[1]!.querySelector('[data-testid="chat-side-recipient"]')
+    ).toBeNull();
+  });
+});

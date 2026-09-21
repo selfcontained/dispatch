@@ -32,6 +32,8 @@ import {
   type FoldedEntry,
 } from "@/components/app/chat/turn/turn-attachments";
 import { TurnAnswer } from "@/components/app/chat/turn/turn-entry-view";
+import { MentionText } from "@/components/app/chat/mention-picker";
+import { type Mentionable, mentionSpans } from "@/lib/mentions";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
 import { useThread } from "@/hooks/use-stream";
@@ -272,10 +274,46 @@ export function blockSide(
   block: Block,
   ctx: FeedContext
 ): { recipientName: string } | undefined {
-  if (block.author.kind !== "agent" || block.toAgentId === null) {
+  if (block.toAgentId === null) return undefined;
+  if (block.author.kind === "agent") {
+    return { recipientName: agentDisplayName(block.toAgentId, ctx) };
+  }
+  // A person's post says whom it was for when that is not the page's
+  // agent, or when it named several: "You → reviewer, builder".
+  const recipients = blockRecipients(block);
+  if (recipients.length === 1 && recipients[0] === ctx.agentId) {
     return undefined;
   }
-  return { recipientName: agentDisplayName(block.toAgentId, ctx) };
+  return {
+    recipientName: recipients
+      .map((id) => agentDisplayName(id, ctx))
+      .join(", "),
+  };
+}
+
+/** Everyone a post was delivered to: its `@mentions`, or its one recipient. */
+export function blockRecipients(block: Block): string[] {
+  const mentions =
+    block.kind === "text" ? block.data?.mentions : undefined;
+  if (mentions && mentions.length > 0) return mentions;
+  return block.toAgentId ? [block.toAgentId] : [];
+}
+
+/** The agents a person can name with `@` on this page: the tree, by seat. */
+export function mentionablesOf(ctx: FeedContext): Mentionable[] {
+  const list: Mentionable[] = [];
+  if (ctx.agentId) {
+    list.push({
+      id: ctx.agentId,
+      name: ctx.agentName ?? "Agent",
+      ...(ctx.agentSeat !== undefined ? { seat: ctx.agentSeat } : {}),
+    });
+  }
+  for (const [id, peer] of Object.entries(ctx.peers ?? {})) {
+    if (peer.seat === undefined) continue;
+    list.push({ id, name: peer.name, seat: peer.seat });
+  }
+  return list.sort((a, b) => (a.seat ?? 99) - (b.seat ?? 99));
 }
 
 function Avatar({ author }: { author: PostAuthor }): JSX.Element {
@@ -488,7 +526,7 @@ export function Post({
         // row: the "→ recipient" in its header says who it was for. An
         // indent read as a different, harder-to-follow kind of message.
         flush ? "px-3" : "px-4",
-        side ? POST_TINT.peer : POST_TINT[author.kind],
+        side && author.kind !== "user" ? POST_TINT.peer : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
       )}
@@ -1018,6 +1056,7 @@ export const BlockView = memo(function BlockView({
         at={block.createdAt}
         grouped={grouped}
         rule={rule}
+        side={side}
         data-testid="chat-message"
         data-author="user"
         data-kind={block.kind}
@@ -1038,7 +1077,7 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {block.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            {block.text}
+            <MentionText spans={mentionSpans(block.text, mentionablesOf(ctx))} />
           </div>
         ) : null}
         {body}

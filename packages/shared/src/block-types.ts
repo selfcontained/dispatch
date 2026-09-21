@@ -184,6 +184,11 @@ export type BlockTextData = {
   findingId?: string;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
+  /**
+   * A person's post that named its recipients with `@name`: every agent it
+   * was delivered to, in order of mention. `toAgentId` is the first.
+   */
+  mentions?: string[];
 };
 
 export type BlockBody =

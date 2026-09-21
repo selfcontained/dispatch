@@ -2857,3 +2857,56 @@ describe("StreamService turn blocks", () => {
     expect(published).toEqual([]);
   });
 });
+
+describe("StreamService @mentions", () => {
+  it("delivers a post to every agent named with @, first named first, and records it on the block", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+       VALUES ('agt_m_kid1', 'reviewer', '/tmp', 'running', $1),
+              ('agt_m_kid2', 'builder', '/tmp', 'running', $1)
+       ON CONFLICT (id) DO UPDATE SET parent_agent_id = EXCLUDED.parent_agent_id, deleted_at = NULL`,
+      [A]
+    );
+    AGENTS["agt_m_kid1"] = { id: "agt_m_kid1", name: "reviewer", filesDir: null, status: "running" };
+    AGENTS["agt_m_kid2"] = { id: "agt_m_kid2", name: "builder", filesDir: null, status: "running" };
+    const { svc, injected } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, {
+      text: "@builder take the front end, @reviewer check it after",
+    });
+    expect(res.block).toMatchObject({
+      toAgentId: "agt_m_kid2",
+      data: { mentions: ["agt_m_kid2", "agt_m_kid1"] },
+    });
+    await settled(svc, res.block.id);
+    expect(injected.map((i) => i.agentId).sort()).toEqual([
+      "agt_m_kid1",
+      "agt_m_kid2",
+    ]);
+    const toBuilder = injected.find((i) => i.agentId === "agt_m_kid2")!.text;
+    expect(toBuilder).toContain(
+      "Addressed to you by @mention, and also to reviewer."
+    );
+    expect(await svc.store.getById(res.block.id)).toMatchObject({
+      delivered: true,
+    });
+  });
+
+  it("a mention wins over the page's default recipient and a thread's other side", async () => {
+    const { svc, injected } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, {
+      to: "agt_m_kid2",
+      text: "@reviewer only you",
+    });
+    expect(res.block.toAgentId).toBe("agt_m_kid1");
+    await settled(svc, res.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual(["agt_m_kid1"]);
+    expect(injected[0]!.text).toContain("Addressed to you by @mention.");
+  });
+
+  it("a name outside the tree is just text", async () => {
+    const { svc } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, { text: "@Peer is not in this tree" });
+    expect(res.block.toAgentId).toBe(A);
+    expect(res.block.kind === "text" && res.block.data?.mentions).toBeUndefined();
+  });
+});
