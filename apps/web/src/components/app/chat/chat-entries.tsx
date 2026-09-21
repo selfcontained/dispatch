@@ -1089,7 +1089,7 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
           <ScrollText className="h-4 w-4" />
         </span>
         <span className="truncate text-sm font-semibold text-foreground">
-          Started with these instructions
+          Starting Agent with instructions
         </span>
         <span className="shrink-0 text-[11px] text-muted-foreground">
           {lines} lines
