@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 import { existsSync, readFileSync, cpSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const isProd = process.env.NODE_ENV === "production";
 const browserExtensionArchiveName = "dispatch-browser-feedback.zip";
@@ -115,10 +116,29 @@ if (!/^[0-9A-Za-z.+-]+$/.test(packageVersion)) {
   );
 }
 
+/**
+ * The commit this bundle is built from, mirrored by the server's
+ * `X-Dispatch-Build` header so a client can tell a redeploy from a reload.
+ * Null outside a git checkout (a tarball build), which the comparison then
+ * skips rather than treating as a difference.
+ */
+const buildId = (() => {
+  try {
+    return execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+      cwd: path.resolve(__dirname, "../.."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+})();
+
 export default defineConfig({
   cacheDir: process.env.DISPATCH_VITE_CACHE_DIR,
   define: {
     __DISPATCH_VERSION__: JSON.stringify(packageVersion),
+    __DISPATCH_BUILD__: JSON.stringify(buildId),
   },
   plugins: [
     react(),

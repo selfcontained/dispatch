@@ -1,3 +1,5 @@
+import { DEFAULT_HARNESS_MODEL } from "@dispatch/shared";
+
 import {
   Select,
   SelectContent,
@@ -6,7 +8,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type AgentModelOption = { id: string; label: string };
+type AgentModelOption = { id: string; label: string; group?: string };
+
+export function groupModelOptions(
+  options: readonly AgentModelOption[]
+): { group: string | null; options: AgentModelOption[] }[] {
+  const out: { group: string | null; options: AgentModelOption[] }[] = [];
+  for (const option of options) {
+    const group = option.group ?? null;
+    let bucket = out.find((b) => b.group === group);
+    if (!bucket) {
+      bucket = { group, options: [] };
+      out.push(bucket);
+    }
+    bucket.options.push(option);
+  }
+  return out;
+}
 
 type AgentModelSelectProps = {
   value: string | null;
@@ -35,6 +53,91 @@ export function AgentModelSelect({
     value && options.some((option) => option.id === value)
       ? value
       : DEFAULT_VALUE;
+
+  const grouped = options.some((option) => option.group);
+  if (grouped) {
+    const groups = groupModelOptions(options).filter(
+      (bucket): bucket is { group: string; options: AgentModelOption[] } =>
+        bucket.group !== null
+    );
+    const resolved =
+      options.find((option) => option.id === value) ??
+      options.find((option) => option.id === DEFAULT_HARNESS_MODEL) ??
+      options[0];
+    const selectedGroup =
+      groups.find((bucket) => bucket.group === resolved?.group) ?? groups[0];
+    const modelValue = resolved?.id ?? "";
+    return (
+      <div className="grid gap-3 min-[420px]:grid-cols-2">
+        <div className="space-y-1">
+          <label
+            className="text-sm text-muted-foreground"
+            htmlFor={`${id}-engine`}
+          >
+            Provider
+          </label>
+          <Select
+            value={selectedGroup?.group ?? ""}
+            onValueChange={(group) => {
+              const bucket = groups.find(
+                (candidate) => candidate.group === group
+              );
+              const next =
+                bucket?.options.find((option) =>
+                  option.id.endsWith("/default")
+                ) ?? bucket?.options[0];
+              if (next) onChange(next.id);
+            }}
+          >
+            <SelectTrigger
+              id={`${id}-engine`}
+              data-testid={`${testId}-engine`}
+              disabled={loading}
+            >
+              <SelectValue>
+                {loading ? "Loading providers..." : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((bucket) => (
+                <SelectItem key={bucket.group} value={bucket.group}>
+                  {bucket.group}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-muted-foreground" htmlFor={id}>
+            Model
+          </label>
+          <Select
+            value={modelValue}
+            onValueChange={(nextValue) => {
+              // When the engine changes, Radix briefly rebuilds the hidden
+              // native select with a new option set. Ignore its transient
+              // empty value so it cannot overwrite the engine's default.
+              if (!nextValue) return;
+              onChange(nextValue);
+            }}
+          >
+            <SelectTrigger id={id} data-testid={testId} disabled={loading}>
+              <SelectValue>
+                {loading ? "Loading models..." : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {selectedGroup?.options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1">

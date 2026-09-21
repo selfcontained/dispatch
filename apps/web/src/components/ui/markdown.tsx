@@ -32,7 +32,7 @@ function getCodeBlock(
 type MarkdownProps = {
   children: string;
   className?: string;
-  variant?: "default" | "pin" | "caption";
+  variant?: "default" | "pin" | "caption" | "inline";
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
   // default: most `default`-variant consumers are compact cards that pass
   // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
@@ -55,12 +55,39 @@ export const Markdown = memo(function Markdown({
     return <MarkdownCaption className={className}>{children}</MarkdownCaption>;
   }
 
+  if (variant === "inline") {
+    return <MarkdownInline className={className}>{children}</MarkdownInline>;
+  }
+
   return (
     <MarkdownDefault className={className} headingAccents={headingAccents}>
       {children}
     </MarkdownDefault>
   );
 });
+
+function MarkdownInline({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "[&_strong]:font-semibold [&_em]:italic [&_del]:line-through",
+        "[&_code]:rounded [&_code]:bg-current/10 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em]",
+        className
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={["strong", "em", "code", "del"]}
+        unwrapDisallowed
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
+  );
+}
 
 /**
  * Single-line muted markdown for subtitles (e.g. a shortcut pin's caption).

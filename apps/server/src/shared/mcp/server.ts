@@ -368,6 +368,23 @@ export type McpRequestContext = {
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
   ) => Promise<void>;
+  updateTasks?: (
+    agentId: string,
+    entries: {
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    }[]
+  ) => Promise<void>;
+  backgroundProcess?: (
+    agentId: string,
+    input: {
+      action: "start" | "list" | "inspect" | "stop";
+      processId?: string;
+      command?: string;
+      title?: string;
+      timeoutSeconds?: number;
+    }
+  ) => Promise<unknown>;
   renameSession?: (
     agentId: string,
     name: string
@@ -745,6 +762,73 @@ export async function createDispatchMcpServer(
         : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
 
+  if (context.agent?.type === "dispatch" && context.backgroundProcess) {
+    const agentId = context.agent.id;
+    const run = context.backgroundProcess;
+    server.registerTool(
+      "dispatch_background_process",
+      {
+        description:
+          "Run a non-interactive shell command in the background, visible to the user with live output and Stop controls. Start returns immediately; a completion message is queued automatically, so do not poll or block waiting. Use for tests, builds, and bounded monitoring commands. Do not add nohup or a trailing &: Dispatch handles backgrounding. Keep stdout/stderr attached instead of redirecting to a log file. Processes use your session working directory, have a default one-hour time limit, and stop when the session stops or the server restarts. Only your own processes can be inspected or stopped.",
+        inputSchema: {
+          action: z.enum(["start", "list", "inspect", "stop"]),
+          processId: z.string().uuid().optional(),
+          command: z.string().trim().min(1).max(8000).optional(),
+          title: z.string().trim().min(1).max(120).optional(),
+          timeoutSeconds: z.number().int().min(1).max(86400).optional(),
+        },
+      },
+      async (input) => {
+        try {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(await run(agentId, input)),
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent?.type === "dispatch" && context.updateTasks) {
+    const agentId = context.agent.id;
+    const updateTasks = context.updateTasks;
+    server.registerTool(
+      "dispatch_update_tasks",
+      {
+        description:
+          "Show your task list above the chat composer. Send the complete list before multi-step work and update it as each task starts or finishes. Send it once more before ending your turn so it matches where things stand. Use an empty list to clear it. Only updates your own active turn.",
+        inputSchema: {
+          tasks: z
+            .array(
+              z.object({
+                content: z.string().trim().min(1).max(1000),
+                status: z.enum(["pending", "in_progress", "completed"]),
+              })
+            )
+            .max(200),
+        },
+      },
+      async ({ tasks }) => {
+        try {
+          await updateTasks(agentId, tasks);
+          return {
+            content: [
+              { type: "text" as const, text: `Updated ${tasks.length} tasks.` },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
   // ── Agent browser login link ─────────────────────────────────────
   registerLoginLinkTools(server, allowed, {
     issueLoginLink: context.issueLoginLink,
@@ -950,10 +1034,9 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
     "dispatch_pin",
     {
       description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To rename a pin, pass its id from dispatch_list_pins along with the new label. To write several pins at once, use dispatch_pins instead of calling this repeatedly. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
-        "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
-        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert. " +
-        "When a shortcut's action becomes temporarily or permanently unavailable but is still worth showing (e.g. its build already started elsewhere), set disabled: true instead of deleting it — the button greys out and stops accepting clicks. Set the caption to explain why (e.g. 'already building — agt_...'); it renders in place of the normal caption. Send disabled: false to re-enable it later.",
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To rename a pin, pass its id from dispatch_list_pins along with the new label. To write several pins at once, use dispatch_pins instead of calling this repeatedly. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. " +
+        "Pin anything the user may need to read or copy: dev server URLs, PR links, key files changed, result summaries, decisions, and the specific blocking question when in waiting_user state. The type parameter says how each one renders. " +
+        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert.",
       inputSchema: {
         id: pinFields.id
           .optional()

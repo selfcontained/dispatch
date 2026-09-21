@@ -1,8 +1,9 @@
 import type { Pool } from "pg";
 
 import { getSetting, setSetting } from "./db/settings.js";
+import { isDispatchHarnessEnabled } from "./dispatch-harness-settings.js";
 import {
-  AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   sanitizeEnabledAgentTypes,
   type AgentType,
 } from "./shared/agent-types.js";
@@ -10,6 +11,7 @@ import {
 export {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   isCliAgentType,
   sanitizeEnabledAgentTypes,
   type AgentType,
@@ -21,13 +23,13 @@ const ENABLED_AGENT_TYPES_KEY = "enabled_agent_types";
 export async function getEnabledAgentTypes(pool: Pool): Promise<AgentType[]> {
   const raw = await getSetting(pool, ENABLED_AGENT_TYPES_KEY);
   if (!raw) {
-    return [...AGENT_TYPES];
+    return [...DEFAULT_ENABLED_AGENT_TYPES];
   }
 
   try {
     return sanitizeEnabledAgentTypes(JSON.parse(raw));
   } catch {
-    return [...AGENT_TYPES];
+    return [...DEFAULT_ENABLED_AGENT_TYPES];
   }
 }
 
@@ -38,4 +40,16 @@ export async function setEnabledAgentTypes(
   const sanitized = sanitizeEnabledAgentTypes(agentTypes);
   await setSetting(pool, ENABLED_AGENT_TYPES_KEY, JSON.stringify(sanitized));
   return sanitized;
+}
+
+/**
+ * Creation gates use this list; settings use the persisted list, which
+ * excludes `dispatch`. Its separate opt-in flag is the only way to offer it.
+ */
+export async function getOfferedAgentTypes(pool: Pool): Promise<AgentType[]> {
+  const [enabled, harnessEnabled] = await Promise.all([
+    getEnabledAgentTypes(pool),
+    isDispatchHarnessEnabled(pool),
+  ]);
+  return harnessEnabled ? [...enabled, "dispatch"] : enabled;
 }

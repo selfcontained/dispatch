@@ -89,3 +89,16 @@ parses this section for `**YYYY-MM-DD**` and fails once a date is behind us.
 
 - None currently tracked. `gpt-5.4` and `gpt-5.4-mini` retired 2026-08-31 and
   were removed; their successors are `gpt-5.6-terra` and `gpt-5.6-luna`.
+
+## Dispatch Harness engines
+
+`dispatch` ids are `engine/model`. The create dialog lists the ids in
+`apps/server/src/shared/agent-models.ts`; a running session's picker reads
+the engine's own `model` config option, which is authoritative.
+
+| Engine      | Where the list comes from           | Procedure                                                                                                                                                             |
+| ----------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | `claude` binary                     | The four current ids from Claude Code's documented models; `claude/default` leaves the choice to Claude Code.                                                         |
+| Codex       | the `codex` catalog above, prefixed | Keep the two lists in step.                                                                                                                                           |
+| Gemini CLI  | the CLI bundle's model literals     | `grep -oE '"gemini-[0-9][a-z0-9.-]+"' $(dirname $(readlink -f $(which gemini)))/../bundle/*.js \| sort -u`; the default is `DEFAULT_GEMINI_MODEL` in the same bundle. |
+| OpenCode    | the session                         | Only `opencode/default` is listed; OpenCode publishes its `provider/model` choices once a session runs.                                                               |

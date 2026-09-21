@@ -101,7 +101,9 @@ export function AgentsRoute(): JSX.Element {
 
   return (
     <AgentsView
-      enabledAgentTypes={context.enabledAgentTypes}
+      // The offered list: the create dialog, the sidebar type picker, the
+      // persona launcher and agent-card actions all hang off this prop.
+      enabledAgentTypes={context.offeredAgentTypes}
       enabledIdes={context.enabledIdes}
       isMobile={context.isMobile}
       theme={context.theme}
@@ -121,7 +123,9 @@ export function AgentsRoute(): JSX.Element {
 }
 
 export function AutomationsRoute(): JSX.Element {
-  const { agents, enabledAgentTypes, isMobile, setMobileLeftOpen } =
+  // Jobs and templates are creation surfaces, so both halves of this route
+  // read the offered list rather than the persisted one.
+  const { agents, offeredAgentTypes, isMobile, setMobileLeftOpen } =
     useDashboardContext();
 
   return (
@@ -130,7 +134,7 @@ export function AutomationsRoute(): JSX.Element {
       sidebar={
         <AutomationsSidebarContent
           agents={agents}
-          enabledAgentTypes={enabledAgentTypes}
+          enabledAgentTypes={offeredAgentTypes}
           isMobile={isMobile}
           closeSidebar={() => setMobileLeftOpen(false)}
         />
@@ -138,7 +142,7 @@ export function AutomationsRoute(): JSX.Element {
     >
       <AutomationsDetailContent
         agents={agents}
-        enabledAgentTypes={enabledAgentTypes}
+        enabledAgentTypes={offeredAgentTypes}
       />
     </SectionShell>
   );
@@ -193,6 +197,8 @@ export function SettingsRoute(): JSX.Element {
           isIconColorSaving={context.isIconColorSaving}
           iconColorError={context.iconColorError}
           clearIconColorError={context.clearIconColorError}
+          // The persisted list, not the offered one: this is the list the
+          // agent-type card edits, and `dispatch` is never a member of it.
           enabledAgentTypes={context.enabledAgentTypes}
           onEnabledAgentTypesChange={context.setEnabledAgentTypes}
           enabledIdes={context.enabledIdes}

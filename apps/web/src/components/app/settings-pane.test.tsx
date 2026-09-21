@@ -50,6 +50,10 @@ vi.mock(
   stubModule("ChatSurfaceSettings")
 );
 vi.mock(
+  "@/components/app/dispatch-harness-settings",
+  stubModule("DispatchHarnessSettings")
+);
+vi.mock(
   "@/components/app/cross-repo-messaging-settings",
   stubModule("CrossRepoMessagingSettings")
 );
@@ -88,6 +92,10 @@ vi.mock(
 vi.mock(
   "@/components/app/worktree-location-settings",
   stubModule("WorktreeLocationSettings")
+);
+vi.mock(
+  "@/components/app/usage-budget-settings",
+  stubModule("UsageBudgetSettings")
 );
 
 // The docs nav list is real data the sidebar renders one entry per, so only the
@@ -286,6 +294,8 @@ describe("SettingsContent", () => {
         "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
         "ChatSurfaceSettings",
+        "DispatchHarnessSettings",
+        "UsageBudgetSettings",
         "WorktreeLocationSettings",
       ],
     ],

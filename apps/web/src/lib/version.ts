@@ -9,6 +9,15 @@
 
 export const BUILD_VERSION: string = __DISPATCH_VERSION__;
 
+/**
+ * The commit this bundle was built from, or null when it was built without
+ * git. The version alone cannot see a redeploy that kept the same semver —
+ * every branch build of `0.38.14` reports `0.38.14` — so an open tab sat on
+ * stale code with no banner indefinitely, the service worker being
+ * registered `prompt` and waiting to be told.
+ */
+export const BUILD_ID: string | null = __DISPATCH_BUILD__;
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
 let serverVersion: string | null = null;
@@ -54,6 +63,22 @@ export function noteServerVersion(version: string | null | undefined): void {
   serverVersion = version;
   if (mismatch) return;
   if (version === BUILD_VERSION) return;
+  mismatch = true;
+  notify();
+}
+
+/**
+ * The server's build id, from `X-Dispatch-Build`. Catches the redeploy the
+ * version cannot: same semver, different code.
+ *
+ * Silent unless both sides know their build. A bundle or a server built
+ * without git reports null, and treating that as a difference would strand
+ * the client behind a banner that reloading can never clear.
+ */
+export function noteServerBuild(build: string | null | undefined): void {
+  if (!build || !BUILD_ID) return;
+  if (mismatch) return;
+  if (build === BUILD_ID) return;
   mismatch = true;
   notify();
 }

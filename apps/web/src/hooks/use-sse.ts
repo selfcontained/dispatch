@@ -19,6 +19,8 @@ import {
   LIVE_HEAD_ROWS,
   upsertFeedEntry,
 } from "@/hooks/use-chat";
+import { harnessConfigQueryKey } from "@/components/app/harness/use-harness-config";
+import { harnessQueueQueryKey } from "@/components/app/harness/use-harness-queue";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
@@ -143,6 +145,27 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
   });
 }
 
+function invalidateHarnessQueue(
+  queryClient: QueryClient,
+  agentId: string
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: harnessQueueQueryKey(agentId),
+    exact: true,
+  });
+}
+
+/** The session config (model, effort, running): a start, a settle, a switch. */
+function invalidateHarnessConfig(
+  queryClient: QueryClient,
+  agentId: string
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: harnessConfigQueryKey(agentId),
+    exact: true,
+  });
+}
+
 /**
  * A `chat.entry` event: one feed row, put straight into the cached pages.
  * Falls back to the refetch when there is no place for it — the entry is
@@ -243,6 +266,11 @@ export function useSSE(authState: AuthState): void {
           // missing whatever landed while the stream was down. Prefix match:
           // one key per agent.
           void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
+          // The queue is in-memory server state with no event replay, so a
+          // reconnect after a gap has to read it again. Prefix match: one
+          // key per agent.
+          void queryClient.invalidateQueries({ queryKey: ["harness-queue"] });
+          void queryClient.invalidateQueries({ queryKey: ["harness-config"] });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
@@ -262,11 +290,17 @@ export function useSSE(authState: AuthState): void {
             !existing ||
             JSON.stringify(existing.pins ?? []) !==
               JSON.stringify(payload.agent.pins ?? []);
+          // A harness session's running flag follows the agent's status.
+          const statusChanged =
+            !!existing && existing.status !== payload.agent.status;
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
           if (pinsChanged) {
             invalidateChatFeed(queryClient, payload.agent.id);
+          }
+          if (statusChanged) {
+            invalidateHarnessConfig(queryClient, payload.agent.id);
           }
           return;
         }
@@ -283,14 +317,31 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.entry") {
           applyChatEntry(queryClient, payload.agentId, payload.entry);
-          // Only an agent's post can move the sidebar's unread badges.
-          if (
-            payload.entry.type === "chat" &&
-            payload.entry.message.authorKind === "agent"
-          ) {
+          // What the agent said that the reader may not have seen: a post of
+          // its own, or a turn that just settled, which is the only thing a
+          // harness agent produces. Without the second the badge waited for
+          // a refocus to appear.
+          const movesUnread =
+            (payload.entry.type === "chat" &&
+              payload.entry.message.authorKind === "agent") ||
+            (payload.entry.type === "turn" && payload.entry.settled);
+          if (movesUnread) {
             void queryClient.invalidateQueries({
               queryKey: CHAT_UNREAD_QUERY_KEY,
             });
+          }
+          return;
+        }
+
+        if (payload.type === "harness.changed") {
+          // A stream write. The turn it changed arrives as its own
+          // `chat.entry` carrying the whole entry, so the feed is patched
+          // and not refetched. The queue is in-memory server state, and
+          // the session config is read again only when the write says it
+          // changed (a start, a settle, a switch).
+          invalidateHarnessQueue(queryClient, payload.agentId);
+          if (payload.config) {
+            invalidateHarnessConfig(queryClient, payload.agentId);
           }
           return;
         }
@@ -425,8 +476,8 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["agent-feedback-items", payload.agentId],
           });
           // The Chat feed renders reviews as cards, with their live status
-          // and counts — so a new review, and every later change to one,
-          // has to reach the feed too.
+          // and counts, so a new review and every later change to one has
+          // to reach the feed too.
           invalidateChatFeed(queryClient, payload.agentId);
           return;
         }

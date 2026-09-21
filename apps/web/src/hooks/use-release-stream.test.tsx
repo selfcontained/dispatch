@@ -12,7 +12,10 @@ import {
 } from "./use-release-stream";
 
 vi.mock("@/lib/pwa-update", () => ({ reloadApp: vi.fn() }));
-vi.mock("@/lib/version", () => ({ noteServerVersion: vi.fn() }));
+vi.mock("@/lib/version", () => ({
+  noteServerVersion: vi.fn(),
+  noteServerBuild: vi.fn(),
+}));
 vi.mock("@/lib/energy-metrics", () => ({
   recordReleaseManagerPollFire: vi.fn(),
 }));

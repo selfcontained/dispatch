@@ -214,3 +214,323 @@ describe("ChatComposer", () => {
     expect(disc.className).toContain("pointer-coarse:w-7");
   });
 });
+
+describe("ChatComposer path picker", () => {
+  const paths = [
+    { path: "apps", kind: "dir" as const },
+    { path: "docs", kind: "dir" as const },
+    { path: "README.md", kind: "file" as const },
+  ];
+
+  it("reports the query after @, lists the host's paths, and descends into a directory", () => {
+    const onAtQuery = vi.fn();
+    const { onSend, input } = renderComposer({ atItems: paths, onAtQuery });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    expect(onAtQuery).toHaveBeenLastCalledWith(null);
+    fireEvent.change(input, { target: { value: "look at @" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("");
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "apps/",
+      "docs/",
+      "README.md",
+    ]);
+    expect(options[0].getAttribute("data-kind")).toBe("dir");
+    // The host's list lags the field; only what the live token still
+    // prefixes is offered, so Enter cannot pick from a stale list.
+    fireEvent.change(input, { target: { value: "look at @ap" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("ap");
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["apps/"]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    // A directory pick keeps the token open one level down; the menu
+    // shows again once the host answers for the new prefix.
+    expect(input.value).toBe("look at @apps/");
+    expect(
+      screen.getAllByTestId("chat-composer-token").map((t) => t.textContent)
+    ).toEqual(["@apps/"]);
+    expect(onAtQuery).toHaveBeenLastCalledWith("apps/");
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("ends the token after a file pick, and closes on Escape", () => {
+    const { input } = renderComposer({ atItems: paths, onAtQuery: vi.fn() });
+    fireEvent.change(input, { target: { value: "@" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options[2].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input.value).toBe("@README.md ");
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "@README.md @d" } });
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["docs/"]);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+  });
+
+  it("scrolls the highlight mirror with the field, and on the first token", () => {
+    // jsdom keeps every scrollTop at 0; record what each element is set to.
+    const offsets = new Map<Element, number>();
+    const had = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "scrollTop"
+    )!;
+    Object.defineProperty(Element.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return offsets.get(this as Element) ?? 0;
+      },
+      set(value: number) {
+        offsets.set(this as Element, value);
+      },
+    });
+    try {
+      const { input } = renderComposer({ atItems: paths, onAtQuery: vi.fn() });
+      // A draft scrolled before its first token: the mirror mounts at the
+      // field's offset, not at zero.
+      input.scrollTop = 32;
+      fireEvent.change(input, { target: { value: "look at @apps/" } });
+      const mirror = screen.getByTestId("chat-composer-highlights");
+      expect(mirror.scrollTop).toBe(32);
+      input.scrollTop = 40;
+      fireEvent.scroll(input);
+      expect(mirror.scrollTop).toBe(40);
+    } finally {
+      Object.defineProperty(Element.prototype, "scrollTop", had);
+    }
+  });
+
+  it("keeps a scoped package path as one token", () => {
+    const onAtQuery = vi.fn();
+    const { input } = renderComposer({
+      atItems: [{ path: "node_modules/@types/node", kind: "dir" as const }],
+      onAtQuery,
+    });
+    fireEvent.change(input, { target: { value: "@node_modules/@types/" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("node_modules/@types/");
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options).toHaveLength(1);
+    // The parent is muted and may truncate; the entry's own name never does.
+    expect(options[0].getAttribute("title")).toBe("node_modules/@types/node");
+    expect(options[0].textContent).toBe("node_modules/@types/node/");
+  });
+
+  it("sends on Enter once a file is typed out in full, and leaves an IME alone", () => {
+    const { onSend, input } = renderComposer({
+      atItems: paths,
+      onAtQuery: vi.fn(),
+    });
+    fireEvent.change(input, { target: { value: "@README.md" } });
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["README.md"]);
+    // A composing Enter belongs to the IME, not the menu.
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(input.value).toBe("@README.md");
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("@README.md", []);
+  });
+
+  it("stays closed without a host, and for an @ inside a word", () => {
+    const onAtQuery = vi.fn();
+    const { input } = renderComposer({ atItems: paths, onAtQuery });
+    fireEvent.change(input, { target: { value: "mail me@example" } });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    expect(onAtQuery).toHaveBeenLastCalledWith(null);
+    cleanup();
+    const bare = renderComposer({ atItems: paths });
+    fireEvent.change(bare.input, { target: { value: "@" } });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+  });
+});
+
+describe("ChatComposer slash menu", () => {
+  const items = [
+    { name: "brain", description: "Shared memory" },
+    { name: "jobs", description: "Recurring jobs" },
+    { name: "review-workflow", description: "Persona reviews" },
+  ];
+
+  it("opens on a leading slash, filters, and fills the pick", () => {
+    const { onSend, input } = renderComposer({ slashItems: items });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    fireEvent.change(input, { target: { value: "/re" } });
+    const options = screen.getAllByTestId("chat-composer-slash-item");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "/review-workflowPersona reviews",
+    ]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("/review-workflow ");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("moves with the arrow keys and closes on Escape", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "/" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const options = screen.getAllByTestId("chat-composer-slash-item");
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "/jobs list" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("runs a command item instead of filling the field", () => {
+    const onSlashCommand = vi.fn(() => true);
+    const { input } = renderComposer({
+      slashItems: [
+        { name: "model", description: "Pick a model", command: true },
+      ],
+      onSlashCommand,
+    });
+    fireEvent.change(input, { target: { value: "/mo" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSlashCommand).toHaveBeenCalledWith("model");
+    expect(input.value).toBe("");
+  });
+
+  it("stays closed without items or once a space follows the name", () => {
+    const { input } = renderComposer();
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("opens for a slash typed mid-message and fills the pick at the caret", () => {
+    const { onSend, input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "lets do this /" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    fireEvent.change(input, { target: { value: "lets do this /jo" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toEqual(["/jobsRecurring jobs"]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("lets do this /jobs ");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("replaces only the token at the caret, keeping what follows it", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "use /br and then more" } });
+    input.setSelectionRange(7, 7);
+    fireEvent.select(input);
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toEqual(["/brainShared memory"]);
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input.value).toBe("use /brain and then more");
+  });
+
+  it("needs a word boundary before the slash and nothing glued after the caret", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "see apps/web/" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "first line\n/" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    fireEvent.change(input, { target: { value: "go /jobs" } });
+    input.setSelectionRange(5, 5);
+    fireEvent.select(input);
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("offers command items only at the start of the message", () => {
+    const onSlashCommand = vi.fn(() => true);
+    const { input } = renderComposer({
+      slashItems: [
+        { name: "model", description: "Pick a model", command: true },
+        ...items,
+      ],
+      onSlashCommand,
+    });
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toContain("/modelPick a model");
+    fireEvent.change(input, { target: { value: "then /" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).not.toContain("/modelPick a model");
+    fireEvent.change(input, { target: { value: "then /mo" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("Escape dismisses the menu for that token only", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "lets /" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "lets /re" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(1);
+  });
+});
+
+describe("ChatComposer history", () => {
+  it("walks earlier prompts with the arrows from an empty field", () => {
+    const { input } = renderComposer({ history: ["first", "second"] });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("second");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("first");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("first");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("second");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: "typing" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("typing");
+  });
+
+  it("takes a queued message back before reaching for the history", async () => {
+    const recallQueued = vi.fn(async () => "queued draft");
+    const { input } = renderComposer({
+      history: ["older"],
+      recallQueued,
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued draft"));
+    expect(recallQueued).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ChatComposer history on multi-line entries", () => {
+  it("lets the arrows move the caret inside a recalled multi-line prompt", () => {
+    const { input } = renderComposer({
+      history: ["one", "line a\nline b\nline c"],
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("line a\nline b\nline c");
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("line a\nline b\nline c");
+    input.setSelectionRange(2, 2);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("one");
+    const composing = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(composing, "isComposing", { value: true });
+    input.dispatchEvent(composing);
+    expect(input.value).toBe("one");
+  });
+});

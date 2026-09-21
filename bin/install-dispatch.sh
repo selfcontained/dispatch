@@ -222,7 +222,10 @@ EOF
   else
     mkdir -p "$(dirname "$PLIST")" "$STATE_DIR/logs"
     LOG_FILE="$STATE_DIR/logs/dispatch.log"
-    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><dict>' "<key>Label</key><string>$LABEL</string>" "<key>ProgramArguments</key><array><string>$RUNTIME_PATH</string></array>" "<key>WorkingDirectory</key><string>$INSTALL_DIR</string>" "<key>StandardOutPath</key><string>$LOG_FILE</string>" "<key>StandardErrorPath</key><string>$LOG_FILE</string>" '<key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>' '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>' '</dict></plist>' > "$PLIST"
+    # ExitTimeOut is 30 s, not launchd's 20 s default: a clean stop waits on
+    # active archives, in-flight deliveries and the harness teardown ladder,
+    # and a SIGKILL partway through leaves engine children orphaned.
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><dict>' "<key>Label</key><string>$LABEL</string>" "<key>ProgramArguments</key><array><string>$RUNTIME_PATH</string></array>" "<key>WorkingDirectory</key><string>$INSTALL_DIR</string>" "<key>StandardOutPath</key><string>$LOG_FILE</string>" "<key>StandardErrorPath</key><string>$LOG_FILE</string>" '<key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>' '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>' '<key>ExitTimeOut</key><integer>30</integer>' '</dict></plist>' > "$PLIST"
     SERVICE_REGISTERED=1
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
   fi

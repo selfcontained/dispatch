@@ -36,13 +36,23 @@ export function createPromptInjector(
     prompt,
     opts = {}
   ) => {
-    const access = await agentManager.getTerminalAccess(agentId);
-    if (access.mode !== "tmux") {
+    const target = await agentManager.getPromptTarget(agentId);
+    if (target.kind === "harness") {
+      // One turn at a time: a prompt that lands mid-turn is held until the
+      // running turn settles, then delivered as the next turn. "Delivered"
+      // means the turn started, which is what pane injection promises too.
+      const { started, settled } = agentManager.promptHarness(agentId, prompt);
+      settled.catch((error) => {
+        appLog.warn({ err: error, agentId }, "harness turn failed");
+      });
+      return { held: target.busy, delivery: started };
+    }
+    if (target.kind !== "tmux") {
       throw new Error(
         "Agent has no active terminal session — prompt cannot be delivered."
       );
     }
-    const terminal = new TmuxTerminal(access.sessionName);
+    const terminal = new TmuxTerminal(target.sessionName);
     const delivery = coordinator.inject(
       agentId,
       () => terminal.sendCommand(prompt),

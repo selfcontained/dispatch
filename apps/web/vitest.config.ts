@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __DISPATCH_VERSION__: JSON.stringify("0.0.0-test"),
+    __DISPATCH_BUILD__: JSON.stringify("0000testbuild"),
   },
   resolve: {
     alias: {

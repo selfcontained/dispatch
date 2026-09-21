@@ -15,6 +15,7 @@
     "db:migrate": "bun run prepare:runtime-assets && bun src/db/migrate.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@dispatch/shared": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.4.0",

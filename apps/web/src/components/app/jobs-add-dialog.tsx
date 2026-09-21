@@ -372,6 +372,7 @@ export function AddJobFlow({
                   <JobFullAccessOption
                     checked={fullAccess}
                     onCheckedChange={setFullAccess}
+                    alwaysOn={agentType === "dispatch"}
                   />
                   <JobKeepAgentOption
                     checked={keepAgent}

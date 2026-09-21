@@ -10,7 +10,14 @@ import type { useTheme } from "@/hooks/use-theme";
 
 export type DashboardContextValue = {
   agents: Agent[];
+  /** The persisted list. Settings edits this, and it never holds `dispatch`. */
   enabledAgentTypes: AgentType[];
+  /**
+   * What may be created right now: `enabledAgentTypes` plus `dispatch` when
+   * the Dispatch Harness flag is on. Every create dialog, sidebar picker, job,
+   * template and reviewer picker reads this one.
+   */
+  offeredAgentTypes: AgentType[];
   setEnabledAgentTypes: Dispatch<SetStateAction<AgentType[]>>;
   enabledIdes: IdeType[];
   setEnabledIdes: Dispatch<SetStateAction<IdeType[]>>;

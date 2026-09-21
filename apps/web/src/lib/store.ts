@@ -149,6 +149,17 @@ export const chatSurfaceEnabledHintAtom = atomWithLocalStorage<boolean | null>(
   null
 );
 
+/**
+ * Last value of the `dispatch_harness_enabled` flag this browser saw. The
+ * server owns the flag (see `useDispatchHarnessEnabled`); this only lets the
+ * first paint of the create dialog and the type pickers know whether the
+ * Dispatch Harness is on offer before the fetch resolves, so the type does
+ * not appear and then vanish. `null` until the first fetch.
+ */
+export const dispatchHarnessEnabledHintAtom = atomWithLocalStorage<
+  boolean | null
+>("dispatch:dispatchHarnessEnabledHint", null);
+
 // Cached view of the server-wide cross-repo messaging gate (lets agents
 // message/list agents in OTHER repositories). The server enforces and owns the
 // value; CrossRepoMessagingSettings hydrates this atom from the GET endpoint on

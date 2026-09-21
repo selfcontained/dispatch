@@ -13,6 +13,7 @@ export const AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
+  "dispatch",
   "terminal",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
@@ -24,5 +25,14 @@ export const CLI_AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
+  "dispatch",
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
+
+// What an install offers before anyone saves a choice. `dispatch` is absent
+// because the Dispatch Harness is not set here at all: it has its own
+// server setting (`dispatch_harness_enabled`), and `sanitizeEnabledAgentTypes`
+// drops it from this list on read and on write.
+export const DEFAULT_ENABLED_AGENT_TYPES = AGENT_TYPES.filter(
+  (type) => type !== "dispatch"
+) as readonly Exclude<AgentType, "dispatch">[];

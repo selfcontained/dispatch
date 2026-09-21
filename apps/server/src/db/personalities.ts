@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 
+import {
+  BUILT_IN_PERSONALITIES,
+  getBuiltInPersonality,
+  isBuiltInPersonalityId,
+} from "../personalities/built-in.js";
 import { deleteSetting, getSetting, setSetting } from "./settings.js";
 
 const ACTIVE_PERSONALITY_KEY = "active_personality_id";
@@ -35,7 +40,10 @@ export async function listPersonalities(pool: Pool): Promise<Personality[]> {
   const result = await pool.query<PersonalityRow>(
     "SELECT id, name, prompt, created_at, updated_at FROM personalities ORDER BY created_at ASC"
   );
-  return result.rows.map(rowToPersonality);
+  const rows = result.rows.map(rowToPersonality);
+  const overridden = new Set(rows.map((r) => r.id));
+  const builtIns = BUILT_IN_PERSONALITIES.filter((p) => !overridden.has(p.id));
+  return [...builtIns, ...rows];
 }
 
 export async function getPersonality(
@@ -47,7 +55,9 @@ export async function getPersonality(
     [id]
   );
   const row = result.rows[0];
-  return row ? rowToPersonality(row) : null;
+  // The launch path reads through here, so the built-in fallback is what makes
+  // an active built-in reach buildLaunchGuidance.
+  return row ? rowToPersonality(row) : getBuiltInPersonality(id);
 }
 
 export async function createPersonality(
@@ -132,6 +142,13 @@ export async function setActivePersonalityId(
   await setSetting(pool, ACTIVE_PERSONALITY_KEY, id);
 }
 
+async function hasPersonalityRow(pool: Pool, id: string): Promise<boolean> {
+  const result = await pool.query("SELECT 1 FROM personalities WHERE id = $1", [
+    id,
+  ]);
+  return (result.rowCount ?? 0) > 0;
+}
+
 /**
  * Set the active personality only while holding a row lock on it. Deletion
  * acquires that same row lock before it clears the active setting, so a delete
@@ -141,6 +158,12 @@ export async function activatePersonality(
   pool: Pool,
   id: string
 ): Promise<boolean> {
+  // A built-in with no row has nothing to lock, and the delete path it is
+  // guarding against cannot reach it either, so it activates directly.
+  if (isBuiltInPersonalityId(id) && !(await hasPersonalityRow(pool, id))) {
+    await setSetting(pool, ACTIVE_PERSONALITY_KEY, id);
+    return true;
+  }
   const result = await pool.query<{ activated: boolean }>(
     `WITH locked AS (
        SELECT id FROM personalities WHERE id = $1 FOR UPDATE

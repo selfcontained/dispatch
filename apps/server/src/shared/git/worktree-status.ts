@@ -11,14 +11,22 @@ export type WorktreeStatus = {
   uncommittedFiles: string[];
 };
 
+/**
+ * `undetermined` means git could not be asked — a timeout, a missing
+ * worktree, a broken repo. The booleans are then false because nothing was
+ * found, which is not the same as nothing being there. A status badge can
+ * ignore the distinction; anything that deletes on the answer must not.
+ */
 export type UnmergedChanges = {
   hasUnmergedCommits: boolean;
   changedFiles: string[];
+  undetermined?: boolean;
 };
 
 export type UncommittedChanges = {
   hasUncommittedChanges: boolean;
   uncommittedFiles: string[];
+  undetermined?: boolean;
 };
 
 /**
@@ -83,6 +91,10 @@ export async function readWorktreeStatus(
  * Quick yes/no — does the worktree have either unmerged commits or
  * uncommitted changes? Used by the archive flow to decide whether to
  * preserve the worktree on disk rather than delete it.
+ *
+ * A state that could not be read counts as outstanding. The caller deletes
+ * on a `false`, so the honest answer to "I could not tell" is the one that
+ * keeps the directory.
  */
 export async function hasOutstandingChanges(
   worktreePath: string
@@ -91,7 +103,12 @@ export async function hasOutstandingChanges(
     getUnmergedChanges(worktreePath),
     getUncommittedChanges(worktreePath),
   ]);
-  return unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
+  return (
+    unmerged.hasUnmergedCommits ||
+    uncommitted.hasUncommittedChanges ||
+    unmerged.undetermined === true ||
+    uncommitted.undetermined === true
+  );
 }
 
 /**
@@ -183,7 +200,7 @@ export async function getUnmergedChanges(
 
     return { hasUnmergedCommits: changedFiles.length > 0, changedFiles };
   } catch {
-    return { hasUnmergedCommits: false, changedFiles: [] };
+    return { hasUnmergedCommits: false, changedFiles: [], undetermined: true };
   }
 }
 
@@ -209,6 +226,10 @@ export async function getUncommittedChanges(
       uncommittedFiles,
     };
   } catch {
-    return { hasUncommittedChanges: false, uncommittedFiles: [] };
+    return {
+      hasUncommittedChanges: false,
+      uncommittedFiles: [],
+      undetermined: true,
+    };
   }
 }

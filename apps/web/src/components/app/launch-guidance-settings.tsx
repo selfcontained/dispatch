@@ -6,13 +6,13 @@ const ENDPOINT = "/api/v1/app/settings/launch-guidance-trim";
 /**
  * Toggle for the trimmed launch-guidance variant. Enforced server-side (the
  * guidance string is composed at agent launch), so the server is the source of
- * truth: GET on mount, POST only on explicit user toggle. Off by default.
+ * truth: GET on mount, POST only on explicit user toggle. On by default.
  *
  * This is a user assertion, not detection — Dispatch cannot see whether the
  * plugin is installed in the CLI, so the copy states it as a requirement.
  *
  * The checkbox stays disabled until the GET lands: an unread value must not
- * render as a confirmed "off", since the wrong belief here silently changes
+ * render as a confirmed state, since the wrong belief here silently changes
  * the guidance of every agent launched afterwards.
  */
 export function LaunchGuidanceSettings(): JSX.Element {
@@ -29,8 +29,10 @@ export function LaunchGuidanceSettings(): JSX.Element {
       </div>
       <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
         Shorten the startup rules injected into new Claude Code and Codex
-        agents. Requires the Dispatch plugin — its skills and the MCP tool
-        descriptions carry the detail the rules drop.
+        agents. On by default, to keep sessions cheap. The MCP tool descriptions
+        carry most of the detail the rules drop, and the Dispatch plugin's
+        skills carry the rest — turn this off to send the full rules to every
+        agent.
       </p>
       <label className="flex w-fit cursor-pointer items-center gap-3 text-sm text-foreground">
         <Checkbox

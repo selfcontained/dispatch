@@ -25,6 +25,8 @@ export type ArchiveDeps = {
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
   harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
+  /** Stop a protocol-driven harness that lives outside the tmux pane. */
+  stopHarness?: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
     status: AgentStatus,
@@ -137,10 +139,16 @@ async function cleanupAgentWorktree(
         getUnmergedChanges(worktreePath),
         getUncommittedChanges(worktreePath),
       ]);
+      // A check that could not run answers "nothing found", which reads the
+      // same as "nothing there". Deleting on that turns a git timeout — the
+      // routine failure on a loaded host — into someone's lost worktree, so
+      // an unreadable state keeps the directory.
+      const undetermined =
+        unmerged.undetermined === true || uncommitted.undetermined === true;
       const hasChanges =
         unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
-      shouldCleanup = !hasChanges;
-      if (hasChanges) {
+      shouldCleanup = !hasChanges && !undetermined;
+      if (hasChanges || undetermined) {
         const reasons: string[] = [];
         if (unmerged.hasUnmergedCommits)
           reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
@@ -148,6 +156,7 @@ async function cleanupAgentWorktree(
           reasons.push(
             `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
           );
+        if (undetermined) reasons.push("could not read the worktree's state");
         preserveReason = reasons.join(", ");
       }
     } else if (!shouldCleanup && cleanupWorktree === "keep") {
@@ -261,6 +270,7 @@ export async function executeArchive(
           "Stop hook failed during archive; continuing"
         )
       );
+      await deps.stopHarness?.(agent);
       if (agent.tmuxSession && (await runtime.hasSession(agent.tmuxSession))) {
         await runtime.stopSession(agent.tmuxSession, true);
       }
@@ -423,6 +433,7 @@ export async function deleteAgentDirect(
           "Stop hook failed during delete; continuing"
         )
       );
+      await deps.stopHarness?.(agent);
       if (agent.tmuxSession && sessionExists) {
         await runtime.stopSession(agent.tmuxSession, true);
       }
