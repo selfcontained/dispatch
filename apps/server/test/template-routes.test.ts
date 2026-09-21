@@ -304,7 +304,8 @@ describe("POST /api/v1/templates/:id/launch", () => {
     // template runtime instructions stay out of the stream.
     const posts = await ctx.pool.query(
       `SELECT text, origin, attachments FROM blocks
-         WHERE stream_id = $1`,
+         WHERE stream_id = $1
+           AND (origin IS NULL OR origin <> 'system_prompt')`,
       [agent.id]
     );
     expect(posts.rows).toHaveLength(1);

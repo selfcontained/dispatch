@@ -220,6 +220,11 @@ export type LaunchContextRecorder = {
     /** Rejects when the post was not written, including an id collision. */
     record: () => Promise<unknown>;
   } | null>;
+  /** The system prompt as the first block of the agent's stream. */
+  recordSystemPrompt?: (input: {
+    agentId: string;
+    prompt: string;
+  }) => Promise<unknown>;
 };
 
 /** The two settings-backed switches the launch guidance is built from. */
@@ -1287,6 +1292,21 @@ export class AgentManager {
       }),
       jobRunId: opts.jobRunId ?? null,
     });
+    // What the agent was told, at the head of its stream. Best effort in
+    // full: a launch must not fail because this record could not be
+    // written, whether the write rejects or the recorder cannot do it at
+    // all. try/catch, not .catch(), so a synchronous throw is caught too.
+    try {
+      await this.launchContextRecorder?.recordSystemPrompt?.({
+        agentId: agent.id,
+        prompt: systemPrompt,
+      });
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId: agent.id },
+        "could not record the agent's system prompt"
+      );
+    }
     const { env, pathPrefix } = buildLaunchEnv({
       agentId: agent.id,
       role: agent.role,

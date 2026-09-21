@@ -142,6 +142,17 @@ let manager: InstanceType<typeof AgentManager>;
 
 let chatEvents: unknown[] = [];
 
+/**
+ * The published stream entries a launch produced, minus the system-prompt
+ * record every launch writes. These tests are about launch context.
+ */
+function launchChatEvents(): unknown[] {
+  return chatEvents.filter((event) => {
+    const entry = (event as { entry?: { block?: { origin?: string } } }).entry;
+    return entry?.block?.origin !== "system_prompt";
+  });
+}
+
 /** A manager on its own spy runtime, for tests that need a logger or recorder of their own. */
 function managerWith(
   opts: {
@@ -516,7 +527,7 @@ describe("AgentManager", () => {
             { type: "link", url: "https://example.com/spec" },
           ],
         });
-        expect(chatEvents).toEqual([
+        expect(launchChatEvents()).toEqual([
           expect.objectContaining({
             type: "stream.entry",
             agentId: agent.id,
@@ -534,7 +545,7 @@ describe("AgentManager", () => {
           useWorktree: false,
         });
         expect(await launchPosts(bare.id)).toEqual([]);
-        expect(chatEvents).toEqual([]);
+        expect(launchChatEvents()).toEqual([]);
       });
 
       it("attributes an agent-launched post to the launcher and uses the unwrapped prompt", async () => {

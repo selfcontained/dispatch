@@ -8,12 +8,14 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  ChevronRight,
   Copy,
   Hourglass,
   Loader2,
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
+  ScrollText,
   UserRound,
 } from "lucide-react";
 
@@ -28,6 +30,8 @@ import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
+import { Collapse } from "@/components/app/chat/collapse";
+import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import {
   type FoldedEntry,
 } from "@/components/app/chat/turn/turn-attachments";
@@ -999,6 +1003,43 @@ function ReviewBlockWithCounts({
   );
 }
 
+/**
+ * What the agent was told at launch: one quiet line at the head of the
+ * stream that opens into the whole prompt. Not a post — nobody wrote it to
+ * anybody — so it gets no avatar, no author and none of a post's actions.
+ */
+function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
+  const [open, setOpen] = useChatRowState<boolean>("system-prompt-open", false);
+  return (
+    <div
+      className="px-4 pt-2"
+      data-testid="chat-system-prompt"
+      data-open={open ? "true" : "false"}
+      data-block-id={block.id}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+        data-testid="chat-system-prompt-toggle"
+      >
+        <ScrollText className="h-3 w-3" aria-hidden="true" />
+        System prompt
+        <ChevronRight
+          className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
+          aria-hidden="true"
+        />
+      </button>
+      <Collapse open={open} data-testid="chat-system-prompt-body">
+        <pre className="mt-1.5 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+          {block.text}
+        </pre>
+      </Collapse>
+    </div>
+  );
+}
+
 export const BlockView = memo(function BlockView({
   block,
   held,
@@ -1013,6 +1054,9 @@ export const BlockView = memo(function BlockView({
   highlightFindingId = null,
   folded,
 }: BlockViewProps): JSX.Element {
+  if (block.origin === "system_prompt") {
+    return <SystemPromptBlock block={block} />;
+  }
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the
   // side indent would only push the replies off the left edge.

@@ -135,6 +135,15 @@ export type BlockRow = {
   updated_at: Date;
 };
 
+/**
+ * "An agent said this to the person": what unread means. The system-prompt
+ * record is authored by the agent and addressed to nobody, but it is a
+ * record of what Dispatch told it, not a message, so it never counts as
+ * unread and mark-read never stamps it.
+ */
+const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL
+          AND (origin IS NULL OR origin <> 'system_prompt')`;
+
 export function toBlock(row: BlockRow): Block {
   const base = {
     id: row.id,
@@ -603,16 +612,17 @@ export class BlockStore {
           `UPDATE blocks AS b SET read_at = now()
             FROM blocks AS bound
            WHERE bound.id = $2 AND bound.stream_id = $1
-             AND b.stream_id = $1 AND b.author_kind = 'agent'
-             AND b.to_agent_id IS NULL AND b.read_at IS NULL
+             AND b.stream_id = $1 AND b.read_at IS NULL
+             AND b.author_kind = 'agent' AND b.to_agent_id IS NULL
+             AND (b.origin IS NULL OR b.origin <> 'system_prompt')
              AND b.created_at <= bound.created_at
            RETURNING b.read_at, bound.created_at AS up_to_at`,
           [streamId, upTo]
         )
       : await this.db.query<{ read_at: Date; up_to_at: null }>(
           `UPDATE blocks SET read_at = now()
-            WHERE stream_id = $1 AND author_kind = 'agent'
-              AND to_agent_id IS NULL AND read_at IS NULL
+            WHERE stream_id = $1 AND read_at IS NULL
+              AND ${SAID_TO_PERSON_SQL}
            RETURNING read_at, NULL AS up_to_at`,
           [streamId]
         );
@@ -654,8 +664,8 @@ export class BlockStore {
   async countUnread(streamId: string): Promise<number> {
     const result = await this.db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM blocks
-        WHERE stream_id = $1 AND author_kind = 'agent'
-          AND to_agent_id IS NULL AND read_at IS NULL`,
+        WHERE stream_id = $1 AND read_at IS NULL
+          AND ${SAID_TO_PERSON_SQL}`,
       [streamId]
     );
     return Number(result.rows[0].count);
@@ -677,6 +687,7 @@ export class BlockStore {
          FROM blocks b
          JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
         WHERE b.author_kind = 'agent' AND b.to_agent_id IS NULL
+          AND (b.origin IS NULL OR b.origin <> 'system_prompt')
           AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL})
         GROUP BY b.stream_id`
     );

@@ -393,7 +393,11 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  const hasConversation = visibleEntries.length > 0;
+  // The system-prompt record is not a conversation: a stream holding only
+  // that still reads as empty, which is what a fresh agent should look like.
+  const hasConversation = visibleEntries.some(
+    (entry) => entry.block.origin !== "system_prompt"
+  );
   const hasHiddenChildActivity = useMemo(
     () =>
       view !== null &&
@@ -693,7 +697,8 @@ export function ChatPane({
   const onSend = useCallback(
     async (
       text: string,
-      attachments: ChatUserAttachmentInput[]
+      attachments: ChatUserAttachmentInput[],
+      options?: { interrupt?: boolean }
     ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
@@ -709,6 +714,7 @@ export function ChatPane({
         text,
         attachments,
         ...(postTo ? { to: postTo } : {}),
+        ...(options?.interrupt ? { interrupt: true } : {}),
       });
     },
     [answerAsync, postTo, replyTarget, sendAsync]
@@ -993,6 +999,7 @@ export function ChatPane({
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
               mentionables={mentionables}
+              canInterrupt={Boolean(agentId) && turnRunning}
               action={
                 agentId && turnRunning ? (
                   <StopTurnButton agentId={agentId} onError={setSendError} />

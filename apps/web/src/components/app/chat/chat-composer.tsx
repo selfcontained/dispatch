@@ -13,7 +13,7 @@ import {
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import { CornerDownRight, Paperclip, SendHorizontal, X } from "lucide-react";
+import { CornerDownRight, Paperclip, SendHorizontal, X, Zap } from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -73,8 +73,15 @@ export type ChatComposerProps = {
    */
   onSend: (
     text: string,
-    attachments: ChatUserAttachmentInput[]
+    attachments: ChatUserAttachmentInput[],
+    options?: { interrupt?: boolean }
   ) => Promise<void>;
+  /**
+   * A turn is running, so a plain send would queue behind it. Offers "Send
+   * now", which cuts the turn and makes this message what the agent reads
+   * next.
+   */
+  canInterrupt?: boolean;
   /**
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
@@ -191,6 +198,7 @@ export function ChatComposer({
   replyContext = null,
   action,
   mentionables,
+  canInterrupt = false,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -575,7 +583,7 @@ export function ChatComposer({
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
-  const submit = useCallback(() => {
+  const submit = useCallback((options?: { interrupt?: boolean }) => {
     if (!canSend) return;
     setError(null);
     setInFlight(true);
@@ -615,7 +623,9 @@ export function ChatComposer({
         attachments.push({ type: "file", fileId });
       }
       for (const url of submittedLinks) attachments.push({ type: "link", url });
-      await onSend(submittedText.trim(), attachments);
+      await (options
+        ? onSend(submittedText.trim(), attachments, options)
+        : onSend(submittedText.trim(), attachments));
     };
 
     run()
@@ -849,6 +859,20 @@ export function ChatComposer({
             data-testid="chat-composer-input"
           />
           {action}
+          {canInterrupt && canSend ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost-warning"
+              onClick={() => submit({ interrupt: true })}
+              title="Stop the running turn and send this now"
+              data-testid="chat-composer-send-now"
+              className="my-2 h-7 shrink-0 gap-1 px-2 text-[11px]"
+            >
+              <Zap className="h-3 w-3" aria-hidden="true" />
+              Send now
+            </Button>
+          ) : null}
           <Button
             type="submit"
             size="icon"

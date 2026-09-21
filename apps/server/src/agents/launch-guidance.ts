@@ -188,6 +188,11 @@ export function buildLaunchGuidance(
     rules.push(
       "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
     );
+    rules.push(
+      trimmed
+        ? "Say the plan before a long first turn. On anything beyond a small, obvious change, read enough to be sure of the approach, say what you intend to do, and stop for the user's answer before editing or running commands at length."
+        : "Say the plan before a long first turn. The user reads your stream between turns, not during one: a turn that runs for ten minutes is ten minutes they cannot steer. So on anything beyond a small, obvious change, read enough to be sure of the approach, say what you intend to do in a few lines, and stop there. Start the work once they answer. A question with options (post) is right when the approach is a real choice; plain text is right when you just need a yes. This is about the shape of the first turn, not its length — once the plan is agreed, long turns are fine."
+    );
     if (suggestSessionRename) {
       rules.push(
         trimmed

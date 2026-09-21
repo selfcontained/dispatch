@@ -734,8 +734,10 @@ export function usePostBlock(rootId: string | null) {
       finding,
       attachments,
       review,
+      interrupt,
     }) => {
       const body: StreamPostRequest = { id, text };
+      if (interrupt) body.interrupt = true;
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
       if (replyTo && finding) body.finding = finding;

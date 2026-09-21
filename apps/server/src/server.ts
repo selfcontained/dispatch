@@ -409,6 +409,7 @@ const streamService = new StreamService({
     inject: async (agentId, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
+    cancel: (agentId) => agentManager.cancelTurn(agentId),
   },
   log: app.log,
 });

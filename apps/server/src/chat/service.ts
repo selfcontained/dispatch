@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { Pool } from "pg";
@@ -119,6 +119,8 @@ export type StreamDeliveryAdapter = {
   inject: (agentId: string, text: string) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
+  /** Cut the agent's running turn, for a post sent to interrupt it. */
+  cancel: (agentId: string) => Promise<void>;
 };
 
 export type StreamAgent = Pick<
@@ -206,6 +208,22 @@ export type LaunchContextInput = {
   /** The agent that created this one via launch_agent, if any. */
   launchedByAgentId?: string | null;
 };
+
+/**
+ * The system-prompt block's id: derived from the agent's, so every launch
+ * addresses the same row instead of appending one per restart. A v5-shaped
+ * UUID over the agent id, which the column requires.
+ */
+export function systemPromptBlockId(agentId: string): string {
+  const h = createHash("sha256").update(`system-prompt:${agentId}`).digest("hex");
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    `5${h.slice(13, 16)}`,
+    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
+    h.slice(20, 32),
+  ].join("-");
+}
 
 /** A launch block resolved but not yet written; see `prepareLaunchContext`. */
 export type PreparedLaunchContext = {
@@ -588,6 +606,8 @@ export class StreamService {
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewData | null;
       allowInert?: boolean;
+      /** Cut the recipient's running turn so this lands next, not after it. */
+      interrupt?: boolean;
     }
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
@@ -677,6 +697,22 @@ export class StreamService {
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
     if (!live) return { block, delivered: false, held: false };
+    // Cut each recipient's turn first, so the prompt this sends is what the
+    // agent reads next instead of queueing behind work the user is trying
+    // to redirect. The turn settles as `interrupted`.
+    if (input.interrupt) {
+      const delivery = this.delivery();
+      await Promise.all(
+        recipients.map((id) =>
+          delivery.cancel(id).catch((error: unknown) => {
+            this.log.warn(
+              { err: error, agentId: id, blockId: block.id },
+              "stream: could not cut the turn for an interrupting post"
+            );
+          })
+        )
+      );
+    }
     const nameOf = new Map(recipientAgents.map((a) => [a.id, a.name]));
     const { held } = await this.deliverBlockTo(
       block,
@@ -1389,6 +1425,40 @@ export class StreamService {
         return block;
       },
     };
+  }
+
+  /**
+   * The system prompt the agent was started with, as the first block in its
+   * stream. One per agent (the id is derived from the agent's, so a restart
+   * rewrites rather than appends) and rewritten when the guidance changes,
+   * so what the agent was told is always readable and always current. Never
+   * delivered: the engine already has it as its system prompt.
+   */
+  async recordSystemPrompt(input: {
+    agentId: string;
+    prompt: string;
+  }): Promise<Block | null> {
+    const text = input.prompt.trim();
+    if (!text) return null;
+    const streamId = await this.streamOf(input.agentId);
+    const id = systemPromptBlockId(input.agentId);
+    const existing = await this.store.getById(id);
+    if (existing) {
+      if (existing.text === text) return existing;
+      const updated = await this.store.update(id, { text });
+      if (updated) await this.publishEntry(streamId, id);
+      return updated;
+    }
+    const block = await this.store.insertIfAbsent({
+      id,
+      streamId,
+      author: { kind: "agent", agentId: input.agentId },
+      kind: "text",
+      origin: "system_prompt",
+      text,
+    });
+    if (block) await this.publishEntry(streamId, id);
+    return block;
   }
 
   async recordLaunchContext(input: LaunchContextInput): Promise<Block | null> {

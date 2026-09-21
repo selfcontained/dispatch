@@ -204,9 +204,10 @@ export type BlockBody =
  * `launch`: the launch-context post. `turn`: the agent's answer for one
  * turn, written empty when the turn opens and filled when it settles; the
  * turn itself (steps, timing) rides along as `Block.turn`, read from the
- * agent's event log.
+ * agent's event log. `system_prompt`: the guidance the agent was started
+ * with, kept at the head of the stream so what it was told is readable.
  */
-export type BlockOrigin = "launch" | "turn";
+export type BlockOrigin = "launch" | "turn" | "system_prompt";
 
 export type BlockReaction = {
   id: string;
@@ -329,6 +330,11 @@ export type StreamPostRequest = {
   /** With `replyTo` on a review: the finding this reply is about. */
   finding?: string;
   attachments?: ChatUserAttachmentInput[];
+  /**
+   * Cut the agent's running turn so this message is what it reads next.
+   * Without it a message sent mid-turn waits for the turn to finish.
+   */
+  interrupt?: boolean;
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
   review?: BlockReviewData;
 };

@@ -384,8 +384,11 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       text: "x",
     });
     expect(badId.statusCode).toBe(400);
+    // Nothing was written by any of the rejected posts; the system-prompt
+    // record the launch wrote is not one of them.
     const rows = await ctx.pool.query(
-      "SELECT 1 FROM blocks WHERE stream_id = $1",
+      `SELECT 1 FROM blocks
+        WHERE stream_id = $1 AND (origin IS NULL OR origin <> 'system_prompt')`,
       [agentId]
     );
     expect(rows.rows).toHaveLength(0);
@@ -411,8 +414,11 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
         delivered: false,
       },
     });
+    // The agent's own stream also holds the system-prompt record written at
+    // launch; this is about what the post stored.
     const rows = await ctx.pool.query(
-      "SELECT text, delivered, to_agent_id FROM blocks WHERE stream_id = $1",
+      `SELECT text, delivered, to_agent_id FROM blocks
+        WHERE stream_id = $1 AND (origin IS NULL OR origin <> 'system_prompt')`,
       [agentId]
     );
     expect(rows.rows).toEqual([

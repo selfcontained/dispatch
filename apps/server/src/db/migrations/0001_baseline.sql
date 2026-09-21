@@ -139,8 +139,9 @@ CREATE TABLE blocks (
   data jsonb,
   state jsonb,
   attachments jsonb NOT NULL DEFAULT '[]'::jsonb,
-  -- 'launch': the launch-context post. 'turn': an agent's answer for one turn.
-  origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn')),
+  -- 'launch': the launch-context post. 'turn': an agent's answer for one
+  -- turn. 'system_prompt': the guidance the agent was started with.
+  origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn', 'system_prompt')),
   launched_by_agent_id text,
   -- Blocks with to_agent_id: whether the prompt reached the agent; NULL while
   -- pending.
