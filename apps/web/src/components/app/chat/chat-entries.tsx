@@ -1,9 +1,15 @@
 import { memo, type ReactNode, useMemo } from "react";
-import type { Block, BlockOption, ChatStatusEntry } from "@dispatch/shared";
+import type {
+  Block,
+  BlockAuthor,
+  BlockOption,
+  ChatStatusEntry,
+} from "@dispatch/shared";
 import {
   AlertTriangle,
   Bot,
   Check,
+  ChevronRight,
   Copy,
   Hourglass,
   Loader2,
@@ -673,27 +679,124 @@ export function replyLine(block: Block): string | null {
   return last ? `${head} · last ${last}` : head;
 }
 
+/** How many replier faces the thread row shows before "+n". */
+const THREAD_FACES = 4;
+
+/**
+ * The row under a post that has a thread: who has written in it (their
+ * faces, in order of appearance), how many replies, when the last one
+ * came, and how many the person has not read. A row with a border and a
+ * hover, not a line of link text, so it reads as a door into the thread.
+ */
 function ThreadLine({
   block,
-  onOpen,
+  ctx,
 }: {
   block: Block;
-  onOpen?: (blockId: string) => void;
+  ctx: FeedContext;
 }): JSX.Element | null {
-  const label = replyLine(block);
-  if (!label) return null;
+  const count = block.replyCount ?? 0;
+  if (count === 0) return null;
+  const onOpen = ctx.onOpenThread;
+  const unread = block.unreadReplies ?? 0;
+  const repliers = block.repliers ?? [];
+  const last = block.lastReplyAt ? formatRelativeTime(block.lastReplyAt) : "";
   return (
     <button
       type="button"
-      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-status-done underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline"
+      className={cn(
+        "mt-2 flex w-fit max-w-full items-center gap-2 rounded-md border py-1 pl-1.5 pr-2 text-[11px] leading-none transition-colors",
+        unread > 0
+          ? "border-status-done/40 bg-status-done/[0.08] hover:bg-status-done/[0.14]"
+          : "border-border/60 bg-muted/30 hover:border-border hover:bg-muted/60",
+        "disabled:cursor-default disabled:hover:bg-muted/30"
+      )}
       disabled={!onOpen}
       data-testid="chat-thread-line"
-      data-reply-count={String(block.replyCount ?? 0)}
+      data-reply-count={String(count)}
+      data-unread-replies={unread > 0 ? String(unread) : undefined}
       onClick={() => onOpen?.(block.id)}
     >
-      <MessagesSquare className="h-3 w-3" aria-hidden="true" />
-      {label}
+      {repliers.length > 0 ? (
+        <span className="flex items-center -space-x-1" data-testid="chat-thread-faces">
+          {repliers.slice(0, THREAD_FACES).map((who, index) => (
+            <ReplierFace key={index} who={who} ctx={ctx} />
+          ))}
+          {repliers.length > THREAD_FACES ? (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded border border-border bg-background px-1 font-mono text-[9px] text-muted-foreground">
+              +{repliers.length - THREAD_FACES}
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <MessagesSquare className="ml-0.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+      )}
+      <span className="font-medium text-foreground">
+        {count} {count === 1 ? "reply" : "replies"}
+      </span>
+      {unread > 0 ? (
+        <span
+          className="rounded-full bg-status-done px-1.5 py-0.5 text-[10px] font-semibold text-background"
+          data-testid="chat-thread-unread"
+        >
+          {unread} new
+        </span>
+      ) : null}
+      {last ? <span className="text-muted-foreground">last {last}</span> : null}
+      <ChevronRight className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
     </button>
+  );
+}
+
+/** One face in a thread row: the person, an agent's seat, or a plain agent. */
+function ReplierFace({
+  who,
+  ctx,
+}: {
+  who: BlockAuthor;
+  ctx: FeedContext;
+}): JSX.Element {
+  const ring = "ring-2 ring-background";
+  if (who.kind === "user") {
+    return (
+      <span
+        className={cn(
+          "flex h-5 w-5 items-center justify-center rounded border border-border bg-foreground/[0.08] text-foreground",
+          ring
+        )}
+        title="You"
+        data-testid="chat-thread-replier"
+      >
+        <UserRound className="h-3 w-3" aria-hidden="true" />
+      </span>
+    );
+  }
+  const own = who.agentId === ctx.agentId;
+  const peer = own ? undefined : ctx.peers?.[who.agentId];
+  const seat = own ? ctx.agentSeat : peer?.seat;
+  const name = own ? (ctx.agentName ?? "Agent") : (peer?.name ?? "Agent");
+  if (seat !== undefined) {
+    return (
+      <AgentSeatBadge
+        seat={seat}
+        name={name}
+        size="sm"
+        className={ring}
+        data-testid="chat-thread-replier"
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "flex h-5 w-5 items-center justify-center rounded border border-border bg-muted/50 text-foreground/80",
+        ring
+      )}
+      title={name}
+      data-testid="chat-thread-replier"
+    >
+      <Bot className="h-3 w-3" aria-hidden="true" />
+    </span>
   );
 }
 
@@ -894,7 +997,7 @@ export const BlockView = memo(function BlockView({
     ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : (
-    <ThreadLine block={block} onOpen={ctx.onOpenThread} />
+    <ThreadLine block={block} ctx={ctx} />
   );
   const body = (
     <BlockBody

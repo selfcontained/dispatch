@@ -6,7 +6,12 @@
  */
 import { type ReactNode } from "react";
 import type { ChatAttachment } from "@dispatch/shared";
-import { ExternalLink, FileText, GitPullRequest } from "lucide-react";
+import {
+  ArrowUpRight,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+} from "lucide-react";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
@@ -32,27 +37,47 @@ function hostOf(url: string): string {
   }
 }
 
-/** The left-accented block Slack hangs under a post. */
+/**
+ * A card under a post: what the post hands over, boxed so it reads as a
+ * thing (a file, a pull request, a link) and not as more of the text.
+ */
 export function AttachmentBlock({
   children,
   className,
-  accent = "border-border",
+  accent,
   ...rest
 }: {
   children: ReactNode;
   className?: string;
+  /** Extra border classes, for a card that wants a colour of its own. */
   accent?: string;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
     <div
-      className={cn("border-l-[3px] py-0.5 pl-3", accent, className)}
+      className={cn(
+        "w-fit max-w-full overflow-hidden rounded-md border border-border/70 bg-muted/25",
+        accent,
+        className
+      )}
       {...rest}
     >
       {children}
     </div>
   );
 }
+
+/** The squared tile at the left of a card: an icon, or a file's extension. */
+function Tile({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-foreground/80">
+      {children}
+    </span>
+  );
+}
+
+const CARD_ROW =
+  "flex min-w-[14rem] max-w-md items-center gap-3 p-2 pr-3 text-left transition-colors hover:bg-muted/50";
 
 export function LinkAttachment({
   href,
@@ -72,23 +97,31 @@ export function LinkAttachment({
         href={href}
         target="_blank"
         rel="noreferrer"
-        className="group/link flex min-w-0 items-start gap-2"
+        className={cn("group/link", CARD_ROW)}
         title={href}
       >
-        <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-foreground underline-offset-2 group-hover/link:underline">
+        <Tile>{icon}</Tile>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">
             {title ?? href}
           </span>
-          {title && host ? (
-            <span className="block truncate text-[11px] text-muted-foreground">
-              {host}
-            </span>
-          ) : null}
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {title && host ? host : "Opens in a new tab"}
+          </span>
         </span>
+        <ArrowUpRight
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover/link:text-foreground"
+          aria-hidden="true"
+        />
       </a>
     </AttachmentBlock>
   );
+}
+
+/** "md", "pdf": short enough to be the tile itself; longer ones get the icon. */
+function extensionOf(fileName: string): string | null {
+  const match = /\.([a-z0-9]{1,4})$/i.exec(fileName);
+  return match ? match[1]!.toLowerCase() : null;
 }
 
 function FileAttachment({
@@ -108,36 +141,50 @@ function FileAttachment({
   if (isImage) {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
-        <div className="mb-1 truncate text-[11px] text-muted-foreground">
-          {attachment.fileName} · {formatBytes(attachment.sizeBytes)}
-        </div>
         <button
           type="button"
           onClick={open}
-          className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
+          className="block max-w-xs text-left"
           title={attachment.fileName}
         >
-          <FeedImage
-            src={url}
-            alt={attachment.fileName}
-            width={attachment.width}
-            height={attachment.height}
-            maxHeightPx={224}
-          />
+          <span className="block border-b border-border/70 bg-background/60">
+            <FeedImage
+              src={url}
+              alt={attachment.fileName}
+              width={attachment.width}
+              height={attachment.height}
+              maxHeightPx={224}
+            />
+          </span>
+          <span className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate">{attachment.fileName}</span>
+            <span className="ml-auto shrink-0">
+              {formatBytes(attachment.sizeBytes)}
+            </span>
+          </span>
         </button>
       </AttachmentBlock>
     );
   }
+  const extension = extensionOf(attachment.fileName);
   return (
     <AttachmentBlock data-testid="chat-attachment-file">
       <button
         type="button"
         onClick={open}
-        className="flex min-w-0 max-w-full items-start gap-2 text-left"
+        className={CARD_ROW}
         title={attachment.fileName}
       >
-        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0">
+        <Tile>
+          {extension ? (
+            <span className="font-mono text-[10px] font-semibold uppercase leading-none">
+              {extension}
+            </span>
+          ) : (
+            <FileText className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Tile>
+        <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-foreground">
             {attachment.fileName}
           </span>
@@ -158,13 +205,15 @@ function CodeAttachment({
   const fence = "```";
   const source = `${fence}${attachment.language ?? ""}\n${attachment.code}\n${fence}`;
   return (
-    <AttachmentBlock data-testid="chat-attachment-code">
+    <AttachmentBlock className="w-full" data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="mb-1 truncate font-mono text-[11px] text-muted-foreground">
+        <div className="truncate border-b border-border/70 px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
           {attachment.path}
         </div>
       ) : null}
-      <Markdown className="text-xs">{source}</Markdown>
+      <div className="p-1.5 [&_pre]:my-0">
+        <Markdown className="text-xs">{source}</Markdown>
+      </div>
     </AttachmentBlock>
   );
 }

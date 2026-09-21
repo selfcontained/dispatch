@@ -1102,6 +1102,8 @@ describe("ChatPane threads", () => {
     text: "Plan",
     replyCount: 3,
     lastReplyAt: "2026-09-02T10:05:00.000Z",
+    unreadReplies: 2,
+    repliers: [{ kind: "user" }, { kind: "agent", agentId: "agt_1" }],
   });
 
   it("shows a reply line on a threaded block and puts the thread into the URL for the drawer", () => {
@@ -1111,6 +1113,9 @@ describe("ChatPane threads", () => {
     const line = screen.getByTestId("chat-thread-line");
     expect(line.textContent).toContain("3 replies");
     expect(line.textContent).toContain("last");
+    // The row shows who wrote in the thread and what is new in it.
+    expect(line.querySelectorAll('[data-testid="chat-thread-replier"]')).toHaveLength(2);
+    expect(screen.getByTestId("chat-thread-unread").textContent).toBe("2 new");
     fireEvent.click(line);
     expect(screen.getByTestId("location-search").textContent).toBe(
       "?thread=root"

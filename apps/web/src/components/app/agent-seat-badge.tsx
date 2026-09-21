@@ -13,11 +13,13 @@ export function AgentSeatBadge({
   name,
   size = "md",
   className,
+  "data-testid": testId = "chat-avatar-agent",
 }: {
   seat: number;
   name: string;
   size?: "md" | "sm";
   className?: string;
+  "data-testid"?: string;
 }): JSX.Element {
   const { face, chip } = seatClasses(seat);
   return (
@@ -30,7 +32,7 @@ export function AgentSeatBadge({
       )}
       aria-label={`${name}, agent ${seat}`}
       title={`${name} · agent ${seat}`}
-      data-testid="chat-avatar-agent"
+      data-testid={testId}
       data-seat={seat}
     >
       <Bot className={size === "md" ? "h-[18px] w-[18px]" : "h-3 w-3"} aria-hidden />

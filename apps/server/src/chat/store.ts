@@ -129,6 +129,8 @@ export type BlockRow = {
   reactions?: ReactionJson[] | null;
   reply_count?: number | string | null;
   last_reply_at?: Date | null;
+  unread_replies?: number | string | null;
+  repliers?: Array<{ kind: BlockAuthorKind; agentId: string | null }> | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -167,6 +169,10 @@ export function toBlock(row: BlockRow): Block {
           lastReplyAt: row.last_reply_at
             ? row.last_reply_at.toISOString()
             : null,
+          unreadReplies: Number(row.unread_replies ?? 0),
+          repliers: Array.isArray(row.repliers)
+            ? row.repliers.map((r) => authorOf(r.kind, r.agentId))
+            : [],
         }
       : {}),
     createdAt: row.created_at.toISOString(),

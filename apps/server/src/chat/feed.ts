@@ -146,7 +146,18 @@ async function listBlockEntries(
          JOIN block_reactions r ON r.block_id = p.id
         GROUP BY r.block_id
      ), replies AS (
-       SELECT c.thread_id, COUNT(*)::int AS reply_count, MAX(c.created_at) AS last_reply_at
+       SELECT c.thread_id,
+              COUNT(*)::int AS reply_count,
+              MAX(c.created_at) AS last_reply_at,
+              -- Agent replies the person has not seen: the thread row's "new".
+              COUNT(*) FILTER (WHERE c.author_kind = 'agent' AND c.read_at IS NULL)::int AS unread_replies,
+              -- Who has written in the thread, in order of first appearance.
+              (SELECT jsonb_agg(jsonb_build_object('kind', a.author_kind, 'agentId', a.author_agent_id)
+                                ORDER BY a.first_at)
+                 FROM (SELECT b.author_kind, b.author_agent_id, MIN(b.created_at) AS first_at
+                         FROM blocks b
+                        WHERE b.thread_id = c.thread_id
+                        GROUP BY b.author_kind, b.author_agent_id) a) AS repliers
          FROM page p
          JOIN blocks c ON c.thread_id = p.id
         GROUP BY c.thread_id
@@ -156,7 +167,9 @@ async function listBlockEntries(
             COALESCE(live.attachments, '[]'::jsonb) AS attachments,
             rx.reactions,
             COALESCE(replies.reply_count, 0) AS reply_count,
-            replies.last_reply_at
+            replies.last_reply_at,
+            COALESCE(replies.unread_replies, 0) AS unread_replies,
+            replies.repliers
        FROM page p
        LEFT JOIN live ON live.block_id = p.id
        LEFT JOIN rx ON rx.block_id = p.id

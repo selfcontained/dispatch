@@ -241,6 +241,10 @@ export type Block = {
   /** Top-level blocks: how many replies the thread holds. */
   replyCount?: number;
   lastReplyAt?: string | null;
+  /** Agent replies the person has not seen yet. */
+  unreadReplies?: number;
+  /** Who has written in the thread, in order of first appearance. */
+  repliers?: BlockAuthor[];
   createdAt: string;
   updatedAt: string;
 } & BlockBody;

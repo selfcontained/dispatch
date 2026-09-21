@@ -115,6 +115,8 @@ describe("composeStreamFeed", () => {
         createdAt: at(2).toISOString(),
         replyCount: 0,
         lastReplyAt: null,
+        unreadReplies: 0,
+        repliers: [],
       },
     });
     expect(second).toMatchObject({ type: "block", id: m3.id });
@@ -291,8 +293,17 @@ describe("composeStreamFeed", () => {
     expect(rootEntry.block).toMatchObject({
       replyCount: 2,
       lastReplyAt: at(4).toISOString(),
+      // The person first, then the agent: order of first appearance. The
+      // agent's reply is unread; the person's own never counts.
+      repliers: [{ kind: "user" }, { kind: "agent", agentId: A }],
+      unreadReplies: 1,
     });
-    expect(loneEntry.block).toMatchObject({ replyCount: 0, lastReplyAt: null });
+    expect(loneEntry.block).toMatchObject({
+      replyCount: 0,
+      lastReplyAt: null,
+      repliers: [],
+      unreadReplies: 0,
+    });
     // Replies are not unread rows of their own in the feed, but they do
     // count toward unread: an agent reply for people is still unread.
     expect(feed.unreadCount).toBe(3);

@@ -22,6 +22,8 @@ import {
   Check,
   ChevronRight,
   CircleDot,
+  ClipboardList,
+  MessageCircleQuestion,
   ExternalLink,
   Link2,
   RotateCcw,
@@ -82,6 +84,18 @@ function useOpened(
 // Questions
 // ---------------------------------------------------------------------------
 
+/**
+ * A question or form is an ask of the person. It wears the theme's accent
+ * on a rail down its left edge and a faint wash, the same accent its
+ * buttons carry, rather than a warning colour: it is an invitation, not
+ * an alarm. Answered, the rail and the wash go quiet.
+ */
+const ASK_CARD = "mt-2 rounded-md border border-l-[3px] p-3 transition-colors";
+const ASK_OPEN = "border-border/70 border-l-primary bg-primary/[0.05]";
+const ASK_CLOSED = "border-border border-l-border bg-muted/30";
+const ASK_HEAD =
+  "mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-primary";
+
 export function QuestionOptions({
   block,
   answering,
@@ -100,20 +114,12 @@ export function QuestionOptions({
   const optionsDisabled = !open || answering || answersDisabled;
   return (
     <div
-      className={cn(
-        "mt-2 rounded-md border p-3",
-        open
-          ? "border-status-waiting/50 bg-status-waiting/[0.07]"
-          : "border-border bg-muted/30"
-      )}
+      className={cn(ASK_CARD, open ? ASK_OPEN : ASK_CLOSED)}
       data-testid="chat-question-options"
     >
       {open ? (
-        <div
-          className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-status-waiting"
-          data-testid="chat-needs-reply"
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        <div className={ASK_HEAD} data-testid="chat-needs-reply">
+          <MessageCircleQuestion className="h-3.5 w-3.5" aria-hidden="true" />
           Needs your reply
         </div>
       ) : (
@@ -322,22 +328,14 @@ export function FormBlockBody({
   };
   return (
     <form
-      className={cn(
-        "mt-2 rounded-md border p-3",
-        open
-          ? "border-status-waiting/50 bg-status-waiting/[0.07]"
-          : "border-border bg-muted/30"
-      )}
+      className={cn(ASK_CARD, open ? ASK_OPEN : ASK_CLOSED)}
       data-testid="chat-form"
       data-open={open ? "true" : undefined}
       onSubmit={submit}
     >
       {open ? (
-        <div
-          className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-status-waiting"
-          data-testid="chat-needs-reply"
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        <div className={ASK_HEAD} data-testid="chat-needs-reply">
+          <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
           {block.data.title ?? "Needs your input"}
         </div>
       ) : (
