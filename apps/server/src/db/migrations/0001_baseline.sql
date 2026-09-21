@@ -144,13 +144,9 @@ CREATE TABLE blocks (
   origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn', 'system_prompt')),
   launched_by_agent_id text,
   -- Blocks with to_agent_id: whether the prompt reached every agent it was
-  -- addressed to; NULL while pending.
+  -- addressed to; NULL while pending. Per-recipient outcomes live in
+  -- `deliveries` (0002).
   delivered boolean,
-  -- A post addressed to more than one agent (an @mention naming several):
-  -- each recipient's own outcome, agent id to true/false/null, so a copy
-  -- that missed can be seen and sent again on its own. NULL when the post
-  -- has a single recipient, whose outcome `delivered` already carries.
-  deliveries jsonb,
   -- Agent blocks for people: when the user saw it.
   read_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
