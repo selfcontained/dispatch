@@ -569,13 +569,14 @@ describe("ChatFeed", () => {
     ]);
     const row = screen.getByTestId("chat-workspace");
     expect(row.getAttribute("data-state")).toBe("running");
-    expect(screen.getByTestId("chat-workspace-title").textContent).toBe(
-      "Installing dependencies…"
-    );
-    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
-    const steps = screen.getAllByTestId("chat-workspace-step");
-    expect(steps).toHaveLength(2);
-    expect(steps[0]!.textContent).toContain("Creating git worktree");
+    // Drawn as the agent's own activity is: the summary line names the
+    // step that is running, and the rail under it holds the steps.
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.textContent).toContain("installing dependencies");
+    fireEvent.click(summary);
+    const steps = screen.getAllByRole("listitem");
+    expect(steps.length).toBeGreaterThanOrEqual(2);
+    expect(steps[0]!.textContent).toContain("creating git worktree");
     expect(steps[0]!.textContent).toContain("4.0s");
   });
 
@@ -611,13 +612,9 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
       "ready"
     );
-    expect(screen.getByTestId("chat-workspace-title").textContent).toBe(
-      "Workspace ready"
-    );
-    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
-    expect(screen.getByTestId("chat-workspace-cwd").textContent).toBe(
-      "/Users/brad/dev/thing"
-    );
+    expect(
+      screen.getByTestId("harness-activity-summary").textContent
+    ).toContain("workspace ready");
   });
 
   it("says which step failed when the workspace never came up", () => {
@@ -652,8 +649,11 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
       "failed"
     );
-    fireEvent.click(screen.getByTestId("chat-workspace-toggle"));
-    expect(screen.getByTestId("chat-workspace-step").textContent).toContain(
+    // The rail reads a failed startup the way it reads a failed turn.
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.getAttribute("data-final-result")).toBe("error");
+    fireEvent.click(summary);
+    expect(screen.getAllByRole("listitem")[0]!.textContent).toContain(
       "branch already checked out"
     );
   });

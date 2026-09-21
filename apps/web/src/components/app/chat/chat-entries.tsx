@@ -3,7 +3,7 @@ import type {
   Block,
   BlockAuthor,
   BlockDeliveryState,
-  BlockStartupStep,
+  BlockStartup,
   BlockOption,
 } from "@dispatch/shared";
 import {
@@ -12,7 +12,6 @@ import {
   Check,
   ChevronRight,
   Copy,
-  FolderCog,
   Hourglass,
   Loader2,
   MessageSquarePlus,
@@ -34,7 +33,8 @@ import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { Collapse } from "@/components/app/chat/collapse";
-import { formatStepDuration } from "@/components/app/chat/turn/format";
+import { ActivityBlock } from "@/components/app/chat/turn/activity-block";
+import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import {
   type FoldedEntry,
@@ -1112,133 +1112,82 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
 }
 
 /**
- * The workspace coming up, as a row of the stream: the step running now
- * while it runs, what it ended as afterwards, and the steps themselves
- * folded away with how long each took. Same shape as the instructions
- * row, because it is the same kind of thing — a record of the startup,
- * not something anybody said.
+ * The workspace coming up, as a row of the stream, drawn as the agent's
+ * own activity is: the same summary line, the same step rail, the same
+ * glyphs and durations. Creating a worktree and installing dependencies
+ * are work an agent is doing, and there is no reason for them to look
+ * like a different kind of thing.
  */
 function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
-  const [open, setOpen] = useChatRowState<boolean>("workspace-open", false);
-  const startup =
-    block.kind === "text" ? block.data?.startup : undefined;
-  const steps = startup?.steps ?? [];
-  const running = steps.find((step) => step.status === "running");
-  const failed = startup?.failed;
-  const ready = startup?.readyAt;
-  const title = failed
-    ? "Workspace setup failed"
-    : running
-      ? `${running.label}…`
-      : ready
-        ? "Workspace ready"
-        : "Starting the workspace";
-  const done = steps.filter((step) => step.status === "done").length;
+  const startup = block.kind === "text" ? block.data?.startup : undefined;
+  const trace = useMemo(() => startupTrace(startup), [startup]);
+  // The summary line names the running step by itself, the way it does
+  // for a turn; this is what it reads once there is no step running.
+  const label = startup?.readyAt ? "workspace ready" : "setting up";
   return (
     <div
       className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
       data-testid="chat-workspace"
-      data-open={open ? "true" : "false"}
-      data-state={failed ? "failed" : ready ? "ready" : "running"}
+      data-state={
+        startup?.failed ? "failed" : startup?.readyAt ? "ready" : "running"
+      }
       data-block-id={block.id}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-3 text-left"
-        data-testid="chat-workspace-toggle"
+      <div
+        className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}
       >
-        <span
-          className={cn(
-            "flex shrink-0 items-center justify-center rounded-md border p-2",
-            failed
-              ? "border-destructive/40 bg-destructive/10 text-destructive"
-              : "border-border/60 bg-muted/40 text-muted-foreground"
-          )}
-          aria-hidden="true"
-        >
-          {running ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <FolderCog className="h-4 w-4" />
-          )}
-        </span>
-        <span
-          className={cn(
-            "truncate text-sm font-semibold",
-            failed ? "text-destructive" : "text-foreground"
-          )}
-          data-testid="chat-workspace-title"
-        >
-          {title}
-        </span>
-        {steps.length > 0 ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {done} of {steps.length}
-          </span>
-        ) : null}
-        <ChevronRight
-          className={cn(
-            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-90"
-          )}
-          aria-hidden="true"
-        />
-      </button>
-      <Collapse open={open} data-testid="chat-workspace-body">
-        <ul className="mt-2 flex flex-col gap-1 rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed">
-          {steps.map((step) => (
-            <li
-              key={step.phase}
-              className="flex min-w-0 items-center gap-2"
-              data-testid="chat-workspace-step"
-              data-phase={step.phase}
-              data-status={step.status}
-            >
-              <span
-                className={cn(
-                  "shrink-0",
-                  step.status === "failed"
-                    ? "text-destructive"
-                    : step.status === "done"
-                      ? "text-muted-foreground"
-                      : "text-foreground"
-                )}
-                aria-hidden="true"
-              >
-                {step.status === "failed" ? "×" : step.status === "done" ? "✓" : "·"}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {step.label}
-                {step.detail ? `: ${step.detail}` : ""}
-              </span>
-              {stepDuration(step) ? (
-                <span className="shrink-0 text-muted-foreground/70">
-                  {stepDuration(step)}
-                </span>
-              ) : null}
-            </li>
-          ))}
-          {startup?.cwd ? (
-            <li
-              className="mt-1 truncate border-t border-border/60 pt-2 font-mono text-muted-foreground/80"
-              data-testid="chat-workspace-cwd"
-            >
-              {startup.cwd}
-            </li>
-          ) : null}
-        </ul>
-      </Collapse>
+        <ActivityBlock trace={trace} label={label} />
+      </div>
     </div>
   );
 }
 
-/** How long a finished step took; nothing while it is still running. */
-function stepDuration(step: BlockStartupStep): string | null {
-  if (!step.endedAt) return null;
-  const ms = Date.parse(step.endedAt) - Date.parse(step.startedAt);
-  return Number.isFinite(ms) && ms >= 0 ? formatStepDuration(ms) : null;
+/**
+ * The startup record as the activity rail's own model. The worktree step
+ * carries the directory it made and a failed step carries the reason, in
+ * the aside the rail shows beside a step's name.
+ */
+function startupTrace(startup: BlockStartup | undefined): Trace {
+  const steps = startup?.steps ?? [];
+  const at = (iso: string | undefined): number | undefined => {
+    if (!iso) return undefined;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : undefined;
+  };
+  const first = at(steps[0]?.startedAt) ?? Date.now();
+  const last = steps.reduce(
+    (latest, step) => Math.max(latest, at(step.endedAt) ?? 0),
+    0
+  );
+  const ended = startup?.failed || startup?.readyAt ? last || first : undefined;
+  return {
+    startedAt: first,
+    ...(ended !== undefined ? { endedAt: ended } : {}),
+    ...(startup?.failed ? { finalResult: "error" as const } : {}),
+    steps: steps.map((step) => {
+      const startedAt = at(step.startedAt) ?? first;
+      const endedAt = at(step.endedAt);
+      const aside =
+        step.detail ??
+        (step.phase === "worktree" ? startup?.cwd : undefined);
+      return {
+        id: step.phase,
+        kind: "setup",
+        label: step.label,
+        status:
+          step.status === "failed"
+            ? ("error" as const)
+            : step.status === "done"
+              ? ("ok" as const)
+              : ("running" as const),
+        startedAt,
+        ...(endedAt !== undefined
+          ? { endedAt, durMs: Math.max(0, endedAt - startedAt) }
+          : {}),
+        ...(aside ? { detail: { text: aside } } : {}),
+      };
+    }),
+  };
 }
 
 export const BlockView = memo(function BlockView({

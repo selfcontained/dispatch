@@ -32,6 +32,8 @@ const LABELS: Record<string, string> = {
   fetch: "fetch",
   think: "thinking",
   note: "",
+  /** A workspace setup phase; its own label always says which. */
+  setup: "setup",
 };
 
 const SUMMARY_MAX = 96;
@@ -160,6 +162,10 @@ export function stepSummary(step: Step): string | undefined {
     case "think":
     case "note":
       return undefined;
+    // A setup step carries its own aside: the worktree it made, or why it
+    // failed. There is nothing to unfold under it.
+    case "setup":
+      return d.text?.trim() ? clip(d.text) : undefined;
     default:
       return argsSummary(d.input);
   }
@@ -260,6 +266,8 @@ export function hasSettledDetail(step: Step): boolean {
     case "think":
     case "note":
       return !!d.text?.trim();
+    case "setup":
+      return false;
     default: {
       const record = inputRecord(d.input);
       return output || (!!record && Object.keys(record).length > 0);
