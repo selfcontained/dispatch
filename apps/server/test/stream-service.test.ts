@@ -2848,6 +2848,73 @@ describe("StreamService turn blocks", () => {
     });
   });
 
+  it("a turn set off by answering a question lands in the channel, not the question's thread", async () => {
+    // An agent's question is usually a reply inside some other thread, so
+    // the thread's root is not the question: what the answer replies to is.
+    const opener = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      text: "have a look",
+      delivered: true,
+    });
+    const question = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      kind: "question",
+      text: "Which one?",
+      threadId: opener.id,
+      replyTo: opener.id,
+      data: { options: [{ label: "This" }, { label: "That" }] },
+      state: {},
+    });
+    const answer = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: question.threadId ?? question.id,
+      replyTo: question.id,
+      text: "This",
+      delivered: true,
+    });
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(11, { source: "chat", chatMessageId: answer.id }),
+      prompt: { source: "chat", text: "This", chatMessageId: answer.id },
+    });
+    expect(await service.store.getById(blockId!)).toMatchObject({
+      threadId: null,
+      replyTo: null,
+      origin: "turn",
+    });
+  });
+
+  it("a turn set off by a reply to an ordinary post stays in that thread", async () => {
+    const root = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      text: "Here is what I found.",
+    });
+    const reply = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: root.id,
+      replyTo: root.id,
+      text: "say more",
+      delivered: true,
+    });
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(12, { source: "chat", chatMessageId: reply.id }),
+      prompt: { source: "chat", text: "say more", chatMessageId: reply.id },
+    });
+    expect(await service.store.getById(blockId!)).toMatchObject({
+      threadId: root.id,
+      replyTo: reply.id,
+    });
+  });
+
   it("settling a turn with no block behind it is a no-op", async () => {
     published.length = 0;
     await service.recordTurnSettled({

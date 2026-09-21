@@ -1545,10 +1545,28 @@ export class StreamService {
     ) {
       const opener = await this.store.getById(input.prompt.chatMessageId);
       if (opener?.threadId) {
-        thread = { threadId: opener.threadId, replyTo: opener.id };
-        // A comment on a finding is answered on that finding's page.
-        const about = opener.kind === "text" ? opener.data?.findingId : undefined;
-        if (typeof about === "string") findingId = about;
+        // Where a turn's answer lands depends on what set it off. Answering
+        // a question or a form settles that ask and nothing more, so the
+        // work it leads to belongs back in the channel where it can be
+        // seen; the answer itself stays threaded under the question. A
+        // reply to anything else — a finding, an ordinary post — is a
+        // discussion, and its turns belong in that thread.
+        //
+        // The test is what the reply answers, not what the thread is
+        // rooted at: an agent's question is usually itself a reply inside
+        // some other thread, so the root is rarely the question.
+        const answered = opener.replyTo
+          ? await this.store.getById(opener.replyTo)
+          : null;
+        const settlesAnAsk =
+          answered?.kind === "question" || answered?.kind === "form";
+        if (!settlesAnAsk) {
+          thread = { threadId: opener.threadId, replyTo: opener.id };
+          // A comment on a finding is answered on that finding's page.
+          const about =
+            opener.kind === "text" ? opener.data?.findingId : undefined;
+          if (typeof about === "string") findingId = about;
+        }
       }
     }
     const block = await this.store.insert({
