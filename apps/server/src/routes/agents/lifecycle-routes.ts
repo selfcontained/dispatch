@@ -8,12 +8,20 @@ import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
 } from "../../agents/latest-event.js";
-import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
 import type { AgentRouteDeps } from "./shared.js";
+
+/**
+ * What the sidebar's "name this session" button sends. Dispatch no longer
+ * nudges on its own — the launch guidance already asks for a name, and
+ * saying it twice cost a turn and a line in the stream — so this is only
+ * ever sent because someone asked for it.
+ */
+const RENAME_PROMPT =
+  "Please set a short, descriptive name for this session that reflects the work you're doing — call the `rename_session` MCP tool with the new name. Then continue with whatever you were doing.";
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,

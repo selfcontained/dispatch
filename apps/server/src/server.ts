@@ -145,7 +145,6 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
-import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 import { SubsystemTracker } from "./observability/subsystem-tracker.js";
 import {
@@ -364,9 +363,6 @@ const notificationRuntime = createNotificationRuntime({
 const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
   agentManager,
   app.log
-);
-agentManager.onLatestEvent(
-  createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
 );
 // Status and phase changes the manager makes on its own (a detached launch
 // coming up, an engine exiting, a restore at boot) reach the sidebar and the
