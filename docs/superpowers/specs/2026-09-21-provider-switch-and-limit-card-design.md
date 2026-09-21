@@ -230,16 +230,32 @@ order:
 6. **Queue the briefing** in front of the next prompt, through the mechanism
    `pendingPersona` already uses to prepend the persona to a fresh session's
    first prompt. Fresh session: full briefing. Resumed: catch-up only.
-7. **Write the marker row, update `agents.model`, release the queue.** With
+7. **Write the handoff row, then `agents.cli_session_id` and `agents.model`
+   together, then release the queue.** With
    `continueTask`, the release names a system prompt to run first: "continue
    where the last turn left off".
 
-**`agents.model` is written last.** A server restart mid-switch finds either the
-old state or the new one. Never a half-switched agent.
+**The record is written last.** `start()` normally stores the new session id at
+once. Under a switch it must not: a restart that found the old engine named
+beside the new engine's session id would try to resume a session that engine
+never had. So both fields wait, and a restart mid-switch finds the old state or
+the new one.
 
 **A switch happens between turns, or by stopping the current one.** There is no
 switching under a running turn, because a turn belongs to one engine process.
 The dialog says that switching will stop it.
+
+### Two traps in the existing supervisor
+
+`HarnessSupervisor.stop()` is the wrong tool for step 4. It also fails every
+queued prompt and stops the agent's Dispatch-managed background processes. The
+switch needs a narrower stop that ends the engine process and nothing else, or
+the promises below about the queue and background processes are false.
+
+`start()` sends the agent's launch prompt whenever there is no stored session.
+A fresh session on a second provider is not a first launch, so the switch has to
+suppress it, or the agent's original task is sent again, mid-conversation, to a
+provider that has just been told the work is half done.
 
 ### What does not change
 
@@ -269,10 +285,17 @@ Four parts:
    the files disagree, trust the files." The last sentence is load-bearing: a
    briefing can be stale and the working tree cannot.
 2. **Hard facts.** The branch, a summary of uncommitted changes, the task list
-   with statuses, and the agent's pins. Read live at switch time, not recalled.
+   with statuses, and the agent's pins. Read live at switch time, not recalled. Shortcut pins are left
+   out: their value is a prompt to send back, not a fact about the work.
 3. **The recent conversation, verbatim.** Prompts and answers in full. Each tool
    call is one line: what it was and how it ended.
 4. **The earlier conversation, compressed**, only when needed.
+
+**A typed prompt's text is not on the turn row.** A turn a Chat message started
+stores only that message's id, and the text is joined in from
+`agent_chat_messages` when turns are assembled. A loader that skips the join
+produces a briefing in which every prompt the user typed is blank, so the
+briefing reads the session through the same lookup the feed uses.
 
 **Diffs and command output are left out.** They are large and already reflected
 on disk. Leaving them out also keeps a secret that scrolled past in a terminal
@@ -301,20 +324,19 @@ summary must never be the reason someone is stuck on a provider with no tokens.
 
 ```sql
 CREATE TABLE IF NOT EXISTS agent_engine_handoffs (
-  id           uuid PRIMARY KEY,
-  agent_id     text NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  from_engine  text NOT NULL,
-  to_engine    text NOT NULL,
-  /** The exact text sent. */
-  briefing     text NOT NULL,
-  /** A saved compression of turns up to this seq, reusable by a later switch. */
-  brief_upto_seq integer,
-  older_brief  text,
-  created_at   timestamptz NOT NULL DEFAULT now()
+  id          serial PRIMARY KEY,   -- an integer: the feed's cursor breaks ties on it
+  agent_id    text NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  from_engine text NOT NULL,
+  to_engine   text NOT NULL,
+  outcome     text NOT NULL CHECK (outcome IN ('switched', 'failed')),
+  failure     text,
+  briefing    text NOT NULL,        -- the exact text sent; empty for a failed switch
+  created_at  timestamptz NOT NULL DEFAULT now()
 );
 ```
 
-The marker row links to it as "View handoff". This is required, not a nicety.
+Build step 3 adds two columns for the saved compression, `brief_upto_seq` and
+`older_brief`. The marker in the feed links to the row as "View handoff". This is required, not a nicety.
 When the new provider behaves oddly after a switch, the exact briefing is the
 only way to tell whether the handoff caused it.
 
@@ -358,10 +380,14 @@ until the new provider is ready, as at first launch.
 Switched from Claude Code to Codex · 5:47 PM · View handoff
 ```
 
-It is a `status` row with a structured `switch` field, so
-`agent_stream_events_kind_check` needs no new kind. Turns above show Claude's
-mark and turns below Codex's, which the feed already does per turn. The engine
-label on the sidebar card updates.
+It is its own feed entry type, `switch`, read straight from
+`agent_engine_handoffs`. A `status` row cannot carry it: `assembleTurns` does not
+project `status` rows, and the web drops every feed entry of that type. One
+handoff row is written per switch already, so the marker needs no second write
+and cannot disagree with the stored briefing. A failed switch writes a row too,
+with `outcome = 'failed'` and the reason, so the feed says what happened. Turns
+above the marker show Claude's mark and turns below Codex's, which the feed
+already does per turn. The engine label on the sidebar card updates.
 
 ## Failure handling
 
