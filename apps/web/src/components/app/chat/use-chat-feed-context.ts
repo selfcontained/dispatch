@@ -7,6 +7,7 @@ import {
   peerDirectory,
 } from "@/components/app/chat/chat-entries";
 import { type Agent } from "@/components/app/types";
+import { lineageSeats } from "@/lib/agent-seat";
 import { api } from "@/lib/api";
 
 export type ChatFeedContextInput = {
@@ -59,11 +60,20 @@ export function useChatFeedContext({
   // `select` narrows it to what the feed shows, so structural sharing keeps
   // the directory's identity across agent updates that change nothing here;
   // a stable selector lets react-query skip re-running it at all.
+  // One read of the list gives both: the peers, and this agent's own
+  // seat in its tree (drawn as its avatar).
   const selectPeers = useCallback(
-    (agents: Agent[]) => peerDirectory(agentId ?? "", agents),
+    (agents: Agent[]) => ({
+      peers: peerDirectory(agentId ?? "", agents),
+      seat: agentId ? (lineageSeats(agentId, agents)[agentId] ?? null) : null,
+    }),
     [agentId]
   );
-  const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
+  const { data: directory } = useQuery<
+    Agent[],
+    Error,
+    { peers: PeerDirectory; seat: number | null }
+  >({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
@@ -71,6 +81,8 @@ export function useChatFeedContext({
     },
     select: selectPeers,
   });
+  const peers = directory?.peers;
+  const agentSeat = directory?.seat ?? null;
 
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
@@ -82,6 +94,7 @@ export function useChatFeedContext({
       agentName,
       agentType,
       agentModel,
+      ...(agentSeat != null ? { agentSeat } : {}),
       peers,
       onOpenFile: openLightbox,
       onOpenPath,
@@ -97,6 +110,7 @@ export function useChatFeedContext({
       agentName,
       agentType,
       agentModel,
+      agentSeat,
       onOpenPath,
       onToggleReaction,
       onOpenThread,

@@ -591,7 +591,9 @@ describe("ChatFeed", () => {
     expect(
       posts[1]!.querySelector('[data-testid="chat-author-model"]')
     ).toBeNull();
-    // One face for every agent; the name is in the avatar's label.
+    // Each agent in the tree wears its seat number (the root is 1, then
+    // creation order); an agent outside the tree or gone from the list
+    // wears a plain face.
     expect(
       posts.map((post) =>
         post
@@ -599,11 +601,10 @@ describe("ChatFeed", () => {
           ?.getAttribute("aria-label")
       )
     ).toEqual([
-      "kid, agent",
-      "root, agent",
-      "sib, agent",
+      "kid, agent 4",
+      "root, agent 1",
+      "sib, agent 3",
       "far, agent",
-      // Not in the list any more: named as a plain agent.
       "Agent, agent",
     ]);
     // Still a peer post: muted side-conversation treatment, the sender's
@@ -739,7 +740,7 @@ describe("ChatFeed", () => {
       post
         .querySelector('[data-testid="chat-avatar-agent"]')
         ?.getAttribute("aria-label")
-    ).toBe("orchestrator, agent");
+    ).toBe("orchestrator, agent 1");
     expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
     cleanup();
 

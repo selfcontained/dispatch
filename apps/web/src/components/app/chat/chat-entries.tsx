@@ -23,7 +23,9 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
+import { lineageSeats } from "@/lib/agent-seat";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +85,8 @@ export type PeerInfo = {
   agentType: string | null;
   model?: string | null;
   relation: AgentRelation;
+  /** Its number in the tree (the root is 1); absent outside this tree. */
+  seat?: number;
 };
 
 /** Peers by id, from this agent's point of view. */
@@ -96,9 +100,10 @@ export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
 export function peerDirectory(
   agentId: string,
   agents: readonly (Pick<Agent, "id" | "name" | "type" | "parentAgentId"> &
-    Partial<Pick<Agent, "model">>)[]
+    Partial<Pick<Agent, "model" | "createdAt">>)[]
 ): PeerDirectory {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const seats = lineageSeats(agentId, agents);
   const peers: Record<string, PeerInfo> = {};
   for (const agent of agents) {
     if (agent.id === agentId) continue;
@@ -107,6 +112,7 @@ export function peerDirectory(
       agentType: agent.type ?? null,
       model: agent.model ?? null,
       relation: agentRelation(agentId, agent.id, byId),
+      ...(seats[agent.id] !== undefined ? { seat: seats[agent.id] } : {}),
     };
   }
   return peers;
@@ -125,6 +131,8 @@ export type FeedContext = {
   agentName?: string;
   /** The agent's engine model, for the line under its name. */
   agentModel?: string | null;
+  /** The agent's number in its tree, drawn as its avatar. */
+  agentSeat?: number;
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
@@ -160,6 +168,8 @@ export type PostAuthor = {
   model?: string | null;
   /** Peers only: how the sender stands to this agent. */
   relation?: AgentRelation;
+  /** Its number in the tree, drawn as its avatar. */
+  seat?: number;
 };
 
 function userAuthor(): PostAuthor {
@@ -173,6 +183,7 @@ export function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
     kind: "agent",
     agentType: ctx.agentType ?? null,
     model: ctx.agentModel ?? null,
+    ...(ctx.agentSeat !== undefined ? { seat: ctx.agentSeat } : {}),
   };
 }
 
@@ -194,6 +205,7 @@ export function peerAuthor(
     agentType: peer?.agentType ?? null,
     model: peer?.model ?? null,
     relation: peer?.relation ?? "agent",
+    ...(peer?.seat !== undefined ? { seat: peer.seat } : {}),
   };
 }
 
@@ -256,8 +268,12 @@ function Avatar({ author }: { author: PostAuthor }): JSX.Element {
       </span>
     );
   }
-  // Every agent wears the same face; the engine and model are said in the
-  // chips under its name, not guessed from a logo.
+  // An agent in the tree wears its number in its own colour; one the list
+  // no longer knows wears a plain face. The engine and model are said in
+  // the chips under the name, not guessed from a logo.
+  if (author.seat !== undefined) {
+    return <AgentSeatBadge seat={author.seat} name={author.name} />;
+  }
   return (
     <span
       className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted/50 text-foreground/80"

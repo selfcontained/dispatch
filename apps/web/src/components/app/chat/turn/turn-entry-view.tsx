@@ -3,6 +3,7 @@ import type { Block, ChatTurnEntry, ChatTurnStep } from "@dispatch/shared";
 import { Bot, ChevronDown, ChevronRight } from "lucide-react";
 
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import {
   agentAuthor,
   agentDisplayName,
@@ -196,12 +197,16 @@ function ChildTurnView({
         )}
       >
         <span className="flex w-8 shrink-0 justify-end">
-          <span
-            className="flex h-5 w-5 items-center justify-center rounded border border-border bg-muted/50 text-foreground/80"
-            aria-hidden="true"
-          >
-            <Bot className="h-3 w-3" />
-          </span>
+          {author.seat !== undefined ? (
+            <AgentSeatBadge seat={author.seat} name={name} size="sm" />
+          ) : (
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded border border-border bg-muted/50 text-foreground/80"
+              aria-hidden="true"
+            >
+              <Bot className="h-3 w-3" />
+            </span>
+          )}
         </span>
         <span
           className="flex w-3 shrink-0 justify-center leading-none"
