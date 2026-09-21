@@ -34,7 +34,7 @@ Vite frontend — all on auto-selected free ports.
 
 Commands:
   up        Start DB + API server + Vite frontend
-  down      Stop all dev services and remove the DB container
+  down      Stop all dev services, keeping the database
   restart   Restart the API + Vite servers, keeping the DB intact
   status    Show which services are running
   logs      Show recent output (default: api; use --vite or --db)
@@ -47,6 +47,8 @@ Options:
   --live            Enable live agent runtime (tmux); default is inert.
                     Also disables the default dev-data seed.
   --no-seed         Skip seeding demo data (seed is on by default for non-live)
+  --wipe            down only: also delete the database and the stack's
+                    logs. Agents, streams and files are gone for good.
   -f, --follow      Follow log output (used with logs command)
 USAGE
 }
@@ -253,7 +255,9 @@ cmd_up() {
       fi
 
       echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v >/dev/null 2>&1 || true
+      # Drop the container so the next attempt can bind a different port;
+      # the volume it was mounting stays, data and all.
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down >/dev/null 2>&1 || true
       db_attempt=$((db_attempt + 1))
     done
   fi
@@ -433,19 +437,30 @@ cmd_down() {
   stop_service "${DEV_API_PID:-}" "API server"
   stop_service "${DEV_VITE_PID:-}" "Vite server"
 
-  # Stop the DB container
+  # The container goes; its data stays on the stack's named volume and is
+  # mounted again by the next `up`. Stopping a stack to pull a change is
+  # the common case, and it should not cost the agents on it. `--wipe` is
+  # the way to actually start over.
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
     local compose
     compose="$(detect_compose)"
     if [ -n "$compose" ]; then
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v 2>/dev/null || true
-      echo "Removed database container"
+      if [ "$OPT_WIPE" = "1" ]; then
+        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v 2>/dev/null || true
+        echo "Removed database container and its data"
+      else
+        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down 2>/dev/null || true
+        echo "Stopped database container (data kept; --wipe to delete it)"
+      fi
     fi
   fi
 
-  # Clean up state and logs
   rm -f "$(state_file)"
-  rm -rf "$(log_dir)"
+  # Logs and the agent state root are the stack's scratch space, not its
+  # data; they are only worth keeping while the data is.
+  if [ "$OPT_WIPE" = "1" ]; then
+    rm -rf "$(log_dir)"
+  fi
 
   echo "Dev environment torn down (suffix: ${SUFFIX})."
 }
@@ -470,8 +485,11 @@ cmd_restart() {
     return
   fi
   if [ "${DEV_NO_DB:-0}" != "1" ] && ! db_container_running; then
-    echo "DB container is gone — falling back to a fresh up (this will reseed)."
+    echo "DB container is gone — starting it again; its data is on the volume."
     cmd_down 2>/dev/null || true
+    # The volume survived the container, so the data is already there and
+    # seeding it again would collide with the rows it produced last time.
+    OPT_NO_SEED="1"
     cmd_up
     return
   fi
@@ -625,6 +643,7 @@ OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_NO_SEED="0"
 OPT_SUFFIX=""
+OPT_WIPE="0"
 OPT_LOG_DB="0"
 OPT_LOG_VITE="0"
 OPT_FOLLOW="0"
@@ -644,6 +663,8 @@ while [ $# -gt 0 ]; do
       OPT_LIVE="1"; shift ;;
     --no-seed)
       OPT_NO_SEED="1"; shift ;;
+    --wipe)
+      OPT_WIPE="1"; shift ;;
     --suffix)
       OPT_SUFFIX="${2:-}"; shift 2 ;;
     --db)
