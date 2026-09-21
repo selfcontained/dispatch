@@ -370,9 +370,13 @@ of briefing.
 - A provider that is not installed or not signed in is greyed out with the
   reason. It does not fail after the click.
 
-**While it happens.** The chip shows stages through the startup card in
-`agent-startup.tsx`: stopping, starting, briefing. The composer stays disabled
-until the new provider is ready, as at first launch.
+**While it happens.** The switch brings the new engine up through `start()`,
+which already reports `agent_start` stages (`prepare`, `connect`, `configure`)
+that the startup card in `agent-startup.tsx` renders: "Preparing agent session",
+"Connecting to Codex", "Applying session settings". So the progress display and
+the disabled composer come with reusing `start()`, and no new stage is added for
+"stopping": a turn stops in well under a second, and a stage that flashes past
+is noise.
 
 **Afterwards.** A divider row in the feed:
 

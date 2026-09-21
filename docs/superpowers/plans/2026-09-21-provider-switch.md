@@ -2849,6 +2849,8 @@ Add `/switch` to `slashItems` beside `/model`, opening the same picker: copy the
 
 Imports: `HARNESS_ENGINES` from `@dispatch/shared`, `useAgentModelCatalog` from `@/hooks/use-agent-model-catalog`, `SwitchDialog` and `SwitchTarget` from `@/components/app/harness/switch-dialog`. `engine` and `auth` are already in scope in this hook.
 
+**Progress while switching needs no code.** `switchEngine` brings the new engine up through `start()`, which already publishes `agent_start` stages (`prepare`, `connect`, `configure`). `agentStartupStage` in `agent-startup.tsx` reads those, so the startup card shows and the composer disables for the length of the switch, exactly as at first launch. Task 9's end-to-end test asserts the composer comes back enabled afterwards, which is the observable half of this.
+
 - [ ] **Step 6: Write the marker view, test first**
 
 Create `apps/web/src/components/app/chat/switch-entry-view.test.tsx`:
