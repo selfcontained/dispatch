@@ -19,13 +19,8 @@ export type FeedCursor = {
   id: string;
 };
 
-const SOURCE_RANK: Record<StreamEntry["type"], number> = {
-  // Turns come from agent_stream_events; the rank keeps the cursor's id
-  // tie-break exact against every other source.
-  turn: 6,
-  block: 4,
-  status: 3,
-};
+// The stream is blocks only; one source, one rank.
+const SOURCE_RANK: Record<StreamEntry["type"], number> = { block: 4 };
 
 const AT_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
 export const AT_KEY_SQL = `to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')`;
@@ -34,15 +29,10 @@ export function encodeFeedCursor(cursor: FeedCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-const SERIAL_ID_RE = /^\d{1,10}$/;
-
 function isValidCursorId(type: StreamEntry["type"], id: string): boolean {
   switch (type) {
     case "block":
       return isBlockId(id);
-    case "status":
-    case "turn":
-      return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
 }
 
@@ -131,8 +121,7 @@ export function compareNewestFirst(
   b: Keyed<StreamEntry>
 ): number {
   if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
-  const rank = SOURCE_RANK[b.entry.type] - SOURCE_RANK[a.entry.type];
-  if (rank !== 0) return rank;
+
   if (a.idKey === b.idKey) return 0;
   return a.idKey < b.idKey ? 1 : -1;
 }

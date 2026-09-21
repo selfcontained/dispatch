@@ -157,13 +157,6 @@ describe("deriveStreamRail", () => {
         createdAt: at("10:06"),
       })
     ),
-    {
-      type: "status",
-      id: "s1",
-      eventType: "working",
-      message: "",
-      at: at("10:07"),
-    },
   ];
 
   it("lists every open input in the stream on the root's page, oldest first", () => {

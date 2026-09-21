@@ -4,10 +4,13 @@
  * folds a child's turns to one row each; this is where one opens.
  */
 import { useCallback, useMemo } from "react";
-import type { ChatTurnEntry } from "@dispatch/shared";
+import type { StreamBlockEntry } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
 
-import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
+import {
+  isTurnEntry,
+  TurnEntryView,
+} from "@/components/app/chat/turn/turn-entry-view";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { fetchAgents } from "@/hooks/use-agent-tree";
@@ -21,17 +24,16 @@ export type TurnPageProps = {
   onOpenThread: (blockId: string, findingId?: string) => void;
 };
 
-/** The turn in the feed cache with this id, or null while it is not loaded. */
+/** The turn block in the feed cache with this id, or null while it is not loaded. */
 export function useTurnEntry(
   rootId: string | null,
   turnId: string | null
-): ChatTurnEntry | null {
+): StreamBlockEntry | null {
   const entries = useStreamFeedCache(rootId);
   return useMemo(
     () =>
-      (entries.find((entry) => entry.type === "turn" && entry.id === turnId) as
-        | ChatTurnEntry
-        | undefined) ?? null,
+      entries.find((entry) => isTurnEntry(entry) && entry.id === turnId) ??
+      null,
     [entries, turnId]
   );
 }
@@ -44,7 +46,8 @@ export function TurnPage({
   onOpenThread,
 }: TurnPageProps): JSX.Element {
   const entry = useTurnEntry(rootId, turnId);
-  const agentId = entry?.agentId ?? null;
+  const agentId =
+    entry?.block.author.kind === "agent" ? entry.block.author.agentId : null;
   const select = useCallback(
     (agents: Agent[]) => agents.find((agent) => agent.id === agentId) ?? null,
     [agentId]
@@ -71,8 +74,13 @@ export function TurnPage({
       data-testid="drawer-turn-page"
       data-turn-id={turnId}
     >
-      {entry ? (
-        <TurnEntryView entry={entry} grouped={false} ctx={ctx} />
+      {entry?.block.turn ? (
+        <TurnEntryView
+          block={entry.block}
+          turn={entry.block.turn}
+          grouped={false}
+          ctx={ctx}
+        />
       ) : (
         <div className="px-4 py-6 text-center text-xs text-muted-foreground">
           This turn is not in the loaded part of the stream.

@@ -279,9 +279,11 @@ test.describe("Chat surface", () => {
     await expect(input).toHaveValue("");
     await expect(chip).toHaveCount(0);
 
-    const post = page.getByTestId("chat-message").filter({
-      hasText: "Please read this",
-    });
+    // The person's own post; the agent's answer (a block too, now) quotes
+    // the same words on the live runtime.
+    const post = page
+      .locator('[data-testid="chat-message"][data-author="user"]')
+      .filter({ hasText: "Please read this" });
     await expect(post).toBeVisible();
     await expect(
       post.getByRole("link", { name: "https://example.com/design" })

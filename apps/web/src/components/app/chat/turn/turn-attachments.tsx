@@ -43,6 +43,7 @@ export function isFoldable(
   if (entry.type !== "block" || entry.block.author.kind !== "agent") {
     return false;
   }
+  if (entry.block.turn) return false;
   if (agentId !== undefined && entry.block.author.agentId !== agentId) {
     return false;
   }
@@ -58,13 +59,13 @@ export function isFoldable(
  * runs. `updatedAt` stands in for the end of a settled turn that never
  * recorded one (a turn cut by a restart).
  */
-export function turnWindow(entry: ChatTurnEntry): {
+export function turnWindow(turn: ChatTurnEntry): {
   start: number;
   end: number;
 } {
-  const start = Date.parse(entry.trace.startedAt);
-  const end = entry.settled
-    ? Date.parse(entry.trace.endedAt ?? entry.updatedAt)
+  const start = Date.parse(turn.trace.startedAt);
+  const end = turn.settled
+    ? Date.parse(turn.trace.endedAt ?? turn.updatedAt)
     : Number.POSITIVE_INFINITY;
   return {
     start: Number.isFinite(start) ? start : 0,
@@ -78,11 +79,12 @@ export function turnWindow(entry: ChatTurnEntry): {
  * candidate; anything that falls outside its window (a link posted between
  * turns, a file shared by a person's hand) stays a post of its own.
  *
- * The feed carries the turns of every agent in the root's tree. Only the
- * page agent's (`agentId`) rows fold, and only under its own turns: a
- * child's turn in between does not close the window, and a child's file or
- * post stays a post by the child, where the reader can see it without
- * opening the child's folded turn.
+ * The feed carries the turns of every agent in the root's tree, each a
+ * block of that agent's with its turn attached. Only the page agent's
+ * (`agentId`) rows fold, and only under its own turns: a child's turn in
+ * between does not close the window, and a child's file or post stays a
+ * post by the child, where the reader can see it without opening the
+ * child's folded turn.
  */
 export function foldAttachments(
   entries: readonly StreamEntry[],
@@ -96,9 +98,12 @@ export function foldAttachments(
   let open: { id: string; window: { start: number; end: number } } | null =
     null;
   for (const entry of entries) {
-    if (entry.type === "turn") {
-      if (agentId === undefined || entry.agentId === agentId) {
-        open = { id: entry.id, window: turnWindow(entry) };
+    const turn = entry.block.turn;
+    if (turn) {
+      const by =
+        entry.block.author.kind === "agent" ? entry.block.author.agentId : null;
+      if (agentId === undefined || by === agentId) {
+        open = { id: entry.id, window: turnWindow(turn) };
       }
       out.push(entry);
       continue;

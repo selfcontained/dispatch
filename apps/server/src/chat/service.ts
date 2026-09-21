@@ -48,7 +48,9 @@ import {
   formatAttachmentSize,
 } from "./envelope.js";
 import { loadBlockEntry } from "./feed.js";
-import { loadLatestTurnEntry } from "./turns.js";
+import { loadNewestTurnBlockId, loadTurnEntries } from "./turns.js";
+import type { PromptSource } from "../agents/acp/prompt-source.js";
+import type { StreamEventRow } from "../agents/acp/stream-store.js";
 import {
   BlockStore,
   isBlockId,
@@ -1386,14 +1388,10 @@ export class StreamService {
 
   private async composeTurnEntry(agentId: string): Promise<void> {
     try {
-      const entry = await loadLatestTurnEntry(this.store.db, agentId);
-      if (entry) {
+      const blockId = await loadNewestTurnBlockId(this.store.db, agentId);
+      if (blockId) {
         const streamId = await this.streamOf(agentId);
-        this.deps.publishUiEvent({
-          type: "stream.entry",
-          agentId: streamId,
-          entry,
-        });
+        await this.publishBlockEntry(streamId, blockId);
       }
     } catch (error) {
       this.log.warn(
@@ -1401,6 +1399,75 @@ export class StreamService {
         "stream: could not compose the turn for its feed event"
       );
     }
+  }
+
+  /** One block (a turn's, with its turn attached) as a feed row event. */
+  private async publishBlockEntry(
+    streamId: string,
+    blockId: string
+  ): Promise<void> {
+    const entry = await loadBlockEntry(this.store.db, streamId, blockId);
+    if (!entry) return;
+    this.deps.publishUiEvent({ type: "stream.entry", agentId: streamId, entry });
+  }
+
+  /**
+   * A turn opened: its block, by the agent, empty until the turn settles.
+   * A turn that a reply in a thread opened answers in that thread. The
+   * block's id goes back onto the turn row so later events find it.
+   */
+  async recordTurnStarted(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+  }): Promise<string | null> {
+    const streamId = await this.streamOf(input.agentId);
+    let thread: { threadId: string; replyTo: string } | null = null;
+    let findingId: string | null = null;
+    if (
+      input.prompt.source === "chat" &&
+      input.prompt.chatMessageId &&
+      isBlockId(input.prompt.chatMessageId)
+    ) {
+      const opener = await this.store.getById(input.prompt.chatMessageId);
+      if (opener?.threadId) {
+        thread = { threadId: opener.threadId, replyTo: opener.id };
+        // A comment on a finding is answered on that finding's page.
+        const about = opener.kind === "text" ? opener.data?.findingId : undefined;
+        if (typeof about === "string") findingId = about;
+      }
+    }
+    const block = await this.store.insert({
+      streamId,
+      author: { kind: "agent", agentId: input.agentId },
+      kind: "text",
+      origin: "turn",
+      data: {
+        turnEventId: input.turnRow.id,
+        ...(findingId ? { findingId } : {}),
+      },
+      text: "",
+      threadId: thread?.threadId ?? null,
+      replyTo: thread?.replyTo ?? null,
+    });
+    return block.id;
+  }
+
+  /** A turn settled or was cut: its block takes the answer as its text. */
+  async recordTurnSettled(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+  }): Promise<void> {
+    const blockId = input.turnRow.payload.blockId;
+    if (typeof blockId !== "string") return;
+    const turns = await loadTurnEntries(this.store.db, input.agentId, [
+      input.turnRow.id,
+    ]);
+    const text = turns.get(input.turnRow.id)?.result?.text ?? "";
+    await this.store.update(blockId, { text });
+    const streamId = await this.streamOf(input.agentId);
+    await this.publishBlockEntry(streamId, blockId);
+    this.deps.publishUiEvent({ type: "stream.changed", agentId: streamId });
   }
 
   publishRead(

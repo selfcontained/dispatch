@@ -5,7 +5,7 @@
  * change, a reaction, a mark-read. Every write patches the react-query cache
  * optimistically and lets the stored row arrive as a `stream.entry`.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   Block,
   BlockOption,
@@ -35,7 +35,7 @@ import {
   useInfiniteQuery,
   useMutation,
   type UseMutationResult,
-  skipToken,
+  hashKey,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -205,11 +205,23 @@ export type StreamFeedState = {
  * current and should not start a second load of its own.
  */
 export function useStreamFeedCache(rootId: string | null): StreamEntry[] {
-  // `skipToken` is the read-only form: no fetch, no "no queryFn" warning.
-  const { data } = useQuery<FeedCache>({
-    queryKey: streamFeedQueryKey(rootId),
-    queryFn: skipToken,
-  });
+  // A read of the cache, not an observer: a `useQuery` here, even with
+  // `skipToken`, would hand the query its options, and the next refetch
+  // (an invalidation from a stream event) would find no fetcher and fail
+  // the feed for the pane that owns it. Subscribe to the cache instead.
+  const queryClient = useQueryClient();
+  const hash = hashKey(streamFeedQueryKey(rootId));
+  const subscribe = useCallback(
+    (onChange: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.query.queryHash === hash) onChange();
+      }),
+    [hash, queryClient]
+  );
+  const data = useSyncExternalStore(
+    subscribe,
+    () => queryClient.getQueryCache().get<FeedCache>(hash)?.state.data
+  );
   return useMemo(
     () => (data ? data.pages.flatMap((page) => page.entries) : []),
     [data]

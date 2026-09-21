@@ -9,7 +9,6 @@
 
 import type {
   ChatAttachment,
-  ChatStatusEntry,
   ChatTurnEntry,
   ChatUserAttachmentInput,
 } from "./chat-types.js";
@@ -181,7 +180,11 @@ export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
  * discussion of that item, shown under it rather than in the review's
  * general thread.
  */
-export type BlockTextData = { findingId?: string };
+export type BlockTextData = {
+  findingId?: string;
+  /** Turn blocks: the `agent_stream_events` row that opened the turn. */
+  turnEventId?: number;
+};
 
 export type BlockBody =
   | { kind: "text"; data: BlockTextData | null; state: null }
@@ -192,7 +195,13 @@ export type BlockBody =
   | { kind: "review"; data: BlockReviewData; state: BlockReviewState }
   | { kind: "tasks"; data: BlockTasksData; state: BlockTasksState };
 
-export type BlockOrigin = "launch";
+/**
+ * `launch`: the launch-context post. `turn`: the agent's answer for one
+ * turn, written empty when the turn opens and filled when it settles; the
+ * turn itself (steps, timing) rides along as `Block.turn`, read from the
+ * agent's event log.
+ */
+export type BlockOrigin = "launch" | "turn";
 
 export type BlockReaction = {
   id: string;
@@ -245,6 +254,12 @@ export type Block = {
   unreadReplies?: number;
   /** Who has written in the thread, in order of first appearance. */
   repliers?: BlockAuthor[];
+  /**
+   * Turn blocks (`origin: "turn"`): the turn as assembled from the agent's
+   * event log, attached at read time. Its steps fold under the answer; its
+   * `settled` says whether the text is final.
+   */
+  turn?: ChatTurnEntry;
   createdAt: string;
   updatedAt: string;
 } & BlockBody;
@@ -261,7 +276,8 @@ export type StreamBlockEntry = {
 };
 
 /** One row of `GET /streams/:rootId/blocks`: a block, a turn, or a system status mark. */
-export type StreamEntry = StreamBlockEntry | ChatTurnEntry | ChatStatusEntry;
+/** The stream is blocks only: everything rendered into it is a block. */
+export type StreamEntry = StreamBlockEntry;
 
 export type StreamFeedResponse = {
   entries: StreamEntry[];

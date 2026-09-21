@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { DriverEvent, DriverUpdate } from "./driver.js";
-import { parsePromptSource } from "./prompt-source.js";
+import { parsePromptSource, type PromptSource } from "./prompt-source.js";
 import type {
   PlanPayload,
   StreamEventRow,
@@ -164,6 +164,18 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
  * every agent; open-row state is per agent, and callers serialize events
  * per agent (see HarnessSupervisor).
  */
+/** How the recorder reaches the block behind each turn; see setTurnBlocks. */
+export type TurnBlocks = {
+  /** A turn opened: make its block; returns the block id, or null for none. */
+  started(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+  }): Promise<string | null>;
+  /** A turn settled (or was cut): the block takes the answer as its text. */
+  settled(input: { agentId: string; turnRow: StreamEventRow }): Promise<void>;
+};
+
 export class StreamRecorder {
   private readonly open = new Map<
     string,
@@ -182,8 +194,36 @@ export class StreamRecorder {
   private readonly trailingPrompt = new Set<string>();
   /** Agents whose open-turn state has been read back from the rows. */
   private readonly loaded = new Set<string>();
+  private turnBlocks: TurnBlocks | null = null;
 
   constructor(private readonly store: StreamStore) {}
+
+  /**
+   * The stream is blocks only: a turn is a block from the moment it opens.
+   * The block store is the service's; the recorder tells it when a turn
+   * opens (and gets the block's id to keep on the turn row) and when it
+   * settles (so the block takes the answer as its text).
+   */
+  setTurnBlocks(turnBlocks: TurnBlocks): void {
+    this.turnBlocks = turnBlocks;
+  }
+
+  private async openTurnBlock(
+    agentId: string,
+    row: StreamEventRow,
+    prompt: PromptSource
+  ): Promise<void> {
+    if (!this.turnBlocks) return;
+    const blockId = await this.turnBlocks.started({ agentId, turnRow: row, prompt });
+    if (!blockId) return;
+    row.payload = { ...row.payload, blockId };
+    await this.store.updatePayload(row.id, row.payload);
+  }
+
+  private async settleTurnBlock(agentId: string, row: StreamEventRow): Promise<void> {
+    if (!this.turnBlocks) return;
+    await this.turnBlocks.settled({ agentId, turnRow: row });
+  }
 
   setCwd(agentId: string, cwd: string): void {
     this.cwd.set(agentId, cwd);
@@ -215,11 +255,13 @@ export class StreamRecorder {
           // reply starts a row of its own.
           await this.closeText(event.agentId);
           this.trailingPrompt.delete(event.agentId);
+          const prompt = parsePromptSource(event.text);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
-            prompt: parsePromptSource(event.text),
+            prompt,
           } satisfies TurnPayload);
           this.openTurn.set(event.agentId, row);
+          await this.openTurnBlock(event.agentId, row, prompt);
           return;
         }
         await this.closeText(event.agentId);
@@ -235,6 +277,7 @@ export class StreamRecorder {
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
           this.trailingPrompt.add(event.agentId);
+          await this.settleTurnBlock(event.agentId, open);
         }
         if (event.error) await this.appendStatus(event.agentId, event.error);
         return;
@@ -257,6 +300,7 @@ export class StreamRecorder {
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
+          await this.settleTurnBlock(event.agentId, open);
         }
         if (event.expected || event.code === 0) return;
         const how =
@@ -286,7 +330,9 @@ export class StreamRecorder {
     this.loaded.add(agentId);
     this.openTurn.delete(agentId);
     this.trailingPrompt.delete(agentId);
-    return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+    const cut = await this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+    for (const row of cut) await this.settleTurnBlock(agentId, row);
+    return cut.length;
   }
 
   /**

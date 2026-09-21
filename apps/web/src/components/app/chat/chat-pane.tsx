@@ -6,7 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChatTurnEntry, BlockOption, StreamEntry } from "@dispatch/shared";
+import type {
+  BlockOption,
+  StreamBlockEntry,
+  StreamEntry,
+} from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
@@ -89,21 +93,13 @@ export function entryOwner(
 ): "own" | "child" | "other" {
   const { agentId, rootId, descendants } = view;
   const isRoot = agentId === rootId;
-  if (entry.type === "turn") {
-    if (entry.agentId === agentId) return "own";
-    return descendants.has(entry.agentId) ? "child" : "other";
+  const { author, toAgentId } = entry.block;
+  if (author.kind === "agent") {
+    if (author.agentId === agentId) return "own";
+    if (descendants.has(author.agentId)) return "child";
   }
-  if (entry.type === "block") {
-    const { author, toAgentId } = entry.block;
-    if (author.kind === "agent") {
-      if (author.agentId === agentId) return "own";
-      if (descendants.has(author.agentId)) return "child";
-    }
-    if (toAgentId === agentId) return "own";
-    if (toAgentId !== null && descendants.has(toAgentId)) return "child";
-    return isRoot ? "own" : "other";
-  }
-  // Status marks are the stream's, so the root's.
+  if (toAgentId === agentId) return "own";
+  if (toAgentId !== null && descendants.has(toAgentId)) return "child";
   return isRoot ? "own" : "other";
 }
 
@@ -120,55 +116,17 @@ export function filterStreamView(
 }
 
 /**
- * What the main column shows of the feed. A reply (a block under a thread)
- * lives in the drawer's thread page only, except an agent's post to another agent,
- * which is the one record of that exchange in the column (a parent's post
- * to a child threads under the child's launch post, and folds into the
- * parent's turn as "Sent to"). Dispatch's own marks stay — setup phases
- * (folded into the Setup block) and lifecycle seams (stopped, resumed) —
- * while the per-turn derived status is what the presence line already
- * shows.
+ * What the main column shows of the feed. A reply (a block under a thread,
+ * a turn's answer to a thread reply included) lives in the drawer's thread
+ * page only, except an agent's post to another agent, which is the one
+ * record of that exchange in the column (a parent's post to a child
+ * threads under the child's launch post, and folds into the parent's turn
+ * as "Sent to").
  */
 export function isMainColumnEntry(entry: StreamEntry): boolean {
-  if (entry.type === "block") {
-    const { block } = entry;
-    if (block.threadId === null) return true;
-    return block.author.kind === "agent" && block.toAgentId !== null;
-  }
-  if (entry.type === "status") {
-    return entry.system === true && entry.phase !== "turn";
-  }
-  // A turn a thread reply opened belongs to that thread, in the drawer.
-  return !(entry.type === "turn" && entry.prompt.threadId);
-}
-
-/**
- * A person's post that opened a turn is drawn by that turn. The server
- * leaves it out of the feed, but the two can meet in the cache for a
- * moment (the post arrived by SSE before the turn did), and then the row
- * keyed by the post's id would appear twice.
- */
-export function withoutTurnPrompts(entries: StreamEntry[]): StreamEntry[] {
-  const prompts = new Set<string>();
-  for (const entry of entries) {
-    if (
-      entry.type === "turn" &&
-      entry.prompt.source === "chat" &&
-      entry.prompt.chatMessageId &&
-      (entry.prompt.kind ?? "text") === "text"
-    ) {
-      prompts.add(entry.prompt.chatMessageId);
-    }
-  }
-  if (prompts.size === 0) return entries;
-  return entries.filter(
-    (entry) =>
-      !(
-        entry.type === "block" &&
-        entry.block.author.kind === "user" &&
-        prompts.has(entry.block.id)
-      )
-  );
+  const { block } = entry;
+  if (block.threadId === null) return true;
+  return block.author.kind === "agent" && block.toAgentId !== null;
 }
 
 /** How close to the bottom (px) still counts as "following" the feed. */
@@ -248,14 +206,17 @@ export function landedTurn(
   entries: readonly StreamEntry[],
   agentId: string,
   seen: Set<string>
-): ChatTurnEntry | null {
+): StreamBlockEntry | null {
   const first = seen.size === 0;
-  let landed: ChatTurnEntry | null = null;
+  let landed: StreamBlockEntry | null = null;
   for (const entry of entries) {
-    if (entry.type !== "turn" || !entry.settled) continue;
+    const turn = entry.block.turn;
+    if (!turn?.settled) continue;
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
-    if (first || entry.agentId !== agentId || !entry.result?.text) continue;
+    const by =
+      entry.block.author.kind === "agent" ? entry.block.author.agentId : null;
+    if (first || by !== agentId || !entry.block.text) continue;
     landed = entry;
   }
   return landed;
@@ -267,7 +228,7 @@ const REPLY_START_GAP_PX = 8;
 /** Scroll so the reply's header sits at the top of the view, as far as the content allows. */
 export function alignReplyStart(el: HTMLElement, turnId: string): void {
   const post = el.querySelector<HTMLElement>(
-    `[data-turn-id="${turnId}"] [data-testid="chat-turn-result"]`
+    `[data-testid="chat-message"][data-block-id="${turnId}"]`
   );
   if (!post) return;
   const postTop =
@@ -288,7 +249,7 @@ export function replyStartIfTall(
   turnId: string
 ): number | null {
   const post = el.querySelector<HTMLElement>(
-    `[data-turn-id="${turnId}"] [data-testid="chat-turn-result"]`
+    `[data-testid="chat-message"][data-block-id="${turnId}"]`
   );
   if (!post) return null;
   const body = post.querySelector<HTMLElement>(
@@ -417,12 +378,10 @@ export function ChatPane({
   );
   const visibleEntries = useMemo(
     () =>
-      withoutTurnPrompts(
-        (view
-          ? filterStreamView(entries, view, showChildAgents)
-          : entries
-        ).filter(isMainColumnEntry)
-      ),
+      (view
+        ? filterStreamView(entries, view, showChildAgents)
+        : entries
+      ).filter(isMainColumnEntry),
     [entries, showChildAgents, view]
   );
   // The page agent's own rows: what its composer answers, what its Stop
@@ -434,12 +393,7 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  // Status events alone are not a conversation: real agents always have
-  // some, so the empty state must key off the entries a person wrote.
-  const hasConversation = useMemo(
-    () => visibleEntries.some((entry) => entry.type !== "status"),
-    [visibleEntries]
-  );
+  const hasConversation = visibleEntries.length > 0;
   const hasHiddenChildActivity = useMemo(
     () =>
       view !== null &&
@@ -616,7 +570,9 @@ export function ChatPane({
     const liveTurn = newestTurnEntry(visibleEntries);
     const growth = [
       last ? entryGrowthKey(last) : null,
-      liveTurn && !liveTurn.settled ? entryGrowthKey(liveTurn) : null,
+      liveTurn && !liveTurn.block.turn?.settled
+        ? entryGrowthKey(liveTurn)
+        : null,
     ].filter((key): key is string => key !== null);
     const lastKey = growth.length > 0 ? growth.join("|") : null;
     // A live row is not always the last one: a status event can arrive
@@ -861,7 +817,7 @@ export function ChatPane({
     : null;
 
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
-  const turnRunning = newestTurn !== null && !newestTurn.settled;
+  const turnRunning = newestTurn !== null && !newestTurn.block.turn?.settled;
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);

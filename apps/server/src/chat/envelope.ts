@@ -155,9 +155,12 @@ export function buildPostEnvelope(input: {
   const replyArgs = input.threadId
     ? `replyTo: "${input.threadId}"${input.finding ? `, finding: "${input.finding.id}"` : ""}`
     : "";
+  // A person's post: the agent's own answer lands where the post was, in
+  // the thread when it came from one, so plain text is the whole reply.
+  // Another agent's post: only post reaches it, in its thread when it has one.
   const routing =
     input.from.kind === "user"
-      ? `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent${replyArgs ? `; to answer in this thread, post with ${replyArgs}` : ""}.`
+      ? `Your reply appears ${input.threadId ? "in this thread" : "in the stream"} as you write it. Use post only for a question with options, a file, a link, or to reach another agent${replyArgs ? ` (with ${replyArgs} to keep it in this thread)` : ""}.`
       : `From another agent. Reply with post (to: "${input.from.agentId}"${replyArgs ? `, ${replyArgs}` : ""}) only if a reply is needed; routine updates need no acknowledgement.`;
   return [
     `--- DISPATCH POST (id: ${input.blockId}, from: ${senderLabel(input.from)}) ---`,

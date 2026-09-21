@@ -8,10 +8,8 @@ import {
   decodeFeedCursor,
   encodeFeedCursor,
   loadBlockEntry,
-  toStatusEntry,
 } from "../src/chat/feed.js";
 import { BlockStore } from "../src/chat/store.js";
-import { writeLatestEvent } from "../src/agents/events.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -62,7 +60,8 @@ const blockEntries = (feed: { entries: unknown[] }) =>
   );
 
 async function seedAll() {
-  // t=1 status, t=2 block(agent), t=3 block(agent), t=5 block(user), t=7 status
+  // t=2 block(agent), t=3 block(agent), t=5 block(user). Status marks are
+  // not the stream's: the feed is blocks only.
   await pool.query(
     `INSERT INTO agent_events (agent_id, event_type, message, created_at)
      VALUES ($1, 'working', 'reading', $2), ($1, 'done', 'finished', $3),
@@ -89,23 +88,16 @@ async function seedAll() {
 }
 
 describe("composeStreamFeed", () => {
-  it("merges every source for one stream in ascending time order", async () => {
+  it("lists the stream's blocks in ascending time order, and nothing else", async () => {
     const { m1, m2, m3 } = await seedAll();
     const feed = await composeStreamFeed(store, A);
     expect(feed.hasMore).toBe(false);
     expect(feed.unreadCount).toBe(2);
-    expect(feed.entries.map((e) => e.type)).toEqual([
-      "status",
-      "block",
-      "block",
-      "block",
-      "status",
-    ]);
+    expect(feed.entries.map((e) => e.type)).toEqual(["block", "block", "block"]);
     expect(feed.entries.map((e) => e.at)).toEqual(
-      [1, 2, 3, 5, 7].map((s) => at(s).toISOString())
+      [2, 3, 5].map((s) => at(s).toISOString())
     );
-    const [status, block, second, userBlock] = feed.entries;
-    expect(status).toMatchObject({ eventType: "working", message: "reading" });
+    const [block, second, userBlock] = feed.entries;
     expect(block).toEqual({
       type: "block",
       id: m1.id,
@@ -130,36 +122,27 @@ describe("composeStreamFeed", () => {
     });
   });
 
-  it("pages backwards with cursor/limit and reports hasMore across sources", async () => {
+  it("pages backwards with cursor/limit and reports hasMore", async () => {
     await seedAll();
     const page1 = await composeStreamFeed(store, A, { limit: 2 });
     expect(page1.hasMore).toBe(true);
     expect(page1.nextCursor).toBeTruthy();
     expect(page1.entries.map((e) => e.at)).toEqual(
-      [5, 7].map((s) => at(s).toISOString())
+      [3, 5].map((s) => at(s).toISOString())
     );
 
     const page2 = await composeStreamFeed(store, A, {
       limit: 2,
       cursor: decodeFeedCursor(page1.nextCursor!),
     });
-    expect(page2.hasMore).toBe(true);
-    expect(page2.entries.map((e) => e.at)).toEqual(
-      [2, 3].map((s) => at(s).toISOString())
-    );
-
-    const page3 = await composeStreamFeed(store, A, {
-      limit: 2,
-      cursor: decodeFeedCursor(page2.nextCursor!),
-    });
-    expect(page3.hasMore).toBe(false);
-    expect(page3.nextCursor).toBeNull();
-    expect(page3.entries.map((e) => e.type)).toEqual(["status"]);
+    expect(page2.hasMore).toBe(false);
+    expect(page2.nextCursor).toBeNull();
+    expect(page2.entries.map((e) => e.at)).toEqual([at(2).toISOString()]);
   });
 
-  it("never drops or repeats rows that share a timestamp across sources", async () => {
-    // Nine rows at the same instant (status rows and blocks) with
-    // microsecond-identical created_at, paged two at a time.
+  it("never drops or repeats rows that share a timestamp", async () => {
+    // Six blocks at the same instant with microsecond-identical
+    // created_at, paged two at a time.
     const t = at(10);
     for (let i = 0; i < 3; i++) {
       const extra = await store.insert({
@@ -168,11 +151,6 @@ describe("composeStreamFeed", () => {
         text: `b${i}`,
       });
       await stamp(extra.id, t);
-      await pool.query(
-        `INSERT INTO agent_events (agent_id, event_type, message, created_at)
-         VALUES ($1, 'working', $2, $3)`,
-        [A, `ev${i}`, t]
-      );
       const b = await store.insert({
         streamId: A,
         author: agent(A),
@@ -199,9 +177,9 @@ describe("composeStreamFeed", () => {
       expect(cursor).toBeTruthy();
       expect(pages).toBeLessThan(20);
     }
-    expect(new Set(seen).size).toBe(9);
-    expect(seen).toHaveLength(9);
-    expect(pages).toBe(5);
+    expect(new Set(seen).size).toBe(6);
+    expect(seen).toHaveLength(6);
+    expect(pages).toBe(3);
   });
 
   it("round-trips cursors and rejects foreign ones", () => {
@@ -222,25 +200,13 @@ describe("composeStreamFeed", () => {
     // The retired sources are not cursor types any more.
     expect(forged({ ...cursor, type: "chat" })).toBeNull();
     expect(forged({ ...cursor, type: "file", id: "7" })).toBeNull();
-    // Ids must fit the source column: uuid for block, a
-    // serial for status/review/turn/pin — otherwise the SQL cast would 500.
+    // Ids must fit the source column (uuid for block), otherwise the SQL
+    // cast would 500. The stream is blocks only: the sources that once had
+    // cursors of their own are not cursor types any more.
     expect(forged({ ...cursor, id: "x" })).toBeNull();
     expect(forged({ ...cursor, type: "block", id: "12" })).toBeNull();
-    expect(forged({ ...cursor, type: "status", id: uuid })).toBeNull();
-    expect(forged({ ...cursor, type: "status", id: "-1" })).toBeNull();
-    expect(forged({ ...cursor, type: "status", id: "99999999999" })).toBeNull();
-    expect(forged({ ...cursor, type: "status", id: "12" })).toEqual({
-      ...cursor,
-      type: "status",
-      id: "12",
-    });
-    for (const type of ["turn"]) {
-      expect(forged({ ...cursor, type, id: "7" })).toMatchObject({
-        type,
-        id: "7",
-      });
-      expect(forged({ ...cursor, type, id: uuid })).toBeNull();
-    }
+    expect(forged({ ...cursor, type: "status", id: "12" })).toBeNull();
+    expect(forged({ ...cursor, type: "turn", id: "7" })).toBeNull();
     // Shape-valid but impossible instants.
     expect(forged({ ...cursor, at: "2026-02-30 00:00:00.000000" })).toBeNull();
     expect(forged({ ...cursor, at: "2026-01-01 25:00:00.000000" })).toBeNull();
@@ -360,7 +326,7 @@ describe("composeStreamFeed", () => {
     expect("reactions" in plainEntry.block).toBe(false);
   });
 
-  it("hides a block that opened a turn: the turn entry renders the prompt", async () => {
+  it("a turn is a block: the feed lists it with its turn attached, after its prompt", async () => {
     const prompt = await store.insert({
       streamId: A,
       author: USER,
@@ -369,17 +335,9 @@ describe("composeStreamFeed", () => {
       delivered: true,
     });
     await stamp(prompt.id, at(1));
-    const other = await store.insert({
-      streamId: A,
-      author: USER,
-      toAgentId: A,
-      text: "Unrelated",
-      delivered: true,
-    });
-    await stamp(other.id, at(2));
-    await pool.query(
+    const turnRow = await pool.query<{ id: string }>(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at, updated_at)
-       VALUES ($1, 1, 'turn', $2::jsonb, $3, $3)`,
+       VALUES ($1, 1, 'turn', $2::jsonb, $3, $3) RETURNING id`,
       [
         A,
         JSON.stringify({
@@ -388,73 +346,53 @@ describe("composeStreamFeed", () => {
           prompt: { source: "chat", chatMessageId: prompt.id },
           endedAt: at(3).toISOString(),
         }),
-        at(3),
+        at(2),
       ]
     );
-    const feed = await composeStreamFeed(store, A);
-    expect(feed.entries.map((e) => e.type)).toEqual(["block", "turn"]);
-    expect(blockEntries(feed).map((e) => e.id)).toEqual([other.id]);
-    expect(feed.entries[1]).toMatchObject({
-      type: "turn",
-      prompt: { source: "chat", chatMessageId: prompt.id, text: "Fix the bug" },
-    });
-    // Neither is it readable back as its own feed row.
-    expect(await loadBlockEntry(pool, A, prompt.id)).toBeNull();
-    // A review left by hand opens a turn too, but stays a row of its own:
-    // the turn says what kind it was and draws no prompt post for it.
-    const review = await store.insert({
-      streamId: A,
-      author: USER,
-      toAgentId: A,
-      kind: "review",
-      text: "",
-      data: { verdict: "approve", summary: "Fine.", findings: [] },
-      state: { findings: {} },
-      delivered: true,
-    });
-    await stamp(review.id, at(4));
+    const eventId = Number(turnRow.rows[0]!.id);
     await pool.query(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at, updated_at)
-       VALUES ($1, 2, 'turn', $2::jsonb, $3, $3)`,
-      [
-        A,
-        JSON.stringify({
-          state: "settled",
-          stopReason: "end_turn",
-          prompt: { source: "chat", chatMessageId: review.id },
-          endedAt: at(5).toISOString(),
-        }),
-        at(5),
-      ]
+       VALUES ($1, 2, 'assistant', $2::jsonb, $3, $3)`,
+      [A, JSON.stringify({ text: "Fixed it.", streaming: false }), at(3)]
     );
-    const withReview = await composeStreamFeed(store, A);
-    expect(blockEntries(withReview).map((e) => e.id)).toContain(review.id);
-    expect(
-      withReview.entries.find(
-        (e) => e.type === "turn" && e.prompt.chatMessageId === review.id
-      )
-    ).toMatchObject({ prompt: { kind: "review" } });
-    // A prompt on another agent's stream is not hidden by this agent's turn.
-    const foreign = await store.insert({
-      streamId: OTHER,
-      author: USER,
-      toAgentId: OTHER,
-      text: "theirs",
+    const answer = await store.insert({
+      streamId: A,
+      author: agent(A),
+      origin: "turn",
+      data: { turnEventId: eventId },
+      text: "Fixed it.",
     });
-    await pool.query(
-      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
-       VALUES ($1, 3, 'turn', $2::jsonb)`,
-      [
-        A,
-        JSON.stringify({
-          state: "settled",
-          prompt: { source: "chat", chatMessageId: foreign.id },
-        }),
-      ]
+    await stamp(answer.id, at(2));
+    const feed = await composeStreamFeed(store, A);
+    // The prompt is a row of its own; the answer follows it as a block.
+    expect(feed.entries.map((e) => e.type)).toEqual(["block", "block"]);
+    expect(feed.entries.map((e) => e.id)).toEqual([prompt.id, answer.id]);
+    expect(feed.entries[1]!.block).toMatchObject({
+      origin: "turn",
+      text: "Fixed it.",
+      turn: {
+        type: "turn",
+        agentId: A,
+        settled: true,
+        result: { text: "Fixed it." },
+        prompt: { source: "chat", chatMessageId: prompt.id, text: "Fix the bug" },
+        trace: { finalResult: "ok" },
+      },
+    });
+    // One block read back carries its turn too, and the prompt is a row.
+    expect((await loadBlockEntry(pool, A, answer.id))?.block.turn).toMatchObject(
+      { settled: true }
     );
-    expect(
-      blockEntries(await composeStreamFeed(store, OTHER)).map((e) => e.id)
-    ).toEqual([foreign.id]);
+    expect(await loadBlockEntry(pool, A, prompt.id)).not.toBeNull();
+    // A block that names no turn row of the agent's has no turn.
+    const stray = await store.insert({
+      streamId: A,
+      author: agent(A),
+      origin: "turn",
+      data: { turnEventId: 999999 },
+      text: "",
+    });
+    expect((await loadBlockEntry(pool, A, stray.id))?.block.turn).toBeUndefined();
   });
 
   describe("attachment dimensions", () => {
@@ -648,70 +586,5 @@ describe("feed entries as events carry them", () => {
     });
     // A reply on another stream resolves to nothing here.
     expect(await loadBlockEntry(pool, OTHER, reply.id)).toBeNull();
-  });
-
-  it("hands the written history row to onRecorded, shaped like the feed's status entry", async () => {
-    const logger = { warn: () => undefined } as unknown as Parameters<
-      typeof writeLatestEvent
-    >[1];
-    const recorded = await new Promise<
-      Parameters<NonNullable<Parameters<typeof writeLatestEvent>[4]>>[0]
-    >((resolve) => {
-      void writeLatestEvent(
-        pool,
-        logger,
-        A,
-        { type: "working", message: "Reading files" },
-        resolve
-      );
-    });
-    expect(recorded).toMatchObject({
-      agentId: A,
-      eventType: "working",
-      message: "Reading files",
-    });
-    const feed = await composeStreamFeed(store, A);
-    const status = feed.entries.find((entry) => entry.type === "status");
-    expect(
-      toStatusEntry(
-        recorded.id,
-        recorded.eventType,
-        recorded.message,
-        recorded.createdAt
-      )
-    ).toEqual(status);
-  });
-
-  it("marks system status rows with their phase", () => {
-    expect(
-      toStatusEntry(7, "waiting_user", "Ship it?", at(1), {
-        source: "system",
-        phase: "turn",
-      })
-    ).toEqual({
-      type: "status",
-      id: "event:7",
-      eventType: "waiting_user",
-      message: "Ship it?",
-      at: at(1).toISOString(),
-      system: true,
-      phase: "turn",
-    });
-    expect(
-      toStatusEntry(8, "setup", "Cloning", at(1).toISOString(), {
-        source: "system",
-        phase: "setup",
-        setupPhase: "worktree",
-      })
-    ).toMatchObject({ system: true, phase: "setup", setupPhase: "worktree" });
-    expect(
-      toStatusEntry(9, "working", "x", at(1), { source: "agent" })
-    ).toEqual({
-      type: "status",
-      id: "event:9",
-      eventType: "working",
-      message: "x",
-      at: at(1).toISOString(),
-    });
   });
 });

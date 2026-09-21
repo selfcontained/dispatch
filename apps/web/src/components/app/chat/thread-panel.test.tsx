@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import type { ChatTurnEntry, StreamThreadResponse } from "@dispatch/shared";
+import type { Block, StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -13,12 +13,13 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
+import { threadQueryKey } from "@/hooks/use-stream";
 import {
-  type FeedCache,
-  streamFeedQueryKey,
-  threadQueryKey,
-} from "@/hooks/use-stream";
-import { block, questionBody, reviewBody } from "@/test-utils/blocks";
+  block,
+  questionBody,
+  reviewBody,
+  turnBlock,
+} from "@/test-utils/blocks";
 
 import { groupReplies, ThreadPanel, threadTitle } from "./thread-panel";
 
@@ -249,28 +250,26 @@ describe("ThreadPanel", () => {
   });
 
   it("draws a turn a reply opened in place of that reply, and only its finding's turns on a finding page", () => {
-    const turnFor = (
-      id: string,
-      chatMessageId: string,
-      at: string
-    ): ChatTurnEntry => ({
-      type: "turn",
-      id,
-      agentId: "agt_1",
-      at,
-      updatedAt: at,
-      prompt: {
-        source: "chat",
-        text: "",
-        attachments: [],
-        chatMessageId,
+    // A turn a thread reply opened answers in that thread: its block is a
+    // reply under the review, with the turn attached, and carries no
+    // finding of its own.
+    const turnFor = (id: string, chatMessageId: string, at: string): Block =>
+      turnBlock({
+        id,
         threadId: "rv",
-      },
-      trace: { startedAt: at, endedAt: at, finalResult: "ok", steps: [] },
-      result: { text: `answer for ${chatMessageId}`, streaming: false },
-      settled: true,
-      interrupted: false,
-    });
+        replyTo: chatMessageId,
+        text: `answer for ${chatMessageId}`,
+        createdAt: at,
+        turn: {
+          prompt: {
+            source: "chat",
+            text: "",
+            attachments: [],
+            chatMessageId,
+            threadId: "rv",
+          },
+        },
+      });
     const review = block({
       id: "rv",
       body: reviewBody("comment", "Looks fine.", [
@@ -290,6 +289,7 @@ describe("ThreadPanel", () => {
           createdAt: "2026-09-02T10:01:00.000Z",
           body: { kind: "text", data: { findingId: "f2" }, state: null },
         }),
+        turnFor("turn:1", "c1", "2026-09-02T10:01:10.000Z"),
         block({
           id: "c2",
           authorKind: "user",
@@ -299,21 +299,8 @@ describe("ThreadPanel", () => {
           createdAt: "2026-09-02T10:02:00.000Z",
           body: { kind: "text", data: { findingId: "f1" }, state: null },
         }),
+        turnFor("turn:2", "c2", "2026-09-02T10:02:10.000Z"),
       ],
-    });
-    client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1"), {
-      pages: [
-        {
-          entries: [
-            turnFor("turn:1", "c1", "2026-09-02T10:01:10.000Z"),
-            turnFor("turn:2", "c2", "2026-09-02T10:02:10.000Z"),
-          ],
-          hasMore: false,
-          nextCursor: null,
-          unreadCount: 0,
-        },
-      ],
-      pageParams: [undefined],
     });
     apiMock.mockResolvedValue({ ids: [], readAt: null });
 
@@ -323,20 +310,35 @@ describe("ThreadPanel", () => {
       "turn:1",
       "turn:2",
     ]);
-    // The replies that opened them are drawn by the turns.
+    // Each turn is the agent's answer post under the reply that opened it,
+    // with its rail; the reply itself keeps its own row.
     expect(
       screen
         .getAllByTestId("chat-message")
         .map((m) => m.getAttribute("data-block-id"))
-    ).toEqual(["rv"]);
+    ).toEqual(["rv", "c1", "turn:1", "c2", "turn:2"]);
+    const answer = turns[0]!.querySelector('[data-testid="chat-message"]')!;
+    expect(answer.getAttribute("data-origin")).toBe("turn");
+    expect(answer.textContent).toContain("answer for c1");
+    expect(
+      answer
+        .querySelector('[data-testid="chat-turn"]')
+        ?.getAttribute("data-turn-id")
+    ).toBe("turn:1");
+    expect(screen.getByTestId("chat-thread-count").textContent).toBe(
+      "4 replies"
+    );
     unmount();
 
+    // A finding's page keeps only the replies filed under that finding; a
+    // turn's answer names no finding, so it stays on the review's page.
     renderPanel({ blockId: "rv", findingId: "f2" });
     expect(
       screen
-        .getAllByTestId("chat-thread-turn")
-        .map((t) => t.getAttribute("data-turn-id"))
-    ).toEqual(["turn:1"]);
+        .getAllByTestId("chat-message")
+        .map((m) => m.getAttribute("data-block-id"))
+    ).toEqual(["c1"]);
+    expect(screen.queryByTestId("chat-thread-turn")).toBeNull();
   });
 
   it("reports a failed load with a retry", async () => {

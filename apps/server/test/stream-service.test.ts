@@ -1489,7 +1489,12 @@ describe("StreamService.sendUserPost", () => {
     ).toBe(1);
     await settled(svc, res.block.id);
     expect(injected[0]?.text).toContain(`In the thread under ${root.id}.`);
-    expect(injected[0]?.text).toContain(`post with replyTo: "${root.id}"`);
+    expect(injected[0]?.text).toContain(
+      `Your reply appears in this thread as you write it.`
+    );
+    expect(injected[0]?.text).toContain(
+      `(with replyTo: "${root.id}" to keep it in this thread)`
+    );
     // A reply to the reply keeps the root.
     const nested = await svc.sendUserPost(A, {
       text: "more",
@@ -1575,7 +1580,7 @@ describe("StreamService.answerQuestion", () => {
         "Yes",
         `This answers your question ${q.id}. In the thread under ${q.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent; to answer in this thread, post with replyTo: "${q.id}".`,
+        `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${q.id}" to keep it in this thread).`,
       ].join("\n")
     );
     // Value-less options match on their label; but the question is taken.
@@ -1812,7 +1817,7 @@ describe("StreamService.submitForm", () => {
         "Name: Ada\nCount: 2\nReady: true",
         `This answers your form ${form.id}. In the thread under ${form.id}.`,
         "--- END DISPATCH POST ---",
-        `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent; to answer in this thread, post with replyTo: "${form.id}".`,
+        `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${form.id}" to keep it in this thread).`,
       ].join("\n")
     );
     await expect(
@@ -2710,5 +2715,145 @@ describe("StreamService delivery bookkeeping", () => {
     const listening = build({ deps: { hasUiClient: () => true } });
     await listening.svc.publishTurnEntry(A);
     expect(listening.events).toEqual([]);
+  });
+});
+
+describe("StreamService turn blocks", () => {
+  const turnRow = (id: number, prompt: Record<string, unknown>) => ({
+    id,
+    agentId: A,
+    seq: id,
+    kind: "turn" as const,
+    key: null,
+    payload: { state: "started", prompt },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  it("opens an empty block by the agent when a turn starts, and fills it with the answer on settle", async () => {
+    const row = await pool.query<{ id: string }>(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 1, 'turn', '{"state":"started","prompt":{"source":"chat","text":"go"}}') RETURNING id`,
+      [A]
+    );
+    const eventId = Number(row.rows[0]!.id);
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(eventId, { source: "chat", text: "go" }),
+      prompt: { source: "chat", text: "go" },
+    });
+    expect(blockId).toBeTruthy();
+    const opened = await service.store.getById(blockId!);
+    expect(opened).toMatchObject({
+      author: { kind: "agent", agentId: A },
+      kind: "text",
+      origin: "turn",
+      data: { turnEventId: eventId },
+      text: "",
+      threadId: null,
+      toAgentId: null,
+    });
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 2, 'assistant', '{"text":"All done.","streaming":false}')`,
+      [A]
+    );
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [eventId, JSON.stringify({ state: "settled", blockId })]
+    );
+    published.length = 0;
+    await service.recordTurnSettled({
+      agentId: A,
+      turnRow: {
+        ...turnRow(eventId, { source: "chat", text: "go" }),
+        payload: { state: "settled", blockId, prompt: { source: "chat", text: "go" } },
+      },
+    });
+    const settled = await service.store.getById(blockId!);
+    expect(settled?.text).toBe("All done.");
+    // The row goes out with its turn attached, then a refetch nudge.
+    expect(published[0]).toMatchObject({
+      type: "stream.entry",
+      agentId: A,
+      entry: {
+        type: "block",
+        id: blockId,
+        block: { text: "All done.", turn: { settled: true, result: { text: "All done." } } },
+      },
+    });
+    expect(published[1]).toEqual({ type: "stream.changed", agentId: A });
+  });
+
+  it("a turn a thread reply opened answers in that thread", async () => {
+    const root = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      text: "root",
+    });
+    const reply = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: root.id,
+      replyTo: root.id,
+      text: "and then?",
+      delivered: true,
+    });
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(7, { source: "chat", chatMessageId: reply.id }),
+      prompt: { source: "chat", text: "and then?", chatMessageId: reply.id },
+    });
+    expect(await service.store.getById(blockId!)).toMatchObject({
+      threadId: root.id,
+      replyTo: reply.id,
+      origin: "turn",
+    });
+  });
+
+  it("a turn opened by a comment on a finding answers on that finding", async () => {
+    const review = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      toAgentId: A,
+      kind: "review",
+      text: "",
+      data: {
+        verdict: "request_changes",
+        summary: "One thing.",
+        findings: [{ id: "f1", severity: "major", title: "Null", body: "Guard." }],
+      },
+      state: { findings: {} },
+    });
+    const comment = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: review.id,
+      replyTo: review.id,
+      text: "fix it?",
+      data: { findingId: "f1" },
+      delivered: true,
+    });
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(8, { source: "chat", chatMessageId: comment.id }),
+      prompt: { source: "chat", text: "fix it?", chatMessageId: comment.id },
+    });
+    expect(await service.store.getById(blockId!)).toMatchObject({
+      threadId: review.id,
+      replyTo: comment.id,
+      data: { findingId: "f1" },
+    });
+  });
+
+  it("settling a turn with no block behind it is a no-op", async () => {
+    published.length = 0;
+    await service.recordTurnSettled({
+      agentId: A,
+      turnRow: turnRow(99, { source: "chat", text: "x" }),
+    });
+    expect(published).toEqual([]);
   });
 });

@@ -109,7 +109,7 @@ describe("buildPostEnvelope", () => {
       "Yes",
       `This answers your question ${QUESTION}. In the thread under ${THREAD}.`,
       "--- END DISPATCH POST ---",
-      `Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent; to answer in this thread, post with replyTo: "${THREAD}".`,
+      `Your reply appears in this thread as you write it. Use post only for a question with options, a file, a link, or to reach another agent (with replyTo: "${THREAD}" to keep it in this thread).`,
     ]);
     const form = buildPostEnvelope({
       blockId: ID,

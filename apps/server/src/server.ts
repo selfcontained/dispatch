@@ -107,7 +107,6 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
-import { toStatusEntry } from "./chat/feed.js";
 import { StreamService } from "./chat/service.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
@@ -381,21 +380,6 @@ agentManager.onAgentCreated((agent) => {
     agent: withStreamFlag(agent),
   });
 });
-// A status row reaches the Chat feed as an entry of its own, so a mounted
-// feed appends one line instead of refetching every page per event.
-agentManager.onEventRecorded((row) => {
-  uiEventBroker.publish({
-    type: "stream.entry",
-    agentId: row.agentId,
-    entry: toStatusEntry(
-      row.id,
-      row.eventType,
-      row.message,
-      row.createdAt,
-      row.metadata
-    ),
-  });
-});
 const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,
@@ -429,6 +413,10 @@ const streamService = new StreamService({
   log: app.log,
 });
 agentManager.attachLaunchContextRecorder(streamService);
+agentManager.attachTurnBlocks({
+  started: (input) => streamService.recordTurnStarted(input),
+  settled: (input) => streamService.recordTurnSettled(input),
+});
 // Every stream write re-publishes the agent's newest turn as one feed row.
 agentManager.onStreamWrite((agentId) => {
   void streamService.publishTurnEntry(agentId);

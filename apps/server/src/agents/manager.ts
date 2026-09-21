@@ -57,7 +57,7 @@ import { parsePromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
-import { StreamRecorder } from "./acp/stream-recorder.js";
+import { StreamRecorder, type TurnBlocks } from "./acp/stream-recorder.js";
 import { StreamStore } from "./acp/stream-store.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
@@ -312,8 +312,8 @@ export class AgentManager {
       setAgentStatus: (id, status, lastError) =>
         this.setAgentStatus(id, status, lastError),
       setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
-      settleStream: (id, reason) =>
-        this.streamStore.settleInterrupted(id, reason),
+      settleStream: async (id, reason) =>
+        (await this.streamStore.settleInterrupted(id, reason)).length,
     });
   }
 
@@ -661,6 +661,11 @@ export class AgentManager {
    */
   attachLaunchContextRecorder(recorder: LaunchContextRecorder): void {
     this.launchContextRecorder = recorder;
+  }
+
+  /** The stream is blocks only: every turn gets a block through these. */
+  attachTurnBlocks(turnBlocks: TurnBlocks): void {
+    this.streamRecorder.setTurnBlocks(turnBlocks);
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -1735,7 +1740,8 @@ export class AgentManager {
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       setAgentStatus: (id, status, lastError) =>
         this.setAgentStatus(id, status, lastError),
-      settleStream: (id) => this.streamStore.settleInterrupted(id, "stopped"),
+      settleStream: async (id) =>
+        (await this.streamStore.settleInterrupted(id, "stopped")).length,
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
     };
   }

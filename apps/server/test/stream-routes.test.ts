@@ -170,7 +170,7 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
     expect(second.statusCode).toBe(200);
     const ids = (r: { json: () => { entries: Array<{ id: string }> } }) =>
       r.json().entries.map((e) => e.id);
-    expect(new Set([...ids(first), ...ids(second)]).size).toBe(4);
+    expect(new Set([...ids(first), ...ids(second)]).size).toBe(3);
   });
 
   it("returns the composed feed with unreadCount and reply counts", async () => {

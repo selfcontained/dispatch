@@ -14,6 +14,7 @@ import type {
   BlockReviewState,
   BlockReviewVerdict,
   BlockTasksState,
+  ChatTurnEntry,
   StreamBlockEntry,
 } from "@dispatch/shared";
 
@@ -168,4 +169,59 @@ export function reaction(
     delivered,
     createdAt: "2026-09-02T10:01:00.000Z",
   };
+}
+
+/**
+ * A turn as the feed carries it: the agent's answer block with the turn
+ * attached. `text` is the answer (the server writes it when the turn
+ * settles); the turn's own `result` mirrors it unless overridden.
+ */
+export type TurnBlockOverrides = Omit<BlockOverrides, "turn"> & {
+  /** Fields of the assembled turn to override; the rest are settled defaults. */
+  turn?: Partial<ChatTurnEntry>;
+};
+
+export function turnBlock(overrides: TurnBlockOverrides = {}): Block {
+  const {
+    turn: turnOverrides = {} as Partial<ChatTurnEntry>,
+    ...blockOverrides
+  } = overrides;
+  const at = blockOverrides.createdAt ?? "2026-09-02T10:00:00.000Z";
+  const id =
+    blockOverrides.id ?? `turn_${Math.random().toString(36).slice(2, 8)}`;
+  const author = blockOverrides.author ?? {
+    kind: "agent" as const,
+    agentId: blockOverrides.streamId ?? STREAM_ID,
+  };
+  const agentId = author.kind === "agent" ? author.agentId : STREAM_ID;
+  const text = blockOverrides.text ?? "Done.";
+  const turn: ChatTurnEntry = {
+    type: "turn",
+    id: `turn:${id}`,
+    agentId,
+    at,
+    updatedAt: turnOverrides.updatedAt ?? at,
+    prompt: { source: "chat", text: "go", attachments: [] },
+    trace: { startedAt: at, endedAt: at, finalResult: "ok", steps: [] },
+    result: { text, streaming: false },
+    settled: true,
+    interrupted: false,
+    ...turnOverrides,
+  };
+  const b = block({
+    ...blockOverrides,
+    id,
+    author,
+    text,
+    createdAt: at,
+    body: { kind: "text", data: { turnEventId: 1 }, state: null },
+  });
+  return { ...b, origin: "turn", turn };
+}
+
+/** A turn's feed entry; see {@link turnBlock}. */
+export function turnEntry(
+  overrides: TurnBlockOverrides = {}
+): StreamBlockEntry {
+  return blockEntry(turnBlock(overrides));
 }

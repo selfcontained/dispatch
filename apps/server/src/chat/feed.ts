@@ -1,23 +1,19 @@
 import type {
-  ChatStatusEntry,
   StreamBlockEntry,
   StreamEntry,
   StreamFeedResponse,
 } from "@dispatch/shared";
 
 import {
-  AT_KEY_SQL,
   clampFeedLimit,
   compareNewestFirst,
   cursorClause,
   decodeFeedCursor,
   encodeFeedCursor,
   type FeedCursor,
-  intKey,
   type Keyed,
 } from "./feed-cursor.js";
-import { agentTree } from "../agents/tree.js";
-import { listTurnEntries, TURN_PROMPT_CHAT_ID_PATH } from "./turns.js";
+import { attachTurns } from "./turns.js";
 import {
   type BlockRow,
   type BlockStore,
@@ -63,9 +59,7 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
 
 /**
  * Top-level blocks on a stream, newest first. Replies live in threads and
- * are read through the thread route; a person's block that opened a turn is rendered
- * by that turn entry (prompt text and attachments included), so listing it
- * again would show the prompt twice.
+ * are read through the thread route.
  *
  * The page is materialized first, then its attachments are expanded once,
  * joined to `files` for live image dimensions, and re-aggregated — one
@@ -97,14 +91,7 @@ async function listBlockEntries(
               to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
          FROM blocks b
         WHERE b.stream_id = $1
-          ${scope}
-          AND NOT (b.author_kind = 'user' AND b.kind = 'text' AND EXISTS (
-            SELECT 1
-              FROM agent_stream_events s
-             WHERE s.agent_id = $1
-               AND s.kind = 'turn'
-               AND s.${TURN_PROMPT_CHAT_ID_PATH} = b.id::text
-          )) ${clause}
+          ${scope} ${clause}
         ORDER BY b.created_at DESC, b.id DESC
         LIMIT $${params.length}
      ), expanded AS (
@@ -197,78 +184,16 @@ export async function loadBlockEntry(
   blockId: string
 ): Promise<StreamBlockEntry | null> {
   const [found] = await listBlockEntries(db, streamId, null, 1, blockId);
-  return found?.entry ?? null;
-}
-
-async function listStatusEntries(
-  db: Queryable,
-  agentId: string,
-  cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatStatusEntry>[]> {
-  const params: unknown[] = [agentId];
-  const clause = cursorClause("status", "int", cursor, params);
-  params.push(limit);
-  const result = await db.query<{
-    id: number;
-    event_type: string;
-    message: string;
-    metadata: Record<string, unknown> | null;
-    created_at: Date;
-    at_key: string;
-  }>(
-    `SELECT id, event_type, message, metadata, created_at, ${AT_KEY_SQL} AS at_key
-       FROM agent_events
-      WHERE agent_id = $1 ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
-    entry: toStatusEntry(
-      row.id,
-      row.event_type,
-      row.message,
-      row.created_at,
-      row.metadata
-    ),
-    atKey: row.at_key,
-    rawId: String(row.id),
-    idKey: intKey(row.id),
-  }));
-}
-
-/** The feed's shape for one `agent_events` row; also what `stream.entry` carries. */
-export function toStatusEntry(
-  id: number,
-  eventType: string,
-  message: string,
-  createdAt: Date | string,
-  metadata?: Record<string, unknown> | null
-): ChatStatusEntry {
-  const system = metadata?.source === "system";
-  const phase = typeof metadata?.phase === "string" ? metadata.phase : null;
-  const setupPhase =
-    typeof metadata?.setupPhase === "string" ? metadata.setupPhase : null;
-  return {
-    type: "status",
-    id: `event:${id}`,
-    eventType,
-    message,
-    at: new Date(createdAt).toISOString(),
-    ...(system ? { system: true } : {}),
-    ...(phase ? { phase } : {}),
-    ...(setupPhase ? { setupPhase } : {}),
-  };
+  if (!found) return null;
+  await attachTurns(db, [found.entry.block]);
+  return found.entry;
 }
 
 /**
- * Compose one stream's feed at read time from blocks, system status marks,
- * and the turns of every agent in the root's tree
- * (a child's turns show in its parent's stream, folded by the client).
- * Each source contributes its newest `limit + 1` rows past the cursor; the
- * merge keeps the newest `limit` overall, so any row that belongs on the
- * page is present, and anything left over proves an older page exists.
+ * Compose one stream's feed at read time: its top-level blocks, newest
+ * first, each turn block carrying its turn. The stream is blocks only; a
+ * child's turn is a block of the child's in the parent's stream, folded by
+ * the client.
  */
 export async function composeStreamFeed(
   store: BlockStore,
@@ -278,23 +203,17 @@ export async function composeStreamFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const tree = await agentTree(db, streamId);
-  const [blocks, status, turnsByAgent, unreadCount] = await Promise.all([
+  const [blocks, unreadCount] = await Promise.all([
     listBlockEntries(db, streamId, cursor, limit + 1),
-    listStatusEntries(db, streamId, cursor, limit + 1),
-    Promise.all(
-      tree.map((agentId) => listTurnEntries(db, agentId, cursor, limit + 1))
-    ),
     store.countUnread(streamId),
   ]);
-
-  const merged: Keyed<StreamEntry>[] = [
-    ...blocks,
-    ...status,
-    ...turnsByAgent.flat(),
-  ].sort(compareNewestFirst);
+  const merged: Keyed<StreamEntry>[] = blocks.sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
+  await attachTurns(
+    db,
+    page.map((item) => item.entry.block)
+  );
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest

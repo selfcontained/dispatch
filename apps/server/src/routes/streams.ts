@@ -12,6 +12,7 @@ import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { composeStreamFeed, decodeFeedCursor } from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
+import { attachTurns } from "../chat/turns.js";
 import { chatUrlSchema } from "../chat/validation.js";
 
 type StreamRouteDeps = {
@@ -161,6 +162,8 @@ export async function registerStreamRoutes(
       if (!thread || thread.root.streamId !== rootId) {
         return reply.code(404).send({ error: "Block not found." });
       }
+      // A turn answered into the thread carries its turn like any feed row.
+      await attachTurns(store.db, [thread.root, ...thread.replies]);
       return thread;
     }
   );

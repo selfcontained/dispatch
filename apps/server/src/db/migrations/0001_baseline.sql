@@ -97,10 +97,6 @@ CREATE INDEX agent_stream_events_agent_created
   ON agent_stream_events (agent_id, created_at DESC, id DESC);
 CREATE UNIQUE INDEX agent_stream_events_agent_key
   ON agent_stream_events (agent_id, kind, key) WHERE key IS NOT NULL;
--- A turn opened by a block: the feed hides that block and renders the turn.
-CREATE INDEX agent_stream_events_turn_prompt
-  ON agent_stream_events (agent_id, ((payload -> 'prompt') ->> 'chatMessageId'))
-  WHERE kind = 'turn';
 
 CREATE TABLE agent_token_usage (
   id serial PRIMARY KEY,
@@ -143,7 +139,8 @@ CREATE TABLE blocks (
   data jsonb,
   state jsonb,
   attachments jsonb NOT NULL DEFAULT '[]'::jsonb,
-  origin text CHECK (origin IS NULL OR origin IN ('launch')),
+  -- 'launch': the launch-context post. 'turn': an agent's answer for one turn.
+  origin text CHECK (origin IS NULL OR origin IN ('launch', 'turn')),
   launched_by_agent_id text,
   -- Blocks with to_agent_id: whether the prompt reached the agent; NULL while
   -- pending.

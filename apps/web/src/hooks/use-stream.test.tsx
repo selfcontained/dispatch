@@ -783,13 +783,9 @@ describe("upsertFeedEntry", () => {
   });
   const at = (s: number) =>
     `2026-09-02T10:00:${String(s).padStart(2, "0")}.000Z`;
-  const status = (id: string, when: string): StreamEntry => ({
-    type: "status",
-    id,
-    eventType: "working",
-    message: id,
-    at: when,
-  });
+  /** A person's post at `when`: a row with no unread count of its own. */
+  const post = (id: string, when: string): StreamEntry =>
+    blockEntry(block({ id, authorKind: "user", text: id, createdAt: when }));
 
   it("appends a newer entry to the newest page and bumps unread for agent posts", () => {
     const a = blockEntry(block({ id: "a", createdAt: at(1) }));
@@ -814,9 +810,9 @@ describe("upsertFeedEntry", () => {
   it("slots an entry in by time when it is not the newest", () => {
     const cache: FeedCache = {
       pageParams: [undefined],
-      pages: [page([status("event:1", at(1)), status("event:3", at(3))])],
+      pages: [page([post("event:1", at(1)), post("event:3", at(3))])],
     };
-    const result = upsertFeedEntry(cache, status("event:2", at(2)));
+    const result = upsertFeedEntry(cache, post("event:2", at(2)));
     expect(result.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
       "event:1",
       "event:2",
@@ -828,7 +824,7 @@ describe("upsertFeedEntry", () => {
     const q = blockEntry(
       block({ id: "q", body: questionBody([{ label: "Yes" }]), readAt: null })
     );
-    const other = status("event:9", at(5));
+    const other = post("event:9", at(5));
     const cache: FeedCache = {
       pageParams: [undefined],
       pages: [page([q, other], { unreadCount: 1 })],
@@ -857,7 +853,7 @@ describe("upsertFeedEntry", () => {
     const cache: FeedCache = {
       pageParams: [undefined, "c1"],
       pages: [
-        page([status("event:5", at(5))], {
+        page([post("event:5", at(5))], {
           unreadCount: 1,
           hasMore: true,
           nextCursor: "c1",
@@ -878,21 +874,21 @@ describe("upsertFeedEntry", () => {
     const cache: FeedCache = {
       pageParams: [undefined],
       pages: [
-        page([status("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
+        page([post("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
       ],
     };
-    const result = upsertFeedEntry(cache, status("event:1", at(1)));
+    const result = upsertFeedEntry(cache, post("event:1", at(1)));
     expect(result.placed).toBe(false);
     expect(result.cache).toBe(cache);
     // With the whole history loaded it is simply the oldest row.
     const complete: FeedCache = {
       pageParams: [undefined],
-      pages: [page([status("event:5", at(5))])],
+      pages: [page([post("event:5", at(5))])],
     };
     expect(
       upsertFeedEntry(
         complete,
-        status("event:1", at(1))
+        post("event:1", at(1))
       ).cache.pages[0]!.entries.map((e) => e.id)
     ).toEqual(["event:1", "event:5"]);
   });
@@ -902,25 +898,25 @@ describe("upsertFeedEntry", () => {
     // carries none of those, so local placement would only be a guess.
     const cache: FeedCache = {
       pageParams: [undefined],
-      pages: [page([status("event:1", at(1)), status("event:2", at(2))])],
+      pages: [page([post("event:1", at(1)), post("event:2", at(2))])],
     };
-    const tie = upsertFeedEntry(cache, status("event:3", at(2)));
+    const tie = upsertFeedEntry(cache, post("event:3", at(2)));
     expect(tie.placed).toBe(false);
     expect(tie.cache).toBe(cache);
     // Equal to the head's oldest row with pages below: also ambiguous.
     const paged: FeedCache = {
       pageParams: [undefined, "c1"],
       pages: [
-        page([status("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
-        page([status("event:1", at(1))]),
+        page([post("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
+        page([post("event:1", at(1))]),
       ],
     };
-    expect(upsertFeedEntry(paged, status("event:9", at(5))).placed).toBe(false);
+    expect(upsertFeedEntry(paged, post("event:9", at(5))).placed).toBe(false);
   });
 
   it("has nowhere to put anything in an empty cache", () => {
     expect(
-      upsertFeedEntry({ pageParams: [], pages: [] }, status("event:1", at(1)))
+      upsertFeedEntry({ pageParams: [], pages: [] }, post("event:1", at(1)))
         .placed
     ).toBe(false);
   });

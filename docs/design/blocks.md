@@ -31,9 +31,10 @@ block   = one post in a stream: who wrote it, whom it is for, what kind, its
           text and typed data, its mutable state, its thread.
 thread  = the blocks that reply to one top-level block. Collapsed in the
           stream to "3 replies", opened as a page in the right drawer.
-turn    = an agent's unit of work (prompt → steps → answer), rendered from
-          `agent_stream_events` as before. Turns are not blocks; a stream
-          interleaves both by time.
+turn    = an agent's unit of work (prompt → steps → answer). The answer is a
+          block (`origin: turn`) written empty when the turn opens and filled
+          when it settles; the steps come from `agent_stream_events` and ride
+          along as `block.turn` at read time. The stream is blocks only.
 ```
 
 ### `blocks`
@@ -52,7 +53,7 @@ turn    = an agent's unit of work (prompt → steps → answer), rendered from
 | `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author |
 | `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution              |
 | `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)   |
-| `origin`          | text null   | `launch` for the launch-context post; otherwise null                      |
+| `origin`          | text null   | `launch` for the launch-context post; `turn` for a turn's answer; else null |
 | `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending    |
 | `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                 |
 | `created_at`      | timestamptz |                                                                           |
@@ -139,7 +140,8 @@ Derived on the server and written as system status events (`phase: turn`):
 - turn error, unexpected exit, setup failure → `blocked`
 - an input block posted for the user → `waiting_user` at once
 
-The feed hides these; the presence line and sidebar show them.
+They never enter the stream; the presence line and sidebar show them. A
+turn's own error rides on its block (`block.turn.error`).
 
 ## Tools
 
@@ -172,10 +174,14 @@ the `agent_message` feed entry. `launch_agent` gains `persona`;
 ## Feed
 
 `GET /agents/:id/chat` becomes `GET /streams/:rootId/blocks` plus a
-per-agent filter, but the response stays a cursor-paged list of entries:
-`block`, `turn`, `status` (system marks only). A `block` entry is the block
-with its reactions and its thread's reply count. Thread contents come from
-`GET /streams/:rootId/blocks/:id/thread`. Write routes:
+per-agent filter, but the response stays a cursor-paged list of `block`
+entries: the block with its reactions, its thread's reply count, who has
+replied and how many replies are unread, and, on a turn's block, the turn
+(`block.turn`) assembled from the agent's event log. A turn opened by a
+reply in a thread answers in that thread: its block is a reply there, not
+a row in the column. Thread contents come from
+`GET /streams/:rootId/blocks/:id/thread`, turns attached the same way.
+Write routes:
 
 - `POST /streams/:rootId/blocks` — a user post (to the agent, or a reply in
   a thread)

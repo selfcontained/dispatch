@@ -5,7 +5,7 @@
  * render in the main stream; this is the only place they appear.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { Block, BlockOption, ChatTurnEntry } from "@dispatch/shared";
+import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
 
 import { FindingDetail, findingIdOf } from "@/components/app/chat/block-bodies";
@@ -18,12 +18,10 @@ import {
   blockAuthor,
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
-import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
 import { Button } from "@/components/ui/button";
 import {
   useMarkThreadRead,
   usePostBlock,
-  useStreamFeedCache,
   useThread,
 } from "@/hooks/use-stream";
 import { uploadAgentFile } from "@/lib/file-upload";
@@ -104,11 +102,6 @@ export function threadTitle(
   return { title: "Thread", subtitle: subject ? `${by}: ${subject}` : by };
 }
 
-/** What the panel lists under the root: a reply, or the turn a reply opened. */
-type ThreadItem =
-  | { kind: "reply"; at: string; reply: Block }
-  | { kind: "turn"; at: string; turn: ChatTurnEntry };
-
 export type ThreadPanelProps = {
   /** The page's agent: owns the files a reply attaches. */
   agentId: string;
@@ -159,21 +152,6 @@ export function ThreadPanel({
     findingId && thread.root?.kind === "review"
       ? (thread.root.data.findings.find((f) => f.id === findingId) ?? null)
       : null;
-  // A reply that opened a turn of the page's agent is drawn by that turn,
-  // here as in the stream: the turns the feed holds for this thread take
-  // the place of the replies that started them, in time order. Another
-  // agent's turns stay out; what it said is already here as its replies.
-  const entries = useStreamFeedCache(rootId);
-  const turns = useMemo(
-    () =>
-      entries.filter(
-        (entry): entry is ChatTurnEntry =>
-          entry.type === "turn" &&
-          entry.agentId === agentId &&
-          entry.prompt.threadId === blockId
-      ),
-    [agentId, blockId, entries]
-  );
   const replies = useMemo(
     () =>
       finding
@@ -181,23 +159,6 @@ export function ThreadPanel({
         : thread.replies,
     [finding, thread.replies]
   );
-  const items = useMemo<ThreadItem[]>(() => {
-    const shown = new Set(replies.map((reply) => reply.id));
-    const opened = new Map<string, ChatTurnEntry>();
-    for (const turn of turns) {
-      const promptId = turn.prompt.chatMessageId;
-      // In a finding's panel only the turns its own comments opened.
-      if (!promptId || (finding && !shown.has(promptId))) continue;
-      opened.set(promptId, turn);
-    }
-    const list: ThreadItem[] = replies
-      .filter((reply) => !opened.has(reply.id))
-      .map((reply) => ({ kind: "reply", at: reply.createdAt, reply }));
-    for (const turn of opened.values()) {
-      list.push({ kind: "turn", at: turn.at, turn });
-    }
-    return list.sort((a, b) => a.at.localeCompare(b.at));
-  }, [finding, replies, turns]);
   const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
   const groupedById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, grouped[index]])),
@@ -423,34 +384,25 @@ export function ThreadPanel({
               </div>
             ) : null}
             <div data-testid="chat-thread-replies">
-              {items.map((item) =>
-                item.kind === "turn" ? (
-                  <div
-                    key={item.turn.id}
-                    data-testid="chat-thread-turn"
-                    data-turn-id={item.turn.id}
-                  >
-                    <TurnEntryView
-                      entry={item.turn}
-                      grouped={false}
-                      ctx={ctx}
-                    />
-                  </div>
-                ) : (
+              {replies.map((reply) => (
+                <div
+                  key={reply.id}
+                  data-testid={reply.turn ? "chat-thread-turn" : undefined}
+                  data-turn-id={reply.turn ? reply.id : undefined}
+                >
                   <BlockView
-                    key={item.reply.id}
-                    block={item.reply}
+                    block={reply}
                     held={false}
-                    grouped={groupedById.get(item.reply.id) ?? false}
+                    grouped={groupedById.get(reply.id) ?? false}
                     ctx={ctx}
-                    answering={answeringBlockId === item.reply.id}
-                    submitting={submittingBlockId === item.reply.id}
+                    answering={answeringBlockId === reply.id}
+                    submitting={submittingBlockId === reply.id}
                     answersDisabled={disabledReason !== null}
                     onAnswer={onAnswer}
                     inThread
                   />
-                )
-              )}
+                </div>
+              ))}
             </div>
           </>
         ) : null}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ChatTurnEntry } from "@dispatch/shared";
+import type { ChatTurnEntry, StreamBlockEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
+import { turnEntry } from "@/test-utils/blocks";
 
 vi.mock("@/components/ui/markdown-mermaid", () => ({
   MermaidBlock: () => null,
@@ -27,44 +28,50 @@ const ctx: FeedContext = {
   onOpenFile: () => undefined,
 };
 
-function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
-  return {
-    type: "turn",
+const READ_STEP: ChatTurnEntry["trace"]["steps"][number] = {
+  id: "stream:13",
+  kind: "read",
+  label: "Read README.md",
+  status: "ok",
+  startedAt: "2026-09-08T10:00:01.000Z",
+  endedAt: "2026-09-08T10:00:02.000Z",
+  durMs: 1000,
+  detail: { toolKind: "read", locations: [{ path: "/w/README.md" }] },
+};
+
+/**
+ * A settled turn's block: the answer as its text, one read step in its
+ * trace. `text` is the block's (what the feed shows once the turn lands);
+ * `turn` overrides the assembled turn.
+ */
+function turn(
+  overrides: Partial<ChatTurnEntry> = {},
+  text = "It documents the CLI."
+): StreamBlockEntry {
+  return turnEntry({
     id: "turn:12",
-    agentId: AGENT_ID,
-    at: "2026-09-08T10:00:00.000Z",
-    updatedAt: "2026-09-08T10:00:09.000Z",
-    prompt: {
-      source: "chat",
-      text: "read the readme",
-      chatMessageId: "11111111-1111-4111-8111-111111111111",
-      attachments: [],
+    text,
+    createdAt: "2026-09-08T10:00:00.000Z",
+    turn: {
+      updatedAt: "2026-09-08T10:00:09.000Z",
+      prompt: {
+        source: "chat",
+        text: "read the readme",
+        chatMessageId: "11111111-1111-4111-8111-111111111111",
+        attachments: [],
+      },
+      trace: {
+        startedAt: "2026-09-08T10:00:00.000Z",
+        endedAt: "2026-09-08T10:00:09.000Z",
+        finalResult: "ok",
+        steps: [READ_STEP],
+      },
+      ...overrides,
     },
-    trace: {
-      startedAt: "2026-09-08T10:00:00.000Z",
-      endedAt: "2026-09-08T10:00:09.000Z",
-      finalResult: "ok",
-      steps: [
-        {
-          id: "stream:13",
-          kind: "read",
-          label: "Read README.md",
-          status: "ok",
-          startedAt: "2026-09-08T10:00:01.000Z",
-          endedAt: "2026-09-08T10:00:02.000Z",
-          durMs: 1000,
-          detail: { toolKind: "read", locations: [{ path: "/w/README.md" }] },
-        },
-      ],
-    },
-    result: { text: "It documents the CLI.", streaming: false },
-    settled: true,
-    interrupted: false,
-    ...overrides,
-  };
+  });
 }
 
-function renderTurn(entry: ChatTurnEntry) {
+function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
   // The agent post's author mark reads its engine colour through
   // `useIconColor`, which is a React Query read, so the provider is not
   // optional here.
@@ -73,7 +80,12 @@ function renderTurn(entry: ChatTurnEntry) {
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <MotionConfig reducedMotion="always">
-          <TurnEntryView entry={entry} grouped={false} ctx={ctx} />
+          <TurnEntryView
+            block={entry.block}
+            turn={entry.block.turn!}
+            grouped={false}
+            ctx={view}
+          />
         </MotionConfig>
       </MemoryRouter>
     </QueryClientProvider>
@@ -81,19 +93,23 @@ function renderTurn(entry: ChatTurnEntry) {
 }
 
 describe("TurnEntryView", () => {
-  it("renders the prompt and a compact result post", () => {
+  it("renders the answer as the agent's own post, with the rail under it", () => {
     renderTurn(turn());
-    const prompt = screen.getByTestId("chat-message");
-    expect(prompt.getAttribute("data-author")).toBe("user");
-    expect(prompt.textContent).toContain("read the readme");
-    const result = screen.getByTestId("chat-turn-result");
-    expect(result.getAttribute("data-author-kind")).toBe("agent");
-    // The answer is a post of its own, with the agent's header.
-    expect(result.getAttribute("data-grouped")).toBeNull();
-    expect(result.parentElement?.className).toContain("mt-3");
-    expect(result.textContent).toContain("It documents the CLI.");
+    // One post: the agent's. The prompt is the user's block, a row of its
+    // own in the feed, never drawn by the turn.
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts).toHaveLength(1);
+    const post = posts[0]!;
+    expect(post.getAttribute("data-author")).toBe("agent");
+    expect(post.getAttribute("data-origin")).toBe("turn");
+    expect(post.getAttribute("data-block-id")).toBe("turn:12");
+    expect(post.textContent).not.toContain("read the readme");
+    // A post of its own, with the agent's header.
+    expect(post.getAttribute("data-grouped")).toBeNull();
+    expect(post.className).toContain("mt-3");
+    expect(post.textContent).toContain("It documents the CLI.");
     // The activity line is a footnote under the text, inside the agent post.
-    const body = result.querySelector('[data-testid="chat-turn-body"]')!;
+    const body = post.querySelector('[data-testid="chat-turn-body"]')!;
     const text = body.querySelector('[data-testid="harness-result"]')!;
     const rail = body.querySelector('[data-testid="harness-activity-fold"]')!;
     expect(rail).not.toBeNull();
@@ -109,7 +125,7 @@ describe("TurnEntryView", () => {
     // feed above it glides instead of jumping.
     renderTurn(turn());
     const body = screen
-      .getByTestId("chat-turn-result")
+      .getByTestId("chat-message")
       .querySelector('[data-testid="chat-turn-body"]');
     expect(body).not.toBeNull();
     expect(
@@ -120,7 +136,7 @@ describe("TurnEntryView", () => {
     ).not.toBeNull();
   });
 
-  it("names the entry and its settled state on the wrapper", () => {
+  it("names the block and its settled state on the wrapper", () => {
     renderTurn(turn());
     const wrapper = screen.getByTestId("chat-turn");
     expect(wrapper.getAttribute("data-turn-id")).toBe("turn:12");
@@ -128,39 +144,44 @@ describe("TurnEntryView", () => {
   });
 
   it("holds a running turn's text back: the post is its header and the activity line until settle", () => {
+    // The block's text is empty until the turn settles; whatever the turn
+    // has so far stays out of the column too.
     renderTurn(
-      turn({
-        settled: false,
-        result: { text: "reading now", streaming: true },
-        trace: {
-          startedAt: "2026-09-08T10:00:00.000Z",
-          steps: [
-            {
-              id: "stream:14",
-              kind: "execute",
-              label: "bash",
-              status: "running",
-              startedAt: "2026-09-08T10:00:01.000Z",
-              detail: { toolKind: "execute" },
-            },
-          ],
+      turn(
+        {
+          settled: false,
+          result: { text: "reading now", streaming: true },
+          trace: {
+            startedAt: "2026-09-08T10:00:00.000Z",
+            steps: [
+              {
+                id: "stream:14",
+                kind: "execute",
+                label: "bash",
+                status: "running",
+                startedAt: "2026-09-08T10:00:01.000Z",
+                detail: { toolKind: "execute" },
+              },
+            ],
+          },
         },
-      })
+        ""
+      )
     );
     expect(
       screen.getByTestId("chat-turn").getAttribute("data-settled")
     ).toBeNull();
     expect(screen.queryByTestId("harness-result")).toBeNull();
-    expect(screen.getByTestId("chat-turn-result").textContent).not.toContain(
+    expect(screen.getByTestId("chat-message").textContent).not.toContain(
       "reading now"
     );
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
   });
 
-  it("leaves a prompt from another agent to its own feed row", () => {
-    // The message is already an `agent_message` entry, written when it was
-    // sent and carrying the sender's relation badge and id. Rendering it
-    // here too showed the same words twice, in two cards that disagreed.
+  it("draws no post for a prompt another agent sent: that post is its own feed row", () => {
+    // The message is already a block in the feed, written when it was sent
+    // and carrying the sender's relation badge and id. Rendering it here
+    // too showed the same words twice, in two cards that disagreed.
     renderTurn(
       turn({
         prompt: {
@@ -172,13 +193,16 @@ describe("TurnEntryView", () => {
         },
       })
     );
-    expect(screen.queryByTestId("chat-agent-message")).toBeNull();
-    expect(screen.queryByTestId("chat-message")).toBeNull();
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.getAttribute("data-author")).toBe("agent");
+    expect(posts[0]!.textContent).not.toContain("take a look at the diff");
+    expect(screen.queryByTestId("chat-turn-notice")).toBeNull();
     // The turn itself still renders: the rail and the answer.
-    expect(screen.getByTestId("chat-turn-result")).not.toBeNull();
+    expect(screen.getByTestId("harness-result")).not.toBeNull();
   });
 
-  it("renders a prompt Dispatch injected as a notice, not as a user post", () => {
+  it("renders a prompt Dispatch injected as a notice above the answer, not as a user post", () => {
     renderTurn(
       turn({
         prompt: {
@@ -188,22 +212,29 @@ describe("TurnEntryView", () => {
         },
       })
     );
-    expect(screen.getByTestId("harness-notice")).toBeTruthy();
-    expect(screen.queryByTestId("chat-message")).toBeNull();
+    const notice = screen.getByTestId("chat-turn-notice");
+    expect(notice.querySelector('[data-testid="harness-notice"]')).toBeTruthy();
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.getAttribute("data-author")).toBe("agent");
+    expect(posts[0]!.contains(notice)).toBe(true);
   });
 
   it("says an interrupted turn was cut short", () => {
     renderTurn(
-      turn({
-        interrupted: true,
-        trace: {
-          startedAt: "2026-09-08T10:00:00.000Z",
-          endedAt: "2026-09-08T10:00:04.000Z",
-          finalResult: "interrupted",
-          steps: [],
+      turn(
+        {
+          interrupted: true,
+          trace: {
+            startedAt: "2026-09-08T10:00:00.000Z",
+            endedAt: "2026-09-08T10:00:04.000Z",
+            finalResult: "interrupted",
+            steps: [],
+          },
+          result: { text: "half", streaming: false },
         },
-        result: { text: "half", streaming: false },
-      })
+        "half"
+      )
     );
     expect(screen.getByTestId("harness-interrupted").textContent).toContain(
       "Interrupted mid-turn"
@@ -214,16 +245,19 @@ describe("TurnEntryView", () => {
 
   it("shows the turn's error under the result", () => {
     renderTurn(
-      turn({
-        error: "no API key",
-        trace: {
-          startedAt: "2026-09-08T10:00:00.000Z",
-          endedAt: "2026-09-08T10:00:01.000Z",
-          finalResult: "error",
-          steps: [],
+      turn(
+        {
+          error: "no API key",
+          trace: {
+            startedAt: "2026-09-08T10:00:00.000Z",
+            endedAt: "2026-09-08T10:00:01.000Z",
+            finalResult: "error",
+            steps: [],
+          },
+          result: null,
         },
-        result: null,
-      })
+        ""
+      )
     );
     expect(screen.getByTestId("harness-result").textContent).toContain(
       "no API key"
@@ -232,9 +266,43 @@ describe("TurnEntryView", () => {
 
   it("folds an unlabeled turn to a verb read off its steps, not to a bare done", () => {
     // The fixture's one step is a read of README.md and the turn carries no
+    // label of its own.
     renderTurn(turn());
     const summary = screen.getByTestId("harness-activity-summary");
     expect(summary.textContent).toContain("read README.md");
     expect(summary.getAttribute("aria-label")).toContain("read README.md");
+  });
+
+  it("folds a turn run by another agent to a child row under that agent's name", () => {
+    const entry = turnEntry({
+      id: "turn:child",
+      author: { kind: "agent", agentId: "agt_child" },
+      text: "All clear.",
+      createdAt: "2026-09-08T10:00:00.000Z",
+      turn: {
+        trace: {
+          startedAt: "2026-09-08T10:00:00.000Z",
+          endedAt: "2026-09-08T10:00:09.000Z",
+          finalResult: "ok",
+          steps: [READ_STEP],
+        },
+      },
+    });
+    renderTurn(entry, {
+      ...ctx,
+      peers: {
+        agt_child: { name: "reviewer", agentType: "codex", relation: "child" },
+      },
+    });
+    const row = screen.getByTestId("chat-child-turn");
+    expect(row.getAttribute("data-turn-id")).toBe("turn:child");
+    expect(row.getAttribute("data-agent-id")).toBe("agt_child");
+    expect(row.getAttribute("data-settled")).toBe("true");
+    expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
+      "reviewer"
+    );
+    // Folded: the answer waits behind the row.
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    expect(row.textContent).not.toContain("All clear.");
   });
 });

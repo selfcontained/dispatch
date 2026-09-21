@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import type {
   ChatAttachment,
-  ChatStatusEntry,
   ChatTurnEntry,
+  ChatTurnStep,
   StreamEntry,
 } from "@dispatch/shared";
 import {
@@ -25,6 +25,7 @@ import {
   FILE_BODY,
   questionBody,
   reaction,
+  turnEntry,
 } from "@/test-utils/blocks";
 
 import {
@@ -35,14 +36,12 @@ import {
 } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
-  collapseFeed,
   entryGrowthKey,
   entryVersion,
   latestAgentBlockId,
   latestOpenFreeformQuestion,
   latestUserBlockId,
   layoutFeed,
-  rowIdentity,
   useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
 
@@ -104,15 +103,6 @@ function fileAttachment(
   return { type: "file", ...fields };
 }
 
-function status(
-  id: string,
-  eventType: string,
-  text: string,
-  at = "2026-09-02T10:00:00.000Z"
-): ChatStatusEntry {
-  return { type: "status", id, eventType, message: text, at };
-}
-
 function makeCtx(
   overrides: Partial<FeedContext> = {},
   onOpenFile = vi.fn()
@@ -160,39 +150,6 @@ function renderFeed(
   return { onAnswer, onOpenFile, rerenderWith };
 }
 
-describe("collapseFeed", () => {
-  it("folds consecutive working events into the latest one", () => {
-    const items = collapseFeed([
-      status("s1", "working", "Reading files"),
-      status("s2", "working", "Editing"),
-      status("s3", "working", "Running tests"),
-      status("s4", "done", "All green"),
-      status("s5", "working", "Again"),
-    ]);
-    expect(items).toHaveLength(3);
-    expect(items[0]).toMatchObject({
-      kind: "status",
-      collapsedCount: 3,
-      entry: { id: "s3", message: "Running tests" },
-    });
-    expect(items[1]).toMatchObject({ kind: "status", collapsedCount: 1 });
-    expect(items[2]).toMatchObject({
-      kind: "status",
-      collapsedCount: 1,
-      entry: { id: "s5" },
-    });
-  });
-
-  it("breaks a working run on any non-status entry", () => {
-    const items = collapseFeed([
-      status("s1", "working", "a"),
-      blockEntry(block({ id: "m1" })),
-      status("s2", "working", "b"),
-    ]);
-    expect(items.map((i) => i.kind)).toEqual(["status", "entry", "status"]);
-  });
-});
-
 describe("layoutFeed", () => {
   const now = new Date("2026-09-03T12:00:00.000Z");
   const at = (hhmm: string, day = "02") => `2026-09-${day}T${hhmm}:00.000Z`;
@@ -221,12 +178,11 @@ describe("layoutFeed", () => {
     ]);
   });
 
-  it("starts a new group after five minutes or a system line", () => {
+  it("starts a new group after five minutes", () => {
     const rows = layoutFeed(
       [
         blockEntry(block({ id: "a1", createdAt: at("10:00") })),
         blockEntry(block({ id: "a2", createdAt: at("10:06") })),
-        status("s1", "working", "x", at("10:07")),
         blockEntry(block({ id: "a3", createdAt: at("10:07") })),
       ],
       makeCtx(),
@@ -238,8 +194,7 @@ describe("layoutFeed", () => {
       "divider",
       ["a1", false],
       ["a2", false],
-      "status",
-      ["a3", false],
+      ["a3", true],
     ]);
   });
 
@@ -251,7 +206,6 @@ describe("layoutFeed", () => {
         blockEntry(
           block({ id: "u1", authorKind: "user", createdAt: at("10:02") })
         ),
-        status("s1", "working", "x", at("10:03")),
         blockEntry(block({ id: "a3", createdAt: at("10:03") })),
         blockEntry(block({ id: "a4", createdAt: at("10:00", "03") })),
         blockEntry(
@@ -274,10 +228,9 @@ describe("layoutFeed", () => {
       ["a1", false],
       // Grouped under a1: no boundary at all.
       ["a2", false],
-      // Author change straight after a post: hairline.
+      // Author change straight after a post: hairline, each way.
       ["u1", true],
-      // A status cluster sits between: no second separator.
-      ["a3", false],
+      ["a3", true],
       // Day rule again.
       ["a4", false],
       ["u2", true],
@@ -358,7 +311,6 @@ describe("latest message helpers", () => {
       blockEntry(block({ id: "a1" })),
       blockEntry(block({ id: "u1", authorKind: "user" })),
       blockEntry(block({ id: "a2" })),
-      status("s1", "working", "x"),
     ];
     expect(latestUserBlockId(entries)).toBe("u1");
     expect(latestAgentBlockId(entries)).toBe("a2");
@@ -1090,31 +1042,6 @@ describe("ChatFeed", () => {
     );
   });
 
-  it("renders status lines with a collapsed count", () => {
-    renderFeed([
-      status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "blocked", "Need a key"),
-    ]);
-    const lines = screen.getAllByTestId("chat-status");
-    expect(lines).toHaveLength(2);
-    // Consecutive lines sit in one cluster.
-    const clusters = screen.getAllByTestId("chat-status-cluster");
-    expect(clusters).toHaveLength(1);
-    expect(
-      clusters[0]!.querySelectorAll("[data-testid='chat-status']")
-    ).toHaveLength(2);
-    expect(lines[0]!.className).toContain("text-[10px]");
-    expect(lines[0]!.textContent).toContain("Working");
-    expect(lines[0]!.textContent).toContain("Testing");
-    expect(lines[0]!.textContent).not.toContain("Reading");
-    expect(screen.getByTestId("chat-status-collapsed-count").textContent).toBe(
-      "×2"
-    );
-    expect(lines[1]!.textContent).toContain("Blocked");
-    expect(lines[1]!.textContent).toContain("Need a key");
-  });
-
   it("renders cross-agent messages as posts by the other agent, or by this one addressed to it", () => {
     renderFeed(
       [
@@ -1308,24 +1235,6 @@ describe("ChatFeed", () => {
   });
 });
 
-describe("memoised rows still repaint when their data changes", () => {
-  it("updates a status line's label and collapsed count", () => {
-    const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
-    expect(screen.getByTestId("chat-status").textContent).toContain("Reading");
-    expect(screen.queryByTestId("chat-status-collapsed-count")).toBeNull();
-    rerenderWith([
-      status("s1", "working", "Reading"),
-      status("s2", "working", "Testing"),
-      status("s3", "working", "Linting"),
-    ]);
-    const line = screen.getByTestId("chat-status");
-    expect(line.textContent).toContain("Linting");
-    expect(
-      screen.getByTestId("chat-status-collapsed-count").textContent
-    ).toContain("3");
-  });
-});
-
 describe("ChatFeed enter animation", () => {
   const at = (hhmm: string) => `2026-09-02T${hhmm}:00.000Z`;
   const enterOf = (el: Element) =>
@@ -1338,10 +1247,9 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first]);
     expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
 
-    // A new post and a new status line arrive.
+    // A new post arrives.
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
       blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const [one, two] = screen.getAllByTestId("chat-message");
@@ -1349,12 +1257,10 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(two!)).not.toBeNull();
     expect(enterOf(two!)!.className).toContain("animate-chat-enter");
     expect(enterOf(two!)!.className).toContain("motion-reduce:animate-none");
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
 
     // Still fading when the same list renders again.
     rerenderWith([
       first,
-      status("s1", "working", "Running tests", at("10:01")),
       blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     expect(enterOf(screen.getAllByTestId("chat-message")[1]!)).not.toBeNull();
@@ -1363,7 +1269,6 @@ describe("ChatFeed enter animation", () => {
     rerenderWith([
       blockEntry(block({ id: "a0", text: "older", createdAt: at("09:00") })),
       first,
-      status("s1", "working", "Running tests", at("10:01")),
       blockEntry(block({ id: "a2", text: "second", createdAt: at("10:02") })),
     ]);
     const posts = screen.getAllByTestId("chat-message");
@@ -1374,7 +1279,7 @@ describe("ChatFeed enter animation", () => {
   });
 
   it("fades in a live row that lands below the newest by time", () => {
-    // A status event published late sorts under the newest post; it is
+    // A child's post published late sorts under the newest post; it is
     // still an arrival, not a page of older rows.
     const first = blockEntry(
       block({ id: "a1", text: "first", createdAt: at("10:00") })
@@ -1385,10 +1290,16 @@ describe("ChatFeed enter animation", () => {
     const { rerenderWith } = renderFeed([first, last]);
     rerenderWith([
       first,
-      status("late", "working", "Late status", at("10:03")),
+      peerPost({
+        id: "late",
+        from: "agt_2",
+        to: AGENT_ID,
+        text: "Landed late",
+        at: at("10:03"),
+      }),
       last,
     ]);
-    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+    expect(enterOf(sidePosts()[0]!)).not.toBeNull();
   });
 
   it("fades a post edited in place in again", () => {
@@ -1563,49 +1474,150 @@ describe("reactions", () => {
   });
 });
 describe("turn entries", () => {
-  function turnEntry(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
-    return {
-      type: "turn",
+  const AT = "2026-09-04T10:00:00.000Z";
+  const ENDED = "2026-09-04T10:00:09.000Z";
+  const READ_STEP: ChatTurnStep = {
+    id: "stream:13",
+    kind: "read",
+    label: "Read README.md",
+    status: "ok",
+    startedAt: "2026-09-04T10:00:01.000Z",
+    endedAt: "2026-09-04T10:00:02.000Z",
+    durMs: 1000,
+    detail: { toolKind: "read" },
+  };
+  /**
+   * The agent's answer block with its turn attached, settled unless the
+   * turn says otherwise. `text` is the block's: the answer once the turn
+   * landed, empty while it runs.
+   */
+  function turn(
+    overrides: Partial<ChatTurnEntry> = {},
+    text = "It documents the CLI."
+  ): StreamEntry {
+    return turnEntry({
       id: "turn:12",
-      agentId: AGENT_ID,
-      at: "2026-09-04T10:00:00.000Z",
-      updatedAt: "2026-09-04T10:00:09.000Z",
-      prompt: { source: "chat", text: "read the readme", attachments: [] },
-      trace: {
-        startedAt: "2026-09-04T10:00:00.000Z",
-        endedAt: "2026-09-04T10:00:09.000Z",
-        finalResult: "ok",
-        steps: [
-          {
-            id: "stream:13",
-            kind: "read",
-            label: "Read README.md",
-            status: "ok",
-            startedAt: "2026-09-04T10:00:01.000Z",
-            endedAt: "2026-09-04T10:00:02.000Z",
-            durMs: 1000,
-            detail: { toolKind: "read" },
-          },
-        ],
+      text,
+      createdAt: AT,
+      turn: {
+        updatedAt: ENDED,
+        prompt: { source: "chat", text: "read the readme", attachments: [] },
+        trace: {
+          startedAt: AT,
+          endedAt: ENDED,
+          finalResult: "ok",
+          steps: [READ_STEP],
+        },
+        ...overrides,
       },
-      result: { text: "It documents the CLI.", streaming: false },
-      settled: true,
-      interrupted: false,
-      ...overrides,
-    };
+    });
   }
+  /** The user's message that opened the turn: a row of its own, above it. */
+  const prompt = blockEntry(
+    block({
+      id: "u1",
+      authorKind: "user",
+      text: "read the readme",
+      delivered: true,
+      createdAt: "2026-09-04T09:59:59.000Z",
+    })
+  );
 
-  it("renders the prompt with post styling and the result as an agent post", () => {
-    renderFeed([turnEntry()]);
-    const prompt = screen.getByTestId("chat-message");
-    expect(prompt.getAttribute("data-author")).toBe("user");
-    expect(prompt.textContent).toContain("read the readme");
-    const result = screen.getByTestId("chat-turn-result");
-    expect(result.getAttribute("data-author-kind")).toBe("agent");
-    expect(result.textContent).toContain("It documents the CLI.");
-    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
-      "turn:12"
+  it("draws the prompt as the user's row and the answer as the agent's post with its rail", () => {
+    const onOpenThread = vi.fn();
+    renderFeed([prompt, turn()], {}, { onOpenThread, onToggleReaction: vi.fn() });
+    const [user, answer] = screen.getAllByTestId("chat-message");
+    expect(user!.getAttribute("data-author")).toBe("user");
+    expect(user!.textContent).toContain("read the readme");
+    expect(answer!.getAttribute("data-author")).toBe("agent");
+    expect(answer!.getAttribute("data-origin")).toBe("turn");
+    expect(answer!.getAttribute("data-block-id")).toBe("turn:12");
+    expect(answer!.getAttribute("data-group-start")).toBe("true");
+    expect(answer!.textContent).toContain("It documents the CLI.");
+    // The turn draws no prompt of its own.
+    expect(answer!.textContent).not.toContain("read the readme");
+    const body = screen.getByTestId("chat-turn");
+    expect(body.getAttribute("data-turn-id")).toBe("turn:12");
+    expect(body.getAttribute("data-settled")).toBe("true");
+    expect(
+      body.querySelector('[data-testid="harness-activity-fold"]')
+    ).not.toBeNull();
+    // A post like any other of the agent's: a thread opens on it and a
+    // reaction can land on it.
+    fireEvent.click(within(answer!).getByTestId("chat-reply-in-thread"));
+    expect(onOpenThread).toHaveBeenCalledWith("turn:12");
+    expect(within(answer!).getByTestId("chat-add-reaction")).toBeTruthy();
+  });
+
+  it("repaints the same row with the answer once the turn settles", () => {
+    const running = turn(
+      {
+        settled: false,
+        result: { text: "so far", streaming: true },
+        trace: { startedAt: AT, steps: [READ_STEP] },
+      },
+      ""
     );
+    const { rerenderWith } = renderFeed([prompt, running]);
+    const before = screen.getAllByTestId("chat-message")[1]!;
+    expect(before.getAttribute("data-block-id")).toBe("turn:12");
+    expect(before.textContent).not.toContain("so far");
+    expect(
+      screen.getByTestId("chat-turn").getAttribute("data-settled")
+    ).toBeNull();
+    rerenderWith([prompt, turn()]);
+    const after = screen.getAllByTestId("chat-message")[1]!;
+    expect(after.getAttribute("data-block-id")).toBe("turn:12");
+    expect(after.textContent).toContain("It documents the CLI.");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-settled")).toBe(
+      "true"
+    );
+  });
+
+  it("folds a turn run by another agent to a row under that agent's name", () => {
+    renderFeed(
+      [
+        turnEntry({
+          id: "turn:kid",
+          author: { kind: "agent", agentId: "agt_2" },
+          text: "Reviewed.",
+          createdAt: AT,
+        }),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const row = screen.getByTestId("chat-child-turn");
+    expect(row.getAttribute("data-turn-id")).toBe("turn:kid");
+    expect(row.getAttribute("data-agent-id")).toBe("agt_2");
+    expect(screen.getByTestId("chat-child-turn-agent").textContent).toBe(
+      "Reviewer"
+    );
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    expect(row.textContent).not.toContain("Reviewed.");
+  });
+
+  it("lifts what the agent produced mid-turn into the turn's post", () => {
+    const file = blockEntry(
+      block({
+        id: "md1",
+        text: "Login page",
+        body: FILE_BODY,
+        attachments: [
+          fileAttachment({ fileId: 3, fileName: "screen.png", sizeBytes: 1 }),
+        ],
+        createdAt: "2026-09-04T10:00:03.000Z",
+      })
+    );
+    renderFeed([prompt, turn(), file]);
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts.map((p) => p.getAttribute("data-block-id"))).toEqual([
+      "u1",
+      "turn:12",
+    ]);
+    expect(
+      within(posts[1]!).getByTestId("chat-turn-attachments").textContent
+    ).toContain("Login page");
   });
 
   it("keeps a turn out of every author group and resets the run behind it", () => {
@@ -1620,7 +1632,7 @@ describe("turn entries", () => {
             updatedAt: "2026-09-04T09:59:00.000Z",
           })
         ),
-        turnEntry(),
+        turn(),
         blockEntry(
           block({
             id: "m2",
@@ -1644,54 +1656,61 @@ describe("turn entries", () => {
     ]);
   });
 
-  it("keys a turn's growth on its newest row, steps, result and settled state", () => {
-    const base = turnEntry({
-      settled: false,
-      result: { text: "a", streaming: true },
-    });
-    const grown = turnEntry({
-      settled: false,
-      updatedAt: "2026-09-04T10:00:11.000Z",
-      result: { text: "ab", streaming: true },
-    });
-    expect(entryGrowthKey(base)).not.toBe(entryGrowthKey(grown));
-    expect(entryGrowthKey(grown)).not.toBe(
-      entryGrowthKey({ ...grown, settled: true })
+  it("keys a turn's growth on its newest row, steps, answer and settled state", () => {
+    const running = { settled: false, result: { text: "a", streaming: true } };
+    const base = turn(running, "");
+    const grown = turn(
+      { ...running, updatedAt: "2026-09-04T10:00:11.000Z" },
+      ""
     );
-    // The fade-in version is the anchor time, which never moves, so growth
-    // does not remount the entry and collapse an expanded step.
+    expect(entryGrowthKey(base)).not.toBe(entryGrowthKey(grown));
+    const stepped = turn(
+      {
+        ...running,
+        trace: {
+          startedAt: AT,
+          steps: [READ_STEP, { ...READ_STEP, id: "stream:14" }],
+        },
+      },
+      ""
+    );
+    expect(entryGrowthKey(stepped)).not.toBe(entryGrowthKey(base));
+    // Landing: the block takes the answer as its text and the turn settles.
+    const landed = turn();
+    expect(entryGrowthKey(grown)).not.toBe(entryGrowthKey(landed));
+    // The fade-in version is the block's birth, which never moves, so
+    // neither growth nor the landing remounts the entry and collapses an
+    // expanded step.
     expect(entryVersion(base)).toBe(entryVersion(grown));
+    expect(entryVersion(base)).toBe(entryVersion(landed));
   });
 
   it("does not re-enter a streaming turn as it grows", () => {
+    const running = { settled: false, result: { text: "a", streaming: true } };
     const { result, rerender } = renderHook(
       ({ entries }: { entries: StreamEntry[] }) => useEnteringEntries(entries),
-      {
-        initialProps: {
-          entries: [
-            turnEntry({
-              settled: false,
-              result: { text: "a", streaming: true },
-            }),
-          ] as StreamEntry[],
-        },
-      }
+      { initialProps: { entries: [turn(running, "")] } }
     );
-    const later = status("s9", "done", "finished", "2026-09-04T10:00:20.000Z");
+    const later = blockEntry(
+      block({
+        id: "u9",
+        authorKind: "user",
+        text: "and then?",
+        createdAt: "2026-09-04T10:00:20.000Z",
+      })
+    );
+    rerender({ entries: [turn(running, ""), later] });
+    expect(result.current.has("u9")).toBe(true);
     rerender({
       entries: [
-        turnEntry({ settled: false, result: { text: "a", streaming: true } }),
-        later,
-      ],
-    });
-    expect(result.current.has("s9")).toBe(true);
-    rerender({
-      entries: [
-        turnEntry({
-          settled: false,
-          updatedAt: "2026-09-04T10:00:15.000Z",
-          result: { text: "abc", streaming: true },
-        }),
+        turn(
+          {
+            ...running,
+            updatedAt: "2026-09-04T10:00:15.000Z",
+            result: { text: "abc", streaming: true },
+          },
+          ""
+        ),
         later,
       ],
     });
@@ -1710,7 +1729,7 @@ describe("turn entries", () => {
     // The card still says unanswered, and no turn contradicts it.
     expect(
       latestOpenFreeformQuestion([
-        turnEntry({ questions: [{ messageId: "q1", answered: false }] }),
+        turn({ questions: [{ messageId: "q1", answered: false }] }),
         blockEntry(question),
       ])?.id
     ).toBe("q1");
@@ -1718,49 +1737,13 @@ describe("turn entries", () => {
     // fresher one: the composer stops offering to answer a closed question.
     expect(
       latestOpenFreeformQuestion([
-        turnEntry({ questions: [{ messageId: "q1", answered: true }] }),
+        turn({ questions: [{ messageId: "q1", answered: true }] }),
         blockEntry(question),
       ])
     ).toBeNull();
     // A turn that names no question changes nothing.
     expect(
-      latestOpenFreeformQuestion([turnEntry(), blockEntry(question)])?.id
+      latestOpenFreeformQuestion([turn(), blockEntry(question)])?.id
     ).toBe("q1");
-  });
-});
-
-describe("rowIdentity", () => {
-  const turn = (id: string, agentId: string): ChatTurnEntry => ({
-    type: "turn",
-    id,
-    agentId,
-    at: "2026-09-02T10:00:00.000Z",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    prompt: {
-      source: "chat",
-      chatMessageId: "msg-1",
-      text: "hi",
-      attachments: [],
-    },
-    trace: { startedAt: "2026-09-02T10:00:00.000Z", steps: [] },
-    result: null,
-    settled: true,
-    interrupted: false,
-  });
-
-  it("draws only the page agent's turn as the message that opened it", () => {
-    // The parent's turn is the message's row; a child's turn on the same
-    // message keeps its own, so the two never share a key.
-    expect(rowIdentity(turn("turn:1", "agt_1"), "agt_1")).toBe("msg-1");
-    expect(rowIdentity(turn("turn:2", "agt_child"), "agt_1")).toBe("turn:2");
-    expect(rowIdentity(turn("turn:2", "agt_child"))).toBe("msg-1");
-    // A review left by hand opened the turn: the review stays its own row.
-    const fromReview = turn("turn:3", "agt_1");
-    expect(
-      rowIdentity(
-        { ...fromReview, prompt: { ...fromReview.prompt, kind: "review" } },
-        "agt_1"
-      )
-    ).toBe("turn:3");
   });
 });

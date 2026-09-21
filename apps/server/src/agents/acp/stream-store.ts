@@ -169,12 +169,16 @@ export class StreamStore {
    * stops. Run before a session (re)starts, so a turn cut off by a crash,
    * a Stop, or a server restart never spins in the view forever.
    */
-  async settleInterrupted(agentId: string, error: string): Promise<number> {
-    const turns = await this.db.query(
+  async settleInterrupted(
+    agentId: string,
+    error: string
+  ): Promise<StreamEventRow[]> {
+    const turns = await this.db.query<Row>(
       `UPDATE agent_stream_events
           SET payload = payload || $2::jsonb, updated_at = NOW()
         WHERE agent_id = $1 AND kind = 'turn'
-          AND payload->>'state' = 'started'`,
+          AND payload->>'state' = 'started'
+        RETURNING *`,
       [
         agentId,
         JSON.stringify({
@@ -191,7 +195,7 @@ export class StreamStore {
           AND payload->>'streaming' = 'true'`,
       [agentId]
     );
-    return turns.rowCount ?? 0;
+    return turns.rows.map(toRow);
   }
 
   /** The agent's newest turn row when it is still open; null otherwise. */

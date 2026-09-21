@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ChatTurnEntry, StreamThreadResponse } from "@dispatch/shared";
+import type { StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -16,7 +16,7 @@ import {
   streamFeedQueryKey,
   threadQueryKey,
 } from "@/hooks/use-stream";
-import { block, reviewBody } from "@/test-utils/blocks";
+import { block, reviewBody, turnEntry } from "@/test-utils/blocks";
 
 import { ThreadDrawer } from "./thread-drawer";
 
@@ -177,19 +177,17 @@ describe("ThreadDrawer", () => {
   });
 
   it("shows another agent's turn as a page of its own from the URL", () => {
-    const at = "2026-09-02T10:00:00.000Z";
-    const childTurn: ChatTurnEntry = {
-      type: "turn",
-      id: "turn:9",
-      agentId: "agt_rev",
-      at,
-      updatedAt: at,
-      prompt: { source: "chat", text: "check the diff", attachments: [] },
-      trace: { startedAt: at, endedAt: at, finalResult: "ok", steps: [] },
-      result: { text: "All clear from the reviewer.", streaming: false },
-      settled: true,
-      interrupted: false,
-    };
+    // The reviewer's turn as the feed carries it: its answer block, the
+    // turn attached, by an agent other than the page's.
+    const childTurn = turnEntry({
+      id: "turn9",
+      author: { kind: "agent", agentId: "agt_rev" },
+      text: "All clear from the reviewer.",
+      createdAt: "2026-09-02T10:00:00.000Z",
+      turn: {
+        prompt: { source: "chat", text: "check the diff", attachments: [] },
+      },
+    });
     client.setQueryData<FeedCache>(streamFeedQueryKey("agt_1"), {
       pages: [
         {
@@ -201,7 +199,7 @@ describe("ThreadDrawer", () => {
       ],
       pageParams: [undefined],
     });
-    renderThreadDrawer("?turn=turn%3A9");
+    renderThreadDrawer("?turn=turn9");
     expect(screen.getByTestId("thread-drawer").getAttribute("data-depth")).toBe(
       "1"
     );

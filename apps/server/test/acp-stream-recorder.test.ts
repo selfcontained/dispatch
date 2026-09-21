@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 
 import type { DriverEvent } from "../src/agents/acp/driver.js";
@@ -578,5 +578,54 @@ describe("StreamRecorder interrupted turns", () => {
       error: "interrupted by restart",
     });
     expect(rows[1].payload).toMatchObject({ streaming: false });
+  });
+});
+
+describe("turn blocks", () => {
+  it("opens a block when a turn starts, keeps its id on the turn row, and settles it with the turn", async () => {
+    const rec = new StreamRecorder(store);
+    const started = vi.fn(async () => "blk_1");
+    const settled = vi.fn(async () => undefined);
+    rec.setTurnBlocks({ started, settled });
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(started.mock.calls[0]![0]).toMatchObject({
+      agentId: A,
+      prompt: { source: "system", text: "go" },
+      turnRow: { kind: "turn" },
+    });
+    let rows = (await store.list(A, 10)).reverse();
+    expect(rows[0]!.payload).toMatchObject({ state: "started", blockId: "blk_1" });
+    await rec.handle(chunk("hi"));
+    await rec.handle({ type: "turn", agentId: A, state: "settled" });
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls[0]![0]).toMatchObject({
+      agentId: A,
+      turnRow: { kind: "turn", payload: { blockId: "blk_1" } },
+    });
+    rows = (await store.list(A, 10)).reverse();
+    expect(rows[0]!.payload).toMatchObject({ state: "settled", blockId: "blk_1" });
+  });
+
+  it("settles the block of a turn a restart cut, from reconcile", async () => {
+    const rec = new StreamRecorder(store);
+    rec.setTurnBlocks({ started: async () => "blk_2", settled: async () => undefined });
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    const fresh = new StreamRecorder(store);
+    const settled = vi.fn(async () => undefined);
+    fresh.setTurnBlocks({ started: async () => null, settled });
+    expect(await fresh.reconcile(A)).toBe(1);
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls[0]![0]).toMatchObject({
+      agentId: A,
+      turnRow: { payload: { blockId: "blk_2", state: "settled" } },
+    });
+  });
+
+  it("records a turn with no block when nothing is attached", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    const rows = (await store.list(A, 10)).reverse();
+    expect("blockId" in rows[0]!.payload).toBe(false);
   });
 });

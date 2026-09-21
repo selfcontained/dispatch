@@ -9,32 +9,40 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
-import { block, blockEntry, FILE_BODY } from "@/test-utils/blocks";
+import { block, blockEntry, FILE_BODY, turnEntry } from "@/test-utils/blocks";
 
-import { foldAttachments, TurnAttachments } from "./turn-attachments";
+import {
+  foldAttachments,
+  TurnAttachments,
+  turnWindow,
+} from "./turn-attachments";
 
 const AGENT_ID = "agt_1";
 const at = (hhmm: string): string => `2026-09-08T${hhmm}:00.000Z`;
 
-function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
-  return {
-    type: "turn",
-    id: "turn:1",
-    agentId: AGENT_ID,
-    at: at("10:00"),
-    updatedAt: at("10:05"),
-    prompt: { source: "chat", text: "go", attachments: [] },
-    trace: {
-      startedAt: at("10:00"),
-      endedAt: at("10:05"),
-      finalResult: "ok",
-      steps: [],
+/**
+ * A settled turn's block, run by `agentId` from 10:00 to 10:05 unless the
+ * turn says otherwise. The block's id is the turn's id on the feed.
+ */
+function turn(overrides: Partial<ChatTurnEntry> = {}): StreamBlockEntry {
+  const id = overrides.id ?? "turn:1";
+  const agentId = overrides.agentId ?? AGENT_ID;
+  return turnEntry({
+    id,
+    author: { kind: "agent", agentId },
+    createdAt: overrides.at ?? at("10:00"),
+    text: "done",
+    turn: {
+      updatedAt: at("10:05"),
+      trace: {
+        startedAt: at("10:00"),
+        endedAt: at("10:05"),
+        finalResult: "ok",
+        steps: [],
+      },
+      ...overrides,
     },
-    result: { text: "done", streaming: false },
-    settled: true,
-    interrupted: false,
-    ...overrides,
-  };
+  });
 }
 
 function sharedFile(id: string, when: string): StreamBlockEntry {
@@ -72,6 +80,30 @@ function sent(
     })
   );
 }
+
+describe("turnWindow", () => {
+  it("runs from the turn's start to its end, open-ended while it runs", () => {
+    expect(turnWindow(turn().block.turn!)).toEqual({
+      start: Date.parse(at("10:00")),
+      end: Date.parse(at("10:05")),
+    });
+    // A turn cut by a restart settled without an end: its last update is it.
+    expect(
+      turnWindow(
+        turn({ trace: { startedAt: at("10:00"), steps: [] } }).block.turn!
+      ).end
+    ).toBe(Date.parse(at("10:05")));
+    expect(
+      turnWindow(
+        turn({
+          settled: false,
+          trace: { startedAt: at("10:00"), steps: [] },
+          result: null,
+        }).block.turn!
+      ).end
+    ).toBe(Number.POSITIVE_INFINITY);
+  });
+});
 
 describe("foldAttachments", () => {
   it("lifts files and posts to other agents into the turn that produced them", () => {

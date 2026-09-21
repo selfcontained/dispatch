@@ -1,10 +1,5 @@
 import { type ReactNode, useMemo, useRef } from "react";
-import type {
-  Block,
-  BlockOption,
-  ChatStatusEntry,
-  StreamEntry,
-} from "@dispatch/shared";
+import type { Block, BlockOption, StreamEntry } from "@dispatch/shared";
 
 import {
   blockAuthor,
@@ -12,40 +7,32 @@ import {
   DayDivider,
   dayLabel,
   type FeedContext,
-  StatusLine,
 } from "@/components/app/chat/chat-entries";
 import {
   type FoldedEntry,
   foldAttachments,
 } from "@/components/app/chat/turn/turn-attachments";
-import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
-import { isSetupEvent, SetupBlock } from "@/components/app/chat/setup-block";
+import {
+  ChildTurnView,
+  isTurnEntry,
+} from "@/components/app/chat/turn/turn-entry-view";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 
 /**
- * A feed entry ready to render: status lines may stand in for a run of
- * consecutive `working` events, in which case `collapsedCount` says how many.
- */
-type ChatFeedItem =
-  | { kind: "entry"; entry: Exclude<StreamEntry, ChatStatusEntry> }
-  | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number };
-
-/**
- * What the channel draws, top to bottom: day rules, system lines, and posts
- * that know whether they continue the post above them.
+ * What the channel draws, top to bottom: day rules, and posts that know
+ * whether they continue the post above them.
  */
 export type ChatFeedRow =
   | { kind: "divider"; key: string; label: string }
-  | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number }
   | {
       kind: "entry";
-      entry: Exclude<StreamEntry, ChatStatusEntry>;
+      entry: StreamEntry;
       grouped: boolean;
       /**
        * A hairline above this post: it starts a new author group right after
-       * another post. Off when a day rule or a status cluster already sits
-       * between the two, so nothing is separated twice.
+       * another post. Off when a day rule already sits between the two, so
+       * nothing is separated twice.
        */
       rule: boolean;
       /**
@@ -66,33 +53,17 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
  * expanded activity row; growth is {@link entryGrowthKey}'s business.
  */
 export function entryVersion(entry: StreamEntry): string {
-  if (entry.type !== "block") return entry.at;
   // Only an agent edits a post; a user's post changes just its delivery
-  // and read marks, which are not a new version to fade in.
-  return entry.block.author.kind === "agent"
+  // and read marks, which are not a new version to fade in. A turn's block
+  // is written when the turn settles; that landing is not an edit either.
+  return entry.block.author.kind === "agent" && !entry.block.turn
     ? entry.block.updatedAt
     : entry.block.createdAt;
 }
 
-/**
- * The row a stream entry renders in. A user's post and the turn it opens
- * are one row: the post lands first, the turn replaces it a moment later
- * (the feed hides a block once a turn carries it as its prompt), and the
- * row has to be the same element through that swap or the message fades
- * in twice.
- */
-export function rowIdentity(entry: StreamEntry, ownerId?: string): string {
-  // Only a person's post ("chat") is drawn by its turn, and only the page
-  // agent's turn: a launch block or another agent's post stays a row of
-  // its own beside the turn it opened, and a child answering the same
-  // message keeps its own row rather than colliding with the parent's.
-  return entry.type === "turn" &&
-    entry.prompt.source === "chat" &&
-    entry.prompt.chatMessageId &&
-    (entry.prompt.kind ?? "text") === "text" &&
-    (ownerId === undefined || entry.agentId === ownerId)
-    ? entry.prompt.chatMessageId
-    : entry.id;
+/** The row a stream entry renders in: the block's own id. */
+export function rowIdentity(entry: StreamEntry, _ownerId?: string): string {
+  return entry.id;
 }
 
 /**
@@ -102,16 +73,13 @@ export function rowIdentity(entry: StreamEntry, ownerId?: string): string {
  */
 export function entryGrowthKey(entry: StreamEntry): string {
   const base = `${entry.id}:${entryVersion(entry)}`;
-  switch (entry.type) {
-    case "turn":
-      // Everything that makes a turn taller: the newest row folded in, the
-      // rail's length, the answer as it streams, and the settle that folds
-      // the rail. `entryVersion` stays the anchor time, so growth does not
-      // re-fade the entry.
-      return `${base}:${entry.updatedAt}:${entry.trace.steps.length}:${entry.result?.text.length ?? 0}:${entry.settled ? 1 : 0}`;
-    default:
-      return base;
-  }
+  const turn = entry.block.turn;
+  if (!turn) return base;
+  // Everything that makes a turn taller: the newest row folded in, the
+  // rail's length, the answer as it streams, and the settle that folds the
+  // rail. `entryVersion` stays the block's birth, so growth does not
+  // re-fade the entry.
+  return `${base}:${turn.updatedAt}:${turn.trace.steps.length}:${entry.block.text.length}:${turn.settled ? 1 : 0}`;
 }
 
 /**
@@ -165,11 +133,8 @@ export function useEnteringEntries(
       }
     } else {
       afterSeen = true;
-      // A post edited in place fades in again. The turn that replaces a
-      // user's post is the same row, not an edit: its fade carries on.
-      if (prior !== version && entry.type === "block") {
-        entering.set(id, version);
-      }
+      // A post edited in place fades in again.
+      if (prior !== version) entering.set(id, version);
     }
     seen.set(id, version);
     if (entry.at > newest) newest = entry.at;
@@ -236,61 +201,15 @@ function Enter({
   );
 }
 
-/**
- * Agents emit a `working` event for every little step. Back-to-back ones say
- * nothing a single line can't, so a run collapses to its latest member; any
- * other entry in between breaks the run.
- */
-export function collapseFeed(entries: StreamEntry[]): ChatFeedItem[] {
-  const items: ChatFeedItem[] = [];
-  for (const entry of entries) {
-    if (entry.type !== "status") {
-      items.push({ kind: "entry", entry });
-      continue;
-    }
-    const last = items[items.length - 1];
-    // Dispatch's own marks (a setup phase, a derived status) each say
-    // something distinct; only the agent's chatter collapses.
-    if (
-      entry.eventType === "working" &&
-      !entry.system &&
-      last &&
-      last.kind === "status" &&
-      last.entry.eventType === "working" &&
-      !last.entry.system
-    ) {
-      items[items.length - 1] = {
-        kind: "status",
-        entry,
-        collapsedCount: last.collapsedCount + 1,
-      };
-      continue;
-    }
-    items.push({ kind: "status", entry, collapsedCount: 1 });
-  }
-  return items;
-}
-
-function authorKey(
-  entry: Exclude<StreamEntry, ChatStatusEntry>,
-  ctx: FeedContext
-): string {
-  switch (entry.type) {
-    case "block": {
-      // A post to another agent groups by both ends, so a run between the
-      // same two agents shares a header and the next post to people starts
-      // a new one.
-      const { key } = blockAuthor(entry.block, ctx);
-      const to = entry.block.toAgentId;
-      return entry.block.author.kind === "agent" && to !== null
-        ? `${key}>${to}`
-        : key;
-    }
-    case "turn":
-      // Never reached: `layoutFeed` gives a turn its own group before it
-      // asks for an author key.
-      return "turn";
-  }
+function authorKey(entry: StreamEntry, ctx: FeedContext): string {
+  // A post to another agent groups by both ends, so a run between the
+  // same two agents shares a header and the next post to people starts
+  // a new one.
+  const { key } = blockAuthor(entry.block, ctx);
+  const to = entry.block.toAgentId;
+  return entry.block.author.kind === "agent" && to !== null
+    ? `${key}>${to}`
+    : key;
 }
 
 function dayKey(iso: string): string {
@@ -313,7 +232,8 @@ export function layoutFeed(
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
   const fold = foldAttachments(entries, ctx.agentId);
-  for (const item of collapseFeed(fold.entries)) {
+  for (const entry of fold.entries) {
+    const item = { kind: "entry" as const, entry };
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
       rows.push({
@@ -324,16 +244,10 @@ export function layoutFeed(
       lastDay = day;
       lastPost = null;
     }
-    if (item.kind === "status") {
-      rows.push(item);
-      lastPost = null;
-      continue;
-    }
-    // A turn carries a user post and an agent post inside one entry, so
-    // nothing outside it can group with either half: it always starts a
+    // A turn's answer is a post with a rail under it: it always starts a
     // fresh group, draws no hairline of its own, and ends the run behind
     // it so the post after it opens with a header.
-    if (item.entry.type === "turn") {
+    if (isTurnEntry(item.entry)) {
       const folded = fold.folded.get(item.entry.id);
       rows.push({
         kind: "entry",
@@ -363,9 +277,7 @@ export function layoutFeed(
 export function latestUserBlockId(entries: StreamEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (entry.type === "block" && entry.block.author.kind === "user") {
-      return entry.block.id;
-    }
+    if (entry.block.author.kind === "user") return entry.block.id;
   }
   return null;
 }
@@ -381,14 +293,12 @@ export function latestOpenFreeformQuestion(
   // fresher than the question's own cached row.
   const answeredByTurn = new Set<string>();
   for (const entry of entries) {
-    if (entry.type !== "turn") continue;
-    for (const ref of entry.questions ?? []) {
+    for (const ref of entry.block.turn?.questions ?? []) {
       if (ref.answered) answeredByTurn.add(ref.messageId);
     }
   }
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (entry.type !== "block") continue;
     const block = entry.block;
     if (block.author.kind !== "agent" || block.kind !== "question") continue;
     if (block.toAgentId !== null) continue;
@@ -404,11 +314,7 @@ export function latestOpenFreeformQuestion(
 export function latestAgentBlockId(entries: StreamEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
-    if (
-      entry.type === "block" &&
-      entry.block.author.kind === "agent" &&
-      entry.block.toAgentId === null
-    ) {
+    if (entry.block.author.kind === "agent" && entry.block.toAgentId === null) {
       return entry.block.id;
     }
   }
@@ -456,112 +362,42 @@ export function ChatFeed({
     return state;
   };
 
-  // Consecutive status lines sit as one quiet cluster between posts, so they
-  // read as a separator rather than as posts of their own. The setup marks
-  // (workspace phases, session started, or the failure) fold into one
-  // Setup block instead.
-  const blocks = useMemo(() => {
-    const out: Array<
-      | { kind: "row"; row: ChatFeedRow }
-      | {
-          kind: "statuses";
-          key: string;
-          rows: Extract<ChatFeedRow, { kind: "status" }>[];
-        }
-      | { kind: "setup"; key: string; rows: ChatStatusEntry[] }
-    > = [];
-    for (const row of rows) {
-      if (row.kind !== "status") {
-        out.push({ kind: "row", row });
-        continue;
-      }
-      const last = out[out.length - 1];
-      if (isSetupEvent(row.entry)) {
-        if (last?.kind === "setup") {
-          last.rows.push(row.entry);
-        } else {
-          out.push({ kind: "setup", key: row.entry.id, rows: [row.entry] });
-        }
-        continue;
-      }
-      if (last?.kind === "statuses") {
-        last.rows.push(row);
-      } else {
-        out.push({ kind: "statuses", key: row.entry.id, rows: [row] });
-      }
-    }
-    return out;
-  }, [rows]);
-
   return (
     <div
       className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
       data-testid="chat-feed"
     >
-      {blocks.map((block) => {
-        if (block.kind === "setup") {
-          return (
-            <Enter
-              key={`setup:${block.key}`}
-              id={block.rows[0]!.id}
-              entering={entering}
-            >
-              <SetupBlock rows={block.rows} />
-            </Enter>
-          );
-        }
-        if (block.kind === "statuses") {
-          return (
-            <div
-              key={`statuses:${block.key}`}
-              className="my-1.5 flex flex-col"
-              data-testid="chat-status-cluster"
-            >
-              {block.rows.map((row) => (
-                <Enter key={row.entry.id} id={row.entry.id} entering={entering}>
-                  <StatusLine
-                    entry={row.entry}
-                    collapsedCount={row.collapsedCount}
-                  />
-                </Enter>
-              ))}
-            </div>
-          );
-        }
-        const row = block.row;
+      {rows.map((row) => {
         if (row.kind === "divider") {
           return <DayDivider key={row.key} label={row.label} />;
         }
-        if (row.kind === "status") return null;
         const entry = row.entry;
-        const view = (() => {
-          switch (entry.type) {
-            case "block":
-              return (
-                <BlockView
-                  block={entry.block}
-                  held={heldBlockId === entry.block.id}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                  answering={answeringBlockId === entry.block.id}
-                  submitting={submittingBlockId === entry.block.id}
-                  answersDisabled={answersDisabled}
-                  onAnswer={onAnswer}
-                />
-              );
-            case "turn":
-              return (
-                <TurnEntryView
-                  entry={entry}
-                  grouped={row.grouped}
-                  rule={row.rule}
-                  ctx={ctx}
-                  folded={row.folded}
-                />
-              );
-          }
-        })();
+        const view =
+          isTurnEntry(entry) &&
+          entry.block.author.kind === "agent" &&
+          entry.block.author.agentId !== ctx.agentId ? (
+            <ChildTurnView
+              block={entry.block}
+              turn={entry.block.turn}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+              folded={row.folded}
+            />
+          ) : (
+            <BlockView
+              block={entry.block}
+              held={heldBlockId === entry.block.id}
+              grouped={row.grouped}
+              rule={row.rule}
+              ctx={ctx}
+              answering={answeringBlockId === entry.block.id}
+              submitting={submittingBlockId === entry.block.id}
+              answersDisabled={answersDisabled}
+              onAnswer={onAnswer}
+              folded={row.folded}
+            />
+          );
         return (
           <Enter
             key={rowIdentity(entry, ctx.agentId)}

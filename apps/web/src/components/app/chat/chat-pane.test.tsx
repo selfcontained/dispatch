@@ -20,6 +20,7 @@ import {
   blockEntry,
   FILE_BODY,
   questionBody,
+  turnEntry as turnRow,
 } from "@/test-utils/blocks";
 import { api } from "@/lib/api";
 
@@ -196,50 +197,52 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
   );
 }
 
-/** A turn run by `agentId`, settled, with a couple of steps. */
+/**
+ * A turn run by `agentId`, settled, with a couple of steps: its answer
+ * block ("answer <id>") with the turn attached. The prompt ("prompt <id>")
+ * is the turn's own record; the user's block is a row of its own.
+ */
 function turnEntry(
   id: string,
   agentId: string,
   at: string,
   overrides: Partial<ChatTurnEntry> = {}
-): ChatTurnEntry {
-  return {
-    type: "turn",
+): StreamEntry {
+  return turnRow({
     id,
-    agentId,
-    at,
-    updatedAt: at,
-    prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
-    trace: {
-      startedAt: at,
-      endedAt: at,
-      finalResult: "ok",
-      steps: [
-        {
-          id: `${id}:s1`,
-          kind: "execute",
-          label: "pnpm test",
-          status: "ok",
-          startedAt: at,
-          endedAt: at,
-          detail: { input: { command: "pnpm test" } },
-        },
-        {
-          id: `${id}:s2`,
-          kind: "read",
-          label: "read a.ts",
-          status: "ok",
-          startedAt: at,
-          endedAt: at,
-          detail: { locations: [{ path: "a.ts" }] },
-        },
-      ],
+    author: { kind: "agent", agentId },
+    text: `answer ${id}`,
+    createdAt: at,
+    turn: {
+      prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
+      trace: {
+        startedAt: at,
+        endedAt: at,
+        finalResult: "ok",
+        steps: [
+          {
+            id: `${id}:s1`,
+            kind: "execute",
+            label: "pnpm test",
+            status: "ok",
+            startedAt: at,
+            endedAt: at,
+            detail: { input: { command: "pnpm test" } },
+          },
+          {
+            id: `${id}:s2`,
+            kind: "read",
+            label: "read a.ts",
+            status: "ok",
+            startedAt: at,
+            endedAt: at,
+            detail: { locations: [{ path: "a.ts" }] },
+          },
+        ],
+      },
+      ...overrides,
     },
-    result: { text: `answer ${id}`, streaming: false },
-    settled: true,
-    interrupted: false,
-    ...overrides,
-  };
+  });
 }
 
 /** A block from `from` (an agent) addressed to `to`. */
@@ -330,27 +333,19 @@ describe("entryOwner / filterStreamView", () => {
         origin: "launch",
       })
     ),
-    {
-      type: "status",
-      id: "event:1",
-      eventType: "idle",
-      system: true,
-      message: "Session started",
-      at: T,
-    },
   ];
   const ids = (list: StreamEntry[]) => list.map((entry) => entry.id);
 
   it("gives the root's page everything, with descendants' rows as child activity", () => {
     expect(ids(filterStreamView(entries, rootView, true))).toEqual(
-      ids(entries.filter((entry) => entry.id !== "sibling-turn"))
+      ids(entries)
     );
     expect(ids(filterStreamView(entries, rootView, false))).toEqual([
       "root-turn",
+      "sibling-turn",
       "human-chat",
       "root-reply",
       "to-child",
-      "event:1",
     ]);
   });
 
@@ -378,10 +373,11 @@ describe("entryOwner / filterStreamView", () => {
   it("names whose a row is", () => {
     expect(entryOwner(entries[0]!, rootView)).toBe("own");
     expect(entryOwner(entries[1]!, rootView)).toBe("child");
-    expect(entryOwner(entries[3]!, rootView)).toBe("other");
+    // A turn is its agent's block like any other: one by an agent outside
+    // the tree, for people, is the stream's and so the root's, and no
+    // child's.
+    expect(entryOwner(entries[3]!, rootView)).toBe("own");
     expect(entryOwner(entries[3]!, childView)).toBe("other");
-    // The stream's marks are the root's, not a child's.
-    expect(entryOwner(entries[entries.length - 1]!, childView)).toBe("other");
   });
 });
 
@@ -421,9 +417,9 @@ describe("ChatPane", () => {
       agentId: "agt_child",
       agent: { ...agent, id: "agt_child", name: "reviewer" },
     });
-    expect(screen.queryByText("prompt root-turn")).toBeNull();
+    expect(screen.queryByText("answer root-turn")).toBeNull();
     expect(screen.queryByText("for people")).toBeNull();
-    expect(screen.getByText("prompt child-turn")).toBeTruthy();
+    expect(screen.getByText("answer child-turn")).toBeTruthy();
     expect(screen.getByText("please review")).toBeTruthy();
     // The child's own turn is its own here, not a folded child row.
     expect(screen.queryByTestId("chat-child-turn")).toBeNull();
@@ -562,14 +558,13 @@ describe("ChatPane", () => {
 
     H.entries = [
       first,
-      {
-        type: "status",
-        id: "event:late",
-        eventType: "idle",
-        system: true,
-        message: "Session resumed",
-        at: "2026-09-02T10:03:00.000Z",
-      },
+      agentPost(
+        "from-child",
+        "agt_child",
+        "agt_1",
+        "landed late",
+        "2026-09-02T10:03:00.000Z"
+      ),
       last,
     ];
     rerender(
@@ -630,29 +625,50 @@ describe("ChatPane", () => {
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the empty state when there are no chat messages, keeping other entries", () => {
-    H.entries = [
-      {
-        type: "status",
-        id: "event:1",
-        eventType: "idle",
-        system: true,
-        message: "Session started",
-        at: "2026-09-02T10:00:00.000Z",
-      },
-    ];
+  it("shows the empty state while the feed has no blocks", () => {
+    H.entries = [];
     renderPane();
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
-    expect(screen.getByTestId("chat-status").textContent).toContain(
-      "Session started"
-    );
+    expect(screen.queryByTestId("chat-message")).toBeNull();
   });
 
   it("hides the empty state once a chat message exists", () => {
     H.entries = [blockEntry(block({ id: "a1", text: "hello" }))];
     renderPane();
     expect(screen.queryByTestId("chat-empty")).toBeNull();
+  });
+
+  it("draws the prompt as the user's own row above the turn's answer", () => {
+    H.entries = [
+      blockEntry(
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "run the tests",
+          delivered: true,
+          createdAt: "2026-09-02T10:00:00.000Z",
+        })
+      ),
+      turnEntry("t1", "agt_1", "2026-09-02T10:00:05.000Z"),
+    ];
+    renderPane();
+    const posts = screen.getAllByTestId("chat-message");
+    expect(
+      posts.map((post) => [
+        post.getAttribute("data-author"),
+        post.getAttribute("data-origin"),
+      ])
+    ).toEqual([
+      ["user", null],
+      ["agent", "turn"],
+    ]);
+    expect(posts[0]!.textContent).toContain("run the tests");
+    expect(posts[1]!.textContent).toContain("answer t1");
+    expect(posts[1]!.textContent).not.toContain("prompt t1");
+    expect(screen.getByTestId("chat-turn").getAttribute("data-turn-id")).toBe(
+      "t1"
+    );
   });
 
   it("sends a plain message when no free-text question is open", () => {
@@ -667,15 +683,8 @@ describe("ChatPane", () => {
     expect(H.answer).not.toHaveBeenCalled();
   });
 
-  it("treats status-only history as empty but any written entry as a conversation", () => {
+  it("treats any block, even a bare file post, as a conversation", () => {
     H.entries = [
-      {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "Booting",
-        at: "2026-09-02T10:00:00.000Z",
-      },
       blockEntry(
         block({
           id: "file:1",
@@ -840,23 +849,28 @@ describe("ChatPane", () => {
 });
 
 describe("ChatPane running turn", () => {
-  function turn(overrides: Partial<ChatTurnEntry> = {}): ChatTurnEntry {
-    return {
-      type: "turn",
+  /** The newest turn's block: empty text until it settles. */
+  function turn(
+    overrides: Partial<ChatTurnEntry> = {},
+    text = ""
+  ): StreamEntry {
+    return turnRow({
       id: "turn:1",
-      agentId: "agt_1",
-      at: "2026-09-02T10:00:00.000Z",
-      updatedAt: "2026-09-02T10:00:05.000Z",
-      prompt: { source: "chat", text: "run the tests", attachments: [] },
-      trace: {
-        startedAt: "2026-09-02T10:00:00.000Z",
-        steps: [],
+      text,
+      createdAt: "2026-09-02T10:00:00.000Z",
+      turn: {
+        updatedAt: "2026-09-02T10:00:05.000Z",
+        prompt: { source: "chat", text: "run the tests", attachments: [] },
+        trace: {
+          startedAt: "2026-09-02T10:00:00.000Z",
+          steps: [],
+        },
+        result: { text: "", streaming: true },
+        settled: false,
+        interrupted: false,
+        ...overrides,
       },
-      result: { text: "", streaming: true },
-      settled: false,
-      interrupted: false,
-      ...overrides,
-    };
+    });
   }
 
   it("offers Stop while the newest turn runs, and cancels it through the runtime", async () => {
@@ -874,18 +888,22 @@ describe("ChatPane running turn", () => {
 
   it("hides Stop once the newest turn has settled", () => {
     H.entries = [
-      turn({
-        settled: true,
-        trace: {
-          startedAt: "2026-09-02T10:00:00.000Z",
-          endedAt: "2026-09-02T10:00:05.000Z",
-          steps: [],
+      turn(
+        {
+          settled: true,
+          trace: {
+            startedAt: "2026-09-02T10:00:00.000Z",
+            endedAt: "2026-09-02T10:00:05.000Z",
+            steps: [],
+          },
+          result: { text: "done", streaming: false },
         },
-        result: { text: "done", streaming: false },
-      }),
+        "done"
+      ),
     ];
     renderPane();
     expect(screen.queryByTestId("chat-stop-turn")).toBeNull();
+    expect(screen.getByText("done")).toBeTruthy();
   });
 
   it("shows the newest turn's plan above the composer while work is left", () => {
@@ -1009,8 +1027,8 @@ describe("ChatPane scroll memory", () => {
   });
 
   it("falls back to a lower row when the top one no longer exists", () => {
-    // What a collapsed run of `working` events does: the status row the
-    // reader was on now carries a newer event's id.
+    // The row the reader was on is gone (rolled off the loaded page, or
+    // deleted); the next remembered row below it stands in.
     rememberChatScrollPosition("agt_1", {
       following: false,
       anchors: [
@@ -1060,10 +1078,11 @@ describe("isMainColumnEntry", () => {
   it("leaves a turn a thread reply opened to the drawer", () => {
     const plain = turnEntry("turn:1", "agt_1", "2026-09-02T10:00:00.000Z");
     expect(isMainColumnEntry(plain)).toBe(true);
+    // Its answer block lands in the thread, as any reply does.
     expect(
       isMainColumnEntry({
         ...plain,
-        prompt: { ...plain.prompt, chatMessageId: "r1", threadId: "root" },
+        block: { ...plain.block, threadId: "root", replyTo: "r1" },
       })
     ).toBe(false);
   });

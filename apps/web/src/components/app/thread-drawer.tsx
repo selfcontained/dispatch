@@ -61,7 +61,13 @@ export function ThreadDrawer({
       ? (selectedAgentName ?? "Agent")
       : (agentNameById?.(agentId) ?? "Agent");
   const heading = turnId
-    ? { title: "Turn", subtitle: turn ? `by ${nameOf(turn.agentId)}` : "" }
+    ? {
+        title: "Turn",
+        subtitle:
+          turn?.block.author.kind === "agent"
+            ? `by ${nameOf(turn.block.author.agentId)}`
+            : "",
+      }
     : threadTitle(thread.root, findingId !== null, nameOf);
   const { openThread, openTurn, back, closeAll } = route;
 

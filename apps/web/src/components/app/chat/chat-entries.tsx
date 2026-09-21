@@ -3,7 +3,6 @@ import type {
   Block,
   BlockAuthor,
   BlockOption,
-  ChatStatusEntry,
 } from "@dispatch/shared";
 import {
   AlertTriangle,
@@ -29,6 +28,10 @@ import { useCopyText } from "@/hooks/use-copy";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
+import {
+  type FoldedEntry,
+} from "@/components/app/chat/turn/turn-attachments";
+import { TurnAnswer } from "@/components/app/chat/turn/turn-entry-view";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
 import { useThread } from "@/hooks/use-stream";
@@ -886,6 +889,8 @@ export type BlockViewProps = {
   inThread?: boolean;
   /** A review's finding to pick out (the panel's `?finding=`). */
   highlightFindingId?: string | null;
+  /** A turn block only: what the agent produced while the turn ran, folded under its answer. */
+  folded?: readonly FoldedEntry[];
 };
 
 /**
@@ -970,6 +975,7 @@ export const BlockView = memo(function BlockView({
   onAnswer,
   inThread = false,
   highlightFindingId = null,
+  folded,
 }: BlockViewProps): JSX.Element {
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the
@@ -1095,7 +1101,11 @@ export const BlockView = memo(function BlockView({
           Launch context
         </div>
       ) : null}
-      {block.text ? <Markdown>{block.text}</Markdown> : null}
+      {block.turn ? (
+        <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
+      ) : block.text ? (
+        <Markdown>{block.text}</Markdown>
+      ) : null}
       {body}
       <AttachmentList attachments={block.attachments} ctx={ctx} />
       <DeliveryMeta block={block} held={false} />
@@ -1106,71 +1116,5 @@ export const BlockView = memo(function BlockView({
       />
       {threadLine}
     </Post>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Status
-// ---------------------------------------------------------------------------
-
-/**
- * A quiet system line: smaller and dimmer than a post, its dot tucked into
- * the gutter and its text starting where the gutter ends, so a run of them
- * reads as a seam between posts rather than as posts of its own.
- */
-export const StatusLine = memo(function StatusLine({
-  entry,
-  collapsedCount = 1,
-}: {
-  entry: ChatStatusEntry;
-  collapsedCount?: number;
-}): JSX.Element {
-  const type = asEventType(entry.eventType);
-  // A lifecycle mark Dispatch wrote (session started, stopped, resumed) reads
-  // as a seam across the feed, like the day divider, rather than a status
-  // post: no author gutter, hairlines to each side.
-  if (entry.system) {
-    return (
-      <div
-        className="my-1.5 flex items-center gap-3 px-4 text-[10.5px] text-muted-foreground/70"
-        data-testid="chat-status"
-        data-system="true"
-        title={formatDateTime(entry.at)}
-      >
-        <span className="h-px flex-1 bg-border/60" />
-        <span className="min-w-0 truncate">
-          {entry.message || latestEventLabel(type)}
-        </span>
-        <span className="h-px flex-1 bg-border/60" />
-      </div>
-    );
-  }
-  return (
-    <div
-      className="flex items-center gap-2 px-4 py-px text-[10px] leading-4 text-muted-foreground/75"
-      data-testid="chat-status"
-      title={formatDateTime(entry.at)}
-    >
-      <div className="flex w-8 shrink-0 justify-end pr-0.5">
-        <span
-          className={cn(
-            "h-1 w-1 rounded-full bg-current",
-            latestEventColor(type)
-          )}
-        />
-      </div>
-      <span className="min-w-0 truncate">
-        <span className="font-medium">{latestEventLabel(type)}</span>
-        {entry.message ? ` · ${entry.message}` : null}
-      </span>
-      {collapsedCount > 1 ? (
-        <span
-          className="shrink-0 text-muted-foreground/70"
-          data-testid="chat-status-collapsed-count"
-        >
-          ×{collapsedCount}
-        </span>
-      ) : null}
-    </div>
   );
 });
