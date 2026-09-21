@@ -110,6 +110,15 @@ export type McpAgent = {
   baseBranch?: string | null;
 };
 
+/** Arguments the dispatch_share_file tool hands to the shareMedia callback. */
+export type ShareMediaInput = {
+  filePath: string;
+  description: string;
+  source?: string;
+  name?: string;
+  update?: string;
+};
+
 export type MediaResult = {
   fileName: string;
   url: string;
@@ -363,16 +372,7 @@ export type McpRequestContext = {
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
-  shareMedia?: (
-    agentId: string,
-    opts: {
-      filePath: string;
-      description: string;
-      source?: string;
-      name?: string;
-      update?: string;
-    }
-  ) => Promise<MediaResult>;
+  shareMedia?: (agentId: string, opts: ShareMediaInput) => Promise<MediaResult>;
   listMedia?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
