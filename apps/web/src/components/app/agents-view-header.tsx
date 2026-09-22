@@ -34,7 +34,7 @@ type AgentsViewHeaderProps = {
   drawerPanelOpen: boolean;
   setDrawerOpen: (open: boolean) => void;
   unseenFileCount: number;
-  /** Open questions and forms waiting on the user (the rail). */
+  /** Open questions and forms waiting on the user (the Inbox). */
   openInputCount: number;
 };
 

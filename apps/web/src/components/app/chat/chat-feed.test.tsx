@@ -574,7 +574,7 @@ describe("ChatFeed", () => {
     ]);
     const row = screen.getByTestId("chat-workspace");
     expect(row.getAttribute("data-state")).toBe("running");
-    // The agent's own step rail, standing open with no summary line over
+    // The agent's own step list, standing open with no summary line over
     // it: each step can be watched as it runs.
     expect(screen.queryByTestId("harness-activity-summary")).toBeNull();
     const steps = screen.getAllByRole("listitem");
@@ -666,7 +666,7 @@ describe("ChatFeed", () => {
     expect(
       screen.getByTestId("chat-workspace").getAttribute("data-state")
     ).toBe("failed");
-    // The rail reads a failed step the way it reads one in a turn.
+    // The step list reads a failed step the way it reads one in a turn.
     const aside = screen.getAllByRole("listitem")[0]!;
     expect(
       aside.querySelector("[aria-label]")?.getAttribute("aria-label")
@@ -1945,7 +1945,7 @@ describe("turn entries", () => {
     })
   );
 
-  it("draws the prompt as the user's row and the answer as the agent's post with its rail", () => {
+  it("draws the prompt as the user's row and the answer as the agent's post with its step list", () => {
     const onOpenThread = vi.fn();
     renderFeed(
       [prompt, turn()],

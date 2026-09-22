@@ -1,6 +1,6 @@
 /**
  * What an agent's running turn is doing, in the stream's own words: the verb
- * the activity rail folds to ("edited turns.ts", "ran pnpm test"). Nothing is
+ * the step list folds to ("edited turns.ts", "ran pnpm test"). Nothing is
  * fetched for it; every `stream.entry` for a turn records it, so it follows
  * the turn as its steps land, for agents whose Chat tab is not open too.
  */

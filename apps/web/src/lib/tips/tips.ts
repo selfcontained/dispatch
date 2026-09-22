@@ -54,7 +54,7 @@ export const tips: Tip[] = [
   {
     id: "drawer",
     title: "Drawer",
-    body: "The sidebar's Rail shows what an agent is waiting on you for and the links it posted; Files holds the screenshots and files it shared. Pin it to keep it visible while you work.",
+    body: "The sidebar's Inbox shows what an agent is waiting on you for and the links it posted; Files holds the screenshots and files it shared. Pin it to keep it visible while you work.",
     docsSection: "files",
     since: "0.19.0",
     surfaces: ["inline", "ambient"],
@@ -269,9 +269,9 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
-    id: "stream-rail",
-    title: "The Rail",
-    body: "The sidebar's Rail tab lists every question or form an agent is waiting on you for — answer it there without scrolling the chat — plus the links it has posted.",
+    id: "inbox",
+    title: "The Inbox",
+    body: "The sidebar's Inbox tab lists every question or form an agent is waiting on you for — answer it there without scrolling the chat — plus the links it has posted.",
     docsSection: "files#drawer",
     since: "0.38.0",
     surfaces: ["ambient"],

@@ -238,18 +238,18 @@ export function reconcileAgentSidebarOrder(
 }
 
 /**
- * The right sidebar's tabs: the rail (what the stream needs from the user
+ * The right sidebar's tabs: the Inbox (what the stream needs from the user
  * right now, and the links it produced) and the agent's files.
  */
-export const DRAWER_TABS = ["rail", "files"] as const;
+export const DRAWER_TABS = ["inbox", "files"] as const;
 
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
-/** A stored tab id; anything unknown (an old pins/reviews/surface tab) is the rail. */
+/** A stored tab id; anything unknown (an old rail/pins/reviews/surface tab) is the Inbox. */
 export function asDrawerTab(tab: unknown): DrawerTab {
   return (DRAWER_TABS as readonly unknown[]).includes(tab)
     ? (tab as DrawerTab)
-    : "rail";
+    : "inbox";
 }
 
 type AgentScopedStorageDomain = {
@@ -294,7 +294,7 @@ export type DrawerState = {
 
 export const defaultDrawerState: DrawerState = {
   isOpen: false,
-  activeTab: "rail",
+  activeTab: "inbox",
   isPinned: false,
 };
 

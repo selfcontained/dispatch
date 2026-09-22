@@ -93,7 +93,7 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
 }
 
 describe("TurnEntryView", () => {
-  it("renders the answer as the agent's own post, with the rail under it", () => {
+  it("renders the answer as the agent's own post, with the step list under it", () => {
     renderTurn(turn());
     // One post: the agent's. The prompt is the user's block, a row of its
     // own in the feed, never drawn by the turn.
@@ -111,16 +111,16 @@ describe("TurnEntryView", () => {
     // The activity line is a footnote under the text, inside the agent post.
     const body = post.querySelector('[data-testid="chat-turn-body"]')!;
     const text = body.querySelector('[data-testid="harness-result"]')!;
-    const rail = body.querySelector('[data-testid="harness-activity-fold"]')!;
-    expect(rail).not.toBeNull();
+    const steps = body.querySelector('[data-testid="harness-activity-fold"]')!;
+    expect(steps).not.toBeNull();
     expect(
-      text.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING
+      text.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
-  it("eases the agent post's height: the rail and the answer sit in one measured body", () => {
+  it("eases the agent post's height: the steps and the answer sit in one measured body", () => {
     // A step landing, the thinking row coming and going, the answer
-    // streaming in and the rail folding on settle all change the post's
+    // streaming in and the steps folding on settle all change the post's
     // height; the body wrapper is what animates between those sizes so the
     // feed above it glides instead of jumping.
     renderTurn(turn());
@@ -216,7 +216,7 @@ describe("TurnEntryView", () => {
     expect(posts[0]!.getAttribute("data-author")).toBe("agent");
     expect(posts[0]!.textContent).not.toContain("take a look at the diff");
     expect(screen.queryByTestId("chat-turn-notice")).toBeNull();
-    // The turn itself still renders: the rail and the answer.
+    // The turn itself still renders: the steps and the answer.
     expect(screen.getByTestId("harness-result")).not.toBeNull();
   });
 
@@ -257,7 +257,7 @@ describe("TurnEntryView", () => {
     expect(screen.getByTestId("harness-interrupted").textContent).toContain(
       "Interrupted mid-turn"
     );
-    // No steps and a finished trace: no empty rail.
+    // No steps and a finished trace: no empty step list.
     expect(screen.queryByTestId("harness-activity-fold")).toBeNull();
   });
 

@@ -92,7 +92,7 @@ describe("StepRow with children", () => {
     ],
   };
 
-  it("is expandable and lists the children as a nested rail when open", () => {
+  it("is expandable and lists the children as a nested step list when open", () => {
     render(
       <StepRow step={parent} open onToggle={() => {}} maskClass="bg-muted" />
     );
@@ -124,7 +124,7 @@ describe("StepRow with children", () => {
     );
   });
 
-  it("shows no nested rail when closed", () => {
+  it("shows no nested step list when closed", () => {
     render(
       <StepRow
         step={parent}

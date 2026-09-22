@@ -22,16 +22,16 @@ import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
 
 /**
- * The rail sits on the post's own background, no fill or frame of its own:
- * a filled block read as a second post inside the post. Steps mask the
+ * The step list sits on the post's own background, no fill or frame of its
+ * own: a filled block read as a second post inside the post. Steps mask the
  * guide line with the same color.
  */
 const BLOCK_FILL = "bg-background";
 
 /**
- * Whether a trace is worth a rail at all: a finished turn that ran no steps
- * has nothing to show, so the block stays unmounted rather than rendering
- * an empty fold.
+ * Whether a trace is worth a step list at all: a finished turn that ran no
+ * steps has nothing to show, so the block stays unmounted rather than
+ * rendering an empty fold.
  */
 export function showsActivity(trace: Trace | null | undefined): trace is Trace {
   if (!trace) return false;
@@ -44,11 +44,11 @@ function openByDefault(step: Step): boolean {
 }
 
 /**
- * One rail row, rendered again only when its own step changes: a turn's
- * steps keep their identity across stream updates (see `turnStep`), so a
- * step landing renders its row, not the whole rail.
+ * One row of the step list, rendered again only when its own step changes:
+ * a turn's steps keep their identity across stream updates (see `turnStep`),
+ * so a step landing renders its row, not the whole list.
  */
-const RailStepRow = memo(function RailStepRow({
+const StepListRow = memo(function StepListRow({
   step,
   index,
   open,
@@ -82,17 +82,17 @@ function ActivityBlockImpl({
     "activity-open",
     null
   );
-  // One line, closed, at every moment of the turn: the step rail under it is
-  // the reader's to open. Three agents working must not mean three rails
+  // One line, closed, at every moment of the turn: the step list under it is
+  // the reader's to open. Three agents working must not mean three lists
   // unfolding and refolding in the column.
   const open = blockOverride ?? false;
   const reduced = useReducedMotion();
-  // A closed rail has no rows: every stream update re-renders the whole
+  // A closed fold has no rows: every stream update re-renders the whole
   // trace, so rows nobody can see would cost a render per step per update.
   // They mount as it opens and go once it has finished folding shut.
-  const [railMounted, setRailMounted] = useState(open);
-  if (open && !railMounted) setRailMounted(true);
-  // Held here, not in the rail: the rail unmounts while the fold is shut,
+  const [listMounted, setListMounted] = useState(open);
+  if (open && !listMounted) setListMounted(true);
+  // Held here, not in the list: the list unmounts while the fold is shut,
   // and a step whose detail you opened must still be open when it returns.
   const [stepOverrides, setStepOverrides] = useChatRowState<
     Record<string, boolean>
@@ -100,7 +100,7 @@ function ActivityBlockImpl({
 
   // One container for the whole turn: the summary line is there from the
   // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
-  // and the rail is a disclosure under it. Nothing swaps out.
+  // and the step list is a disclosure under it. Nothing swaps out.
   return (
     <div
       className="w-full min-w-0 max-w-full [overflow-wrap:anywhere]"
@@ -125,13 +125,13 @@ function ActivityBlockImpl({
           style={{ overflow: "hidden" }}
           aria-hidden={!open}
           onAnimationComplete={() => {
-            if (!open) setRailMounted(false);
+            if (!open) setListMounted(false);
           }}
         >
-          {/* A closed rail renders no rows: see railMounted above. The
-              workspace block renders the same rail on its own, always open. */}
-          {railMounted ? (
-            <StepRail
+          {/* A closed fold renders no rows: see listMounted above. The
+              workspace block renders the same list on its own, always open. */}
+          {listMounted ? (
+            <StepList
               trace={trace}
               disclosures={[stepOverrides, setStepOverrides]}
             />
@@ -150,15 +150,15 @@ export const ActivityBlock = memo(ActivityBlockImpl);
  * workspace coming up shows — a few steps, each saying what it is, have no
  * need of a line above them repeating the one that is running.
  */
-export function StepRail({
+export function StepList({
   trace,
   disclosures,
 }: {
   trace: Trace;
   /**
-   * Which steps are open, owned by something that outlives the rail. A
-   * turn's rail unmounts while it is closed, so its caller holds this;
-   * standalone (a workspace's steps) the rail keeps its own.
+   * Which steps are open, owned by something that outlives the list. A
+   * turn's list unmounts while its fold is closed, so its caller holds this;
+   * standalone (a workspace's steps) the list keeps its own.
    */
   disclosures?: [
     Record<string, boolean>,
@@ -191,7 +191,7 @@ export function StepRail({
       />
       <div role="list" aria-label="activity steps" className="relative">
         {trace.steps.map((step, i) => (
-          <RailStepRow
+          <StepListRow
             key={step.id}
             step={step}
             index={burstIndex(trace.steps, i)}
@@ -232,7 +232,7 @@ export type TurnSummary = {
 
 /**
  * The turn's work in a few words: the same reading whether the row is the
- * rail's own summary or a child's turn folded in its parent's feed.
+ * fold's own summary or a child's turn folded in its parent's feed.
  */
 export function turnSummary(
   trace: Trace,
@@ -264,7 +264,7 @@ export function turnSummary(
   };
 }
 
-/** The same braille spinner a running step shows in the rail, on the shared tick. */
+/** The same braille spinner a running step shows in the step list, on the shared tick. */
 function RunningGlyph(): JSX.Element {
   const { braille } = useStreamTicker(true);
   return (
@@ -279,7 +279,7 @@ function RunningGlyph(): JSX.Element {
 }
 
 /**
- * The glyph for a turn's state: the rail's own spinner while it runs,
+ * The glyph for a turn's state: the step list's own spinner while it runs,
  * nothing once it is done, a cross when it failed, a stop square when it
  * was interrupted.
  */
@@ -386,12 +386,12 @@ function SummaryRow({
   );
 }
 
-/** How long the rail waits with nothing running before it says "thinking". */
+/** How long the step list waits with nothing running before it says "thinking". */
 const THINKING_DELAY_MS = 500;
 
 /**
  * The model is between steps: reading a result, reasoning, or composing.
- * Nothing in the stream is open, so without this the rail's last row sits
+ * Nothing in the stream is open, so without this the list's last row sits
  * finished and the turn looks stalled. Timed from the last thing that ended.
  */
 function ThinkingRow({
@@ -402,7 +402,7 @@ function ThinkingRow({
   maskClass: string;
 }): JSX.Element | null {
   // Back-to-back tool calls leave a few dozen milliseconds between steps;
-  // showing the row for those makes the rail flicker. Only a real pause
+  // showing the row for those makes the list flicker. Only a real pause
   // earns it.
   const [shown, setShown] = useState(false);
   useEffect(() => {

@@ -39,25 +39,25 @@ turn    = an agent's unit of work (prompt → steps → answer). The answer is a
 
 ### `blocks`
 
-| column            | type        | meaning                                                                   |
-| ----------------- | ----------- | ------------------------------------------------------------------------- |
-| `id`              | uuid        | client-mintable, so an optimistic row and the stored row are one          |
-| `stream_id`       | text        | the root agent                                                            |
-| `author_kind`     | text        | `agent` \| `user`                                                         |
-| `author_agent_id` | text null   | which agent, when `author_kind = agent`                                   |
-| `to_agent_id`     | text null   | the agent that must receive this as a prompt; null = for people           |
-| `kind`            | text        | see block kinds                                                           |
-| `thread_id`       | uuid null   | the top-level block this replies under; null for a top-level block        |
-| `reply_to`        | uuid null   | the specific block replied to (inside `thread_id`)                        |
-| `text`            | text        | markdown; may be blank when `data` or `attachments` carry the content     |
-| `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author |
-| `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution              |
-| `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)   |
+| column            | type        | meaning                                                                     |
+| ----------------- | ----------- | --------------------------------------------------------------------------- |
+| `id`              | uuid        | client-mintable, so an optimistic row and the stored row are one            |
+| `stream_id`       | text        | the root agent                                                              |
+| `author_kind`     | text        | `agent` \| `user`                                                           |
+| `author_agent_id` | text null   | which agent, when `author_kind = agent`                                     |
+| `to_agent_id`     | text null   | the agent that must receive this as a prompt; null = for people             |
+| `kind`            | text        | see block kinds                                                             |
+| `thread_id`       | uuid null   | the top-level block this replies under; null for a top-level block          |
+| `reply_to`        | uuid null   | the specific block replied to (inside `thread_id`)                          |
+| `text`            | text        | markdown; may be blank when `data` or `attachments` carry the content       |
+| `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author   |
+| `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution                |
+| `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)     |
 | `origin`          | text null   | `launch` for the launch-context post; `turn` for a turn's answer; else null |
-| `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending    |
-| `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                 |
-| `created_at`      | timestamptz |                                                                           |
-| `updated_at`      | timestamptz |                                                                           |
+| `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending      |
+| `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                   |
+| `created_at`      | timestamptz |                                                                             |
+| `updated_at`      | timestamptz |                                                                             |
 
 `block_reactions (id, block_id, stream_id, author_kind, author_agent_id,
 emoji, delivered, created_at)`, one row per (block, author, emoji).
@@ -206,6 +206,6 @@ SSE events: `stream.entry` (upsert one entry), `stream.changed` (refetch),
 3. Personas as profiles on `launch_agent`; the `review` block with finding
    threads and resolve/reopen; the review tables, tools, injection prompts
    and sidebar deleted.
-4. `tasks`, `board`, `preview` kinds; the rail derived from live blocks
+4. `tasks`, `board`, `preview` kinds; the Inbox derived from live blocks
    (open input, running preview, active board); pins, surfaces, whiteboards
    and the git tools deleted.

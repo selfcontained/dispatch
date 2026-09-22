@@ -9,7 +9,7 @@ import { useAgentDiff } from "@/hooks/use-agent-diff";
 import { useRootAgentId } from "@/hooks/use-agent-tree";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useSetBlockState } from "@/hooks/use-stream";
-import { useStreamRail } from "@/hooks/use-stream-rail";
+import { useInbox } from "@/hooks/use-inbox";
 import type {
   DiffFinding,
   DiffFindingsProps,
@@ -118,7 +118,7 @@ export const ChangesTab = memo(function ChangesTab({
 
   // The reviews of this agent's work, from the stream the Chat tab holds:
   // each finding with a path is placed in the diff at its line.
-  const rail = useStreamRail(active ? agentId : null);
+  const inbox = useInbox(active ? agentId : null);
   const nameOf = useCallback(
     (id: string) =>
       id === agentId
@@ -128,7 +128,7 @@ export const ChangesTab = memo(function ChangesTab({
   );
   const findingItems = useMemo<DiffFinding[]>(
     () =>
-      rail.reviews.flatMap((block) =>
+      inbox.reviews.flatMap((block) =>
         block.data.findings
           .filter((finding) => finding.path)
           .map((finding) => ({
@@ -142,7 +142,7 @@ export const ChangesTab = memo(function ChangesTab({
                 : "You",
           }))
       ),
-    [nameOf, rail.reviews]
+    [nameOf, inbox.reviews]
   );
   const [focusedFindingKey, setFocusedFindingKey] = useState<string | null>(
     null

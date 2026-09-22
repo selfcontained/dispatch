@@ -38,7 +38,7 @@ import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { useFiles } from "@/hooks/use-files";
-import { useStreamRail } from "@/hooks/use-stream-rail";
+import { useInbox } from "@/hooks/use-inbox";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useDrawerState } from "@/hooks/use-drawer-state";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
@@ -202,11 +202,11 @@ export function AgentsView({
 
   const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
 
-  // The rail: open questions and forms, derived from the stream feed the
+  // The Inbox: open questions and forms, derived from the stream feed the
   // Chat tab holds. Its count shows on the closed sidebar's toggle so an
   // agent waiting on the user is visible without opening the sidebar.
-  const rail = useStreamRail(focusedAgentId);
-  const railDisabledReason =
+  const inbox = useInbox(focusedAgentId);
+  const inboxDisabledReason =
     focusedAgent && focusedAgent.status !== "running"
       ? "The agent is not running. Start it to answer."
       : null;
@@ -287,7 +287,7 @@ export function AgentsView({
   }, [setDrawerOpenState]);
   const setDrawerOpen = setDrawerOpenState;
 
-  /** Pushes a block's thread (or a review) onto the drawer; from the rail. */
+  /** Pushes a block's thread (or a review) onto the drawer; from the Inbox. */
   const handleOpenBlock = useCallback(
     (blockId: string) => {
       if (!focusedAgentId) return;
@@ -380,7 +380,6 @@ export function AgentsView({
     }
     setCreateOpen(open);
   }, []);
-
 
   const changesElement = changesVisible ? (
     <ChangesTab
@@ -521,7 +520,7 @@ export function AgentsView({
                 drawerPanelOpen={drawerPanelOpen}
                 setDrawerOpen={setDrawerOpenState}
                 unseenFileCount={unseenFileCount}
-                openInputCount={rail.inputs.length}
+                openInputCount={inbox.inputs.length}
               />
               <div
                 className={cn(
@@ -580,7 +579,7 @@ export function AgentsView({
             <ThreadDrawer
               selectedAgentId={focusedAgentId}
               selectedAgentName={focusedAgent?.name ?? null}
-              rootId={rail.rootId}
+              rootId={inbox.rootId}
               agentNameById={agentNameById}
               agent={focusedAgent}
               openLightbox={openLightbox}
@@ -615,8 +614,8 @@ export function AgentsView({
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
-            rail={rail}
-            railDisabledReason={railDisabledReason}
+            inbox={inbox}
+            inboxDisabledReason={inboxDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
           />
@@ -636,7 +635,7 @@ export function AgentsView({
           <ThreadDrawer
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
-            rootId={rail.rootId}
+            rootId={inbox.rootId}
             agentNameById={agentNameById}
             agent={focusedAgent}
             openLightbox={openLightbox}
@@ -675,8 +674,8 @@ export function AgentsView({
             openLightbox={openLightbox}
             onRequestClose={closeDrawer}
             onUploadFile={uploadFile}
-            rail={rail}
-            railDisabledReason={railDisabledReason}
+            inbox={inbox}
+            inboxDisabledReason={inboxDisabledReason}
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
           />

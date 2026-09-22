@@ -209,13 +209,13 @@ test.describe("Chat surface", () => {
     );
     await expect(fromChild).toHaveAttribute("data-author-kind", "peer");
 
-    // The rail lists the links the stream produced, newest first.
+    // The Inbox lists the links the stream produced, newest first.
     await page.getByTestId("toggle-drawer").click();
     const drawer = page.getByTestId("drawer");
-    await drawer.getByTestId("sidebar-tab-rail").click();
-    const railLinks = drawer.getByTestId("stream-rail-link");
-    await expect(railLinks).toHaveCount(3);
-    await expect(railLinks.nth(0).getByRole("link")).toHaveAttribute(
+    await drawer.getByTestId("sidebar-tab-inbox").click();
+    const inboxLinks = drawer.getByTestId("inbox-link");
+    await expect(inboxLinks).toHaveCount(3);
+    await expect(inboxLinks.nth(0).getByRole("link")).toHaveAttribute(
       "href",
       "https://example.com/bare"
     );

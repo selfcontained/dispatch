@@ -129,7 +129,7 @@ test.describe("Overflow layout", () => {
     const agents = await seedOverflowAgents(request, 24, overflowCwd);
     const focusAgent = agents[0]!;
 
-    // Open questions fill the sidebar's Rail the way pins used to.
+    // Open questions fill the sidebar's Inbox the way pins used to.
     for (let index = 0; index < 24; index += 1) {
       await seedBlockViaDB({
         streamId: focusAgent.id,
@@ -157,32 +157,32 @@ test.describe("Overflow layout", () => {
     await page.getByTestId("toggle-drawer").click();
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
-    const railScroll = page.getByTestId("stream-rail");
+    const inboxScroll = page.getByTestId("inbox");
     const agentPane = page.getByTestId("agent-pane");
     const drawer = page.getByTestId("drawer");
 
-    await drawer.getByTestId("sidebar-tab-rail").click();
+    await drawer.getByTestId("sidebar-tab-inbox").click();
 
     await expect(agentSidebarScroll).toBeVisible();
-    await expect(railScroll).toBeVisible();
+    await expect(inboxScroll).toBeVisible();
     await expect(agentPane).toBeVisible();
     await expect(page.getByTestId("automations-button")).toBeVisible();
 
     await expectOverflow(agentSidebarScroll);
-    await expectOverflow(railScroll);
+    await expectOverflow(inboxScroll);
 
     const agentBoxBefore = await agentPane.boundingBox();
     expect(agentBoxBefore).not.toBeNull();
     expect(agentBoxBefore!.height).toBeGreaterThan(280);
 
     await scrollToBottom(agentSidebarScroll);
-    await scrollToBottom(railScroll);
+    await scrollToBottom(inboxScroll);
 
     await expect
       .poll(async () => (await getScrollMetrics(agentSidebarScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect
-      .poll(async () => (await getScrollMetrics(railScroll)).scrollTop)
+      .poll(async () => (await getScrollMetrics(inboxScroll)).scrollTop)
       .toBeGreaterThan(0);
     await expect.poll(async () => getWindowScrollY(page)).toBe(0);
 

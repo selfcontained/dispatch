@@ -1237,7 +1237,7 @@ describe("StreamService.update", () => {
     await expect(
       service.update(A, q.id, { state: { answer: "Keep it" } })
     ).rejects.toBeInstanceOf(StreamConflictError);
-    // Freeform closes with the words given; the rail no longer lists it.
+    // Freeform closes with the words given; the Inbox no longer lists it.
     const q2 = await service.post(A, {
       question: { options: [{ label: "Yes" }] },
     });

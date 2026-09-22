@@ -202,12 +202,12 @@ test.describe("Stream blocks", () => {
     });
   });
 
-  test("the rail shows an open question, answers it in place, and a tasks block is read-only", async ({
+  test("the Inbox shows an open question, answers it in place, and a tasks block is read-only", async ({
     page,
     request,
   }) => {
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-rail-${Date.now()}`,
+      name: `e2e-inbox-${Date.now()}`,
     });
     await callMcpToolViaAPI(request, agent.id, "post", {
       text: "Which database should the migration target?",
@@ -236,16 +236,16 @@ test.describe("Stream blocks", () => {
     await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveText("1");
     await toggle.click();
     const sidebar = page.getByTestId("drawer");
-    await sidebar.getByTestId("sidebar-tab-rail").click();
-    const rail = sidebar.getByTestId("stream-rail");
-    await expect(rail).toHaveAttribute("data-open-inputs", "1");
-    const input = rail.getByTestId("rail-input");
+    await sidebar.getByTestId("sidebar-tab-inbox").click();
+    const inbox = sidebar.getByTestId("inbox");
+    await expect(inbox).toHaveAttribute("data-open-inputs", "1");
+    const input = inbox.getByTestId("inbox-input");
     await expect(input).toHaveCount(1);
     await expect(input).toContainText(
       "Which database should the migration target?"
     );
     await expect(
-      sidebar.getByTestId("stream-rail-link").getByRole("link")
+      sidebar.getByTestId("inbox-link").getByRole("link")
     ).toHaveAttribute("href", "https://example.com/preview");
 
     // The tasks block in the feed is a read-only checklist.
@@ -257,14 +257,14 @@ test.describe("Stream blocks", () => {
     await expect(tasks.getByRole("checkbox")).toHaveCount(0);
 
     await page.screenshot({
-      path: test.info().outputPath("rail-open-question.png"),
+      path: test.info().outputPath("inbox-open-question.png"),
       fullPage: true,
     });
 
-    // Answering from the rail records the answer and clears the rail.
+    // Answering from the Inbox records the answer and clears it.
     await input.getByTestId("chat-question-option").nth(1).click();
-    await expect(rail).toHaveAttribute("data-open-inputs", "0");
-    await expect(rail.getByTestId("rail-input")).toHaveCount(0);
+    await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    await expect(inbox.getByTestId("inbox-input")).toHaveCount(0);
     await expect(toggle.getByTestId("toggle-drawer-badge")).toHaveCount(0);
     const answered = page
       .getByTestId("chat-pane")

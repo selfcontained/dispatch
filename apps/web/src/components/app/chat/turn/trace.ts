@@ -1,5 +1,5 @@
 /**
- * A turn feed row as the rail's model: kept apart from the views so code
+ * A turn feed row as the step list's model: kept apart from the views so code
  * outside the column (the sidebar's turn label) can read a turn without
  * loading them.
  */
@@ -27,7 +27,7 @@ export function isTurnEntry(
  */
 const convertedSteps = new WeakMap<ChatTurnStep, Step>();
 
-/** One trace step as the rail's model carries it: ISO times become epoch ms. */
+/** One trace step as the step list's model carries it: ISO times become epoch ms. */
 export function turnStep(step: ChatTurnStep): Step {
   const known = convertedSteps.get(step);
   if (known) return known;

@@ -46,14 +46,15 @@ describe("sidebar tab and scoped storage helpers", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => window.localStorage.clear());
 
-  it("maps a stored tab id to a live tab, falling back to the rail", () => {
+  it("maps a stored tab id to a live tab, falling back to the Inbox", () => {
     expect(asDrawerTab("files")).toBe("files");
-    expect(asDrawerTab("rail")).toBe("rail");
-    // Ids from before the cutover: the pins/reviews tabs and surface ids.
-    expect(asDrawerTab("pins")).toBe("rail");
-    expect(asDrawerTab("reviews")).toBe("rail");
-    expect(asDrawerTab("srf_abc")).toBe("rail");
-    expect(asDrawerTab(undefined)).toBe("rail");
+    expect(asDrawerTab("inbox")).toBe("inbox");
+    // Ids from before the cutover: the rail, pins and reviews tabs and surface ids.
+    expect(asDrawerTab("rail")).toBe("inbox");
+    expect(asDrawerTab("pins")).toBe("inbox");
+    expect(asDrawerTab("reviews")).toBe("inbox");
+    expect(asDrawerTab("srf_abc")).toBe("inbox");
+    expect(asDrawerTab(undefined)).toBe("inbox");
   });
 
   it("reconciles all per-agent storage in one pass", () => {

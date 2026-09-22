@@ -80,7 +80,7 @@ const linkSchema = z
     title: z.string().max(200).optional(),
   })
   .describe(
-    "A link card: a dev server, a PR, a doc. Shows in the stream and the rail."
+    "A link card: a dev server, a PR, a doc. Shows in the stream and the Inbox."
   );
 
 const reviewSchema = z

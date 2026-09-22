@@ -30,7 +30,7 @@ export function StepDetail({
   depth = 0,
 }: {
   step: Step;
-  /** 0 at the rail's top level; children render one deeper. */
+  /** 0 at the step list's top level; children render one deeper. */
   depth?: number;
 }): JSX.Element | null {
   const [openIds, setOpenIds] = useChatRowState<Record<string, boolean>>(
@@ -40,7 +40,7 @@ export function StepDetail({
   const d = stepDetailData(step);
   if (hasChildren(step)) {
     // The same pl-[21px] the plain body below uses, so the Task step's own
-    // arguments and the nested rail line up with the parent's label rather
+    // arguments and the nested list line up with the parent's label rather
     // than with its glyph.
     return (
       <div

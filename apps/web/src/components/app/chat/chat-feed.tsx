@@ -73,8 +73,8 @@ export function entryGrowthKey(entry: StreamEntry): string {
   const turn = entry.block.turn;
   if (!turn) return base;
   // Everything that makes a turn taller: the newest row folded in, the
-  // rail's length, the answer as it streams, and the settle that folds the
-  // rail. `entryVersion` stays the block's birth, so growth does not
+  // step list's length, the answer as it streams, and the settle that folds
+  // the steps away. `entryVersion` stays the block's birth, so growth does not
   // re-fade the entry.
   return `${base}:${turn.updatedAt}:${turn.trace.steps.length}:${entry.block.text.length}:${turn.settled ? 1 : 0}`;
 }
@@ -241,7 +241,7 @@ export function layoutFeed(
       lastDay = day;
       lastPost = null;
     }
-    // A turn's answer is a post with a rail under it: it always starts a
+    // A turn's answer is a post with a step list under it: it always starts a
     // fresh group, draws no hairline of its own, and ends the run behind
     // it so the post after it opens with a header.
     if (isTurnEntry(item.entry)) {
@@ -340,7 +340,7 @@ export function ChatFeed({
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries, ctx.agentId);
-  // Disclosure state per row (an expanded step, a folded rail), owned here so
+  // Disclosure state per row (an expanded step, a folded step list), owned here so
   // it survives a row re-rendering; entries that left the feed drop theirs.
   const rowStates = useRef(new Map<string, ChatRowState>());
   const present = new Set(entries.map((entry) => entry.id));

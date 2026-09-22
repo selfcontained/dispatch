@@ -246,13 +246,13 @@ vi.mock("@/hooks/use-files", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-stream-rail", () => ({
-  useStreamRail: (agentId: string | null) => {
-    H.record("useStreamRail", { agentId });
+vi.mock("@/hooks/use-inbox", () => ({
+  useInbox: (agentId: string | null) => {
+    H.record("useInbox", { agentId });
     const s = H.state;
     return {
       rootId: agentId,
-      inputs: (s.railInputs as unknown[]) ?? [],
+      inputs: (s.inboxInputs as unknown[]) ?? [],
       links: [],
       isLoading: false,
     };

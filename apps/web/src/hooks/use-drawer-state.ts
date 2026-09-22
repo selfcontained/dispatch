@@ -40,7 +40,7 @@ export function useDrawerState({
   const [drawerResizeSettleKey, setDrawerResizeSettleKey] = useState(0);
   const drawerOpen = isMobile ? mobileDrawerOpen : desktopDrawerState.isOpen;
   const drawerPanelOpen = drawerOpen;
-  // A stored value from before the sidebar's tabs changed falls back to the rail.
+  // A stored value from before the sidebar's tabs changed falls back to the Inbox.
   const drawerActiveTab = asDrawerTab(desktopDrawerState.activeTab);
   const drawerPinned = desktopDrawerState.isPinned ?? false;
   const drawerShiftsLayout = !isMobile && drawerOpen && drawerPinned;

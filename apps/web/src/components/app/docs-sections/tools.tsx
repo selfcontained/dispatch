@@ -151,8 +151,8 @@ export function ToolsContent() {
         <P>
           Everything an agent hands the user goes into its{" "}
           <strong>stream</strong> as a block. The Chat tab renders the stream;
-          the sidebar&apos;s Rail tab and notifications derive from it. There is
-          one stream per root agent — children post into their parent&apos;s
+          the sidebar&apos;s Inbox tab and notifications derive from it. There
+          is one stream per root agent — children post into their parent&apos;s
           stream — and every top-level block has a thread that opens as a page
           in the drawer. Three tools cover it:
         </P>
