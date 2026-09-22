@@ -425,9 +425,8 @@ export function AutomationsContent() {
           recurring job can self-review its own work without a human in the
           loop: open a PR, launch a reviewer with <Code>launch_agent</Code> and{" "}
           <Code>persona</Code>, read the <Code>review</Code> block it posts
-          back, reply in each finding&apos;s thread, and set each outcome with{" "}
-          <Code>update</Code> on the block&apos;s state. A clean approval
-          arrives as <Code>verdict: "approve"</Code> with no findings and
+          back, and answer each finding in its thread; the reviewer resolves
+          each one. A clean pass arrives as a review with no findings and
           requires no follow-up.
         </P>
       </Section>

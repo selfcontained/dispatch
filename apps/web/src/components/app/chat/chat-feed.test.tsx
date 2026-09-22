@@ -14,6 +14,7 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,10 +24,14 @@ import {
   block,
   blockEntry,
   FILE_BODY,
+  findingBlock,
+  launchBlock,
   questionBody,
   reaction,
+  reviewBlock,
   turnEntry,
 } from "@/test-utils/blocks";
+import type { Agent } from "@/components/app/types";
 
 import {
   type FeedContext,
@@ -44,6 +49,10 @@ import {
   layoutFeed,
   useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
+
+// A launch card reads its agent from the agents list; the list is seeded,
+// never fetched.
+vi.mock("@/lib/api", () => ({ api: vi.fn(() => new Promise(() => {})) }));
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
 // test here.
@@ -116,6 +125,8 @@ function makeCtx(
   };
 }
 
+let queryClient = new QueryClient();
+
 function feedElement(
   entries: StreamEntry[],
   ctx: FeedContext,
@@ -123,23 +134,31 @@ function feedElement(
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {}
 ) {
   return (
-    <MemoryRouter>
-      <ChatFeed
-        entries={entries}
-        ctx={ctx}
-        answeringBlockId={null}
-        onAnswer={onAnswer}
-        {...extra}
-      />
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ChatFeed
+          entries={entries}
+          ctx={ctx}
+          answeringBlockId={null}
+          onAnswer={onAnswer}
+          {...extra}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
 function renderFeed(
   entries: StreamEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<FeedContext> = {}
+  ctxOverrides: Partial<FeedContext> = {},
+  /** The agents list, as a launch card reads it. */
+  agents: Agent[] = []
 ) {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  queryClient.setQueryData(["agents"], agents);
   const onAnswer = vi.fn();
   const onOpenFile = vi.fn();
   const ctx = makeCtx(ctxOverrides, onOpenFile);
@@ -539,25 +558,30 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
-  it("shows the workspace coming up as a row, with the step it is on", () => {
-    renderFeed([
-      blockEntry(
-        block({
-          id: "w1",
-          origin: "workspace",
-          text: "Installing dependencies",
-          body: {
-            kind: "text",
-            data: {
+  const steps = {
+    worktree: (
+      status: "done" | "failed" = "done",
+      endedAt = "2026-09-02T10:00:04.000Z"
+    ) => ({
+      phase: "worktree",
+      label: "Creating git worktree",
+      startedAt: "2026-09-02T10:00:00.000Z",
+      endedAt,
+      status,
+    }),
+  };
+
+  it("lists the startup steps on the agent's card while its workspace comes up", () => {
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "l1",
+            toAgentId: AGENT_ID,
+            launchState: {
               startup: {
                 steps: [
-                  {
-                    phase: "worktree",
-                    label: "Creating git worktree",
-                    startedAt: "2026-09-02T10:00:00.000Z",
-                    endedAt: "2026-09-02T10:00:04.000Z",
-                    status: "done",
-                  },
+                  steps.worktree(),
                   {
                     phase: "deps",
                     label: "Installing dependencies",
@@ -567,154 +591,216 @@ describe("ChatFeed", () => {
                 ],
               },
             },
-            state: null,
-          },
-        })
-      ),
-    ]);
-    const row = screen.getByTestId("chat-workspace");
-    expect(row.getAttribute("data-state")).toBe("running");
-    // The agent's own step list, standing open with no summary line over
-    // it: each step can be watched as it runs.
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction: vi.fn() }
+    );
+    const post = screen.getByTestId("chat-launch-card");
+    expect(post.getAttribute("data-launch-card")).toBe("true");
+    expect(post.getAttribute("data-kind")).toBe("launch");
+    // The card stands for the agent it launched: this page's agent.
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
+    expect(post.getAttribute("data-author-kind")).toBe("agent");
+    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
+      "Launched by you"
+    );
+    // The step list stands open while it runs, with no fold over it: each
+    // step can be watched as it runs.
+    const startup = screen.getByTestId("chat-launch-startup");
+    expect(screen.queryByTestId("chat-launch-startup-toggle")).toBeNull();
     expect(screen.queryByTestId("harness-activity-summary")).toBeNull();
-    const steps = screen.getAllByRole("listitem");
-    expect(steps).toHaveLength(2);
-    expect(steps[0]!.textContent).toContain("creating git worktree");
-    expect(steps[0]!.textContent).toContain("4.0s");
+    const rows = within(startup).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain("creating git worktree");
+    expect(rows[0]!.textContent).toContain("4.0s");
     expect(
-      steps[1]!.querySelector("[aria-label]")?.getAttribute("aria-label")
+      rows[1]!.querySelector("[aria-label]")?.getAttribute("aria-label")
     ).toBe("installing dependencies, running");
+    // A launch card is a record Dispatch keeps: nothing to react to, even
+    // where the feed offers reactions.
+    expect(screen.queryByTestId("chat-add-reaction")).toBeNull();
+    expect(screen.queryByTestId("chat-add-reaction-disabled")).toBeNull();
   });
 
-  it("reads as ready once the workspace is up", () => {
+  it("offers reactions on the agent's posts but not on its card", () => {
+    renderFeed(
+      [
+        blockEntry(launchBlock({ id: "l1", toAgentId: AGENT_ID, text: "Go" })),
+        blockEntry(
+          block({
+            id: "a1",
+            text: "On it.",
+            createdAt: "2026-09-02T10:10:00.000Z",
+          })
+        ),
+      ],
+      {},
+      { onToggleReaction: vi.fn() }
+    );
+    const card = screen.getByTestId("chat-launch-card");
+    const reply = screen.getByTestId("chat-message");
+    expect(card!.querySelector('[data-testid="chat-add-reaction"]')).toBeNull();
+    expect(
+      reply!.querySelector('[data-testid="chat-add-reaction"]')
+    ).not.toBeNull();
+  });
+
+  it("folds the startup to how long it took once the agent is up", () => {
     renderFeed([
       blockEntry(
-        block({
-          id: "w1",
-          origin: "workspace",
-          text: "Workspace ready",
-          body: {
-            kind: "text",
-            data: {
-              startup: {
-                steps: [
-                  {
-                    phase: "worktree",
-                    label: "Creating git worktree",
-                    startedAt: "2026-09-02T10:00:00.000Z",
-                    endedAt: "2026-09-02T10:00:02.000Z",
-                    status: "done",
-                  },
-                  {
-                    phase: "deps",
-                    label: "Installing dependencies",
-                    startedAt: "2026-09-02T10:00:02.000Z",
-                    endedAt: "2026-09-02T10:00:09.000Z",
-                    status: "done",
-                  },
-                ],
-                readyAt: "2026-09-02T10:00:09.000Z",
-                cwd: "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on",
-              },
+        launchBlock({
+          id: "l1",
+          toAgentId: AGENT_ID,
+          launchState: {
+            startup: {
+              steps: [
+                steps.worktree("done", "2026-09-02T10:00:02.000Z"),
+                {
+                  phase: "deps",
+                  label: "Installing dependencies",
+                  startedAt: "2026-09-02T10:00:02.000Z",
+                  endedAt: "2026-09-02T10:00:09.000Z",
+                  status: "done",
+                },
+              ],
+              readyAt: "2026-09-02T10:00:09.000Z",
+              cwd: "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on",
             },
-            state: null,
           },
         })
       ),
     ]);
-    expect(
-      screen.getByTestId("chat-workspace").getAttribute("data-state")
-    ).toBe("ready");
+    const section = screen.getByTestId("chat-launch-startup");
+    const toggle = screen.getByTestId("chat-launch-startup-toggle");
+    expect(toggle.textContent).toContain("Started");
+    expect(toggle.textContent).toContain("in 9.0s");
+    expect(section.getAttribute("data-open")).toBe("false");
+    fireEvent.click(toggle);
+    expect(section.getAttribute("data-open")).toBe("true");
     // The whole path, never cut to a count of characters; when the row is
     // too narrow it gives up its start, so the directory's name stays.
-    const aside = screen.getByTestId("harness-step-aside");
+    const aside = within(section).getByTestId("harness-step-aside");
     expect(aside.textContent).toContain(
       "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on"
     );
     expect(aside.querySelector('[dir="rtl"] > bdi[dir="ltr"]')).not.toBeNull();
   });
 
-  it("says which step failed when the workspace never came up", () => {
+  it("says which step failed when the workspace never came up, standing open", () => {
     renderFeed([
       blockEntry(
-        block({
-          id: "w1",
-          origin: "workspace",
-          text: "Workspace setup failed: branch already checked out",
-          body: {
-            kind: "text",
-            data: {
-              startup: {
-                steps: [
-                  {
-                    phase: "worktree",
-                    label: "Creating git worktree",
-                    startedAt: "2026-09-02T10:00:00.000Z",
-                    endedAt: "2026-09-02T10:00:02.000Z",
-                    status: "failed",
-                    detail: "branch already checked out",
-                  },
-                ],
-                failed: "branch already checked out",
-              },
+        launchBlock({
+          id: "l1",
+          toAgentId: AGENT_ID,
+          launchState: {
+            startup: {
+              steps: [
+                {
+                  ...steps.worktree("failed", "2026-09-02T10:00:02.000Z"),
+                  detail: "branch already checked out",
+                },
+              ],
+              failed: "branch already checked out",
             },
-            state: null,
           },
         })
       ),
     ]);
+    const section = screen.getByTestId("chat-launch-startup");
+    expect(section.getAttribute("data-open")).toBe("true");
     expect(
-      screen.getByTestId("chat-workspace").getAttribute("data-state")
-    ).toBe("failed");
+      screen.getByTestId("chat-launch-startup-toggle").textContent
+    ).toContain("Startup failed");
     // The step list reads a failed step the way it reads one in a turn.
-    const aside = screen.getAllByRole("listitem")[0]!;
-    expect(
-      aside.querySelector("[aria-label]")?.getAttribute("aria-label")
-    ).toBe("creating git worktree, failed");
-    expect(aside.textContent).toContain("branch already checked out");
+    const row = within(section).getAllByRole("listitem")[0]!;
+    expect(row.querySelector("[aria-label]")?.getAttribute("aria-label")).toBe(
+      "creating git worktree, failed"
+    );
+    expect(row.textContent).toContain("branch already checked out");
     // A reason is read from its start: it clips at the end, as text does.
-    expect(aside.querySelector('[dir="rtl"]')).toBeNull();
+    expect(row.querySelector('[dir="rtl"]')).toBeNull();
   });
 
-  it("shows a review request as the request it is, with the instruction folded", () => {
+  it("folds the instructions the agent was started with to a line count", () => {
     renderFeed([
       blockEntry(
-        block({
-          id: "r1",
-          authorKind: "user",
-          origin: "review_request",
-          text: 'Please launch these personas:\n- launch_agent({ persona: "architecture-review" })',
-          body: {
-            kind: "text",
-            data: {
-              reviewRequest: {
-                personas: ["architecture-review", "frontend-ux-review"],
-                agentType: "claude",
-                note: "focus on the rail",
-              },
-            },
-            state: null,
+        launchBlock({
+          id: "l1",
+          toAgentId: AGENT_ID,
+          launchState: {
+            instructions: "You are builder.\nBe brief.\nShip it.",
           },
         })
       ),
     ]);
-    const row = screen.getByTestId("chat-review-request");
-    const header = screen.getByTestId("chat-review-request-toggle");
-    // Who asked, and for what — not tool calls in the person's voice.
-    expect(header.textContent).toContain(
-      "Review requested: architecture review and frontend ux review"
+    const section = screen.getByTestId("chat-launch-instructions");
+    const toggle = screen.getByTestId("chat-launch-instructions-toggle");
+    expect(toggle.textContent).toContain("Instructions");
+    expect(toggle.textContent).toContain("3 lines");
+    expect(section.getAttribute("data-open")).toBe("false");
+    fireEvent.click(toggle);
+    expect(section.getAttribute("data-open")).toBe("true");
+    expect(section.querySelector("pre")?.textContent).toBe(
+      "You are builder.\nBe brief.\nShip it."
     );
-    expect(header.textContent).toContain("by You");
-    expect(header.textContent).toContain("focus on the rail");
-    expect(header.textContent).not.toContain("launch_agent(");
-    expect(row.getAttribute("data-open")).toBe("false");
-    expect(screen.queryByTestId("chat-message")).toBeNull();
-    // The instruction the agent was handed is still there, on request.
-    fireEvent.click(header);
-    expect(row.getAttribute("data-open")).toBe("true");
+  });
+
+  it("shows the review a launched reviewer posted on its card, compactly, opening the card's thread", () => {
+    const onOpenThread = vi.fn();
+    const finding = findingBlock(
+      "f1",
+      { severity: "major", title: "Null deref", body: "Guard it." },
+      { author: { kind: "agent", agentId: "agt_2" } }
+    );
+    const review = reviewBlock({
+      id: "rv1",
+      author: { kind: "agent", agentId: "agt_2" },
+      toAgentId: AGENT_ID,
+      threadId: "l1",
+      replyTo: "l1",
+      summary: "One thing to fix. Otherwise fine.",
+      findings: [finding],
+    });
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "l1",
+            toAgentId: "agt_2",
+            launchedByAgentId: AGENT_ID,
+            text: "Review the change.",
+            blocks: [review],
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER, onOpenThread }
+    );
+    // One post, the reviewer's card, with the review inside it.
+    expect(screen.getAllByTestId("chat-launch-card")).toHaveLength(1);
+    expect(screen.queryAllByTestId("chat-message")).toHaveLength(0);
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("Reviewer");
+    const shown = screen.getAllByTestId("chat-shown-block");
     expect(
-      screen.getByTestId("chat-review-request-body").textContent
-    ).toContain("launch_agent(");
+      shown.map((el) => [
+        el.getAttribute("data-block-id"),
+        el.getAttribute("data-kind"),
+      ])
+    ).toEqual([["rv1", "review"]]);
+    const card = within(shown[0]!).getByTestId("chat-review-block");
+    expect(card.getAttribute("data-compact")).toBe("true");
+    expect(within(card).getByTestId("chat-review-status").textContent).toBe(
+      "Changes requested"
+    );
+    expect(
+      within(card).getByTestId("chat-review-summary-line").textContent
+    ).toBe("One thing to fix.");
+    // Compact in the stream: the findings wait for the drawer.
+    expect(screen.queryByTestId("chat-review-finding")).toBeNull();
+    fireEvent.click(within(card).getByTestId("chat-review-header"));
+    expect(onOpenThread).toHaveBeenCalledWith("l1");
   });
 
   it("names an archived agent's posts, and posts to it, from the page's names", () => {
@@ -765,7 +851,7 @@ describe("ChatFeed", () => {
     expect(post.textContent).not.toContain("old name");
   });
 
-  it("folds the briefing one agent wrote for another", () => {
+  it("folds the briefing one agent wrote for another, on the launched agent's card", () => {
     const peers = {
       agt_2: {
         name: "architecture review",
@@ -776,48 +862,106 @@ describe("ChatFeed", () => {
     renderFeed(
       [
         blockEntry(
-          block({
+          launchBlock({
             id: "l1",
-            origin: "launch",
             toAgentId: "agt_2",
+            launchedByAgentId: AGENT_ID,
             text: "Review the UNCOMMITTED changes in this worktree.\n\n## What changed and why\nA long briefing.",
           })
         ),
       ],
       {},
-      { peers }
+      { peers },
+      [
+        {
+          id: "agt_2",
+          name: "architecture review",
+          type: "claude",
+          status: "running",
+          persona: "architecture-review",
+          parentAgentId: AGENT_ID,
+        } as Agent,
+      ]
     );
-    const row = screen.getByTestId("chat-launch-brief");
-    const header = screen.getByTestId("chat-launch-brief-toggle");
-    expect(header.textContent).toContain("Started architecture review");
+    // The card is a post by the agent it launched, not by its launcher.
+    const post = screen.getByTestId("chat-launch-card");
+    expect(post.getAttribute("data-launch-card")).toBe("true");
+    expect(post.getAttribute("data-author")).toBe("peer");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "architecture review"
+    );
+    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
+      "Launched by builder"
+    );
+    // Who the agent is comes from its record.
+    expect(screen.getByTestId("chat-launch-persona").textContent).toBe(
+      "architecture-review"
+    );
+    const row = screen.getByTestId("chat-launch-briefing");
+    const header = screen.getByTestId("chat-launch-briefing-toggle");
+    expect(header.textContent).toContain("Briefing");
+    expect(header.textContent).toContain(
+      "Review the UNCOMMITTED changes in this worktree."
+    );
     expect(header.textContent).not.toContain("What changed and why");
     expect(row.getAttribute("data-open")).toBe("false");
-    // It is a record, not a post: no message row, no author header.
-    expect(screen.queryByTestId("chat-message")).toBeNull();
     fireEvent.click(header);
     expect(row.getAttribute("data-open")).toBe("true");
-    expect(screen.getByTestId("chat-launch-brief-body").textContent).toContain(
-      "What changed and why"
-    );
+    expect(
+      screen.getByTestId("chat-launch-briefing-body").textContent
+    ).toContain("What changed and why");
+    // Not a side conversation: the card has no "→ recipient".
+    expect(screen.queryByTestId("chat-side-header")).toBeNull();
   });
 
-  it("leaves the post that started this stream as a message", () => {
-    renderFeed([
-      blockEntry(
-        block({
-          id: "l0",
-          authorKind: "user",
-          origin: "launch",
-          text: "Build the widget",
-        })
-      ),
-    ]);
-    // What a person wrote to start an agent is the first thing they said,
-    // not a record of a launch.
-    expect(screen.queryByTestId("chat-launch-brief")).toBeNull();
-    expect(screen.getByTestId("chat-message").textContent).toContain(
-      "Build the widget"
+  it("opens the briefing a person wrote to start this agent, on the agent's card", () => {
+    const launch = launchBlock({
+      id: "l0",
+      toAgentId: AGENT_ID,
+      text: "Build the widget",
+      attachments: [
+        { type: "link", url: "https://example.com/spec" },
+        fileAttachment({ fileId: 7, fileName: "brief.md", sizeBytes: 300 }),
+      ],
+      createdAt: "2026-09-02T10:00:00.000Z",
+    });
+    const followUp = block({
+      id: "follow",
+      authorKind: "user",
+      text: "Also add tests",
+      delivered: true,
+      createdAt: "2026-09-02T10:01:00.000Z",
+    });
+    renderFeed([blockEntry(launch), blockEntry(followUp)]);
+    const posts = [
+      screen.getByTestId("chat-launch-card"),
+      ...screen.getAllByTestId("chat-message"),
+    ];
+    expect(posts[0]!.getAttribute("data-launch-card")).toBe("true");
+    expect(posts[0]!.getAttribute("data-author-kind")).toBe("agent");
+    expect(
+      screen.getAllByTestId("chat-post-author").map((a) => a.textContent)
+    ).toEqual(["builder", "You"]);
+    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
+      "Launched by you"
     );
+    // A person's own words stand open.
+    expect(
+      screen.getByTestId("chat-launch-briefing").getAttribute("data-open")
+    ).toBe("true");
+    expect(
+      screen.getByTestId("chat-launch-briefing-body").textContent
+    ).toContain("Build the widget");
+    expect(screen.getByTestId("chat-attachment-link")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-file")).toBeTruthy();
+    // No delivery marker: the prompt went out with the launch.
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+    // The card is the agent's, so the person's next post starts a group.
+    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
+      null,
+      null,
+    ]);
   });
 
   it("offers no Retry when the feed has no way to send again", () => {
@@ -1010,49 +1154,7 @@ describe("ChatFeed", () => {
     ).toBe("builder → Reviewer");
   });
 
-  it('labels a launch-context post "Launch context" and keeps it a You post', () => {
-    const launch = block({
-      id: "launch",
-      authorKind: "user",
-      origin: "launch",
-      text: "Build the widget",
-      attachments: [
-        { type: "link", url: "https://example.com/spec" },
-        fileAttachment({ fileId: 7, fileName: "brief.md", sizeBytes: 300 }),
-      ],
-      delivered: true,
-      createdAt: "2026-09-02T10:00:00.000Z",
-    });
-    const followUp = block({
-      id: "follow",
-      authorKind: "user",
-      text: "Also add tests",
-      delivered: true,
-      createdAt: "2026-09-02T10:01:00.000Z",
-    });
-    renderFeed([blockEntry(launch), blockEntry(followUp)]);
-    const posts = screen.getAllByTestId("chat-message");
-    expect(posts[0]?.getAttribute("data-origin")).toBe("launch");
-    expect(posts[0]?.getAttribute("data-author-kind")).toBe("user");
-    expect(screen.getByTestId("chat-launch-context").textContent).toContain(
-      "Launch context"
-    );
-    expect(screen.getByTestId("chat-post-author").textContent).toBe("You");
-    expect(screen.getByTestId("chat-avatar-user")).toBeTruthy();
-    expect(screen.getByTestId("chat-attachment-link")).toBeTruthy();
-    expect(screen.getByTestId("chat-attachment-file")).toBeTruthy();
-    expect(screen.getByText("Build the widget")).toBeTruthy();
-    // No delivery marker: the prompt went out with the launch.
-    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
-    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
-    // Grouping treats it like any You post: the next one collapses under it.
-    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
-      null,
-      "true",
-    ]);
-  });
-
-  it("attributes a launched-by post to the launching agent, falling back to Agent", () => {
+  it("names who launched an agent on its card, falling back to Agent", () => {
     const peers = peerDirectory(AGENT_ID, [
       {
         id: AGENT_ID,
@@ -1067,38 +1169,34 @@ describe("ChatFeed", () => {
         parentAgentId: null,
       },
     ]);
-    const launch = block({
+    const launch = launchBlock({
       id: "launch",
-      authorKind: "user",
-      origin: "launch",
+      toAgentId: AGENT_ID,
       launchedByAgentId: "agt_root",
       text: "Build the widget",
-      delivered: true,
       createdAt: "2026-09-02T10:00:00.000Z",
     });
     renderFeed([blockEntry(launch)], {}, { peers });
-    let post = screen.getByTestId("chat-message");
-    expect(post.getAttribute("data-author-kind")).toBe("peer");
-    expect(post.getAttribute("data-launched-by")).toBe("agt_root");
-    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
-    expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "orchestrator"
+    const post = screen.getByTestId("chat-launch-card");
+    // The card is the launched agent's: this page's.
+    expect(post.getAttribute("data-author-kind")).toBe("agent");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
+    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
+      "Launched by orchestrator"
     );
-    expect(
-      post
-        .querySelector('[data-testid="chat-avatar-agent"]')
-        ?.getAttribute("aria-label")
-    ).toBe("orchestrator, agent 1");
     expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
+    // An agent's briefing folds.
+    expect(
+      screen.getByTestId("chat-launch-briefing").getAttribute("data-open")
+    ).toBe("false");
     cleanup();
 
-    // The launcher is gone from the list: still a peer post, generic name.
+    // The launcher is gone from the list: a generic name.
     renderFeed([blockEntry(launch)], {}, { peers: {} });
-    post = screen.getByTestId("chat-message");
-    expect(screen.getByTestId("chat-post-author").textContent).toBe("Agent");
-    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
+    expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
+      "Launched by Agent"
+    );
   });
-
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
     renderFeed([
       blockEntry(block({ id: "a1", text: "agent one" })),

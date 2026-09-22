@@ -49,8 +49,11 @@ async function createAgent(name: string): Promise<string> {
 let agentId: string;
 let store: BlockStore;
 
-/** Rows a launch writes about itself, which no message assertion wants. */
-const STARTUP_ORIGINS = ["system_prompt", "workspace"];
+/**
+ * The row a launch writes about itself (the agent's launch card, holding
+ * its instructions and startup), which no message assertion wants.
+ */
+const NOT_LAUNCH_SQL = "kind <> 'launch'";
 
 function question(
   streamId: string,
@@ -88,18 +91,31 @@ function form(streamId: string) {
   });
 }
 
-function review(streamId: string) {
-  return store.insert({
+/**
+ * A review by the stream's agent and the one finding it shows: a `finding`
+ * block in the review's thread, with its record as its state.
+ */
+async function review(
+  streamId: string
+): Promise<{ review: Block; finding: Block }> {
+  const r = await store.insert({
     streamId,
     author: agentAuthor(streamId),
     kind: "review",
-    data: {
-      verdict: "request_changes",
-      summary: "s",
-      findings: [{ id: "f1", severity: "major", title: "a", body: "b" }],
-    },
-    state: { findings: { f1: { status: "open", by: USER, at: "t0" } } },
+    data: { summary: "s" },
+    state: { blocks: [] },
   });
+  const finding = await store.insert({
+    streamId,
+    author: agentAuthor(streamId),
+    kind: "finding",
+    threadId: r.id,
+    replyTo: r.id,
+    data: { severity: "major", title: "a", body: "b" },
+    state: { status: "open", by: USER, at: "t0" },
+  });
+  await store.appendShown(r.id, finding.id);
+  return { review: (await store.getById(r.id))!, finding };
 }
 
 beforeEach(async () => {
@@ -207,11 +223,12 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
     expect(body.nextCursor).toBeNull();
     expect(body.unreadCount).toBe(1);
     const blocks = body.entries.filter(
-      (e: { type: string; block: { origin?: string } }) =>
-        e.type === "block" && !STARTUP_ORIGINS.includes(e.block.origin ?? "")
+      (e: { type: string; block: { kind: string } }) =>
+        e.type === "block" && e.block.kind !== "launch"
     );
-    // Creating the agent records what it was told and its workspace coming
-    // up; neither is conversation. The reply stays in its thread.
+    // Creating the agent writes its launch card (what it was told and its
+    // workspace coming up), which is not conversation. The reply stays in
+    // its thread.
     expect(blocks).toEqual([
       expect.objectContaining({
         id: root.id,
@@ -294,7 +311,7 @@ describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
     });
   });
 
-  it("400s a malformed id and 404s a reply, an unknown block, or another stream's", async () => {
+  it("400s a malformed id and 404s an unknown block or another stream's", async () => {
     const root = await store.insert({
       streamId: agentId,
       author: agentAuthor(agentId),
@@ -311,7 +328,14 @@ describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
     const get = (id: string, stream = agentId) =>
       authedInject("GET", `/api/v1/streams/${stream}/blocks/${id}/thread`);
     expect((await get("nope")).statusCode).toBe(400);
-    expect((await get(reply.id)).statusCode).toBe(404);
+    // Any block can host a thread (a finding a review shows opens one), so
+    // a reply's thread is just empty.
+    const replyThread = await get(reply.id);
+    expect(replyThread.statusCode).toBe(200);
+    expect(replyThread.json()).toMatchObject({
+      root: { id: reply.id },
+      replies: [],
+    });
     expect((await get(NIL)).statusCode).toBe(404);
     expect((await get(root.id, "agt_other")).statusCode).toBe(404);
   });
@@ -426,14 +450,59 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
       text: "x",
     });
     expect(badId.statusCode).toBe(400);
-    // Nothing was written by any of the rejected posts; the system-prompt
-    // record the launch wrote is not one of them.
+    // Nothing was written by any of the rejected posts; the launch card
+    // the launch wrote is not one of them.
     const rows = await ctx.pool.query(
-      `SELECT 1 FROM blocks
-        WHERE stream_id = $1 AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
+      `SELECT 1 FROM blocks WHERE stream_id = $1 AND ${NOT_LAUNCH_SQL}`,
       [agentId]
     );
     expect(rows.rows).toHaveLength(0);
+  });
+
+  it("leaves a person's review with its findings, and validates the review body", async () => {
+    const url = `/api/v1/streams/${agentId}/blocks`;
+    const res = await authedInject("POST", url, {
+      text: "",
+      review: {
+        summary: "One thing.",
+        findings: [{ severity: "major", title: "Guard", body: "Null here." }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const block = res.json().block as Block;
+    expect(block).toMatchObject({
+      kind: "review",
+      author: { kind: "user" },
+      toAgentId: agentId,
+      threadId: null,
+      data: { summary: "One thing." },
+    });
+    expect(block.blocks).toEqual([
+      expect.objectContaining({
+        kind: "finding",
+        threadId: block.id,
+        data: { severity: "major", title: "Guard", body: "Null here." },
+        state: expect.objectContaining({ status: "open" }),
+      }),
+    ]);
+    // The thread route shows the review with its finding attached.
+    const thread = await authedInject(
+      "GET",
+      `/api/v1/streams/${agentId}/blocks/${block.id}/thread`
+    );
+    expect(thread.json()).toMatchObject({
+      root: { id: block.id, blocks: [{ id: block.blocks![0]!.id }] },
+      replies: [],
+    });
+    for (const review of [
+      { findings: [] },
+      { summary: "", findings: [] },
+      { summary: "s", findings: [{ severity: "huge", title: "t", body: "b" }] },
+      { summary: "s", findings: [{ severity: "nit", title: "", body: "b" }] },
+    ]) {
+      const bad = await authedInject("POST", url, { text: "", review });
+      expect(bad.statusCode).toBe(400);
+    }
   });
 
   it("stores an undelivered block when the agent is inert", async () => {
@@ -456,11 +525,11 @@ describe("POST /api/v1/streams/:rootId/blocks (inert runtime)", () => {
         delivered: false,
       },
     });
-    // The agent's own stream also holds the system-prompt record written at
-    // launch; this is about what the post stored.
+    // The agent's own stream also holds the launch card written at launch;
+    // this is about what the post stored.
     const rows = await ctx.pool.query(
       `SELECT text, delivered, to_agent_id FROM blocks
-        WHERE stream_id = $1 AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
+        WHERE stream_id = $1 AND ${NOT_LAUNCH_SQL}`,
       [agentId]
     );
     expect(rows.rows).toEqual([
@@ -679,27 +748,36 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/submit (inert runtime)", 
 
 describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", () => {
   it("resolves a finding as the user and returns the block", async () => {
-    const r = await review(agentId);
+    const { finding } = await review(agentId);
     const res = await authedInject(
       "PATCH",
-      `/api/v1/streams/${agentId}/blocks/${r.id}/state`,
-      { state: { findings: { f1: "fixed" } } }
+      `/api/v1/streams/${agentId}/blocks/${finding.id}/state`,
+      { state: { status: "fixed", note: "Done" } }
     );
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       block: expect.objectContaining({
-        id: r.id,
+        id: finding.id,
+        kind: "finding",
         state: {
-          findings: {
-            f1: {
-              status: "resolved",
-              resolution: "fixed",
-              by: { kind: "user" },
-              at: expect.any(String),
-            },
-          },
+          status: "resolved",
+          resolution: "fixed",
+          note: "Done",
+          by: { kind: "user" },
+          at: expect.any(String),
         },
       }),
+    });
+    // Reopening replaces the record rather than merging into it.
+    const reopened = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${finding.id}/state`,
+      { state: { status: "open" } }
+    );
+    expect(reopened.json().block.state).toEqual({
+      status: "open",
+      by: { kind: "user" },
+      at: expect.any(String),
     });
     const tasks = await store.insert({
       streamId: agentId,
@@ -717,17 +795,25 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
   });
 
   it("400s a bad body or a stateless kind and 404s unknown or foreign blocks", async () => {
-    const r = await review(agentId);
-    const url = `/api/v1/streams/${agentId}/blocks/${r.id}/state`;
+    const { review: r, finding } = await review(agentId);
+    const url = `/api/v1/streams/${agentId}/blocks/${finding.id}/state`;
     expect((await authedInject("PATCH", url, {})).statusCode).toBe(400);
     expect(
       (await authedInject("PATCH", url, { state: "resolved" })).statusCode
     ).toBe(400);
     const badStatus = await authedInject("PATCH", url, {
-      state: { findings: { f1: "disputed" } },
+      state: { status: "disputed" },
     });
     expect(badStatus.statusCode).toBe(400);
-    expect(badStatus.json().error).toMatch(/open, fixed or dismissed/);
+    expect(badStatus.json().error).toMatch(/"open" \| "fixed" \| "dismissed"/);
+    // A review's state is the findings it shows: not settable here.
+    const onReview = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${r.id}/state`,
+      { state: { status: "fixed" } }
+    );
+    expect(onReview.statusCode).toBe(400);
+    expect(onReview.json().error).toMatch(/has no state/);
     const text = await store.insert({
       streamId: agentId,
       author: agentAuthor(agentId),
@@ -746,7 +832,7 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
           "PATCH",
           `/api/v1/streams/${agentId}/blocks/${NIL}/state`,
           {
-            state: { findings: {} },
+            state: { status: "fixed" },
           }
         )
       ).statusCode
@@ -755,14 +841,15 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
       (
         await authedInject(
           "PATCH",
-          `/api/v1/streams/agt_other/blocks/${r.id}/state`,
+          `/api/v1/streams/agt_other/blocks/${finding.id}/state`,
           {
-            state: { findings: {} },
+            state: { status: "fixed" },
           }
         )
       ).statusCode
     ).toBe(404);
     expect((await store.getById(r.id))?.state).toEqual(r.state);
+    expect((await store.getById(finding.id))?.state).toEqual(finding.state);
   });
 });
 
@@ -846,14 +933,14 @@ describe("stream reaction routes (inert runtime)", () => {
 
 describe("POST /api/v1/streams/:rootId/blocks/:blockId/read", () => {
   it("marks the thread's agent replies read and returns their ids", async () => {
-    const r = await review(agentId);
-    const reply = await store.insert({
+    const { review: r, finding } = await review(agentId);
+    // A comment on a finding is a reply in the finding's own thread.
+    const onFinding = await store.insert({
       streamId: agentId,
       author: agentAuthor(agentId),
-      threadId: r.id,
-      replyTo: r.id,
+      threadId: finding.id,
+      replyTo: finding.id,
       text: "on it",
-      data: { findingId: "f1" },
     });
     const other = await store.insert({
       streamId: agentId,
@@ -862,24 +949,31 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/read", () => {
       replyTo: r.id,
       text: "general",
     });
-    const miss = await authedInject(
-      "POST",
-      `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
-      { finding: "f9" }
-    );
-    expect(miss.json()).toEqual({ ids: [], readAt: null });
     const one = await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks/${finding.id}/read`,
+      {}
+    );
+    expect(one.json()).toEqual({
+      ids: [onFinding.id],
+      readAt: expect.any(String),
+    });
+    // The review's thread holds the finding it shows (not an agent reply to
+    // mark) and its own general reply. A leftover `finding` in the body is
+    // ignored: the thread is the finding's own.
+    const all = await authedInject(
       "POST",
       `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
       { finding: "f1" }
     );
-    expect(one.json()).toEqual({ ids: [reply.id], readAt: expect.any(String) });
-    const all = await authedInject(
+    expect(all.json().ids).toContain(other.id);
+    expect(all.json().ids).not.toContain(onFinding.id);
+    const again = await authedInject(
       "POST",
-      `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
+      `/api/v1/streams/${agentId}/blocks/${finding.id}/read`,
       {}
     );
-    expect(all.json()).toEqual({ ids: [other.id], readAt: expect.any(String) });
+    expect(again.json()).toEqual({ ids: [], readAt: null });
     expect(
       (
         await authedInject(
@@ -893,13 +987,11 @@ describe("POST /api/v1/streams/:rootId/blocks/:blockId/read", () => {
       (
         await authedInject(
           "POST",
-          `/api/v1/streams/${agentId}/blocks/${r.id}/read`,
-          {
-            finding: 3,
-          }
+          `/api/v1/streams/agt_nope/blocks/${r.id}/read`,
+          {}
         )
       ).statusCode
-    ).toBe(400);
+    ).toBe(404);
   });
 });
 
@@ -1593,33 +1685,29 @@ describe("stream routes with a deliverable engine", () => {
   it("tells the author when a person changes a finding's state", async () => {
     const { app, ready, streams, prompts, published } = buildApp({});
     await ready;
-    const r = await review(agentId);
+    const { review: r, finding } = await review(agentId);
     const res = await app.inject({
       method: "PATCH",
-      url: `/api/v1/streams/${agentId}/blocks/${r.id}/state`,
-      payload: {
-        state: {
-          findings: {
-            f1: {
-              status: "resolved",
-              resolution: "dismissed",
-              note: "Out of scope",
-            },
-          },
-        },
-      },
+      url: `/api/v1/streams/${agentId}/blocks/${finding.id}/state`,
+      payload: { state: { status: "dismissed", note: "Out of scope" } },
     });
     expect(res.statusCode).toBe(200);
-    expect(entryIds(published)).toEqual([["stream.entry", r.id, null]]);
+    // The finding is published, then the review that shows it.
+    expect(entryIds(published)).toEqual([
+      ["stream.entry", finding.id, null],
+      ["stream.entry", r.id, null],
+    ]);
     await streams.waitForInFlightDeliveries(1_000);
     expect(prompts).toEqual([
       {
         agentId,
         prompt: expect.stringContaining(
-          `--- DISPATCH POST (id: ${r.id}, from: user) ---\nFinding f1 dismissed: Out of scope\nVerify the resolution`
+          `--- DISPATCH POST (id: ${finding.id}, from: user) ---\nFinding "a" dismissed: Out of scope\nNothing to do unless you disagree`
         ),
       },
     ]);
+    // The answer goes under the finding: its own thread.
+    expect(prompts[0]!.prompt).toContain(`replyTo: "${finding.id}"`);
     await app.close();
   });
 

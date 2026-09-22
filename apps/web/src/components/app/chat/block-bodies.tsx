@@ -1,6 +1,6 @@
 /**
  * What a block's body looks like per kind, past its text: a question's
- * options, a form's fields, a review's verdict and findings, a task list, a
+ * options, a form's fields, a review's status and findings, a task list, a
  * link card. Presentational — each takes the block and the one callback its
  * kind needs, and reads nothing else from the feed. Composed into posts by
  * chat-entries.tsx.
@@ -8,16 +8,16 @@
 import { type FormEvent, useState } from "react";
 import type {
   Block,
+  BlockFindingData,
   BlockFindingPatch,
   BlockFindingState,
-  BlockFindingStatus,
   BlockFormField,
   BlockOption,
-  BlockReviewFinding,
   BlockReviewSeverity,
-  BlockReviewVerdict,
+  BlockReviewStatus,
   BlockTaskStatus,
 } from "@dispatch/shared";
+import { reviewFindings, reviewStatus } from "@dispatch/shared";
 import {
   Check,
   ChevronRight,
@@ -424,14 +424,39 @@ export function FormBlockBody({
 // Reviews
 // ---------------------------------------------------------------------------
 
-export const VERDICT: Record<
-  BlockReviewVerdict,
-  { label: string; variant: "transitional" | "error" | "default" }
+export type ReviewBlock = Extract<Block, { kind: "review" }>;
+export type FindingBlock = Extract<Block, { kind: "finding" }>;
+
+/**
+ * What a review's badge says, from where its findings stand: changes are
+ * requested while any is open, and the review is approved once none is.
+ * There is no second word for it to disagree with.
+ */
+export const REVIEW_STATUS: Record<
+  BlockReviewStatus,
+  { label: string; variant: "transitional" | "error"; edge: string }
 > = {
-  approve: { label: "Approved", variant: "transitional" },
-  request_changes: { label: "Changes requested", variant: "error" },
-  comment: { label: "Comment", variant: "default" },
+  open: {
+    label: "Changes requested",
+    variant: "error",
+    edge: "border-l-status-blocked",
+  },
+  partially_resolved: {
+    label: "Changes requested",
+    variant: "error",
+    edge: "border-l-status-blocked",
+  },
+  resolved: {
+    label: "Approved",
+    variant: "transitional",
+    edge: "border-l-status-done",
+  },
 };
+
+/** A review's standing, from the finding blocks it shows. */
+export function reviewStanding(review: ReviewBlock): BlockReviewStatus {
+  return reviewStatus(reviewFindings(review));
+}
 
 const SEVERITY_CHIP: Record<BlockReviewSeverity, string> = {
   blocker: "border-status-blocked/40 text-status-blocked",
@@ -449,29 +474,6 @@ const FINDING_OUTCOME_LABEL: Record<FindingOutcome, string> = {
   dismissed: "Dismissed",
 };
 
-/** The finding a reply is about: a text or question reply may carry one. */
-export function findingIdOf(block: Block): string | undefined {
-  return (block.kind === "text" || block.kind === "question") && block.data
-    ? block.data.findingId
-    : undefined;
-}
-
-/** `state.findings[id]`, or an open record when nothing has been recorded. */
-export function findingRecord(
-  block: Extract<Block, { kind: "review" }>,
-  findingId: string
-): BlockFindingState | null {
-  return block.state?.findings?.[findingId] ?? null;
-}
-
-/** `state.findings[id].status`, `open` when nothing has been recorded. */
-export function findingStatus(
-  block: Extract<Block, { kind: "review" }>,
-  findingId: string
-): BlockFindingStatus {
-  return findingRecord(block, findingId)?.status ?? "open";
-}
-
 /** A resolved finding was fixed unless it says dismissed; an open one is open. */
 export function findingOutcome(
   record: BlockFindingState | null | undefined
@@ -481,14 +483,11 @@ export function findingOutcome(
 }
 
 /** "5 findings · 2 open", or "No findings". */
-export function findingsSummary(
-  block: Extract<Block, { kind: "review" }>
-): string {
-  const total = block.data.findings.length;
+export function findingsSummary(block: ReviewBlock): string {
+  const findings = reviewFindings(block);
+  const total = findings.length;
   if (total === 0) return "No findings";
-  const open = block.data.findings.filter(
-    (f) => findingStatus(block, f.id) !== "resolved"
-  ).length;
+  const open = findings.filter((f) => f.state?.status !== "resolved").length;
   return `${total} ${total === 1 ? "finding" : "findings"} · ${open} open`;
 }
 
@@ -508,26 +507,11 @@ export function summarySentence(summary: string): string {
   return (match ? match[1]! : line).replace(/[*_`]/g, "");
 }
 
-/** The wire shape of a finding change: a word, or a record with a note. */
-export function findingStatePatch(
-  findingId: string,
-  patch: BlockFindingPatch
-): BlockStatePatch {
-  return { findings: { [findingId]: patch } };
-}
-
 /** Colours for a finding's status pill. */
 const FINDING_STATUS_PILL: Record<FindingOutcome, string> = {
   open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
   fixed: "border-status-done/40 bg-status-done/10 text-status-done",
   dismissed: "border-border bg-muted/60 text-muted-foreground",
-};
-
-/** The card's left edge and header tint follow the verdict. */
-const VERDICT_EDGE: Record<BlockReviewVerdict, string> = {
-  approve: "border-l-status-done",
-  request_changes: "border-l-status-blocked",
-  comment: "border-l-border",
 };
 
 /** A finding's outcome as a small pill: Open, Fixed or Dismissed. */
@@ -579,7 +563,7 @@ function FindingPath({
   finding,
   onOpenPath,
 }: {
-  finding: BlockReviewFinding;
+  finding: BlockFindingData;
   onOpenPath?: (path: string, line: number | null) => void;
 }): JSX.Element | null {
   if (!finding.path) return null;
@@ -729,7 +713,7 @@ export function FindingActions({
             className="h-9 flex-1 gap-1.5 sm:flex-none"
             disabled={disabled}
             data-testid="chat-review-resolve"
-            onClick={() => onPatch("fixed")}
+            onClick={() => onPatch({ status: "fixed" })}
           >
             <Check className="h-4 w-4" aria-hidden="true" />
             Fixed
@@ -742,9 +726,7 @@ export function FindingActions({
             disabled={disabled}
             variant="default"
             testId="chat-review-dismiss"
-            onConfirm={(note) =>
-              onPatch({ status: "resolved", resolution: "dismissed", note })
-            }
+            onConfirm={(note) => onPatch({ status: "dismissed", note })}
           />
         </>
       ) : (
@@ -757,7 +739,7 @@ export function FindingActions({
           variant="default"
           testId="chat-review-reopen"
           onConfirm={(note) =>
-            onPatch(note ? { status: "open", note } : "open")
+            onPatch(note ? { status: "open", note } : { status: "open" })
           }
         />
       )}
@@ -812,21 +794,20 @@ function FindingRecordLine({
  */
 export function FindingDetail({
   block,
-  finding,
   disabled,
   onSetState,
   onOpenPath,
   authorName,
 }: {
-  block: Extract<Block, { kind: "review" }>;
-  finding: BlockReviewFinding;
+  block: FindingBlock;
   disabled: boolean;
   onSetState?: (patch: BlockStatePatch) => void;
   onOpenPath?: (path: string, line: number | null) => void;
   /** Names whoever last changed the finding. */
   authorName?: (by: BlockFindingState["by"]) => string;
 }): JSX.Element {
-  const record = findingRecord(block, finding.id);
+  const finding = block.data;
+  const record = block.state;
   // A record with no note and an "open" status is the reviewer's initial
   // stamp, not a change worth a line.
   const changed =
@@ -848,7 +829,7 @@ export function FindingDetail({
         <FindingActions
           record={record}
           disabled={disabled}
-          onPatch={(patch) => onSetState(findingStatePatch(finding.id, patch))}
+          onPatch={(patch) => onSetState(patch)}
         />
       ) : null}
       <Markdown className="text-sm text-foreground/90">{finding.body}</Markdown>
@@ -857,41 +838,30 @@ export function FindingDetail({
 }
 
 /**
- * A review as a card of its own, unlike a text post: a verdict-coloured
- * edge, a header that names the verdict and counts, the summary, and one
- * compact row per finding (status, severity, title, place, comments) that
- * opens the finding's panel. The full text and the status controls live
- * there. Open by default while findings are open; the fold animates.
+ * A review as a card of its own, unlike a text post: an edge coloured by
+ * where its findings stand, a header that says so and counts them, the
+ * summary, and one compact row per finding (status, severity, title,
+ * place, comments) that opens the finding's own thread. The full text and
+ * the status controls live there. The fold animates.
  */
 export function ReviewBlockBody({
   block,
-  disabled,
-  onSetState,
   onOpenFinding,
   onOpenPath,
   highlightFindingId = null,
   defaultExpanded = false,
-  commentCounts,
-  unreadCounts,
   compact = false,
   onOpen,
 }: {
-  block: Extract<Block, { kind: "review" }>;
-  /** State changes are unavailable (no callback, or nothing can be sent). */
-  disabled: boolean;
-  onSetState?: (patch: BlockStatePatch) => void;
-  /** Opens the finding's panel. */
+  block: ReviewBlock;
+  /** Opens a finding's thread, by the finding block's id. */
   onOpenFinding?: (findingId: string) => void;
   /** Opens the Changes tab on a finding's file. */
   onOpenPath?: (path: string, line: number | null) => void;
   highlightFindingId?: string | null;
   defaultExpanded?: boolean;
-  /** Replies about each finding, by finding id. */
-  commentCounts?: Readonly<Record<string, number>>;
-  /** Agent replies about each finding the person has not seen, by finding id. */
-  unreadCounts?: Readonly<Record<string, number>>;
   /**
-   * The stream's card: the verdict, the counts and the summary's first
+   * The stream's card: the status, the counts and the summary's first
    * sentence, and a click opens the review in the drawer, where the
    * findings and their details are. Off in the drawer, which shows it all.
    */
@@ -904,20 +874,18 @@ export function ReviewBlockBody({
     defaultExpanded
   );
   const expanded = compact ? false : expandedState;
-  const verdict = VERDICT[block.data.verdict] ?? VERDICT.comment;
-  const findings = block.data.findings;
-  const open = findings.filter(
-    (finding) => findingStatus(block, finding.id) === "open"
-  ).length;
-  const unread = Object.values(unreadCounts ?? {}).reduce(
-    (sum: number, n: number) => sum + n,
+  const findings = reviewFindings(block);
+  const standing = REVIEW_STATUS[reviewStatus(findings)];
+  const open = findings.filter((f) => f.state?.status !== "resolved").length;
+  const unread = findings.reduce(
+    (sum, finding) => sum + (finding.unreadReplies ?? 0),
     0
   );
   return (
     <div
       className={cn(
         "mt-1 overflow-hidden rounded-md border border-border/60 border-l-[3px] bg-card/60",
-        VERDICT_EDGE[block.data.verdict] ?? VERDICT_EDGE.comment
+        standing.edge
       )}
       data-testid="chat-review-block"
       data-expanded={expanded ? "true" : undefined}
@@ -944,11 +912,11 @@ export function ReviewBlockBody({
           Review
         </span>
         <Badge
-          variant={verdict.variant}
-          data-testid="chat-review-verdict"
-          data-verdict={block.data.verdict}
+          variant={standing.variant}
+          data-testid="chat-review-status"
+          data-status={reviewStatus(findings)}
         >
-          {verdict.label}
+          {standing.label}
         </Badge>
         <span
           className="ml-auto shrink-0 text-[11px] text-muted-foreground"
@@ -995,12 +963,13 @@ export function ReviewBlockBody({
                 className="-mx-1 flex flex-col divide-y divide-border/40 border-t border-border/40"
                 data-testid="chat-review-findings"
               >
-                {findings.map((finding) => {
-                  const record = findingRecord(block, finding.id);
+                {findings.map((item) => {
+                  const finding = item.data;
+                  const record = item.state;
                   const status = record?.status ?? "open";
-                  const comments = commentCounts?.[finding.id] ?? 0;
-                  const fresh = unreadCounts?.[finding.id] ?? 0;
-                  const highlighted = highlightFindingId === finding.id;
+                  const comments = item.replyCount ?? 0;
+                  const fresh = item.unreadReplies ?? 0;
+                  const highlighted = highlightFindingId === item.id;
                   const row = (
                     <>
                       <FindingStatusPill record={record} />
@@ -1043,13 +1012,13 @@ export function ReviewBlockBody({
                   );
                   return (
                     <li
-                      key={finding.id}
+                      key={item.id}
                       className={cn(
                         "px-1",
                         highlighted && "rounded-md bg-primary/[0.08]"
                       )}
                       data-testid="chat-review-finding"
-                      data-finding-id={finding.id}
+                      data-finding-id={item.id}
                       data-status={status}
                       data-outcome={findingOutcome(record)}
                       data-highlighted={highlighted ? "true" : undefined}
@@ -1060,7 +1029,7 @@ export function ReviewBlockBody({
                           className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
                           data-testid="chat-review-finding-link"
                           aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
-                          onClick={() => onOpenFinding(finding.id)}
+                          onClick={() => onOpenFinding(item.id)}
                         >
                           {row}
                         </button>

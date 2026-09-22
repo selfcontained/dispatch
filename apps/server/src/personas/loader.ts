@@ -231,12 +231,12 @@ ${inspectionSteps.join("\n")}
 4. Collect your findings and post them as described below.
 
 ### How to submit feedback
-- When the pass is complete, post exactly one \`review\` block to ${target}: \`post({ to, review: { verdict, summary, findings: [{ id, severity, title, body, path, line }] } })\`. Each finding needs a concrete comment and may name a file path and line. Use \`verdict: "approve"\` with an empty findings list for a clean approval; the summary then carries the assessment.
+- When the pass is complete, post exactly one \`review\` block to ${target}: \`post({ to, review: { summary, findings: [{ severity, title, body, path, line }] } })\`. Each finding needs a concrete comment and may name a file path and line. A clean pass is a review with no findings; the summary then carries the assessment. The post returns each finding's id.
 ${scopeLine}
 
 ### After posting
-- The builder resolves or disputes findings on that block; each finding is a thread. A reply in the thread reaches you as a new prompt: answer in the thread (post with replyTo set to the review block id), never as a loose message.
-- To reopen a finding the builder resolved wrongly, update the block's state: \`update({ id, state: { findings: { <findingId>: "open" } } })\`. A genuinely new concern is a reply in the thread, not a second review.
+- Each finding is a block with its own thread. The agent whose work it is answers under a finding with what it changed or why it disagrees, and that reaches you as a prompt. Check the change, then settle the finding yourself: \`update({ id: <finding id>, state: { status: "fixed" } })\`, or \`{ status: "dismissed", note }\` when its answer convinces you. If it falls short, reply under the finding with what is still missing (\`post({ replyTo: <finding id>, text })\`); reopen one you settled with \`{ status: "open", note }\`. Where the review stands comes from its findings.
+- Keep each finding's discussion in its own thread. A genuinely new concern is a reply under the closest finding, not a second review. If the two of you cannot settle one, ask the user there.
 
 ### Feedback hygiene
 - Findings are actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational findings. Put the overall assessment and useful positive context in the summary instead.

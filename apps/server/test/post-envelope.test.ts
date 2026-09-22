@@ -361,58 +361,128 @@ describe("normalizeReactionEmoji", () => {
   });
 });
 
+type FindingBlock = Parameters<typeof describeReview>[1][number];
+
+function finding(
+  id: string,
+  data: FindingBlock["data"],
+  state: FindingBlock["state"]
+): FindingBlock {
+  return {
+    id,
+    streamId: "agt_a",
+    author: { kind: "agent", agentId: "agt_reviewer" },
+    toAgentId: "agt_a",
+    kind: "finding",
+    threadId: "b1",
+    replyTo: "b1",
+    text: "",
+    data,
+    state,
+    attachments: [],
+    delivered: true,
+    readAt: null,
+    createdAt: "t",
+    updatedAt: "t",
+  };
+}
+
 describe("describeReview", () => {
-  it("spells out the verdict, every finding with its place and status, and what to do", () => {
+  it("spells out how many findings are open, every finding with its place and status, and what to do", () => {
     const text = describeReview(
-      "b1",
-      {
-        verdict: "request_changes",
-        summary: "Two things to fix.",
-        findings: [
+      { id: "b1", kind: "review", data: { summary: "Two things to fix." } },
+      [
+        finding(
+          "f1",
           {
-            id: "f1",
             severity: "blocker",
             title: "Button on every block",
             body: "Gate it behind a prop.\nOr remove it.",
             path: "apps/web/src/x.tsx",
             line: 33,
           },
-          { id: "f2", severity: "nit", title: "Naming", body: "Rename." },
-        ],
-      },
-      {
-        findings: {
-          f1: { status: "open", by: { kind: "user" }, at: "t" },
-          f2: {
+          { status: "open", by: { kind: "user" }, at: "t" }
+        ),
+        finding(
+          "f2",
+          { severity: "nit", title: "Naming", body: "Rename." },
+          {
             status: "resolved",
             resolution: "dismissed",
             by: { kind: "user" },
             at: "t",
-          },
-        },
-      }
+          }
+        ),
+      ]
     );
-    expect(text).toContain("Review: Changes requested.");
+    expect(text).toContain("Review (id: b1): 1 of 2 findings open.");
+    expect(text).not.toContain("Changes requested");
     expect(text).toContain("Two things to fix.");
-    expect(text).toContain("Findings (2):");
+    expect(text).toContain("Findings:");
     expect(text).toContain(
       "1. [blocker] Button on every block (id: f1, open) — apps/web/src/x.tsx:33"
     );
     expect(text).toContain("   Gate it behind a prop.\n   Or remove it.");
     expect(text).toContain("2. [nit] Naming (id: f2, dismissed)");
-    expect(text).toContain(
-      'update({ id: "b1", state: { findings: { "<finding id>": "fixed" } } })'
-    );
-    expect(text).toContain('resolution: "dismissed"');
-    expect(text).toContain('post({ replyTo: "b1"');
+    // Each finding is its own thread; its reviewer resolves it.
+    expect(text).toContain('post({ replyTo: "<finding id>", text: "…" })');
+    expect(text).toContain("leave its status to them");
+    expect(text).not.toContain("update(");
+    expect(text).not.toContain("finding:");
   });
 
   it("gives no instructions when nothing is open", () => {
-    const text = describeReview(
-      "b1",
-      { verdict: "approve", summary: "Clean.", findings: [] },
-      { findings: {} }
+    expect(
+      describeReview(
+        { id: "b1", kind: "review", data: { summary: "Clean." } },
+        []
+      )
+    ).toBe("Review (id: b1): no findings.\nClean.");
+    const settled = describeReview(
+      { id: "b1", kind: "review", data: { summary: "Done." } },
+      [
+        finding(
+          "f1",
+          { severity: "minor", title: "T", body: "B" },
+          {
+            status: "resolved",
+            resolution: "fixed",
+            by: { kind: "user" },
+            at: "t",
+          }
+        ),
+      ]
     );
-    expect(text).toBe("Review: Approved.\nClean.");
+    expect(settled).toContain("Review (id: b1): 0 of 1 findings open.");
+    expect(settled).toContain("(id: f1, fixed)");
+    expect(settled).not.toContain("What to do");
+  });
+});
+
+describe("buildPostEnvelope about a finding", () => {
+  it("tells the reviewer who raised it to resolve it, and the other side to answer", () => {
+    const toReviewer = buildPostEnvelope({
+      blockId: ID,
+      from: { kind: "agent", agentId: "agt_builder", name: "Builder" },
+      text: "Gated it.",
+      threadId: THREAD,
+      finding: { id: THREAD, title: "Button on every block", opened: true },
+    });
+    expect(toReviewer).toContain('About the finding "Button on every block".');
+    expect(toReviewer).toContain(
+      `update({ id: "${THREAD}", state: { status: "fixed" } })`
+    );
+    expect(toReviewer).toContain(`replyTo: "${THREAD}"`);
+    expect(toReviewer).not.toContain("finding:");
+
+    const toBuilder = buildPostEnvelope({
+      blockId: ID,
+      from: { kind: "agent", agentId: "agt_reviewer", name: "Reviewer" },
+      text: "Not quite.",
+      threadId: THREAD,
+      finding: { id: THREAD, title: "Button on every block", opened: false },
+    });
+    expect(toBuilder).toContain("Its reviewer resolves it");
+    expect(toBuilder).not.toContain("update(");
   });
 });

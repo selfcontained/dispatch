@@ -303,15 +303,13 @@ describe("POST /api/v1/templates/:id/launch", () => {
     // The launch post shows the URL once, as a link attachment, while
     // template runtime instructions stay out of the stream.
     const posts = await ctx.pool.query(
-      `SELECT text, origin, attachments FROM blocks
-         WHERE stream_id = $1
-           AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`,
+      `SELECT text, kind, attachments FROM blocks WHERE stream_id = $1`,
       [agent.id]
     );
     expect(posts.rows).toHaveLength(1);
     expect(posts.rows[0]).toMatchObject({
       text: "",
-      origin: "launch",
+      kind: "launch",
       attachments: [{ type: "link", url: "https://example.com/spec" }],
     });
   });

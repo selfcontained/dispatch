@@ -7,7 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { LIVE_HEAD_ROWS } from "@/hooks/use-stream";
+import type {
+  Block,
+  StreamEntry,
+  StreamThreadResponse,
+} from "@dispatch/shared";
+import {
+  type FeedCache,
+  LIVE_HEAD_ROWS,
+  streamFeedQueryKey,
+  threadQueryKey,
+} from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -18,9 +28,36 @@ import {
   type FileItem,
 } from "@/components/app/types";
 
-import { turnEntry } from "@/test-utils/blocks";
+import {
+  answered,
+  block,
+  blockEntry,
+  findingBlock,
+  findingRecord,
+  launchBlock,
+  questionBody,
+  reviewBlock,
+  turnEntry,
+} from "@/test-utils/blocks";
 
-import { applyDiffStateChanged, useSSE } from "./use-sse";
+/**
+ * A person's post as a feed row: a row that moves no unread badge. The
+ * feed is blocks only.
+ */
+function personRow(id: string, at: string, text = "x") {
+  return blockEntry(
+    block({
+      id,
+      authorKind: "user",
+      text,
+      delivered: true,
+      createdAt: at,
+      updatedAt: at,
+    })
+  );
+}
+
+import { applyDiffStateChanged, applyStreamEntry, useSSE } from "./use-sse";
 
 vi.mock("@/lib/web-notifications", () => ({
   showWebNotification: vi.fn(() => false),
@@ -618,13 +655,7 @@ describe("useSSE message handling", () => {
 
   it("puts a chat.entry straight into the cached feed without a refetch", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const older = {
-      type: "status",
-      id: "event:1",
-      eventType: "working",
-      message: "Reading",
-      at: "2026-09-02T10:00:01.000Z",
-    };
+    const older = personRow("event:1", "2026-09-02T10:00:01.000Z", "Reading");
     queryClient.setQueryData(["stream", "agt_1"], {
       pageParams: [undefined],
       pages: [
@@ -669,7 +700,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_1",
-      entry: { ...older, id: "event:2", at: "2026-09-02T10:00:03.000Z" },
+      entry: personRow("event:2", "2026-09-02T10:00:03.000Z", "Reading"),
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
     expect(
@@ -723,13 +754,11 @@ describe("useSSE message handling", () => {
 
   it("rebases the feed once live rows outgrow the newest page", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const row = (i: number) => ({
-      type: "status",
-      id: `event:${i}`,
-      eventType: "working",
-      message: "x",
-      at: `2026-09-02T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`,
-    });
+    const row = (i: number) =>
+      personRow(
+        `event:${i}`,
+        `2026-09-02T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`
+      );
     queryClient.setQueryData(["stream", "agt_1"], {
       pageParams: [undefined],
       pages: [
@@ -764,15 +793,7 @@ describe("useSSE message handling", () => {
       pageParams: [undefined],
       pages: [
         {
-          entries: [
-            {
-              type: "status",
-              id: "event:5",
-              eventType: "working",
-              message: "later",
-              at: "2026-09-02T10:00:05.000Z",
-            },
-          ],
+          entries: [personRow("event:5", "2026-09-02T10:00:05.000Z", "later")],
           hasMore: true,
           nextCursor: "c1",
           unreadCount: 0,
@@ -784,13 +805,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_1",
-      entry: {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "earlier",
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      entry: personRow("event:1", "2026-09-02T10:00:01.000Z", "earlier"),
     });
     expectInvalidatedSet(invalidateQueries, [["stream", "agt_1"]]);
 
@@ -799,13 +814,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_never",
-      entry: {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "x",
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      entry: personRow("event:1", "2026-09-02T10:00:01.000Z"),
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["stream", "agt_never"])).toBeUndefined();
@@ -1013,5 +1022,98 @@ describe("useSSE message handling", () => {
       queryClient.getQueryData<Agent[]>(["agents"])?.map((a) => a.id)
     ).toEqual(["keep"]);
     expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStreamEntry and blocks shown in threads", () => {
+  const feedKey = streamFeedQueryKey("agt_1");
+  const seed = (queryClient: QueryClient, entries: StreamEntry[]) =>
+    queryClient.setQueryData<FeedCache>(feedKey, {
+      pageParams: [undefined],
+      pages: [{ entries, hasMore: false, nextCursor: null, unreadCount: 0 }],
+    });
+  const finding = (record = findingRecord()) =>
+    findingBlock(
+      "f1",
+      { severity: "minor", title: "Naming", body: "" },
+      { record, updatedAt: "2026-09-02T10:05:00.000Z" }
+    );
+
+  it("files a finding's change into the review that shows it and the finding's own page", () => {
+    const queryClient = new QueryClient();
+    const review = reviewBlock({ id: "rv1", findings: [finding()] });
+    seed(queryClient, [blockEntry(review)]);
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "rv1"),
+      { root: review, replies: [] }
+    );
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "f1"),
+      { root: finding(), replies: [] }
+    );
+    const fixed = finding(findingRecord("fixed"));
+    applyStreamEntry(queryClient, "agt_1", blockEntry(fixed));
+
+    const reviewPage = queryClient.getQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "rv1")
+    )!;
+    // Drawn by the review, not listed as a reply under it.
+    expect(reviewPage.replies).toEqual([]);
+    expect(reviewPage.root.blocks![0]!.state).toEqual(findingRecord("fixed"));
+    // The finding's own page is rooted at it.
+    expect(
+      queryClient.getQueryData<StreamThreadResponse>(
+        threadQueryKey("agt_1", "f1")
+      )!.root
+    ).toEqual(fixed);
+    // The feed's review counts no reply for it.
+    const row =
+      queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!.entries[0]!;
+    expect(row.block.replyCount).toBeUndefined();
+  });
+
+  it("keeps the first page's open asks in step with a question asked in a thread", () => {
+    const queryClient = new QueryClient();
+    const card = launchBlock({ id: "card", toAgentId: "agt_2" });
+    seed(queryClient, [blockEntry(card)]);
+    const ask = block({
+      id: "q1",
+      author: { kind: "agent", agentId: "agt_2" },
+      threadId: "card",
+      replyTo: "card",
+      createdAt: "2026-09-02T10:06:00.000Z",
+      body: questionBody([{ label: "Yes" }]),
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
+    let first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.openInputs?.map((b) => b.id)).toEqual(["q1"]);
+    // Not a row of the channel: it is in the card's thread.
+    expect(first.entries.map((e) => e.id)).toEqual(["card"]);
+
+    applyStreamEntry(
+      queryClient,
+      "agt_1",
+      blockEntry({
+        ...ask,
+        state: answered("Yes"),
+        updatedAt: "2026-09-02T10:07:00.000Z",
+      } as Block)
+    );
+    first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.openInputs).toEqual([]);
+  });
+
+  it("adds a top-level ask to the open list as well as the feed", () => {
+    const queryClient = new QueryClient();
+    seed(queryClient, []);
+    const ask = block({
+      id: "q2",
+      createdAt: "2026-09-02T10:06:00.000Z",
+      body: questionBody([{ label: "Yes" }]),
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
+    const first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.entries.map((e) => e.id)).toEqual(["q2"]);
+    expect(first.openInputs?.map((b) => b.id)).toEqual(["q2"]);
   });
 });

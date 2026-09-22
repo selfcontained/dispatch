@@ -28,24 +28,24 @@ function row(
     updatedAt: at(settledAt ?? s),
   };
 }
-const chatMsg = (id: string, text: string, origin?: "launch"): Block => ({
-  id,
-  streamId: "a",
-  author: { kind: "user" },
-  toAgentId: "a",
-  kind: "text",
-  threadId: null,
-  replyTo: null,
-  text,
-  data: null,
-  state: null,
-  attachments: [],
-  delivered: true,
-  readAt: null,
-  ...(origin ? { origin } : {}),
-  createdAt: at(0).toISOString(),
-  updatedAt: at(0).toISOString(),
-});
+const chatMsg = (id: string, text: string, kind?: "launch"): Block =>
+  ({
+    id,
+    streamId: "a",
+    author: { kind: "user" },
+    toAgentId: "a",
+    threadId: null,
+    replyTo: null,
+    text,
+    attachments: [],
+    delivered: true,
+    readAt: null,
+    ...(kind === "launch"
+      ? { kind: "launch", data: null, state: {} }
+      : { kind: "text", data: null, state: null }),
+    createdAt: at(0).toISOString(),
+    updatedAt: at(0).toISOString(),
+  }) as Block;
 
 describe("assembleTurns", () => {
   it("cuts the stream into turns with prompt, steps, and result", () => {

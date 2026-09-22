@@ -15,26 +15,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 
-import { answered, block, blockEntry, questionBody } from "@/test-utils/blocks";
+import {
+  answered,
+  block,
+  blockEntry,
+  findingBlock,
+  findingRecord,
+  formBody,
+  launchBlock,
+  questionBody,
+  reviewBlock,
+} from "@/test-utils/blocks";
 
 import {
   appendToNewestPage,
   applyStreamRead,
   bumpReplyCount,
   type FeedCache,
+  mapBlock,
+  mapShownBlock,
   mergeBlockState,
-  optimisticStatePatch,
+  optimisticState,
+  optimisticUserBlock,
   removeBlock,
   replaceBlock,
   replaceThreadRoot,
   shareFeedByEntryId,
   shareFeedCache,
+  showsBlock,
   streamFeedQueryKey,
+  syncOpenInput,
   threadQueryKey,
   updateBlockReactions,
   upsertFeedEntry,
   upsertThreadReply,
   useAnswerQuestion,
+  useMarkThreadRead,
   usePostBlock,
   useSetBlockState,
   useStreamFeed,
@@ -244,33 +260,30 @@ describe("useSubmitForm", () => {
 });
 
 describe("useSetBlockState", () => {
+  const f1 = () =>
+    findingBlock("f1", { severity: "major", title: "A", body: "" });
+  const f2 = () =>
+    findingBlock(
+      "f2",
+      { severity: "nit", title: "B", body: "" },
+      { record: findingRecord("fixed") }
+    );
   const review = () =>
-    block({
-      id: "rv1",
-      body: {
-        kind: "review",
-        data: {
-          verdict: "request_changes",
-          summary: "Two things.",
-          findings: [
-            { id: "f1", severity: "major", title: "A", body: "" },
-            { id: "f2", severity: "nit", title: "B", body: "" },
-          ],
-        },
-        state: {
-          findings: {
-            f2: {
-              status: "resolved",
-              by: { kind: "user" },
-              at: "2026-09-02T10:00:30.000Z",
-            },
-          },
-        },
-      },
-    });
+    reviewBlock({ id: "rv1", summary: "Two things.", findings: [f1(), f2()] });
+  const shown = (b: Block | undefined, id: string) =>
+    b?.blocks?.find((x) => x.id === id);
 
-  it("merges a finding's status into the cached state at once and patches the state route", async () => {
+  it("resolves a finding its review shows, in the feed and every loaded thread, and patches the finding's state route", async () => {
     const client = seededClient([blockEntry(review())]);
+    // The review's page and the finding's own page are both open.
+    client.setQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "rv1"), {
+      root: review(),
+      replies: [],
+    });
+    client.setQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "f1"), {
+      root: f1(),
+      replies: [],
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
@@ -284,32 +297,62 @@ describe("useSetBlockState", () => {
     let pending: Promise<unknown> = Promise.resolve();
     act(() => {
       pending = result.current.mutateAsync({
-        blockId: "rv1",
-        state: { findings: { f1: "resolved" } },
+        blockId: "f1",
+        state: { status: "fixed" },
       });
     });
     await waitFor(() => {
-      const state = feedBlocks(client)[0]!.state as {
-        findings: Record<string, { status: string }>;
+      const state = shown(feedBlocks(client)[0], "f1")?.state as {
+        status: string;
+        resolution?: string;
+        by: unknown;
       };
-      expect(state.findings.f1?.status).toBe("resolved");
-      // The other finding's record is kept: the merge is one level deep.
-      expect(state.findings.f2?.status).toBe("resolved");
+      expect(state.status).toBe("resolved");
+      expect(state.resolution).toBe("fixed");
+      expect(state.by).toEqual({ kind: "user" });
     });
+    // The other finding is untouched.
+    expect(shown(feedBlocks(client)[0], "f2")?.state).toEqual(f2().state);
+    const reviewPage = client.getQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "rv1")
+    )!;
+    expect(
+      (shown(reviewPage.root, "f1")?.state as { status: string }).status
+    ).toBe("resolved");
+    const findingPage = client.getQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "f1")
+    )!;
+    expect((findingPage.root.state as { status: string }).status).toBe(
+      "resolved"
+    );
     expect(apiMock).toHaveBeenCalledWith(
-      "/api/v1/streams/agt_1/blocks/rv1/state",
+      "/api/v1/streams/agt_1/blocks/f1/state",
       {
         method: "PATCH",
-        body: JSON.stringify({ state: { findings: { f1: "resolved" } } }),
+        body: JSON.stringify({ state: { status: "fixed" } }),
       }
     );
+    const stored = {
+      ...f1(),
+      state: findingRecord("fixed", { at: "2026-09-02T11:00:00.000Z" }),
+      updatedAt: "2026-09-02T11:00:00.000Z",
+    };
     await act(async () => {
-      respond({
-        block: { ...review(), updatedAt: "2026-09-02T11:00:00.000Z" },
-      });
+      respond({ block: stored });
       await pending;
     });
-    expect(feedBlocks(client)[0]!.updatedAt).toBe("2026-09-02T11:00:00.000Z");
+    expect(shown(feedBlocks(client)[0], "f1")?.updatedAt).toBe(
+      "2026-09-02T11:00:00.000Z"
+    );
+    expect(
+      client.getQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "f1"))!
+        .root.updatedAt
+    ).toBe("2026-09-02T11:00:00.000Z");
+    // The review still shows both findings, in order.
+    expect(feedBlocks(client)[0]!.blocks?.map((b) => b.id)).toEqual([
+      "f1",
+      "f2",
+    ]);
   });
 
   it("puts the previous state back and refetches when the patch fails", async () => {
@@ -324,142 +367,310 @@ describe("useSetBlockState", () => {
     });
     await act(async () => {
       await result.current
-        .mutateAsync({
-          blockId: "rv1",
-          state: { findings: { f1: "resolved" } },
-        })
+        .mutateAsync({ blockId: "f1", state: { status: "fixed" } })
         .catch(() => undefined);
     });
-    expect(feedBlocks(client)[0]!.state).toEqual(review().state);
+    expect(shown(feedBlocks(client)[0], "f1")?.state).toEqual(f1().state);
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: streamFeedQueryKey("agt_1"),
       exact: true,
     });
   });
 
-  it("merges one level deep and fills in who resolved a finding", () => {
+  it("merges a task list's state one level deep", () => {
     expect(
       mergeBlockState(
-        { findings: { a: { status: "open" } }, note: 1 },
-        { findings: { b: { status: "resolved" } } }
+        { items: { a: "done" }, note: 1 },
+        { items: { b: "now" } }
       )
-    ).toEqual({
-      findings: { a: { status: "open" }, b: { status: "resolved" } },
-      note: 1,
-    });
+    ).toEqual({ items: { a: "done", b: "now" }, note: 1 });
     expect(mergeBlockState(null, { items: { t1: "done" } })).toEqual({
-      items: { t1: "done" },
-    });
-    expect(optimisticStatePatch({ findings: { a: "resolved" } }, "T")).toEqual({
-      findings: {
-        a: {
-          status: "resolved",
-          resolution: "fixed",
-          by: { kind: "user" },
-          at: "T",
-        },
-      },
-    });
-    expect(
-      optimisticStatePatch(
-        {
-          findings: {
-            a: "open",
-            b: { status: "resolved", resolution: "dismissed", note: " Nope " },
-            c: "dismissed",
-          },
-        },
-        "T"
-      )
-    ).toEqual({
-      findings: {
-        a: { status: "open", by: { kind: "user" }, at: "T" },
-        b: {
-          status: "resolved",
-          resolution: "dismissed",
-          note: "Nope",
-          by: { kind: "user" },
-          at: "T",
-        },
-        c: {
-          status: "resolved",
-          resolution: "dismissed",
-          by: { kind: "user" },
-          at: "T",
-        },
-      },
-    });
-    expect(optimisticStatePatch({ items: { t1: "done" } }, "T")).toEqual({
       items: { t1: "done" },
     });
   });
 });
 
-describe("useSetBlockState and the thread cache", () => {
-  it("keeps an open thread's root block in step with a state change", async () => {
-    const root = block({
-      id: "rv1",
-      body: {
-        kind: "review",
-        data: {
-          verdict: "comment",
-          summary: "One thing.",
-          findings: [{ id: "f1", severity: "minor", title: "A", body: "" }],
-        },
-        state: { findings: {} },
-      },
-    });
-    const client = seededClient([blockEntry(root)]);
-    const threadKey = threadQueryKey("agt_1", "rv1");
-    client.setQueryData<StreamThreadResponse>(threadKey, {
-      root,
-      replies: [],
-    });
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+describe("optimisticUserBlock", () => {
+  it("makes a hand-written review a review showing no findings yet", () => {
+    const placeholder = optimisticUserBlock(
+      "id1",
+      "agt_1",
+      "",
+      [],
+      null,
+      "agt_2",
+      {
+        summary: "Two things.",
+        findings: [{ severity: "minor", title: "A", body: "" }],
+      }
     );
-    const stored: Block = {
-      ...root,
-      kind: "review",
-      data: (root as Extract<Block, { kind: "review" }>).data,
-      updatedAt: "2026-09-02T10:05:00.000Z",
-      state: {
-        findings: {
-          f1: {
-            status: "resolved",
-            resolution: "dismissed",
-            note: "Not ours.",
-            by: { kind: "user" },
-            at: "2026-09-02T10:05:00.000Z",
-          },
-        },
-      },
-    };
-    apiMock.mockResolvedValueOnce({ block: stored });
-    const { result } = renderHook(() => useSetBlockState("agt_1"), {
-      wrapper,
+    expect(placeholder.kind).toBe("review");
+    expect(placeholder.data).toEqual({ summary: "Two things." });
+    // Its findings arrive as blocks with the stored row.
+    expect(placeholder.state).toEqual({ blocks: [] });
+    expect(placeholder.toAgentId).toBe("agt_2");
+    expect(optimisticUserBlock("id2", "agt_1", "hi").kind).toBe("text");
+  });
+});
+
+describe("optimisticState", () => {
+  const finding = () =>
+    findingBlock("f1", { severity: "minor", title: "A", body: "" });
+
+  it("replaces a finding's record with the one the server will stamp", () => {
+    expect(optimisticState(finding(), { status: "fixed" }, "T").state).toEqual({
+      status: "resolved",
+      resolution: "fixed",
+      by: { kind: "user" },
+      at: "T",
     });
-    await act(async () => {
-      await result.current.mutateAsync({
-        blockId: "rv1",
-        state: {
-          findings: {
-            f1: {
-              status: "resolved",
-              resolution: "dismissed",
-              note: "Not ours.",
-            },
-          },
-        },
-      });
-    });
-    const thread = client.getQueryData<StreamThreadResponse>(threadKey);
-    expect(thread?.root).toEqual(stored);
-    // A thread under another block is left alone.
     expect(
-      replaceThreadRoot({ root: block({ id: "other" }), replies: [] }, stored)
-        ?.root.id
-    ).toBe("other");
+      optimisticState(finding(), { status: "dismissed", note: " Nope " }, "T")
+        .state
+    ).toEqual({
+      status: "resolved",
+      resolution: "dismissed",
+      note: "Nope",
+      by: { kind: "user" },
+      at: "T",
+    });
+    // `resolved` means fixed unless it names a resolution.
+    expect(
+      optimisticState(finding(), { status: "resolved" }, "T").state
+    ).toMatchObject({ status: "resolved", resolution: "fixed" });
+    expect(
+      optimisticState(
+        finding(),
+        { status: "resolved", resolution: "dismissed" },
+        "T"
+      ).state
+    ).toMatchObject({ status: "resolved", resolution: "dismissed" });
+    // Reopening drops the resolution; a blank note is no note.
+    const dismissed = {
+      ...finding(),
+      state: findingRecord("dismissed", { note: "old" }),
+    };
+    expect(
+      optimisticState(dismissed, { status: "open", note: "  " }, "T").state
+    ).toEqual({ status: "open", by: { kind: "user" }, at: "T" });
+    expect(
+      optimisticState(dismissed, { status: "open", note: "Still broken" }, "T")
+        .state
+    ).toEqual({
+      status: "open",
+      note: "Still broken",
+      by: { kind: "user" },
+      at: "T",
+    });
+  });
+
+  it("merges anything else into the block's state", () => {
+    const tasks = block({
+      id: "t1",
+      body: {
+        kind: "tasks",
+        data: { items: [{ id: "a", text: "A" }] },
+        state: { items: { a: "todo" } },
+      },
+    });
+    expect(optimisticState(tasks, { items: { b: "now" } }, "T").state).toEqual({
+      items: { a: "todo", b: "now" },
+    });
+  });
+});
+
+describe("shown blocks", () => {
+  const finding = (id: string) =>
+    findingBlock(id, { severity: "minor", title: id, body: "" });
+  const card = () =>
+    launchBlock({
+      id: "card",
+      toAgentId: "agt_2",
+      blocks: [
+        reviewBlock({
+          id: "rv1",
+          threadId: "card",
+          replyTo: "card",
+          findings: [finding("f1"), finding("f2")],
+        }),
+      ],
+    });
+
+  it("maps a block at any depth, keeping everything else by identity", () => {
+    const host = card();
+    const renamed = mapShownBlock(host, "f2", (b) => ({ ...b, text: "new" }));
+    expect(renamed).not.toBe(host);
+    expect(renamed.blocks![0]!.blocks![1]!.text).toBe("new");
+    // The untouched sibling keeps its identity.
+    expect(renamed.blocks![0]!.blocks![0]).toBe(host.blocks![0]!.blocks![0]);
+    // Nothing matched, or nothing changed: the same object back.
+    expect(mapShownBlock(host, "nope", (b) => ({ ...b, text: "x" }))).toBe(
+      host
+    );
+    expect(mapShownBlock(host, "f1", (b) => b)).toBe(host);
+    // The block itself.
+    expect(mapShownBlock(host, "card", (b) => ({ ...b, text: "c" })).text).toBe(
+      "c"
+    );
+    expect(showsBlock(host, "rv1")).toBe(true);
+    expect(showsBlock(host, "f2")).toBe(true);
+    expect(showsBlock(host, "card")).toBe(false);
+    expect(showsBlock(finding("f1"), "f1")).toBe(false);
+  });
+
+  it("mapBlock rewrites a block the feed's row shows, not only the row", () => {
+    const other = block({ id: "other" });
+    const client = seededClient([blockEntry(card()), blockEntry(other)]);
+    const cache = client.getQueryData<FeedCache>(streamFeedQueryKey("agt_1"))!;
+    const next = mapBlock(cache, "f1", (b) => ({ ...b, text: "seen" }))!;
+    const rows = next.pages[0]!.entries.map((e) => e.block);
+    expect(rows[0]!.blocks![0]!.blocks![0]!.text).toBe("seen");
+    expect(rows[1]).toBe(other);
+    expect(mapBlock(cache, "missing", (b) => ({ ...b, text: "x" }))).toBe(
+      cache
+    );
+  });
+
+  it("files a block the thread's root shows into the root, not the replies", () => {
+    const review = reviewBlock({
+      id: "rv1",
+      findings: [finding("f1"), finding("f2")],
+      replyCount: 0,
+    });
+    const thread: StreamThreadResponse = { root: review, replies: [] };
+    const resolved = {
+      ...finding("f1"),
+      state: findingRecord("fixed"),
+      updatedAt: "2026-09-02T11:00:00.000Z",
+    };
+    const next = upsertThreadReply(thread, resolved)!;
+    expect(next.replies).toEqual([]);
+    expect(next.root.blocks![0]!.state).toEqual(findingRecord("fixed"));
+    expect(next.root.blocks![1]).toBe(review.blocks![1]);
+    // The same copy again changes nothing.
+    expect(upsertThreadReply(next, resolved)).toBe(next);
+
+    // On a launch card's page, the review's finding is two levels down.
+    const page: StreamThreadResponse = { root: card(), replies: [] };
+    const deep = upsertThreadReply(page, resolved)!;
+    expect(deep.replies).toEqual([]);
+    expect(deep.root.blocks![0]!.blocks![0]!.state).toEqual(
+      findingRecord("fixed")
+    );
+    // A republished review without its findings keeps the ones it had.
+    const bare = { ...card().blocks![0]!, blocks: undefined, text: "edited" };
+    const kept = upsertThreadReply(page, bare)!;
+    expect(kept.root.blocks![0]!.text).toBe("edited");
+    expect(kept.root.blocks![0]!.blocks!.map((b) => b.id)).toEqual([
+      "f1",
+      "f2",
+    ]);
+  });
+
+  it("replaces only the thread rooted at the block", () => {
+    const stored = { ...finding("f1"), text: "stored" };
+    const own: StreamThreadResponse = { root: finding("f1"), replies: [] };
+    expect(replaceThreadRoot(own, stored)!.root).toBe(stored);
+    const other: StreamThreadResponse = {
+      root: block({ id: "o" }),
+      replies: [],
+    };
+    expect(replaceThreadRoot(other, stored)).toBe(other);
+    expect(replaceThreadRoot(undefined, stored)).toBeUndefined();
+  });
+
+  it("counts no reply on a host for a block it shows", () => {
+    const review = reviewBlock({
+      id: "rv1",
+      findings: [finding("f1")],
+      replyCount: 0,
+    });
+    const client = seededClient([blockEntry(review)]);
+    const cache = client.getQueryData<FeedCache>(streamFeedQueryKey("agt_1"))!;
+    const again = {
+      ...finding("f1"),
+      createdAt: "2026-09-02T12:00:00.000Z",
+    };
+    expect(bumpReplyCount(cache, again)).toBe(cache);
+    // A real reply in the review's thread still counts.
+    const reply = block({
+      id: "c1",
+      authorKind: "user",
+      threadId: "rv1",
+      replyTo: "rv1",
+      createdAt: "2026-09-02T12:00:00.000Z",
+    });
+    const next = bumpReplyCount(cache, reply)!;
+    expect(next.pages[0]!.entries[0]!.block.replyCount).toBe(1);
+  });
+});
+
+describe("syncOpenInput", () => {
+  const cache = (openInputs?: Block[]): FeedCache => ({
+    pageParams: [undefined, "c1"],
+    pages: [
+      {
+        entries: [],
+        hasMore: true,
+        unreadCount: 0,
+        nextCursor: "c1",
+        ...(openInputs ? { openInputs } : {}),
+      },
+      { entries: [], hasMore: false, unreadCount: 0, nextCursor: null },
+    ],
+  });
+  const ask = (state = {}) =>
+    block({
+      id: "q1",
+      threadId: "card",
+      replyTo: "card",
+      body: questionBody([{ label: "Yes" }], { state }),
+    });
+
+  it("adds an agent's open question asked anywhere, replaces it, and drops it once answered", () => {
+    const empty = cache();
+    const added = syncOpenInput(empty, ask())!;
+    expect(added.pages[0]!.openInputs!.map((b) => b.id)).toEqual(["q1"]);
+    // Only the first page carries the list.
+    expect(added.pages[1]).toBe(empty.pages[1]);
+    const edited = { ...ask(), text: "Still?" };
+    const replaced = syncOpenInput(added, edited)!;
+    expect(replaced.pages[0]!.openInputs).toEqual([edited]);
+    const gone = syncOpenInput(replaced, ask(answered("Yes")))!;
+    expect(gone.pages[0]!.openInputs).toEqual([]);
+  });
+
+  it("leaves the cache alone for anything that is not an open ask", () => {
+    const empty = cache();
+    expect(syncOpenInput(empty, block({ id: "t1" }))).toBe(empty);
+    expect(syncOpenInput(empty, ask(answered("Yes")))).toBe(empty);
+    // A question an agent put to another agent is not for people.
+    expect(syncOpenInput(empty, { ...ask(), toAgentId: "agt_2" })).toBe(empty);
+    // A person's post is never an ask.
+    expect(
+      syncOpenInput(empty, {
+        ...ask(),
+        author: { kind: "user" },
+      })
+    ).toBe(empty);
+    // An open form is.
+    const form = block({
+      id: "form1",
+      body: formBody([{ id: "a", label: "A", type: "text" }]),
+    });
+    expect(syncOpenInput(empty, form)!.pages[0]!.openInputs).toEqual([form]);
+    expect(
+      syncOpenInput(
+        cache([form]),
+        block({
+          id: "form1",
+          body: formBody([{ id: "a", label: "A", type: "text" }], {
+            submission: { a: "x" },
+          }),
+        })
+      )!.pages[0]!.openInputs
+    ).toEqual([]);
+    expect(syncOpenInput(undefined, ask())).toBeUndefined();
   });
 });
 
@@ -997,6 +1208,56 @@ describe("removeBlock", () => {
 });
 
 describe("usePostBlock", () => {
+  it("moves a post the server filed on a child's card out of the feed and into that thread", async () => {
+    const card = launchBlock({ id: "card", toAgentId: "agt_2", replyCount: 0 });
+    const client = seededClient([blockEntry(card)]);
+    client.setQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "card"), {
+      root: card,
+      replies: [],
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    const { result } = renderHook(() => usePostBlock("agt_1"), { wrapper });
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.mutateAsync({ text: "try again", to: "agt_2" });
+    });
+    // Sent top-level, the placeholder shows in the channel at first.
+    await waitFor(() => expect(feedBlocks(client)).toHaveLength(2));
+    const id = feedBlocks(client)[1]!.id;
+    const body = JSON.parse(
+      (apiMock.mock.calls[0]![1] as { body: string }).body
+    ) as Record<string, unknown>;
+    expect(body).toEqual({ id, text: "try again", to: "agt_2" });
+    const stored = block({
+      id,
+      authorKind: "user",
+      toAgentId: "agt_2",
+      text: "try again",
+      threadId: "card",
+      replyTo: "card",
+      createdAt: "2026-09-02T10:05:00.000Z",
+    });
+    await act(async () => {
+      respond({ block: stored, delivered: null, held: false });
+      await sent;
+    });
+    // The channel keeps only the card, which counts the reply...
+    expect(feedBlocks(client).map((b) => b.id)).toEqual(["card"]);
+    expect(feedBlocks(client)[0]!.replyCount).toBe(1);
+    // ...and the card's thread holds the post.
+    expect(
+      client
+        .getQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "card"))!
+        .replies.map((r) => r.id)
+    ).toEqual([id]);
+  });
+
   it("shows one row when the stream delivers the stored message before the response", async () => {
     const client = seededClient([blockEntry(block({ id: "a" }))]);
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -1333,5 +1594,34 @@ describe("useToggleReaction", () => {
       queryKey: streamFeedQueryKey("agt_1"),
       exact: true,
     });
+  });
+});
+
+describe("useMarkThreadRead", () => {
+  it("clears the unseen count of the block the thread opens on, where the review shows it", async () => {
+    const finding = {
+      ...findingBlock("f1", { severity: "major", title: "A", body: "" }),
+      replyCount: 1,
+      unreadReplies: 1,
+    };
+    const client = seededClient([
+      blockEntry(reviewBlock({ id: "rv1", summary: "S", findings: [finding] })),
+    ]);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    apiMock.mockResolvedValueOnce({
+      ids: ["c1"],
+      readAt: "2026-09-02T12:00:00.000Z",
+    });
+    const { result } = renderHook(() => useMarkThreadRead("agt_1"), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ blockId: "f1" });
+    });
+    expect(
+      feedBlocks(client)[0]!.blocks?.find((b) => b.id === "f1")?.unreadReplies
+    ).toBe(0);
   });
 });

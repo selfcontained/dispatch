@@ -98,6 +98,17 @@ export function entryOwner(
   const { agentId, rootId, descendants } = view;
   const isRoot = agentId === rootId;
   const { author, toAgentId } = entry.block;
+  // A child's launch card is the one entry for it in its parent's stream,
+  // and the parent's record of starting it: it stays in the parent's view
+  // whether or not child activity is shown. The child's work is inside it.
+  if (
+    entry.block.kind === "launch" &&
+    toAgentId !== null &&
+    toAgentId !== agentId &&
+    descendants.has(toAgentId)
+  ) {
+    return "own";
+  }
   if (author.kind === "agent") {
     if (author.agentId === agentId) return "own";
     if (descendants.has(author.agentId)) return "child";
@@ -395,13 +406,11 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  // The startup records — what the agent was told, and its workspace
-  // coming up — are not a conversation: a stream holding only those still
-  // reads as empty, which is what a fresh agent should look like.
+  // A launch card with no briefing is a startup record, not a
+  // conversation: a stream holding only that still reads as empty, which
+  // is what a fresh agent should look like.
   const hasConversation = visibleEntries.some(
-    (entry) =>
-      entry.block.origin !== "system_prompt" &&
-      entry.block.origin !== "workspace"
+    (entry) => entry.block.kind !== "launch" || entry.block.text.trim() !== ""
   );
   const hasHiddenChildActivity = useMemo(
     () =>

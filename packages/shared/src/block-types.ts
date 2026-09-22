@@ -24,7 +24,9 @@ export const BLOCK_KINDS = [
   "file",
   "link",
   "review",
+  "finding",
   "tasks",
+  "launch",
 ] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
 
@@ -43,9 +45,16 @@ export type BlockQuestionData = {
   options: BlockOption[];
   /** When true the UI hints that a typed reply is also acceptable. */
   allowFreeform?: boolean;
-  /** Asked under a review finding: the discussion it belongs to. */
-  findingId?: string;
 };
+
+/**
+ * A block that shows other blocks inside it lists them here, in order: a
+ * launch card the review its agent posted, a review its findings. The
+ * listed blocks are rows of their own (their own state, their own thread)
+ * stored in the host's thread; the host renders them instead of the thread
+ * listing them as replies. Read back resolved as `Block.blocks`.
+ */
+export type BlockShows = { blocks?: string[] };
 
 /** Who did something to a block, and when. */
 export type BlockActor = { by: BlockAuthor; at: string };
@@ -98,10 +107,13 @@ export type BlockFormState = {
 export type BlockLinkData = { url: string; title?: string };
 
 export type BlockReviewSeverity = "blocker" | "major" | "minor" | "nit";
-export type BlockReviewVerdict = "approve" | "request_changes" | "comment";
 
-export type BlockReviewFinding = {
-  id: string;
+/**
+ * One finding as a reviewer states it. Posted inside a review, it becomes
+ * a `finding` block of its own: its record is its state, its discussion is
+ * its thread.
+ */
+export type BlockFindingData = {
   severity: BlockReviewSeverity;
   title: string;
   body: string;
@@ -109,11 +121,17 @@ export type BlockReviewFinding = {
   line?: number;
 };
 
-export type BlockReviewData = {
-  verdict: BlockReviewVerdict;
+/** A review as its author posts it: the summary, and the findings. */
+export type BlockReviewInput = {
   summary: string;
-  findings: BlockReviewFinding[];
+  findings: BlockFindingData[];
 };
+
+/**
+ * A review block's own data is its summary. Its findings are blocks it
+ * shows (`state.blocks`); where the review stands comes from them.
+ */
+export type BlockReviewData = { summary: string };
 
 export type BlockFindingStatus = "open" | "resolved";
 /** How a resolved finding was closed: the change was made, or it was set aside. */
@@ -130,62 +148,56 @@ export type BlockFindingState = BlockActor & {
   note?: string;
 };
 
-export type BlockReviewState = {
-  findings: Record<string, BlockFindingState>;
-};
+/** A review's state: the findings it shows, in the order they were posted. */
+export type BlockReviewState = BlockShows;
 
 /** Where a review stands, derived from its findings. */
 export type BlockReviewStatus = "open" | "partially_resolved" | "resolved";
 
 /**
  * The wire form of a finding change, as `update`/`PATCH …/state` take it:
- * a word (`open`, `fixed`, `dismissed`; `resolved` means fixed) or the
- * full record with a note.
+ * `{ status }` with a word (`open`, `fixed`, `dismissed`; `resolved` means
+ * fixed) or the full record, and an optional note.
  */
-export type BlockFindingPatch =
-  | "open"
-  | "fixed"
-  | "dismissed"
-  | "resolved"
-  | {
-      status: BlockFindingStatus;
-      resolution?: BlockFindingResolution;
-      note?: string;
-    };
+export type BlockFindingPatch = {
+  status: "open" | "fixed" | "dismissed" | "resolved";
+  resolution?: BlockFindingResolution;
+  note?: string;
+};
 
 /**
  * A review is resolved once every finding is (or it never had any),
  * partially resolved while some are, and open until the first one is.
+ * Nothing else says where a review stands: there is no verdict to keep in
+ * step with the findings.
  */
 export function reviewStatus(
-  data: Pick<BlockReviewData, "findings">,
-  state: BlockReviewState | null | undefined
+  findings: ReadonlyArray<{ state: BlockFindingState | null } | null>
 ): BlockReviewStatus {
-  const total = data.findings.length;
+  const total = findings.length;
   if (total === 0) return "resolved";
-  const resolved = data.findings.filter(
-    (finding) => state?.findings?.[finding.id]?.status === "resolved"
+  const resolved = findings.filter(
+    (finding) => finding?.state?.status === "resolved"
   ).length;
   if (resolved === total) return "resolved";
   return resolved === 0 ? "open" : "partially_resolved";
+}
+
+/** A review's findings, as the blocks it shows: whatever is not one is skipped. */
+export function reviewFindings(
+  review: Pick<Block, "blocks">
+): Array<Extract<Block, { kind: "finding" }>> {
+  return (review.blocks ?? []).filter(
+    (block): block is Extract<Block, { kind: "finding" }> =>
+      block.kind === "finding"
+  );
 }
 
 export type BlockTasksData = { items: Array<{ id: string; text: string }> };
 export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
-/** `kind` with its `data` and `state`, so a switch on kind types both. */
-/**
- * A text reply in a review's thread may be about one finding: the
- * discussion of that item, shown under it rather than in the review's
- * general thread.
- */
 export type BlockTextData = {
-  findingId?: string;
-  /** Workspace blocks (`origin: "workspace"`): the startup's steps. */
-  startup?: BlockStartup;
-  /** Review-request blocks: what was asked for, for the row to say. */
-  reviewRequest?: BlockReviewRequest;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
   /**
@@ -193,8 +205,29 @@ export type BlockTextData = {
    * was delivered to, in order of mention. `toAgentId` is the first.
    */
   mentions?: string[];
+  /**
+   * A reply delivered to more than one agent without naming them (a
+   * person's comment reaches both sides of the thread): every agent it went
+   * to. `toAgentId` is the first.
+   */
+  recipients?: string[];
 };
 
+/**
+ * A launch block is the agent's card: the one entry for it in the stream
+ * and the thread its work goes to by default. `toAgentId` is the agent;
+ * who it is (name, engine, model, persona, status) is read from the agent
+ * record, so the card follows the agent. The block keeps what only the
+ * launch knows: the briefing (its text), the steps that brought the
+ * workspace up, and the instructions the agent was started with.
+ */
+export type BlockLaunchState = BlockShows & {
+  startup?: BlockStartup;
+  /** The system prompt the agent runs with, rewritten when it changes. */
+  instructions?: string;
+};
+
+/** `kind` with its `data` and `state`, so a switch on kind types both. */
 export type BlockBody =
   | { kind: "text"; data: BlockTextData | null; state: null }
   | { kind: "file"; data: null; state: null }
@@ -202,37 +235,16 @@ export type BlockBody =
   | { kind: "question"; data: BlockQuestionData; state: BlockQuestionState }
   | { kind: "form"; data: BlockFormData; state: BlockFormState }
   | { kind: "review"; data: BlockReviewData; state: BlockReviewState }
-  | { kind: "tasks"; data: BlockTasksData; state: BlockTasksState };
+  | { kind: "finding"; data: BlockFindingData; state: BlockFindingState }
+  | { kind: "tasks"; data: BlockTasksData; state: BlockTasksState }
+  | { kind: "launch"; data: null; state: BlockLaunchState | null };
 
 /**
- * `launch`: the launch-context post. `turn`: the agent's answer for one
- * turn, written empty when the turn opens and filled when it settles; the
- * turn itself (steps, timing) rides along as `Block.turn`, read from the
- * agent's event log. `system_prompt`: the guidance the agent was started
- * with, kept at the head of the stream so what it was told is readable.
+ * `turn`: the agent's answer for one turn, written empty when the turn
+ * opens and filled when it settles; the turn itself (steps, timing) rides
+ * along as `Block.turn`, read from the agent's event log.
  */
-export type BlockOrigin =
-  | "launch"
-  | "turn"
-  | "system_prompt"
-  /** The workspace coming up: worktree, config, dependencies, engine. */
-  | "workspace"
-  /** Someone asked the agent for a review: who asked, and for what. */
-  | "review_request";
-
-/**
- * A request for one or more reviews. The block's text is the instruction
- * the agent was given, whole; this is what the row says without it.
- */
-export type BlockReviewRequest = {
-  /** Persona slugs, in the order they were asked for. */
-  personas: string[];
-  /** The engine the reviewers run on. */
-  agentType: string;
-  model?: string;
-  /** What the person added when they asked. */
-  note?: string;
-};
+export type BlockOrigin = "turn";
 
 /** One step of bringing an agent's workspace up. */
 export type BlockStartupStep = {
@@ -248,8 +260,8 @@ export type BlockStartupStep = {
 };
 
 /**
- * The workspace block's record of an agent starting: the steps so far,
- * and how it ended. Written as the phases happen, so the stream shows the
+ * The launch card's record of an agent starting: the steps so far, and
+ * how it ended. Written as the phases happen, so the stream shows the
  * startup as live activity rather than after the fact.
  */
 export type BlockStartup = {
@@ -301,14 +313,17 @@ export type Block = {
    * a file it shared, a question it asks the user).
    */
   toAgentId: string | null;
-  /** The top-level block this replies under; null for a top-level block. */
+  /**
+   * The block whose thread this is in; null for a top-level block. A thread
+   * opens on a top-level block or on a block another one shows (a finding
+   * in a review), so this is not always a top-level block.
+   */
   threadId: string | null;
   /** The block replied to (inside `threadId`); null for a top-level block. */
   replyTo: string | null;
   /** Markdown. May be blank when data or attachments carry the content. */
   text: string;
   attachments: ChatAttachment[];
-  /** `launch` on the block that records what an agent was started with. */
   origin?: BlockOrigin;
   /** Launch blocks only: the agent that launched this one, when not a person. */
   launchedByAgentId?: string;
@@ -329,7 +344,13 @@ export type Block = {
   readAt: string | null;
   /** Reactions on this block, oldest first. Absent when there are none. */
   reactions?: BlockReaction[];
-  /** Top-level blocks: how many replies the thread holds. */
+  /**
+   * The blocks this one shows (`state.blocks`), resolved and in order, each
+   * with its own thread counts and the blocks it shows in turn. Attached at
+   * read time.
+   */
+  blocks?: Block[];
+  /** Blocks that open a thread: how many replies it holds. */
   replyCount?: number;
   lastReplyAt?: string | null;
   /** Agent replies the person has not seen yet. */
@@ -367,6 +388,12 @@ export type StreamFeedResponse = {
   /** Opaque cursor for the next (older) page; `null` when `hasMore` is false. */
   nextCursor: string | null;
   unreadCount: number;
+  /**
+   * First page only: every question or form an agent has open for people
+   * anywhere in the stream, oldest first — in threads too (a child asks in
+   * its own thread, on its launch card), where the feed does not list it.
+   */
+  openInputs?: Block[];
   /**
    * The name of every agent this page's blocks mention, archived agents
    * included: the agents list leaves those out, and their posts keep their
@@ -410,10 +437,8 @@ export type StreamPostRequest = {
   to?: string;
   /** May be blank when at least one attachment is present. */
   text: string;
-  /** Reply under this top-level block (or a reply in its thread). */
+  /** Reply in this block's thread (or to a reply inside one). */
   replyTo?: string;
-  /** With `replyTo` on a review: the finding this reply is about. */
-  finding?: string;
   attachments?: ChatUserAttachmentInput[];
   /**
    * Cut the agent's running turn so this message is what it reads next.
@@ -421,7 +446,7 @@ export type StreamPostRequest = {
    */
   interrupt?: boolean;
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
-  review?: BlockReviewData;
+  review?: BlockReviewInput;
 };
 
 /** Body of `POST /streams/:rootId/blocks/:id/answer` (question blocks). */
@@ -477,8 +502,7 @@ export type StreamReactionResponse = {
 export type StreamChangedEvent = { type: "stream.changed"; agentId: string };
 
 /** A mark-read landed; see ChatReadEvent for the field meanings. */
-/** `POST /streams/:rootId/blocks/:blockId/read`: a thread (or one finding's discussion) seen. */
-export type StreamThreadReadRequest = { finding?: string };
+/** `POST /streams/:rootId/blocks/:blockId/read`: a thread seen. */
 export type StreamThreadReadResponse = { ids: string[]; readAt: string | null };
 
 export type StreamReadEvent = {

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BlockFindingPatch, BlockReviewSeverity } from "@dispatch/shared";
+import { reviewFindings } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import { FileDiff, Loader2, MessageSquarePlus } from "lucide-react";
@@ -129,13 +130,14 @@ export const ChangesTab = memo(function ChangesTab({
   const findingItems = useMemo<DiffFinding[]>(
     () =>
       inbox.reviews.flatMap((block) =>
-        block.data.findings
-          .filter((finding) => finding.path)
+        reviewFindings(block)
+          .filter((finding) => finding.data.path)
           .map((finding) => ({
-            key: `${block.id}:${finding.id}`,
+            key: finding.id,
             block,
-            finding,
-            record: block.state?.findings?.[finding.id] ?? null,
+            findingId: finding.id,
+            finding: finding.data,
+            record: finding.state ?? null,
             reviewerName:
               block.author.kind === "agent"
                 ? nameOf(block.author.agentId)
@@ -153,11 +155,8 @@ export const ChangesTab = memo(function ChangesTab({
   const { openThread } = useDrawerRoute();
   const { mutate: setBlockStateNow } = useSetBlockState(rootId);
   const onSetFindingState = useCallback(
-    (blockId: string, findingId: string, patch: BlockFindingPatch) =>
-      setBlockStateNow({
-        blockId,
-        state: { findings: { [findingId]: patch } },
-      }),
+    (findingId: string, patch: BlockFindingPatch) =>
+      setBlockStateNow({ blockId: findingId, state: patch }),
     [setBlockStateNow]
   );
   const findings = useMemo<DiffFindingsProps | undefined>(
@@ -317,11 +316,11 @@ export const ChangesTab = memo(function ChangesTab({
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
-  // `?thread=<review>&finding=<id>` beside `file`: the finding to open in
-  // place. Those two stay in the URL; they are the drawer's page.
+  // `?thread=<review's thread>&finding=<id>` beside `file`: the finding to
+  // open in place. Those two stay in the URL; they are the drawer's page.
   const navFindingKey =
     searchParams.get(THREAD_PARAM) && searchParams.get(FINDING_PARAM)
-      ? `${searchParams.get(THREAD_PARAM)}:${searchParams.get(FINDING_PARAM)}`
+      ? searchParams.get(FINDING_PARAM)
       : null;
 
   const files = useVisibleDiffFiles(data, navFileTarget);

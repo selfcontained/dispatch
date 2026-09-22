@@ -21,11 +21,12 @@ import {
   type StreamDeliveryAdapter,
   type StreamServiceDeps,
   StreamValidationError,
-  workspaceBlockId,
+  launchBlockId,
 } from "../src/chat/service.js";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
+import { composeStreamFeed } from "../src/chat/feed.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -185,13 +186,14 @@ describe("StreamService.recordLaunchContext", () => {
       links: ["https://example.com/spec"],
     });
     expect(block).toMatchObject({
+      id: launchBlockId(A),
       streamId: A,
       author: { kind: "user" },
       toAgentId: A,
-      kind: "text",
+      kind: "launch",
+      threadId: null,
       text: "Build the widget",
       delivered: true,
-      origin: "launch",
       attachments: [
         {
           type: "file",
@@ -204,6 +206,7 @@ describe("StreamService.recordLaunchContext", () => {
       ],
     });
     expect(block && "launchedByAgentId" in block).toBe(false);
+    expect(block && "origin" in block).toBe(false);
     expect(published).toEqual([entryEvent(block!)]);
     expect(await service.store.getById(block!.id)).toEqual(block);
   });
@@ -228,7 +231,7 @@ describe("StreamService.recordLaunchContext", () => {
     });
     expect(block).toMatchObject({
       author: { kind: "user" },
-      origin: "launch",
+      kind: "launch",
       launchedByAgentId: B,
       delivered: true,
     });
@@ -249,13 +252,13 @@ describe("StreamService.prepareLaunchContext", () => {
   it("resolves the block's id and envelope lines before anything is written", async () => {
     const fileId = await seedFiles(A, "brief-2026.md", 300);
     const prepared = await service.prepareLaunchContext({
-      id: "8a4f9e60-1111-4222-8333-444455556666",
       agentId: A,
       text: "Build the widget",
       files: [{ fileId }],
       links: ["https://example.com/spec"],
     });
-    expect(prepared?.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    // A new card's id is derived from the agent's.
+    expect(prepared?.id).toBe(launchBlockId(A));
     // The same lines sendUserPost injects, so envelope and block agree.
     expect(prepared?.attachmentLines).toEqual([
       "- file: /files-root/agt_stream_svc/brief-2026.md (text/markdown, 300 B)",
@@ -270,9 +273,9 @@ describe("StreamService.prepareLaunchContext", () => {
     expect(rows.rows).toHaveLength(0);
 
     const block = await prepared!.record();
-    expect(block.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    expect(block.id).toBe(launchBlockId(A));
     expect(block).toMatchObject({
-      origin: "launch",
+      kind: "launch",
       delivered: true,
       toAgentId: A,
     });
@@ -283,6 +286,34 @@ describe("StreamService.prepareLaunchContext", () => {
     expect(
       await service.prepareLaunchContext({ agentId: A, text: "  " })
     ).toBeNull();
+  });
+
+  it("records the launcher on the card for a launch with no briefing, and still returns null", async () => {
+    const { svc, events } = build();
+    expect(
+      await svc.prepareLaunchContext({ agentId: A, launchedByAgentId: B })
+    ).toBeNull();
+    const card = await svc.store.findLaunchBlock(A);
+    expect(card).toMatchObject({
+      id: launchBlockId(A),
+      kind: "launch",
+      toAgentId: A,
+      launchedByAgentId: B,
+      text: "",
+      attachments: [],
+    });
+    // The change is published so the card reads with its launcher.
+    expect(
+      events.some(
+        (e) =>
+          (e as { entry?: { block?: Block } }).entry?.block
+            ?.launchedByAgentId === B
+      )
+    ).toBe(true);
+    // With no launcher either, nothing is written at all.
+    await pool.query("DELETE FROM blocks");
+    expect(await svc.prepareLaunchContext({ agentId: A })).toBeNull();
+    expect(await svc.store.findLaunchBlock(A)).toBeNull();
   });
 
   it("says so in the block when the prompt is longer than a block's text", async () => {
@@ -324,25 +355,59 @@ describe("StreamService.prepareLaunchContext", () => {
     expect(block.attachments).toHaveLength(BLOCK_ATTACHMENTS_MAX);
   });
 
-  it("refuses to write a block whose id is already taken", async () => {
-    const id = "7c1f0a10-2222-4333-8444-555566667777";
+  it("fills in a card that is already there instead of refusing the id", async () => {
+    // The startup wrote the card first: the briefing lands on it and keeps
+    // what the startup wrote.
+    await service.recordSystemPrompt({ agentId: A, prompt: "Be useful." });
     const first = await service.prepareLaunchContext({
       agentId: A,
-      id,
       text: "First",
     });
+    expect(first!.id).toBe(launchBlockId(A));
     await first!.record();
     const second = await service.prepareLaunchContext({
       agentId: A,
-      id,
       text: "Second",
+      launchedByAgentId: B,
     });
-    await expect(second!.record()).rejects.toBeInstanceOf(StreamConflictError);
+    const written = await second!.record();
+    expect(written).toMatchObject({
+      id: launchBlockId(A),
+      text: "Second",
+      launchedByAgentId: B,
+      state: { instructions: "Be useful." },
+    });
     const rows = await pool.query<{ text: string }>(
-      "SELECT text FROM blocks WHERE id = $1",
-      [id]
+      "SELECT text FROM blocks WHERE stream_id = $1",
+      [A]
     );
-    expect(rows.rows).toEqual([{ text: "First" }]);
+    expect(rows.rows).toEqual([{ text: "Second" }]);
+  });
+
+  it("writes onto an older card found by agent, whatever its id", async () => {
+    const legacy = await service.store.insert({
+      id: "7c1f0a10-2222-4333-8444-555566667777",
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      kind: "launch",
+      text: "",
+      state: {},
+      delivered: true,
+    });
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: "Build it",
+    });
+    expect(prepared!.id).toBe(legacy.id);
+    expect((await prepared!.record()).text).toBe("Build it");
+    // Startup and instructions find the same card.
+    await service.recordSystemPrompt({ agentId: A, prompt: "Be useful." });
+    const rows = await pool.query<{ id: string }>(
+      "SELECT id FROM blocks WHERE stream_id = $1",
+      [A]
+    );
+    expect(rows.rows).toEqual([{ id: legacy.id }]);
   });
 });
 
@@ -371,9 +436,16 @@ describe("resolveKindAndData", () => {
     });
     expect(
       resolveKindAndData({
-        review: { verdict: "approve", summary: "ok", findings: [] },
+        review: { summary: "ok", findings: [] },
       }).kind
     ).toBe("review");
+    // Findings and launch cards are written by Dispatch, never posted.
+    expect(() => resolveKindAndData({ kind: "finding" })).toThrow(
+      /A finding block is written by Dispatch/
+    );
+    expect(() => resolveKindAndData({ kind: "launch" })).toThrow(
+      /A launch block is written by Dispatch/
+    );
     expect(
       resolveKindAndData({ tasks: { items: [{ id: "t", text: "x" }] } }).kind
     ).toBe("tasks");
@@ -495,63 +567,79 @@ describe("resolveKindAndData", () => {
     }
   });
 
-  it("validates a review: verdict, findings, severities, unique ids", () => {
-    const finding = {
-      id: "f1",
-      severity: "major",
-      title: "t",
-      body: "b",
-    } as const;
+  it("validates a review: summary, findings, severities, titles, bodies", () => {
+    const finding = { severity: "major", title: "t", body: "b" } as const;
     expect(
       resolveKindAndData({
         review: {
-          verdict: "request_changes",
           summary: "s",
-          findings: [finding],
+          findings: [
+            finding,
+            {
+              severity: "nit",
+              title: "  padded  ",
+              body: "x",
+              path: " a.ts ",
+              line: 3,
+            },
+          ],
         },
       }).data
     ).toEqual({
-      verdict: "request_changes",
       summary: "s",
-      findings: [finding],
+      findings: [
+        finding,
+        { severity: "nit", title: "padded", body: "x", path: "a.ts", line: 3 },
+      ],
     });
-    expect(() =>
-      resolveKindAndData({
-        review: { verdict: "lgtm", summary: "s", findings: [] } as never,
-      })
-    ).toThrow(/verdict must be approve, request_changes or comment/);
-    expect(() =>
-      resolveKindAndData({
-        review: { verdict: "approve", summary: "s" } as never,
-      })
-    ).toThrow(/needs verdict, summary and findings/);
-    expect(() =>
+    // What an author may not set is dropped: an id (the finding block has
+    // its own), a verdict, a line that is not a positive integer.
+    expect(
       resolveKindAndData({
         review: {
           verdict: "approve",
           summary: "s",
-          findings: [{ ...finding, severity: "huge" as never }],
+          findings: [{ ...finding, id: "f1", line: 0, path: "  " }],
+        } as never,
+      }).data
+    ).toEqual({ summary: "s", findings: [finding] });
+    expect(() =>
+      resolveKindAndData({ review: { summary: "s" } as never })
+    ).toThrow(/review needs summary and findings/);
+    expect(() =>
+      resolveKindAndData({ review: { findings: [] } as never })
+    ).toThrow(/review needs summary and findings/);
+    expect(() =>
+      resolveKindAndData({
+        review: {
+          summary: "s",
+          findings: [finding, { ...finding, severity: "huge" as never }],
         },
       })
-    ).toThrow(/finding "f1" has an unknown severity/);
+    ).toThrow(/finding 2 has an unknown severity/);
     expect(() =>
       resolveKindAndData({
-        review: {
-          verdict: "approve",
-          summary: "s",
-          findings: [finding, finding],
-        },
+        review: { summary: "s", findings: [{ ...finding, title: "  " }] },
       })
-    ).toThrow(/Duplicate finding id "f1"/);
+    ).toThrow(/finding 1 needs a title/);
+    expect(() =>
+      resolveKindAndData({
+        review: { summary: "s", findings: [{ ...finding, body: "" }] },
+      })
+    ).toThrow(/finding 1 needs a body/);
+    // Two findings alike are two findings: nothing keys them but their blocks.
+    expect(
+      (
+        resolveKindAndData({
+          review: { summary: "s", findings: [finding, finding] },
+        }).data as { findings: unknown[] }
+      ).findings
+    ).toHaveLength(2);
     expect(() =>
       resolveKindAndData({
         review: {
-          verdict: "approve",
           summary: "s",
-          findings: Array.from({ length: 51 }, (_, i) => ({
-            ...finding,
-            id: `f${i}`,
-          })),
+          findings: Array.from({ length: 51 }, () => finding),
         },
       })
     ).toThrow(/50 entries or fewer/);
@@ -662,21 +750,33 @@ describe("StreamService.post", () => {
     });
     const review = await service.post(A, {
       review: {
-        verdict: "request_changes",
         summary: "s",
         findings: [
-          { id: "f1", severity: "major", title: "a", body: "b" },
-          { id: "f2", severity: "nit", title: "c", body: "d" },
+          { severity: "major", title: "a", body: "b" },
+          { severity: "nit", title: "c", body: "d" },
         ],
       },
     });
     expect(review.kind).toBe("review");
-    expect(review.state).toEqual({
-      findings: {
-        f1: { status: "open", by: { kind: "user" }, at: expect.any(String) },
-        f2: { status: "open", by: { kind: "user" }, at: expect.any(String) },
+    // The review's data is its summary; its findings are blocks it shows,
+    // each open, stamped by the reviewer.
+    expect(review.data).toEqual({ summary: "s" });
+    const findings = review.blocks ?? [];
+    expect(review.state).toEqual({ blocks: findings.map((f) => f.id) });
+    expect(findings).toMatchObject([
+      {
+        kind: "finding",
+        data: { severity: "major", title: "a", body: "b" },
+        state: {
+          status: "open",
+          by: { kind: "agent", agentId: A },
+          at: expect.any(String),
+        },
+        threadId: review.id,
+        replyTo: review.id,
       },
-    });
+      { kind: "finding", data: { title: "c" }, threadId: review.id },
+    ]);
     const tasks = await service.post(A, {
       tasks: {
         items: [
@@ -853,8 +953,7 @@ describe("StreamService.post", () => {
     const reply = await service.post(A, { text: "reply", replyTo: root.id });
     expect(reply).toMatchObject({ threadId: root.id, replyTo: root.id });
     // A reply publishes itself (the client files it into the open thread),
-    // then its root with the changed reply count, then the root once more
-    // for the thread it landed in.
+    // then its root with the changed reply count.
     expect(published).toEqual([
       expect.objectContaining({
         type: "stream.entry",
@@ -869,10 +968,6 @@ describe("StreamService.post", () => {
           id: root.id,
           block: expect.objectContaining({ replyCount: 1 }),
         }),
-      }),
-      expect.objectContaining({
-        type: "stream.entry",
-        entry: expect.objectContaining({ id: root.id }),
       }),
     ]);
     const nested = await service.post(A, { text: "nested", replyTo: reply.id });
@@ -1150,30 +1245,44 @@ describe("StreamService.update", () => {
     ).toEqual([]);
   });
 
-  it("merges state on the agent's own review and tasks, stamped by the agent", async () => {
+  it("sets state on the agent's own findings and tasks, stamped by the agent", async () => {
     const review = await service.post(A, {
       review: {
-        verdict: "comment",
         summary: "s",
         findings: [
-          { id: "f1", severity: "major", title: "a", body: "b" },
-          { id: "f2", severity: "nit", title: "c", body: "d" },
+          { severity: "major", title: "a", body: "b" },
+          { severity: "nit", title: "c", body: "d" },
         ],
       },
     });
-    const resolved = await service.update(A, review.id, {
-      state: { findings: { f1: "resolved" } },
+    const [f1, f2] = review.blocks!;
+    const resolved = await service.update(A, f1!.id, {
+      state: { status: "resolved", note: "  done  " },
     });
+    // A finding's record is replaced, not merged, and the other is untouched.
     expect(resolved.state).toEqual({
-      findings: {
-        f1: {
-          status: "resolved",
-          resolution: "fixed",
-          by: { kind: "agent", agentId: A },
-          at: expect.any(String),
-        },
-        f2: { status: "open", by: { kind: "user" }, at: expect.any(String) },
-      },
+      status: "resolved",
+      resolution: "fixed",
+      note: "done",
+      by: { kind: "agent", agentId: A },
+      at: expect.any(String),
+    });
+    const dismissed = await service.update(A, f2!.id, {
+      state: { status: "dismissed" },
+    });
+    expect(dismissed.state).toEqual({
+      status: "resolved",
+      resolution: "dismissed",
+      by: { kind: "agent", agentId: A },
+      at: expect.any(String),
+    });
+    const reopened = await service.update(A, f1!.id, {
+      state: { status: "open" },
+    });
+    expect(reopened.state).toEqual({
+      status: "open",
+      by: { kind: "agent", agentId: A },
+      at: expect.any(String),
     });
     const tasks = await service.post(A, {
       tasks: {
@@ -1195,16 +1304,57 @@ describe("StreamService.update", () => {
       service.update(A, tasks.id, { state: { items: { t1: "later" } } })
     ).rejects.toThrow(/must be todo, now or done/);
     await expect(
-      service.update(A, review.id, {
-        state: { findings: { f1: { status: "wontfix" } } },
-      })
-    ).rejects.toThrow(/must be open, fixed or dismissed/);
+      service.update(A, f1!.id, { state: { status: "wontfix" } })
+    ).rejects.toThrow(
+      /A finding's state is \{ status: "open" \| "fixed" \| "dismissed", note\? \}/
+    );
     await expect(
-      service.update(A, review.id, { state: { items: {} } })
-    ).rejects.toThrow(/state\.findings is required/);
+      service.update(A, f1!.id, { state: { items: {} } })
+    ).rejects.toThrow(/A finding's state is/);
     await expect(
-      service.update(A, tasks.id, { state: { findings: {} } })
+      service.update(A, tasks.id, { state: { status: "fixed" } })
     ).rejects.toThrow(/state\.items is required/);
+    // A review's state is the findings it shows: it cannot be set.
+    await expect(
+      service.update(A, review.id, { state: { blocks: [] } })
+    ).rejects.toThrow(/A review's state is its findings/);
+    expect((await service.store.getById(review.id))!.state).toEqual({
+      blocks: [f1!.id, f2!.id],
+    });
+  });
+
+  it("edits a review's summary and a finding's words through their own validation", async () => {
+    const review = await service.post(A, {
+      review: {
+        summary: "s",
+        findings: [{ severity: "major", title: "a", body: "b" }],
+      },
+    });
+    const finding = review.blocks![0]!;
+    const summary = await service.update(A, review.id, {
+      data: { summary: "Better" },
+    });
+    expect(summary.data).toEqual({ summary: "Better" });
+    await expect(
+      service.update(A, review.id, {
+        data: { summary: "s", findings: [] } as never,
+      })
+    ).resolves.toMatchObject({ data: { summary: "s" } });
+    await expect(
+      service.update(A, review.id, { data: { verdict: "approve" } as never })
+    ).rejects.toThrow(/A review's data is \{ summary \}/);
+    const edited = await service.update(A, finding.id, {
+      data: { severity: "minor", title: "a2", body: "b2", path: "x.ts" },
+    });
+    expect(edited.data).toEqual({
+      severity: "minor",
+      title: "a2",
+      body: "b2",
+      path: "x.ts",
+    });
+    await expect(
+      service.update(A, finding.id, { data: { severity: "huge" } as never })
+    ).rejects.toThrow(/unknown severity/);
   });
 
   it("merges raw state onto a question or form the agent owns", async () => {
@@ -1258,53 +1408,54 @@ describe("StreamService.update", () => {
     const review = await svc.post(B, {
       to: A,
       review: {
-        verdict: "request_changes",
         summary: "s",
-        findings: [{ id: "f1", severity: "major", title: "a", body: "b" }],
+        findings: [{ severity: "major", title: "a", body: "b" }],
       },
     });
     await settled(svc, review.id);
+    const finding = review.blocks![0]!;
+    // The finding is addressed to the agent the review is.
+    expect(finding).toMatchObject({ toAgentId: A, delivered: true });
     injected.length = 0;
     await expect(
-      svc.update(A, review.id, { text: "mine now" })
+      svc.update(A, finding.id, { text: "mine now" })
     ).rejects.toBeInstanceOf(StreamForbiddenError);
-    await expect(svc.update(A, review.id, { data: {} })).rejects.toBeInstanceOf(
-      StreamForbiddenError
-    );
     await expect(
-      svc.update(A, review.id, { attachments: [] })
+      svc.update(A, finding.id, { data: {} })
     ).rejects.toBeInstanceOf(StreamForbiddenError);
-    await expect(svc.update(A, review.id, {})).rejects.toThrow(
+    await expect(
+      svc.update(A, finding.id, { attachments: [] })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    await expect(svc.update(A, finding.id, {})).rejects.toThrow(
       /state is required/
     );
-    const resolved = await svc.update(A, review.id, {
-      state: { findings: { f1: "fixed" } },
+    // The review itself: its state is not the recipient's to change.
+    await expect(
+      svc.update(A, review.id, { state: { status: "fixed" } })
+    ).rejects.toThrow(/A review block has no state/);
+    const resolved = await svc.update(A, finding.id, {
+      state: { status: "fixed" },
     });
     expect(resolved.state).toEqual({
-      findings: {
-        f1: {
-          status: "resolved",
-          resolution: "fixed",
-          by: { kind: "agent", agentId: A },
-          at: expect.any(String),
-        },
-      },
+      status: "resolved",
+      resolution: "fixed",
+      by: { kind: "agent", agentId: A },
+      at: expect.any(String),
     });
-    // The author hears about it.
+    // The reviewer hears about it, on the finding, with whose move it is.
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([
       {
         agentId: B,
         text: expect.stringContaining(
-          `--- DISPATCH POST (id: ${review.id}, from: Svc (${A})) ---\nFinding f1 fixed.\nVerify the resolution`
+          `--- DISPATCH POST (id: ${finding.id}, from: Svc (${A})) ---\nFinding "a" fixed.\nNothing to do unless you disagree`
         ),
       },
     ]);
+    expect(injected[0]!.text).toContain(`replyTo: "${finding.id}"`);
     // A third agent may not.
     await expect(
-      svc.update("agt_third", review.id, {
-        state: { findings: { f1: "open" } },
-      })
+      svc.update("agt_third", finding.id, { state: { status: "open" } })
     ).rejects.toBeInstanceOf(StreamForbiddenError);
   });
 });
@@ -1527,6 +1678,87 @@ describe("StreamService.sendUserPost", () => {
     ]);
   });
 
+  it("leaves a person's review top-level, under its client id, with findings by the person, and delivers it", async () => {
+    const { svc, injected } = build();
+    const id = "3d2c1b0a-9f8e-4d7c-8b6a-5f4e3d2c1b0a";
+    const res = await svc.sendUserPost(A, {
+      id,
+      text: "",
+      review: {
+        summary: "Two things.",
+        findings: [
+          {
+            severity: "major",
+            title: "Guard",
+            body: "Null here.",
+            path: "a.ts",
+            line: 4,
+          },
+          { severity: "nit", title: "Name", body: "Rename." },
+        ],
+      },
+    });
+    expect(res.block).toMatchObject({
+      id,
+      kind: "review",
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: null,
+      data: { summary: "Two things." },
+    });
+    const findings = res.block.blocks!;
+    expect(findings).toMatchObject([
+      {
+        kind: "finding",
+        author: { kind: "user" },
+        toAgentId: A,
+        threadId: id,
+        data: { title: "Guard", path: "a.ts", line: 4 },
+        state: { status: "open", by: { kind: "user" } },
+      },
+      { kind: "finding", data: { title: "Name" } },
+    ]);
+    expect(res.block.state).toEqual({ blocks: findings.map((f) => f.id) });
+    await settled(svc, id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      `Review (id: ${id}): 2 of 2 findings open.`
+    );
+    expect(injected[0]!.text).toContain(
+      `1. [major] Guard (id: ${findings[0]!.id}, open) — a.ts:4`
+    );
+    // A person's review has no author agent: a comment on its finding by
+    // the agent whose work it is goes nowhere but the stream.
+    const answer = await svc.post(A, {
+      text: "Guarded.",
+      replyTo: findings[0]!.id,
+    });
+    expect(answer).toMatchObject({
+      threadId: findings[0]!.id,
+      toAgentId: null,
+    });
+    // The person is its reviewer: resolving it asks nothing of the agent,
+    // so the agent is not told; reopening it is the agent's move again.
+    injected.length = 0;
+    await svc.setState(
+      A,
+      findings[0]!.id,
+      { status: "fixed" },
+      { kind: "user" }
+    );
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
+    await svc.setState(
+      A,
+      findings[0]!.id,
+      { status: "open", note: "Not quite." },
+      { kind: "user" }
+    );
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "Guard" reopened: Not quite.');
+  });
+
   it("replies in a thread: the root is republished with its count, the envelope names the thread", async () => {
     const { svc, events, injected } = build();
     const root = await svc.post(A, { text: "Here is the plan." });
@@ -1542,7 +1774,7 @@ describe("StreamService.sendUserPost", () => {
     });
     expect(
       events.map((e) => (e as { entry: { id: string } }).entry.id)
-    ).toEqual([res.block.id, root.id, root.id]);
+    ).toEqual([res.block.id, root.id]);
     expect(
       (events[1] as { entry: { block: Block } }).entry.block.replyCount
     ).toBe(1);
@@ -1953,88 +2185,91 @@ describe("StreamService.submitForm", () => {
 });
 
 describe("StreamService.setState", () => {
+  /** A review and its two findings, `a` (major) and `c` (minor). */
   async function review(
     svc: StreamService,
     author = A,
     to: string | null = null
   ) {
-    return svc.post(author, {
+    const r = await svc.post(author, {
       ...(to ? { to } : {}),
       review: {
-        verdict: "request_changes",
         summary: "s",
         findings: [
-          { id: "f1", severity: "major", title: "a", body: "b" },
-          { id: "f2", severity: "minor", title: "c", body: "d" },
+          { severity: "major", title: "a", body: "b" },
+          { severity: "minor", title: "c", body: "d" },
         ],
       },
     });
+    const [f1, f2] = r.blocks!;
+    return { r, f1: f1!, f2: f2! };
   }
 
-  it("lets a person resolve a finding, stamped, keeping the rest, and tells the author", async () => {
+  it("lets a person resolve a finding, stamped, replacing its record, and tells the author", async () => {
     const { svc, events, injected } = build();
-    const r = await review(svc);
+    const { r, f1, f2 } = await review(svc);
     events.length = 0;
     const updated = await svc.setState(
       A,
-      r.id,
-      { findings: { f1: "resolved" } },
+      f1.id,
+      { status: "resolved" },
       { kind: "user" }
     );
     expect(updated.state).toEqual({
-      findings: {
-        f1: {
-          status: "resolved",
-          resolution: "fixed",
-          by: { kind: "user" },
-          at: expect.any(String),
-        },
-        f2: { status: "open", by: { kind: "user" }, at: expect.any(String) },
-      },
+      status: "resolved",
+      resolution: "fixed",
+      by: { kind: "user" },
+      at: expect.any(String),
     });
-    expect(events).toEqual([entryEvent(updated)]);
+    // The other finding is its own block, untouched.
+    expect((await svc.store.getById(f2.id))!.state).toEqual(f2.state);
+    // The finding is published, then the review that shows it.
+    expect(
+      events.map((e) => (e as { entry: { id: string } }).entry.id)
+    ).toEqual([f1.id, r.id]);
+    expect(events[0]).toEqual(entryEvent(updated));
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([
-      {
-        agentId: A,
-        text: [
-          `--- DISPATCH POST (id: ${r.id}, from: user) ---`,
-          "Finding f1 fixed.",
-          "Verify the resolution when you can; reopen the finding with a note if it falls short.",
-          "--- END DISPATCH POST ---",
-          "Your reply appears in the stream as you write it. Use post only for a question with options, a file, a link, or to reach another agent.",
-        ].join("\n"),
-      },
-    ]);
-    // Reopen with a note and dismiss with one, several at once, in record form.
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.agentId).toBe(A);
+    expect(injected[0]!.text).toContain(
+      [
+        `--- DISPATCH POST (id: ${f1.id}, from: user) ---`,
+        'Finding "a" fixed.',
+        "Nothing to do unless you disagree; reopen it with a note if so.",
+        // An answer goes under the finding: it is its own thread.
+        `In the thread under ${f1.id}.`,
+        "--- END DISPATCH POST ---",
+      ].join("\n")
+    );
+    // Reopen with a note, and dismiss the other with one.
     const again = await svc.setState(
       A,
-      r.id,
-      {
-        findings: {
-          f1: { status: "open", note: "Still spins after a timeout." },
-          f2: {
-            status: "resolved",
-            resolution: "dismissed",
-            note: "Not ours.",
-          },
-        },
-      },
+      f1.id,
+      { status: "open", note: "Still spins after a timeout." },
       { kind: "user" }
     );
-    expect(again.state).toMatchObject({
-      findings: {
-        f1: { status: "open", note: "Still spins after a timeout." },
-        f2: { status: "resolved", resolution: "dismissed", note: "Not ours." },
-      },
+    expect(again.state).toEqual({
+      status: "open",
+      note: "Still spins after a timeout.",
+      by: { kind: "user" },
+      at: expect.any(String),
     });
-    expect(
-      (again.state as { findings: Record<string, object> }).findings.f1
-    ).not.toHaveProperty("resolution");
+    const dismissed = await svc.setState(
+      A,
+      f2.id,
+      { status: "resolved", resolution: "dismissed", note: "Not ours." },
+      { kind: "user" }
+    );
+    expect(dismissed.state).toMatchObject({
+      status: "resolved",
+      resolution: "dismissed",
+      note: "Not ours.",
+    });
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected[1]?.text).toContain(
-      "Finding f1 reopened: Still spins after a timeout.\nFinding f2 dismissed: Not ours.\nThe agent whose work this is will address it"
+      'Finding "a" reopened: Still spins after a timeout.\nThe agent whose work it is will answer under it.'
     );
+    expect(injected[2]?.text).toContain('Finding "c" dismissed: Not ours.');
   });
 
   it("ticks tasks the same way", async () => {
@@ -2060,11 +2295,11 @@ describe("StreamService.setState", () => {
 
   it("says nothing to an inert author, and nothing when the author changed it", async () => {
     const inertSvc = build({ access: inert });
-    const r = await review(inertSvc.svc);
+    const { f1 } = await review(inertSvc.svc);
     await inertSvc.svc.setState(
       A,
-      r.id,
-      { findings: { f1: "resolved" } },
+      f1.id,
+      { status: "resolved" },
       { kind: "user" }
     );
     expect(inertSvc.injected).toEqual([]);
@@ -2072,60 +2307,80 @@ describe("StreamService.setState", () => {
     const own = await review(svc);
     await svc.setState(
       A,
-      own.id,
-      { findings: { f1: "resolved" } },
+      own.f1.id,
+      { status: "resolved" },
       { kind: "agent", agentId: A }
     );
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([]);
   });
 
-  it("allows the author and the recipient, and no other agent", async () => {
+  it("allows the author and the recipient, and no other agent, and tells the other side", async () => {
     const { svc, injected } = build();
-    // B's review of A's work lives on B's own stream in step 1.
-    const r = await review(svc, B, A);
+    // B's review of A's work: B is a root agent, so it lives on B's stream.
+    const { r, f1, f2 } = await review(svc, B, A);
+    expect(r).toMatchObject({ streamId: B, threadId: null, toAgentId: A });
     await settled(svc, r.id);
     injected.length = 0;
     await expect(
       svc.setState(
         B,
-        r.id,
-        { findings: { f1: "resolved" } },
+        f1.id,
+        { status: "resolved" },
         { kind: "agent", agentId: "agt_third" }
       )
     ).rejects.toBeInstanceOf(StreamForbiddenError);
     const byRecipient = await svc.setState(
       B,
-      r.id,
-      { findings: { f1: "resolved" } },
+      f1.id,
+      { status: "resolved" },
       { kind: "agent", agentId: A }
     );
     expect(byRecipient.state).toMatchObject({
-      findings: {
-        f1: { status: "resolved", by: { kind: "agent", agentId: A } },
-      },
+      status: "resolved",
+      by: { kind: "agent", agentId: A },
     });
     await svc.waitForInFlightDeliveries(1_000);
+    // The reviewer hears of it, on the finding's own thread.
     expect(injected).toEqual([
-      { agentId: B, text: expect.stringContaining(`from: Svc (${A})`) },
+      {
+        agentId: B,
+        text: expect.stringContaining(
+          `--- DISPATCH POST (id: ${f1.id}, from: Svc (${A})) ---`
+        ),
+      },
     ]);
+    expect(injected[0]!.text).toContain(`replyTo: "${f1.id}"`);
+    injected.length = 0;
     const byAuthor = await svc.setState(
       B,
-      r.id,
-      { findings: { f2: "resolved" } },
+      f2.id,
+      { status: "resolved" },
       { kind: "agent", agentId: B }
     );
     expect(byAuthor.state).toMatchObject({
-      findings: {
-        f2: { status: "resolved", by: { kind: "agent", agentId: B } },
-      },
+      status: "resolved",
+      by: { kind: "agent", agentId: B },
     });
+    await svc.waitForInFlightDeliveries(1_000);
+    // The reviewer settling its own finding asks nothing of the builder:
+    // no notification (each one would cost the builder a turn).
+    expect(injected).toEqual([]);
+    // Dismissed by the reviewer: the same.
+    await svc.setState(
+      B,
+      f2.id,
+      { status: "dismissed", note: "On reflection, fine." },
+      { kind: "agent", agentId: B }
+    );
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
     // The reviewer reopening tells the builder it is its move.
     injected.length = 0;
     await svc.setState(
       B,
-      r.id,
-      { findings: { f1: { status: "open", note: "Still wrong." } } },
+      f1.id,
+      { status: "open", note: "Still wrong." },
       { kind: "agent", agentId: B }
     );
     await svc.waitForInFlightDeliveries(1_000);
@@ -2133,7 +2388,7 @@ describe("StreamService.setState", () => {
       {
         agentId: A,
         text: expect.stringContaining(
-          "Finding f1 reopened: Still wrong.\nA reopened finding is yours to address"
+          `Finding "a" reopened: Still wrong.\nIt is yours to address again: make the change and say what you changed under it, post({ replyTo: "${f1.id}", text }). Its reviewer resolves it.`
         ),
       },
     ]);
@@ -2142,14 +2397,14 @@ describe("StreamService.setState", () => {
   it("maps unknown or foreign blocks, stateless kinds and bad patches to errors", async () => {
     const { svc } = build();
     await expect(
-      svc.setState(A, NIL, { findings: {} }, { kind: "user" })
+      svc.setState(A, NIL, { status: "fixed" }, { kind: "user" })
     ).rejects.toBeInstanceOf(StreamNotFoundError);
     await expect(
-      svc.setState(A, "nope", { findings: {} }, { kind: "user" })
+      svc.setState(A, "nope", { status: "fixed" }, { kind: "user" })
     ).rejects.toBeInstanceOf(StreamNotFoundError);
-    const r = await review(svc);
+    const { r, f1 } = await review(svc);
     await expect(
-      svc.setState(B, r.id, { findings: {} }, { kind: "user" })
+      svc.setState(B, f1.id, { status: "fixed" }, { kind: "user" })
     ).rejects.toBeInstanceOf(StreamNotFoundError);
     const text = await svc.post(A, { text: "plain" });
     await expect(
@@ -2159,21 +2414,33 @@ describe("StreamService.setState", () => {
     await expect(
       svc.setState(A, q.id, { answer: {} }, { kind: "user" })
     ).rejects.toThrow(/A question block has no state/);
-    await expect(svc.setState(A, r.id, {}, { kind: "user" })).rejects.toThrow(
-      /state\.findings is required/
-    );
+    // A review stands where its findings do: it has no state of its own to set.
     await expect(
-      svc.setState(A, r.id, { findings: { f1: "disputed" } }, { kind: "user" })
-    ).rejects.toThrow(/finding "f1" must be open, fixed or dismissed/);
+      svc.setState(A, r.id, { status: "fixed" }, { kind: "user" })
+    ).rejects.toThrow(/A review block has no state/);
+    for (const bad of [
+      {},
+      { status: "disputed" },
+      { status: "resolved", resolution: "later" },
+      { status: "fixed", note: 3 },
+      { findings: { f1: "fixed" } },
+    ]) {
+      await expect(
+        svc.setState(A, f1.id, bad, { kind: "user" })
+      ).rejects.toThrow(
+        /A finding's state is \{ status: "open" \| "fixed" \| "dismissed", note\? \}/
+      );
+    }
     await expect(
       svc.setState(
         A,
-        r.id,
-        { findings: { f1: { status: "resolved", resolution: "later" } } },
+        f1.id,
+        { status: "fixed", note: "x".repeat(BLOCK_TEXT_MAX_CHARS + 1) },
         { kind: "user" }
       )
-    ).rejects.toThrow(/finding "f1" must be open, fixed or dismissed/);
-    expect(await svc.store.getById(r.id)).toEqual(r);
+    ).rejects.toThrow(/note must be/);
+    expect((await svc.store.getById(f1.id))!.state).toEqual(f1.state);
+    expect((await svc.store.getById(r.id))!.state).toEqual(r.state);
   });
 });
 
@@ -2183,35 +2450,62 @@ describe("StreamService.setState", () => {
 
 describe("StreamService review threads", () => {
   // The reviewer is the builder's child, as a persona launch makes it:
-  // both post into A's stream.
+  // both post into A's stream, and B's own place is its launch card.
   beforeAll(async () => {
-    await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
-      A,
-      B,
-    ]);
+    await pool.query(
+      `UPDATE agents SET parent_agent_id = $1, launched_by_agent_id = $1 WHERE id = $2`,
+      [A, B]
+    );
   });
   afterAll(async () => {
-    await pool.query(`UPDATE agents SET parent_agent_id = NULL WHERE id = $1`, [
-      B,
-    ]);
+    await pool.query(
+      `UPDATE agents SET parent_agent_id = NULL, launched_by_agent_id = NULL WHERE id = $1`,
+      [B]
+    );
   });
 
-  /** B reviews A's work: the review lands on A's stream, addressed to A. */
+  /**
+   * B reviews A's work: the review lands on B's launch card in A's stream,
+   * addressed to A, showing its two findings `a` and `c`.
+   */
+  /**
+   * B's card, launched by A. The launcher comes only from the launch (never
+   * the agent row): a launch with no briefing still records it.
+   */
+  async function launchChild(svc: StreamService) {
+    expect(
+      await svc.prepareLaunchContext({ agentId: B, launchedByAgentId: A })
+    ).toBeNull();
+    return (await svc.store.findLaunchBlock(B))!;
+  }
+
   async function reviewed(svc: StreamService) {
+    await launchChild(svc);
     const r = await svc.post(B, {
       to: A,
       review: {
-        verdict: "request_changes",
         summary: "s",
         findings: [
-          { id: "f1", severity: "major", title: "a", body: "b" },
-          { id: "f2", severity: "minor", title: "c", body: "d" },
+          { severity: "major", title: "a", body: "b" },
+          { severity: "minor", title: "c", body: "d" },
         ],
       },
     });
     await settled(svc, r.id);
-    return r;
+    const [f1, f2] = r.blocks!;
+    return { r, f1: f1!, f2: f2! };
   }
+
+  const turnRow = (id: number, agentId: string) => ({
+    id,
+    agentId,
+    seq: id,
+    kind: "turn" as const,
+    key: null,
+    payload: { state: "started", prompt: { source: "chat" } },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 
   it("caps option labels at button length", async () => {
     await expect(
@@ -2233,32 +2527,207 @@ describe("StreamService review threads", () => {
     expect(ok.kind === "question" && ok.data.options[0]?.label).toBe("Ship it");
   });
 
-  it("closes a question asked of an agent with that agent's reply, and keeps it on its finding", async () => {
+  it("puts a child's review on its launch card, which shows it, and the review shows its findings in order", async () => {
     const { svc, injected } = build();
-    const r = await reviewed(svc);
+    const { r, f1, f2 } = await reviewed(svc);
+    const card = await svc.store.findLaunchBlock(B);
+    expect(card).toMatchObject({
+      id: launchBlockId(B),
+      streamId: A,
+      toAgentId: B,
+      launchedByAgentId: A,
+    });
+    expect(r).toMatchObject({
+      kind: "review",
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      toAgentId: A,
+      threadId: card!.id,
+      replyTo: card!.id,
+      data: { summary: "s" },
+      state: { blocks: [f1.id, f2.id] },
+    });
+    // The card lists the review among the blocks it shows.
+    expect((await svc.store.getById(card!.id))!.state).toMatchObject({
+      blocks: [r.id],
+    });
+    for (const [finding, title] of [
+      [f1, "a"],
+      [f2, "c"],
+    ] as const) {
+      expect(finding).toMatchObject({
+        kind: "finding",
+        streamId: A,
+        author: { kind: "agent", agentId: B },
+        toAgentId: A,
+        threadId: r.id,
+        replyTo: r.id,
+        delivered: true,
+        data: { title },
+        state: { status: "open", by: { kind: "agent", agentId: B } },
+      });
+    }
+    // One delivery: the review, carrying its findings with their ids.
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      `Review (id: ${r.id}): 2 of 2 findings open.`
+    );
+    expect(injected[0]!.text).toContain(`(id: ${f1.id}, open)`);
+    expect(injected[0]!.text).toContain(`(id: ${f2.id}, open)`);
+  });
+
+  it("reads the card with the review and its findings attached, and counts none of them as replies", async () => {
+    const { svc } = build();
+    const { r, f1, f2 } = await reviewed(svc);
+    const comment = await svc.post(A, { text: "Fixed.", replyTo: f1.id });
+    const feed = await composeStreamFeed(svc.store, A);
+    const cardEntry = feed.entries.find(
+      (e) => e.type === "block" && e.block.kind === "launch"
+    ) as { block: Block } | undefined;
+    expect(cardEntry).toBeDefined();
+    const card = cardEntry!.block;
+    expect(card.replyCount ?? 0).toBe(0);
+    expect(card.blocks?.map((b) => b.id)).toEqual([r.id]);
+    const shownReview = card.blocks![0]!;
+    expect(shownReview.replyCount ?? 0).toBe(0);
+    expect(shownReview.blocks?.map((b) => b.id)).toEqual([f1.id, f2.id]);
+    // A comment under a finding counts on that finding.
+    expect(shownReview.blocks![0]!.replyCount).toBe(1);
+    expect(shownReview.blocks![1]!.replyCount ?? 0).toBe(0);
+    // Nothing shown is listed top-level.
+    const topIds = feed.entries.map((e) => e.id);
+    for (const id of [r.id, f1.id, f2.id, comment.id]) {
+      expect(topIds).not.toContain(id);
+    }
+    // The card's thread leaves the review out (the card draws it); the
+    // review's leaves its findings out; the finding's thread is its comments.
+    expect(
+      (await svc.store.listThread(card.id))!.replies.map((b) => b.id)
+    ).toEqual([]);
+    expect(
+      (await svc.store.listThread(r.id))!.replies.map((b) => b.id)
+    ).toEqual([]);
+    expect(
+      (await svc.store.listThread(f1.id))!.replies.map((b) => b.id)
+    ).toEqual([comment.id]);
+  });
+
+  it("keeps a comment on a finding in the finding's own thread, and sends an agent's to the other side", async () => {
+    const { svc, injected } = build();
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    const fromBuilder = await svc.post(A, {
+      text: "Fixed in 3b2.",
+      replyTo: f1.id,
+    });
+    expect(fromBuilder).toMatchObject({
+      threadId: f1.id,
+      replyTo: f1.id,
+      toAgentId: B,
+      data: null,
+    });
+    await settled(svc, fromBuilder.id);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+    // The reviewer raised it: it is told to settle it.
+    expect(injected[0]?.text).toContain('About the finding "a".');
+    expect(injected[0]?.text).toContain(
+      `You raised it: once the reply settles it, resolve it with update({ id: "${f1.id}", state: { status: "fixed" } })`
+    );
+    expect(injected[0]?.text).toContain(`replyTo: "${f1.id}"`);
+
+    injected.length = 0;
+    const fromReviewer = await svc.post(B, {
+      text: "Still spins for me.",
+      replyTo: f1.id,
+    });
+    expect(fromReviewer).toMatchObject({ threadId: f1.id, toAgentId: A });
+    await settled(svc, fromReviewer.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]?.text).toContain(
+      "Its reviewer resolves it; reply here with what you changed or why you disagree."
+    );
+    // A reply to a comment inside the finding's thread stays there.
+    const nested = await svc.post(A, {
+      text: "Try again now.",
+      replyTo: fromReviewer.id,
+    });
+    expect(nested).toMatchObject({
+      threadId: f1.id,
+      replyTo: fromReviewer.id,
+      toAgentId: B,
+    });
+    await settled(svc, nested.id);
+  });
+
+  it("sends a person's comment on a finding to both sides, and a reply to a comment to its author", async () => {
+    const { svc, injected } = build();
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    const both = await svc.sendUserPost(A, {
+      text: "Please handle this first.",
+      replyTo: f1.id,
+    });
+    expect(both.block).toMatchObject({
+      threadId: f1.id,
+      replyTo: f1.id,
+      // The reviewer (the finding's author) first, then whose work it is.
+      toAgentId: B,
+      data: { recipients: [B, A] },
+    });
+    await settled(svc, both.block.id);
+    expect(injected.map((i) => i.agentId).sort()).toEqual([A, B].sort());
+    // Each recipient's outcome is recorded on its own, and read back as a
+    // delivery per recipient, in the order the post went to them.
+    const outcomes = await pool.query<{ deliveries: Record<string, boolean> }>(
+      `SELECT deliveries FROM blocks WHERE id = $1`,
+      [both.block.id]
+    );
+    expect(outcomes.rows[0]!.deliveries).toEqual({ [A]: true, [B]: true });
+    expect((await svc.store.getById(both.block.id))!.delivery).toEqual([
+      { agentId: B, state: "delivered" },
+      { agentId: A, state: "delivered" },
+    ]);
+
+    // Answering the builder's comment goes to the builder alone.
+    const builderSaid = await svc.post(A, { text: "Done.", replyTo: f1.id });
+    await settled(svc, builderSaid.id);
+    injected.length = 0;
+    const answer = await svc.sendUserPost(A, {
+      text: "Thanks.",
+      replyTo: builderSaid.id,
+    });
+    expect(answer.block).toMatchObject({
+      toAgentId: A,
+      threadId: f1.id,
+      replyTo: builderSaid.id,
+      data: null,
+    });
+    await settled(svc, answer.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]?.text).toContain('About the finding "a".');
+  });
+
+  it("closes a question asked of an agent with that agent's reply, in the finding's thread", async () => {
+    const { svc, injected } = build();
+    const { f2 } = await reviewed(svc);
     // The reviewer asks the builder something under a finding.
     const q = await svc.post(B, {
       text: "Keep the hard cut, or return empty?",
       question: { options: [{ label: "Keep it" }, { label: "Return empty" }] },
-      replyTo: r.id,
-      finding: "f2",
+      replyTo: f2.id,
     });
     expect(q).toMatchObject({
       kind: "question",
       toAgentId: A,
-      threadId: r.id,
-      data: { findingId: "f2" },
+      threadId: f2.id,
+      replyTo: f2.id,
     });
     await settled(svc, q.id);
     injected.length = 0;
     // The builder's reply answers it: an option's label closes it as that
     // option, and the envelope says so.
     const reply = await svc.post(A, { text: "Keep it", replyTo: q.id });
-    expect(reply).toMatchObject({
-      toAgentId: B,
-      threadId: r.id,
-      data: { findingId: "f2" },
-    });
+    expect(reply).toMatchObject({ toAgentId: B, threadId: f2.id });
     const answered = await svc.store.getById(q.id);
     expect(answered?.state).toMatchObject({
       answer: {
@@ -2273,155 +2742,269 @@ describe("StreamService review threads", () => {
     expect(injected[0]?.text).toContain(`This answers your question ${q.id}.`);
     // A second reply is just a reply.
     const more = await svc.post(A, { text: "Also…", replyTo: q.id });
-    expect((await svc.store.getById(q.id))?.state?.answer?.blockId).toBe(
-      reply.id
-    );
+    expect(
+      (
+        (await svc.store.getById(q.id))?.state as {
+          answer?: { blockId?: string };
+        } | null
+      )?.answer?.blockId
+    ).toBe(reply.id);
     expect(more.kind).toBe("text");
     // A reply by someone the question was not asked of answers nothing.
     const other = await svc.post(B, {
       text: "Return empty?",
       question: { options: [{ label: "Yes" }] },
-      replyTo: r.id,
+      replyTo: f2.id,
     });
     await settled(svc, other.id);
     await svc.post(B, { text: "Yes", replyTo: other.id, to: A });
-    expect((await svc.store.getById(other.id))?.state?.answer).toBeUndefined();
+    expect(
+      (
+        (await svc.store.getById(other.id))?.state as {
+          answer?: unknown;
+        } | null
+      )?.answer
+    ).toBeUndefined();
   });
 
-  it("posts a review top-level even when the reviewer replies into its launch thread", async () => {
+  it("puts a child's review on its card even when it names a replyTo; a root agent's review is top-level", async () => {
     const { svc } = build();
-    const briefing = await svc.sendUserPost(A, {
-      to: B,
-      text: "Please review src/x.ts.",
-    });
+    const elsewhere = await svc.post(A, { text: "Some post." });
     const r = await svc.post(B, {
       to: A,
-      replyTo: briefing.block.id,
+      replyTo: elsewhere.id,
       review: {
-        verdict: "request_changes",
         summary: "s",
-        findings: [{ id: "f1", severity: "major", title: "a", body: "b" }],
+        findings: [{ severity: "major", title: "a", body: "b" }],
       },
     });
-    expect(r).toMatchObject({ threadId: null, replyTo: null, toAgentId: A });
+    expect(r).toMatchObject({
+      threadId: launchBlockId(B),
+      replyTo: launchBlockId(B),
+      toAgentId: A,
+    });
     await settled(svc, r.id);
-    const comment = await svc.post(A, {
-      text: "Done.",
-      replyTo: r.id,
-      finding: "f1",
+    // A second review by the same child is shown after the first.
+    const second = await svc.post(B, {
+      to: A,
+      review: { summary: "again", findings: [] },
     });
-    expect(comment).toMatchObject({
-      threadId: r.id,
-      data: { findingId: "f1" },
+    expect((await svc.store.getById(launchBlockId(B)))!.state).toMatchObject({
+      blocks: [r.id, second.id],
     });
+    await settled(svc, second.id);
+    // A's own review (A is a root agent) sits in its stream.
+    const own = await svc.post(A, {
+      review: {
+        summary: "self",
+        findings: [{ severity: "nit", title: "t", body: "b" }],
+      },
+    });
+    expect(own).toMatchObject({
+      threadId: null,
+      replyTo: null,
+      toAgentId: null,
+    });
+    // With nobody to deliver to, its findings are undelivered records.
+    expect(own.blocks![0]).toMatchObject({ toAgentId: null, delivered: null });
   });
 
-  it("sends each comment to one side: the builder's to the reviewer, the reviewer's to the builder", async () => {
-    const { svc, injected } = build();
-    const r = await reviewed(svc);
-    injected.length = 0;
-    const fromBuilder = await svc.post(A, {
-      text: "Fixed in 3b2.",
-      replyTo: r.id,
-      finding: "f1",
-    });
-    expect(fromBuilder).toMatchObject({
-      toAgentId: B,
-      data: { findingId: "f1" },
-    });
-    await settled(svc, fromBuilder.id);
-    expect(injected.map((i) => i.agentId)).toEqual([B]);
-    expect(injected[0]?.text).toContain('About finding "f1" (a).');
-
-    injected.length = 0;
-    const fromReviewer = await svc.post(B, {
-      text: "Still spins for me.",
-      replyTo: r.id,
-      finding: "f1",
-    });
-    expect(fromReviewer.toAgentId).toBe(A);
-    await settled(svc, fromReviewer.id);
-    expect(injected.map((i) => i.agentId)).toEqual([A]);
-  });
-
-  it("routes a person's comment to whoever's move it is, and a reply to a comment to its author", async () => {
-    const { svc, injected } = build();
-    const r = await reviewed(svc);
-    injected.length = 0;
-    // f1 is open: the builder has to act.
-    const onOpen = await svc.sendUserPost(A, {
-      text: "Please handle this first.",
-      replyTo: r.id,
-      finding: "f1",
-    });
-    expect(onOpen.block).toMatchObject({
-      toAgentId: A,
-      data: { findingId: "f1" },
-    });
-    await settled(svc, onOpen.block.id);
-    expect(injected.map((i) => i.agentId)).toEqual([A]);
-
-    // f2 resolved: the reviewer checks it.
-    await svc.setState(
-      A,
-      r.id,
-      { findings: { f2: "fixed" } },
-      { kind: "agent", agentId: A }
-    );
-    await svc.waitForInFlightDeliveries(1_000);
-    injected.length = 0;
-    const onResolved = await svc.sendUserPost(A, {
-      text: "Does this hold up?",
-      replyTo: r.id,
-      finding: "f2",
-    });
-    expect(onResolved.block.toAgentId).toBe(B);
-    await settled(svc, onResolved.block.id);
-    expect(injected.map((i) => i.agentId)).toEqual([B]);
-
-    // Answering the builder's comment goes to the builder, and inherits its finding.
-    const builderSaid = await svc.post(A, {
-      text: "Done.",
-      replyTo: r.id,
-      finding: "f2",
-    });
-    await settled(svc, builderSaid.id);
-    injected.length = 0;
-    const answer = await svc.sendUserPost(A, {
-      text: "Thanks.",
-      replyTo: builderSaid.id,
-    });
-    expect(answer.block).toMatchObject({
-      toAgentId: A,
-      threadId: r.id,
-      replyTo: builderSaid.id,
-      data: { findingId: "f2" },
-    });
-    await settled(svc, answer.block.id);
-    expect(injected.map((i) => i.agentId)).toEqual([A]);
-    expect(injected[0]?.text).toContain('About finding "f2" (c).');
-  });
-
-  it("marks a thread's agent comments read, by finding or all of them", async () => {
+  it("writes a review and its findings together, or not at all", async () => {
     const { svc } = build();
-    const r = await reviewed(svc);
-    const c1 = await svc.post(A, { text: "one", replyTo: r.id, finding: "f1" });
-    const c2 = await svc.post(B, { text: "two", replyTo: r.id, finding: "f2" });
-    const c3 = await svc.post(B, { text: "three", replyTo: r.id });
-    await svc.sendUserPost(A, { text: "mine", replyTo: r.id, finding: "f1" });
-    const first = await svc.store.markThreadRead(A, r.id, "f1");
+    const before = await pool.query(`SELECT count(*)::int AS n FROM blocks`);
+    await expect(
+      svc.post(B, {
+        to: A,
+        review: {
+          summary: "s",
+          findings: [
+            { severity: "major", title: "ok", body: "b" },
+            { severity: "major", title: "x".repeat(301), body: "b" },
+          ],
+        },
+      })
+    ).rejects.toThrow(/finding 2 needs a title/);
+    const after = await pool.query(
+      `SELECT count(*)::int AS n FROM blocks WHERE kind IN ('review', 'finding')`
+    );
+    expect(after.rows[0].n).toBe(0);
+    void before;
+  });
+
+  it("puts a child's own post in its launch thread, and delivers it only to whom it names", async () => {
+    const { svc, injected } = build();
+    const quiet = await svc.post(B, { text: "Starting the pass." });
+    expect(quiet).toMatchObject({
+      streamId: A,
+      threadId: launchBlockId(B),
+      replyTo: launchBlockId(B),
+      toAgentId: null,
+      delivered: null,
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
+    // Named with `to`, it still lands at home, delivered to that agent only.
+    const told = await svc.post(B, { to: A, text: "Halfway there." });
+    expect(told).toMatchObject({
+      threadId: launchBlockId(B),
+      toAgentId: A,
+    });
+    expect(told.data).toBeNull();
+    await settled(svc, told.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    // A root agent's own post stays top-level.
+    const root = await svc.post(A, { text: "Mine." });
+    expect(root).toMatchObject({ threadId: null, replyTo: null });
+    // A person's post to the child, outside any thread, goes to its card.
+    injected.length = 0;
+    const toChild = await svc.sendUserPost(A, { to: B, text: "How is it?" });
+    expect(toChild.block).toMatchObject({
+      streamId: A,
+      toAgentId: B,
+      threadId: launchBlockId(B),
+      replyTo: launchBlockId(B),
+    });
+    await settled(svc, toChild.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+    // The launch thread lists all of it, oldest first.
+    expect(
+      (await svc.store.listThread(launchBlockId(B)))!.replies.map((b) => b.id)
+    ).toEqual([quiet.id, told.id, toChild.block.id]);
+  });
+
+  it("routes a reply on the launch card between the parent and the child", async () => {
+    const { svc, injected } = build();
+    const card = await launchChild(svc);
+    expect(card.launchedByAgentId).toBe(A);
+    const fromChild = await svc.post(B, {
+      text: "Question?",
+      replyTo: card.id,
+    });
+    // The card's sides are its launcher (A) and the child (B).
+    expect(fromChild).toMatchObject({ threadId: card.id, toAgentId: A });
+    await settled(svc, fromChild.id);
+    injected.length = 0;
+    const fromPerson = await svc.sendUserPost(A, {
+      text: "Carry on.",
+      replyTo: card.id,
+    });
+    expect(fromPerson.block).toMatchObject({
+      threadId: card.id,
+      data: { recipients: [A, B] },
+    });
+    await settled(svc, fromPerson.block.id);
+    expect(injected.map((i) => i.agentId).sort()).toEqual([A, B].sort());
+  });
+
+  it("places turns: a child's opened by its card in its launch thread, a review's at home, a finding's and a finding comment's on the finding", async () => {
+    const { svc } = build();
+    const card = await svc.ensureLaunchBlock(B);
+    const childTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(41, B),
+      // The first turn is the card's briefing, delivered as a post.
+      prompt: { source: "chat", text: "Review it", chatMessageId: card.id },
+    });
+    expect(await svc.store.getById(childTurn!)).toMatchObject({
+      streamId: A,
+      threadId: card.id,
+      replyTo: card.id,
+      origin: "turn",
+    });
+    const { r, f1 } = await reviewed(svc);
+    // A (a root agent) opened by the review, a block the card shows: its
+    // work goes in its own place, top-level.
+    const parentTurn = await svc.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(42, A),
+      prompt: { source: "chat", text: "", chatMessageId: r.id },
+    });
+    expect(await svc.store.getById(parentTurn!)).toMatchObject({
+      threadId: null,
+      replyTo: null,
+    });
+    // Opened by a finding itself (a reopen notification): answered under
+    // that finding, its own thread.
+    const findingTurn = await svc.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(43, A),
+      prompt: { source: "chat", text: "", chatMessageId: f1.id },
+    });
+    expect(await svc.store.getById(findingTurn!)).toMatchObject({
+      threadId: f1.id,
+      replyTo: f1.id,
+    });
+    // Opened by a comment under the finding: the answer goes there.
+    const comment = await svc.post(B, { text: "Still wrong.", replyTo: f1.id });
+    const onFinding = await svc.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(44, A),
+      prompt: { source: "chat", text: "", chatMessageId: comment.id },
+    });
+    expect(await svc.store.getById(onFinding!)).toMatchObject({
+      threadId: f1.id,
+      replyTo: comment.id,
+      data: { turnEventId: 44 },
+    });
+    // The child's turn opened by the builder's answer on the finding stays
+    // on the finding too.
+    const answer = await svc.post(A, { text: "Fixed.", replyTo: comment.id });
+    const reviewerTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(45, B),
+      prompt: { source: "chat", text: "", chatMessageId: answer.id },
+    });
+    expect(await svc.store.getById(reviewerTurn!)).toMatchObject({
+      threadId: f1.id,
+      replyTo: answer.id,
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
+  it("tells the builder only when the reviewer reopens a finding, and the reviewer when the builder resolves one", async () => {
+    const { svc, injected } = build();
+    const { f1, f2 } = await reviewed(svc);
+    injected.length = 0;
+    // The reviewer resolving its own finding: nothing asked of the builder.
+    await svc.update(B, f1.id, {
+      state: { status: "fixed", note: "Verified." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
+    // Reopening it is the builder's move: the builder is told, on the finding.
+    await svc.update(B, f1.id, {
+      state: { status: "open", note: "Regressed." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      `--- DISPATCH POST (id: ${f1.id}, from: Peer (${B})) ---\nFinding "a" reopened: Regressed.`
+    );
+    expect(injected[0]!.text).toContain(`In the thread under ${f1.id}.`);
+    injected.length = 0;
+    await svc.update(A, f2.id, {
+      state: { status: "dismissed", note: "Out of scope." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+    expect(injected[0]!.text).toContain('Finding "c" dismissed: Out of scope.');
+    expect(injected[0]!.text).toContain(`replyTo: "${f2.id}"`);
+  });
+
+  it("marks a finding's comments read on their own, apart from the rest", async () => {
+    const { svc } = build();
+    const { r, f1, f2 } = await reviewed(svc);
+    const c1 = await svc.post(A, { text: "one", replyTo: f1.id });
+    const c2 = await svc.post(B, { text: "two", replyTo: f2.id });
+    await svc.sendUserPost(A, { text: "mine", replyTo: f1.id });
+    const first = await svc.store.markThreadRead(A, f1.id);
     expect(first.ids).toEqual([c1.id]);
     expect(first.readAt).toEqual(expect.any(String));
-    const rest = await svc.store.markThreadRead(A, r.id);
-    expect(rest.ids.sort()).toEqual([c2.id, c3.id].sort());
-    expect(await svc.store.markThreadRead(A, r.id)).toEqual({
+    expect((await svc.store.markThreadRead(A, f2.id)).ids).toEqual([c2.id]);
+    expect(await svc.store.markThreadRead(A, f1.id)).toEqual({
       ids: [],
       readAt: null,
     });
-    const replies = (await svc.store.listThread(r.id))!.replies;
-    expect(
-      replies.filter((b) => b.author.kind === "agent").every((b) => b.readAt)
-    ).toBe(true);
     // Another stream's mark touches nothing here.
     expect(await svc.store.markThreadRead(B, r.id)).toEqual({
       ids: [],
@@ -2879,30 +3462,35 @@ describe("StreamService turn blocks", () => {
     });
   });
 
-  it("a turn opened by a comment on a finding answers on that finding", async () => {
+  it("a turn opened by a comment on a finding answers on that finding, one opened by the finding on it, and one opened by the review goes home", async () => {
     const review = await service.store.insert({
       streamId: A,
       author: { kind: "agent", agentId: B },
       toAgentId: A,
       kind: "review",
       text: "",
-      data: {
-        verdict: "request_changes",
-        summary: "One thing.",
-        findings: [
-          { id: "f1", severity: "major", title: "Null", body: "Guard." },
-        ],
-      },
-      state: { findings: {} },
+      data: { summary: "One thing." },
+      state: { blocks: [] },
     });
+    const finding = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      toAgentId: A,
+      kind: "finding",
+      threadId: review.id,
+      replyTo: review.id,
+      data: { severity: "major", title: "Null", body: "Guard." },
+      state: { status: "open", by: { kind: "agent", agentId: B }, at: "t" },
+      delivered: true,
+    });
+    await service.store.appendShown(review.id, finding.id);
     const comment = await service.store.insert({
       streamId: A,
       author: { kind: "user" },
       toAgentId: A,
-      threadId: review.id,
-      replyTo: review.id,
+      threadId: finding.id,
+      replyTo: finding.id,
       text: "fix it?",
-      data: { findingId: "f1" },
       delivered: true,
     });
     const blockId = await service.recordTurnStarted({
@@ -2911,9 +3499,31 @@ describe("StreamService turn blocks", () => {
       prompt: { source: "chat", text: "fix it?", chatMessageId: comment.id },
     });
     expect(await service.store.getById(blockId!)).toMatchObject({
-      threadId: review.id,
+      threadId: finding.id,
       replyTo: comment.id,
-      data: { findingId: "f1" },
+      data: { turnEventId: 8 },
+    });
+    // The review is shown, not a reply: a turn it opens is work, and goes
+    // to the agent's own place.
+    const fromReview = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(9, { source: "chat", chatMessageId: review.id }),
+      prompt: { source: "chat", text: "", chatMessageId: review.id },
+    });
+    expect(await service.store.getById(fromReview!)).toMatchObject({
+      threadId: null,
+      replyTo: null,
+    });
+    // A finding (a reopen reaching the agent) is a discussion of its own:
+    // the turn answers under it.
+    const fromFinding = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(10, { source: "chat", chatMessageId: finding.id }),
+      prompt: { source: "chat", text: "", chatMessageId: finding.id },
+    });
+    expect(await service.store.getById(fromFinding!)).toMatchObject({
+      threadId: finding.id,
+      replyTo: finding.id,
     });
   });
 
@@ -3421,18 +4031,30 @@ describe("StreamService delivery state", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The workspace coming up
+// The launch card: the workspace coming up, the instructions, the briefing
 // ---------------------------------------------------------------------------
 
-describe("StreamService workspace block", () => {
-  const startupOf = async (svc: StreamService) => {
-    const rows = await pool.query<{ id: string; data: { startup?: unknown } }>(
-      `SELECT id, data FROM blocks WHERE stream_id = $1 AND origin = 'workspace'`,
-      [A]
+describe("StreamService launch card", () => {
+  const cardsOf = async (agentId: string) => {
+    const rows = await pool.query<{
+      id: string;
+      text: string;
+      state: Record<string, unknown> | null;
+      data: unknown;
+      origin: string | null;
+      thread_id: string | null;
+    }>(
+      `SELECT id, text, state, data, origin, thread_id FROM blocks
+        WHERE to_agent_id = $1 AND kind = 'launch'`,
+      [agentId]
     );
-    expect(rows.rowCount).toBe(1);
+    return rows.rows;
+  };
+  const startupOf = async (svc: StreamService) => {
     void svc;
-    return rows.rows[0]!.data.startup as {
+    const cards = await cardsOf(A);
+    expect(cards).toHaveLength(1);
+    return cards[0]!.state!.startup as {
       steps: Array<{
         phase: string;
         label: string;
@@ -3464,24 +4086,39 @@ describe("StreamService workspace block", () => {
       { phase: "deps", status: "running" },
     ]);
     expect(startup.steps[0]!.endedAt).toBeTruthy();
-    // Every change is published, so the row moves while the person watches.
+    // Every change is published, so the row moves while the person watches
+    // (the first one also writes the card).
+    const entries = events.filter(
+      (e) => (e as { type: string }).type === "stream.entry"
+    );
+    expect(entries.length).toBeGreaterThanOrEqual(2);
     expect(
-      events.filter((e) => (e as { type: string }).type === "stream.entry")
-    ).toHaveLength(2);
+      entries.every(
+        (e) => (e as { entry: { id: string } }).entry.id === launchBlockId(A)
+      )
+    ).toBe(true);
   });
 
-  it("reads as the running step, then as ready", async () => {
+  it("writes the startup onto the card's state, with no text of its own", async () => {
     const { svc } = build();
     await svc.recordStartupStep({
       agentId: A,
       phase: "deps",
       label: "Installing dependencies",
     });
-    const during = await svc.store.getById(workspaceBlockId(A));
-    expect(during!.text).toBe("Installing dependencies");
+    const during = await svc.store.getById(launchBlockId(A));
+    expect(during).toMatchObject({
+      kind: "launch",
+      author: { kind: "user" },
+      toAgentId: A,
+      threadId: null,
+      delivered: true,
+      text: "",
+    });
+    expect("origin" in during!).toBe(false);
     await svc.recordStartupDone({ agentId: A, cwd: "/tmp/work" });
-    const after = await svc.store.getById(workspaceBlockId(A));
-    expect(after!.text).toBe("Workspace ready");
+    const after = await svc.store.getById(launchBlockId(A));
+    expect(after!.text).toBe("");
     const startup = await startupOf(svc);
     expect(startup.readyAt).toBeTruthy();
     expect(startup.cwd).toBe("/tmp/work");
@@ -3505,8 +4142,6 @@ describe("StreamService workspace block", () => {
       status: "failed",
       detail: "branch already checked out",
     });
-    const block = await svc.store.getById(workspaceBlockId(A));
-    expect(block!.text).toContain("branch already checked out");
   });
 
   it("does not repeat a phase it already recorded", async () => {
@@ -3533,9 +4168,133 @@ describe("StreamService workspace block", () => {
       label: "Installing dependencies",
     });
     await svc.recordStartupDone({ agentId: A });
-    // The workspace record is not a message: it leaves no unread mark, the
-    // way the system-prompt record does not.
+    await svc.recordSystemPrompt({ agentId: A, prompt: "Be useful." });
+    // The card is the person's post to the agent: no unread mark.
     expect(await svc.store.countUnread(A)).toBe(0);
+  });
+
+  it("keeps the instructions on the card, rewritten only when they change", async () => {
+    const { svc, events } = build();
+    const first = await svc.recordSystemPrompt({
+      agentId: A,
+      prompt: "  Be useful.  ",
+    });
+    expect(first).toMatchObject({
+      id: launchBlockId(A),
+      kind: "launch",
+      state: { instructions: "Be useful." },
+    });
+    const count = events.length;
+    // The same guidance again writes and publishes nothing.
+    await svc.recordSystemPrompt({ agentId: A, prompt: "Be useful." });
+    expect(events).toHaveLength(count);
+    await svc.recordSystemPrompt({ agentId: A, prompt: "Be brief." });
+    const cards = await cardsOf(A);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.state).toEqual({ instructions: "Be brief." });
+    expect(
+      await svc.recordSystemPrompt({ agentId: A, prompt: "   " })
+    ).toBeNull();
+  });
+
+  it("lands the startup, the instructions and the briefing on one card, whichever comes first", async () => {
+    const orders: Array<Array<"step" | "prompt" | "brief" | "done">> = [
+      ["step", "prompt", "brief", "done"],
+      ["brief", "step", "prompt", "done"],
+      ["prompt", "brief", "step", "done"],
+      ["brief", "prompt", "done", "step"],
+    ];
+    for (const order of orders) {
+      await pool.query("DELETE FROM blocks");
+      const { svc } = build();
+      for (const step of order) {
+        if (step === "step") {
+          await svc.recordStartupStep({
+            agentId: A,
+            phase: "deps",
+            label: "Installing dependencies",
+          });
+        } else if (step === "prompt") {
+          await svc.recordSystemPrompt({ agentId: A, prompt: "Be useful." });
+        } else if (step === "done") {
+          await svc.recordStartupDone({ agentId: A });
+        } else {
+          const prepared = await svc.prepareLaunchContext({
+            agentId: A,
+            text: "Build the widget",
+            links: ["https://example.com/spec"],
+          });
+          // The card's id is known before the write, whoever wrote it.
+          expect(prepared!.id).toBe(launchBlockId(A));
+          await prepared!.record();
+        }
+      }
+      const cards = await cardsOf(A);
+      expect(cards, order.join(",")).toHaveLength(1);
+      expect(cards[0]).toMatchObject({
+        id: launchBlockId(A),
+        text: "Build the widget",
+        origin: null,
+        data: null,
+        thread_id: null,
+        state: {
+          instructions: "Be useful.",
+          startup: expect.objectContaining({ steps: expect.any(Array) }),
+        },
+      });
+      const all = await pool.query(
+        `SELECT count(*)::int AS n FROM blocks WHERE stream_id = $1`,
+        [A]
+      );
+      expect(all.rows[0].n, order.join(",")).toBe(1);
+    }
+  });
+
+  it("writes the card in the parent's stream, attributed only by the launch, never the agent row", async () => {
+    const CHILD = "agt_stream_card_child";
+    AGENTS[CHILD] = {
+      id: CHILD,
+      name: "Kid",
+      filesDir: null,
+      status: "running",
+    };
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id, launched_by_agent_id)
+       VALUES ($1, 'Kid', '/tmp', 'running', $2, $2)
+       ON CONFLICT (id) DO UPDATE SET parent_agent_id = EXCLUDED.parent_agent_id,
+         launched_by_agent_id = EXCLUDED.launched_by_agent_id, deleted_at = NULL`,
+      [CHILD, A]
+    );
+    try {
+      const { svc } = build();
+      // The agent row names a launcher (a create request can fill that in),
+      // but the card does not take it from there.
+      const card = await svc.ensureLaunchBlock(CHILD);
+      expect(card).toMatchObject({
+        id: launchBlockId(CHILD),
+        streamId: A,
+        kind: "launch",
+        toAgentId: CHILD,
+        threadId: null,
+      });
+      expect("launchedByAgentId" in card).toBe(false);
+      // Asked again, it is the same card.
+      expect((await svc.ensureLaunchBlock(CHILD)).id).toBe(card.id);
+      expect((await svc.store.findLaunchBlock(CHILD))?.id).toBe(card.id);
+      // A launch with no briefing still says who launched it, and returns
+      // nothing to record.
+      expect(
+        await svc.prepareLaunchContext({ agentId: CHILD, launchedByAgentId: A })
+      ).toBeNull();
+      expect(await svc.store.findLaunchBlock(CHILD)).toMatchObject({
+        id: card.id,
+        launchedByAgentId: A,
+        text: "",
+      });
+    } finally {
+      await pool.query(`DELETE FROM agents WHERE id = $1`, [CHILD]);
+      delete AGENTS[CHILD];
+    }
   });
 });
 

@@ -91,7 +91,9 @@ export function ThreadDrawer({
   const findingId = target?.findingId ?? null;
   // Closing after the agent changed, the held thread is the old agent's.
   const pageAgent = targetAgentId === selectedAgentId ? agent : null;
-  const thread = useThread(targetRootId, threadId);
+  // The header names the page on top: a finding's own thread when one is
+  // open over its review.
+  const thread = useThread(targetRootId, findingId ?? threadId);
   const nameOf = (agentId: string) =>
     agentId === selectedAgentId
       ? (selectedAgentName ?? "Agent")

@@ -208,7 +208,6 @@ export type DiffStatsRefresherHandle = {
  * it. Null means the launch carries no context and nothing is recorded.
  */
 export type LaunchContextInput = {
-  id: string;
   agentId: string;
   text?: string;
   files?: Array<{ fileId: number }>;
@@ -218,6 +217,8 @@ export type LaunchContextInput = {
 
 export type LaunchContextRecorder = {
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
+    /** The launch card the briefing is written onto; the first turn names it. */
+    id: string;
     /**
      * Every startup file and link, described the way the pane lists
      * them. Not capped: the post may show fewer, but the CLI's first turn
@@ -893,9 +894,8 @@ export class AgentManager {
     // quiet; their prompt goes as the first turn as-is.
     const recorder = this.launchContextRecorder;
     const wantsEnvelope = recorder !== null && !input.jobRunId;
-    const launchPostId = randomUUID();
     const launchContextInput = recorder
-      ? this.launchContextInput(p, input, initialFiles, launchPostId)
+      ? this.launchContextInput(p, input, initialFiles)
       : null;
     let launchContextWrite: Promise<void> = Promise.resolve();
     const resolveLaunchPost = async (): Promise<ChatLaunchPost | null> => {
@@ -904,7 +904,6 @@ export class AgentManager {
         return this.resolveDurableLaunchPost(
           recorder,
           p.id,
-          launchPostId,
           launchContextInput
         );
       }
@@ -958,11 +957,9 @@ export class AgentManager {
   private launchContextInput(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    initialFiles: Array<{ fileId: number }>,
-    launchPostId: string
+    initialFiles: Array<{ fileId: number }>
   ): LaunchContextInput {
     return {
-      id: launchPostId,
       agentId: p.id,
       text: input.launchContext?.prompt,
       files: initialFiles.map((file) => ({ fileId: file.fileId })),
@@ -986,7 +983,6 @@ export class AgentManager {
   private async resolveDurableLaunchPost(
     recorder: LaunchContextRecorder,
     agentId: string,
-    launchPostId: string,
     context: LaunchContextInput
   ): Promise<ChatLaunchPost | null> {
     const resolve = recorder
@@ -1032,7 +1028,7 @@ export class AgentManager {
     }
     if (!written) return null;
     return {
-      messageId: launchPostId,
+      messageId: prepared.id,
       attachmentLines: prepared.attachmentLines,
     };
   }

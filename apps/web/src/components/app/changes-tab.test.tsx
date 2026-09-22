@@ -14,7 +14,16 @@ import { Provider, createStore } from "jotai";
 import { MemoryRouter, useLocation, useNavigationType } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { StreamFeedResponse } from "@dispatch/shared";
+
 import type { Agent } from "@/components/app/types";
+import type { DiffFindingsProps } from "@/components/app/diff-review-annotation-props";
+import {
+  blockEntry,
+  findingBlock,
+  launchBlock,
+  reviewBlock,
+} from "@/test-utils/blocks";
 import type { DiffFile, FileDiffResponse } from "@/hooks/use-agent-diff";
 import {
   diffFileTreeOpenAtom,
@@ -177,6 +186,8 @@ function renderTab(
     isMobile?: boolean;
     active?: boolean;
     store?: ReturnType<typeof createStore>;
+    /** The agent's stream, where the reviews of its work are. */
+    feed?: StreamFeedResponse;
   } = {}
 ) {
   const {
@@ -186,10 +197,17 @@ function renderTab(
     isMobile,
     active = true,
     store = createStore(),
+    feed,
   } = options;
 
-  apiMock.mockImplementation((async (path: string) => {
+  apiMock.mockImplementation((async (path: string, init?: RequestInit) => {
     if (path === "/api/v1/agents") return { agents: [] };
+    if (feed && path.startsWith(`/api/v1/streams/${AGENT_ID}/blocks?`)) {
+      return feed;
+    }
+    if (feed && init?.method === "PATCH") {
+      return { block: null };
+    }
     if (path.includes("/diff/file")) return await fileDiff;
     if (path.includes("/diff?")) return { baseRef: "main", files };
     throw new Error(`unexpected request: ${path}`);
@@ -711,5 +729,69 @@ describe("ChangesTab file diff content", () => {
         "Binary file or no textual diff available"
       )
     ).toBeTruthy();
+  });
+
+  it("places each finding block with a path in its file, and resolves it by its own id", async () => {
+    const reviewer = { kind: "agent", agentId: "agt_rev" } as const;
+    const onCard = reviewBlock({
+      id: "rv",
+      author: reviewer,
+      toAgentId: AGENT_ID,
+      threadId: "card",
+      replyTo: "card",
+      findings: [
+        findingBlock(
+          "f1",
+          {
+            severity: "major",
+            title: "Off by one",
+            body: "",
+            path: "src/app.ts",
+            line: 3,
+          },
+          { author: reviewer }
+        ),
+        findingBlock(
+          "f2",
+          { severity: "nit", title: "No place", body: "" },
+          { author: reviewer }
+        ),
+      ],
+    });
+    renderTab({
+      route: "/?file=src%2Fapp.ts&thread=card&finding=f1",
+      feed: {
+        entries: [
+          blockEntry(
+            launchBlock({ id: "card", toAgentId: "agt_rev", blocks: [onCard] })
+          ),
+        ],
+        hasMore: false,
+        nextCursor: null,
+        unreadCount: 0,
+      },
+    });
+    await waitForFile("src/app.ts");
+    await waitFor(() => expect(propsFor("src/app.ts").findings).toBeTruthy());
+    const findings = propsFor("src/app.ts").findings as DiffFindingsProps;
+    // Only the finding that names a place, keyed by its block's id.
+    expect(
+      findings.items.map((item) => [item.key, item.findingId, item.block.id])
+    ).toEqual([["f1", "f1", "rv"]]);
+    expect(findings.items[0]!.finding.title).toBe("Off by one");
+    expect(findings.items[0]!.record?.status).toBe("open");
+    // `?file=` with `?finding=` names the one to open in place.
+    expect(findings.focusedKey).toBe("f1");
+
+    act(() => findings.onSetState!("f1", { status: "fixed" }));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        `/api/v1/streams/${AGENT_ID}/blocks/f1/state`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ state: { status: "fixed" } }),
+        }
+      )
+    );
   });
 });
