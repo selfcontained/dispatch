@@ -1,9 +1,13 @@
 import {
+  createContext,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  type TransitionEvent,
   type RefObject,
   useCallback,
+  useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -22,18 +26,15 @@ import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import {
   clampDrawerWidth,
+  DRAWER_EDGE_GUTTER_PX,
   DRAWER_KEYBOARD_BIG_STEP_PX,
   DRAWER_KEYBOARD_STEP_PX,
   DRAWER_MIN_WIDTH_PX,
-  DRAWER_TRANSITION_MS,
-  DRAWER_WIDTH_PX,
-  drawerMaxWidth,
-} from "@/components/app/drawer-constants";
-
-export {
   DRAWER_SETTLE_FALLBACK_MS,
   DRAWER_TRANSITION_MS,
   DRAWER_WIDTH_PX,
+  drawerMaxWidth,
+  drawerPinnedReserve,
 } from "@/components/app/drawer-constants";
 
 type DrawerSharedProps = {
@@ -70,7 +71,7 @@ type DrawerProps = DrawerSharedProps & {
   setActiveTab: (tab: DrawerTab) => void;
   pinned: boolean;
   onTogglePin: () => void;
-  onWidthTransitionEnd?: () => void;
+  pinnedReserve?: number;
 };
 
 type DrawerContentProps = DrawerSharedProps & {
@@ -288,19 +289,19 @@ function useViewportWidth(): number {
  * the frame being dragged and is written to the preference on release, so a
  * drag is one storage write, not one per pointer move.
  */
-function useDrawerWidth() {
+function useDrawerWidth(reserve: number) {
   const [storedWidth, setStoredWidth] = useAtom(drawerWidthAtom);
   const viewportWidth = useViewportWidth();
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const clamp = useCallback(
-    (width: number) => clampDrawerWidth(width, viewportWidth),
-    [viewportWidth]
+    (width: number) => clampDrawerWidth(width, viewportWidth, reserve),
+    [viewportWidth, reserve]
   );
   const width = clamp(dragWidth ?? storedWidth ?? DRAWER_WIDTH_PX);
   return {
     width,
     min: DRAWER_MIN_WIDTH_PX,
-    max: drawerMaxWidth(viewportWidth),
+    max: drawerMaxWidth(viewportWidth, reserve),
     dragging: dragWidth !== null,
     clamp,
     setDragWidth,
@@ -398,6 +399,50 @@ function DrawerResizeHandle({
   );
 }
 
+const DrawerClosingContext = createContext(false);
+
+/**
+ * True while the frame around this content is sliding shut: it has been
+ * told to close and its close transition has not finished. Content whose
+ * data goes the moment the drawer closes (a thread, once the URL stops
+ * naming it) holds its last render this long, so what slides out is what
+ * was open rather than an empty box.
+ */
+export function useDrawerClosing(): boolean {
+  return useContext(DrawerClosingContext);
+}
+
+/**
+ * `closing` turns on when `open` goes false, and off when the close
+ * transition ends (`settle`), when the frame opens again, or after a
+ * fallback for a transition that never ends (the frame is `display: none`
+ * on a phone, or the tab is in the background).
+ */
+function useClosing(open: boolean) {
+  const [closing, setClosing] = useState(false);
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    setClosing(!open);
+  }
+  // Settles only a close in progress. A `setClosing(false)` while already
+  // false is not dropped: React keeps it queued, and it lands after the
+  // next close's `setClosing(true)`, cutting that close off before it
+  // slides.
+  const settle = () => {
+    if (closing) setClosing(false);
+  };
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(
+      () => setClosing(false),
+      DRAWER_SETTLE_FALLBACK_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+  return { closing, settle };
+}
+
 /**
  * The slot at the right edge, in the sidebar's mode: pinned, it takes
  * layout width (0 when closed) and shrinks the centre; unpinned, it floats
@@ -405,29 +450,36 @@ function DrawerResizeHandle({
  * drawer each sit in one, so a thread takes the sidebar's place while it
  * is open and gives it back on close. Its left edge resizes it, and the
  * width is one preference for the client, shared by every frame.
+ *
+ * Closing slides the same way opening does, and the content is told
+ * (`useDrawerClosing`) until the slide ends, so it can keep rendering
+ * what it showed.
  */
 export function DrawerFrame({
   open,
   pinned,
-  onWidthTransitionEnd,
+  pinnedReserve = drawerPinnedReserve(true),
   children,
   testId = "drawer-wrapper",
 }: {
   open: boolean;
   pinned: boolean;
   /**
-   * Pinned only: the width transition of an open or close finished. A
-   * resize is not an open or close, so it never calls this.
+   * What a pinned drawer leaves the rest of the row at its widest. A
+   * floating one only keeps the edge gutter.
    */
-  onWidthTransitionEnd?: () => void;
+  pinnedReserve?: number;
   children: ReactNode;
   testId?: string;
 }): JSX.Element {
-  const drawerWidth = useDrawerWidth();
+  const drawerWidth = useDrawerWidth(
+    pinned ? pinnedReserve : DRAWER_EDGE_GUTTER_PX
+  );
   const { width, dragging } = drawerWidth;
+  const { closing, settle } = useClosing(open);
   // Pinned, a resize changes the same `width` an open or close animates, so
   // a keyboard step (which animates) ends in a `transitionend` too. This
-  // marks the transitions that are an open or close; only those report.
+  // marks the transitions that are an open or close; only those settle.
   const toggleInFlightRef = useRef(false);
   const mountedRef = useRef(false);
   useLayoutEffect(() => {
@@ -436,33 +488,42 @@ export function DrawerFrame({
   }, [open]);
   // A drag follows the pointer, so it runs with no transition at all. One
   // that starts mid-open cuts that transition short, so no `transitionend`
-  // comes for it: the caller's own fallback timer settles it, and the flag
-  // must not be left for the next resize to report.
+  // comes for it, and the flag must not be left for the next resize.
   useLayoutEffect(() => {
     if (dragging) toggleInFlightRef.current = false;
   }, [dragging]);
   const transitionDuration = `${dragging ? 0 : DRAWER_TRANSITION_MS}ms`;
   const handle = open ? <DrawerResizeHandle drawerWidth={drawerWidth} /> : null;
+  const onTransitionEnd = (
+    event: TransitionEvent<HTMLDivElement>,
+    propertyName: string
+  ) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.propertyName !== propertyName) return;
+    if (!toggleInFlightRef.current) return;
+    toggleInFlightRef.current = false;
+    settle();
+  };
+  const content = (
+    <DrawerClosingContext.Provider value={closing}>
+      {children}
+    </DrawerClosingContext.Provider>
+  );
 
   if (pinned) {
     return (
       <div
         data-testid={testId}
         data-pinned="true"
+        data-closing={closing ? "true" : undefined}
         data-resizing={dragging ? "true" : undefined}
         className="relative h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
         style={{ width: open ? width : 0, transitionDuration }}
-        onTransitionEnd={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.propertyName !== "width") return;
-          if (!toggleInFlightRef.current) return;
-          toggleInFlightRef.current = false;
-          onWidthTransitionEnd?.();
-        }}
+        onTransitionEnd={(event) => onTransitionEnd(event, "width")}
       >
         {handle}
         <div className="h-full min-h-0" style={{ width }}>
-          {children}
+          {content}
         </div>
       </div>
     );
@@ -480,6 +541,7 @@ export function DrawerFrame({
     <div
       data-testid={testId}
       data-pinned="false"
+      data-closing={closing ? "true" : undefined}
       data-resizing={dragging ? "true" : undefined}
       className={cn(
         "fixed bottom-0 right-0 top-0 z-30 transition-transform ease-out",
@@ -490,9 +552,10 @@ export function DrawerFrame({
         transform: open ? "translateX(0)" : `translateX(${width}px)`,
         transitionDuration,
       }}
+      onTransitionEnd={(event) => onTransitionEnd(event, "transform")}
     >
       {handle}
-      {children}
+      {content}
     </div>
   );
 }
@@ -502,14 +565,14 @@ export function Drawer({
   setDrawerOpen,
   pinned,
   onTogglePin,
-  onWidthTransitionEnd,
+  pinnedReserve,
   ...props
 }: DrawerProps): JSX.Element {
   return (
     <DrawerFrame
       open={drawerOpen}
       pinned={pinned}
-      onWidthTransitionEnd={onWidthTransitionEnd}
+      pinnedReserve={pinnedReserve}
     >
       <DrawerContent
         {...props}

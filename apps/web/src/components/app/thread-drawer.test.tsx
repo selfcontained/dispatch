@@ -3,17 +3,19 @@ import type { StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { threadQueryKey } from "@/hooks/use-stream";
 import { block, reviewBody } from "@/test-utils/blocks";
 
+import { DrawerFrame } from "./drawer";
 import { ThreadDrawer } from "./thread-drawer";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -68,6 +70,12 @@ const thread: StreamThreadResponse = {
   ],
 };
 
+const note = block({
+  id: "n2",
+  author: { kind: "agent", agentId: "agt_1" },
+  text: "A second thread.",
+});
+
 let client: QueryClient;
 
 function LocationProbe() {
@@ -99,11 +107,68 @@ function renderThreadDrawer(search: string) {
   );
 }
 
+const agentProp = {
+  id: "agt_1",
+  name: "builder",
+  status: "running",
+  type: "claude",
+} as never;
+
+/** The drawer as agents-view mounts it: in a frame open while the URL names a thread. */
+function FramedThreadDrawer() {
+  const search = useLocation().search;
+  const navigate = useNavigate();
+  return (
+    <>
+      <DrawerFrame
+        open={new URLSearchParams(search).has("thread")}
+        pinned
+        testId="thread-drawer-wrapper"
+      >
+        <ThreadDrawer
+          selectedAgentId="agt_1"
+          selectedAgentName="builder"
+          rootId="agt_1"
+          openLightbox={vi.fn()}
+          agentNameById={(id) => (id === "agt_rev" ? "reviewer" : "Agent")}
+          agent={agentProp}
+        />
+      </DrawerFrame>
+      <button data-testid="go-n2" onClick={() => navigate("?thread=n2")} />
+      <button data-testid="go-rv" onClick={() => navigate("?thread=rv")} />
+    </>
+  );
+}
+
+function renderFramed(search: string) {
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
+        <FramedThreadDrawer />
+        <LocationProbe />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function endSlide() {
+  const wrapper = screen.getByTestId("thread-drawer-wrapper");
+  const event = createEvent.transitionEnd(wrapper);
+  Object.defineProperty(event, "propertyName", { value: "width" });
+  fireEvent(wrapper, event);
+}
+
+const titleText = () => screen.getByTestId("drawer-title").textContent;
+
 beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   client.setQueryData(threadQueryKey("agt_1", "rv"), thread);
+  client.setQueryData(threadQueryKey("agt_1", "n2"), {
+    root: note,
+    replies: [],
+  } satisfies StreamThreadResponse);
   apiMock.mockReset();
   apiMock.mockImplementation(async (url: string) =>
     url.endsWith("/thread") ? thread : { ids: [], readAt: null }
@@ -181,5 +246,72 @@ describe("ThreadDrawer", () => {
     expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
       "Typo"
     );
+  });
+});
+
+describe("ThreadDrawer closing in its frame", () => {
+  it("stays mounted with the closed thread's content until the slide ends", () => {
+    renderFramed("?thread=rv&finding=f1");
+    fireEvent.click(screen.getByTestId("drawer-close"));
+    expect(screen.getByTestId("location-search").textContent).toBe("");
+
+    const wrapper = screen.getByTestId("thread-drawer-wrapper");
+    expect(wrapper.style.width).toBe("0px");
+    expect(wrapper.dataset.closing).toBe("true");
+    // Still the finding it was showing, not an empty box.
+    expect(screen.getByTestId("thread-drawer").getAttribute("data-depth")).toBe(
+      "2"
+    );
+    expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
+      "Null deref"
+    );
+
+    endSlide();
+    expect(screen.queryByTestId("thread-drawer")).toBeNull();
+  });
+
+  it("switching straight to another thread shows it, not the one before", () => {
+    renderFramed("?thread=rv");
+    expect(titleText()).toBe("Review");
+    fireEvent.click(screen.getByTestId("go-n2"));
+    expect(screen.getAllByTestId("drawer-page")[0]!.dataset.pageKey).toBe(
+      "thread:n2"
+    );
+    expect(screen.queryByTestId("chat-review-finding")).toBeNull();
+  });
+
+  it("opening another thread mid-close shows the new one at once, and closing it holds that one", () => {
+    renderFramed("?thread=rv");
+    fireEvent.click(screen.getByTestId("drawer-close"));
+    expect(titleText()).toBe("Review");
+
+    fireEvent.click(screen.getByTestId("go-n2"));
+    const wrapper = screen.getByTestId("thread-drawer-wrapper");
+    expect(wrapper.dataset.closing).toBeUndefined();
+    expect(wrapper.style.width).not.toBe("0px");
+    expect(screen.getAllByTestId("drawer-page")[0]!.dataset.pageKey).toBe(
+      "thread:n2"
+    );
+    // The close that was cut short ends as this open's slide; nothing unmounts.
+    endSlide();
+    expect(screen.getByTestId("thread-drawer")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("drawer-close"));
+    expect(screen.getAllByTestId("drawer-page")[0]!.dataset.pageKey).toBe(
+      "thread:n2"
+    );
+    endSlide();
+    expect(screen.queryByTestId("thread-drawer")).toBeNull();
+  });
+
+  it("closing and reopening the same thread neither races nor sticks", () => {
+    renderFramed("?thread=rv");
+    fireEvent.click(screen.getByTestId("drawer-close"));
+    fireEvent.click(screen.getByTestId("go-rv"));
+    const wrapper = screen.getByTestId("thread-drawer-wrapper");
+    expect(wrapper.dataset.closing).toBeUndefined();
+    endSlide();
+    expect(titleText()).toBe("Review");
+    expect(wrapper.style.width).not.toBe("0px");
   });
 });

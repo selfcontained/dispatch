@@ -24,6 +24,10 @@ import {
 } from "@/components/app/agents-view-utils";
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
 import { Drawer, DrawerContent, DrawerFrame } from "@/components/app/drawer";
+import {
+  drawerPinnedReserve,
+  NAV_SIDEBAR_WIDTH_PX,
+} from "@/components/app/drawer-constants";
 import { ThreadDrawer } from "@/components/app/thread-drawer";
 import { glassPanel } from "@/lib/glass";
 import { BottomBar } from "@/components/app/bottom-bar";
@@ -130,7 +134,6 @@ export function AgentsView({
     setDrawerOpen: setDrawerOpenState,
     setDrawerActiveTab,
     toggleDrawerPinned,
-    finishDrawerResizeSettle,
   } = useDrawerState({
     sidebarAgentId,
     isMobile,
@@ -275,6 +278,7 @@ export function AgentsView({
   const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
     drawerRoute;
   const threadDrawerOpen = drawerRoute.depth > 0 && hasActiveAgent;
+  const pinnedReserve = drawerPinnedReserve(leftOpen);
   // On a phone the two are sheets over the same edge: a thread opening
   // takes the sidebar's sheet down.
   useEffect(() => {
@@ -434,7 +438,7 @@ export function AgentsView({
             }
           }}
           side="left"
-          width={320}
+          width={NAV_SIDEBAR_WIDTH_PX}
           mobile={isMobile}
           label="Navigation sidebar"
         >
@@ -573,7 +577,7 @@ export function AgentsView({
           <DrawerFrame
             open={threadDrawerOpen}
             pinned={drawerPinned}
-            onWidthTransitionEnd={finishDrawerResizeSettle}
+            pinnedReserve={pinnedReserve}
             testId="thread-drawer-wrapper"
           >
             <ThreadDrawer
@@ -609,7 +613,7 @@ export function AgentsView({
             setActiveTab={setDrawerActiveTab}
             pinned={drawerPinned}
             onTogglePin={toggleDrawerPinned}
-            onWidthTransitionEnd={finishDrawerResizeSettle}
+            pinnedReserve={pinnedReserve}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}

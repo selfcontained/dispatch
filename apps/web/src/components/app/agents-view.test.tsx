@@ -203,7 +203,6 @@ vi.mock("@/hooks/use-drawer-state", () => ({
       setDrawerOpen: s.setDrawerOpen,
       setDrawerActiveTab: s.setDrawerActiveTab,
       toggleDrawerPinned: s.toggleDrawerPinned,
-      finishDrawerResizeSettle: s.finishDrawerResizeSettle,
     };
   },
 }));
@@ -389,7 +388,6 @@ beforeEach(() => {
     setDrawerOpen: vi.fn(),
     setDrawerActiveTab: vi.fn(),
     toggleDrawerPinned: vi.fn(),
-    finishDrawerResizeSettle: vi.fn(),
     splitState: { left: "agent", right: "agent" },
     isSplit: false,
     exitSplit: vi.fn(),
