@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
+import type { StreamFeedResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const apiMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", () => ({ api: apiMock }));
+
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { LIVE_HEAD_ROWS, streamFeedQueryKey } from "@/hooks/use-stream";
+import { LIVE_HEAD_ROWS, useStreamFeed } from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -68,31 +72,81 @@ describe("applyDiffStateChanged", () => {
 });
 
 describe("applyStreamEntry", () => {
-  it("invalidates rather than drops an entry that arrives during the feed's first fetch", () => {
-    const queryClient = new QueryClient();
-    const key = streamFeedQueryKey("agent-1");
-    // The feed's very first load: a query is mounted and fetching, but has
-    // no data yet — the exact window a workspace-ready update (or any other
-    // stream.entry) could race past a plain "no data, nothing to do" guard
-    // and be lost until a manual refresh.
-    void queryClient.prefetchQuery({
-      queryKey: key,
-      queryFn: () => new Promise(() => {}),
-    });
-    expect(queryClient.getQueryState(key)?.fetchStatus).toBe("fetching");
-    expect(queryClient.getQueryState(key)?.data).toBeUndefined();
-    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+  const page = (
+    entries: StreamFeedResponse["entries"],
+    extra: Partial<StreamFeedResponse> = {}
+  ): StreamFeedResponse => ({
+    entries,
+    hasMore: false,
+    unreadCount: 0,
+    nextCursor: null,
+    ...extra,
+  });
 
-    applyStreamEntry(
-      queryClient,
-      "agent-1",
-      blockEntry(block({ streamId: "agent-1", authorKind: "agent" }))
+  beforeEach(() => {
+    apiMock.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /**
+   * Behavioral, not just a spy on `invalidateQueries`: react-query's own
+   * `Query#fetch` only cancels-and-restarts an in-flight request when
+   * `state.data !== undefined` (see the comment on
+   * `invalidateOnceFirstFetchSettles` in use-sse.ts) — with no data yet, an
+   * `invalidateQueries` call during the fetch is a no-op for that fetch, it
+   * only flags the query stale for whenever it is next *observed*. A test
+   * that stops at "was invalidateQueries called" cannot see that gap; this
+   * one drives a real, actively-observed `useStreamFeed` through a deferred
+   * first fetch and checks the row actually lands in the rendered feed
+   * without any remount, refocus, or other externally triggered refetch.
+   */
+  it("recovers an entry that arrives during the feed's first fetch, once that fetch settles", async () => {
+    let resolveFirstFetch: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveFirstFetch = resolve;
+      })
     );
-
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: key,
-      exact: true,
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
     });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    // A real, actively-observed query: only an active observer makes
+    // `invalidateQueries`'s default `refetchType: "active"` attempt a
+    // refetch at all, which is what the follow-up in use-sse.ts relies on.
+    const { result } = renderHook(() => useStreamFeed("agent-1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    expect(result.current.isLoading).toBe(true);
+
+    const late = blockEntry(
+      block({ id: "late", streamId: "agent-1", authorKind: "agent" })
+    );
+    // The event lands mid-flight; the in-flight fetch already read the DB
+    // without it (or will resolve before the write is visible there).
+    applyStreamEntry(queryClient, "agent-1", late);
+
+    // Queued before the first fetch settles: the follow-up refetch can fire
+    // as soon as the first one resolves, in the same microtask flush, so
+    // this has to be in place before `resolveFirstFetch` runs, not after.
+    apiMock.mockResolvedValueOnce(page([late]));
+
+    // The first fetch settles with a snapshot that does not have `late` —
+    // exactly the race: its own read missed the row the live event carried.
+    resolveFirstFetch!(page([]));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // The follow-up must have queued a second fetch once the first settled,
+    // not left the query merely flagged stale with no request in flight.
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.entries.map((e) => e.id)).toEqual(["late"])
+    );
   });
 
   it("does nothing for an agent with no mounted feed query", () => {

@@ -145,6 +145,39 @@ function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
 }
 
 /**
+ * Promises already given a follow-up invalidate once they settle: a dedupe
+ * so a burst of entries arriving during the same in-flight first fetch does
+ * not each attach their own continuation to it.
+ */
+const firstFetchFollowUps = new WeakSet<Promise<unknown>>();
+
+/**
+ * A feed's very first fetch (no cached data yet) is in flight when an entry
+ * arrives. `invalidateQueries` cannot rescue this one the way it rescues a
+ * refetch: react-query's `Query#fetch` only cancels-and-restarts an
+ * in-flight request when `state.data !== undefined` (see `query.js`,
+ * `cancelRefetch` branch) — with no data yet, it just hands back the same
+ * in-flight promise, so invalidating merely flags the query stale for
+ * whenever it is next *observed* (a remount, a window focus), which may not
+ * happen while the tab stays put on this agent. Wait for that promise to
+ * settle instead — data will be defined by then, so an ordinary invalidate
+ * can actually cancel-and-refetch — and invalidate once it does.
+ */
+function invalidateOnceFirstFetchSettles(
+  queryClient: QueryClient,
+  agentId: string,
+  key: ReturnType<typeof streamFeedQueryKey>
+): void {
+  const promise = queryClient
+    .getQueryCache()
+    .find<FeedCache>({ queryKey: key, exact: true })?.promise;
+  if (!promise || firstFetchFollowUps.has(promise)) return;
+  firstFetchFollowUps.add(promise);
+  const onSettled = () => invalidateStreamFeed(queryClient, agentId);
+  promise.then(onSettled, onSettled);
+}
+
+/**
  * A `stream.entry` event: one feed row, put straight into the cached pages.
  * Falls back to the refetch when there is no place for it — the entry is
  * older than the loaded head — or when a fetch is already in flight
@@ -185,12 +218,15 @@ export function applyStreamEntry(
   // A fetch in flight (the feed's first load, or a refetch) may already have
   // read the row's earlier version from the DB, or may resolve before this
   // event's write is visible there — either way its response won't reflect
-  // this entry. Invalidating queues a follow-up fetch once it settles, so
-  // the row is never silently dropped. Checked before `state.data`: the
-  // very first fetch has no data yet, and previously fell through the guard
-  // below with nothing to invalidate it later.
+  // this entry. Checked before `state.data`: the very first fetch has no
+  // data yet, and previously fell through the guard below with nothing to
+  // invalidate it later.
   if (state.fetchStatus === "fetching") {
-    invalidateStreamFeed(queryClient, agentId);
+    if (state.data === undefined) {
+      invalidateOnceFirstFetchSettles(queryClient, agentId, key);
+    } else {
+      invalidateStreamFeed(queryClient, agentId);
+    }
     return;
   }
   if (!state.data) return;
