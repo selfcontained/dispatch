@@ -34,7 +34,11 @@ import { StepRail } from "@/components/app/chat/turn/activity-block";
 import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
-import { TurnAnswer } from "@/components/app/chat/turn/turn-entry-view";
+import {
+  isPendingTurn,
+  PendingTurnLine,
+  TurnAnswer,
+} from "@/components/app/chat/turn/turn-entry-view";
 import { MentionText } from "@/components/app/chat/mention-picker";
 import { type Mentionable, mentionSpans } from "@/lib/mentions";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
@@ -1460,6 +1464,28 @@ export const BlockView = memo(function BlockView({
         />
         {threadLine}
       </Post>
+    );
+  }
+
+  // A turn with nothing to say yet is a status line, not a second post:
+  // it takes the full header once the reply's first words arrive.
+  if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
+    return (
+      <PendingTurnLine
+        block={block}
+        turn={block.turn}
+        name={author.name}
+        avatar={
+          author.seat !== undefined ? (
+            <AgentSeatBadge seat={author.seat} name={author.name} size="sm" />
+          ) : (
+            <Bot
+              className="h-4 w-4 text-muted-foreground"
+              aria-label={`${author.name}, agent`}
+            />
+          )
+        }
+      />
     );
   }
 

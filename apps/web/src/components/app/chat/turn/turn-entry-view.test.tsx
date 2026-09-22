@@ -183,6 +183,48 @@ describe("TurnEntryView", () => {
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
   });
 
+  it("shows a running turn with no words yet as a status line, not a post", () => {
+    // Sending a message must not seem to make two: until the reply starts,
+    // the turn is who is working and what they are doing, with no header.
+    const running = (text?: string) =>
+      turn(
+        {
+          settled: false,
+          ...(text ? { result: { text, streaming: true } } : {}),
+          trace: {
+            startedAt: "2026-09-08T10:00:00.000Z",
+            steps: [
+              {
+                id: "stream:14",
+                kind: "execute",
+                label: "pnpm test",
+                status: "running",
+                startedAt: "2026-09-08T10:00:01.000Z",
+                detail: { toolKind: "execute" },
+              },
+            ],
+          },
+        },
+        ""
+      );
+    renderTurn(running());
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    const line = screen.getByTestId("chat-pending-turn");
+    expect(line.getAttribute("data-turn-id")).toBe("turn:12");
+    expect(screen.getByTestId("chat-pending-turn-author").textContent).toBe(
+      "builder"
+    );
+    expect(
+      screen.getByTestId("harness-activity-summary").textContent
+    ).toContain("pnpm test");
+    cleanup();
+
+    // The reply's first words make it the agent's post.
+    renderTurn(running("on it"));
+    expect(screen.queryByTestId("chat-pending-turn")).toBeNull();
+    expect(screen.getByTestId("chat-message")).toBeTruthy();
+  });
+
   it("hands the reply over to its settled rendering once the turn ends", () => {
     renderTurn(
       turnEntry({

@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, type ReactNode, useMemo } from "react";
 import type { Block, ChatTurnEntry } from "@dispatch/shared";
 import {
   BlockView,
@@ -180,6 +180,71 @@ export function TurnAnswer({
           </div>
         ) : null}
       </AutoHeight>
+    </div>
+  );
+}
+
+/**
+ * A running turn that has nothing to say yet: no words of its reply, no
+ * notice line, nothing it produced. It is presence, not a message, so the
+ * feed shows it as a status line rather than a post with a header.
+ */
+export function isPendingTurn(
+  block: Block,
+  turn: ChatTurnEntry,
+  folded: readonly FoldedEntry[] | undefined
+): boolean {
+  if (turn.settled || turn.error) return false;
+  if (turn.result?.text) return false;
+  if (folded?.length || block.attachments?.length) return false;
+  return parseDispatchNotice(turn.prompt.text, turn.prompt.source) === null;
+}
+
+/**
+ * The pending turn's one line: who is working and what they are doing now,
+ * the live activity summary in the author's place. The step rail opens
+ * under it as it does in the full post.
+ */
+export function PendingTurnLine({
+  block,
+  turn,
+  name,
+  avatar,
+}: {
+  block: Block;
+  turn: ChatTurnEntry;
+  name: string;
+  avatar: ReactNode;
+}): JSX.Element {
+  const trace = useMemo(() => turnTrace(turn), [turn]);
+  const foldLabel = useMemo(
+    () => turnLabelFromSteps(trace.steps),
+    [trace.steps]
+  );
+  return (
+    <div
+      className="mt-1 flex min-w-0 max-w-full gap-3 px-4 py-1 animate-chat-enter motion-reduce:animate-none"
+      data-testid="chat-pending-turn"
+      data-block-id={block.id}
+      data-turn-id={block.id}
+    >
+      <div className="flex h-[22px] w-8 shrink-0 items-center justify-end">
+        {avatar}
+      </div>
+      <div
+        className={cn(
+          POST_BODY_MEASURE,
+          "grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2 font-terminal"
+        )}
+      >
+        <span
+          className="max-w-[14rem] truncate pt-[3px] text-[11.5px] font-medium text-foreground/80"
+          data-testid="chat-pending-turn-author"
+        >
+          {name}
+        </span>
+        <ActivityBlock trace={trace} label={foldLabel} />
+      </div>
     </div>
   );
 }
