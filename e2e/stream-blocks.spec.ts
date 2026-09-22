@@ -273,6 +273,82 @@ test.describe("Stream blocks", () => {
     await expect(answered).toContainText("SQLite");
   });
 
+  test("a person can cancel open questions and forms without removing their threads", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-cancel-input-${Date.now()}`,
+    });
+    const questionPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Do we still need a decision?",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    const formPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Details we may no longer need",
+      form: {
+        title: "Release details",
+        fields: [{ id: "note", label: "Note", type: "text", required: true }],
+      },
+    });
+    const postedId = (post: Record<string, unknown>) =>
+      (
+        JSON.parse(
+          (post.result as { content?: Array<{ text?: string }> })?.content?.[0]
+            ?.text ?? "{}"
+        ) as { id?: string }
+      ).id;
+    const questionId = postedId(questionPost);
+    const formId = postedId(formPost);
+    expect(questionId).toBeTruthy();
+    expect(formId).toBeTruthy();
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const pane = page.getByTestId("chat-pane");
+    const question = pane.locator(`[data-chat-entry-id="${questionId}"]`);
+    await question.getByTestId("chat-ask-cancel").click();
+    await expect(question.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(
+      question.getByTestId("chat-question-option").first()
+    ).toBeDisabled();
+    await expect
+      .poll(
+        async () =>
+          (await blockState(request, agent.id, questionId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+    const questionThread = question.getByTestId("chat-thread-line");
+    await expect(questionThread).toHaveAttribute("data-reply-count", "1");
+    await questionThread.click();
+    await expect(page.getByTestId("chat-thread-panel")).toContainText(
+      "Canceled."
+    );
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("toggle-drawer").click();
+    const sidebar = page.getByTestId("drawer");
+    await sidebar.getByTestId("sidebar-tab-inbox").click();
+    const inbox = sidebar.getByTestId("inbox");
+    await expect(inbox).toHaveAttribute("data-open-inputs", "1");
+    await inbox.getByTestId("chat-ask-cancel").click();
+    await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    const form = page
+      .getByTestId("chat-pane")
+      .locator(`[data-chat-entry-id="${formId}"]`);
+    await expect(form.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(form.getByTestId("chat-form-submit")).toHaveCount(0);
+    await expect
+      .poll(
+        async () => (await blockState(request, agent.id, formId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+
+    await page.screenshot({
+      path: test.info().outputPath("canceled-question-and-form.png"),
+      fullPage: true,
+    });
+  });
+
   test("the Changes tab posts a hand-written review as a review block", async ({
     page,
     request,
