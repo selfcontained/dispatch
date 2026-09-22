@@ -147,10 +147,11 @@ function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
 /**
  * A `stream.entry` event: one feed row, put straight into the cached pages.
  * Falls back to the refetch when there is no place for it — the entry is
- * older than the loaded head — or when a fetch is already in flight, whose
- * result would otherwise overwrite the patch with a snapshot that may or
- * may not include the row. A feed that was never fetched has nothing to
- * patch; its first fetch will carry the row.
+ * older than the loaded head — or when a fetch is already in flight
+ * (including the feed's very first load), whose result would otherwise
+ * overwrite the patch with a snapshot that may or may not include the row.
+ * A feed with no query mounted at all has nothing to patch or invalidate;
+ * whenever it is next fetched, that fetch will carry the row.
  *
  * A reply (a block with `threadId`) never goes into the feed: it lands in
  * its thread when that is loaded, and the root's reply line counts it.
@@ -180,11 +181,19 @@ export function applyStreamEntry(
     );
   }
   const state = queryClient.getQueryState<FeedCache>(key);
-  if (!state?.data) return;
+  if (!state) return;
+  // A fetch in flight (the feed's first load, or a refetch) may already have
+  // read the row's earlier version from the DB, or may resolve before this
+  // event's write is visible there — either way its response won't reflect
+  // this entry. Invalidating queues a follow-up fetch once it settles, so
+  // the row is never silently dropped. Checked before `state.data`: the
+  // very first fetch has no data yet, and previously fell through the guard
+  // below with nothing to invalidate it later.
   if (state.fetchStatus === "fetching") {
     invalidateStreamFeed(queryClient, agentId);
     return;
   }
+  if (!state.data) return;
   const result = upsertFeedEntry(state.data, entry);
   if (!result.placed) {
     invalidateStreamFeed(queryClient, agentId);

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { LIVE_HEAD_ROWS } from "@/hooks/use-stream";
+import { LIVE_HEAD_ROWS, streamFeedQueryKey } from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -18,9 +18,9 @@ import {
   type FileItem,
 } from "@/components/app/types";
 
-import { turnEntry } from "@/test-utils/blocks";
+import { block, blockEntry, turnEntry } from "@/test-utils/blocks";
 
-import { applyDiffStateChanged, useSSE } from "./use-sse";
+import { applyDiffStateChanged, applyStreamEntry, useSSE } from "./use-sse";
 
 vi.mock("@/lib/web-notifications", () => ({
   showWebNotification: vi.fn(() => false),
@@ -64,6 +64,48 @@ describe("applyDiffStateChanged", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: agentDiffQueryKey("agent-1"),
     });
+  });
+});
+
+describe("applyStreamEntry", () => {
+  it("invalidates rather than drops an entry that arrives during the feed's first fetch", () => {
+    const queryClient = new QueryClient();
+    const key = streamFeedQueryKey("agent-1");
+    // The feed's very first load: a query is mounted and fetching, but has
+    // no data yet — the exact window a workspace-ready update (or any other
+    // stream.entry) could race past a plain "no data, nothing to do" guard
+    // and be lost until a manual refresh.
+    void queryClient.prefetchQuery({
+      queryKey: key,
+      queryFn: () => new Promise(() => {}),
+    });
+    expect(queryClient.getQueryState(key)?.fetchStatus).toBe("fetching");
+    expect(queryClient.getQueryState(key)?.data).toBeUndefined();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    applyStreamEntry(
+      queryClient,
+      "agent-1",
+      blockEntry(block({ streamId: "agent-1", authorKind: "agent" }))
+    );
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: key,
+      exact: true,
+    });
+  });
+
+  it("does nothing for an agent with no mounted feed query", () => {
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    applyStreamEntry(
+      queryClient,
+      "agent-1",
+      blockEntry(block({ streamId: "agent-1", authorKind: "agent" }))
+    );
+
+    expect(invalidateQueries).not.toHaveBeenCalled();
   });
 });
 
