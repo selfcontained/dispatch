@@ -50,9 +50,10 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
  * stays silently deaf until the page is reloaded, which is how a sent message
  * sat on "Sending" while the agent was already working on it.
  *
- * Three missed heartbeats, so an ordinary late one is not mistaken for death.
- * The server beats every 15s (`UiEventBroker.HEARTBEAT_MS`); this is the only
- * coupling between the two numbers, and it is deliberately loose.
+ * The server beats every 20s per connection (`HEARTBEAT_MS` in
+ * events-routes.ts), so this tolerates one missed beat and acts on the
+ * second. That is the only coupling between the two numbers, and it is
+ * deliberately loose.
  */
 const STREAM_STALE_MS = 45_000;
 /** How often staleness is checked. */

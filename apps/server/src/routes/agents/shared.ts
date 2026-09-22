@@ -59,6 +59,7 @@ export type AgentRouteDeps = {
     stream: NodeJS.WritableStream,
     agents: Array<AgentRecord & { hasStream: boolean }>
   ) => void;
+  sendUiHeartbeat: (stream: NodeJS.WritableStream) => void;
   ackWebNotification: (notificationId: string) => boolean;
   clearFocusedAgents: () => void;
   setFocusedAgent: (agentId: string) => void;

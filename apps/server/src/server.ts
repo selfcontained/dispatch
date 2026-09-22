@@ -970,6 +970,7 @@ async function registerRoutes() {
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>
       uiEventBroker.sendSnapshot(stream, agents),
+    sendUiHeartbeat: (stream) => uiEventBroker.sendHeartbeat(stream),
     ackWebNotification: (notificationId) =>
       notificationRuntime.ackWebNotification(notificationId),
     clearFocusedAgents: () => focusTracker.clearAll(),

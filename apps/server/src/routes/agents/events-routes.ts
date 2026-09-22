@@ -2,6 +2,12 @@ import type { FastifyInstance } from "fastify";
 
 import type { AgentRouteDeps } from "./shared.js";
 
+/**
+ * How often an idle stream is given a frame. Paired with the client's
+ * staleness window in `use-sse.ts`, which tolerates one missed beat.
+ */
+const HEARTBEAT_MS = 20_000;
+
 export async function registerAgentEventRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
@@ -16,8 +22,8 @@ export async function registerAgentEventRoutes(
     const stream = reply.raw;
     const unsubscribe = deps.subscribeUiEvents(stream);
     const heartbeat = setInterval(() => {
-      stream.write(": keepalive\n\n");
-    }, 20_000);
+      deps.sendUiHeartbeat(stream);
+    }, HEARTBEAT_MS);
     let cleanedUp = false;
     const cleanup = () => {
       if (cleanedUp) return;
