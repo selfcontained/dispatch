@@ -28,7 +28,6 @@ export type AppConfig = {
   /** Per-agent host state (launch file, socket, journal, log). */
   agentStateRoot: string;
   agentRuntime: "acp" | "inert";
-  sessionPrefix: string;
   tls: TlsConfig | null;
 };
 
@@ -99,7 +98,6 @@ export function loadConfig(): AppConfig {
         )
     ),
     agentRuntime: resolveAgentRuntime(),
-    sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),
   };
 

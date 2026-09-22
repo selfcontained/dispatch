@@ -16,7 +16,6 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     opencodeBin: "",
     agentStateRoot: "",
     agentRuntime: "acp",
-    sessionPrefix: "dispatch",
     tls: null,
     ...overrides,
   };

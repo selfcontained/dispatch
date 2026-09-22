@@ -45,7 +45,6 @@ const testConfig = {
   claudeBin: "echo",
   opencodeBin: "echo",
   agentRuntime: "inert",
-  sessionPrefix: "dispatch",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
 

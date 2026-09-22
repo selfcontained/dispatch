@@ -44,7 +44,7 @@ Options:
   --cwd <path>      Working directory (default: current directory)
   --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
-  --live            Enable live agent runtime (tmux); default is inert.
+  --live            Run agents for real (the ACP runtime); default is inert.
                     Also disables the default dev-data seed.
   --no-seed         Skip seeding demo data (seed is on by default for non-live)
   --wipe            down only: also delete the database and the stack's
@@ -314,7 +314,6 @@ cmd_up() {
     # Bind to all interfaces so the dev stack is reachable from other devices
     # (phone, another laptop) on the LAN or tailnet, not just this machine.
     export DISPATCH_HOST="${DISPATCH_HOST:-0.0.0.0}"
-    export DISPATCH_SESSION_PREFIX="dispatch_dev"
     if [ "$OPT_LIVE" = "1" ]; then
       export DISPATCH_AGENT_RUNTIME="acp"
     else

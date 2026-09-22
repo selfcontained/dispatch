@@ -78,7 +78,6 @@ const testConfig = {
   opencodeBin: "/bin/opencode",
   agentStateRoot: "/tmp/dispatch-test-agents",
   agentRuntime: "acp",
-  sessionPrefix: "dispatch",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
 
