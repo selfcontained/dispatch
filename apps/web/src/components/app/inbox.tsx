@@ -320,7 +320,13 @@ export function InboxPanel({
                 cancelError?.blockId === block.id ? cancelError.message : null
               }
               onCancelError={(message) =>
-                setCancelError(message ? { blockId: block.id, message } : null)
+                setCancelError((previous) =>
+                  message
+                    ? { blockId: block.id, message }
+                    : previous?.blockId === block.id
+                      ? null
+                      : previous
+                )
               }
               onOpenBlock={onOpenBlock}
             />

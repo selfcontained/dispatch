@@ -218,6 +218,73 @@ describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
   });
 });
 
+describe("reconcileAgentStatuses — reconnect latency", () => {
+  it("starts reattach attempts for multiple hosts concurrently", async () => {
+    let release!: (value: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    const attach = vi.fn().mockImplementation(() => gate);
+    const { reconciler } = setup({
+      activeRows: [
+        { id: "agt_first", status: "running", updatedAt: minutesAgo(2) },
+        { id: "agt_second", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime: makeRuntime({ attach }),
+    });
+
+    const pass = reconciler.reconcileAgentStatuses();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attach).toHaveBeenCalledTimes(2);
+    release(true);
+    await pass;
+  });
+
+  it("surfaces an alive but unreachable host and clears the warning after attach", async () => {
+    const row = {
+      id: "agt_reconnect",
+      status: "running",
+      updatedAt: minutesAgo(2),
+    };
+    const pendingEvent = {
+      type: "blocked" as const,
+      message: "Retrying",
+      updatedAt: new Date().toISOString(),
+      metadata: { source: "system", reconnectPending: true },
+    };
+    const retry = setup({
+      activeRows: [row],
+      runtime: makeRuntime({ attach: vi.fn().mockResolvedValue(false) }),
+      agentsById: { [row.id]: makeAgent(row.id) },
+    });
+    await retry.reconciler.reconcileAgentStatuses();
+    expect(retry.setAgentStatus).not.toHaveBeenCalled();
+    expect(retry.setSystemLatestEvent).toHaveBeenCalledWith(
+      row.id,
+      expect.objectContaining({
+        type: "blocked",
+        metadata: expect.objectContaining({ reconnectPending: true }),
+      })
+    );
+
+    const recovered = setup({
+      activeRows: [row],
+      runtime: makeRuntime({ attach: vi.fn().mockResolvedValue(true) }),
+      agentsById: {
+        [row.id]: makeAgent(row.id, { latestEvent: pendingEvent }),
+      },
+    });
+    await recovered.reconciler.reconcileAgentStatuses();
+    expect(recovered.setSystemLatestEvent).toHaveBeenCalledWith(
+      row.id,
+      expect.objectContaining({
+        type: "working",
+        message: expect.stringContaining("restored"),
+      })
+    );
+  });
+});
+
 describe("reconcileAgentStatuses — missing-host detection", () => {
   it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
@@ -265,7 +332,13 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
     expect(runtime.isAlive).toHaveBeenCalledWith("agt_slow");
     expect(settleStream).not.toHaveBeenCalled();
     expect(setAgentStatus).not.toHaveBeenCalled();
-    expect(setSystemLatestEvent).not.toHaveBeenCalled();
+    expect(setSystemLatestEvent).toHaveBeenCalledWith(
+      "agt_slow",
+      expect.objectContaining({
+        type: "blocked",
+        metadata: expect.objectContaining({ reconnectPending: true }),
+      })
+    );
     expect(reconciled).toEqual([]);
 
     // A later pass (the periodic tick) is where the retry actually lands.
@@ -385,6 +458,7 @@ describe("reconcileAgentStatuses — happy path", () => {
         activeRows: [
           { id: "agt_running", status: "running", updatedAt: minutesAgo(5) },
         ],
+        runtime: makeRuntime({ attach: vi.fn().mockResolvedValue(true) }),
       });
 
     const reconciled = await reconciler.reconcileAgentStatuses();

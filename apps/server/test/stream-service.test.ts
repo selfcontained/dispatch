@@ -2048,6 +2048,26 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     expect(thread?.replies[0].toAgentId).toBe(B);
   });
 
+  it("commits cancellation when its notification recipient is unavailable", async () => {
+    const { svc, injected } = build({
+      access: async (id) => {
+        if (id === A) throw new Error("agent stopped");
+        return { mode: "live" as const };
+      },
+    });
+    const q = await ask(svc);
+    const canceled = await svc.setState(
+      A,
+      q.id,
+      { cancellation: true },
+      { kind: "user" }
+    );
+    expect(canceled.state?.cancellation).toBeDefined();
+    const note = (await svc.store.listThread(q.id))?.replies[0];
+    expect(note).toMatchObject({ toAgentId: A, delivered: false });
+    expect(injected).toEqual([]);
+  });
+
   it("the user cancels a question or form addressed to them and the asking agent is told", async () => {
     const { svc, injected } = build();
     const q = await ask(svc);
@@ -2140,6 +2160,72 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     await expect(
       svc.update(A, q.id, { state: { cancellation: { reason: 5 } } })
     ).rejects.toThrow(/reason must be a string/);
+  });
+
+  it("rejects a cancellation bundled with other mutations without writing them", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    await expect(
+      svc.update(A, q.id, {
+        text: "changed",
+        state: { cancellation: true },
+      })
+    ).rejects.toThrow(/on its own/);
+    await expect(
+      svc.update(A, q.id, {
+        state: { cancellation: true, note: "changed" },
+      })
+    ).rejects.toThrow(/on its own/);
+    expect((await svc.store.getById(q.id))?.text).toBe("Ship it?");
+    expect(
+      (await svc.store.getById(q.id))?.state?.cancellation
+    ).toBeUndefined();
+    expect((await svc.store.listThread(q.id))?.replies).toHaveLength(0);
+  });
+
+  it("rolls back an answer reply if cancellation wins before its state write", async () => {
+    const { svc, injected } = build();
+    await pool.query(`UPDATE agents SET parent_agent_id = $1 WHERE id = $2`, [
+      A,
+      B,
+    ]);
+    try {
+      const q = await ask(svc, B);
+      await settled(svc, q.id);
+      const originalWithClient = svc.store.withClient.bind(svc.store);
+      let intercept = true;
+      vi.spyOn(svc.store, "withClient").mockImplementation((client) => {
+        const tx = originalWithClient(client);
+        if (intercept) {
+          intercept = false;
+          const originalRecordAnswer = tx.recordAnswer.bind(tx);
+          vi.spyOn(tx, "recordAnswer").mockImplementation(
+            async (id, answer) => {
+              await svc.update(A, q.id, { state: { cancellation: true } });
+              return originalRecordAnswer(id, answer);
+            }
+          );
+        }
+        return tx;
+      });
+      await expect(
+        svc.post(B, { text: "Yes", replyTo: q.id })
+      ).rejects.toBeInstanceOf(StreamConflictError);
+      const final = await svc.store.getById(q.id);
+      expect(final?.state?.cancellation).toBeDefined();
+      expect(final?.state?.answer).toBeUndefined();
+      expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
+      expect((await svc.store.listThread(q.id))?.replies[0].text).toBe(
+        "Canceled."
+      );
+      await svc.waitForInFlightDeliveries(1_000);
+      expect(injected.some((entry) => entry.text.includes("Yes"))).toBe(false);
+    } finally {
+      await pool.query(
+        `UPDATE agents SET parent_agent_id = NULL WHERE id = $1`,
+        [B]
+      );
+    }
   });
 
   it("a cancel racing an answer leaves exactly one winner and one note/reply", async () => {

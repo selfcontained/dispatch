@@ -223,7 +223,9 @@ describe("FormBlockBody", () => {
     expect((screen.getByLabelText(/Name/) as HTMLInputElement).disabled).toBe(
       true
     );
-    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe(
+      "unsent value"
+    );
     expect(screen.queryByTestId("chat-form-submit")).toBeNull();
     expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
     fireEvent.submit(screen.getByTestId("chat-form"));

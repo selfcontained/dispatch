@@ -91,6 +91,35 @@ async function reconcileAgentStatuses(
 
   const reconciled: AgentRecord[] = [];
 
+  // Reattach attempts can each wait for a hello timeout. Probe eligible
+  // hosts together so several busy hosts do not stall the whole pass in
+  // sequence (including cleanup of genuinely orphaned hosts afterward).
+  const attachResults = new Map(
+    await Promise.all(
+      result.rows
+        .filter(
+          (row) =>
+            runtime.tracksProcesses() &&
+            (row.status === "running" || row.status === "creating") &&
+            !(
+              row.status === "creating" &&
+              (Date.now() - new Date(row.updatedAt).getTime()) / 1000 <
+                CREATING_GRACE_S
+            )
+        )
+        .map(async (row) => {
+          const attached = await runtime.attach(row.id);
+          return [
+            row.id,
+            {
+              attached,
+              alive: attached || (await runtime.isAlive(row.id)),
+            },
+          ] as const;
+        })
+    )
+  );
+
   for (const row of result.rows) {
     const stuckSeconds =
       (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
@@ -123,9 +152,10 @@ async function reconcileAgentStatuses(
     // to isAlive keeps a merely-unreachable host "running" so the next
     // reconcile pass can retry attach — it never mistakes "not attached
     // yet" for "not there".
+    const probe = attachResults.get(row.id);
     const alive =
       row.status === "running" || row.status === "creating"
-        ? (await runtime.attach(row.id)) || (await runtime.isAlive(row.id))
+        ? (probe?.alive ?? false)
         : await runtime.isAlive(row.id);
     if (!alive) {
       const logTail = await runtime.readLogTail(row.id);
@@ -143,6 +173,23 @@ async function reconcileAgentStatuses(
       });
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
+    } else if (row.status === "running" && probe) {
+      const agent = await deps.getAgent(row.id);
+      const pending = agent?.latestEvent?.metadata?.reconnectPending === true;
+      if (!probe.attached && !pending) {
+        await deps.setSystemLatestEvent(row.id, {
+          type: "blocked",
+          message:
+            "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.",
+          metadata: { source: "system", reconnectPending: true },
+        });
+      } else if (probe.attached && pending) {
+        await deps.setSystemLatestEvent(row.id, {
+          type: "working",
+          message: "Agent host connection restored.",
+          metadata: { source: "system" },
+        });
+      }
     } else if (
       row.status === "stopping" &&
       stuckSeconds > STUCK_STOPPING_TIMEOUT_S

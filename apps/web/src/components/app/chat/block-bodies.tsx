@@ -139,7 +139,7 @@ function CancelAskButton({
       type="button"
       size="sm"
       variant="ghost"
-      className="h-7 px-2 text-xs"
+      className="h-7 px-2 text-xs max-sm:h-auto max-sm:min-h-11 max-sm:py-2 [@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2"
       disabled={disabled}
       data-testid="chat-ask-cancel"
       onClick={onCancel}
@@ -394,7 +394,6 @@ export function FormBlockBody({
   const [values, setValues] = useState(() =>
     initialFormValues(block.data.fields)
   );
-  const originalValues = initialFormValues(block.data.fields);
   const open = submission === undefined && cancellation === undefined;
   const missing = block.data.fields.some(
     (field) => field.required && isBlank(values[field.id])
@@ -472,7 +471,7 @@ export function FormBlockBody({
               {label}
               <FormFieldInput
                 field={field}
-                value={open ? values[field.id] : originalValues[field.id]}
+                value={values[field.id]}
                 disabled={!open || disabled || submitting}
                 onChange={(value) =>
                   setValues((prev) => ({ ...prev, [field.id]: value }))

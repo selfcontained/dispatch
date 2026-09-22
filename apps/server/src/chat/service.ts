@@ -1100,8 +1100,15 @@ export class StreamService {
     } else if (block.toAgentId && block.toAgentId !== by.agentId) {
       notifyAgentId = block.toAgentId;
     }
+    // A recipient going offline must not prevent the authorized state change.
     const live = notifyAgentId
-      ? await this.canDeliver(notifyAgentId, true)
+      ? await this.canDeliver(notifyAgentId, true).catch((error: unknown) => {
+          this.log.warn(
+            { err: error, agentId: notifyAgentId },
+            "stream: cancellation recipient unavailable"
+          );
+          return false;
+        })
       : false;
 
     const client = await this.deps.pool.connect();
@@ -1423,7 +1430,7 @@ export class StreamService {
       attachmentInputs
     );
     const live = toAgentId ? await this.canDeliver(toAgentId, true) : false;
-    const block = await this.store.insert({
+    const insert: Parameters<BlockStore["insert"]>[0] = {
       streamId,
       author,
       toAgentId,
@@ -1435,16 +1442,57 @@ export class StreamService {
       state: initialState(kind, data),
       attachments,
       delivered: toAgentId ? (live ? null : false) : null,
-    });
+    };
+    // A reply to an open question addressed to this agent closes that
+    // question. The reply and answer must commit together: a cancellation
+    // that wins the race must not leave a visible or delivered answer reply.
+    const target =
+      kind === "text" && thread && text.trim()
+        ? await this.store.getById(thread.replyTo)
+        : null;
+    const answering =
+      target?.kind === "question" &&
+      target.toAgentId === agentId &&
+      !target.state?.answer &&
+      !target.state?.cancellation;
+    let block: Block;
+    let answered: Block | null = null;
+    if (answering && target) {
+      const client = await this.deps.pool.connect();
+      try {
+        await client.query("BEGIN");
+        const tx = this.store.withClient(client);
+        block = await tx.insert(insert);
+        const option = target.data.options.find(
+          (o) =>
+            o.label.trim() === text.trim() ||
+            (o.value ?? o.label) === text.trim()
+        );
+        answered = await tx.recordAnswer(target.id, {
+          value: option ? (option.value ?? option.label) : text.trim(),
+          ...(option ? { label: option.label } : {}),
+          by: author,
+          blockId: block.id,
+          at: new Date().toISOString(),
+        });
+        if (!answered) {
+          throw new StreamConflictError(
+            "Question was already answered or canceled."
+          );
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else {
+      block = await this.store.insert(insert);
+    }
     await this.publishEntry(streamId, block.id);
     if (thread) await this.publishEntry(streamId, thread.threadId);
-    // An agent's reply to a question asked of it is the answer: the
-    // question closes with the reply's text (an option's label when the
-    // reply is one), the way a person's click would close it.
-    const answered =
-      kind === "text" && thread && text.trim()
-        ? await this.answerByReply(agentId, thread.replyTo, block)
-        : null;
+    if (answered) await this.publishEntry(answered.streamId, answered.id);
     // File paths in the envelope are the author's: that is where the file
     // is, and every agent on this machine can read it.
     const attachmentLines = this.describeAttachments(agent, attachments);
@@ -1512,6 +1560,23 @@ export class StreamService {
       if (!input.state) throw new StreamValidationError("state is required.");
       return this.setState(block.streamId, block.id, input.state, author);
     }
+    if (
+      (block.kind === "question" || block.kind === "form") &&
+      input.state &&
+      "cancellation" in input.state
+    ) {
+      if (
+        input.text !== undefined ||
+        input.data !== undefined ||
+        input.attachments !== undefined ||
+        Object.keys(input.state).length !== 1
+      ) {
+        throw new StreamValidationError(
+          "state.cancellation must be updated on its own."
+        );
+      }
+      return this.cancelAsk(block, input.state.cancellation, author);
+    }
     const patch: UpdateBlockInput = {};
     if (input.text !== undefined) patch.text = requireText(input.text);
     if (input.data !== undefined) {
@@ -1558,12 +1623,6 @@ export class StreamService {
           input.state.answer,
           author
         );
-      } else if (
-        (block.kind === "question" || block.kind === "form") &&
-        "cancellation" in input.state
-      ) {
-        // The author withdrawing its own ask: no answer is coming.
-        updated = await this.cancelAsk(block, input.state.cancellation, author);
       } else {
         updated =
           (await this.store.mergeState(block.id, input.state)) ?? updated;
@@ -2531,41 +2590,6 @@ export class StreamService {
       (candidate) => candidate.id === findingId
     );
     return match ? { id: match.id, title: match.title } : null;
-  }
-
-  /**
-   * Close a question with the reply the agent it was asked of just made.
-   * Returns the answered question, or null when the reply answers nothing
-   * (not a question, not asked of this agent, or already answered).
-   */
-  private async answerByReply(
-    agentId: string,
-    replyTo: string,
-    reply: Block
-  ): Promise<Block | null> {
-    const target = await this.store.getById(replyTo);
-    if (
-      !target ||
-      target.kind !== "question" ||
-      target.toAgentId !== agentId ||
-      target.state?.answer ||
-      target.state?.cancellation
-    ) {
-      return null;
-    }
-    const text = reply.text.trim();
-    const option = target.data.options.find(
-      (o) => o.label.trim() === text || (o.value ?? o.label) === text
-    );
-    const answered = await this.store.recordAnswer(target.id, {
-      value: option ? (option.value ?? option.label) : text,
-      ...(option ? { label: option.label } : {}),
-      by: { kind: "agent", agentId },
-      blockId: reply.id,
-      at: new Date().toISOString(),
-    });
-    if (answered) await this.publishEntry(answered.streamId, answered.id);
-    return answered;
   }
 
   private async resolveFinding(
