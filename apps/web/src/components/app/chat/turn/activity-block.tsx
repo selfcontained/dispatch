@@ -1,6 +1,6 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
@@ -31,6 +31,38 @@ export function showsActivity(trace: Trace | null | undefined): trace is Trace {
   return !(trace.endedAt != null && trace.steps.length === 0);
 }
 
+/** Narration being written right now opens so it can be read as it streams. */
+function openByDefault(step: Step): boolean {
+  return step.kind === "note" && step.status === "running";
+}
+
+/**
+ * One rail row, rendered again only when its own step changes: a turn's
+ * steps keep their identity across stream updates (see `turnStep`), so a
+ * step landing renders its row, not the whole rail.
+ */
+const RailStepRow = memo(function RailStepRow({
+  step,
+  index,
+  open,
+  onToggle,
+}: {
+  step: Step;
+  index: number;
+  open: boolean;
+  onToggle: (step: Step) => void;
+}): JSX.Element {
+  return (
+    <StepRow
+      step={step}
+      index={index}
+      open={open}
+      onToggle={() => onToggle(step)}
+      maskClass={BLOCK_FILL}
+    />
+  );
+});
+
 function ActivityBlockImpl({
   trace,
   label,
@@ -52,15 +84,25 @@ function ActivityBlockImpl({
   // unfolding and refolding in the column.
   const open = blockOverride ?? false;
   const reduced = useReducedMotion();
+  // A closed rail has no rows: every stream update re-renders the whole
+  // trace, so rows nobody can see would cost a render per step per update.
+  // They mount as it opens and go once it has finished folding shut.
+  const [railMounted, setRailMounted] = useState(open);
+  if (open && !railMounted) setRailMounted(true);
 
   // Stream updates must not open and close details underneath the reader.
   // Narration being written right now is the exception: it opens so it can
   // be read as it streams, and folds like any note once it is finished.
   const stepOpen = (step: Step): boolean =>
-    stepOverrides[step.id] ??
-    (step.kind === "note" && step.status === "running");
-  const toggleStep = (step: Step) =>
-    setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
+    stepOverrides[step.id] ?? openByDefault(step);
+  const toggleStep = useCallback(
+    (step: Step) =>
+      setStepOverrides((prev) => ({
+        ...prev,
+        [step.id]: !(prev[step.id] ?? openByDefault(step)),
+      })),
+    [setStepOverrides]
+  );
 
   // One container for the whole turn: the summary line is there from the
   // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
@@ -88,37 +130,41 @@ function ActivityBlockImpl({
           transition={reduced ? { duration: 0 } : arrive()}
           style={{ overflow: "hidden" }}
           aria-hidden={!open}
+          onAnimationComplete={() => {
+            if (!open) setRailMounted(false);
+          }}
         >
           {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
-          <div className="relative pb-1">
-            <span
-              aria-hidden="true"
-              className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
-            />
-            <div role="list" aria-label="activity steps" className="relative">
-              {trace.steps.map((step, i) => (
-                <StepRow
-                  key={step.id}
-                  step={step}
-                  index={burstIndex(trace.steps, i)}
-                  open={stepOpen(step)}
-                  onToggle={() => toggleStep(step)}
-                  maskClass={BLOCK_FILL}
-                />
-              ))}
-              {!done &&
-              trace.steps.length > 0 &&
-              !trace.steps.some((s) => s.status === "running") ? (
-                <ThinkingRow
-                  since={trace.steps.reduce(
-                    (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
-                    trace.startedAt
-                  )}
-                  maskClass={BLOCK_FILL}
-                />
-              ) : null}
+          {railMounted ? (
+            <div className="relative pb-1">
+              <span
+                aria-hidden="true"
+                className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
+              />
+              <div role="list" aria-label="activity steps" className="relative">
+                {trace.steps.map((step, i) => (
+                  <RailStepRow
+                    key={step.id}
+                    step={step}
+                    index={burstIndex(trace.steps, i)}
+                    open={stepOpen(step)}
+                    onToggle={toggleStep}
+                  />
+                ))}
+                {!done &&
+                trace.steps.length > 0 &&
+                !trace.steps.some((s) => s.status === "running") ? (
+                  <ThinkingRow
+                    since={trace.steps.reduce(
+                      (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+                      trace.startedAt
+                    )}
+                    maskClass={BLOCK_FILL}
+                  />
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </motion.div>
       </div>
     </div>

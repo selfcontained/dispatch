@@ -18,6 +18,8 @@ import {
   type FileItem,
 } from "@/components/app/types";
 
+import { turnEntry } from "@/test-utils/blocks";
+
 import { applyDiffStateChanged, useSSE } from "./use-sse";
 
 vi.mock("@/lib/web-notifications", () => ({
@@ -675,6 +677,47 @@ describe("useSSE message handling", () => {
         "agt_1",
       ])?.pages[0]?.entries
     ).toHaveLength(3);
+  });
+
+  it("moves the unread badges once per turn, not on every step it republishes", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    const running = (steps: number) =>
+      turnEntry({
+        id: "turn_1",
+        streamId: "agt_1",
+        turn: {
+          settled: false,
+          trace: {
+            startedAt: "2026-09-02T10:00:00.000Z",
+            steps: Array.from({ length: steps }, (_, i) => ({
+              id: `s${i}`,
+              kind: "execute",
+              label: `step ${i}`,
+              status: "ok" as const,
+              startedAt: "2026-09-02T10:00:00.000Z",
+              detail: {},
+            })),
+          },
+        },
+      });
+
+    emit({ type: "stream.entry", agentId: "agt_1", entry: running(0) });
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+
+    invalidateQueries.mockClear();
+    emit({ type: "stream.entry", agentId: "agt_1", entry: running(1) });
+    emit({ type: "stream.entry", agentId: "agt_1", entry: running(2) });
+    expect(invalidatedKeys(invalidateQueries)).not.toContainEqual([
+      "chat-unread",
+    ]);
+
+    // A new turn is a new row for the badge.
+    emit({
+      type: "stream.entry",
+      agentId: "agt_1",
+      entry: turnEntry({ id: "turn_2", streamId: "agt_1" }),
+    });
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
   });
 
   it("rebases the feed once live rows outgrow the newest page", () => {

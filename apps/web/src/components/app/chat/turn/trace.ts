@@ -20,9 +20,18 @@ export function isTurnEntry(
   return entry.type === "block" && entry.block.turn !== undefined;
 }
 
+/**
+ * Converted steps by their source object. The feed cache shares every step
+ * that did not change between two versions of a turn, so a step keeps its
+ * identity across stream updates and only the rows whose step moved render.
+ */
+const convertedSteps = new WeakMap<ChatTurnStep, Step>();
+
 /** One trace step as the rail's model carries it: ISO times become epoch ms. */
 export function turnStep(step: ChatTurnStep): Step {
-  return {
+  const known = convertedSteps.get(step);
+  if (known) return known;
+  const converted: Step = {
     id: step.id,
     kind: step.kind,
     label: step.label,
@@ -33,6 +42,8 @@ export function turnStep(step: ChatTurnStep): Step {
     detail: step.detail,
     ...(step.children?.length ? { children: step.children.map(turnStep) } : {}),
   };
+  convertedSteps.set(step, converted);
+  return converted;
 }
 
 export function turnTrace(turn: ChatTurnEntry): Trace {

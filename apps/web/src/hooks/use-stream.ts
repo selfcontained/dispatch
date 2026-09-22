@@ -228,6 +228,22 @@ export function useStreamFeedCache(rootId: string | null): StreamEntry[] {
   );
 }
 
+function feedQueryOptions(rootId: string | null) {
+  return {
+    queryKey: streamFeedQueryKey(rootId),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      fetchFeedPage(rootId, pageParam),
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage: StreamFeedResponse) =>
+      lastPage.nextCursor ?? undefined,
+    enabled: !!rootId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    structuralSharing: shareFeedCache,
+  } as const;
+}
+
 export function useStreamFeed(rootId: string | null): StreamFeedState {
   const query = useInfiniteQuery<
     StreamFeedResponse,
@@ -235,17 +251,7 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
     FeedCache,
     ReturnType<typeof streamFeedQueryKey>,
     string | undefined
-  >({
-    queryKey: streamFeedQueryKey(rootId),
-    queryFn: ({ pageParam }) => fetchFeedPage(rootId, pageParam),
-    initialPageParam: undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: !!rootId,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    structuralSharing: shareFeedCache,
-  });
+  >(feedQueryOptions(rootId));
 
   const entries = useMemo(
     () => (query.data ? flattenFeedPages(query.data.pages) : []),
@@ -272,6 +278,29 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
     loadOlder,
     refetch,
   };
+}
+
+/**
+ * A value derived from the feed, for a view that needs only that: it loads
+ * the feed like `useStreamFeed` but renders again only when the derived
+ * value changes, not on every stream update. The value is compared
+ * structurally, so `select` may build a fresh object each time.
+ */
+export function useStreamFeedSelect<T>(
+  rootId: string | null,
+  select: (entries: StreamEntry[]) => T
+): { data: T | undefined; isLoading: boolean } {
+  const query = useInfiniteQuery<
+    StreamFeedResponse,
+    Error,
+    T,
+    ReturnType<typeof streamFeedQueryKey>,
+    string | undefined
+  >({
+    ...feedQueryOptions(rootId),
+    select: (data) => select(flattenFeedPages(data.pages)),
+  });
+  return { data: query.data, isLoading: query.isLoading };
 }
 
 // ---------------------------------------------------------------------------

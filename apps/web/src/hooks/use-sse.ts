@@ -218,6 +218,8 @@ export function useSSE(authState: AuthState): void {
     /** When the current connection last established — or, before it has
      *  opened, when we started attempting it. */
     let connectionAliveSince = 0;
+    /** Turn blocks whose arrival has already refetched the unread badges. */
+    const countedTurns = new Set<string>();
 
     const handleSSEMessage = (event: MessageEvent) => {
       try {
@@ -270,12 +272,17 @@ export function useSSE(authState: AuthState): void {
           applyStreamEntry(queryClient, payload.agentId, payload.entry);
           recordTurnLabel(queryClient, payload.entry);
           // Only an agent's post for people can move the sidebar's unread
-          // badges.
+          // badges. A turn's block is republished on every step, but only
+          // its first appearance adds to the count.
+          const block =
+            payload.entry.type === "block" ? payload.entry.block : null;
           if (
-            payload.entry.type === "block" &&
-            payload.entry.block.author.kind === "agent" &&
-            payload.entry.block.toAgentId === null
+            block !== null &&
+            block.author.kind === "agent" &&
+            block.toAgentId === null &&
+            (block.turn === undefined || !countedTurns.has(block.id))
           ) {
+            if (block.turn !== undefined) countedTurns.add(block.id);
             void queryClient.invalidateQueries({
               queryKey: CHAT_UNREAD_QUERY_KEY,
             });

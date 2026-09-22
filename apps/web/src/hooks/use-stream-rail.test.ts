@@ -1,17 +1,27 @@
 // @vitest-environment jsdom
+import { createElement, type ReactNode } from "react";
 import type { StreamEntry } from "@dispatch/shared";
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { Agent } from "@/components/app/types";
 
 import {
   answered,
   block,
   blockEntry,
   formBody,
+  turnEntry,
   questionBody,
   reviewBody,
 } from "@/test-utils/blocks";
 
-import { deriveStreamRail, isOpenInput } from "./use-stream-rail";
+import {
+  deriveStreamRail,
+  isOpenInput,
+  useStreamRail,
+} from "./use-stream-rail";
 
 const ROOT = "agt_root";
 const CHILD = "agt_child";
@@ -182,5 +192,69 @@ describe("deriveStreamRail", () => {
     ]);
     // The newest block with a repeated url is the one kept.
     expect(rail.links[1]?.blockId).toBe("l3");
+  });
+});
+
+describe("useStreamRail", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not re-render its page when a stream update leaves the rail as it was", async () => {
+    // Never answers: the seeded cache is what the hook reads.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<Agent[]>(
+      ["agents"],
+      [{ id: ROOT, parentAgentId: null } as Agent]
+    );
+    const feed = (entries: StreamEntry[]) => ({
+      pageParams: [undefined],
+      pages: [{ entries, hasMore: false, nextCursor: null, unreadCount: 0 }],
+    });
+    // React Query notifies observers on a timer, not synchronously.
+    const update = async (entries: StreamEntry[]) =>
+      act(async () => {
+        queryClient.setQueryData(["stream", ROOT], feed(entries));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    const turn = (text: string) =>
+      turnEntry({ id: "turn_1", streamId: ROOT, text, createdAt: at("10:10") });
+    queryClient.setQueryData(
+      ["stream", ROOT],
+      feed([question("q1", ROOT, at("10:00")), turn("working")])
+    );
+
+    let renders = 0;
+    const { result } = renderHook(
+      () => {
+        renders += 1;
+        return useStreamRail(ROOT);
+      },
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client: queryClient }, children),
+      }
+    );
+    expect(result.current.inputs.map((b) => b.id)).toEqual(["q1"]);
+    const inputs = result.current.inputs;
+    const before = renders;
+
+    // A turn moving on: the feed changes, the rail does not.
+    await update([question("q1", ROOT, at("10:00")), turn("still working")]);
+    expect(renders).toBe(before);
+    expect(result.current.inputs).toBe(inputs);
+
+    // A new question does move the rail.
+    await update([
+      question("q1", ROOT, at("10:00")),
+      turn("still working"),
+      question("q2", ROOT, at("10:11")),
+    ]);
+    expect(result.current.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
   });
 });

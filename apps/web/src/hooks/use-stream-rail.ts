@@ -4,12 +4,12 @@
  * is fetched for it; it reads the same react-query cache `useStreamFeed`
  * fills and every `stream.entry` keeps current.
  */
-import { useMemo } from "react";
+import { useCallback } from "react";
 import type { Block, ChatAttachment, StreamEntry } from "@dispatch/shared";
 import { reviewStatus } from "@dispatch/shared";
 
 import { useRootAgentId } from "@/hooks/use-agent-tree";
-import { useStreamFeed } from "@/hooks/use-stream";
+import { useStreamFeedSelect } from "@/hooks/use-stream";
 
 /** A question or form the user has not answered yet. */
 export type RailInput = Extract<Block, { kind: "question" | "form" }>;
@@ -130,13 +130,14 @@ const EMPTY: Pick<StreamRail, "inputs" | "links" | "reviews"> = {
 /** The rail for one agent's page, live off the stream feed cache. */
 export function useStreamRail(agentId: string | null): StreamRail {
   const rootId = useRootAgentId(agentId);
-  const feed = useStreamFeed(rootId);
-  const entries = feed.entries;
-  const derived = useMemo(
-    () =>
-      rootId === null ? EMPTY : deriveStreamRail(entries, agentId, rootId),
-    [agentId, entries, rootId]
+  // Selected, not read whole: the page that holds the rail re-renders only
+  // when the rail changes, not on every step of every turn in the stream.
+  const select = useCallback(
+    (entries: StreamEntry[]) => deriveStreamRail(entries, agentId, rootId),
+    [agentId, rootId]
   );
+  const feed = useStreamFeedSelect(rootId, select);
+  const derived = rootId === null ? EMPTY : (feed.data ?? EMPTY);
   return {
     rootId,
     inputs: derived.inputs,
