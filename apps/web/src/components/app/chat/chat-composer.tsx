@@ -13,7 +13,13 @@ import {
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import { CornerDownRight, Paperclip, SendHorizontal, X, Zap } from "lucide-react";
+import {
+  CornerDownRight,
+  Paperclip,
+  SendHorizontal,
+  X,
+  Zap,
+} from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -36,6 +42,12 @@ import {
   getClipboardFilesFromEvent,
 } from "@/components/app/create-agent-dialog-clipboard";
 import { MentionPicker } from "@/components/app/chat/mention-picker";
+import { SlashPicker } from "@/components/app/chat/slash-picker";
+import {
+  matchSlashCommands,
+  slashQueryAt,
+  type SlashCommand,
+} from "@/components/app/chat/slash-commands";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -105,6 +117,10 @@ export type ChatComposerProps = {
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
   /** The agents a typed `@` can name: the stream's tree. */
   mentionables?: readonly Mentionable[];
+  /** Agent-advertised commands and local Dispatch actions in the slash menu. */
+  slashCommands?: readonly SlashCommand[];
+  /** Return true when a Dispatch command was handled without sending a turn. */
+  onDispatchCommand?: (name: string) => boolean;
 };
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
@@ -198,6 +214,8 @@ export function ChatComposer({
   replyContext = null,
   action,
   mentionables,
+  slashCommands,
+  onDispatchCommand,
   canInterrupt = false,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
@@ -236,8 +254,31 @@ export function ChatComposer({
   // Escape closes the list until the text changes again.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissedFor, setSlashDismissedFor] = useState<string | null>(
+    null
+  );
+  const slashQuery =
+    !disabledReason &&
+    !replyContext &&
+    slashCommands?.length &&
+    slashDismissedFor !== text
+      ? slashQueryAt(text, caret)
+      : null;
+  const slashCandidates = useMemo(
+    () =>
+      slashQuery !== null && slashCommands
+        ? matchSlashCommands(slashQuery, slashCommands)
+        : [],
+    [slashQuery, slashCommands]
+  );
+  const slashOpen = slashCandidates.length > 0;
+  const activeSlash = Math.min(slashIndex, slashCandidates.length - 1);
   const mentionQuery =
-    mentionables && mentionables.length > 0 && dismissedFor !== text
+    !slashOpen &&
+    mentionables &&
+    mentionables.length > 0 &&
+    dismissedFor !== text
       ? mentionQueryAt(text, caret)
       : null;
   const mentionCandidates = useMemo(
@@ -268,6 +309,26 @@ export function ChatComposer({
       }
     },
     [caret, mentionQuery, setText, text]
+  );
+  const pickSlash = useCallback(
+    (command: SlashCommand) => {
+      if (command.source === "dispatch" && onDispatchCommand?.(command.name)) {
+        setText("");
+        setCaret(0);
+      } else {
+        const next = `/${command.name} ${text.slice(caret).replace(/^\s*/, "")}`;
+        setText(next);
+        setCaret(command.name.length + 2);
+        setSlashDismissedFor(next);
+      }
+      setSlashIndex(0);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        el?.focus();
+        el?.setSelectionRange(command.name.length + 2, command.name.length + 2);
+      });
+    },
+    [caret, onDispatchCommand, setText, text]
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
@@ -583,92 +644,116 @@ export function ChatComposer({
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
-  const submit = useCallback((options?: { interrupt?: boolean }) => {
-    if (!canSend) return;
-    setError(null);
-    setInFlight(true);
-    // Only what was sent gets cleared: anything typed or attached while the
-    // send was pending is a new draft and stays.
-    const submittedText = text;
-    const submittedFiles = fileViews;
-    const submittedLinks = links;
+  const submit = useCallback(
+    (options?: { interrupt?: boolean }) => {
+      if (!canSend) return;
+      setError(null);
+      setInFlight(true);
+      // Only what was sent gets cleared: anything typed or attached while the
+      // send was pending is a new draft and stays.
+      const submittedText = text;
+      const submittedFiles = fileViews;
+      const submittedLinks = links;
 
-    const run = async () => {
-      const attachments: ChatUserAttachmentInput[] = [];
-      for (const { entry, key, file } of submittedFiles) {
-        // `canSend` ruled out placeholders; this is the same check for the
-        // type system's sake.
-        if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
-        let fileId = fileIdsRef.current.get(key);
-        if (fileId === undefined) {
-          if (!uploadFile) throw new Error("File uploads are not available.");
-          setFileStatus((current) => ({ ...current, [key]: "uploading" }));
-          try {
-            const uploaded = await uploadFile(file);
-            fileId = uploaded.id;
-            fileIdsRef.current.set(key, fileId);
-            setFileStatus((current) => {
-              const next = { ...current };
-              delete next[key];
-              return next;
-            });
-          } catch (err) {
-            setFileStatus((current) => ({ ...current, [key]: "failed" }));
-            const reason = err instanceof Error ? err.message : "";
-            throw new Error(
-              `Couldn't upload ${file.name}${reason ? `: ${reason}` : ""}`
-            );
+      const run = async () => {
+        const attachments: ChatUserAttachmentInput[] = [];
+        for (const { entry, key, file } of submittedFiles) {
+          // `canSend` ruled out placeholders; this is the same check for the
+          // type system's sake.
+          if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
+          let fileId = fileIdsRef.current.get(key);
+          if (fileId === undefined) {
+            if (!uploadFile) throw new Error("File uploads are not available.");
+            setFileStatus((current) => ({ ...current, [key]: "uploading" }));
+            try {
+              const uploaded = await uploadFile(file);
+              fileId = uploaded.id;
+              fileIdsRef.current.set(key, fileId);
+              setFileStatus((current) => {
+                const next = { ...current };
+                delete next[key];
+                return next;
+              });
+            } catch (err) {
+              setFileStatus((current) => ({ ...current, [key]: "failed" }));
+              const reason = err instanceof Error ? err.message : "";
+              throw new Error(
+                `Couldn't upload ${file.name}${reason ? `: ${reason}` : ""}`
+              );
+            }
           }
+          attachments.push({ type: "file", fileId });
         }
-        attachments.push({ type: "file", fileId });
-      }
-      for (const url of submittedLinks) attachments.push({ type: "link", url });
-      await (options
-        ? onSend(submittedText.trim(), attachments, options)
-        : onSend(submittedText.trim(), attachments));
-    };
+        for (const url of submittedLinks)
+          attachments.push({ type: "link", url });
+        await (options
+          ? onSend(submittedText.trim(), attachments, options)
+          : onSend(submittedText.trim(), attachments));
+      };
 
-    run()
-      .then(() => {
-        // What was sent leaves the draft in one write — text, links and
-        // file entries together — so no render, remount or other tab ever
-        // sees a draft that still lists a sent file.
-        const sentKeys = new Set(submittedFiles.map((view) => view.key));
-        updateDraft((current) => ({
-          ...current,
-          text: current.text === submittedText ? "" : current.text,
-          links: current.links.filter((url) => !submittedLinks.includes(url)),
-          files: current.files.filter(
-            (entry) => !sentKeys.has(draftFileKey(entry))
-          ),
-        }));
-        for (const key of sentKeys) forgetFile(key);
-      })
-      .catch((err: unknown) => {
-        // The draft — text and chips — is still here, so a retry can work.
-        setError({
-          text: err instanceof Error ? err.message : "Message not sent.",
-          retryable: true,
+      run()
+        .then(() => {
+          // What was sent leaves the draft in one write — text, links and
+          // file entries together — so no render, remount or other tab ever
+          // sees a draft that still lists a sent file.
+          const sentKeys = new Set(submittedFiles.map((view) => view.key));
+          updateDraft((current) => ({
+            ...current,
+            text: current.text === submittedText ? "" : current.text,
+            links: current.links.filter((url) => !submittedLinks.includes(url)),
+            files: current.files.filter(
+              (entry) => !sentKeys.has(draftFileKey(entry))
+            ),
+          }));
+          for (const key of sentKeys) forgetFile(key);
+        })
+        .catch((err: unknown) => {
+          // The draft — text and chips — is still here, so a retry can work.
+          setError({
+            text: err instanceof Error ? err.message : "Message not sent.",
+            retryable: true,
+          });
+        })
+        .finally(() => {
+          setInFlight(false);
+          textareaRef.current?.focus();
         });
-      })
-      .finally(() => {
-        setInFlight(false);
-        textareaRef.current?.focus();
-      });
-  }, [
-    canSend,
-    fileViews,
-    forgetFile,
-    links,
-    onSend,
-    text,
-    updateDraft,
-    uploadFile,
-  ]);
+    },
+    [
+      canSend,
+      fileViews,
+      forgetFile,
+      links,
+      onSend,
+      text,
+      updateDraft,
+      uploadFile,
+    ]
+  );
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
+      if (slashOpen) {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const n = slashCandidates.length;
+          setSlashIndex(
+            (i) => (i + (event.key === "ArrowDown" ? 1 : n - 1)) % n
+          );
+          return;
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          pickSlash(slashCandidates[activeSlash]!);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setSlashDismissedFor(text);
+          return;
+        }
+      }
       if (mentionOpen) {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
@@ -694,7 +779,18 @@ export function ChatComposer({
       event.preventDefault();
       submit();
     },
-    [activeMention, mentionCandidates, mentionOpen, pickMention, submit, text]
+    [
+      activeMention,
+      activeSlash,
+      mentionCandidates,
+      mentionOpen,
+      pickMention,
+      pickSlash,
+      slashCandidates,
+      slashOpen,
+      submit,
+      text,
+    ]
   );
   const syncCaret = useCallback(
     (event: { currentTarget: HTMLTextAreaElement }) => {
@@ -833,6 +929,15 @@ export function ChatComposer({
               anchor={textareaRef.current}
             />
           ) : null}
+          {slashOpen ? (
+            <SlashPicker
+              candidates={slashCandidates}
+              activeIndex={activeSlash}
+              onPick={pickSlash}
+              onHover={setSlashIndex}
+              anchor={textareaRef.current}
+            />
+          ) : null}
           <Textarea
             ref={textareaRef}
             value={text}
@@ -840,6 +945,7 @@ export function ChatComposer({
               setText(event.target.value);
               setCaret(event.target.selectionStart ?? 0);
               setMentionIndex(0);
+              setSlashIndex(0);
             }}
             onSelect={syncCaret}
             onClick={syncCaret}

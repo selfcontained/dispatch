@@ -78,13 +78,14 @@ function build(
     failFor?: readonly string[];
     deps?: Partial<StreamServiceDeps>;
     withDelivery?: boolean;
+    commands?: readonly string[];
   } = {}
 ) {
   const events: unknown[] = [];
   const injected: Injected[] = [];
   /** What each inject said the prompt is, in step with `injected`. */
   const injectedOpts: Array<
-    { blockId?: string; source?: PromptSource } | undefined
+    { blockId?: string; source?: PromptSource; alone?: boolean } | undefined
   > = [];
   const cancelled: string[] = [];
   const svc = new StreamService({
@@ -106,6 +107,7 @@ function build(
               }
             },
             held: () => opts.held ?? false,
+            commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
             },
@@ -1314,6 +1316,24 @@ describe("StreamService.update", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.sendUserPost", () => {
+  it("sends an advertised slash command as its own raw ACP turn", async () => {
+    const { svc, injected, injectedOpts } = build({
+      commands: ["skills", "review"],
+    });
+    const result = await svc.sendUserPost(A, { text: "/skills list" });
+    await settled(svc, result.block.id);
+    expect(result.block.text).toBe("/skills list");
+    expect(injected).toEqual([{ agentId: A, text: "/skills list" }]);
+    expect(injectedOpts[0]).toMatchObject({
+      blockId: result.block.id,
+      alone: true,
+    });
+
+    const unknown = await svc.sendUserPost(A, { text: "/unknown list" });
+    await settled(svc, unknown.block.id);
+    expect(injected[1]?.text).toContain("--- DISPATCH POST");
+  });
+
   it("persists pending, returns held, then settles delivered", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {

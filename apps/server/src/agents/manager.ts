@@ -51,6 +51,7 @@ import {
 import { prepareWorkspace } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
 import { parsePromptSource, type PromptSource } from "./acp/prompt-source.js";
@@ -611,6 +612,11 @@ export class AgentManager {
   /** A turn is running or prompts are waiting behind one. */
   isPromptHeld(id: string): boolean {
     return this.runtime.isBusy(id);
+  }
+
+  /** The live session's ACP slash commands, including advertised skills. */
+  getCommands(id: string): AvailableCommand[] | null {
+    return this.runtime.getCommands(id);
   }
 
   /** The agent host's pid when it is alive (resource sampling). */

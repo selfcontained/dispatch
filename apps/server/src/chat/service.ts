@@ -155,6 +155,8 @@ export type StreamDeliveryAdapter = {
   held: (agentId: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
+  /** Names of commands this agent's ACP session currently accepts. */
+  commands?: (agentId: string) => readonly string[];
 };
 
 export type StreamAgent = Pick<
@@ -718,6 +720,19 @@ export class StreamService {
               streamId,
           ];
     const toAgentId = recipients[0]!;
+    // ACP commands must be the entire prompt's first token. A normal post's
+    // DISPATCH POST envelope would hide the slash from the adapter, so an
+    // advertised command goes alone and reaches it as raw text. Keep the
+    // stored block: the command and its result still belong to one turn.
+    const commandName = /^\/([^\s/]+)(?:\s|$)/.exec(text)?.[1];
+    const rawCommand =
+      !!commandName &&
+      !review &&
+      !thread &&
+      attachments.length === 0 &&
+      mentioned.length === 0 &&
+      recipients.length === 1 &&
+      (this.delivery().commands?.(toAgentId) ?? []).includes(commandName);
     const recipientAgents = await Promise.all(
       recipients.map((id) => this.requireAgent(id))
     );
@@ -795,6 +810,7 @@ export class StreamService {
       recipients,
       { kind: "user" },
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: text, alone: true } : {}),
         attachmentLines: linesFor.get(agentId) ?? [],
         mention:
           mentioned.length > 0
@@ -1957,6 +1973,8 @@ export class StreamService {
       mention?: { alsoTo: string[] } | null;
       /** Sent to cut in: its own turn, never combined with other posts. */
       alone?: boolean;
+      /** ACP slash command, sent without the Dispatch envelope. */
+      rawPrompt?: string;
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
@@ -1973,16 +1991,18 @@ export class StreamService {
       const own = perRecipient(agentId);
       const result = this.injectDetached({
         agentId,
-        envelope: buildPostEnvelope({
-          blockId: block.id,
-          from,
-          text: envelopeText(block),
-          attachmentLines: own.attachmentLines ?? [],
-          threadId: block.threadId,
-          finding,
-          answers: own.answers ?? null,
-          mention: own.mention ?? null,
-        }),
+        envelope:
+          own.rawPrompt ??
+          buildPostEnvelope({
+            blockId: block.id,
+            from,
+            text: envelopeText(block),
+            attachmentLines: own.attachmentLines ?? [],
+            threadId: block.threadId,
+            finding,
+            answers: own.answers ?? null,
+            mention: own.mention ?? null,
+          }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {

@@ -36,6 +36,7 @@ import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context"
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useDescendantAgentIds, useRootAgentId } from "@/hooks/use-agent-tree";
+import { useAgentCommands } from "@/hooks/use-agent-commands";
 import {
   useAnswerQuestion,
   useMarkStreamRead,
@@ -354,6 +355,7 @@ export function ChatPane({
   // The stream is the root's: a child agent's page reads its root's feed
   // and filters it down to the child (see `entryOwner`).
   const rootId = useRootAgentId(agentId);
+  const slashCommands = useAgentCommands(agentId, active);
   const descendants = useDescendantAgentIds(agentId);
   const feed = useStreamFeed(rootId);
   const send = usePostBlock(rootId);
@@ -1061,6 +1063,7 @@ export function ChatPane({
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
               mentionables={mentionables}
+              slashCommands={slashCommands}
               canInterrupt={Boolean(agentId) && turnRunning}
               action={
                 agentId && turnRunning ? (
