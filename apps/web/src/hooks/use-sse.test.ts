@@ -191,6 +191,50 @@ describe("useSSE reconnect", () => {
     vi.useRealTimers();
   });
 
+  it("reopens a stream that went quiet while the browser still calls it OPEN", () => {
+    // A pipe cut by a proxy or NAT idle timeout never fires onerror, so the
+    // EventSource sits OPEN and delivers nothing. This is the only thing that
+    // notices, and without it the tab stays deaf until a reload — which is
+    // what left a sent message on "Sending" while the agent worked.
+    renderSSE();
+    expect(FakeEventSource.instances).toHaveLength(1);
+    act(() => FakeEventSource.instances[0].open());
+
+    // Short of the threshold: still trusted.
+    act(() => void vi.advanceTimersByTime(40_000));
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    // Past it, plus the reconnect delay.
+    act(() => void vi.advanceTimersByTime(10_000));
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("counts a heartbeat as proof of life", () => {
+    renderSSE();
+    act(() => FakeEventSource.instances[0].open());
+
+    // Beat every 15s across a span that would otherwise trip the watchdog.
+    for (let i = 0; i < 5; i += 1) {
+      act(() => void vi.advanceTimersByTime(15_000));
+      act(() => FakeEventSource.instances[0].emit({ type: "heartbeat" }));
+    }
+    act(() => void vi.advanceTimersByTime(5_000));
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it("does not reconnect a hidden tab on staleness", () => {
+    // A hidden tab closes its stream on purpose; waking it is what reopens it.
+    renderSSE();
+    act(() => FakeEventSource.instances[0].open());
+    hiddenValue = true;
+
+    act(() => void vi.advanceTimersByTime(120_000));
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
   it("reopens the stream after a fatal error the browser will not retry", () => {
     renderSSE();
     expect(FakeEventSource.instances).toHaveLength(1);

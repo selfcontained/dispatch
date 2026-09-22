@@ -41,6 +41,23 @@ import {
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 /**
+ * No frame for this long means the stream is dead even though the browser
+ * still calls it OPEN.
+ *
+ * `onerror` only fires when the browser notices the connection go; a pipe cut
+ * by a proxy or NAT idle timeout is not noticed, so the EventSource sits OPEN
+ * forever and delivers nothing. Nothing else here detects that: the client
+ * stays silently deaf until the page is reloaded, which is how a sent message
+ * sat on "Sending" while the agent was already working on it.
+ *
+ * Three missed heartbeats, so an ordinary late one is not mistaken for death.
+ * The server beats every 15s (`UiEventBroker.HEARTBEAT_MS`); this is the only
+ * coupling between the two numbers, and it is deliberately loose.
+ */
+const STREAM_STALE_MS = 45_000;
+/** How often staleness is checked. */
+const STREAM_WATCHDOG_MS = 5_000;
+/**
  * How long a connection must last before a delivered event counts as proof
  * that it is healthy.
  *
@@ -66,6 +83,7 @@ const STABLE_CONNECTION_MS = 10_000;
  */
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
+  | { type: "heartbeat" }
   | { type: "agent.upsert"; agent: Agent }
   | {
       type: "agent.diff_state_changed";
@@ -234,6 +252,9 @@ export function useSSE(authState: AuthState): void {
     /** When the current connection last established — or, before it has
      *  opened, when we started attempting it. */
     let connectionAliveSince = 0;
+    /** When the stream last delivered anything, heartbeat included. */
+    let lastFrameAt = 0;
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
     const handleSSEMessage = (event: MessageEvent) => {
       try {
@@ -568,6 +589,40 @@ export function useSSE(authState: AuthState): void {
       }
     };
 
+    const stopWatchdog = () => {
+      if (watchdogTimer === null) return;
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    };
+
+    /**
+     * Drop a stream that has gone quiet past `STREAM_STALE_MS` and reconnect.
+     * The browser reports it OPEN, so `onerror` never runs and this is the
+     * only thing that notices.
+     */
+    const startWatchdog = () => {
+      if (watchdogTimer !== null) return;
+      watchdogTimer = setInterval(() => {
+        if (document.hidden) return;
+        if (source === null) return;
+        // Only a connection the browser calls OPEN. CONNECTING means its own
+        // retry is already running, and taking that over would fight it —
+        // the same reason `onerror` leaves that state alone.
+        if (source.readyState !== EventSource.OPEN) return;
+        if (Date.now() - lastFrameAt < STREAM_STALE_MS) return;
+        recordSSEReconnect();
+        const dead = source;
+        source = null;
+        dead.close();
+        // Straight to a reconnect rather than through the backoff: this is a
+        // dead pipe, not a server that refused us, and the backoff exists to
+        // spare a server that is struggling.
+        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+        scheduleReconnect();
+      }, STREAM_WATCHDOG_MS);
+      watchdogTimer.unref?.();
+    };
+
     const scheduleReconnect = () => {
       if (reconnectTimer !== null) return;
       const delay = reconnectDelayMs;
@@ -591,7 +646,9 @@ export function useSSE(authState: AuthState): void {
       // establishment latency, but never 0 — a zero here would make the
       // staleness check trivially true and silently clear the backoff.
       connectionAliveSince = Date.now();
+      lastFrameAt = Date.now();
       source = opened;
+      startWatchdog();
       // `open` fires on every establishment, including the browser's own
       // internal retries after a transient drop. Those never re-run `openSSE`,
       // so without this the gate would measure the age of the *instance*
@@ -600,8 +657,10 @@ export function useSSE(authState: AuthState): void {
       // gate exists to discount.
       opened.onopen = () => {
         connectionAliveSince = Date.now();
+        lastFrameAt = Date.now();
       };
       opened.onmessage = (event) => {
+        lastFrameAt = Date.now();
         noteStreamActivity();
         handleSSEMessage(event);
       };
@@ -624,6 +683,7 @@ export function useSSE(authState: AuthState): void {
 
     const closeSSE = () => {
       cancelReconnect();
+      stopWatchdog();
       if (source) {
         source.close();
         source = null;

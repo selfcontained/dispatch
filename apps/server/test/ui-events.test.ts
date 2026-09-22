@@ -151,3 +151,67 @@ describe("UiEventBroker", () => {
     expect(parsed.agents[0].id).toBe("agt_test123");
   });
 });
+
+describe("heartbeat", () => {
+  // An SSE connection that carries no bytes is dropped by intermediaries
+  // without either end being told. The browser's EventSource stays OPEN, so
+  // the client's reconnect never fires and it goes silently deaf — which is
+  // what left a sent message stuck on "Sending" while the agent worked.
+  it("writes a heartbeat to every client on the interval", () => {
+    vi.useFakeTimers();
+    const broker = new UiEventBroker();
+    const a = createWritableStream();
+    const b = createWritableStream();
+    broker.subscribe(a.stream);
+    broker.subscribe(b.stream);
+
+    vi.advanceTimersByTime(UiEventBroker.HEARTBEAT_MS);
+
+    for (const client of [a, b]) {
+      const beats = client.chunks.filter((c) => c.includes('"heartbeat"'));
+      expect(beats).toHaveLength(1);
+    }
+    broker.stop();
+    vi.useRealTimers();
+  });
+
+  it("keeps beating so a long idle connection stays warm", () => {
+    vi.useFakeTimers();
+    const broker = new UiEventBroker();
+    const { stream, chunks } = createWritableStream();
+    broker.subscribe(stream);
+
+    vi.advanceTimersByTime(UiEventBroker.HEARTBEAT_MS * 4);
+
+    expect(chunks.filter((c) => c.includes('"heartbeat"'))).toHaveLength(4);
+    broker.stop();
+    vi.useRealTimers();
+  });
+
+  it("does not count a heartbeat as a published event", () => {
+    vi.useFakeTimers();
+    const broker = new UiEventBroker();
+    const { stream } = createWritableStream();
+    broker.subscribe(stream);
+    vi.advanceTimersByTime(UiEventBroker.HEARTBEAT_MS);
+    // publish() counts real events; a heartbeat is plumbing, and counting it
+    // would bury the metric under a beat every 15 seconds.
+    expect(broker.getMetrics().eventsPublished).toBe(0);
+    broker.stop();
+    vi.useRealTimers();
+  });
+
+  it("stops beating once the last client leaves", () => {
+    vi.useFakeTimers();
+    const broker = new UiEventBroker();
+    const { stream, chunks } = createWritableStream();
+    const unsubscribe = broker.subscribe(stream);
+    unsubscribe();
+
+    vi.advanceTimersByTime(UiEventBroker.HEARTBEAT_MS * 3);
+
+    expect(chunks.filter((c) => c.includes('"heartbeat"'))).toHaveLength(0);
+    broker.stop();
+    vi.useRealTimers();
+  });
+});
