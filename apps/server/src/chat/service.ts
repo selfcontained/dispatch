@@ -30,6 +30,7 @@ import type {
 } from "@dispatch/shared";
 import {
   BLOCK_ATTACHMENTS_MAX,
+  BLOCK_CANCEL_REASON_MAX_CHARS,
   BLOCK_FORM_FIELDS_MAX,
   BLOCK_OPTION_LABEL_MAX_CHARS,
   BLOCK_OPTIONS_MAX,
@@ -356,6 +357,36 @@ function requireText(text: string | undefined): string {
     );
   }
   return value;
+}
+
+/**
+ * `state.cancellation` as given to `update`/`PATCH …/state`: `true` (no
+ * reason), a reason string, or `{ reason }`. Anything else is malformed.
+ */
+function parseCancelReason(raw: unknown): string | undefined {
+  if (raw === true) return undefined;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed
+      ? trimmed.slice(0, BLOCK_CANCEL_REASON_MAX_CHARS)
+      : undefined;
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const reason = (raw as { reason?: unknown }).reason;
+    if (reason === undefined) return undefined;
+    if (typeof reason !== "string") {
+      throw new StreamValidationError(
+        "state.cancellation.reason must be a string."
+      );
+    }
+    const trimmed = reason.trim();
+    return trimmed
+      ? trimmed.slice(0, BLOCK_CANCEL_REASON_MAX_CHARS)
+      : undefined;
+  }
+  throw new StreamValidationError(
+    "state.cancellation must be true, a reason string, or { reason }."
+  );
 }
 
 function uniqueIds(items: Array<{ id: string }>, what: string): void {
@@ -845,6 +876,9 @@ export class StreamService {
     if (question.state?.answer) {
       throw new StreamConflictError("Question already answered.");
     }
+    if (question.state?.cancellation) {
+      throw new StreamConflictError("Question was canceled.");
+    }
     const { value } = input;
     const options = question.data.options;
     const option = options.find((o) => (o.value ?? o.label) === value);
@@ -941,6 +975,9 @@ export class StreamService {
     if (form.state?.submission) {
       throw new StreamConflictError("Form already submitted.");
     }
+    if (form.state?.cancellation) {
+      throw new StreamConflictError("Form was canceled.");
+    }
     const values: Record<string, string | number | boolean> = {};
     for (const field of form.data.fields) {
       const value = input.values[field.id];
@@ -1008,6 +1045,125 @@ export class StreamService {
   }
 
   /**
+   * Pull back an open question or form: the author withdrawing its own
+   * ask, or the user withdrawing one addressed to them. Distinct from
+   * `answerQuestion`/`submitForm`/`closeOwnQuestion` — this settles the ask
+   * with no answer, and leaves one thread note recording who did it and
+   * why. Atomic with that note (one transaction), so a retry never leaves
+   * a second note; atomic with the state write itself, so a cancel racing
+   * an answer or submission (see `recordAnswer`/`recordSubmission`) leaves
+   * exactly one winner.
+   */
+  private async cancelAsk(
+    block: Block,
+    rawCancellation: unknown,
+    by: BlockAuthor
+  ): Promise<Block> {
+    if (block.kind !== "question" && block.kind !== "form") {
+      throw new StreamValidationError(
+        `A ${block.kind} block has nothing to cancel.`
+      );
+    }
+    // question/form blocks are only ever agent-authored (see `post`), but
+    // spelled out explicitly rather than leaned on: a user can never be
+    // "the author" here.
+    const isOwner = by.kind === "agent" && sameAuthor(block.author, by);
+    const isAddresseeUser = by.kind === "user" && block.toAgentId === null;
+    if (!isOwner && !isAddresseeUser) {
+      throw new StreamForbiddenError(
+        "Only the agent that posted this ask, or the user it was addressed to, may cancel it."
+      );
+    }
+    const reason = parseCancelReason(rawCancellation);
+    const already = block.state as {
+      answer?: unknown;
+      submission?: unknown;
+      cancellation?: unknown;
+    } | null;
+    if (already?.cancellation) return block;
+    if (already?.answer || already?.submission) {
+      throw new StreamConflictError(
+        block.kind === "question"
+          ? "Question already answered."
+          : "Form already submitted."
+      );
+    }
+
+    // Whichever side isn't the one canceling hears about it, if it's an
+    // agent: the asking agent when the user cancels, the addressee when
+    // the author cancels its own ask of another agent. A question the
+    // author closes toward the user needs no notification — the user just
+    // reads the stream.
+    let notifyAgentId: string | null = null;
+    if (by.kind === "user") {
+      if (block.author.kind === "agent") notifyAgentId = block.author.agentId;
+    } else if (block.toAgentId && block.toAgentId !== by.agentId) {
+      notifyAgentId = block.toAgentId;
+    }
+    const live = notifyAgentId
+      ? await this.canDeliver(notifyAgentId, true)
+      : false;
+
+    const client = await this.deps.pool.connect();
+    let canceled: Block | null;
+    let note: Block | null = null;
+    try {
+      await client.query("BEGIN");
+      const tx = this.store.withClient(client);
+      canceled = await tx.recordCancellation(block.id, {
+        by,
+        at: new Date().toISOString(),
+        ...(reason ? { reason } : {}),
+      });
+      if (canceled) {
+        note = await tx.insert({
+          streamId: block.streamId,
+          author: by,
+          toAgentId: notifyAgentId,
+          kind: "text",
+          threadId: block.threadId ?? block.id,
+          replyTo: block.id,
+          text: reason ? `Canceled: ${reason}` : "Canceled.",
+          delivered: notifyAgentId ? (live ? null : false) : null,
+        });
+      }
+      await client.query(canceled ? "COMMIT" : "ROLLBACK");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    if (!canceled) {
+      // Lost a race between the precheck above and the atomic write: an
+      // answer, submission or another cancel landed first. Resolve it the
+      // same way the precheck would have.
+      const fresh = await this.store.getById(block.id);
+      if (!fresh) throw new StreamNotFoundError("Block not found.");
+      const state = fresh.state as {
+        answer?: unknown;
+        submission?: unknown;
+        cancellation?: unknown;
+      } | null;
+      if (state?.cancellation) return fresh;
+      throw new StreamConflictError(
+        fresh.kind === "question"
+          ? "Question already answered."
+          : "Form already submitted."
+      );
+    }
+    await this.publishEntry(canceled.streamId, canceled.id);
+    if (note) await this.publishEntry(canceled.streamId, note.id);
+    if (notifyAgentId && live && note) {
+      const from = await this.senderOf(by);
+      await this.deliverBlock(note, from, [], {
+        answers: { blockId: canceled.id, kind: canceled.kind },
+      });
+    }
+    return canceled;
+  }
+
+  /**
    * Change a block's state: a finding resolved, a task ticked. The author
    * and the recipient may; people always may. The author is told when
    * someone else changed it.
@@ -1021,6 +1177,17 @@ export class StreamService {
     const block = await this.store.getById(blockId);
     if (!block || block.streamId !== streamId) {
       throw new StreamNotFoundError("Block not found.");
+    }
+    // A question/form's `cancellation` follows its own authorization (the
+    // author, or the user it was addressed to) and its own atomic path —
+    // narrower than, and distinct from, the review/tasks state below.
+    if (
+      (block.kind === "question" || block.kind === "form") &&
+      patch &&
+      typeof patch === "object" &&
+      "cancellation" in patch
+    ) {
+      return this.cancelAsk(block, patch.cancellation, by);
     }
     if (
       by.kind === "agent" &&
@@ -1391,6 +1558,12 @@ export class StreamService {
           input.state.answer,
           author
         );
+      } else if (
+        (block.kind === "question" || block.kind === "form") &&
+        "cancellation" in input.state
+      ) {
+        // The author withdrawing its own ask: no answer is coming.
+        updated = await this.cancelAsk(block, input.state.cancellation, author);
       } else {
         updated =
           (await this.store.mergeState(block.id, input.state)) ?? updated;
@@ -1408,6 +1581,9 @@ export class StreamService {
     if (block.kind !== "question") return block;
     if (block.state?.answer) {
       throw new StreamConflictError("Question already answered.");
+    }
+    if (block.state?.cancellation) {
+      throw new StreamConflictError("Question was canceled.");
     }
     const raw =
       typeof answer === "string"
@@ -2372,7 +2548,8 @@ export class StreamService {
       !target ||
       target.kind !== "question" ||
       target.toAgentId !== agentId ||
-      target.state?.answer
+      target.state?.answer ||
+      target.state?.cancellation
     ) {
       return null;
     }

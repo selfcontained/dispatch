@@ -50,6 +50,16 @@ export type BlockQuestionData = {
 /** Who did something to a block, and when. */
 export type BlockActor = { by: BlockAuthor; at: string };
 
+/**
+ * A question or form pulled back before anyone answered it: closed, but not
+ * with an answer. Distinct from `answer`/`submission` so the UI can tell
+ * "settled" apart from "withdrawn" and render the block disabled either way.
+ */
+export type BlockCancellation = BlockActor & {
+  /** Short, optional: why it was pulled. */
+  reason?: string;
+};
+
 export type BlockQuestionState = {
   answer?: BlockActor & {
     value: string;
@@ -60,6 +70,7 @@ export type BlockQuestionState = {
      */
     blockId?: string;
   };
+  cancellation?: BlockCancellation;
 };
 
 export type BlockFormFieldType =
@@ -93,6 +104,7 @@ export type BlockFormState = {
     /** The reply block that carried the submission to the author. */
     blockId: string;
   };
+  cancellation?: BlockCancellation;
 };
 
 export type BlockLinkData = { url: string; title?: string };
@@ -441,7 +453,9 @@ export type StreamSubmitRequest = {
 
 /**
  * Body of `PATCH /streams/:rootId/blocks/:id/state`: a partial state merged
- * into the block's (a finding's status, a task's status).
+ * into the block's (a finding's status, a task's status). On a question or
+ * form addressed to the user, `{ cancellation: true | "<reason>" | { reason } }`
+ * withdraws it instead of merging — see `BlockCancellation`.
  */
 export type StreamStateRequest = {
   state: Record<string, unknown>;
@@ -498,6 +512,8 @@ export const BLOCK_OPTIONS_MAX = 10;
  */
 export const BLOCK_OPTION_LABEL_MAX_CHARS = 32;
 export const BLOCK_FORM_FIELDS_MAX = 20;
+/** A cancellation's optional reason: short, like an option label with room. */
+export const BLOCK_CANCEL_REASON_MAX_CHARS = 500;
 export const BLOCK_REVIEW_FINDINGS_MAX = 50;
 export const BLOCK_TASKS_MAX = 50;
 /** Distinct emoji one block can carry. */

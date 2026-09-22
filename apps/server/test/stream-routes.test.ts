@@ -764,6 +764,85 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
     ).toBe(404);
     expect((await store.getById(r.id))?.state).toEqual(r.state);
   });
+
+  it("cancels a question or form addressed to the user, idempotently, with a thread note", async () => {
+    const q = await question(agentId);
+    const url = `/api/v1/streams/${agentId}/blocks/${q.id}/state`;
+    const res = await authedInject("PATCH", url, {
+      state: { cancellation: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      block: expect.objectContaining({
+        id: q.id,
+        state: {
+          cancellation: { by: { kind: "user" }, at: expect.any(String) },
+        },
+      }),
+    });
+    const thread = await store.listThread(q.id);
+    expect(thread?.replies).toMatchObject([
+      { author: { kind: "user" }, text: "Canceled.", replyTo: q.id },
+    ]);
+    // Retrying is a no-op: same block, no second note.
+    const again = await authedInject("PATCH", url, {
+      state: { cancellation: true },
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual(res.json());
+    expect((await store.listThread(q.id))?.replies).toHaveLength(1);
+
+    const f = await form(agentId);
+    const formRes = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${f.id}/state`,
+      { state: { cancellation: { reason: "not needed" } } }
+    );
+    expect(formRes.statusCode).toBe(200);
+    expect(formRes.json().block.state.cancellation.reason).toBe("not needed");
+  });
+
+  it("409s canceling an already-answered question and 403s canceling an ask addressed to another agent", async () => {
+    const q = await question(agentId);
+    await authedInject(
+      "POST",
+      `/api/v1/streams/${agentId}/blocks/${q.id}/answer`,
+      { value: "a" }
+    );
+    const answered = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${q.id}/state`,
+      { state: { cancellation: true } }
+    );
+    expect(answered.statusCode).toBe(409);
+
+    const toAgent = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      toAgentId: "agt_other_target",
+      kind: "question",
+      text: "?",
+      data: { options: [{ label: "a" }] },
+      state: {},
+    });
+    const forbidden = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${toAgent.id}/state`,
+      { state: { cancellation: true } }
+    );
+    expect(forbidden.statusCode).toBe(403);
+    expect((await store.getById(toAgent.id))?.state).toEqual({});
+  });
+
+  it("400s a malformed cancellation value", async () => {
+    const q = await question(agentId);
+    const res = await authedInject(
+      "PATCH",
+      `/api/v1/streams/${agentId}/blocks/${q.id}/state`,
+      { state: { cancellation: false } }
+    );
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("stream reaction routes (inert runtime)", () => {

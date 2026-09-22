@@ -1374,6 +1374,55 @@ describe("AgentManager", () => {
       });
     });
 
+    it("stops treating a canceled question as waiting", async () => {
+      const { BlockStore } = await import("../../src/chat/store.js");
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const store = new BlockStore(pool);
+      const q = await store.insert({
+        streamId: agent.id,
+        author: { kind: "agent", agentId: agent.id },
+        kind: "question",
+        text: "Ship it?",
+        data: { options: [{ label: "Yes" }] },
+        state: {},
+      });
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        2
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "waiting_user",
+        message: "Ship it?",
+      });
+
+      await store.recordCancellation(q.id, {
+        by: { kind: "agent", agentId: agent.id },
+        at: new Date().toISOString(),
+      });
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "y" },
+        3
+      );
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        4
+      );
+      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
+        type: "idle",
+      });
+    });
+
     it("tells its listeners once when an engine's model list changes the catalog", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

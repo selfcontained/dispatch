@@ -1952,6 +1952,216 @@ describe("StreamService.submitForm", () => {
   });
 });
 
+describe("StreamService cancellation (question/form state.cancellation)", () => {
+  async function ask(svc: StreamService, to?: string) {
+    return svc.post(A, {
+      text: "Ship it?",
+      ...(to ? { to } : {}),
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+  }
+
+  async function form(svc: StreamService, to?: string) {
+    return svc.post(A, {
+      ...(to ? { to } : {}),
+      form: { fields: [{ id: "name", label: "Name", type: "text" }] },
+    });
+  }
+
+  it("the author cancels its own question addressed to the user: no delivery, one note, idempotent", async () => {
+    const { svc, injected, events } = build();
+    const q = await ask(svc);
+    events.length = 0;
+    const canceled = await svc.update(A, q.id, {
+      state: { cancellation: true },
+    });
+    expect(canceled.kind === "question" && canceled.state.cancellation).toEqual(
+      {
+        by: { kind: "agent", agentId: A },
+        at: expect.any(String),
+      }
+    );
+    const thread = await svc.store.listThread(q.id);
+    expect(thread?.replies).toHaveLength(1);
+    expect(thread?.replies[0]).toMatchObject({
+      author: { kind: "agent", agentId: A },
+      text: "Canceled.",
+      replyTo: q.id,
+      toAgentId: null,
+    });
+    // Addressed to the user: no agent to notify.
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
+    // Retrying is a no-op: same block back, no second note.
+    const again = await svc.update(A, q.id, { state: { cancellation: true } });
+    expect(again).toEqual(canceled);
+    expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
+  });
+
+  it("records a short reason in the state and the note", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    const canceled = await svc.update(A, q.id, {
+      state: { cancellation: { reason: "  Switched approaches.  " } },
+    });
+    expect(
+      canceled.kind === "question" && canceled.state.cancellation?.reason
+    ).toBe("Switched approaches.");
+    const thread = await svc.store.listThread(q.id);
+    expect(thread?.replies[0].text).toBe("Canceled: Switched approaches.");
+    // A bare reason string works the same way.
+    const q2 = await ask(svc);
+    const canceled2 = await svc.update(A, q2.id, {
+      state: { cancellation: "no longer relevant" },
+    });
+    expect(
+      canceled2.kind === "question" && canceled2.state.cancellation?.reason
+    ).toBe("no longer relevant");
+  });
+
+  it("cancels a form the same way", async () => {
+    const { svc } = build();
+    const f = await form(svc);
+    const canceled = await svc.update(A, f.id, {
+      state: { cancellation: true },
+    });
+    expect(canceled.kind === "form" && canceled.state.cancellation).toEqual({
+      by: { kind: "agent", agentId: A },
+      at: expect.any(String),
+    });
+    expect((await svc.store.listThread(f.id))?.replies).toHaveLength(1);
+  });
+
+  it("notifies the addressee when the author cancels an ask sent to another agent", async () => {
+    const { svc, injected } = build();
+    const q = await ask(svc, B);
+    await settled(svc, q.id);
+    const canceled = await svc.update(A, q.id, {
+      state: { cancellation: { reason: "handled elsewhere" } },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toContainEqual({
+      agentId: B,
+      text: expect.stringContaining("Canceled: handled elsewhere"),
+    });
+    const thread = await svc.store.listThread(canceled.id);
+    expect(thread?.replies[0].toAgentId).toBe(B);
+  });
+
+  it("the user cancels a question or form addressed to them and the asking agent is told", async () => {
+    const { svc, injected } = build();
+    const q = await ask(svc);
+    const canceled = await svc.setState(
+      A,
+      q.id,
+      { cancellation: true },
+      { kind: "user" }
+    );
+    expect(
+      canceled.kind === "question" && canceled.state.cancellation?.by
+    ).toEqual({ kind: "user" });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toContainEqual({
+      agentId: A,
+      text: expect.stringContaining("Canceled."),
+    });
+    const f = await form(svc);
+    const canceledForm = await svc.setState(
+      A,
+      f.id,
+      { cancellation: "not needed" },
+      { kind: "user" }
+    );
+    expect(
+      canceledForm.kind === "form" && canceledForm.state.cancellation?.reason
+    ).toBe("not needed");
+  });
+
+  it("refuses everyone but the author or the addressed user", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    // Not the author.
+    await expect(
+      svc.update(B, q.id, { state: { cancellation: true } })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    // A question addressed to another agent: that agent may not cancel it,
+    // only the author (or, if it were addressed to the user, the user).
+    const toB = await ask(svc, B);
+    await expect(
+      svc.setState(
+        A,
+        toB.id,
+        { cancellation: true },
+        { kind: "agent", agentId: B }
+      )
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+    // The user may not cancel an ask addressed to another agent.
+    await expect(
+      svc.setState(A, toB.id, { cancellation: true }, { kind: "user" })
+    ).rejects.toBeInstanceOf(StreamForbiddenError);
+  });
+
+  it("rejects canceling something already answered or submitted, and answering/submitting something canceled", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    await svc.answerQuestion(A, q.id, { value: "Yes" });
+    await expect(
+      svc.update(A, q.id, { state: { cancellation: true } })
+    ).rejects.toThrow(/already answered/);
+
+    const f = await form(svc);
+    await svc.submitForm(A, f.id, { values: { name: "Ada" } });
+    await expect(
+      svc.update(A, f.id, { state: { cancellation: true } })
+    ).rejects.toThrow(/already submitted/);
+
+    const q2 = await ask(svc);
+    await svc.update(A, q2.id, { state: { cancellation: true } });
+    await expect(
+      svc.answerQuestion(A, q2.id, { value: "Yes" })
+    ).rejects.toThrow(/canceled/);
+    await expect(
+      svc.update(A, q2.id, { state: { answer: "Yes" } })
+    ).rejects.toThrow(/canceled/);
+
+    const f2 = await form(svc);
+    await svc.update(A, f2.id, { state: { cancellation: true } });
+    await expect(
+      svc.submitForm(A, f2.id, { values: { name: "Ada" } })
+    ).rejects.toThrow(/canceled/);
+  });
+
+  it("rejects a malformed cancellation value", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    await expect(
+      svc.update(A, q.id, { state: { cancellation: false } })
+    ).rejects.toThrow(/state\.cancellation must be/);
+    await expect(
+      svc.update(A, q.id, { state: { cancellation: { reason: 5 } } })
+    ).rejects.toThrow(/reason must be a string/);
+  });
+
+  it("a cancel racing an answer leaves exactly one winner and one note/reply", async () => {
+    const { svc } = build();
+    const q = await ask(svc);
+    const results = await Promise.allSettled([
+      svc.answerQuestion(A, q.id, { value: "Yes" }),
+      svc.setState(A, q.id, { cancellation: true }, { kind: "user" }),
+      svc.setState(A, q.id, { cancellation: true }, { kind: "user" }),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    const final = await svc.store.getById(q.id);
+    const state = final?.kind === "question" ? final.state : null;
+    // Exactly one of answer/cancellation won; never both.
+    expect(Boolean(state?.answer) !== Boolean(state?.cancellation)).toBe(true);
+    const thread = await svc.store.listThread(q.id);
+    // The winning side left exactly one reply/note in the thread.
+    expect(thread?.replies).toHaveLength(1);
+  });
+});
+
 describe("StreamService.setState", () => {
   async function review(
     svc: StreamService,

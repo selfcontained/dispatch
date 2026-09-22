@@ -513,8 +513,7 @@ export class AgentManager {
       `SELECT text, data FROM blocks b
         WHERE b.author_kind = 'agent' AND b.author_agent_id = $1
           AND b.to_agent_id IS NULL AND b.thread_id IS NULL
-          AND b.kind IN ('question', 'form')
-          AND (b.state IS NULL OR (b.state->'answer' IS NULL AND b.state->'submission' IS NULL))
+          AND ${OPEN_INPUT_SQL}
         ORDER BY b.created_at DESC, b.id DESC
         LIMIT 1`,
       [agentId]

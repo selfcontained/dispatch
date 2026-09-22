@@ -64,6 +64,7 @@ export type {
 } from "./chat-types.js";
 export {
   BLOCK_ATTACHMENTS_MAX,
+  BLOCK_CANCEL_REASON_MAX_CHARS,
   BLOCK_FORM_FIELDS_MAX,
   BLOCK_KINDS,
   BLOCK_OPTION_LABEL_MAX_CHARS,
@@ -85,6 +86,7 @@ export type {
   BlockStartup,
   BlockStartupStep,
   BlockBody,
+  BlockCancellation,
   BlockFindingPatch,
   BlockFindingResolution,
   BlockFindingState,

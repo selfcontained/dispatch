@@ -394,7 +394,7 @@ export class BlockStore {
           SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('answer', $2::jsonb),
               updated_at = now()
         WHERE id = $1 AND kind = 'question'
-          AND (state IS NULL OR state->'answer' IS NULL)
+          AND (state IS NULL OR (state->'answer' IS NULL AND state->'cancellation' IS NULL))
         RETURNING *`,
       [questionId, JSON.stringify(answer)]
     );
@@ -415,9 +415,36 @@ export class BlockStore {
           SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('submission', $2::jsonb),
               updated_at = now()
         WHERE id = $1 AND kind = 'form'
-          AND (state IS NULL OR state->'submission' IS NULL)
+          AND (state IS NULL OR (state->'submission' IS NULL AND state->'cancellation' IS NULL))
         RETURNING *`,
       [formId, JSON.stringify(submission)]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
+  }
+
+  /**
+   * Set the cancellation on a question or form that has neither an answer
+   * (or submission) nor a cancellation yet — atomic and symmetric with
+   * `recordAnswer`/`recordSubmission`, so an answer/submit racing a cancel
+   * can only ever have one winner.
+   */
+  async recordCancellation(
+    blockId: string,
+    cancellation: BlockActor & { reason?: string }
+  ): Promise<Block | null> {
+    if (!isBlockId(blockId)) return null;
+    const result = await this.db.query<BlockRow>(
+      `UPDATE blocks
+          SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('cancellation', $2::jsonb),
+              updated_at = now()
+        WHERE id = $1 AND kind IN ('question', 'form')
+          AND (state IS NULL OR (
+            state->'answer' IS NULL
+            AND state->'submission' IS NULL
+            AND state->'cancellation' IS NULL
+          ))
+        RETURNING *`,
+      [blockId, JSON.stringify(cancellation)]
     );
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
@@ -428,7 +455,10 @@ export class BlockStore {
    * an agent that already took the post is not shown as waiting for it a
    * second time. Returns false when the row is gone.
    */
-  async markDelivering(id: string, agentIds: readonly string[]): Promise<boolean> {
+  async markDelivering(
+    id: string,
+    agentIds: readonly string[]
+  ): Promise<boolean> {
     if (!isBlockId(id)) return false;
     const result = await this.db.query(
       `UPDATE blocks
@@ -842,6 +872,13 @@ export class BlockStore {
   }
 }
 
-/** A question with no answer or a form with no submission (alias `b`). */
+/**
+ * A question with no answer or a form with no submission, and not
+ * canceled either (alias `b`).
+ */
 export const OPEN_INPUT_SQL = `(b.kind IN ('question', 'form')
-          AND (b.state IS NULL OR (b.state->'answer' IS NULL AND b.state->'submission' IS NULL)))`;
+          AND (b.state IS NULL OR (
+            b.state->'answer' IS NULL
+            AND b.state->'submission' IS NULL
+            AND b.state->'cancellation' IS NULL
+          )))`;

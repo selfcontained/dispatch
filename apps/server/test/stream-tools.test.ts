@@ -363,6 +363,9 @@ describe("registerStreamTools", () => {
     expect(tool("update").config.description).toContain(
       '{ state: { findings: { <id>: "fixed" } } }'
     );
+    expect(tool("update").config.description).toContain(
+      "{ state: { cancellation: true } }"
+    );
   });
 
   it("returns a tool error when the update is rejected", async () => {

@@ -48,7 +48,7 @@ const questionSchema = z
       .describe("Hint that a typed reply is also acceptable."),
   })
   .describe(
-    'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you no longer need the answer, close it with update({ id, state: { answer: "<what settled it>" } }).'
+    'Ask the user (or the agent in `to`) something with options. The options render as buttons, so keep each label to a short action and put the context in the text; the choice comes back to you as a DISPATCH POST with replyTo set to this block. While it is open you show as Waiting. If you found the answer yourself, close it with update({ id, state: { answer: "<what settled it>" } }). If you no longer need it asked at all, withdraw it instead: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
   );
 
 const formSchema = z
@@ -71,7 +71,7 @@ const formSchema = z
     submitLabel: z.string().max(60).optional(),
   })
   .describe(
-    "Collect several values at once. The submission comes back to you as a DISPATCH POST listing each field. While it is open you show as Waiting."
+    'Collect several values at once. The submission comes back to you as a DISPATCH POST listing each field. While it is open you show as Waiting. If you no longer need it, withdraw it: update({ id, state: { cancellation: true } }) (or { cancellation: "<short reason>" }).'
   );
 
 const linkSchema = z
@@ -187,6 +187,7 @@ const POST_DESCRIPTION =
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
   '(close a finding on a review you received: { state: { findings: { <id>: "fixed" } } }, or { <id>: { status: "resolved", resolution: "dismissed", note } }; reopen with "open"; tick a task: { state: { items: { <id>: "done" } } }; close your own question: { state: { answer: "<what settled it>" } }). ' +
+  'Cancel your own question or form if you no longer need it — before anyone answers, it goes away with no answer expected: { state: { cancellation: true } }, or with a short reason: { state: { cancellation: "<reason>" } } (or { cancellation: { reason } }). Whoever it was addressed to is told; it cannot be answered after. ' +
   "Supply only the fields to change; attachments, when given, replace the whole list. Returns { id, updatedAt }.";
 
 const REACT_DESCRIPTION =
