@@ -20,7 +20,7 @@ function createTestRepo(suffix: string): string {
   rmSync(repoPath, { recursive: true, force: true });
 
   mkdirSync(barePath, { recursive: true });
-  execSync("git init --bare", { cwd: barePath, stdio: "ignore" });
+  execSync("git init --bare -b main", { cwd: barePath, stdio: "ignore" });
   execSync(`git clone "${barePath}" "${repoPath}"`, { stdio: "ignore" });
   execSync(
     'git config user.email "test@test.com" && git config user.name "Test"',
