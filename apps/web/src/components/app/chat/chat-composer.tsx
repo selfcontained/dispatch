@@ -5,6 +5,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -53,6 +54,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   insertMention,
   matchMentionables,
+  mentionSpans,
   type Mentionable,
   mentionQueryAt,
 } from "@/lib/mentions";
@@ -258,9 +260,29 @@ export function ChatComposer({
   const [slashDismissedFor, setSlashDismissedFor] = useState<string | null>(
     null
   );
+  const slashListId = useId();
+  const hasSlashAttachments = draft.files.length > 0 || links.length > 0;
+  const hasSlashMention =
+    !!mentionables?.length &&
+    mentionSpans(text, mentionables).some((span) => span.kind === "mention");
+  const advertisedName = /^\/([^\s/]+)(?:\s|$)/.exec(text)?.[1];
+  const advertisedCommand = slashCommands?.some(
+    (command) => command.source === "agent" && command.name === advertisedName
+  );
+  const slashBlockedReason = advertisedCommand
+    ? replyContext
+      ? "Agent commands must start a new post. Dismiss the reply first."
+      : hasSlashAttachments
+        ? "Remove attachments to run this agent command."
+        : hasSlashMention
+          ? "Remove agent mentions to run this agent command."
+          : null
+    : null;
   const slashQuery =
     !disabledReason &&
     !replyContext &&
+    !hasSlashAttachments &&
+    !hasSlashMention &&
     slashCommands?.length &&
     slashDismissedFor !== text
       ? slashQueryAt(text, caret)
@@ -312,20 +334,22 @@ export function ChatComposer({
   );
   const pickSlash = useCallback(
     (command: SlashCommand) => {
+      let nextCaret = 0;
       if (command.source === "dispatch" && onDispatchCommand?.(command.name)) {
         setText("");
         setCaret(0);
       } else {
         const next = `/${command.name} ${text.slice(caret).replace(/^\s*/, "")}`;
+        nextCaret = command.name.length + 2;
         setText(next);
-        setCaret(command.name.length + 2);
+        setCaret(nextCaret);
         setSlashDismissedFor(next);
       }
       setSlashIndex(0);
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         el?.focus();
-        el?.setSelectionRange(command.name.length + 2, command.name.length + 2);
+        el?.setSelectionRange(nextCaret, nextCaret);
       });
     },
     [caret, onDispatchCommand, setText, text]
@@ -627,6 +651,7 @@ export function ChatComposer({
 
   const canSend =
     !disabled &&
+    !slashBlockedReason &&
     !sending &&
     !inFlight &&
     placeholders.length === 0 &&
@@ -743,7 +768,13 @@ export function ChatComposer({
           );
           return;
         }
-        if (event.key === "Enter" || event.key === "Tab") {
+        if (
+          (event.key === "Enter" || event.key === "Tab") &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.metaKey
+        ) {
           event.preventDefault();
           pickSlash(slashCandidates[activeSlash]!);
           return;
@@ -933,6 +964,7 @@ export function ChatComposer({
             <SlashPicker
               candidates={slashCandidates}
               activeIndex={activeSlash}
+              listId={slashListId}
               onPick={pickSlash}
               onHover={setSlashIndex}
               anchor={textareaRef.current}
@@ -942,6 +974,7 @@ export function ChatComposer({
             ref={textareaRef}
             value={text}
             onChange={(event) => {
+              if (event.target.value !== text) setSlashDismissedFor(null);
               setText(event.target.value);
               setCaret(event.target.selectionStart ?? 0);
               setMentionIndex(0);
@@ -960,6 +993,14 @@ export function ChatComposer({
               disabled ? "" : replyContext ? "Type your answer…" : placeholder
             }
             aria-label="Message the agent"
+            role={slashOpen ? "combobox" : undefined}
+            aria-autocomplete={slashOpen ? "list" : undefined}
+            aria-haspopup={slashOpen ? "listbox" : undefined}
+            aria-expanded={slashOpen ? true : undefined}
+            aria-controls={slashOpen ? slashListId : undefined}
+            aria-activedescendant={
+              slashOpen ? `${slashListId}-option-${activeSlash}` : undefined
+            }
             // The box around it is the border; the field itself is bare.
             className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
             data-testid="chat-composer-input"
@@ -1012,6 +1053,10 @@ export function ChatComposer({
         {disabledReason ? (
           <span data-testid="chat-composer-disabled-reason">
             {disabledReason}
+          </span>
+        ) : slashBlockedReason ? (
+          <span role="alert" data-testid="chat-composer-slash-hint">
+            {slashBlockedReason}
           </span>
         ) : error ? (
           <span

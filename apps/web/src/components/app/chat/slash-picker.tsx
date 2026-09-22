@@ -6,12 +6,14 @@ import { cn } from "@/lib/utils";
 export function SlashPicker({
   candidates,
   activeIndex,
+  listId,
   onPick,
   onHover,
   anchor,
 }: {
   candidates: readonly SlashCommand[];
   activeIndex: number;
+  listId: string;
   onPick: (command: SlashCommand) => void;
   onHover: (index: number) => void;
   anchor: HTMLElement | null;
@@ -20,6 +22,7 @@ export function SlashPicker({
   const rect = anchor?.getBoundingClientRect();
   return createPortal(
     <div
+      id={listId}
       className="fixed z-50 w-80 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       style={
         rect
@@ -35,8 +38,10 @@ export function SlashPicker({
     >
       {candidates.map((command, index) => (
         <button
+          id={`${listId}-option-${index}`}
           key={`${command.source}:${command.name}`}
           type="button"
+          tabIndex={-1}
           role="option"
           aria-selected={index === activeIndex}
           className={cn(
