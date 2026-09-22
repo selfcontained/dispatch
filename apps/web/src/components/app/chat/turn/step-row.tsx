@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils";
 import type { Step, StepStatus } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, DURATION, rowDelay, rowVariants } from "./motion";
-import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
+import {
+  hasDetail,
+  stepDetailData,
+  stepLabel,
+  stepSummary,
+  toolName,
+} from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
 
@@ -47,12 +53,16 @@ export function StepRow({
   const label = stepLabel(step);
   const server = step.label ? toolName(step.label).server : undefined;
   const summary = running ? undefined : stepSummary(step);
+  // A setup step's label is a few words and its aside is the thing worth
+  // reading — a path, or why it failed — so the aside gets the row's room.
+  const setup = step.kind === "setup";
   const inner = (
     <>
       <StatusGlyph status={step.status} maskClass={maskClass} />
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-[12px]",
+          "truncate text-[12px]",
+          setup && summary ? "shrink-0" : "min-w-0 flex-1",
           running
             ? "font-medium text-status-working"
             : "font-normal text-foreground"
@@ -65,7 +75,12 @@ export function StepRow({
           </span>
         ) : null}
       </span>
-      {running ? null : summary ? (
+      {running ? null : summary && setup ? (
+        <SetupAside
+          text={summary}
+          clipStart={stepDetailData(step).clipStart === true}
+        />
+      ) : summary ? (
         <span className="hidden min-w-0 max-w-[35%] truncate text-[11px] text-muted-foreground sm:block">
           · {summary}
         </span>
@@ -129,6 +144,39 @@ export function StepRow({
         </div>
       ) : null}
     </motion.div>
+  );
+}
+
+/**
+ * A setup step's aside, across whatever the row has left. A path clips from
+ * its start, so the directory's own name is the part that stays: the text
+ * runs right-to-left inside an isolated left-to-right run, which moves the
+ * ellipsis to the left without reordering a slash.
+ */
+function SetupAside({
+  text,
+  clipStart,
+}: {
+  text: string;
+  clipStart: boolean;
+}): JSX.Element {
+  return (
+    <span
+      className="flex min-w-0 flex-1 text-[11px] text-muted-foreground"
+      data-testid="harness-step-aside"
+      title={text}
+    >
+      <span aria-hidden="true" className="shrink-0">
+        ·&nbsp;
+      </span>
+      {clipStart ? (
+        <span dir="rtl" className="min-w-0 truncate text-left">
+          <bdi dir="ltr">{text}</bdi>
+        </span>
+      ) : (
+        <span className="min-w-0 truncate">{text}</span>
+      )}
+    </span>
   );
 }
 

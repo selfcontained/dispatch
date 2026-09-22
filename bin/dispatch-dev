@@ -50,6 +50,13 @@ Options:
   --wipe            down only: also delete the database and the stack's
                     logs. Agents, streams and files are gone for good.
   -f, --follow      Follow log output (used with logs command)
+
+Environment (set in the worktree's .env, which the API server sources):
+  DISPATCH_SIMULATE_WORKSPACE_MS=<ms>
+                    Inert stacks only: a launch walks its workspace phases
+                    <ms> apiece instead of making a worktree and installing
+                    dependencies, so its startup can be watched again and
+                    again in the stream. Needs a restart to take effect.
 USAGE
 }
 

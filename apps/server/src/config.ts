@@ -28,6 +28,11 @@ export type AppConfig = {
   /** Per-agent host state (launch file, socket, journal, log). */
   agentStateRoot: string;
   agentRuntime: "acp" | "inert";
+  /**
+   * Inert runtime only: a launch walks its workspace phases this many ms
+   * apiece instead of making a worktree (DISPATCH_SIMULATE_WORKSPACE_MS).
+   */
+  simulateWorkspaceMs?: number;
   tls: TlsConfig | null;
 };
 
@@ -61,6 +66,18 @@ function resolveAgentRuntime(): "acp" | "inert" {
     console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", using acp`);
   }
   return "acp";
+}
+
+/** Only an inert runtime simulates: a real engine needs a real workspace. */
+function resolveSimulateWorkspaceMs(): number | undefined {
+  const raw = process.env.DISPATCH_SIMULATE_WORKSPACE_MS;
+  if (!raw || resolveAgentRuntime() !== "inert") return undefined;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 0) {
+    console.warn(`Ignoring DISPATCH_SIMULATE_WORKSPACE_MS="${raw}"`);
+    return undefined;
+  }
+  return ms;
 }
 
 /**
@@ -98,6 +115,7 @@ export function loadConfig(): AppConfig {
         )
     ),
     agentRuntime: resolveAgentRuntime(),
+    simulateWorkspaceMs: resolveSimulateWorkspaceMs(),
     tls: loadTls(),
   };
 
