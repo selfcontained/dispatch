@@ -234,11 +234,11 @@ export function PendingTurnLine({
       <div
         className={cn(
           POST_BODY_MEASURE,
-          "grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2 font-terminal"
+          "flex min-w-0 flex-1 flex-col font-terminal"
         )}
       >
         <span
-          className="max-w-[14rem] truncate pt-[3px] text-[11.5px] font-medium text-foreground/80"
+          className="max-w-full truncate pt-[3px] text-[11.5px] font-medium text-foreground/80"
           data-testid="chat-pending-turn-author"
         >
           {name}
