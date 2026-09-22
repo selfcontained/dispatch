@@ -1,6 +1,13 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo, useCallback, useEffect, useState } from "react";
+import {
+  type Dispatch,
+  memo,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
@@ -85,6 +92,11 @@ function ActivityBlockImpl({
   // They mount as it opens and go once it has finished folding shut.
   const [railMounted, setRailMounted] = useState(open);
   if (open && !railMounted) setRailMounted(true);
+  // Held here, not in the rail: the rail unmounts while the fold is shut,
+  // and a step whose detail you opened must still be open when it returns.
+  const [stepOverrides, setStepOverrides] = useChatRowState<
+    Record<string, boolean>
+  >("activity-steps", {});
 
   // One container for the whole turn: the summary line is there from the
   // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
@@ -118,7 +130,12 @@ function ActivityBlockImpl({
         >
           {/* A closed rail renders no rows: see railMounted above. The
               workspace block renders the same rail on its own, always open. */}
-          {railMounted ? <StepRail trace={trace} /> : null}
+          {railMounted ? (
+            <StepRail
+              trace={trace}
+              disclosures={[stepOverrides, setStepOverrides]}
+            />
+          ) : null}
         </motion.div>
       </div>
     </div>
@@ -133,11 +150,24 @@ export const ActivityBlock = memo(ActivityBlockImpl);
  * workspace coming up shows — a few steps, each saying what it is, have no
  * need of a line above them repeating the one that is running.
  */
-export function StepRail({ trace }: { trace: Trace }): JSX.Element {
+export function StepRail({
+  trace,
+  disclosures,
+}: {
+  trace: Trace;
+  /**
+   * Which steps are open, owned by something that outlives the rail. A
+   * turn's rail unmounts while it is closed, so its caller holds this;
+   * standalone (a workspace's steps) the rail keeps its own.
+   */
+  disclosures?: [
+    Record<string, boolean>,
+    Dispatch<SetStateAction<Record<string, boolean>>>,
+  ];
+}): JSX.Element {
   const done = trace.endedAt != null;
-  const [stepOverrides, setStepOverrides] = useChatRowState<
-    Record<string, boolean>
-  >("activity-steps", {});
+  const own = useChatRowState<Record<string, boolean>>("activity-steps", {});
+  const [stepOverrides, setStepOverrides] = disclosures ?? own;
   // Stream updates must not open and close details underneath the reader.
   // Narration being written right now is the exception: it opens so it can
   // be read as it streams, and folds like any note once it is finished.
