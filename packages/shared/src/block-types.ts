@@ -184,6 +184,8 @@ export type BlockTextData = {
   findingId?: string;
   /** Workspace blocks (`origin: "workspace"`): the startup's steps. */
   startup?: BlockStartup;
+  /** Review-request blocks: what was asked for, for the row to say. */
+  reviewRequest?: BlockReviewRequest;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
   /**
@@ -214,7 +216,23 @@ export type BlockOrigin =
   | "turn"
   | "system_prompt"
   /** The workspace coming up: worktree, config, dependencies, engine. */
-  | "workspace";
+  | "workspace"
+  /** Someone asked the agent for a review: who asked, and for what. */
+  | "review_request";
+
+/**
+ * A request for one or more reviews. The block's text is the instruction
+ * the agent was given, whole; this is what the row says without it.
+ */
+export type BlockReviewRequest = {
+  /** Persona slugs, in the order they were asked for. */
+  personas: string[];
+  /** The engine the reviewers run on. */
+  agentType: string;
+  model?: string;
+  /** What the person added when they asked. */
+  note?: string;
+};
 
 /** One step of bringing an agent's workspace up. */
 export type BlockStartupStep = {

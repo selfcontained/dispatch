@@ -80,6 +80,7 @@ export type {
   BlockAuthorKind,
   BlockDelivery,
   BlockDeliveryState,
+  BlockReviewRequest,
   BlockStartup,
   BlockStartupStep,
   BlockBody,

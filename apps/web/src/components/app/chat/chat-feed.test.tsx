@@ -658,6 +658,102 @@ describe("ChatFeed", () => {
     );
   });
 
+  it("shows a review request as the request it is, with the instruction folded", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "r1",
+          authorKind: "user",
+          origin: "review_request",
+          text: 'Please launch these personas:\n- launch_agent({ persona: "architecture-review" })',
+          body: {
+            kind: "text",
+            data: {
+              reviewRequest: {
+                personas: ["architecture-review", "frontend-ux-review"],
+                agentType: "claude",
+                note: "focus on the rail",
+              },
+            },
+            state: null,
+          },
+        })
+      ),
+    ]);
+    const row = screen.getByTestId("chat-review-request");
+    const header = screen.getByTestId("chat-review-request-toggle");
+    // Who asked, and for what — not tool calls in the person's voice.
+    expect(header.textContent).toContain(
+      "Review requested: architecture review and frontend ux review"
+    );
+    expect(header.textContent).toContain("by You");
+    expect(header.textContent).toContain("focus on the rail");
+    expect(header.textContent).not.toContain("launch_agent(");
+    expect(row.getAttribute("data-open")).toBe("false");
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    // The instruction the agent was handed is still there, on request.
+    fireEvent.click(header);
+    expect(row.getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("chat-review-request-body").textContent).toContain(
+      "launch_agent("
+    );
+  });
+
+  it("folds the briefing one agent wrote for another", () => {
+    const peers = {
+      agt_2: {
+        name: "architecture review",
+        agentType: "claude",
+        relation: "child" as const,
+      },
+    };
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "l1",
+            origin: "launch",
+            toAgentId: "agt_2",
+            text: "Review the UNCOMMITTED changes in this worktree.\n\n## What changed and why\nA long briefing.",
+          })
+        ),
+      ],
+      {},
+      { peers }
+    );
+    const row = screen.getByTestId("chat-launch-brief");
+    const header = screen.getByTestId("chat-launch-brief-toggle");
+    expect(header.textContent).toContain("Started architecture review");
+    expect(header.textContent).not.toContain("What changed and why");
+    expect(row.getAttribute("data-open")).toBe("false");
+    // It is a record, not a post: no message row, no author header.
+    expect(screen.queryByTestId("chat-message")).toBeNull();
+    fireEvent.click(header);
+    expect(row.getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("chat-launch-brief-body").textContent).toContain(
+      "What changed and why"
+    );
+  });
+
+  it("leaves the post that started this stream as a message", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "l0",
+          authorKind: "user",
+          origin: "launch",
+          text: "Build the widget",
+        })
+      ),
+    ]);
+    // What a person wrote to start an agent is the first thing they said,
+    // not a record of a launch.
+    expect(screen.queryByTestId("chat-launch-brief")).toBeNull();
+    expect(screen.getByTestId("chat-message").textContent).toContain(
+      "Build the widget"
+    );
+  });
+
   it("offers no Retry when the feed has no way to send again", () => {
     renderFeed([
       blockEntry(

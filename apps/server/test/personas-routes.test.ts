@@ -141,7 +141,16 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(deps.streams.sendUserPost).toHaveBeenCalledTimes(1);
     const [root, input] = deps.streams.sendUserPost.mock.calls[0]!;
     expect(root).toBe("root:agt_parent");
-    expect(input).toMatchObject({ to: "agt_parent", allowInert: false });
+    expect(input).toMatchObject({
+      to: "agt_parent",
+      allowInert: false,
+      // The row says who asked and for what; the instruction folds away.
+      reviewRequest: {
+        personas: ["security-review", "ux-review"],
+        agentType: "codex",
+        note: "Focus on the auth changes.",
+      },
+    });
     // The agent writes the briefing; the request names the personas, the
     // runtime, and carries the user's note.
     expect(input.text).toContain('persona: "security-review"');

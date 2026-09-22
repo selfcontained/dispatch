@@ -217,7 +217,21 @@ export async function registerPersonaRoutes(
       });
       const posted = await deps.streams.sendUserPost(
         await deps.streams.streamOf(agentId),
-        { to: agentId, text, allowInert: false }
+        {
+          to: agentId,
+          text,
+          allowInert: false,
+          // The row says who asked and for what; the instruction itself
+          // stays folded, because nobody types `launch_agent({…})`.
+          reviewRequest: {
+            personas,
+            agentType: body.agentType as string,
+            ...(model !== undefined ? { model } : {}),
+            ...(typeof body.note === "string" && body.note.trim()
+              ? { note: body.note.trim() }
+              : {}),
+          },
+        }
       );
       return { ok: true, block: posted.block };
     } catch (error) {

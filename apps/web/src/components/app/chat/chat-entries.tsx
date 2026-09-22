@@ -11,6 +11,7 @@ import {
   Bot,
   Check,
   ChevronRight,
+  ClipboardCheck,
   Copy,
   Hourglass,
   Loader2,
@@ -1190,6 +1191,180 @@ function startupTrace(startup: BlockStartup | undefined): Trace {
   };
 }
 
+/**
+ * A record of something that happened, rather than something anybody
+ * said: one line with an icon, openable for the whole text. The same
+ * shape the instructions and workspace rows use, so a stream reads as a
+ * conversation with a few quiet marks in it.
+ */
+function RecordRow({
+  icon: Icon,
+  title,
+  aside,
+  detail,
+  stateKey,
+  testId,
+  attribution,
+  children,
+}: {
+  icon: typeof Rocket;
+  title: string;
+  /** The muted note after the title: a count, a name, a model. */
+  aside?: string;
+  /** The full text, shown when the row is opened. */
+  detail?: string;
+  /** Where the open/closed state is kept for this row. */
+  stateKey: string;
+  testId: string;
+  /** "You asked", "Dev instance asked": who this record is from. */
+  attribution?: string;
+  children?: ReactNode;
+}): JSX.Element {
+  const [open, setOpen] = useChatRowState<boolean>(stateKey, false);
+  const openable = Boolean(detail || children);
+  return (
+    <div
+      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
+      data-testid={testId}
+      data-open={open ? "true" : "false"}
+      data-block-id={undefined}
+    >
+      <button
+        type="button"
+        onClick={() => openable && setOpen(!open)}
+        aria-expanded={openable ? open : undefined}
+        className={cn(
+          "flex w-full min-w-0 items-center gap-3 text-left",
+          !openable && "cursor-default"
+        )}
+        data-testid={`${testId}-toggle`}
+      >
+        <span
+          className="flex shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 p-2 text-muted-foreground"
+          aria-hidden="true"
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        <span className="truncate text-sm font-semibold text-foreground">
+          {title}
+        </span>
+        {attribution ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {attribution}
+          </span>
+        ) : null}
+        {aside ? (
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+            {aside}
+          </span>
+        ) : null}
+        {openable ? (
+          <ChevronRight
+            className={cn(
+              "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90"
+            )}
+            aria-hidden="true"
+          />
+        ) : null}
+      </button>
+      <Collapse open={open} data-testid={`${testId}-body`}>
+        {children ?? (
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            {detail}
+          </pre>
+        )}
+      </Collapse>
+    </div>
+  );
+}
+
+/** "architecture review and frontend UX review", from persona slugs. */
+function personaList(slugs: readonly string[]): string {
+  const names = slugs.map((slug) => slug.replace(/[-_]+/g, " "));
+  if (names.length <= 1) return names[0] ?? "a review";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Someone asked for reviews. The row says who asked and for what; the
+ * instruction the agent was handed is folded underneath, because it is
+ * written in tool calls and nobody typed it.
+ */
+function ReviewRequestBlock({
+  block,
+  ctx,
+}: {
+  block: Block;
+  ctx: FeedContext;
+}): JSX.Element {
+  const request =
+    block.kind === "text" ? block.data?.reviewRequest : undefined;
+  const who =
+    block.author.kind === "user"
+      ? "You"
+      : agentDisplayName(block.author.agentId, ctx);
+  const personas = request?.personas ?? [];
+  return (
+    <RecordRow
+      icon={ClipboardCheck}
+      title={`Review requested: ${personaList(personas)}`}
+      attribution={`by ${who}`}
+      {...(request?.note ? { aside: `“${request.note}”` } : {})}
+      detail={block.text}
+      stateKey="review-request-open"
+      testId="chat-review-request"
+    />
+  );
+}
+
+/**
+ * The briefing an agent wrote for one it launched. It is a record of a
+ * launch rather than a message to read, so it folds like the others; the
+ * row names the agent it started.
+ */
+function LaunchContextBlock({
+  block,
+  ctx,
+}: {
+  block: Block;
+  ctx: FeedContext;
+}): JSX.Element {
+  const started = block.toAgentId
+    ? agentDisplayName(block.toAgentId, ctx)
+    : "an agent";
+  const from =
+    block.author.kind === "agent"
+      ? agentDisplayName(block.author.agentId, ctx)
+      : "You";
+  return (
+    <RecordRow
+      icon={Rocket}
+      title={`Started ${started}`}
+      attribution={`by ${from}`}
+      aside="launch briefing"
+      detail={block.text}
+      stateKey="launch-context-open"
+      testId="chat-launch-brief"
+    />
+  );
+}
+
+/**
+ * A launch post that is a record rather than a message: the briefing one
+ * agent wrote for another. The post that started this stream — what a
+ * person wrote when they launched it — is the conversation's first
+ * message and stays as it is.
+ */
+function isLaunchBrief(block: Block): boolean {
+  return (
+    block.origin === "launch" &&
+    block.author.kind === "agent" &&
+    block.toAgentId !== null &&
+    block.toAgentId !== block.streamId
+  );
+}
+
 export const BlockView = memo(function BlockView({
   block,
   grouped,
@@ -1208,6 +1383,12 @@ export const BlockView = memo(function BlockView({
   }
   if (block.origin === "workspace") {
     return <WorkspaceBlock block={block} />;
+  }
+  if (block.origin === "review_request") {
+    return <ReviewRequestBlock block={block} ctx={ctx} />;
+  }
+  if (isLaunchBrief(block)) {
+    return <LaunchContextBlock block={block} ctx={ctx} />;
   }
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the

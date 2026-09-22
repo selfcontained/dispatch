@@ -14,6 +14,7 @@ import type {
   BlockLinkData,
   BlockQuestionData,
   BlockReviewData,
+  BlockReviewRequest,
   BlockReviewState,
   BlockTasksData,
   ChatAttachment,
@@ -661,6 +662,13 @@ export class StreamService {
       allowInert?: boolean;
       /** Cut the recipient's running turn so this lands next, not after it. */
       interrupt?: boolean;
+      /**
+       * A request for reviews, made by pressing a button rather than
+       * typed: the block records who asked and for what, and the stream
+       * shows it as the request it is instead of words in the person's
+       * mouth. `text` is still the whole instruction the agent receives.
+       */
+      reviewRequest?: BlockReviewRequest;
     }
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
@@ -724,6 +732,7 @@ export class StreamService {
     const textData = {
       ...(finding ? { findingId: finding.id } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+      ...(input.reviewRequest ? { reviewRequest: input.reviewRequest } : {}),
     };
     const row = {
       streamId,
@@ -733,6 +742,7 @@ export class StreamService {
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
       text,
+      ...(input.reviewRequest ? { origin: "review_request" as const } : {}),
       ...(review
         ? { data: review, state: initialState("review", review) }
         : Object.keys(textData).length > 0
