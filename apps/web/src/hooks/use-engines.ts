@@ -13,6 +13,8 @@ export type EngineStatus = {
   label: string;
   installed: boolean;
   path: string | null;
+  /** The CLI's own `--version`, reduced to the number; null when unknown. */
+  version?: string | null;
   install: string;
 };
 
@@ -36,4 +38,22 @@ export function missingEngine(
 ): EngineStatus | null {
   const engine = engines.find((candidate) => candidate.id === agentType);
   return engine && !engine.installed ? engine : null;
+}
+
+/**
+ * The CLI Dispatch will drive for this engine, as one quiet line
+ * ("Codex 0.155.1 · /opt/homebrew/bin/codex"): which binary and which
+ * release decide the models on offer, so a picker names them. Null when
+ * the engine is not installed or unknown.
+ */
+export function engineSummary(
+  engines: readonly EngineStatus[],
+  agentType: string
+): string | null {
+  const engine = engines.find((candidate) => candidate.id === agentType);
+  if (!engine?.installed || !engine.path) return null;
+  const name = engine.version
+    ? `${engine.label} ${engine.version}`
+    : engine.label;
+  return `${name} · ${engine.path}`;
 }

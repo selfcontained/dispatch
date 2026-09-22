@@ -5,7 +5,12 @@
  * socket. It is deliberately dumb: one session, one prompt at a time, no
  * queue and no policy. See docs/design/acp-runtime.md.
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -17,6 +22,7 @@ import {
   TEARDOWN_STEP_MS,
 } from "../driver.js";
 import { engineSpecFor } from "../engine-spec.js";
+import { engineVersion } from "../../engine-availability.js";
 import {
   type ClientMessage,
   encodeMessage,
@@ -30,7 +36,11 @@ import {
 /** How long a crashed engine's host stays up so the server can read the exit. */
 const EXIT_LINGER_MS = 2_000;
 
-function log(level: "info" | "warn" | "error" | "debug", obj: unknown, msg: string) {
+function log(
+  level: "info" | "warn" | "error" | "debug",
+  obj: unknown,
+  msg: string
+) {
   const line = JSON.stringify({
     level,
     time: new Date().toISOString(),
@@ -132,16 +142,18 @@ async function main(): Promise<void> {
   const driver = new AcpDriver({ logger });
   // The adapters find the host CLI through an env var that wants an absolute
   // path; a bare name from config is looked up on the child's PATH here.
+  // Only the launched engine's CLI matters; one that cannot be found fails
+  // the launch in engineSpecFor rather than letting the adapter pick its own.
   const bins = { ...launch.bins };
   const absolute = async (bin: string | null) =>
-    bin && !bin.includes("/") ? resolveExecutable(bin, childEnv) : bin;
-  try {
-    bins.claudeBin = (await absolute(bins.claudeBin)) ?? bins.claudeBin;
+    bin && !bin.includes("/")
+      ? resolveExecutable(bin, childEnv).catch(() => null)
+      : bin;
+  if (launch.engine === "claude") {
+    bins.claudeBin = (await absolute(bins.claudeBin)) ?? "";
+  } else {
     bins.codexBin = await absolute(bins.codexBin);
-  } catch (err) {
-    logger.warn({ err: String(err) }, "host: could not resolve the engine CLI");
   }
-  const spec = engineSpecFor(launch.engine, bins);
 
   // One client at a time; the newest connection wins.
   let client: net.Socket | null = null;
@@ -162,7 +174,9 @@ async function main(): Promise<void> {
     const entry = journal.append(event);
     if (event.type === "turn") {
       openTurn =
-        event.state === "started" ? { seq: entry.seq, startedAt: entry.at } : null;
+        event.state === "started"
+          ? { seq: entry.seq, startedAt: entry.at }
+          : null;
     }
     if (event.type === "exit") {
       running = false;
@@ -227,7 +241,8 @@ async function main(): Promise<void> {
         for (const entry of journal.after(message.fromSeq)) {
           send(socket, { type: "event", ...entry });
         }
-        if (startupError) send(socket, { type: "error", message: startupError });
+        if (startupError)
+          send(socket, { type: "error", message: startupError });
         return;
       }
       case "ping":
@@ -296,6 +311,22 @@ async function main(): Promise<void> {
   logger.info({ agentId, socketPath }, "host: listening");
 
   try {
+    const spec = engineSpecFor(launch.engine, bins);
+    const engineCli =
+      launch.engine === "claude" ? bins.claudeBin : bins.codexBin;
+    // Which CLI, and which release of it, decides the models on offer: say
+    // so in the host log, where a missing model gets investigated.
+    if (engineCli && !bins.adapter) {
+      logger.info(
+        {
+          agentId,
+          engine: launch.engine,
+          cli: engineCli,
+          version: await engineVersion(engineCli),
+        },
+        "host: engine CLI"
+      );
+    }
     const session = await driver.start({
       agentId,
       cwd: launch.cwd,
@@ -317,7 +348,10 @@ async function main(): Promise<void> {
         (o) => o.id === "model" || o.category === "model"
       );
       if (!option) {
-        logger.warn({ agentId, model: launch.model }, "host: engine publishes no model option");
+        logger.warn(
+          { agentId, model: launch.model },
+          "host: engine publishes no model option"
+        );
       } else {
         await driver
           .setConfigOption(agentId, option.id, launch.model)
@@ -355,6 +389,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  log("error", { err: err instanceof Error ? err.message : String(err) }, "host: fatal");
+  log(
+    "error",
+    { err: err instanceof Error ? err.message : String(err) },
+    "host: fatal"
+  );
   process.exit(1);
 });

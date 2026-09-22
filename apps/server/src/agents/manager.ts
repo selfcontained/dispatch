@@ -63,7 +63,11 @@ import {
   type TurnBlocks,
 } from "./acp/stream-recorder.js";
 import { OPEN_INPUT_SQL } from "../chat/store.js";
-import { engineStatuses, missingEngineMessage } from "./engine-availability.js";
+import {
+  engineStatuses,
+  engineVersion,
+  missingEngineMessage,
+} from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
@@ -1431,6 +1435,17 @@ export class AgentManager {
       codexBin:
         agent.type === "codex" ? (engine?.path ?? null) : this.config.codexBin,
     };
+    if (engine?.path) {
+      this.logger.info(
+        {
+          agentId: agent.id,
+          engine: agent.type,
+          cli: engine.path,
+          version: await engineVersion(engine.path),
+        },
+        "launching agent on engine CLI"
+      );
+    }
     this.streamRecorder.setCwd(agent.id, agent.cwd);
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.

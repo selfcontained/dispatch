@@ -5,6 +5,7 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./engine-spec.js";
+import { isPackageBinDir } from "./package-bin-dir.js";
 
 export type DriverUpdate = acp.SessionUpdate;
 export type DriverUsage = acp.Usage;
@@ -171,7 +172,9 @@ export async function resolveExecutable(
   }
   const searchPath = env.PATH ?? process.env.PATH ?? "";
   for (const dir of searchPath.split(path.delimiter)) {
-    if (!dir) continue;
+    // Relative entries resolve against whatever cwd; a package's bin dir
+    // holds a dependency's copy of the CLI (see isPackageBinDir).
+    if (!path.isAbsolute(dir) || isPackageBinDir(dir)) continue;
     const candidate = path.join(dir, bin);
     if (await executable(candidate)) return candidate;
   }
@@ -466,7 +469,11 @@ export class AcpDriver {
       commands,
     };
     this.live.set(launch.agentId, entry);
-    this.emit({ type: "config", agentId: launch.agentId, options: config.options });
+    this.emit({
+      type: "config",
+      agentId: launch.agentId,
+      options: config.options,
+    });
     void exited.then((exit) => {
       if (this.live.get(launch.agentId) === entry) {
         this.live.delete(launch.agentId);
