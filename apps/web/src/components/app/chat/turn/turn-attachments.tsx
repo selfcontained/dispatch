@@ -128,7 +128,7 @@ export function foldAttachments(
 
 /**
  * A file or link the agent posted mid-turn: its text (the description) in
- * the rail's quiet tone, then the file's own card or the link's.
+ * the step list's quiet tone, then the file's own card or the link's.
  */
 function FoldedBlock({
   entry,
@@ -246,7 +246,7 @@ function SentTo({
 
 /**
  * What the agent produced along the way, in the order it produced it,
- * between the rail and the answer: the answer still reads last, and the
+ * between the step list and the answer: the answer still reads last, and the
  * things it refers to sit right above it.
  */
 export const TurnAttachments = memo(function TurnAttachments({

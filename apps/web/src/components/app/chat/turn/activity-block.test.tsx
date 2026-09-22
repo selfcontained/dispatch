@@ -30,7 +30,7 @@ const open: Trace = {
 const done: Trace = { ...open, endedAt: at + 1000, finalResult: "ok" };
 afterEach(cleanup);
 
-describe("ActivityBlock rail", () => {
+describe("ActivityBlock step list", () => {
   const ran: Trace = {
     ...open,
     steps: [
@@ -42,29 +42,30 @@ describe("ActivityBlock rail", () => {
     ],
   };
 
-  // Queried from the DOM, not by role: a closed rail is aria-hidden, so a
+  // Queried from the DOM, not by role: a closed fold is aria-hidden, so a
   // role query would miss rows that are rendered but hidden.
-  const rail = () => document.querySelector('[aria-label="activity steps"]');
+  const stepList = () =>
+    document.querySelector('[aria-label="activity steps"]');
 
-  it("renders no step rows while the rail is closed", async () => {
+  it("renders no step rows while the fold is closed", async () => {
     render(<ActivityBlock trace={ran} />);
-    expect(rail()).toBeNull();
+    expect(stepList()).toBeNull();
 
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
     expect(screen.getByRole("button", { name: /completed/ })).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
-    await waitFor(() => expect(rail()).toBeNull());
+    await waitFor(() => expect(stepList()).toBeNull());
   });
 
-  it("keeps a step's detail open across closing and reopening the rail", async () => {
+  it("keeps a step's detail open across closing and reopening the fold", async () => {
     render(<ActivityBlock trace={ran} />);
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
     fireEvent.click(screen.getByRole("button", { name: /completed/ }));
     expect(screen.getByText("Passed")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
-    await waitFor(() => expect(rail()).toBeNull());
+    await waitFor(() => expect(stepList()).toBeNull());
 
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
     expect(
@@ -87,7 +88,7 @@ describe("ActivityBlock settle", () => {
     const { rerender } = render(
       <ActivityBlock trace={{ ...open, steps: [step] }} />
     );
-    // The rail is closed until the reader opens it, even while running.
+    // The fold is closed until the reader opens it, even while running.
     fireEvent.click(screen.getByTestId("harness-activity-summary"));
     const button = screen.getByRole("button", { name: /running/ });
     expect(button.getAttribute("aria-expanded")).toBe("false");
@@ -113,7 +114,7 @@ describe("ActivityBlock settle", () => {
     ).toBe("true");
     expect(screen.getByText("Passed")).toBeTruthy();
   });
-  it("renders the open rail while running and the collapsed summary once settled, both inside one layout group", async () => {
+  it("renders the open step list while running and the collapsed summary once settled, both inside one layout group", async () => {
     const { rerender } = render(
       <MotionConfig reducedMotion="always">
         <ActivityBlock trace={open} />

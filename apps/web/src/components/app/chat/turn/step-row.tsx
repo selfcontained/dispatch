@@ -27,7 +27,7 @@ const STATUS_ARIA: Record<StepStatus, string> = {
 const ROW_CLASS =
   "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
 
-/** One step in the activity rail: glyph, label, summary, duration, toggle. */
+/** One step in the step list: glyph, label, summary, duration, toggle. */
 export function StepRow({
   step,
   open,
@@ -41,7 +41,7 @@ export function StepRow({
   onToggle: () => void;
   /** Background class that hides the rail line behind the glyph. */
   maskClass: string;
-  /** 0 at the rail's top level; children render one deeper. */
+  /** 0 at the step list's top level; children render one deeper. */
   depth?: number;
   /** This row's slot within its landing burst; staggers its entrance. */
   index?: number;

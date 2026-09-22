@@ -30,7 +30,7 @@ import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { Collapse } from "@/components/app/chat/collapse";
-import { StepRail } from "@/components/app/chat/turn/activity-block";
+import { StepList } from "@/components/app/chat/turn/activity-block";
 import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
@@ -1134,10 +1134,10 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
 
 /**
  * The workspace coming up, as a row of the stream, drawn as the agent's
- * own activity is: the same step rail, the same glyphs and durations.
+ * own activity is: the same step list, the same glyphs and durations.
  * Creating a worktree and installing dependencies are work an agent is
  * doing, and there is no reason for them to look like a different kind of
- * thing. There are only a few steps, so the rail stands open on its own,
+ * thing. There are only a few steps, so the list stands open on its own,
  * without a turn's summary line over it repeating the step that is running.
  */
 function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
@@ -1153,16 +1153,16 @@ function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
       data-block-id={block.id}
     >
       <div className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}>
-        <StepRail trace={trace} />
+        <StepList trace={trace} />
       </div>
     </div>
   );
 }
 
 /**
- * The startup record as the activity rail's own model. The worktree step
+ * The startup record as the step list's own model. The worktree step
  * carries the directory it made and a failed step carries the reason, in
- * the aside the rail shows beside a step's name.
+ * the aside the list shows beside a step's name.
  */
 function startupTrace(startup: BlockStartup | undefined): Trace {
   const steps = startup?.steps ?? [];

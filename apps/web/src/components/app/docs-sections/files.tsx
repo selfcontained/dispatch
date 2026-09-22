@@ -117,16 +117,16 @@ export function FilesContent() {
       </Section>
 
       <Section>
-        <H3 id="drawer">Drawer: Rail and Files</H3>
+        <H3 id="drawer">Drawer: Inbox and Files</H3>
         <P>
           Click the sidebar button at the right of the top bar (or press{" "}
           <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button shows a
           count badge when there are unseen file items or open questions. The
-          sidebar has two tabs: <strong>Rail</strong> and <strong>Files</strong>
-          .
+          sidebar has two tabs: <strong>Inbox</strong> and{" "}
+          <strong>Files</strong>.
         </P>
         <P>
-          The <strong>Rail</strong> is derived from the agent&apos;s stream —
+          The <strong>Inbox</strong> is derived from the agent&apos;s stream —
           the agent has no tool that writes to it directly. Its{" "}
           <strong>Needs you</strong> section lists every <Code>question</Code>{" "}
           and <Code>form</Code> the agent (or one of its children) has posted to

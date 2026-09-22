@@ -94,7 +94,7 @@ function TurnEntryViewImpl({
 
 /**
  * The body of a turn's block: the answer, and under it one quiet activity
- * line that opens into the step rail on click. A prompt Dispatch injected
+ * line that opens into the step list on click. A prompt Dispatch injected
  * (a job, a nudge) has no post of its own in the column, so its notice
  * line sits above the answer. The message lands whole when the turn
  * settles, as a chat message does; nothing streams into the column. Until
@@ -116,7 +116,7 @@ export function TurnAnswer({
     () => resultTurnModel(block, turn, trace),
     [block, turn, trace]
   );
-  // The folded rail reads "<verb>, 12 steps, 1m 4s"; the verb is derived
+  // The folded step list reads "<verb>, 12 steps, 1m 4s"; the verb is derived
   // from the steps: "edited turns.ts", "ran pnpm test", "read 3 files".
   const foldLabel = useMemo(
     () => turnLabelFromSteps(trace.steps),
@@ -155,7 +155,7 @@ export function TurnAnswer({
           <PromptLine turn={promptTurn} />
         </div>
       ) : null}
-      {/* One measured body for the rail and the answer: every size change
+      {/* One measured body for the steps and the answer: every size change
           inside it eases instead of snapping, so the feed above glides
           rather than jumps while it follows the bottom. */}
       <AutoHeight data-testid="chat-turn-body">
@@ -174,7 +174,7 @@ export function TurnAnswer({
           </div>
         ) : null}
         <TurnAttachments items={folded} ctx={ctx} />
-        {showsRail(trace, result) || !turn.settled ? (
+        {showsActivityLine(trace, result) || !turn.settled ? (
           <div className={cn(result.content && "mt-2")}>
             <ActivityBlock trace={trace} label={foldLabel} />
           </div>
@@ -255,7 +255,7 @@ export function PendingTurnLine({
  * has nothing to fold, so its line steps aside as soon as the answer
  * starts and never comes back.
  */
-export function showsRail(trace: Trace, result: Turn): boolean {
+export function showsActivityLine(trace: Trace, result: Turn): boolean {
   if (trace.steps.length > 0) return true;
   return trace.endedAt == null && result.content.length === 0;
 }

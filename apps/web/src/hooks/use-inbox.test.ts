@@ -17,11 +17,7 @@ import {
   reviewBody,
 } from "@/test-utils/blocks";
 
-import {
-  deriveStreamRail,
-  isOpenInput,
-  useStreamRail,
-} from "./use-stream-rail";
+import { deriveInbox, isOpenInput, useInbox } from "./use-inbox";
 
 const ROOT = "agt_root";
 const CHILD = "agt_child";
@@ -77,7 +73,7 @@ function review(
   );
 }
 
-describe("deriveStreamRail reviews", () => {
+describe("deriveInbox reviews", () => {
   it("lists reviews of the page's agent newest first, open ones before resolved", () => {
     const resolved = {
       findings: {
@@ -93,7 +89,7 @@ describe("deriveStreamRail reviews", () => {
         },
       },
     };
-    const rail = deriveStreamRail(
+    const inbox = deriveInbox(
       [
         review("r-old", CHILD, ROOT, at("09:00")),
         review("r-done", CHILD, ROOT, at("09:30"), resolved),
@@ -105,14 +101,14 @@ describe("deriveStreamRail reviews", () => {
       ROOT
     );
     // On the root's page the whole stream counts.
-    expect(rail.reviews.map((r) => r.id)).toEqual([
+    expect(inbox.reviews.map((r) => r.id)).toEqual([
       "r-other",
       "r-new",
       "r-old",
       "r-done",
     ]);
     // On the child's page: only reviews it wrote or received.
-    const childRail = deriveStreamRail(
+    const childInbox = deriveInbox(
       [
         review("r-mine", CHILD, ROOT, at("09:00")),
         review("r-for-me", "agt_x", CHILD, at("09:30")),
@@ -121,7 +117,7 @@ describe("deriveStreamRail reviews", () => {
       CHILD,
       ROOT
     );
-    expect(childRail.reviews.map((r) => r.id)).toEqual(["r-for-me", "r-mine"]);
+    expect(childInbox.reviews.map((r) => r.id)).toEqual(["r-for-me", "r-mine"]);
   });
 });
 
@@ -150,7 +146,7 @@ describe("isOpenInput", () => {
   });
 });
 
-describe("deriveStreamRail", () => {
+describe("deriveInbox", () => {
   const entries: StreamEntry[] = [
     question("q1", ROOT, at("10:00")),
     question("q2", CHILD, at("10:01")),
@@ -170,38 +166,38 @@ describe("deriveStreamRail", () => {
   ];
 
   it("lists every open input in the stream on the root's page, oldest first", () => {
-    const rail = deriveStreamRail(entries, ROOT, ROOT);
-    expect(rail.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
+    const inbox = deriveInbox(entries, ROOT, ROOT);
+    expect(inbox.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
   });
 
   it("lists only the child's own inputs and links on a child's page", () => {
-    const rail = deriveStreamRail(entries, CHILD, ROOT);
-    expect(rail.inputs.map((b) => b.id)).toEqual(["q2"]);
-    expect(rail.links.map((l) => l.url)).toEqual([
+    const inbox = deriveInbox(entries, CHILD, ROOT);
+    expect(inbox.inputs.map((b) => b.id)).toEqual(["q2"]);
+    expect(inbox.links.map((l) => l.url)).toEqual([
       "https://github.com/o/r/pull/7",
     ]);
-    expect(rail.links[0]?.pr).toBe(true);
+    expect(inbox.links[0]?.pr).toBe(true);
   });
 
   it("lists links newest first, once per url, marking pull requests", () => {
-    const rail = deriveStreamRail(entries, ROOT, ROOT);
-    expect(rail.links.map((l) => [l.url, l.pr])).toEqual([
+    const inbox = deriveInbox(entries, ROOT, ROOT);
+    expect(inbox.links.map((l) => [l.url, l.pr])).toEqual([
       ["https://github.com/o/r/pull/8", true],
       ["https://example.com/a", false],
       ["https://github.com/o/r/pull/7", true],
     ]);
     // The newest block with a repeated url is the one kept.
-    expect(rail.links[1]?.blockId).toBe("l3");
+    expect(inbox.links[1]?.blockId).toBe("l3");
   });
 });
 
-describe("useStreamRail", () => {
+describe("useInbox", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("does not re-render its page when a stream update leaves the rail as it was", async () => {
+  it("does not re-render its page when a stream update leaves the Inbox as it was", async () => {
     // Never answers: the seeded cache is what the hook reads.
     vi.stubGlobal(
       "fetch",
@@ -233,7 +229,7 @@ describe("useStreamRail", () => {
     const { result } = renderHook(
       () => {
         renders += 1;
-        return useStreamRail(ROOT);
+        return useInbox(ROOT);
       },
       {
         wrapper: ({ children }: { children: ReactNode }) =>
@@ -244,12 +240,12 @@ describe("useStreamRail", () => {
     const inputs = result.current.inputs;
     const before = renders;
 
-    // A turn moving on: the feed changes, the rail does not.
+    // A turn moving on: the feed changes, the Inbox does not.
     await update([question("q1", ROOT, at("10:00")), turn("still working")]);
     expect(renders).toBe(before);
     expect(result.current.inputs).toBe(inputs);
 
-    // A new question does move the rail.
+    // A new question does move the Inbox.
     await update([
       question("q1", ROOT, at("10:00")),
       turn("still working"),

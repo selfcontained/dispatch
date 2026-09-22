@@ -18,7 +18,7 @@ export interface Step {
   endedAt?: number;
   durMs?: number;
   detail?: unknown;
-  /** Steps run under this one: a subagent's work, nested one level in the rail. */
+  /** Steps run under this one: a subagent's work, nested one level in the step list. */
   children?: Step[];
 }
 

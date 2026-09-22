@@ -12,7 +12,7 @@ import { arrive } from "./motion";
 /**
  * A wrapper whose height eases to whatever its content measures. A step row
  * landing, the thinking row coming and going, an answer streaming in, the
- * rail folding on settle: each is a size change that would otherwise snap,
+ * step list folding on settle: each is a size change that would otherwise snap,
  * and with the feed following the bottom, snap everything above it.
  *
  * The height is read from a ResizeObserver on the content, never from the

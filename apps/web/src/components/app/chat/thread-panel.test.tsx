@@ -316,7 +316,7 @@ describe("ThreadPanel", () => {
       "turn:2",
     ]);
     // Each turn is the agent's answer post under the reply that opened it,
-    // with its rail; the reply itself keeps its own row.
+    // with its step list; the reply itself keeps its own row.
     expect(
       screen
         .getAllByTestId("chat-message")

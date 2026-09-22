@@ -300,7 +300,7 @@ export type ChatTurnEntry = {
     steps: ChatTurnStep[];
   };
   result: { text: string; streaming: boolean; truncated?: boolean } | null;
-  /** False while the turn is open: the rail is live and the result may grow. */
+  /** False while the turn is open: the step list is live and the result may grow. */
   settled: boolean;
   /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */
   interrupted: boolean;

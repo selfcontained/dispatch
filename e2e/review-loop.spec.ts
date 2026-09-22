@@ -295,27 +295,27 @@ test.describe("Review loop", () => {
       ])
     );
     // Seen from the review page as they land (it lists every comment), so
-    // the unread marks show where the review is only a card: the rail.
+    // the unread marks show where the review is only a card: the Inbox.
     await page.getByTestId("drawer-close").click();
     // The review page slides out before it unmounts; until then it still
     // counts as reading, so wait for the thread drawer to be gone.
     await expect(threadDrawer).toHaveCount(0);
     await expect(page.getByTestId("drawer-page")).toHaveCount(0);
-    // The sidebar is a surface of its own: open it for the rail.
+    // The sidebar is a surface of its own: open it for the Inbox.
     await page.getByTestId("toggle-drawer").click();
     const drawer = page.getByTestId("drawer");
-    await drawer.getByTestId("sidebar-tab-rail").click();
-    const railCard = drawer.getByTestId("rail-review");
-    await expect(railCard).toHaveCount(1);
+    await drawer.getByTestId("sidebar-tab-inbox").click();
+    const inboxCard = drawer.getByTestId("inbox-review");
+    await expect(inboxCard).toHaveCount(1);
     await callMcpToolViaAPI(request, reviewer.id, "post", {
       replyTo: reviewId,
       finding: "f-four",
       text: "One more thought on four.",
     });
-    await expect(railCard.getByTestId("rail-review-unread")).toBeVisible();
-    await expect(railCard.getByTestId("rail-review-unread")).toHaveText("1");
+    await expect(inboxCard.getByTestId("inbox-review-unread")).toBeVisible();
+    await expect(inboxCard.getByTestId("inbox-review-unread")).toHaveText("1");
     // Opening the review reads them.
-    await railCard.click();
+    await inboxCard.click();
     await expect(threadDrawer).toHaveAttribute("data-depth", "1");
     await expect
       .poll(async () =>
@@ -326,15 +326,15 @@ test.describe("Review loop", () => {
       .toEqual([true]);
 
     // Closed, the thread drawer gives the slot back to the sidebar, still
-    // open where it was: the rail lists the review with where it stands.
+    // open where it was: the Inbox lists the review with where it stands.
     await page.getByTestId("drawer-close").click();
     await expect(threadDrawer).toHaveCount(0);
     await page.waitForURL(new RegExp(`/agents/${builder.id}/changes$`));
-    await drawer.getByTestId("sidebar-tab-rail").click();
-    await expect(railCard.getByTestId("rail-review-status")).toHaveText(
+    await drawer.getByTestId("sidebar-tab-inbox").click();
+    await expect(inboxCard.getByTestId("inbox-review-status")).toHaveText(
       "In progress"
     );
-    await expect(railCard).toContainText("2 findings · 1 open");
+    await expect(inboxCard).toContainText("2 findings · 1 open");
   });
 
   test("questions between agents: labels stay short, the addressee answers by replying, an author closes its own", async ({

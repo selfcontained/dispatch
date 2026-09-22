@@ -514,7 +514,7 @@ describe("assembleTurns answer text", () => {
       ],
       new Map()
     );
-    // The first text never moves into the rail; the newer text streams
+    // The first text never moves into the step list; the newer text streams
     // under it as one answer.
     expect(live[0].result).toEqual({
       text: "TypeScript.\n\nAnswer above stands",

@@ -249,13 +249,13 @@ export function AgentsContent() {
         <P>
           The first center tab, <strong>Agent</strong>, is the agent&apos;s
           Chat. Each prompt you send opens a <em>turn</em>: the prompt, a
-          folding activity rail of the tool calls the agent made, and the answer
-          it ended with. While a turn runs, a <strong>Stop</strong> button next
-          to the status line cancels it, and the agent&apos;s current plan shows
+          folding step list of the tool calls the agent made, and the answer it
+          ended with. While a turn runs, a <strong>Stop</strong> button next to
+          the status line cancels it, and the agent&apos;s current plan shows
           above the composer. The feed also carries the agent&apos;s blocks:
           questions (with option buttons), forms, shared files, links, review
           blocks, task lists, and posts from other agents; each top-level block
-          has a thread that opens as a page in the right drawer, over the rail.
+          has a thread that opens as a page in the right drawer, over the Inbox.
           An unread count sits on the Agent tab while another tab is up. Drafts
           survive a reload: text, links and pasted text come back as they were;
           a picked file comes back as a placeholder to re-attach.

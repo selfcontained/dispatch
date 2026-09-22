@@ -8,7 +8,7 @@ description: Open a pull request and get the change reviewed in Dispatch, then w
 Two habits Dispatch adds to the usual wrap-up:
 
 1. **Post the PR into the stream.** Open it with the `gh` CLI, then `post` it
-   as a `pr` attachment so the user can reach it from the stream and the rail.
+   as a `pr` attachment so the user can reach it from the stream and the Inbox.
 2. **Get reviewed by launching a persona**, not by re-reading your own diff.
    A reviewer persona posts one `review` block back to you: a verdict, a
    summary, and findings that each carry their own thread.

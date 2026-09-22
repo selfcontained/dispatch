@@ -82,7 +82,7 @@ test.describe("Drawer", () => {
       cwd: process.cwd(),
     });
 
-    // Agent B has an open question, so its Rail has something to show.
+    // Agent B has an open question, so its Inbox has something to show.
     await seedBlockViaDB({
       streamId: secondAgent.id,
       authorKind: "agent",
@@ -107,7 +107,7 @@ test.describe("Drawer", () => {
 
     await clickAgentRow(page, secondAgent.id);
     await page.getByTestId("toggle-drawer").click();
-    await drawer.getByTestId("sidebar-tab-rail").click();
+    await drawer.getByTestId("sidebar-tab-inbox").click();
     await expect(drawer.getByText("Question for agent B")).toBeVisible();
 
     await clickAgentRow(page, firstAgent.id);
@@ -550,7 +550,7 @@ test.describe("Drawer", () => {
 
     await page
       .getByTestId("drawer")
-      .getByTestId("stream-rail-empty")
+      .getByTestId("inbox-empty")
       .evaluate((node) =>
         node.scrollIntoView({ block: "nearest", inline: "nearest" })
       );

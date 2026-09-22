@@ -15,8 +15,8 @@ import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
 import { FilesContent } from "@/components/app/files-content";
-import { StreamRailPanel } from "@/components/app/stream-rail";
-import { type StreamRail } from "@/hooks/use-stream-rail";
+import { InboxPanel } from "@/components/app/inbox";
+import { type Inbox } from "@/hooks/use-inbox";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
@@ -53,10 +53,10 @@ type DrawerSharedProps = {
   streamUrl: string | null;
   unseenFileCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
-  /** The Rail tab: open inputs and links derived from the stream. */
-  rail: StreamRail;
-  /** Why the rail cannot send an answer right now, or null. */
-  railDisabledReason: string | null;
+  /** The Inbox tab: open inputs and links derived from the stream. */
+  inbox: Inbox;
+  /** Why the Inbox cannot send an answer right now, or null. */
+  inboxDisabledReason: string | null;
   /** Names an agent in the selected agent's tree, for a child's question. */
   agentNameById?: (agentId: string) => string;
   /** Opens a block's thread (or a review) in the thread drawer. */
@@ -151,8 +151,8 @@ export function DrawerContent({
   className,
   unseenFileCount,
   onUploadFile,
-  rail,
-  railDisabledReason,
+  inbox,
+  inboxDisabledReason,
   agentNameById,
   onOpenBlock,
 }: DrawerContentProps & {
@@ -171,12 +171,12 @@ export function DrawerContent({
         {
           <div className="flex min-w-0 flex-1">
             <SidebarTab
-              label="Rail"
-              active={activeTab === "rail"}
-              onClick={() => setActiveTab("rail")}
-              badge={rail.inputs.length}
+              label="Inbox"
+              active={activeTab === "inbox"}
+              onClick={() => setActiveTab("inbox")}
+              badge={inbox.inputs.length}
               badgeClassName="bg-status-waiting text-white"
-              testId="sidebar-tab-rail"
+              testId="sidebar-tab-inbox"
             />
             <SidebarTab
               label="Files"
@@ -231,14 +231,14 @@ export function DrawerContent({
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            activeTab !== "rail" && "hidden"
+            activeTab !== "inbox" && "hidden"
           )}
         >
-          <StreamRailPanel
-            rail={rail}
+          <InboxPanel
+            inbox={inbox}
             agentName={selectedAgentName}
             agentNameById={agentNameById}
-            disabledReason={railDisabledReason}
+            disabledReason={inboxDisabledReason}
             onOpenBlock={onOpenBlock}
           />
         </div>

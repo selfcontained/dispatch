@@ -104,7 +104,7 @@ export function boundOutput(
 
 const INPUT_MAX_BYTES = 8 * 1024;
 
-/** A tool title is one line in the rail; cut rather than head-and-tail it. */
+/** A tool title is one line in the step list; cut rather than head-and-tail it. */
 function boundTitle(title: string): string {
   return title.length > TITLE_MAX_CHARS
     ? `${title.slice(0, TITLE_MAX_CHARS)}…`

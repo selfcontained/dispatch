@@ -1,7 +1,7 @@
 /**
- * The Rail tab of the right sidebar: the open questions and forms an agent
+ * The Inbox tab of the right sidebar: the open questions and forms an agent
  * is waiting on, answerable in place, and the links the stream produced.
- * Everything here is derived from the stream (see use-stream-rail.ts); the
+ * Everything here is derived from the stream (see use-inbox.ts); the
  * agent has no tool to write to it directly.
  */
 import { useMemo, useState } from "react";
@@ -11,7 +11,7 @@ import {
   ChevronRight,
   ExternalLink,
   GitPullRequest,
-  Inbox,
+  InboxIcon,
 } from "lucide-react";
 
 import {
@@ -29,16 +29,12 @@ import {
   useSubmitForm,
   useThread,
 } from "@/hooks/use-stream";
-import type {
-  RailInput,
-  RailReview,
-  StreamRail,
-} from "@/hooks/use-stream-rail";
+import type { InboxInput, InboxReview, Inbox } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-export type StreamRailPanelProps = {
-  rail: StreamRail;
+export type InboxPanelProps = {
+  inbox: Inbox;
   /** The page's agent, whose questions these are. */
   agentName: string | null;
   /** Names the author of each input when it is not the page's agent. */
@@ -49,7 +45,7 @@ export type StreamRailPanelProps = {
   onOpenBlock?: (blockId: string) => void;
 };
 
-function RailSectionTitle({
+function InboxSectionTitle({
   children,
   count,
 }: {
@@ -68,14 +64,14 @@ function RailSectionTitle({
   );
 }
 
-function RailInputCard({
+function InboxInputCard({
   block,
   authorName,
   rootId,
   disabledReason,
   onOpenBlock,
 }: {
-  block: RailInput;
+  block: InboxInput;
   authorName: string | null;
   rootId: string;
   disabledReason: string | null;
@@ -105,7 +101,7 @@ function RailInputCard({
   return (
     <div
       className="mx-3 mb-2 rounded-md border border-border/60 bg-card/40 px-3 py-2"
-      data-testid="rail-input"
+      data-testid="inbox-input"
       data-block-id={block.id}
       data-kind={block.kind}
     >
@@ -116,7 +112,7 @@ function RailInputCard({
           className="shrink-0 underline-offset-2 hover:underline"
           title={formatRelativeTime(block.createdAt)}
           onClick={() => onOpenBlock?.(block.id)}
-          data-testid="rail-input-open"
+          data-testid="inbox-input-open"
         >
           {formatRelativeTime(block.createdAt)}
         </button>
@@ -152,7 +148,7 @@ function RailInputCard({
         <div
           role="alert"
           className="mt-1.5 text-[11px] text-destructive"
-          data-testid="rail-input-error"
+          data-testid="inbox-input-error"
         >
           {error}
         </div>
@@ -175,16 +171,16 @@ const REVIEW_STATUS_CLASS: Record<BlockReviewStatus, string> = {
 };
 
 /**
- * One review in the rail: who left it, the verdict, where it stands, and
+ * One review in the Inbox: who left it, the verdict, where it stands, and
  * how many of its comments the person has not seen. Opens the review page.
  */
-function RailReviewCard({
+function InboxReviewCard({
   review,
   authorName,
   rootId,
   onOpenBlock,
 }: {
-  review: RailReview;
+  review: InboxReview;
   authorName: string;
   rootId: string;
   onOpenBlock?: (blockId: string) => void;
@@ -207,7 +203,7 @@ function RailReviewCard({
     <button
       type="button"
       className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
-      data-testid="rail-review"
+      data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
       onClick={() => onOpenBlock?.(review.id)}
@@ -219,7 +215,7 @@ function RailReviewCard({
           {unread > 0 ? (
             <span
               className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
-              data-testid="rail-review-unread"
+              data-testid="inbox-review-unread"
               aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
             >
               {unread}
@@ -229,7 +225,7 @@ function RailReviewCard({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge variant={verdict.variant} data-testid="rail-review-verdict">
+        <Badge variant={verdict.variant} data-testid="inbox-review-verdict">
           {verdict.label}
         </Badge>
         <span
@@ -237,7 +233,7 @@ function RailReviewCard({
             "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide",
             REVIEW_STATUS_CLASS[status]
           )}
-          data-testid="rail-review-status"
+          data-testid="inbox-review-status"
         >
           {REVIEW_STATUS_LABEL[status]}
         </span>
@@ -249,32 +245,32 @@ function RailReviewCard({
   );
 }
 
-export function StreamRailPanel({
-  rail,
+export function InboxPanel({
+  inbox,
   agentName,
   agentNameById,
   disabledReason,
   onOpenBlock,
-}: StreamRailPanelProps): JSX.Element {
-  const { rootId, inputs, links, reviews } = rail;
+}: InboxPanelProps): JSX.Element {
+  const { rootId, inputs, links, reviews } = inbox;
   const empty =
     inputs.length === 0 && links.length === 0 && reviews.length === 0;
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3"
-      data-testid="stream-rail"
+      data-testid="inbox"
       data-open-inputs={inputs.length}
     >
-      {rail.isLoading && empty ? (
+      {inbox.isLoading && empty ? (
         <div className="px-3 py-6 text-center text-xs text-muted-foreground">
           Loading the stream…
         </div>
       ) : empty ? (
         <div
           className="flex flex-col items-center gap-2 px-6 py-10 text-center text-xs text-muted-foreground"
-          data-testid="stream-rail-empty"
+          data-testid="inbox-empty"
         >
-          <Inbox className="h-6 w-6 opacity-60" aria-hidden="true" />
+          <InboxIcon className="h-6 w-6 opacity-60" aria-hidden="true" />
           <div className="text-foreground/80">Nothing waiting on you.</div>
           <div>
             Questions and forms {agentName ?? "the agent"} asks show up here
@@ -283,10 +279,10 @@ export function StreamRailPanel({
         </div>
       ) : null}
       {inputs.length > 0 && rootId ? (
-        <div data-testid="stream-rail-inputs">
-          <RailSectionTitle count={inputs.length}>Needs you</RailSectionTitle>
+        <div data-testid="inbox-inputs">
+          <InboxSectionTitle count={inputs.length}>Needs you</InboxSectionTitle>
           {inputs.map((block) => (
-            <RailInputCard
+            <InboxInputCard
               key={block.id}
               block={block}
               authorName={
@@ -302,8 +298,8 @@ export function StreamRailPanel({
         </div>
       ) : null}
       {reviews.length > 0 && rootId ? (
-        <div data-testid="stream-rail-reviews">
-          <RailSectionTitle
+        <div data-testid="inbox-reviews">
+          <InboxSectionTitle
             count={
               reviews.filter(
                 (review) =>
@@ -312,9 +308,9 @@ export function StreamRailPanel({
             }
           >
             Reviews
-          </RailSectionTitle>
+          </InboxSectionTitle>
           {reviews.map((review) => (
-            <RailReviewCard
+            <InboxReviewCard
               key={review.id}
               review={review}
               authorName={
@@ -329,8 +325,8 @@ export function StreamRailPanel({
         </div>
       ) : null}
       {links.length > 0 ? (
-        <div data-testid="stream-rail-links">
-          <RailSectionTitle>Links</RailSectionTitle>
+        <div data-testid="inbox-links">
+          <InboxSectionTitle>Links</InboxSectionTitle>
           <div className="flex flex-col gap-2 px-3">
             {links.map((link) => (
               <LinkAttachment
@@ -344,7 +340,7 @@ export function StreamRailPanel({
                     <ExternalLink className="h-3.5 w-3.5" />
                   )
                 }
-                testId="stream-rail-link"
+                testId="inbox-link"
               />
             ))}
           </div>

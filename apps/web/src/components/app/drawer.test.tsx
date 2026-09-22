@@ -86,17 +86,17 @@ function renderDrawer(search: string) {
           hasStream={false}
           streamUrl={null}
           unseenFileCount={0}
-          activeTab="rail"
+          activeTab="inbox"
           setActiveTab={vi.fn()}
           onRequestClose={onRequestClose}
-          rail={{
+          inbox={{
             rootId: "agt_1",
             inputs: [],
             links: [],
             reviews: [review as never],
             isLoading: false,
           }}
-          railDisabledReason={null}
+          inboxDisabledReason={null}
           agentNameById={(id) => (id === "agt_rev" ? "reviewer" : "Agent")}
           onOpenBlock={vi.fn()}
         />
@@ -122,20 +122,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("DrawerContent as the sidebar", () => {
-  it("shows the home tabs with the review in the rail, and its unseen comments", () => {
+  it("shows the home tabs with the review in the Inbox, and its unseen comments", () => {
     renderDrawer("");
-    expect(screen.getByTestId("sidebar-tab-rail")).toBeTruthy();
+    expect(screen.getByTestId("sidebar-tab-inbox")).toBeTruthy();
     // A thread is the thread drawer's, never a page over the sidebar.
     expect(screen.queryByTestId("drawer-back")).toBeNull();
-    const card = screen.getByTestId("rail-review");
+    const card = screen.getByTestId("inbox-review");
     expect(card.textContent).toContain("reviewer");
-    expect(screen.getByTestId("rail-review-status").textContent).toBe("Open");
-    expect(screen.getByTestId("rail-review-unread").textContent).toBe("1");
+    expect(screen.getByTestId("inbox-review-status").textContent).toBe("Open");
+    expect(screen.getByTestId("inbox-review-unread").textContent).toBe("1");
   });
 
   it("keeps its home even when the URL names a thread", () => {
     renderDrawer("?thread=rv&finding=f1");
-    expect(screen.getByTestId("sidebar-tab-rail")).toBeTruthy();
+    expect(screen.getByTestId("sidebar-tab-inbox")).toBeTruthy();
     expect(screen.queryByTestId("drawer-page")).toBeNull();
     expect(screen.queryByTestId("drawer-title")).toBeNull();
   });

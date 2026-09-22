@@ -209,7 +209,7 @@ function noteStep(
       : {
           endedAt: row.updatedAt.toISOString(),
           // Thought rows grow with each chunk, so their span is the time
-          // the model spent thinking; the rail shows it like any step.
+          // the model spent thinking; the step list shows it like any step.
           durMs: Math.max(0, row.updatedAt.getTime() - row.createdAt.getTime()),
         }),
     detail: { text, ...(p.truncated ? { truncated: true } : {}) },
@@ -331,7 +331,7 @@ export function assembleTurns(
     // Everything the engine says is the answer, in the order it said it:
     // text written between tool calls stays where the reader first saw it
     // and later text is appended under it. Moving earlier text into the
-    // rail once a tool call followed made it vanish mid-read, and the
+    // step list once a tool call followed made it vanish mid-read, and the
     // closing text ("as above") then referred to something no longer shown.
     const spoken: string[] = [];
     let truncated = false;
