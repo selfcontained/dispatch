@@ -19,12 +19,10 @@ export const NAV_SIDEBAR_WIDTH_PX = 320;
 // never reads as the whole window.
 export const DRAWER_EDGE_GUTTER_PX = 48;
 
-// A pinned drawer takes its width out of the centre column, which stays
-// usable down to about a phone's width: the stream and its composer wrap
-// but keep every control. Much under 320 the composer's placeholder and a
-// post's text wrap a word a line, and at 0 the drawer pushes its own close
-// button off the window. So a pinned drawer leaves the centre this, plus
-// the left sidebar when it is open.
+// A pinned drawer takes its width out of the centre column until the centre
+// reaches about a phone's width. Beyond that, an intentional resize overlaps
+// the centre instead of stopping: this reserve is the point where overlap
+// starts, not the drawer's maximum width.
 export const DRAWER_PINNED_CENTRE_MIN_PX = 320;
 
 /** What a pinned drawer leaves the rest of the row, by left sidebar state. */
@@ -39,10 +37,9 @@ export const DRAWER_KEYBOARD_STEP_PX = 16;
 export const DRAWER_KEYBOARD_BIG_STEP_PX = 64;
 
 /**
- * The widest the drawer may be in a viewport this wide, leaving `reserve`
- * (the edge gutter floating, `drawerPinnedReserve` pinned). Never below
- * the default, so a narrow window keeps the drawer it always had rather
- * than one squeezed under its old size.
+ * The widest the drawer may be in a viewport this wide, leaving `reserve`.
+ * Never below the default, so a narrow window keeps the drawer it always
+ * had rather than one squeezed under its old size.
  */
 export function drawerMaxWidth(viewportWidth: number, reserve: number): number {
   return Math.max(DRAWER_WIDTH_PX, viewportWidth - reserve);
