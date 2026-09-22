@@ -476,6 +476,7 @@ describe("useSSE message handling", () => {
       ["jobs"],
       ["templates"],
       ["brain"],
+      ["agent-models"],
       CACHED_RELEASE_INFO_QUERY_KEY,
       ["chat-unread"],
       ["stream"],
@@ -859,6 +860,7 @@ describe("useSSE message handling", () => {
     emit({ type: "job.changed" });
     emit({ type: "template.changed" });
     emit({ type: "brain.changed", repoRoot: "/repo" });
+    emit({ type: "agent_models.changed", agentType: "codex" });
 
     // Ordered on purpose here, unlike the within-one-event assertions above:
     // the sequence is the test's own emit order, so it is what proves each
@@ -868,6 +870,7 @@ describe("useSSE message handling", () => {
       ["agents"],
       ["templates"],
       ["brain"],
+      ["agent-models"],
     ]);
   });
 

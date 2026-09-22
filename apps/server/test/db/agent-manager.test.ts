@@ -47,6 +47,8 @@ const {
 const { StreamService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
+const { forgetLearnedAgentModels } =
+  await import("../../src/shared/agent-models.js");
 const { createGitWorktree, GitWorktreeError } =
   await import("../../src/shared/git/worktree.js");
 
@@ -1370,6 +1372,40 @@ describe("AgentManager", () => {
         type: "waiting_user",
         message: "Which branch?",
       });
+    });
+
+    it("tells its listeners once when an engine's model list changes the catalog", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const learned: string[] = [];
+      manager.onModelsLearned((agentType) => learned.push(agentType));
+      const config = {
+        type: "config" as const,
+        agentId: agent.id,
+        options: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select" as const,
+            currentValue: "claude-opus-5",
+            options: [
+              { value: "claude-opus-5", name: "Opus 5" },
+              { value: "claude-sonnet-5", name: "Sonnet 5" },
+            ],
+          },
+        ],
+      };
+      try {
+        await runtime.emit(agent.id, config, 4);
+        // The same list again is not news: no second event.
+        await runtime.emit(agent.id, config, 5);
+        expect(learned).toEqual(["claude"]);
+      } finally {
+        forgetLearnedAgentModels();
+      }
     });
 
     it("should put a running agent into error when its engine exits unexpectedly", async () => {

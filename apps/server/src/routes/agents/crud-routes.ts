@@ -210,6 +210,15 @@ export async function registerAgentCrudRoutes(
       });
     }
 
+    // The MCP launch tool calls this field agentType; here it is type. An
+    // engine named under the wrong key would otherwise be ignored and the
+    // agent quietly launched as the default engine.
+    if (body.agentType !== undefined) {
+      return reply.code(400).send({
+        error: "Name the engine with type, not agentType.",
+      });
+    }
+
     if (body.model !== undefined && typeof body.model !== "string") {
       return reply
         .code(400)

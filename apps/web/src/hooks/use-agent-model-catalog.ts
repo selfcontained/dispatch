@@ -12,8 +12,8 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * run here, or the shipped seed until one has. Every dialog that offers a
  * model picker reads it through here so they share one cache entry — a second
  * copy of this query with a different key or cache config would silently split
- * the cache. It goes stale after a few minutes so a list an engine published
- * since reaches the picker without a reload.
+ * the cache. A list an engine publishes later reaches an open picker through
+ * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
 export function useAgentModelCatalog(agentType: AgentType): {
   options: AgentModelOption[];

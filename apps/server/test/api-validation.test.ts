@@ -42,6 +42,20 @@ describe("POST /api/v1/agents", () => {
     expect(res.json()).toMatchObject({ error: expect.stringMatching(/type/) });
   });
 
+  it("rejects an engine named as agentType instead of launching the default", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/agents",
+      payload: { cwd: "/tmp", agentType: "codex", useWorktree: false },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      error: expect.stringContaining("agentType"),
+    });
+    const agents = await ctx.pool.query("SELECT id FROM agents");
+    expect(agents.rows).toHaveLength(0);
+  });
+
   it("rejects non-string baseBranch", async () => {
     const res = await ctx.app.inject({
       method: "POST",

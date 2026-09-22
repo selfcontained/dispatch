@@ -93,9 +93,37 @@ describe("modelOptionOf", () => {
         ]),
       ])?.choices
     ).toEqual([
-      { id: "gpt-6-astra", label: "GPT 6 Astra" },
+      { id: "gpt-6-astra", label: "GPT-6 Astra" },
       { id: "gpt-5.5", label: "GPT 5.5" },
       { id: "gpt-4.1", label: "Older 4.1" },
+    ]);
+  });
+
+  it("puts back the GPT family codex-acp strips from its model names", () => {
+    // codex-acp 1.12's createModelConfigOption, verbatim in shape: a flat
+    // list whose names come from formatModelDisplayName, which drops the
+    // leading "gpt-" ("gpt-5.6-sol" -> "5.6 Sol").
+    const published: SessionConfigOption = {
+      id: "model",
+      name: "Model",
+      description: "Model Codex uses for the session",
+      category: "model",
+      type: "select",
+      currentValue: "gpt-6-astra",
+      options: [
+        { value: "gpt-6-astra", name: "6 Astra", description: "Flagship" },
+        { value: "gpt-5.6-sol", name: "5.6 Sol", description: null },
+        {
+          value: "gpt-5.3-codex-spark",
+          name: "5.3 Codex Spark",
+          description: null,
+        },
+      ],
+    };
+    expect(modelOptionOf([published])?.choices).toEqual([
+      { id: "gpt-6-astra", label: "GPT-6 Astra" },
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
     ]);
   });
 
@@ -126,7 +154,7 @@ describe("recordEngineModels", () => {
         ]),
       ]
     );
-    expect(result).toEqual({ modelChanged: true });
+    expect(result).toEqual({ modelChanged: true, modelsChanged: true });
     expect(getAgentModelOptions("claude").map((o) => o.id)).toEqual([
       "claude-opus-5",
       "claude-sonnet-5",
@@ -151,7 +179,8 @@ describe("recordEngineModels", () => {
       { id: "agt_1", type: "codex", model: "gpt-5.5" },
       [modelOption("gpt-5.5", [{ value: "gpt-5.5", name: "GPT-5.5" }])]
     );
-    expect(result).toEqual({ modelChanged: false });
+    // One model is not the seed's six, so the catalog did change.
+    expect(result).toEqual({ modelChanged: false, modelsChanged: true });
     expect(
       p.query.mock.calls.some((c) => String(c[0]).includes("UPDATE agents"))
     ).toBe(false);
@@ -164,7 +193,29 @@ describe("recordEngineModels", () => {
       { id: "agt_1", type: "claude", model: null },
       []
     );
-    expect(result).toEqual({ modelChanged: false });
+    expect(result).toEqual({ modelChanged: false, modelsChanged: false });
     expect(p.query).not.toHaveBeenCalled();
+  });
+
+  it("reports the list changed only when it differs from the catalog in force", async () => {
+    const report = [
+      modelOption("gpt-5.5", [
+        { value: "gpt-5.5", name: "5.5" },
+        { value: "gpt-6-astra", name: "6 Astra" },
+      ]),
+    ];
+    const agent = { id: "agt_1", type: "codex" as const, model: "gpt-5.5" };
+    const first = await recordEngineModels(
+      { pool: pool() as never, logger },
+      agent,
+      report
+    );
+    const again = await recordEngineModels(
+      { pool: pool() as never, logger },
+      agent,
+      report
+    );
+    expect(first.modelsChanged).toBe(true);
+    expect(again.modelsChanged).toBe(false);
   });
 });
