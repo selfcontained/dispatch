@@ -39,28 +39,15 @@ function ActivityBlockImpl({
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
 }): JSX.Element {
-  const done = trace.endedAt != null;
   const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
     "activity-open",
     null
   );
-  const [stepOverrides, setStepOverrides] = useChatRowState<
-    Record<string, boolean>
-  >("activity-steps", {});
   // One line, closed, at every moment of the turn: the step rail under it is
   // the reader's to open. Three agents working must not mean three rails
   // unfolding and refolding in the column.
   const open = blockOverride ?? false;
   const reduced = useReducedMotion();
-
-  // Stream updates must not open and close details underneath the reader.
-  // Narration being written right now is the exception: it opens so it can
-  // be read as it streams, and folds like any note once it is finished.
-  const stepOpen = (step: Step): boolean =>
-    stepOverrides[step.id] ??
-    (step.kind === "note" && step.status === "running");
-  const toggleStep = (step: Step) =>
-    setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
   // One container for the whole turn: the summary line is there from the
   // first tick ("thinking") to the last ("ran 2 commands · 4 steps · 9s"),
@@ -89,36 +76,7 @@ function ActivityBlockImpl({
           style={{ overflow: "hidden" }}
           aria-hidden={!open}
         >
-          {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
-          <div className="relative pb-1">
-            <span
-              aria-hidden="true"
-              className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
-            />
-            <div role="list" aria-label="activity steps" className="relative">
-              {trace.steps.map((step, i) => (
-                <StepRow
-                  key={step.id}
-                  step={step}
-                  index={burstIndex(trace.steps, i)}
-                  open={stepOpen(step)}
-                  onToggle={() => toggleStep(step)}
-                  maskClass={BLOCK_FILL}
-                />
-              ))}
-              {!done &&
-              trace.steps.length > 0 &&
-              !trace.steps.some((s) => s.status === "running") ? (
-                <ThinkingRow
-                  since={trace.steps.reduce(
-                    (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
-                    trace.startedAt
-                  )}
-                  maskClass={BLOCK_FILL}
-                />
-              ) : null}
-            </div>
-          </div>
+          <StepRail trace={trace} />
         </motion.div>
       </div>
     </div>
@@ -126,6 +84,58 @@ function ActivityBlockImpl({
 }
 
 export const ActivityBlock = memo(ActivityBlockImpl);
+
+/**
+ * The steps themselves: a 1px guide line at left:5.5px, with one row per
+ * step. What a turn folds under its summary line, and on its own what a
+ * workspace coming up shows — a few steps, each saying what it is, have no
+ * need of a line above them repeating the one that is running.
+ */
+export function StepRail({ trace }: { trace: Trace }): JSX.Element {
+  const done = trace.endedAt != null;
+  const [stepOverrides, setStepOverrides] = useChatRowState<
+    Record<string, boolean>
+  >("activity-steps", {});
+  // Stream updates must not open and close details underneath the reader.
+  // Narration being written right now is the exception: it opens so it can
+  // be read as it streams, and folds like any note once it is finished.
+  const stepOpen = (step: Step): boolean =>
+    stepOverrides[step.id] ??
+    (step.kind === "note" && step.status === "running");
+  const toggleStep = (step: Step) =>
+    setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
+  return (
+    <div className="relative pb-1">
+      <span
+        aria-hidden="true"
+        className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
+      />
+      <div role="list" aria-label="activity steps" className="relative">
+        {trace.steps.map((step, i) => (
+          <StepRow
+            key={step.id}
+            step={step}
+            index={burstIndex(trace.steps, i)}
+            open={stepOpen(step)}
+            onToggle={() => toggleStep(step)}
+            maskClass={BLOCK_FILL}
+          />
+        ))}
+        {!done &&
+        trace.steps.length > 0 &&
+        !trace.steps.some((s) => s.status === "running") ? (
+          <ThinkingRow
+            since={trace.steps.reduce(
+              (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+              trace.startedAt
+            )}
+            maskClass={BLOCK_FILL}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 /** What the summary row says of a turn at one moment. */
 export type TurnSummary = {

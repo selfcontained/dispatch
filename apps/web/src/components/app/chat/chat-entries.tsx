@@ -30,7 +30,7 @@ import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { Collapse } from "@/components/app/chat/collapse";
-import { ActivityBlock } from "@/components/app/chat/turn/activity-block";
+import { StepRail } from "@/components/app/chat/turn/activity-block";
 import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
@@ -1111,17 +1111,15 @@ function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
 
 /**
  * The workspace coming up, as a row of the stream, drawn as the agent's
- * own activity is: the same summary line, the same step rail, the same
- * glyphs and durations. Creating a worktree and installing dependencies
- * are work an agent is doing, and there is no reason for them to look
- * like a different kind of thing.
+ * own activity is: the same step rail, the same glyphs and durations.
+ * Creating a worktree and installing dependencies are work an agent is
+ * doing, and there is no reason for them to look like a different kind of
+ * thing. There are only a few steps, so the rail stands open on its own,
+ * without a turn's summary line over it repeating the step that is running.
  */
 function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
   const startup = block.kind === "text" ? block.data?.startup : undefined;
   const trace = useMemo(() => startupTrace(startup), [startup]);
-  // The summary line names the running step by itself, the way it does
-  // for a turn; this is what it reads once there is no step running.
-  const label = startup?.readyAt ? "workspace ready" : "setting up";
   return (
     <div
       className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
@@ -1132,7 +1130,7 @@ function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
       data-block-id={block.id}
     >
       <div className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}>
-        <ActivityBlock trace={trace} label={label} />
+        <StepRail trace={trace} />
       </div>
     </div>
   );
@@ -1163,8 +1161,11 @@ function startupTrace(startup: BlockStartup | undefined): Trace {
     steps: steps.map((step) => {
       const startedAt = at(step.startedAt) ?? first;
       const endedAt = at(step.endedAt);
-      const aside =
-        step.detail ?? (step.phase === "worktree" ? startup?.cwd : undefined);
+      // A path keeps its end, where the directory's own name is; a reason
+      // keeps its start.
+      const path =
+        !step.detail && step.phase === "worktree" ? startup?.cwd : undefined;
+      const aside = step.detail ?? path;
       return {
         id: step.phase,
         kind: "setup",
@@ -1179,7 +1180,9 @@ function startupTrace(startup: BlockStartup | undefined): Trace {
         ...(endedAt !== undefined
           ? { endedAt, durMs: Math.max(0, endedAt - startedAt) }
           : {}),
-        ...(aside ? { detail: { text: aside } } : {}),
+        ...(aside
+          ? { detail: { text: aside, ...(path ? { clipStart: true } : {}) } }
+          : {}),
       };
     }),
   };

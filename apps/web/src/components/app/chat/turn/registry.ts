@@ -20,6 +20,8 @@ export type StepDetailData = {
   /** The tool call's raw input, as the engine sent it. */
   input?: unknown;
   text?: string;
+  /** A setup step's aside is a path: clip it from the left, not the right. */
+  clipStart?: boolean;
   /** A nested call: the toolCallId of the step it runs under. */
   parentToolCallId?: string;
 };
@@ -163,9 +165,12 @@ export function stepSummary(step: Step): string | undefined {
     case "note":
       return undefined;
     // A setup step carries its own aside: the worktree it made, or why it
-    // failed. There is nothing to unfold under it.
-    case "setup":
-      return d.text?.trim() ? clip(d.text) : undefined;
+    // failed. There is nothing to unfold under it, so the row itself clips
+    // the aside to whatever room it has rather than a count of characters.
+    case "setup": {
+      const text = d.text?.replace(/\s+/g, " ").trim();
+      return text || undefined;
+    }
     default:
       return argsSummary(d.input);
   }

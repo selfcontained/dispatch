@@ -574,15 +574,16 @@ describe("ChatFeed", () => {
     ]);
     const row = screen.getByTestId("chat-workspace");
     expect(row.getAttribute("data-state")).toBe("running");
-    // Drawn as the agent's own activity is: the summary line names the
-    // step that is running, and the rail under it holds the steps.
-    const summary = screen.getByTestId("harness-activity-summary");
-    expect(summary.textContent).toContain("installing dependencies");
-    fireEvent.click(summary);
+    // The agent's own step rail, standing open with no summary line over
+    // it: each step can be watched as it runs.
+    expect(screen.queryByTestId("harness-activity-summary")).toBeNull();
     const steps = screen.getAllByRole("listitem");
-    expect(steps.length).toBeGreaterThanOrEqual(2);
+    expect(steps).toHaveLength(2);
     expect(steps[0]!.textContent).toContain("creating git worktree");
     expect(steps[0]!.textContent).toContain("4.0s");
+    expect(
+      steps[1]!.querySelector("[aria-label]")?.getAttribute("aria-label")
+    ).toBe("installing dependencies, running");
   });
 
   it("reads as ready once the workspace is up", () => {
@@ -598,15 +599,22 @@ describe("ChatFeed", () => {
               startup: {
                 steps: [
                   {
+                    phase: "worktree",
+                    label: "Creating git worktree",
+                    startedAt: "2026-09-02T10:00:00.000Z",
+                    endedAt: "2026-09-02T10:00:02.000Z",
+                    status: "done",
+                  },
+                  {
                     phase: "deps",
                     label: "Installing dependencies",
-                    startedAt: "2026-09-02T10:00:00.000Z",
+                    startedAt: "2026-09-02T10:00:02.000Z",
                     endedAt: "2026-09-02T10:00:09.000Z",
                     status: "done",
                   },
                 ],
                 readyAt: "2026-09-02T10:00:09.000Z",
-                cwd: "/Users/brad/dev/thing",
+                cwd: "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on",
               },
             },
             state: null,
@@ -617,9 +625,13 @@ describe("ChatFeed", () => {
     expect(
       screen.getByTestId("chat-workspace").getAttribute("data-state")
     ).toBe("ready");
-    expect(
-      screen.getByTestId("harness-activity-summary").textContent
-    ).toContain("workspace ready");
+    // The whole path, never cut to a count of characters; when the row is
+    // too narrow it gives up its start, so the directory's name stays.
+    const aside = screen.getByTestId("harness-step-aside");
+    expect(aside.textContent).toContain(
+      "/Users/brad/dev/thing/.dispatch/worktrees/a-long-branch-name-that-goes-on"
+    );
+    expect(aside.querySelector('[dir="rtl"] > bdi[dir="ltr"]')).not.toBeNull();
   });
 
   it("says which step failed when the workspace never came up", () => {
@@ -654,13 +666,14 @@ describe("ChatFeed", () => {
     expect(
       screen.getByTestId("chat-workspace").getAttribute("data-state")
     ).toBe("failed");
-    // The rail reads a failed startup the way it reads a failed turn.
-    const summary = screen.getByTestId("harness-activity-summary");
-    expect(summary.getAttribute("data-final-result")).toBe("error");
-    fireEvent.click(summary);
-    expect(screen.getAllByRole("listitem")[0]!.textContent).toContain(
-      "branch already checked out"
-    );
+    // The rail reads a failed step the way it reads one in a turn.
+    const aside = screen.getAllByRole("listitem")[0]!;
+    expect(
+      aside.querySelector("[aria-label]")?.getAttribute("aria-label")
+    ).toBe("creating git worktree, failed");
+    expect(aside.textContent).toContain("branch already checked out");
+    // A reason is read from its start: it clips at the end, as text does.
+    expect(aside.querySelector('[dir="rtl"]')).toBeNull();
   });
 
   it("shows a review request as the request it is, with the instruction folded", () => {

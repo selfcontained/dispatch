@@ -1210,6 +1210,7 @@ export class AgentManager {
           worktreeBranchName: opts.worktreeBranchName,
           baseBranch: opts.normalizedBaseBranch,
           worktreePathOverride: opts.worktreePathOverride,
+          simulateMs: this.config.simulateWorkspaceMs,
           onPhase: async (phase) => {
             await this.setSetupPhase(id, phase);
             await this.reportStartupPhase(id, phase, opts.type);

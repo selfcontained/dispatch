@@ -1,3 +1,7 @@
+import { mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import type { FastifyBaseLogger } from "fastify";
 
 import { createGitWorktree } from "../shared/git/worktree.js";
@@ -14,6 +18,11 @@ export type PrepareWorkspaceInput = {
   worktreePathOverride: string | undefined;
   /** Phase transitions, for the sidebar's setup progress. */
   onPhase: (phase: SetupPhase) => Promise<void>;
+  /**
+   * Walk the phases on a timer instead of doing them, this many ms apiece;
+   * see `simulateWorkspace`. Only an inert runtime passes it.
+   */
+  simulateMs?: number;
 };
 
 export type PreparedWorkspace = {
@@ -36,6 +45,9 @@ export async function prepareWorkspace(
   input: PrepareWorkspaceInput,
   logger: FastifyBaseLogger
 ): Promise<PreparedWorkspace> {
+  if (input.simulateMs !== undefined) {
+    return simulateWorkspace(input, input.simulateMs);
+  }
   if (!input.useWorktree || !input.worktreeBranchName) {
     await input.onPhase("session");
     return {
@@ -65,4 +77,46 @@ export async function prepareWorkspace(
     worktreePath: result.worktreePath,
     worktreeBranch: result.branchName,
   };
+}
+
+/**
+ * The same phases, in the same order, with nothing done in them: for
+ * watching a launch come up in the stream again and again on a dev stack
+ * without a git worktree and an install behind every try.
+ *
+ * The agent lands in an empty directory under the temp dir, laid out as a
+ * worktree's path is, so the stream has a real-length path to show. It is
+ * not recorded as a worktree: archiving the agent must never go looking for
+ * a branch or a checkout to remove.
+ */
+export async function simulateWorkspace(
+  input: PrepareWorkspaceInput,
+  ms: number
+): Promise<PreparedWorkspace> {
+  const pause = () => new Promise((resolve) => setTimeout(resolve, ms));
+  if (!input.useWorktree || !input.worktreeBranchName) {
+    await input.onPhase("session");
+    await pause();
+    return {
+      effectiveCwd: input.originalCwd,
+      worktreePath: null,
+      worktreeBranch: null,
+    };
+  }
+  await input.onPhase("worktree");
+  await pause();
+  const dir = path.join(
+    os.tmpdir(),
+    "dispatch-simulated-workspaces",
+    path.basename(input.originalCwd),
+    ".dispatch",
+    "worktrees",
+    input.worktreeBranchName.replace(/[^\w.-]+/g, "-")
+  );
+  await mkdir(dir, { recursive: true });
+  await input.onPhase("deps");
+  await pause();
+  await input.onPhase("session");
+  await pause();
+  return { effectiveCwd: dir, worktreePath: null, worktreeBranch: null };
 }
