@@ -45,6 +45,8 @@ export type SharedUiEvent =
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }
+  /** An engine published a model list that changed the catalog for its type. */
+  | { type: "agent_models.changed"; agentType: string }
   | {
       type: "notification";
       notificationId: string;

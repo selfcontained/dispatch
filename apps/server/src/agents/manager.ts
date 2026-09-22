@@ -298,6 +298,9 @@ export class AgentManager {
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
   private readonly eventRecordedListeners: AgentEventHistoryListener[] = [];
+  private readonly modelsLearnedListeners: Array<
+    (agentType: AgentType) => void
+  > = [];
 
   constructor(
     pool: Pool,
@@ -415,13 +418,22 @@ export class AgentManager {
   ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent) return;
-    const { modelChanged } = await recordEngineModels(
+    const { modelChanged, modelsChanged } = await recordEngineModels(
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options
     );
     if (modelChanged)
       this.eventBus.publish(await this.getRequiredAgent(agentId));
+    if (modelsChanged) {
+      for (const listener of this.modelsLearnedListeners) {
+        try {
+          listener(agent.type);
+        } catch (err) {
+          this.logger.warn({ err, agentId }, "models learned listener failed");
+        }
+      }
+    }
   }
 
   /**
@@ -654,6 +666,11 @@ export class AgentManager {
   /** Register a callback invoked after every upsertLatestEvent. */
   onLatestEvent(listener: AgentEventListener): void {
     this.eventBus.subscribe(listener);
+  }
+
+  /** Register a callback told when an engine's published model list changed the catalog for its type. */
+  onModelsLearned(listener: (agentType: AgentType) => void): void {
+    this.modelsLearnedListeners.push(listener);
   }
 
   /** Register a callback invoked immediately after an agent record is INSERTed. */

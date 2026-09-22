@@ -9,6 +9,8 @@ import {
 export type CreateAgentBody = {
   name?: unknown;
   type?: unknown;
+  /** Not accepted — see the create route; typed so it can be refused. */
+  agentType?: unknown;
   model?: unknown;
   cwd?: unknown;
   agentArgs?: unknown;

@@ -370,6 +370,10 @@ const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
 agentManager.onLatestEvent((agent) => {
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 });
+// A launched engine taught the server a new model list; open pickers refetch.
+agentManager.onModelsLearned((agentType) => {
+  uiEventBroker.publish({ type: "agent_models.changed", agentType });
+});
 agentManager.onAgentCreated((agent) => {
   uiEventBroker.publish({
     type: "agent.upsert",

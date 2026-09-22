@@ -238,6 +238,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
+          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -372,6 +373,11 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "template.changed") {
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
+          return;
+        }
+
+        if (payload.type === "agent_models.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
           return;
         }
 
