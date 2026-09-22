@@ -4,14 +4,18 @@ import type {
   StreamBlockEntry,
   StreamEntry,
 } from "@dispatch/shared";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 import { LinkBlockBody } from "@/components/app/chat/block-bodies";
 import { AttachmentList } from "@/components/app/chat/chat-attachment-views";
 import {
   agentDisplayName,
+  DeliveryMeta,
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
+import { useChatRowState } from "@/components/app/chat/chat-row-state";
+import { Collapse } from "@/components/app/chat/collapse";
+import { cn } from "@/lib/utils";
 
 /**
  * A feed entry the agent produced while a turn was running: a file or link
@@ -149,9 +153,21 @@ function FoldedBlock({
   );
 }
 
+/** The first line with anything on it: what a closed sent-post shows. */
+function firstLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
+}
+
 /**
- * A post the agent made to another agent mid-turn (a launch, a reply to a
- * child): who it went to, whether it landed, and what it said.
+ * A post the agent made to another agent mid-turn (a reply to a child, a
+ * nudge to a sibling). Sideband to the turn's own answer, so it folds the
+ * way a launch briefing does: one line naming who it went to, where it has
+ * got to and how it starts, with the whole post underneath.
  */
 function SentTo({
   entry,
@@ -161,43 +177,69 @@ function SentTo({
   ctx: FeedContext;
 }): JSX.Element {
   const { block } = entry;
+  // Every fold in a turn shares the turn's row state, so the key is the post's.
+  const [open, setOpen] = useChatRowState<boolean>(
+    `sent-to-open:${block.id}`,
+    false
+  );
   const recipientName = agentDisplayName(block.toAgentId ?? "", ctx);
+  const preview = firstLine(block.text);
+  const openable = Boolean(block.text) || block.attachments.length > 0;
   return (
     <div
-      className="flex min-w-0 flex-col gap-1 text-xs"
+      className="flex min-w-0 flex-col text-xs"
       data-testid="chat-turn-sent-to"
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
+      data-open={open ? "true" : "false"}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-          Sent to
-        </span>
-        <span className="font-medium text-foreground">{recipientName}</span>
-        {block.delivered === null ? (
-          <span
-            className="inline-flex items-center gap-1 text-[11px]"
-            title="Delivering to the recipient agent."
-          >
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Sending
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => openable && setOpen(!open)}
+          aria-expanded={openable ? open : undefined}
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 text-left",
+            !openable && "cursor-default"
+          )}
+          data-testid="chat-turn-sent-to-toggle"
+        >
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            Sent to
           </span>
-        ) : block.delivered === false ? (
-          <span
-            className="inline-flex items-center gap-1 text-[11px] text-destructive"
-            title="The recipient agent wasn't running, so it never received this post."
-          >
-            <AlertTriangle className="h-3 w-3" />
-            Not delivered
+          <span className="shrink-0 font-medium text-foreground">
+            {recipientName}
           </span>
-        ) : null}
+          {preview ? (
+            <span
+              className="min-w-0 truncate"
+              data-testid="chat-turn-sent-to-preview"
+            >
+              {preview}
+            </span>
+          ) : null}
+          {openable ? (
+            <ChevronRight
+              className={cn(
+                "ml-auto h-3.5 w-3.5 shrink-0 transition-transform",
+                open && "rotate-90"
+              )}
+              aria-hidden="true"
+            />
+          ) : null}
+        </button>
+        <DeliveryMeta block={block} ctx={ctx} className="mt-0 shrink-0" />
       </div>
-      {block.text ? (
-        <div className="whitespace-pre-wrap break-words border-l-[3px] border-border pl-3 text-foreground/80">
-          {block.text}
+      <Collapse open={open} data-testid="chat-turn-sent-to-body">
+        <div className="flex min-w-0 flex-col gap-1 pt-1.5">
+          {block.text ? (
+            <div className="whitespace-pre-wrap break-words border-l-[3px] border-border pl-3 text-foreground/80">
+              {block.text}
+            </div>
+          ) : null}
+          <AttachmentList block={block} ctx={ctx} />
         </div>
-      ) : null}
-      <AttachmentList block={block} ctx={ctx} />
+      </Collapse>
     </div>
   );
 }

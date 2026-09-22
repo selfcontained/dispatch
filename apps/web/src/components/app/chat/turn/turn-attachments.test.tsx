@@ -4,9 +4,9 @@ import type {
   StreamBlockEntry,
   StreamEntry,
 } from "@dispatch/shared";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { block, blockEntry, FILE_BODY, turnEntry } from "@/test-utils/blocks";
@@ -250,6 +250,86 @@ describe("TurnAttachments", () => {
       )
     ).map((el) => el.getAttribute("data-testid"));
     expect(order).toEqual(["chat-turn-block", "chat-turn-sent-to"]);
+  });
+
+  it("says a post held behind the recipient's turn is queued, not sending", () => {
+    const held = blockEntry(
+      block({
+        id: "held1",
+        author: { kind: "agent", agentId: AGENT_ID },
+        toAgentId: "agt_2",
+        text: "please review",
+        delivered: null,
+        delivery: [{ agentId: "agt_2", state: "held" }],
+        createdAt: at("10:03"),
+      })
+    );
+    render(
+      <MemoryRouter>
+        <TurnAttachments items={[held]} ctx={ctx} />
+      </MemoryRouter>
+    );
+    const row = screen.getByTestId("chat-turn-sent-to");
+    expect(row.textContent).toContain("Queued until the turn ends");
+    expect(row.textContent).not.toContain("Sending");
+  });
+
+  it("folds a sent post to one line naming the recipient and its state, and opens to the whole post", () => {
+    const post = blockEntry(
+      block({
+        id: "long1",
+        author: { kind: "agent", agentId: AGENT_ID },
+        toAgentId: "agt_2",
+        text: "Please review the diff.\n\nFocus on the retry path in chat-pane.",
+        delivery: [{ agentId: "agt_2", state: "pending" }],
+        createdAt: at("10:03"),
+      })
+    );
+    render(
+      <MemoryRouter>
+        <TurnAttachments items={[post]} ctx={ctx} />
+      </MemoryRouter>
+    );
+    const row = screen.getByTestId("chat-turn-sent-to");
+    const toggle = screen.getByTestId("chat-turn-sent-to-toggle");
+    const body = screen.getByTestId("chat-turn-sent-to-body");
+    expect(row.getAttribute("data-open")).toBe("false");
+    expect(toggle.textContent).toContain("Reviewer");
+    expect(toggle.textContent).toContain("Please review the diff.");
+    expect(toggle.textContent).not.toContain("Focus on the retry path");
+    expect(row.textContent).toContain("Sending");
+    expect(body.getAttribute("aria-hidden")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(row.getAttribute("data-open")).toBe("true");
+    expect(body.getAttribute("aria-hidden")).toBe("false");
+    expect(body.textContent).toContain("Focus on the retry path in chat-pane.");
+  });
+
+  it("offers Send again on a failed sent post, through the main row's retry", () => {
+    const onRetryDelivery = vi.fn();
+    const failed = blockEntry(
+      block({
+        id: "failed1",
+        author: { kind: "agent", agentId: AGENT_ID },
+        toAgentId: "agt_2",
+        text: "please review",
+        delivered: false,
+        delivery: [{ agentId: "agt_2", state: "failed" }],
+        createdAt: at("10:03"),
+      })
+    );
+    render(
+      <MemoryRouter>
+        <TurnAttachments items={[failed]} ctx={{ ...ctx, onRetryDelivery }} />
+      </MemoryRouter>
+    );
+    const row = screen.getByTestId("chat-turn-sent-to");
+    expect(row.textContent).toContain("Not delivered");
+    fireEvent.click(screen.getByTestId("chat-delivery-retry"));
+    expect(onRetryDelivery).toHaveBeenCalledWith("failed1");
+    // Sending again does not open the fold.
+    expect(row.getAttribute("data-open")).toBe("false");
   });
 
   it("renders nothing for an empty list", () => {

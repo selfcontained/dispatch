@@ -673,12 +673,15 @@ function nameList(agentIds: readonly string[], ctx: FeedContext): string {
  * words. Recipients are named only when a post went to more than one, so
  * an ordinary message keeps its quiet single line.
  */
-function DeliveryMeta({
+export function DeliveryMeta({
   block,
   ctx,
+  className,
 }: {
   block: Block;
   ctx: FeedContext;
+  /** Layout for where it sits: a folded row puts it inline, not below. */
+  className?: string;
 }): JSX.Element | null {
   if (block.toAgentId === null || !block.delivery?.length) return null;
   const several = block.delivery.length > 1;
@@ -690,7 +693,10 @@ function DeliveryMeta({
   if (failed.length > 0) {
     return (
       <div
-        className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive"
+        className={cn(
+          "mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive",
+          className
+        )}
         title="The message was not taken: the agent had no session, or its engine stopped responding."
         data-testid="chat-delivery-failed"
       >
@@ -718,7 +724,10 @@ function DeliveryMeta({
   if (held.length > 0) {
     return (
       <div
-        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        className={cn(
+          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
+          className
+        )}
         title="The agent is mid-turn. Your message is queued and reaches it when the turn ends; Send now cuts the turn short."
         data-testid="chat-held-hint"
       >
@@ -732,7 +741,10 @@ function DeliveryMeta({
   if (pending.length > 0) {
     return (
       <div
-        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        className={cn(
+          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
+          className
+        )}
         title="On its way to the agent."
         data-testid="chat-delivery-pending"
       >
