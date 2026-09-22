@@ -405,9 +405,11 @@ const streamService = new StreamService({
     inject: async (agentId, text, opts) =>
       (
         await enqueueAgentPrompt(agentId, text, {
-          ...(opts?.blockId
-            ? { source: { source: "chat", chatMessageId: opts.blockId } }
-            : {}),
+          ...(opts?.source
+            ? { source: opts.source }
+            : opts?.blockId
+              ? { source: { source: "chat", chatMessageId: opts.blockId } }
+              : {}),
         })
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),

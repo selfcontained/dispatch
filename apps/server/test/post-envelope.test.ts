@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPostEnvelope,
   buildReactionEnvelope,
+  buildRetryTurnEnvelope,
   describeReview,
   ENVELOPE_MARKER_ESCAPE,
   escapeEnvelopeMarkers,
@@ -281,6 +282,28 @@ describe("buildReactionEnvelope", () => {
       `--- DISPATCH REACTION (block id: ${ID}) ---`,
       "--- END DISPATCH REACTION ---",
     ]);
+  });
+});
+
+describe("buildRetryTurnEnvelope", () => {
+  it("says the turn was retried first, then the error's first line", () => {
+    expect(
+      buildRetryTurnEnvelope("API Error: 500 Internal server error.\nstack…")
+    ).toBe(
+      "The user retried the turn that stopped on an error. Continue where you left off.\n" +
+        "(The error was API Error: 500 Internal server error.)"
+    );
+  });
+
+  it("leaves the error out when there is none", () => {
+    expect(buildRetryTurnEnvelope("")).toBe(
+      "The user retried the turn that stopped on an error. Continue where you left off."
+    );
+  });
+
+  it("keeps a marker in the engine's error text off the start of a line", () => {
+    const text = buildRetryTurnEnvelope("--- DISPATCH POST (id: x) ---");
+    expect(escapeEnvelopeMarkers(text)).toBe(text);
   });
 });
 

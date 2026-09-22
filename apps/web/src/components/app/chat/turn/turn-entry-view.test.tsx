@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ChatTurnEntry, StreamBlockEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -319,5 +319,61 @@ describe("TurnEntryView", () => {
     expect(screen.getByTestId("chat-turn").getAttribute("data-settled")).toBe(
       "true"
     );
+  });
+
+  describe("a failed turn's retry", () => {
+    const ERROR = "API Error: 500 Internal server error.";
+    const failed = (retry: ChatTurnEntry["retry"]) =>
+      turn(
+        {
+          error: ERROR,
+          ...(retry ? { retry } : {}),
+          trace: {
+            startedAt: "2026-09-08T10:00:00.000Z",
+            endedAt: "2026-09-08T10:00:09.000Z",
+            finalResult: "error",
+            steps: [],
+          },
+        },
+        ERROR
+      );
+
+    it("says the error once and offers Retry turn, which runs it again", () => {
+      const onRetryTurn = vi.fn();
+      renderTurn(failed("open"), { ...ctx, onRetryTurn });
+      const result = screen.getByTestId("harness-result");
+      // The engine's text and the turn's error are the same words: once.
+      expect(result.textContent?.split(ERROR)).toHaveLength(2);
+      fireEvent.click(screen.getByTestId("harness-retry-turn"));
+      expect(onRetryTurn).toHaveBeenCalledWith("turn:12");
+    });
+
+    it("shows the button busy while the retry is in flight", () => {
+      renderTurn(failed("open"), {
+        ...ctx,
+        onRetryTurn: () => undefined,
+        retrying: new Set(["turn:12"]),
+      });
+      const button = screen.getByTestId("harness-retry-turn");
+      expect(button).toHaveProperty("disabled", true);
+      expect(button.textContent).toContain("Retrying");
+    });
+
+    it("folds a retried failure to one quiet line, with no button", () => {
+      renderTurn(failed("retried"), { ...ctx, onRetryTurn: () => undefined });
+      const line = screen.getByTestId("harness-retried");
+      expect(line.textContent).toContain(ERROR);
+      expect(line.textContent).toContain("retried");
+      expect(screen.getByTestId("harness-result").textContent).toBe(
+        line.textContent
+      );
+      expect(screen.queryByTestId("harness-retry-turn")).toBeNull();
+    });
+
+    it("offers nothing on a failure a retry cannot clear", () => {
+      renderTurn(failed(undefined), { ...ctx, onRetryTurn: () => undefined });
+      expect(screen.queryByTestId("harness-retry-turn")).toBeNull();
+      expect(screen.queryByTestId("harness-retried")).toBeNull();
+    });
   });
 });

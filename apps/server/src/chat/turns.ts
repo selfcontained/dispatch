@@ -436,6 +436,11 @@ export function toTurnEntry(
     ? { ...turn.trace, finalResult: "interrupted" }
     : turn.trace;
   const error = byRestart ? undefined : turn.error;
+  // A closed retry is history: the conversation moved past the failure.
+  const retry =
+    error && (payload?.retry === "open" || payload?.retry === "retried")
+      ? payload.retry
+      : undefined;
   const questions: ChatTurnQuestionRef[] | undefined = turn.questions?.map(
     (q) => ({ messageId: q.id, answered: q.answer !== null })
   );
@@ -451,6 +456,7 @@ export function toTurnEntry(
     settled,
     interrupted: trace.finalResult === "interrupted",
     ...(error ? { error } : {}),
+    ...(retry ? { retry } : {}),
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.usage ? { usage: turn.usage } : {}),
     ...(questions ? { questions } : {}),

@@ -401,6 +401,54 @@ describe("StreamRecorder", () => {
     expect(rows[1].kind).toBe("status");
   });
 
+  it("offers a retry on a turn that failed on a passing error, and not on one that needs something changed", async () => {
+    const rec = new StreamRecorder(store);
+    const fail = async (errorKind: string) => {
+      await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "settled",
+        error: "API Error",
+        errorKind,
+      });
+      const [turn] = (await store.list(A, 10)).filter((r) => r.kind === "turn");
+      return turn!.payload;
+    };
+    expect(await fail("server_error")).toMatchObject({
+      errorKind: "server_error",
+      retry: "open",
+    });
+    await pool.query("DELETE FROM agent_stream_events");
+    const auth = await fail("authentication_failed");
+    expect(auth).toMatchObject({ errorKind: "authentication_failed" });
+    expect(auth.retry).toBeUndefined();
+  });
+
+  it("a new turn closes the retry an earlier failed turn offered, and republishes it", async () => {
+    const rec = new StreamRecorder(store);
+    const settled = vi.fn(async () => undefined);
+    rec.setTurnBlocks({ started: async () => null, settled });
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      error: "API Error",
+      errorKind: "overloaded",
+    });
+    settled.mockClear();
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "y" });
+    const turns = (await store.list(A, 10))
+      .filter((r) => r.kind === "turn")
+      .reverse();
+    expect(turns[0]!.payload.retry).toBe("closed");
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls[0]![0]).toMatchObject({
+      turnRow: { id: turns[0]!.id },
+    });
+  });
+
   it("writes a plan row for the live turn and replaces it on the next plan", async () => {
     const rec = new StreamRecorder(store);
     await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });

@@ -41,6 +41,7 @@ import {
   useMarkStreamRead,
   usePostBlock,
   useRetryDelivery,
+  useRetryTurn,
   useSetBlockState,
   useStreamFeed,
   useSubmitForm,
@@ -359,6 +360,7 @@ export function ChatPane({
   const submitForm = useSubmitForm(rootId);
   const setBlockState = useSetBlockState(rootId);
   const retry = useRetryDelivery(rootId);
+  const retryTurn = useRetryTurn(rootId);
   const reaction = useToggleReaction(rootId);
   const markRead = useMarkStreamRead(rootId, feed.unreadCount);
   // A post from a child's page goes to the child; the root's page posts to
@@ -789,9 +791,16 @@ export function ChatPane({
   // at a time in practice, but the set keeps the row that is retrying
   // distinct from the others when a few failed together.
   const { mutate: retryNow } = retry;
+  const { mutate: retryTurnNow } = retryTurn;
   const retrying = useMemo(
-    () => new Set(retry.isPending && retry.variables ? [retry.variables] : []),
-    [retry.isPending, retry.variables]
+    () =>
+      new Set([
+        ...(retry.isPending && retry.variables ? [retry.variables] : []),
+        ...(retryTurn.isPending && retryTurn.variables
+          ? [retryTurn.variables]
+          : []),
+      ]),
+    [retry.isPending, retry.variables, retryTurn.isPending, retryTurn.variables]
   );
   const onRetryDelivery = useCallback(
     (blockId: string) => {
@@ -802,6 +811,18 @@ export function ChatPane({
       });
     },
     [retryNow]
+  );
+
+  // A failed turn run again: the agent picks up where the turn broke off.
+  const onRetryTurn = useCallback(
+    (blockId: string) => {
+      setSendError(null);
+      retryTurnNow(blockId, {
+        onError: (err) =>
+          setSendError(`Couldn't retry that turn: ${err.message}`),
+      });
+    },
+    [retryTurnNow]
   );
 
   const { mutate: toggleReactionNow } = reaction;
@@ -833,6 +854,7 @@ export function ChatPane({
     onSubmitForm,
     onSetBlockState,
     onRetryDelivery,
+    onRetryTurn,
     retrying,
   });
 

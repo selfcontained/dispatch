@@ -29,6 +29,26 @@ const PLAN_ENTRY_MAX_BYTES = 4 * 1024;
 const PLAN_MAX_ENTRIES = 200;
 const TITLE_MAX_CHARS = 1024;
 const LOCATIONS_MAX = 200;
+/**
+ * The adapter's error kinds a later attempt can clear: the provider, or the
+ * connection to it, was down. The engine CLI already retried the API call
+ * with backoff before it gave the turn up, so a second attempt is the
+ * user's to take. Auth, quota, budget and context failures need something
+ * changed first and are never offered one.
+ *
+ * `unknown` is in the list on purpose: it is what the SDK reports for a
+ * failure it could not place, which is where a dropped stream or a
+ * network blip lands, and the offer costs nothing until someone takes it.
+ */
+const RETRYABLE_ERROR_KINDS = new Set([
+  "server_error",
+  "overloaded",
+  "rate_limit",
+  "unknown",
+  "no_result",
+  "transport_lost",
+]);
+
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 export const FLUSH_INTERVAL_MS = 100;
 
@@ -214,13 +234,20 @@ export class StreamRecorder {
     prompt: PromptSource
   ): Promise<void> {
     if (!this.turnBlocks) return;
-    const blockId = await this.turnBlocks.started({ agentId, turnRow: row, prompt });
+    const blockId = await this.turnBlocks.started({
+      agentId,
+      turnRow: row,
+      prompt,
+    });
     if (!blockId) return;
     row.payload = { ...row.payload, blockId };
     await this.store.updatePayload(row.id, row.payload);
   }
 
-  private async settleTurnBlock(agentId: string, row: StreamEventRow): Promise<void> {
+  private async settleTurnBlock(
+    agentId: string,
+    row: StreamEventRow
+  ): Promise<void> {
     if (!this.turnBlocks) return;
     await this.turnBlocks.settled({ agentId, turnRow: row });
   }
@@ -255,6 +282,12 @@ export class StreamRecorder {
           // reply starts a row of its own.
           await this.closeText(event.agentId);
           this.trailingPrompt.delete(event.agentId);
+          // A retry still offered on an earlier failed turn no longer
+          // applies once the conversation moves on; its entry drops it.
+          const passed = await this.store.closeOpenRetries(event.agentId);
+          for (const row of passed) {
+            await this.settleTurnBlock(event.agentId, row);
+          }
           // What the prompt was, from the sender. Only a prompt that came
           // from somewhere else — a job, a nudge, another process — has to
           // be read out of its own text.
@@ -271,11 +304,15 @@ export class StreamRecorder {
         const open = this.openTurn.get(event.agentId);
         if (open) {
           const prev = open.payload as TurnPayload;
+          const retryable =
+            !!event.error && RETRYABLE_ERROR_KINDS.has(event.errorKind ?? "");
           await this.store.updatePayload(open.id, {
             ...prev,
             state: "settled",
             ...(event.stopReason ? { stopReason: event.stopReason } : {}),
             ...(event.error ? { error: event.error } : {}),
+            ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+            ...(retryable ? { retry: "open" as const } : {}),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
@@ -333,7 +370,10 @@ export class StreamRecorder {
     this.loaded.add(agentId);
     this.openTurn.delete(agentId);
     this.trailingPrompt.delete(agentId);
-    const cut = await this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+    const cut = await this.store.settleInterrupted(
+      agentId,
+      INTERRUPTED_BY_RESTART
+    );
     for (const row of cut) await this.settleTurnBlock(agentId, row);
     return cut.length;
   }

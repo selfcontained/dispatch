@@ -6,9 +6,54 @@ import { Markdown } from "@/components/ui/markdown";
 
 import type { Turn } from "./contracts";
 
-function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
+/** Where a failed turn's retry stands; see `ChatTurnEntry.retry`. */
+export type ResultRetry = {
+  state: "open" | "retried";
+  /** Absent, a view that cannot run a retry offers none. */
+  onRetry?: () => void;
+  pending?: boolean;
+};
+
+function sameText(a: string, b: string): boolean {
+  return a.trim() === b.trim();
+}
+
+function ResultTurnImpl({
+  turn,
+  retry,
+}: {
+  turn: Turn;
+  retry?: ResultRetry;
+}): JSX.Element {
   const error = turn.error;
   const interrupted = turn.trace?.finalResult === "interrupted";
+  // The engine often reports a failure as the turn's text too; saying it
+  // twice, once as the answer and once as the error, is noise.
+  const echoesError = !!error && sameText(turn.content, error.message);
+  if (error && retry?.state === "retried") {
+    // Retried: the failure is history, so it folds to one quiet line and
+    // the retry's own turn, below, carries the conversation on.
+    return (
+      <div className="space-y-2" data-testid="harness-result">
+        {turn.content && !echoesError ? (
+          <ResultText content={turn.content} />
+        ) : null}
+        <p
+          className="flex min-w-0 items-center gap-[9px] text-[11.5px] text-muted-foreground"
+          title={error.message}
+          data-testid="harness-retried"
+        >
+          <span aria-hidden="true" className="select-none font-bold">
+            ■
+          </span>
+          <span className="min-w-0 truncate">
+            {error.message.split("\n")[0]}
+          </span>
+          <span className="shrink-0">· retried</span>
+        </p>
+      </div>
+    );
+  }
   const showContent = !!turn.content;
   return (
     <div
@@ -20,8 +65,31 @@ function ResultTurnImpl({ turn }: { turn: Turn }): JSX.Element {
       data-testid="harness-result"
     >
       {showContent ? <ResultText content={turn.content} /> : null}
-      {error && turn.content !== error.message ? (
+      {error && !echoesError ? (
         <ResultText content={error.message} error />
+      ) : null}
+      {error && retry?.state === "open" && retry.onRetry ? (
+        // Worded like a post's "Not delivered · Send again": the same
+        // failure line. "Turn" is what tells the two apart — this one runs
+        // the agent again, where that one re-sends words it never took.
+        <p
+          className="flex items-center gap-[9px] text-[11.5px] text-status-blocked"
+          data-testid="harness-turn-failed"
+        >
+          <span aria-hidden="true" className="select-none font-bold">
+            ■
+          </span>
+          The turn stopped on an error.
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            disabled={retry.pending}
+            onClick={retry.onRetry}
+            data-testid="harness-retry-turn"
+          >
+            {retry.pending ? "Retrying…" : "Retry turn"}
+          </button>
+        </p>
       ) : null}
       {interrupted ? (
         <p

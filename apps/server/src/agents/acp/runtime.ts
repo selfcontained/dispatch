@@ -426,9 +426,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             );
           }
           const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          let settledEarly = false;
           let resolveSettle!: () => void;
           const settle = new Promise<void>((resolve) => {
-            resolveSettle = resolve;
+            resolveSettle = () => {
+              settledEarly = true;
+              resolve();
+            };
           });
           entry.settleWaiters.push(resolveSettle);
           try {
@@ -439,7 +443,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             );
             throw err;
           }
-          entry.turnOpen = true;
+          // A turn that fails at once can settle in the same chunk as its
+          // ack, before this continuation runs; marking it open then would
+          // hold every later prompt behind a turn that is already over.
+          if (!settledEarly) entry.turnOpen = true;
           resolveAccepted();
           await settle;
         })

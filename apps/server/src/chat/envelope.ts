@@ -83,9 +83,7 @@ export function describeReview(
     data.findings.forEach((finding, index) => {
       const record = state?.findings[finding.id];
       const status =
-        record?.status === "resolved"
-          ? (record.resolution ?? "fixed")
-          : "open";
+        record?.status === "resolved" ? (record.resolution ?? "fixed") : "open";
       const where = finding.path
         ? ` — ${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`
         : "";
@@ -255,6 +253,29 @@ export function buildReactionEnvelope(input: {
     escapeEnvelopeMarkers(body),
     "--- END DISPATCH REACTION ---",
     `A reaction, not a new message — reply only if it calls for one (post, replyTo: "${blockId}").`,
+  ].join("\n");
+}
+
+/**
+ * The prompt that runs a failed turn again. The engine's session already
+ * holds the prompt the failed turn was answering, and the turn may have
+ * run tools before it broke off, so that prompt is not sent twice: the
+ * agent is told what happened and continues from where its session
+ * stands. The first line is what the feed's notice shows; the error, which
+ * the failed turn already shows, follows it.
+ */
+/** What a retry is about, in the notice and in the prompt alike. */
+const RETRY_TURN_SUBJECT = "the turn that stopped on an error";
+
+/** The notice the feed shows above the turn a retry opened. */
+export const RETRY_TURN_NOTICE = `Retried ${RETRY_TURN_SUBJECT}.`;
+
+export function buildRetryTurnEnvelope(error: string): string {
+  // One line of it, after other words: it cannot stand as a marker line.
+  const reason = error.split("\n")[0].trim().slice(0, 200);
+  return [
+    `The user retried ${RETRY_TURN_SUBJECT}. Continue where you left off.`,
+    ...(reason ? [`(The error was ${reason})`] : []),
   ].join("\n");
 }
 

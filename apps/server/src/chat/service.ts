@@ -47,6 +47,8 @@ import {
   buildPostEnvelope,
   describeReview,
   buildReactionEnvelope,
+  buildRetryTurnEnvelope,
+  RETRY_TURN_NOTICE,
   type EnvelopeSender,
   formatAttachmentSize,
 } from "./envelope.js";
@@ -55,10 +57,18 @@ import {
   composeStreamFeed,
   loadBlockEntry,
 } from "./feed.js";
-import { loadNewestTurnBlockId, loadTurnEntries } from "./turns.js";
+import {
+  loadNewestTurnBlockId,
+  loadTurnEntries,
+  turnAnchorOf,
+} from "./turns.js";
 import { findMentions, type Mentionable } from "./mentions.js";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
-import type { StreamEventRow } from "../agents/acp/stream-store.js";
+import {
+  StreamStore,
+  type StreamEventRow,
+  type TurnPayload,
+} from "../agents/acp/stream-store.js";
 import {
   BlockStore,
   isBlockId,
@@ -139,7 +149,7 @@ export type StreamDeliveryAdapter = {
   inject: (
     agentId: string,
     text: string,
-    opts?: { blockId?: string }
+    opts?: { blockId?: string; source?: PromptSource }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
@@ -253,7 +263,8 @@ function derivedBlockId(seed: string): string {
     h.slice(0, 8),
     h.slice(8, 12),
     `5${h.slice(13, 16)}`,
-    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
+    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) +
+      h.slice(17, 20),
     h.slice(20, 32),
   ].join("-");
 }
@@ -560,12 +571,14 @@ export function addressedTo(block: Block): string[] {
 
 export class StreamService {
   readonly store: BlockStore;
+  private readonly turns: StreamStore;
   private readonly inFlightDeliveries = new Set<Promise<unknown>>();
   private readonly turnPublishes = new Map<string, TurnPublish>();
   private readonly log: NonNullable<StreamServiceDeps["log"]>;
 
   constructor(private readonly deps: StreamServiceDeps) {
     this.store = new BlockStore(deps.pool);
+    this.turns = new StreamStore(deps.pool);
     this.log = deps.log ?? NO_OP_LOG;
   }
 
@@ -1726,7 +1739,11 @@ export class StreamService {
       this.heldCheck()
     );
     if (!entry) return;
-    this.deps.publishUiEvent({ type: "stream.entry", agentId: streamId, entry });
+    this.deps.publishUiEvent({
+      type: "stream.entry",
+      agentId: streamId,
+      entry,
+    });
   }
 
   /**
@@ -1940,7 +1957,11 @@ export class StreamService {
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
-            await this.store.setRecipientDelivered(block.id, agentId, delivered);
+            await this.store.setRecipientDelivered(
+              block.id,
+              agentId,
+              delivered
+            );
           }
           if (outcomes.size < recipients.length) {
             // Say so as each one lands: a reader watching a post to three
@@ -1980,12 +2001,18 @@ export class StreamService {
     envelope: string;
     record: (delivered: boolean) => Promise<void>;
     logContext: Record<string, string>;
+    /** What the prompt is, for a prompt that is not a block being delivered. */
+    source?: PromptSource;
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
     let accepted = false;
     const settlement = delivery
-      .inject(agentId, input.envelope, { blockId: input.logContext.blockId })
+      .inject(agentId, input.envelope, {
+        ...(input.source
+          ? { source: input.source }
+          : { blockId: input.logContext.blockId }),
+      })
       .then(
         () => true,
         (error: unknown) => {
@@ -2233,6 +2260,51 @@ export class StreamService {
       })
     );
     return { block: pending, held };
+  }
+
+  /**
+   * Run a failed turn again: the agent's latest turn, failed on an error a
+   * later attempt could clear. The turn's entry says "retried" at once; a
+   * retry that never reaches the agent is offered again.
+   */
+  async retryTurn(streamId: string, blockId: string): Promise<void> {
+    const block = await this.store.getById(blockId);
+    const turnId = block ? turnAnchorOf(block) : null;
+    if (
+      !block ||
+      block.streamId !== streamId ||
+      turnId === null ||
+      block.author.kind !== "agent"
+    ) {
+      throw new StreamValidationError("Turn not found.");
+    }
+    const agentId = block.author.agentId;
+    if ((await loadNewestTurnBlockId(this.store.db, agentId)) !== blockId) {
+      throw new StreamConflictError(
+        "The agent has had a turn since; only its latest turn can be retried."
+      );
+    }
+    await this.canDeliver(agentId, false);
+    const taken = await this.turns.takeRetry(agentId, turnId);
+    if (!taken) {
+      throw new StreamConflictError("That turn can't be retried.");
+    }
+    const error = (taken.payload as TurnPayload).error ?? "";
+    await this.publishBlockEntry(streamId, blockId);
+    this.injectDetached({
+      agentId,
+      envelope: buildRetryTurnEnvelope(error),
+      record: async (delivered) => {
+        if (delivered) return;
+        await this.turns.reopenRetry(agentId, turnId);
+        await this.publishBlockEntry(streamId, blockId);
+      },
+      logContext: { blockId, reason: "retry-turn" },
+      // Not the failed turn's block being delivered: a prompt of
+      // Dispatch's own, which the feed shows as the notice above the
+      // turn it opens.
+      source: { source: "system", text: RETRY_TURN_NOTICE },
+    });
   }
 
   private async findingOf(

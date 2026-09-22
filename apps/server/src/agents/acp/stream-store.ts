@@ -34,11 +34,22 @@ export type ToolPayload = {
 export type PlanPayload = {
   entries: { content: string; status: string; priority: string }[];
 };
+/**
+ * Where a failed turn's retry stands. `open` is offered on the turn; it
+ * becomes `retried` when the user takes it and `closed` when a later turn
+ * starts, since by then the conversation has moved past the failure.
+ */
+export type TurnRetryState = "open" | "retried" | "closed";
+
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
   stopReason?: string;
   error?: string;
+  /** The adapter's category for `error`, when it gave one. */
+  errorKind?: string;
+  /** Set on a failed turn a later attempt could clear. */
+  retry?: TurnRetryState;
   endedAt?: string;
   /** The engine's last usage_update in this turn: context used and, when reported, cost so far. */
   usage?: {
@@ -160,6 +171,53 @@ export class StreamStore {
           SET payload = $2::jsonb, updated_at = NOW()
         WHERE id = $1`,
       [id, JSON.stringify(payload)]
+    );
+  }
+
+  /**
+   * A new turn starting ends any retry still offered on an earlier one:
+   * the conversation has moved past that failure. Returns the rows it
+   * closed so their entries can be republished without the offer.
+   */
+  async closeOpenRetries(agentId: string): Promise<StreamEventRow[]> {
+    const result = await this.db.query<Row>(
+      `UPDATE agent_stream_events
+          SET payload = payload || '{"retry":"closed"}'::jsonb, updated_at = NOW()
+        WHERE agent_id = $1 AND kind = 'turn'
+          AND payload->>'retry' = 'open'
+        RETURNING *`,
+      [agentId]
+    );
+    return result.rows.map(toRow);
+  }
+
+  /**
+   * Take the retry offered on one turn. Only one caller wins: a second
+   * click, or a turn that started in between, finds it no longer open.
+   */
+  async takeRetry(
+    agentId: string,
+    turnId: number
+  ): Promise<StreamEventRow | null> {
+    const result = await this.db.query<Row>(
+      `UPDATE agent_stream_events
+          SET payload = payload || '{"retry":"retried"}'::jsonb, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND kind = 'turn'
+          AND payload->>'retry' = 'open'
+        RETURNING *`,
+      [turnId, agentId]
+    );
+    return result.rows[0] ? toRow(result.rows[0]) : null;
+  }
+
+  /** Offer the retry again after a retry that could not be sent. */
+  async reopenRetry(agentId: string, turnId: number): Promise<void> {
+    await this.db.query(
+      `UPDATE agent_stream_events
+          SET payload = payload || '{"retry":"open"}'::jsonb, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND kind = 'turn'
+          AND payload->>'retry' = 'retried'`,
+      [turnId, agentId]
     );
   }
 

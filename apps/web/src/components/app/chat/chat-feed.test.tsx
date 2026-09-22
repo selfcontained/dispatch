@@ -189,12 +189,7 @@ describe("layoutFeed", () => {
     );
     expect(
       rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
-    ).toEqual([
-      "divider",
-      ["a1", false],
-      ["a2", false],
-      ["a3", true],
-    ]);
+    ).toEqual(["divider", ["a1", false], ["a2", false], ["a3", true]]);
   });
 
   it("draws a rule only where a new author group follows another post directly", () => {
@@ -444,7 +439,7 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
   });
 
-  it("offers Retry on a post the agent never took, and says so while it goes", () => {
+  it("offers Send again on a post the agent never took, and says so while it goes", () => {
     const onRetryDelivery = vi.fn();
     const failed = blockEntry(
       block({ id: "u1", authorKind: "user", text: "Ship it", delivered: false })
@@ -455,14 +450,20 @@ describe("ChatFeed", () => {
 
     cleanup();
     renderFeed([failed], {}, { onRetryDelivery, retrying: new Set(["u1"]) });
-    const button = screen.getByTestId("chat-delivery-retry") as HTMLButtonElement;
-    expect(button.textContent).toBe("Retrying…");
+    const button = screen.getByTestId(
+      "chat-delivery-retry"
+    ) as HTMLButtonElement;
+    expect(button.textContent).toBe("Sending…");
     expect(button.disabled).toBe(true);
   });
 
   it("names who a post to several agents is still waiting on", () => {
     const peers = {
-      agt_2: { name: "reviewer", agentType: "claude", relation: "child" as const },
+      agt_2: {
+        name: "reviewer",
+        agentType: "claude",
+        relation: "child" as const,
+      },
       agt_3: { name: "scout", agentType: "claude", relation: "child" as const },
     };
     renderFeed(
@@ -489,7 +490,11 @@ describe("ChatFeed", () => {
 
   it("names only the agent that missed a post, and offers one Retry", () => {
     const peers = {
-      agt_2: { name: "reviewer", agentType: "claude", relation: "child" as const },
+      agt_2: {
+        name: "reviewer",
+        agentType: "claude",
+        relation: "child" as const,
+      },
       agt_3: { name: "scout", agentType: "claude", relation: "child" as const },
     };
     const onRetryDelivery = vi.fn();
@@ -609,9 +614,9 @@ describe("ChatFeed", () => {
         })
       ),
     ]);
-    expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
-      "ready"
-    );
+    expect(
+      screen.getByTestId("chat-workspace").getAttribute("data-state")
+    ).toBe("ready");
     expect(
       screen.getByTestId("harness-activity-summary").textContent
     ).toContain("workspace ready");
@@ -646,9 +651,9 @@ describe("ChatFeed", () => {
         })
       ),
     ]);
-    expect(screen.getByTestId("chat-workspace").getAttribute("data-state")).toBe(
-      "failed"
-    );
+    expect(
+      screen.getByTestId("chat-workspace").getAttribute("data-state")
+    ).toBe("failed");
     // The rail reads a failed startup the way it reads a failed turn.
     const summary = screen.getByTestId("harness-activity-summary");
     expect(summary.getAttribute("data-final-result")).toBe("error");
@@ -694,9 +699,9 @@ describe("ChatFeed", () => {
     // The instruction the agent was handed is still there, on request.
     fireEvent.click(header);
     expect(row.getAttribute("data-open")).toBe("true");
-    expect(screen.getByTestId("chat-review-request-body").textContent).toContain(
-      "launch_agent("
-    );
+    expect(
+      screen.getByTestId("chat-review-request-body").textContent
+    ).toContain("launch_agent(");
   });
 
   it("folds the briefing one agent wrote for another", () => {
@@ -757,7 +762,12 @@ describe("ChatFeed", () => {
   it("offers no Retry when the feed has no way to send again", () => {
     renderFeed([
       blockEntry(
-        block({ id: "u1", authorKind: "user", text: "Ship it", delivered: false })
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "Ship it",
+          delivered: false,
+        })
       ),
     ]);
     expect(screen.queryByTestId("chat-delivery-retry")).toBeNull();
@@ -860,7 +870,9 @@ describe("ChatFeed", () => {
             ?.textContent ?? null
       )
     ).toEqual(["Codex", "Claude", "Codex", "Claude", null]);
-    const modelChip = posts[0]!.querySelector('[data-testid="chat-author-model"]');
+    const modelChip = posts[0]!.querySelector(
+      '[data-testid="chat-author-model"]'
+    );
     expect(modelChip?.textContent).toBe("GPT-5 Codex");
     expect(modelChip?.getAttribute("title")).toBe("gpt-5-codex");
     expect(
@@ -1120,19 +1132,17 @@ describe("ChatFeed", () => {
   });
 
   it("shows the hold hint instead of the sending hint on a held message", () => {
-    renderFeed(
-      [
-        blockEntry(
-          block({
-            id: "u1",
-            authorKind: "user",
-            text: "one",
-            delivered: null,
-            delivery: [{ agentId: "agt_1", state: "held" }],
-          })
-        ),
-      ]
-    );
+    renderFeed([
+      blockEntry(
+        block({
+          id: "u1",
+          authorKind: "user",
+          text: "one",
+          delivered: null,
+          delivery: [{ agentId: "agt_1", state: "held" }],
+        })
+      ),
+    ]);
     expect(screen.getByTestId("chat-held-hint").textContent).toContain(
       "Queued until the turn ends"
     );
@@ -1849,7 +1859,11 @@ describe("turn entries", () => {
 
   it("draws the prompt as the user's row and the answer as the agent's post with its rail", () => {
     const onOpenThread = vi.fn();
-    renderFeed([prompt, turn()], {}, { onOpenThread, onToggleReaction: vi.fn() });
+    renderFeed(
+      [prompt, turn()],
+      {},
+      { onOpenThread, onToggleReaction: vi.fn() }
+    );
     const [user, answer] = screen.getAllByTestId("chat-message");
     expect(user!.getAttribute("data-author")).toBe("user");
     expect(user!.textContent).toContain("read the readme");
@@ -2068,9 +2082,9 @@ describe("turn entries", () => {
       ])
     ).toBeNull();
     // A turn that names no question changes nothing.
-    expect(
-      latestOpenFreeformQuestion([turn(), blockEntry(question)])?.id
-    ).toBe("q1");
+    expect(latestOpenFreeformQuestion([turn(), blockEntry(question)])?.id).toBe(
+      "q1"
+    );
   });
 });
 
@@ -2106,7 +2120,11 @@ describe("@mentions in a person's post", () => {
           })
         ),
         blockEntry(
-          block({ id: "m2", authorKind: "user", text: "plain, for the page's agent" })
+          block({
+            id: "m2",
+            authorKind: "user",
+            text: "plain, for the page's agent",
+          })
         ),
       ],
       {},
@@ -2114,7 +2132,8 @@ describe("@mentions in a person's post", () => {
     );
     const posts = screen.getAllByTestId("chat-message");
     expect(
-      posts[0]!.querySelector('[data-testid="chat-side-recipient"]')?.textContent
+      posts[0]!.querySelector('[data-testid="chat-side-recipient"]')
+        ?.textContent
     ).toContain("builder, reviewer");
     expect(
       posts[0]!.querySelectorAll('[data-testid="chat-mention"]')

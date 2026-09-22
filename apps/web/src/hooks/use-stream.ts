@@ -1135,6 +1135,36 @@ export function useRetryDelivery(rootId: string | null) {
   });
 }
 
+/**
+ * Run a failed turn again. The turn's entry says "retried" the moment the
+ * button is pressed; the new turn arrives on the stream like any other.
+ */
+export function useRetryTurn(rootId: string | null) {
+  const queryClient = useQueryClient();
+  const key = streamFeedQueryKey(rootId);
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: async (blockId) =>
+      api<{ ok: true }>(`${blockPath(rootId, blockId)}/retry-turn`, {
+        method: "POST",
+      }),
+    onMutate: async (blockId) => {
+      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        mapBlock(old, blockId, (block) =>
+          block.turn
+            ? { ...block, turn: { ...block.turn, retry: "retried" as const } }
+            : block
+        )
+      );
+    },
+    // A refused retry (the agent stopped, or moved on) puts the entry back
+    // as the server has it, with the reason surfaced by the caller.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+    },
+  });
+}
+
 export function useSetBlockState(rootId: string | null) {
   const queryClient = useQueryClient();
   const key = streamFeedQueryKey(rootId);

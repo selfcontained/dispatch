@@ -18,7 +18,7 @@ import { AutoHeight } from "./auto-height";
 import type { Step, Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
-import { ResultTurn } from "./result-turn";
+import { type ResultRetry, ResultTurn } from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
@@ -165,6 +165,19 @@ export function TurnAnswer({
     [turn.prompt.source, turn.prompt.text]
   );
   const promptTurn = useMemo(() => promptTurnModel(turn), [turn]);
+  const onRetryTurn = ctx.onRetryTurn;
+  const retryPending = ctx.retrying?.has(block.id) ?? false;
+  const retry = useMemo<ResultRetry | undefined>(
+    () =>
+      turn.retry
+        ? {
+            state: turn.retry,
+            ...(onRetryTurn ? { onRetry: () => onRetryTurn(block.id) } : {}),
+            pending: retryPending,
+          }
+        : undefined,
+    [turn.retry, onRetryTurn, retryPending, block.id]
+  );
   return (
     <div
       className={cn(
@@ -185,7 +198,7 @@ export function TurnAnswer({
           rather than jumps while it follows the bottom. */}
       <AutoHeight data-testid="chat-turn-body">
         {turn.settled ? (
-          <ResultTurn turn={result} />
+          <ResultTurn turn={result} retry={retry} />
         ) : result.content ? (
           // The reply as it is being written: the agent's own words, in the
           // quiet tone of something still in progress, so a long turn reads

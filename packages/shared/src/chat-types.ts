@@ -297,6 +297,11 @@ export type ChatTurnEntry = {
   /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */
   interrupted: boolean;
   error?: string;
+  /**
+   * A failed turn a later attempt could clear: `open` while it is the
+   * agent's latest turn, `retried` once the user retried it.
+   */
+  retry?: "open" | "retried";
   plan?: ChatTurnPlanEntry[];
   usage?: { used: number; size: number; costUsd: number | null };
   questions?: ChatTurnQuestionRef[];
