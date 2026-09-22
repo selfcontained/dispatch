@@ -1,11 +1,5 @@
 import { memo, useMemo } from "react";
-import type {
-  Block,
-  ChatTurnEntry,
-  ChatTurnStep,
-  StreamBlockEntry,
-  StreamEntry,
-} from "@dispatch/shared";
+import type { Block, ChatTurnEntry } from "@dispatch/shared";
 import {
   BlockView,
   type FeedContext,
@@ -15,48 +9,16 @@ import { cn } from "@/lib/utils";
 
 import { ActivityBlock } from "./activity-block";
 import { AutoHeight } from "./auto-height";
-import type { Step, Trace, Turn } from "./contracts";
+import type { Trace, Turn } from "./contracts";
 import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
+import { turnTrace } from "./trace";
 import { type ResultRetry, ResultTurn } from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
 const NO_FOLDED: readonly FoldedEntry[] = [];
-
-/** A feed row that is a turn: the agent's answer block with its turn attached. */
-export function isTurnEntry(
-  entry: StreamEntry
-): entry is StreamBlockEntry & { block: Block & { turn: ChatTurnEntry } } {
-  return entry.type === "block" && entry.block.turn !== undefined;
-}
-
-/** One trace step as the rail's model carries it: ISO times become epoch ms. */
-export function turnStep(step: ChatTurnStep): Step {
-  return {
-    id: step.id,
-    kind: step.kind,
-    label: step.label,
-    status: step.status,
-    startedAt: Date.parse(step.startedAt),
-    ...(step.endedAt ? { endedAt: Date.parse(step.endedAt) } : {}),
-    ...(step.durMs !== undefined ? { durMs: step.durMs } : {}),
-    detail: step.detail,
-    ...(step.children?.length ? { children: step.children.map(turnStep) } : {}),
-  };
-}
-
-export function turnTrace(turn: ChatTurnEntry): Trace {
-  return {
-    startedAt: Date.parse(turn.trace.startedAt),
-    ...(turn.trace.endedAt ? { endedAt: Date.parse(turn.trace.endedAt) } : {}),
-    ...(turn.trace.finalResult
-      ? { finalResult: turn.trace.finalResult }
-      : {}),
-    steps: turn.trace.steps.map(turnStep),
-  };
-}
 
 /**
  * The turn's answer as the result renderer's model. The text is the

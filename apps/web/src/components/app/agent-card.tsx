@@ -5,7 +5,7 @@ import { AgentCardActions } from "@/components/app/agent-card-actions";
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
 import {
-  AgentCardLatestEvent,
+  AgentCardActivity,
   AgentCardPhaseStatus,
 } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 
+import { lineageSeats } from "@/lib/agent-seat";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
@@ -111,6 +112,12 @@ export function AgentCard({
   // Owned here rather than in AgentCardDetails so the copy confirmation is not
   // lost when the details panel unmounts on collapse.
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
+  // Sub agents wear the seat the stream gives them; the card's own avatar
+  // carries no number, since a flat list of roots would repeat seat 1.
+  const seats = React.useMemo(
+    () => (childAgents.length > 0 ? lineageSeats(agent.id, agents) : {}),
+    [agent.id, agents, childAgents.length]
+  );
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
     isExpanded
@@ -165,7 +172,7 @@ export function AgentCard({
 
         <AgentCardPhaseStatus agent={agent} />
 
-        <AgentCardLatestEvent agent={agent} isExpanded={isExpanded} />
+        <AgentCardActivity agent={agent} />
 
         <AnimatePresence initial={false}>
           {isExpanded ? (
@@ -227,6 +234,7 @@ export function AgentCard({
                           <ChildAgentRow
                             key={child.id}
                             agent={child}
+                            seat={seats[child.id] ?? null}
                             state={getVisualState(child)}
                             isInitialReviewActive={child.role === "review"}
                             openAgent={openAgent}

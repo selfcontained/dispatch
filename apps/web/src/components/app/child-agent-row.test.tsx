@@ -17,6 +17,12 @@ vi.mock("@/hooks/use-chat-unread-summary", () => ({
   useAgentChatUnread: () => chatUnread.value,
 }));
 
+// The running turn's verb comes from the app-wide React Query cache.
+const turnLabel = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock("@/hooks/use-agent-turn-label", () => ({
+  useAgentTurnLabel: () => turnLabel.value,
+}));
+
 const baseAgent: Agent = {
   id: "agt_child",
   name: "security-review-123456",
@@ -45,6 +51,7 @@ const baseAgent: Agent = {
 afterEach(() => {
   cleanup();
   chatUnread.value = { unread: 0, pendingQuestions: 0 };
+  turnLabel.value = null;
 });
 
 function renderRow(
@@ -66,6 +73,7 @@ function renderRow(
       <TooltipProvider>
         <ChildAgentRow
           agent={agent}
+          seat={2}
           state="idle"
           isInitialReviewActive={true}
           openAgent={openAgent}

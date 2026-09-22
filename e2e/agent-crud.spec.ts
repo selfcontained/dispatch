@@ -4,7 +4,6 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentLatestEventViaAPI,
 } from "./helpers";
 
 const AUTH_HEADER = {
@@ -347,14 +346,15 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
     await expect(peekCard.getByText("/tmp")).toBeVisible();
 
-    await setAgentLatestEventViaAPI(request, attachedAgent.id, {
-      type: "working",
-      message: "refreshing sidebar state",
+    // Any agent upsert re-renders the list; a rename is one the card shows.
+    await request.patch(`/api/v1/agents/${attachedAgent.id}/name`, {
+      headers: AUTH_HEADER,
+      data: { name: "refreshed sidebar state" },
     });
 
-    await expect(attachedCard.getByText("Working")).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(attachedCard.getByText("refreshed sidebar state")).toBeVisible(
+      { timeout: 5_000 }
+    );
     await expect(peekCard.getByText("/tmp")).toBeVisible();
   });
 

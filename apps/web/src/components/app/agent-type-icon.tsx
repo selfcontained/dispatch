@@ -3,21 +3,9 @@ import { siClaude } from "simple-icons";
 
 import { cn } from "@/lib/utils";
 
-type AgentEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
-
 type AgentTypeIconProps = {
   type?: string | null;
   className?: string;
-  eventType?: AgentEventType | null;
-};
-
-const eventColorClass: Record<AgentEventType, string> = {
-  working: "text-status-working border-status-working/50 bg-status-working/15",
-  blocked: "text-status-blocked border-status-blocked/50 bg-status-blocked/15",
-  waiting_user:
-    "text-status-waiting border-status-waiting/50 bg-status-waiting/15",
-  done: "text-status-done border-status-done/50 bg-status-done/15",
-  idle: "",
 };
 
 const CODEX_LOGO_PATH =
@@ -33,7 +21,6 @@ function normalizeAgentType(
 export function AgentTypeIcon({
   type,
   className,
-  eventType,
 }: AgentTypeIconProps): JSX.Element {
   const normalizedType = normalizeAgentType(type);
   const label =
@@ -42,15 +29,13 @@ export function AgentTypeIcon({
       : normalizedType === "codex"
         ? "Codex"
         : "Agent";
-  const statusClass = eventType ? eventColorClass[eventType] : "";
-  const baseClass = statusClass
-    ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
-    : "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground transition-colors duration-300";
+  const baseClass =
+    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground";
 
   if (normalizedType === "unknown") {
     return (
       <span
-        className={cn(baseClass, statusClass, className)}
+        className={cn(baseClass, className)}
         title={`${label} agent`}
         aria-label={`${label} agent`}
       >
@@ -66,7 +51,7 @@ export function AgentTypeIcon({
 
   return (
     <span
-      className={cn(baseClass, statusClass, className)}
+      className={cn(baseClass, className)}
       title={`${label} agent`}
       aria-label={`${label} agent`}
     >

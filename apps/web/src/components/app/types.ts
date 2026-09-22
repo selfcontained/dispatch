@@ -27,6 +27,7 @@ type LenientAgentField =
   | "simulatorUdid"
   | "lastError"
   | "latestEvent"
+  | "activity"
   | "gitContext"
   | "gitContextStale"
   | "gitContextUpdatedAt"

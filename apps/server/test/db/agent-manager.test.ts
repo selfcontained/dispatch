@@ -1210,11 +1210,7 @@ describe("AgentManager", () => {
       };
       runtime.prompt.mockReturnValueOnce(turn);
       manager.promptAgent(agent.id, "next", source);
-      expect(runtime.prompt).toHaveBeenLastCalledWith(
-        agent.id,
-        "next",
-        source
-      );
+      expect(runtime.prompt).toHaveBeenLastCalledWith(agent.id, "next", source);
       expect(manager.isPromptHeld(agent.id)).toBe(true);
       await manager.cancelTurn(agent.id);
       expect(runtime.cancel).toHaveBeenCalledWith(agent.id);
@@ -1411,6 +1407,137 @@ describe("AgentManager", () => {
         4
       );
       expect((await manager.getAgent(agent.id))!.status).toBe("running");
+    });
+  });
+
+  describe("activity", () => {
+    async function running() {
+      return manager.createAgent({ cwd: "/tmp", useWorktree: false });
+    }
+
+    async function activityOf(id: string) {
+      const one = (await manager.getAgent(id))!.activity;
+      const listed = (await manager.listAgents()).find((a) => a.id === id)!;
+      expect(listed.activity).toBe(one);
+      return one;
+    }
+
+    it("reads idle for a running agent with nothing going on", async () => {
+      const agent = await running();
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("reads working while the runtime has a turn running", async () => {
+      const agent = await running();
+      runtime.isBusy.mockImplementation((id) => id === agent.id);
+      expect(await activityOf(agent.id)).toBe("working");
+      runtime.isBusy.mockImplementation(() => false);
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("reads waiting while a question for people is open", async () => {
+      const { BlockStore } = await import("../../src/chat/store.js");
+      const agent = await running();
+      const store = new BlockStore(pool);
+      const question = await store.insert({
+        streamId: agent.id,
+        author: { kind: "agent", agentId: agent.id },
+        kind: "question",
+        text: "Ship it?",
+        data: { options: [{ label: "Yes" }] },
+        state: {},
+      });
+      expect(await activityOf(agent.id)).toBe("waiting");
+
+      await pool.query(
+        `UPDATE blocks SET state = '{"answer": {"value": "Yes"}}' WHERE id = $1`,
+        [question.id]
+      );
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("reads stopped for a stopped agent whose last event still says working", async () => {
+      const agent = await running();
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "go" },
+        1
+      );
+      // Stopped behind the event's back (a host lost at boot, a reconcile):
+      // the last status event written is still "working".
+      await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
+        agent.id,
+      ]);
+      const fetched = (await manager.getAgent(agent.id))!;
+      expect(fetched.status).toBe("stopped");
+      expect(fetched.latestEvent?.type).toBe("working");
+      // Even if the runtime still counts the turn, a stopped agent is stopped.
+      runtime.isBusy.mockImplementation(() => true);
+      expect(await activityOf(agent.id)).toBe("stopped");
+    });
+
+    it("reads blocked after a failed turn until another turn runs", async () => {
+      const agent = await running();
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled", error: "boom" },
+        2
+      );
+      expect(await activityOf(agent.id)).toBe("blocked");
+
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "again" },
+        3
+      );
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "settled" },
+        4
+      );
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("does not read a turn cut by a restart as blocked", async () => {
+      const agent = await running();
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      await pool.query(
+        `UPDATE agent_stream_events
+            SET payload = payload || '{"state": "settled", "error": "interrupted by restart"}'
+          WHERE agent_id = $1 AND kind = 'turn'`,
+        [agent.id]
+      );
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("reads blocked for an agent in error", async () => {
+      const agent = await running();
+      await pool.query(`UPDATE agents SET status = 'error' WHERE id = $1`, [
+        agent.id,
+      ]);
+      expect(await activityOf(agent.id)).toBe("blocked");
+    });
+
+    it("reads starting while the agent is being created or set up", async () => {
+      const agent = await running();
+      await pool.query(`UPDATE agents SET status = 'creating' WHERE id = $1`, [
+        agent.id,
+      ]);
+      expect(await activityOf(agent.id)).toBe("starting");
+      await pool.query(
+        `UPDATE agents SET status = 'running', setup_phase = 'deps' WHERE id = $1`,
+        [agent.id]
+      );
+      expect(await activityOf(agent.id)).toBe("starting");
     });
   });
 

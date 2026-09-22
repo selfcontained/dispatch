@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,7 @@ export type AgentCardHeaderProps = {
 };
 
 /**
- * The always-visible top row of an agent card: type icon, session name, status
+ * The always-visible top row of an agent card: avatar, session name, status
  * badges, resume control for stopped agents, and the expand toggle.
  */
 export function AgentCardHeader({
@@ -113,11 +113,11 @@ export function AgentCardHeader({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="shrink-0">
-                <AgentTypeIcon
-                  type={agent.type}
-                  eventType={
-                    agent.status === "running" ? agent.latestEvent?.type : null
-                  }
+                <AgentSeatBadge
+                  seat={null}
+                  name={agent.name}
+                  size="sm"
+                  data-testid={`agent-avatar-${agent.id}`}
                 />
               </span>
             </TooltipTrigger>
