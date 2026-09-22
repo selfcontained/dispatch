@@ -22,10 +22,6 @@ import {
   UserRound,
 } from "lucide-react";
 
-import {
-  latestEventColor,
-  latestEventLabel,
-} from "@/components/app/agent-event-utils";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
@@ -64,20 +60,6 @@ import {
   ReactionBar,
   ReactionPickerButton,
 } from "./chat-reactions";
-
-type EventType = Parameters<typeof latestEventLabel>[0];
-
-const EVENT_TYPES: readonly string[] = [
-  "working",
-  "blocked",
-  "waiting_user",
-  "done",
-  "idle",
-];
-
-function asEventType(type: string): EventType {
-  return (EVENT_TYPES.includes(type) ? type : "idle") as EventType;
-}
 
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
 function clockTime(iso: string): string {
