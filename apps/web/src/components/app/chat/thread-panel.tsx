@@ -20,11 +20,7 @@ import {
   mentionablesOf,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
-import {
-  useMarkThreadRead,
-  usePostBlock,
-  useThread,
-} from "@/hooks/use-stream";
+import { useMarkThreadRead, usePostBlock, useThread } from "@/hooks/use-stream";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
@@ -128,12 +124,28 @@ export type ThreadPanelProps = {
   error?: string | null;
 };
 
+/**
+ * The feed's context, plus the names the thread carries for agents neither
+ * the directory nor the feed has (an archived agent that only replied here).
+ */
+export function withThreadNames(
+  ctx: FeedContext,
+  names: Readonly<Record<string, string>> | undefined
+): FeedContext {
+  if (!names) return ctx;
+  const missing = Object.entries(names).filter(
+    ([id, name]) => ctx.names?.[id] !== name && !ctx.peers?.[id]
+  );
+  if (missing.length === 0) return ctx;
+  return { ...ctx, names: { ...ctx.names, ...Object.fromEntries(missing) } };
+}
+
 export function ThreadPanel({
   agentId,
   rootId,
   blockId,
   findingId = null,
-  ctx,
+  ctx: feedCtx,
   disabledReason,
   isMobile,
   onClose,
@@ -144,6 +156,10 @@ export function ThreadPanel({
   error = null,
 }: ThreadPanelProps): JSX.Element {
   const thread = useThread(rootId, blockId);
+  const ctx = useMemo(
+    () => withThreadNames(feedCtx, thread.agentNames),
+    [feedCtx, thread.agentNames]
+  );
   const post = usePostBlock(rootId);
   const { mutateAsync: postAsync } = post;
 

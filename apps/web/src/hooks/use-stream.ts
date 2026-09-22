@@ -102,6 +102,19 @@ function flattenFeedPages(pages: StreamFeedResponse[]): StreamEntry[] {
   return out;
 }
 
+/**
+ * Every page's names for the agents it mentions, merged. A fresh object
+ * whenever the pages change; the feed context keeps one identity while
+ * the names themselves stay the same.
+ */
+function mergeAgentNames(
+  pages: readonly StreamFeedResponse[] | undefined
+): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const page of pages ?? []) Object.assign(names, page.agentNames);
+  return names;
+}
+
 function withoutEntries(
   page: StreamFeedResponse
 ): Omit<StreamFeedResponse, "entries"> {
@@ -190,6 +203,8 @@ export function shareFeedCache(oldData: unknown, newData: unknown): unknown {
 
 export type StreamFeedState = {
   entries: StreamEntry[];
+  /** Names for the agents the loaded pages mention, archived ones included. */
+  agentNames: Record<string, string>;
   unreadCount: number;
   hasOlder: boolean;
   isLoading: boolean;
@@ -252,6 +267,9 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
     [query.data]
   );
 
+  const pages = query.data?.pages;
+  const agentNames = useMemo(() => mergeAgentNames(pages), [pages]);
+
   // fetchNextPage/refetch are stable; these wrappers are too, so consumers
   // can hang effects and memoised callbacks off them.
   const { fetchNextPage, isFetchingNextPage, refetch: refetchQuery } = query;
@@ -264,6 +282,7 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
 
   return {
     entries,
+    agentNames,
     unreadCount: query.data?.pages[0]?.unreadCount ?? 0,
     hasOlder: query.hasNextPage,
     isLoading: query.isLoading,
@@ -281,6 +300,8 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
 export type ThreadState = {
   root: Block | null;
   replies: Block[];
+  /** Names for the agents the thread mentions, archived ones included. */
+  agentNames: Record<string, string> | undefined;
   isLoading: boolean;
   error: Error | null;
   refetch: () => void;
@@ -306,6 +327,7 @@ export function useThread(
   return {
     root: query.data?.root ?? null,
     replies: query.data?.replies ?? [],
+    agentNames: query.data?.agentNames,
     isLoading: query.isLoading,
     error: query.error,
     refetch,

@@ -29,7 +29,9 @@ export type ArchiveDeps = {
     status: AgentStatus,
     lastError: string | null
   ) => Promise<void>;
-  /** Settle stream rows the stopped host left open. */
+  /** The stop about to happen is deliberate: the turn it cuts is not a failure. */
+  beginStopStream: (id: string) => void;
+  /** Settle stream rows the stopped host left open, as stopped. */
   settleStream: (id: string) => Promise<number>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
 };
@@ -261,6 +263,7 @@ export async function executeArchive(
           "Stop hook failed during archive; continuing"
         )
       );
+      deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
@@ -404,6 +407,7 @@ export async function deleteAgentDirect(
           "Stop hook failed during delete; continuing"
         )
       );
+      deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the

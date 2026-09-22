@@ -367,6 +367,13 @@ export type StreamFeedResponse = {
   /** Opaque cursor for the next (older) page; `null` when `hasMore` is false. */
   nextCursor: string | null;
   unreadCount: number;
+  /**
+   * The name of every agent this page's blocks mention, archived agents
+   * included: the agents list leaves those out, and their posts keep their
+   * names. The live directory is preferred; this is the fallback. Always
+   * sent; optional so a cache built on the client need not invent one.
+   */
+  agentNames?: Record<string, string>;
 };
 
 /**
@@ -384,6 +391,8 @@ export type StreamEntryEvent = {
 export type StreamThreadResponse = {
   root: Block;
   replies: Block[];
+  /** As on the feed: names for every agent the thread mentions. */
+  agentNames?: Record<string, string>;
 };
 
 // ---------------------------------------------------------------------------

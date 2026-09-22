@@ -59,6 +59,7 @@ import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
   INTERRUPTED_BY_RESTART,
+  STOPPED_ON_REQUEST,
   StreamRecorder,
   type TurnBlocks,
 } from "./acp/stream-recorder.js";
@@ -386,7 +387,16 @@ export class AgentManager {
         [agentId, seq]
       );
     }
-    if (event.type === "turn") {
+    // A turn a deliberate stop cut is not the agent blocking; the stop
+    // path says what the agent is now.
+    if (
+      event.type === "turn" &&
+      !(
+        event.state === "settled" &&
+        event.error &&
+        this.streamRecorder.isStopping(agentId)
+      )
+    ) {
       await this.deriveTurnStatus(agentId, event);
     }
     if (event.type === "config") {
@@ -1545,8 +1555,9 @@ export class AgentManager {
     );
 
     try {
+      this.streamRecorder.beginStop(id);
       await this.runtime.stop(id, force);
-      await this.streamStore.settleInterrupted(id, "stopped");
+      await this.streamRecorder.settleStopped(id);
       await this.setAgentStatus(id, "stopped", null);
       await this.setSystemLatestEvent(id, {
         type: "idle",
@@ -1865,8 +1876,8 @@ export class AgentManager {
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       setAgentStatus: (id, status, lastError) =>
         this.setAgentStatus(id, status, lastError),
-      settleStream: async (id) =>
-        (await this.streamStore.settleInterrupted(id, "stopped")).length,
+      beginStopStream: (id) => this.streamRecorder.beginStop(id),
+      settleStream: (id) => this.streamRecorder.settleStopped(id),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
     };
   }
@@ -1876,7 +1887,8 @@ export class AgentManager {
  * An agent's activity as its rows state it, on the unaliased `agents` row.
  * Its status wins while it is starting or not running; then an open question
  * or form for people; then a newest turn that failed. A turn cut by a restart
- * is an interruption, not a failure, as the stream shows it too. A turn
+ * or a deliberate stop (stop, archive) is an interruption, not a failure, as
+ * the stream shows it too. A turn
  * running right now is the runtime's to say: see withLiveActivity.
  */
 const ACTIVITY_SQL = `CASE
@@ -1893,6 +1905,6 @@ const ACTIVITY_SQL = `CASE
             SELECT t.payload->>'error' FROM agent_stream_events t
              WHERE t.agent_id = agents.id AND t.kind = 'turn'
              ORDER BY t.seq DESC LIMIT 1
-          ) <> '${INTERRUPTED_BY_RESTART}', false) THEN 'blocked'
+          ) NOT IN ('${INTERRUPTED_BY_RESTART}', '${STOPPED_ON_REQUEST}'), false) THEN 'blocked'
           ELSE 'idle'
         END`;

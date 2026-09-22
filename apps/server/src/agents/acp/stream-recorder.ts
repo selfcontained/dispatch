@@ -50,6 +50,17 @@ const RETRYABLE_ERROR_KINDS = new Set([
 ]);
 
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
+/**
+ * The settle reason for a turn Dispatch cut on purpose: the agent was
+ * stopped or archived. Like a restart, a cut and not a failure. The same
+ * string the stop path has always written, so older rows read the same.
+ */
+export const STOPPED_ON_REQUEST = "stopped";
+
+/** A turn settled with one of these was cut, not failed. */
+export function isDeliberateCut(error: string | null | undefined): boolean {
+  return error === INTERRUPTED_BY_RESTART || error === STOPPED_ON_REQUEST;
+}
 export const FLUSH_INTERVAL_MS = 100;
 
 /**
@@ -214,6 +225,12 @@ export class StreamRecorder {
   private readonly trailingPrompt = new Set<string>();
   /** Agents whose open-turn state has been read back from the rows. */
   private readonly loaded = new Set<string>();
+  /**
+   * Agents Dispatch is stopping on purpose. Tearing the session down fails
+   * the prompt in flight, and the engine says so as an error; while the
+   * agent is here, that error is the stop and is recorded as one.
+   */
+  private readonly stopping = new Set<string>();
   private turnBlocks: TurnBlocks | null = null;
 
   constructor(private readonly store: StreamStore) {}
@@ -282,6 +299,7 @@ export class StreamRecorder {
           // reply starts a row of its own.
           await this.closeText(event.agentId);
           this.trailingPrompt.delete(event.agentId);
+          this.stopping.delete(event.agentId);
           // A retry still offered on an earlier failed turn no longer
           // applies once the conversation moves on; its entry drops it.
           const passed = await this.store.closeOpenRetries(event.agentId);
@@ -301,17 +319,22 @@ export class StreamRecorder {
           return;
         }
         await this.closeText(event.agentId);
+        // A prompt the stop tore down reports the teardown as its error.
+        const cut = !!event.error && this.stopping.has(event.agentId);
+        const error = cut ? STOPPED_ON_REQUEST : event.error;
         const open = this.openTurn.get(event.agentId);
         if (open) {
           const prev = open.payload as TurnPayload;
           const retryable =
-            !!event.error && RETRYABLE_ERROR_KINDS.has(event.errorKind ?? "");
+            !cut &&
+            !!event.error &&
+            RETRYABLE_ERROR_KINDS.has(event.errorKind ?? "");
           await this.store.updatePayload(open.id, {
             ...prev,
             state: "settled",
             ...(event.stopReason ? { stopReason: event.stopReason } : {}),
-            ...(event.error ? { error: event.error } : {}),
-            ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+            ...(error ? { error } : {}),
+            ...(event.errorKind && !cut ? { errorKind: event.errorKind } : {}),
             ...(retryable ? { retry: "open" as const } : {}),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
@@ -319,7 +342,9 @@ export class StreamRecorder {
           this.trailingPrompt.add(event.agentId);
           await this.settleTurnBlock(event.agentId, open);
         }
-        if (event.error) await this.appendStatus(event.agentId, event.error);
+        if (event.error && !cut) {
+          await this.appendStatus(event.agentId, event.error);
+        }
         return;
       }
       case "exit": {
@@ -328,21 +353,24 @@ export class StreamRecorder {
         this.trailingPrompt.delete(event.agentId);
         // The child is gone, so the turn it was running can never settle
         // through the prompt path; settle it here or the view spins forever.
+        const stopping = this.stopping.has(event.agentId);
         const open = this.openTurn.get(event.agentId);
         if (open) {
           const prev = open.payload as TurnPayload;
           await this.store.updatePayload(open.id, {
             ...prev,
             state: "settled",
-            ...(event.expected
-              ? { stopReason: "cancelled" }
-              : { error: "the agent exited before the turn settled" }),
+            ...(stopping
+              ? { error: STOPPED_ON_REQUEST }
+              : event.expected
+                ? { stopReason: "cancelled" }
+                : { error: "the agent exited before the turn settled" }),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
           await this.settleTurnBlock(event.agentId, open);
         }
-        if (event.expected || event.code === 0) return;
+        if (stopping || event.expected || event.code === 0) return;
         const how =
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
         const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
@@ -370,10 +398,38 @@ export class StreamRecorder {
     this.loaded.add(agentId);
     this.openTurn.delete(agentId);
     this.trailingPrompt.delete(agentId);
+    this.stopping.delete(agentId);
     const cut = await this.store.settleInterrupted(
       agentId,
       INTERRUPTED_BY_RESTART
     );
+    for (const row of cut) await this.settleTurnBlock(agentId, row);
+    return cut.length;
+  }
+
+  /**
+   * Dispatch is about to stop the agent on purpose (stop, archive). Until
+   * its next turn or session, whatever the teardown does to the turn in
+   * flight settles it as stopped rather than failed.
+   */
+  beginStop(agentId: string): void {
+    this.stopping.add(agentId);
+  }
+
+  isStopping(agentId: string): boolean {
+    return this.stopping.has(agentId);
+  }
+
+  /**
+   * After a deliberate stop: settle whatever the stopped host left open as
+   * stopped, and let each cut turn's block say so.
+   */
+  async settleStopped(agentId: string): Promise<number> {
+    this.stopping.add(agentId);
+    await this.closeText(agentId);
+    this.openTurn.delete(agentId);
+    this.trailingPrompt.delete(agentId);
+    const cut = await this.store.settleInterrupted(agentId, STOPPED_ON_REQUEST);
     for (const row of cut) await this.settleTurnBlock(agentId, row);
     return cut.length;
   }

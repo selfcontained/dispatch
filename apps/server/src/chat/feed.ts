@@ -14,6 +14,7 @@ import {
   type FeedCursor,
   type Keyed,
 } from "./feed-cursor.js";
+import { agentNamesFor } from "./agent-names.js";
 import { attachTurns } from "./turns.js";
 import {
   type BlockRow,
@@ -237,7 +238,10 @@ export async function composeStreamFeed(
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
   const blocks = page.map((item) => item.entry.block);
-  await attachTurns(db, blocks);
+  const [agentNames] = await Promise.all([
+    agentNamesFor(db, blocks),
+    attachTurns(db, blocks),
+  ]);
   if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
   const nextCursor =
@@ -253,5 +257,6 @@ export async function composeStreamFeed(
     hasMore,
     nextCursor,
     unreadCount,
+    agentNames,
   };
 }

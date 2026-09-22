@@ -8,7 +8,7 @@ import type {
   ChatTurnStep,
 } from "@dispatch/shared";
 
-import { INTERRUPTED_BY_RESTART } from "../agents/acp/stream-recorder.js";
+import { isDeliberateCut } from "../agents/acp/stream-recorder.js";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
 import type {
   AssistantPayload,
@@ -427,15 +427,15 @@ export function toTurnEntry(
   for (const row of group.rows) {
     if (row.updatedAt > updatedAt) updatedAt = row.updatedAt;
   }
-  // A turn the service went down under settles carrying the restart marker
-  // as its error. That is a cut, not a failure the engine reported, so the
-  // entry says `interrupted` and drops the marker rather than showing it as
-  // an error line under the result.
-  const byRestart = payload?.error === INTERRUPTED_BY_RESTART;
-  const trace: ChatTurnEntry["trace"] = byRestart
+  // A turn the service went down under, or one Dispatch stopped on purpose
+  // (stop, archive), settles carrying a marker as its error. That is a cut,
+  // not a failure the engine reported, so the entry says `interrupted` and
+  // drops the marker rather than showing it as an error line under the result.
+  const cut = isDeliberateCut(payload?.error);
+  const trace: ChatTurnEntry["trace"] = cut
     ? { ...turn.trace, finalResult: "interrupted" }
     : turn.trace;
-  const error = byRestart ? undefined : turn.error;
+  const error = cut ? undefined : turn.error;
   // A closed retry is history: the conversation moved past the failure.
   const retry =
     error && (payload?.retry === "open" || payload?.retry === "retried")

@@ -6,9 +6,11 @@ import type {
   StreamAnswerRequest,
   StreamPostRequest,
   StreamSubmitRequest,
+  StreamThreadResponse,
 } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
+import { agentNamesFor } from "../chat/agent-names.js";
 import { decodeFeedCursor } from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
@@ -164,8 +166,12 @@ export async function registerStreamRoutes(
         return reply.code(404).send({ error: "Block not found." });
       }
       // A turn answered into the thread carries its turn like any feed row.
-      await attachTurns(store.db, [thread.root, ...thread.replies]);
-      return thread;
+      const blocks = [thread.root, ...thread.replies];
+      const [agentNames] = await Promise.all([
+        agentNamesFor(store.db, blocks),
+        attachTurns(store.db, blocks),
+      ]);
+      return { ...thread, agentNames } satisfies StreamThreadResponse;
     }
   );
 

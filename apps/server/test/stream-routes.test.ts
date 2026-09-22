@@ -263,6 +263,34 @@ describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
         expect.objectContaining({ id: r1.id, replyTo: root.id }),
         expect.objectContaining({ id: r2.id, replyTo: r1.id }),
       ],
+      agentNames: { [agentId]: expect.any(String) },
+    });
+  });
+
+  it("names an archived agent that replied in the thread", async () => {
+    const helper = await createAgent("Helper that left");
+    const root = await store.insert({
+      streamId: agentId,
+      author: agentAuthor(agentId),
+      text: "root",
+    });
+    await store.insert({
+      streamId: agentId,
+      author: agentAuthor(helper),
+      threadId: root.id,
+      replyTo: root.id,
+      text: "done, archiving myself",
+    });
+    await ctx.pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+      helper,
+    ]);
+    const res = await authedInject(
+      "GET",
+      `/api/v1/streams/${agentId}/blocks/${root.id}/thread`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agentNames).toMatchObject({
+      [helper]: "Helper that left",
     });
   });
 
