@@ -323,6 +323,13 @@ cmd_up() {
     # cache dir so `down` can find them and stacks never share a root.
     export DISPATCH_AGENT_STATE_ROOT="$(log_dir)/agents"
 
+    # Files agents share live with the stack, not in ~/.dispatch, which
+    # belongs to the installed Dispatch. The server falls back to that
+    # directory when this is unset, and a worktree whose .env predates the
+    # media→files rename sets the old name, so the stack states it here
+    # rather than trusting whatever .env it inherited.
+    export DISPATCH_FILES_ROOT="$(log_dir)/files"
+
     # Keep the release store out of ~/.dispatch/ — a stale version there
     # surfaces the update-available toast against the dev build.
     export DISPATCH_RELEASE_STORE_PATH="$(log_dir)/release.json"
