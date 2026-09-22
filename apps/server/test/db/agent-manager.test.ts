@@ -1568,6 +1568,22 @@ describe("AgentManager", () => {
       expect(await activityOf(agent.id)).toBe("idle");
     });
 
+    it("does not read a turn cut by archiving or stopping as blocked", async () => {
+      const agent = await running();
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      await pool.query(
+        `UPDATE agent_stream_events
+            SET payload = payload || '{"state": "settled", "error": "stopped"}'
+          WHERE agent_id = $1 AND kind = 'turn'`,
+        [agent.id]
+      );
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
     it("reads blocked for an agent in error", async () => {
       const agent = await running();
       await pool.query(`UPDATE agents SET status = 'error' WHERE id = $1`, [
@@ -1708,6 +1724,71 @@ describe("AgentManager", () => {
       );
       expect(row.rowCount).toBe(1);
       expect(row.rows[0].deleted_at).not.toBeNull();
+    });
+
+    it("settles the turn an agent was in when archived as stopped, not failed", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      // Tearing the session down fails the prompt in flight, as the host does.
+      runtime.stop.mockImplementationOnce(async (id) => {
+        await runtime.emit(
+          id,
+          {
+            type: "turn",
+            agentId: id,
+            state: "settled",
+            error: "Session closed",
+          },
+          2
+        );
+      });
+      await archiveAgent(agent.id);
+
+      const rows = await pool.query<{ kind: string; payload: unknown }>(
+        "SELECT kind, payload FROM agent_stream_events WHERE agent_id = $1 ORDER BY seq",
+        [agent.id]
+      );
+      const turns = rows.rows.filter((r) => r.kind === "turn");
+      expect(turns).toHaveLength(1);
+      expect(turns[0]!.payload).toMatchObject({
+        state: "settled",
+        error: "stopped",
+      });
+      // The teardown's own error is not a status line, and not "blocked".
+      expect(rows.rows.filter((r) => r.kind === "status")).toHaveLength(0);
+      const latest = await pool.query<{ latest_event_type: string | null }>(
+        "SELECT latest_event_type FROM agents WHERE id = $1",
+        [agent.id]
+      );
+      expect(latest.rows[0]!.latest_event_type).not.toBe("blocked");
+    });
+
+    it("settles the turn an agent was in when stopped as stopped", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await runtime.emit(
+        agent.id,
+        { type: "turn", agentId: agent.id, state: "started", text: "x" },
+        1
+      );
+      await manager.stopAgent(agent.id, { force: true });
+      const rows = await pool.query<{ payload: unknown }>(
+        "SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'",
+        [agent.id]
+      );
+      expect(rows.rows[0]!.payload).toMatchObject({
+        state: "settled",
+        error: "stopped",
+      });
     });
 
     it("should exclude soft-deleted agents from listAgents", async () => {

@@ -717,6 +717,54 @@ describe("ChatFeed", () => {
     ).toContain("launch_agent(");
   });
 
+  it("names an archived agent's posts, and posts to it, from the page's names", () => {
+    // The archived child is gone from the directory; only the page names it.
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "c1",
+            author: { kind: "agent", agentId: "agt_gone" },
+            text: "Done; archiving myself.",
+            createdAt: "2026-09-02T10:00:00.000Z",
+          })
+        ),
+        peerPost({
+          id: "p1",
+          from: AGENT_ID,
+          to: "agt_gone",
+          text: "Thanks.",
+          at: "2026-09-02T10:30:00.000Z",
+        }),
+      ],
+      {},
+      { peers: REVIEWER_PEER, names: { agt_gone: "helper" } }
+    );
+    const [childPost, sidePost] = screen.getAllByTestId("chat-message");
+    expect(childPost!.textContent).toContain("helper");
+    expect(childPost!.textContent).not.toMatch(/^Agent/);
+    expect(sidePost!.textContent).toContain("helper");
+  });
+
+  it("prefers the live directory's name to the page's", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "c1",
+            author: { kind: "agent", agentId: "agt_2" },
+            text: "hi",
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER, names: { agt_2: "old name" } }
+    );
+    const post = screen.getByTestId("chat-message");
+    expect(post.textContent).toContain("Reviewer");
+    expect(post.textContent).not.toContain("old name");
+  });
+
   it("folds the briefing one agent wrote for another", () => {
     const peers = {
       agt_2: {

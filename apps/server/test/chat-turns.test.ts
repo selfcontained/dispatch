@@ -757,6 +757,28 @@ describe("toTurnEntry", () => {
     expect(entry.error).toBeUndefined();
   });
 
+  it("reads a turn a deliberate stop cut (stop, archive) as interrupted, not failed", () => {
+    seq = 0;
+    const turnRow = row(
+      "turn",
+      {
+        state: "settled",
+        prompt: { source: "system", text: "p" },
+        error: "stopped",
+        endedAt: at(4).toISOString(),
+      },
+      0,
+      4
+    );
+    const [group] = groupTurnRows([turnRow]);
+    const [turn] = assembleTurns([turnRow], new Map());
+    const entry = toTurnEntry(turn, group, "agt_x");
+    expect(entry.interrupted).toBe(true);
+    expect(entry.trace.finalResult).toBe("interrupted");
+    expect(entry.error).toBeUndefined();
+    expect(entry.retry).toBeUndefined();
+  });
+
   it("carries an engine error through and turns questions into references", () => {
     seq = 0;
     const turnRow = row(

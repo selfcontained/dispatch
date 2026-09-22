@@ -93,7 +93,11 @@ describe("composeStreamFeed", () => {
     const feed = await composeStreamFeed(store, A);
     expect(feed.hasMore).toBe(false);
     expect(feed.unreadCount).toBe(2);
-    expect(feed.entries.map((e) => e.type)).toEqual(["block", "block", "block"]);
+    expect(feed.entries.map((e) => e.type)).toEqual([
+      "block",
+      "block",
+      "block",
+    ]);
     expect(feed.entries.map((e) => e.at)).toEqual(
       [2, 3, 5].map((s) => at(s).toISOString())
     );
@@ -375,14 +379,18 @@ describe("composeStreamFeed", () => {
         agentId: A,
         settled: true,
         result: { text: "Fixed it." },
-        prompt: { source: "chat", chatMessageId: prompt.id, text: "Fix the bug" },
+        prompt: {
+          source: "chat",
+          chatMessageId: prompt.id,
+          text: "Fix the bug",
+        },
         trace: { finalResult: "ok" },
       },
     });
     // One block read back carries its turn too, and the prompt is a row.
-    expect((await loadBlockEntry(pool, A, answer.id))?.block.turn).toMatchObject(
-      { settled: true }
-    );
+    expect(
+      (await loadBlockEntry(pool, A, answer.id))?.block.turn
+    ).toMatchObject({ settled: true });
     expect(await loadBlockEntry(pool, A, prompt.id)).not.toBeNull();
     // A block that names no turn row of the agent's has no turn.
     const stray = await store.insert({
@@ -392,7 +400,9 @@ describe("composeStreamFeed", () => {
       data: { turnEventId: 999999 },
       text: "",
     });
-    expect((await loadBlockEntry(pool, A, stray.id))?.block.turn).toBeUndefined();
+    expect(
+      (await loadBlockEntry(pool, A, stray.id))?.block.turn
+    ).toBeUndefined();
   });
 
   describe("attachment dimensions", () => {
@@ -531,6 +541,28 @@ describe("composeStreamFeed", () => {
       hasMore: false,
       nextCursor: null,
       unreadCount: 0,
+      agentNames: {},
+    });
+  });
+
+  it("names every agent on the page, an archived one included", async () => {
+    // The archived child posted to its parent, and was sent a post.
+    await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      text: "done; archiving myself",
+    });
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: ARCHIVED_CHILD,
+      text: "thanks",
+      delivered: true,
+    });
+    const feed = await composeStreamFeed(store, A);
+    expect(feed.agentNames).toEqual({
+      [A]: "Feed A",
+      [ARCHIVED_CHILD]: "Archived child",
     });
   });
 

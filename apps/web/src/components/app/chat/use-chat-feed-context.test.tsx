@@ -1,19 +1,22 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 
+import { agentDisplayName } from "./chat-entries";
 import { useChatFeedContext } from "./use-chat-feed-context";
 
+const listed = vi.hoisted(() => ({ agents: [] as unknown[] }));
 vi.mock("@/lib/api", () => ({
-  api: vi.fn(async () => ({ agents: [] })),
+  api: vi.fn(async () => ({ agents: listed.agents })),
 }));
 
 afterEach(() => {
   cleanup();
+  listed.agents = [];
 });
 
 function agentRecord(overrides: Partial<Agent> = {}): Agent {
@@ -37,14 +40,27 @@ function setup(initial: Agent) {
   const openLightbox = vi.fn();
   const onOpenPath = vi.fn();
   const hook = renderHook(
-    ({ agent }: { agent: Agent }) =>
+    ({
+      agent,
+      agentNames,
+    }: {
+      agent: Agent;
+      agentNames?: Record<string, string>;
+    }) =>
       useChatFeedContext({
         agentId: agent.id,
         agent,
         openLightbox,
         onOpenPath,
+        agentNames,
       }),
-    { wrapper, initialProps: { agent: initial } }
+    {
+      wrapper,
+      initialProps: { agent: initial } as {
+        agent: Agent;
+        agentNames?: Record<string, string>;
+      },
+    }
   );
   return { ...hook, client, onOpenPath };
 }
@@ -68,5 +84,34 @@ describe("useChatFeedContext", () => {
     expect(result.current.ctx).not.toBe(ctx);
     expect(result.current.ctx.agentName).toBe("renamed");
     expect(result.current.ctx.onOpenPath).toBe(onOpenPath);
+  });
+
+  it("names an agent from the page's names when the directory has no row for it", () => {
+    const { result, rerender } = setup(agentRecord());
+    rerender({ agent: agentRecord(), agentNames: { agt_gone: "helper" } });
+    const { ctx } = result.current;
+    expect(agentDisplayName("agt_gone", ctx)).toBe("helper");
+    // Equal names in a fresh object, as every page refetch hands back,
+    // keep the context's identity: every row is memoised on it.
+    rerender({ agent: agentRecord(), agentNames: { agt_gone: "helper" } });
+    expect(result.current.ctx).toBe(ctx);
+  });
+
+  it("keeps the name of a peer archived while the feed is open", async () => {
+    listed.agents = [
+      agentRecord(),
+      agentRecord({ id: "agt_child", name: "helper", parentAgentId: "agt_1" }),
+    ];
+    const { result, client } = setup(agentRecord());
+    await waitFor(() =>
+      expect(agentDisplayName("agt_child", result.current.ctx)).toBe("helper")
+    );
+    // Archived: the agents list drops it before any page is fetched again.
+    listed.agents = [agentRecord()];
+    await act(() => client.refetchQueries({ queryKey: ["agents"] }));
+    await waitFor(() =>
+      expect(result.current.ctx.peers?.agt_child).toBeUndefined()
+    );
+    expect(agentDisplayName("agt_child", result.current.ctx)).toBe("helper");
   });
 });

@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import type { DriverEvent } from "../src/agents/acp/driver.js";
@@ -404,7 +412,12 @@ describe("StreamRecorder", () => {
   it("offers a retry on a turn that failed on a passing error, and not on one that needs something changed", async () => {
     const rec = new StreamRecorder(store);
     const fail = async (errorKind: string) => {
-      await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "x",
+      });
       await rec.handle({
         type: "turn",
         agentId: A,
@@ -659,13 +672,132 @@ describe("StreamRecorder interrupted turns", () => {
   });
 });
 
+describe("StreamRecorder deliberate stops", () => {
+  it("records a turn the stop tore down as stopped, not as the teardown's error", async () => {
+    const rec = new StreamRecorder(store);
+    const settled = vi.fn(async () => undefined);
+    rec.setTurnBlocks({ started: async () => "blk_s", settled });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    rec.beginStop(A);
+    // Closing the session fails the prompt in flight; the engine says so.
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      error: "Session closed",
+      errorKind: "unknown",
+    });
+    expect(await rec.settleStopped(A)).toBe(0);
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows).toHaveLength(1); // no status row for the teardown's error
+    expect(rows[0]!.payload).toMatchObject({
+      state: "settled",
+      error: "stopped",
+    });
+    expect(rows[0]!.payload).not.toHaveProperty("retry");
+    expect(rows[0]!.payload).not.toHaveProperty("errorKind");
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles what the stopped host left open as stopped, and its block with it", async () => {
+    const rec = new StreamRecorder(store);
+    const settled = vi.fn(async () => undefined);
+    rec.setTurnBlocks({ started: async () => "blk_t", settled });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    rec.beginStop(A);
+    expect(await rec.settleStopped(A)).toBe(1);
+    // The host's own settle, arriving after, writes nothing more.
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      error: "the agent exited before the turn settled",
+    });
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      code: null,
+      signal: "SIGTERM",
+      stderrTail: "",
+      expected: false,
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.payload).toMatchObject({
+      state: "settled",
+      error: "stopped",
+    });
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a turn the exit cut during a stop as stopped", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    rec.beginStop(A);
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      code: null,
+      signal: "SIGKILL",
+      stderrTail: "",
+      expected: false,
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.payload).toMatchObject({
+      state: "settled",
+      error: "stopped",
+    });
+  });
+
+  it("a stop does not outlive the next turn: a later failure is a failure", async () => {
+    const rec = new StreamRecorder(store);
+    rec.beginStop(A);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    expect(rec.isStopping(A)).toBe(false);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      error: "overloaded",
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0]!.payload).toMatchObject({ error: "overloaded" });
+  });
+});
+
 describe("turn blocks", () => {
   it("opens a block when a turn starts, keeps its id on the turn row, and settles it with the turn", async () => {
     const rec = new StreamRecorder(store);
     const started = vi.fn(async () => "blk_1");
     const settled = vi.fn(async () => undefined);
     rec.setTurnBlocks({ started, settled });
-    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
     expect(started).toHaveBeenCalledTimes(1);
     expect(started.mock.calls[0]![0]).toMatchObject({
       agentId: A,
@@ -673,7 +805,10 @@ describe("turn blocks", () => {
       turnRow: { kind: "turn" },
     });
     let rows = (await store.list(A, 10)).reverse();
-    expect(rows[0]!.payload).toMatchObject({ state: "started", blockId: "blk_1" });
+    expect(rows[0]!.payload).toMatchObject({
+      state: "started",
+      blockId: "blk_1",
+    });
     await rec.handle(chunk("hi"));
     await rec.handle({ type: "turn", agentId: A, state: "settled" });
     expect(settled).toHaveBeenCalledTimes(1);
@@ -682,13 +817,24 @@ describe("turn blocks", () => {
       turnRow: { kind: "turn", payload: { blockId: "blk_1" } },
     });
     rows = (await store.list(A, 10)).reverse();
-    expect(rows[0]!.payload).toMatchObject({ state: "settled", blockId: "blk_1" });
+    expect(rows[0]!.payload).toMatchObject({
+      state: "settled",
+      blockId: "blk_1",
+    });
   });
 
   it("settles the block of a turn a restart cut, from reconcile", async () => {
     const rec = new StreamRecorder(store);
-    rec.setTurnBlocks({ started: async () => "blk_2", settled: async () => undefined });
-    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    rec.setTurnBlocks({
+      started: async () => "blk_2",
+      settled: async () => undefined,
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
     const fresh = new StreamRecorder(store);
     const settled = vi.fn(async () => undefined);
     fresh.setTurnBlocks({ started: async () => null, settled });
@@ -702,7 +848,12 @@ describe("turn blocks", () => {
 
   it("records a turn with no block when nothing is attached", async () => {
     const rec = new StreamRecorder(store);
-    await rec.handle({ type: "turn", agentId: A, state: "started", text: "go" });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
     const rows = (await store.list(A, 10)).reverse();
     expect("blockId" in rows[0]!.payload).toBe(false);
   });

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -30,6 +30,8 @@ export type ChatFeedContextInput = {
   onRetryTurn?: FeedContext["onRetryTurn"];
   /** Must keep its identity while nothing retries: the rows memo on it. */
   retrying?: FeedContext["retrying"];
+  /** Names the feed's pages carry for the agents they mention. */
+  agentNames?: Readonly<Record<string, string>>;
 };
 
 export type ChatFeedContextResult = {
@@ -65,6 +67,7 @@ export function useChatFeedContext({
   onRetryDelivery,
   onRetryTurn,
   retrying,
+  agentNames,
 }: ChatFeedContextInput): ChatFeedContextResult {
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
@@ -93,6 +96,7 @@ export function useChatFeedContext({
   });
   const peers = directory?.peers;
   const agentSeat = directory?.seat ?? null;
+  const names = useKnownNames(peers, agentNames);
 
   const agentName = agent?.name;
   const agentType = agent?.type ?? null;
@@ -113,6 +117,7 @@ export function useChatFeedContext({
       modelLabel,
       ...(agentSeat != null ? { agentSeat } : {}),
       peers,
+      names,
       onOpenFile: openLightbox,
       onOpenPath,
       onToggleReaction,
@@ -141,8 +146,35 @@ export function useChatFeedContext({
       retrying,
       openLightbox,
       peers,
+      names,
     ]
   );
 
   return { ctx };
+}
+
+/**
+ * Every agent name this feed has known: the pages' names, and each peer the
+ * directory has listed. An agent archived while the feed is open drops out
+ * of the directory before any page is fetched again; its posts keep the name
+ * it had. The object keeps its identity until a name is added or changed,
+ * because every row is memoised on the context that carries it.
+ */
+function useKnownNames(
+  peers: PeerDirectory | undefined,
+  pageNames: Readonly<Record<string, string>> | undefined
+): Readonly<Record<string, string>> {
+  const known = useRef<Record<string, string>>({});
+  return useMemo(() => {
+    let next = known.current;
+    const learn = (id: string, name: string) => {
+      if (next[id] === name) return;
+      if (next === known.current) next = { ...next };
+      next[id] = name;
+    };
+    for (const [id, name] of Object.entries(pageNames ?? {})) learn(id, name);
+    for (const [id, peer] of Object.entries(peers ?? {})) learn(id, peer.name);
+    known.current = next;
+    return next;
+  }, [peers, pageNames]);
 }

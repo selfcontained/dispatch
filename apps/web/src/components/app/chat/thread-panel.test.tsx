@@ -21,7 +21,12 @@ import {
   turnBlock,
 } from "@/test-utils/blocks";
 
-import { groupReplies, ThreadPanel, threadTitle } from "./thread-panel";
+import {
+  groupReplies,
+  ThreadPanel,
+  threadTitle,
+  withThreadNames,
+} from "./thread-panel";
 
 const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api: apiMock }));
@@ -375,5 +380,27 @@ describe("threadTitle", () => {
     expect(threadTitle(root, false, () => "demo").subtitle).toBe(
       "demo: Question block. Pick a demo option; see docs."
     );
+  });
+});
+
+describe("withThreadNames", () => {
+  const base: FeedContext = {
+    agentId: "agt_1",
+    onOpenFile: () => {},
+    peers: {
+      agt_2: { name: "Reviewer", agentType: "codex", relation: "child" },
+    },
+  };
+
+  it("adds the thread's names for agents the feed cannot name", () => {
+    const ctx = withThreadNames(base, { agt_gone: "helper", agt_2: "old" });
+    expect(ctx.names).toEqual({ agt_gone: "helper" });
+  });
+
+  it("keeps the feed's context when the thread adds nothing", () => {
+    expect(withThreadNames(base, undefined)).toBe(base);
+    expect(withThreadNames(base, { agt_2: "Reviewer" })).toBe(base);
+    const named = { ...base, names: { agt_gone: "helper" } };
+    expect(withThreadNames(named, { agt_gone: "helper" })).toBe(named);
   });
 });

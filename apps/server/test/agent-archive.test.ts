@@ -131,6 +131,7 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     getAgent: vi.fn().mockResolvedValue(null),
     getRequiredAgent: vi.fn(),
     setAgentStatus: vi.fn().mockResolvedValue(undefined),
+    beginStopStream: vi.fn(),
     settleStream: vi.fn().mockResolvedValue(0),
     setArchivePhase: vi.fn().mockResolvedValue(undefined),
     ...overrides,

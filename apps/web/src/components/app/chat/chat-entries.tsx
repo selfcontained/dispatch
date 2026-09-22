@@ -137,6 +137,11 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
+  /**
+   * Names for agents the directory no longer lists (archived), from the
+   * page that mentions them. The directory wins when it has the agent.
+   */
+  names?: Readonly<Record<string, string>>;
   onOpenFile: (fileId: number) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;
@@ -230,15 +235,18 @@ export function peerAuthor(
 /**
  * Who a block reads as. A launch-context post made by another agent
  * (launch_agent) is that agent's, named from the agents list when it is
- * still there and "Agent" otherwise; every other user block is "You". An
+ * still there and from the page's names otherwise; every other user block is "You". An
  * agent block is this agent's, or a peer's when another agent wrote into
  * this stream.
  */
 export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
   if (block.author.kind === "agent") {
     if (block.author.agentId === ctx.agentId) return agentAuthor(ctx, "Agent");
-    const peer = ctx.peers?.[block.author.agentId];
-    return peerAuthor(block.author.agentId, peer?.name ?? "Agent", ctx);
+    return peerAuthor(
+      block.author.agentId,
+      peerName(block.author.agentId, ctx),
+      ctx
+    );
   }
   if (block.launchedByAgentId) {
     // The page's own agent launching a child reads as itself, not as an
@@ -246,16 +254,27 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     if (block.launchedByAgentId === ctx.agentId) {
       return agentAuthor(ctx, "Agent");
     }
-    const peer = ctx.peers?.[block.launchedByAgentId];
-    return peerAuthor(block.launchedByAgentId, peer?.name ?? "Agent", ctx);
+    return peerAuthor(
+      block.launchedByAgentId,
+      peerName(block.launchedByAgentId, ctx),
+      ctx
+    );
   }
   return userAuthor();
+}
+
+/**
+ * Another agent's name: from the live directory, else from the page (an
+ * archived agent keeps its name), else "Agent".
+ */
+function peerName(agentId: string, ctx: FeedContext): string {
+  return ctx.peers?.[agentId]?.name ?? ctx.names?.[agentId] ?? "Agent";
 }
 
 /** An agent's name as this feed knows it: the page's agent, a peer, or "Agent". */
 export function agentDisplayName(agentId: string, ctx: FeedContext): string {
   if (agentId === ctx.agentId) return ctx.agentName || "Agent";
-  return ctx.peers?.[agentId]?.name ?? "Agent";
+  return peerName(agentId, ctx);
 }
 
 /**
