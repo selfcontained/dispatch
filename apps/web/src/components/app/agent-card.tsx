@@ -30,7 +30,7 @@ type AgentCardNativeDragHandlers = Partial<{
   drop: (event: DragEvent) => void;
 }>;
 
-type AgentCardContainerProps = {
+export type AgentCardContainerProps = {
   "aria-describedby"?: string;
   className?: string;
   draggable?: boolean;
@@ -66,7 +66,7 @@ export type AgentCardProps = {
   containerProps?: AgentCardContainerProps;
 };
 
-export function AgentCard({
+function AgentCardImpl({
   agent,
   agents,
   childAgents,
@@ -290,3 +290,9 @@ export function AgentCard({
     </React.Fragment>
   );
 }
+
+/**
+ * Memoised: a card re-renders when its own agent or props change, not every
+ * time the page holding the sidebar does.
+ */
+export const AgentCard = React.memo(AgentCardImpl);

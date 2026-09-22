@@ -30,6 +30,52 @@ const open: Trace = {
 const done: Trace = { ...open, endedAt: at + 1000, finalResult: "ok" };
 afterEach(cleanup);
 
+describe("ActivityBlock rail", () => {
+  const ran: Trace = {
+    ...open,
+    steps: [
+      {
+        ...open.steps[0],
+        kind: "execute",
+        detail: { input: { command: "pnpm test" }, terminalOutput: "Passed" },
+      },
+    ],
+  };
+
+  // Queried from the DOM, not by role: a closed rail is aria-hidden, so a
+  // role query would miss rows that are rendered but hidden.
+  const rail = () => document.querySelector('[aria-label="activity steps"]');
+
+  it("renders no step rows while the rail is closed", async () => {
+    render(<ActivityBlock trace={ran} />);
+    expect(rail()).toBeNull();
+
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    expect(screen.getByRole("button", { name: /completed/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    await waitFor(() => expect(rail()).toBeNull());
+  });
+
+  it("keeps a step's detail open across closing and reopening the rail", async () => {
+    render(<ActivityBlock trace={ran} />);
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    fireEvent.click(screen.getByRole("button", { name: /completed/ }));
+    expect(screen.getByText("Passed")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    await waitFor(() => expect(rail()).toBeNull());
+
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    expect(
+      screen
+        .getByRole("button", { name: /completed/ })
+        .getAttribute("aria-expanded")
+    ).toBe("true");
+    expect(screen.getByText("Passed")).toBeTruthy();
+  });
+});
+
 describe("ActivityBlock settle", () => {
   it("does not toggle step details as the stream progresses", () => {
     const step = {

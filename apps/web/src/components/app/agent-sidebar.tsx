@@ -1,7 +1,10 @@
 import { ChevronDown } from "lucide-react";
 import { useAtom } from "jotai";
 
-import { AgentCard } from "@/components/app/agent-card";
+import {
+  AgentCard,
+  type AgentCardContainerProps,
+} from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -22,6 +25,12 @@ import {
 import { type IdeType } from "@/lib/ide-types";
 import { agentSidebarOrderAtom, reconcileAgentSidebarOrder } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+function dropPositionForEvent(event: DragEvent): "before" | "after" {
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+}
 
 /** Stable identity so a card with no sub agents does not re-render on every list change. */
 const EMPTY_AGENTS: Agent[] = [];
@@ -118,30 +127,33 @@ export function AgentListContent({
       .filter((agent): agent is Agent => Boolean(agent));
   }, [agentSidebarOrder, topLevelAgentIds, topLevelAgents]);
 
-  const moveAgent = (
-    draggedAgentId: string,
-    targetAgentId: string,
-    position: "before" | "after"
-  ) => {
-    if (draggedAgentId === targetAgentId) return;
-    setAgentSidebarOrder((currentOrder) => {
-      const reconciledOrder = reconcileAgentSidebarOrder(
-        currentOrder,
-        topLevelAgentIds
-      );
-      const nextOrder = reconciledOrder.filter(
-        (agentId) => agentId !== draggedAgentId
-      );
-      const targetIndex = nextOrder.indexOf(targetAgentId);
-      if (targetIndex === -1) return reconciledOrder;
-      nextOrder.splice(
-        position === "after" ? targetIndex + 1 : targetIndex,
-        0,
-        draggedAgentId
-      );
-      return nextOrder;
-    });
-  };
+  const moveAgent = useCallback(
+    (
+      draggedAgentId: string,
+      targetAgentId: string,
+      position: "before" | "after"
+    ) => {
+      if (draggedAgentId === targetAgentId) return;
+      setAgentSidebarOrder((currentOrder) => {
+        const reconciledOrder = reconcileAgentSidebarOrder(
+          currentOrder,
+          topLevelAgentIds
+        );
+        const nextOrder = reconciledOrder.filter(
+          (agentId) => agentId !== draggedAgentId
+        );
+        const targetIndex = nextOrder.indexOf(targetAgentId);
+        if (targetIndex === -1) return reconciledOrder;
+        nextOrder.splice(
+          position === "after" ? targetIndex + 1 : targetIndex,
+          0,
+          draggedAgentId
+        );
+        return nextOrder;
+      });
+    },
+    [setAgentSidebarOrder, topLevelAgentIds]
+  );
 
   const moveAgentToBoundary = (
     draggedAgentId: string,
@@ -165,34 +177,37 @@ export function AgentListContent({
     });
   };
 
-  const moveAgentByOffset = (agent: Agent, offset: -1 | 1) => {
-    setAgentSidebarOrder((currentOrder) => {
-      const reconciledOrder = reconcileAgentSidebarOrder(
-        currentOrder,
-        topLevelAgentIds
-      );
-      const currentIndex = reconciledOrder.indexOf(agent.id);
-      const nextIndex = currentIndex + offset;
-      if (
-        currentIndex === -1 ||
-        nextIndex < 0 ||
-        nextIndex >= reconciledOrder.length
-      ) {
-        return reconciledOrder;
-      }
-      const nextOrder = [...reconciledOrder];
-      [nextOrder[currentIndex], nextOrder[nextIndex]] = [
-        nextOrder[nextIndex],
-        nextOrder[currentIndex],
-      ];
-      setReorderAnnouncement(
-        `${agent.name} moved ${offset < 0 ? "up" : "down"} to position ${
-          nextIndex + 1
-        } of ${reconciledOrder.length}.`
-      );
-      return nextOrder;
-    });
-  };
+  const moveAgentByOffset = useCallback(
+    (agent: Agent, offset: -1 | 1) => {
+      setAgentSidebarOrder((currentOrder) => {
+        const reconciledOrder = reconcileAgentSidebarOrder(
+          currentOrder,
+          topLevelAgentIds
+        );
+        const currentIndex = reconciledOrder.indexOf(agent.id);
+        const nextIndex = currentIndex + offset;
+        if (
+          currentIndex === -1 ||
+          nextIndex < 0 ||
+          nextIndex >= reconciledOrder.length
+        ) {
+          return reconciledOrder;
+        }
+        const nextOrder = [...reconciledOrder];
+        [nextOrder[currentIndex], nextOrder[nextIndex]] = [
+          nextOrder[nextIndex],
+          nextOrder[currentIndex],
+        ];
+        setReorderAnnouncement(
+          `${agent.name} moved ${offset < 0 ? "up" : "down"} to position ${
+            nextIndex + 1
+          } of ${reconciledOrder.length}.`
+        );
+        return nextOrder;
+      });
+    },
+    [setAgentSidebarOrder, topLevelAgentIds]
+  );
 
   const clearDragState = useCallback(() => {
     setDraggingAgentId(null);
@@ -209,11 +224,120 @@ export function AgentListContent({
     };
   }, [clearDragState, draggingAgentId]);
 
-  const dropPositionForEvent = (event: DragEvent): "before" | "after" => {
-    const target = event.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
-  };
+  // One props object per card, rebuilt only when the list or a drag changes,
+  // so a memoised card is not re-rendered by a fresh object every render.
+  const containerPropsById = useMemo(
+    () =>
+      new Map(
+        orderedTopLevelAgents.map(
+          (agent): [string, AgentCardContainerProps] => [
+            agent.id,
+            {
+              draggable: true,
+              tabIndex: 0,
+              "aria-describedby": "agent-sidebar-reorder-instructions",
+              onKeyDown: (event) => {
+                if (event.target !== event.currentTarget) return;
+                if (!event.altKey) return;
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveAgentByOffset(agent, -1);
+                } else if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  moveAgentByOffset(agent, 1);
+                }
+              },
+              className: cn(
+                "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                draggingAgentId === agent.id && "opacity-55",
+                dropTarget?.agentId === agent.id &&
+                  dropTarget.position === "before" &&
+                  draggingAgentId !== agent.id &&
+                  "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
+                dropTarget?.agentId === agent.id &&
+                  dropTarget.position === "after" &&
+                  draggingAgentId !== agent.id &&
+                  "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
+              ),
+              nativeDragHandlers: {
+                dragstart: (event) => {
+                  const target = event.target as HTMLElement;
+                  if (
+                    target.closest(
+                      "button,a,input,textarea,select,[data-agent-control='true']"
+                    )
+                  ) {
+                    event.preventDefault();
+                    return;
+                  }
+                  if (!event.dataTransfer) return;
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", agent.id);
+                  setDraggingAgentId(agent.id);
+                },
+                dragenter: (event) => {
+                  event.preventDefault();
+                  if (!draggingAgentId || draggingAgentId === agent.id) {
+                    return;
+                  }
+                  setDropTarget({
+                    agentId: agent.id,
+                    position: dropPositionForEvent(event),
+                  });
+                },
+                dragover: (event) => {
+                  if (!draggingAgentId || draggingAgentId === agent.id) {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = "move";
+                  }
+                  setDropTarget({
+                    agentId: agent.id,
+                    position: dropPositionForEvent(event),
+                  });
+                },
+                dragleave: (event) => {
+                  if (
+                    (event.currentTarget as HTMLElement).contains(
+                      event.relatedTarget as Node | null
+                    )
+                  ) {
+                    return;
+                  }
+                  setDropTarget((current) =>
+                    current?.agentId === agent.id ? null : current
+                  );
+                },
+                drop: (event) => {
+                  event.preventDefault();
+                  const draggedAgentId =
+                    event.dataTransfer?.getData("text/plain") ||
+                    draggingAgentId;
+                  if (draggedAgentId) {
+                    moveAgent(
+                      draggedAgentId,
+                      agent.id,
+                      dropPositionForEvent(event)
+                    );
+                  }
+                  clearDragState();
+                },
+              },
+            },
+          ]
+        )
+      ),
+    [
+      clearDragState,
+      draggingAgentId,
+      dropTarget,
+      moveAgent,
+      moveAgentByOffset,
+      orderedTopLevelAgents,
+    ]
+  );
 
   const handleBoundaryDragOver = (
     event: React.DragEvent<HTMLDivElement>,
@@ -350,100 +474,7 @@ export function AgentListContent({
                   connectedAgentId={connectedAgentId}
                   onRequestClose={onRequestClose}
                   closeOnSessionAction={closeOnSessionAction}
-                  containerProps={{
-                    draggable: true,
-                    tabIndex: 0,
-                    "aria-describedby": "agent-sidebar-reorder-instructions",
-                    onKeyDown: (event) => {
-                      if (event.target !== event.currentTarget) return;
-                      if (!event.altKey) return;
-                      if (event.key === "ArrowUp") {
-                        event.preventDefault();
-                        moveAgentByOffset(agent, -1);
-                      } else if (event.key === "ArrowDown") {
-                        event.preventDefault();
-                        moveAgentByOffset(agent, 1);
-                      }
-                    },
-                    className: cn(
-                      "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                      draggingAgentId === agent.id && "opacity-55",
-                      dropTarget?.agentId === agent.id &&
-                        dropTarget.position === "before" &&
-                        draggingAgentId !== agent.id &&
-                        "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
-                      dropTarget?.agentId === agent.id &&
-                        dropTarget.position === "after" &&
-                        draggingAgentId !== agent.id &&
-                        "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
-                    ),
-                    nativeDragHandlers: {
-                      dragstart: (event) => {
-                        const target = event.target as HTMLElement;
-                        if (
-                          target.closest(
-                            "button,a,input,textarea,select,[data-agent-control='true']"
-                          )
-                        ) {
-                          event.preventDefault();
-                          return;
-                        }
-                        if (!event.dataTransfer) return;
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", agent.id);
-                        setDraggingAgentId(agent.id);
-                      },
-                      dragenter: (event) => {
-                        event.preventDefault();
-                        if (!draggingAgentId || draggingAgentId === agent.id) {
-                          return;
-                        }
-                        setDropTarget({
-                          agentId: agent.id,
-                          position: dropPositionForEvent(event),
-                        });
-                      },
-                      dragover: (event) => {
-                        if (!draggingAgentId || draggingAgentId === agent.id) {
-                          return;
-                        }
-                        event.preventDefault();
-                        if (event.dataTransfer) {
-                          event.dataTransfer.dropEffect = "move";
-                        }
-                        setDropTarget({
-                          agentId: agent.id,
-                          position: dropPositionForEvent(event),
-                        });
-                      },
-                      dragleave: (event) => {
-                        if (
-                          (event.currentTarget as HTMLElement).contains(
-                            event.relatedTarget as Node | null
-                          )
-                        ) {
-                          return;
-                        }
-                        setDropTarget((current) =>
-                          current?.agentId === agent.id ? null : current
-                        );
-                      },
-                      drop: (event) => {
-                        event.preventDefault();
-                        const draggedAgentId =
-                          event.dataTransfer?.getData("text/plain") ||
-                          draggingAgentId;
-                        if (draggedAgentId) {
-                          moveAgent(
-                            draggedAgentId,
-                            agent.id,
-                            dropPositionForEvent(event)
-                          );
-                        }
-                        clearDragState();
-                      },
-                    },
-                  }}
+                  containerProps={containerPropsById.get(agent.id)}
                 />
               ))}
               <div

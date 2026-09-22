@@ -7,8 +7,9 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import type { StreamEntry } from "@dispatch/shared";
 
+import type { Step } from "@/components/app/chat/turn/contracts";
 import { turnLabelFromSteps } from "@/components/app/chat/turn/registry";
-import { isTurnEntry, turnStep } from "@/components/app/chat/turn/trace";
+import { isTurnEntry } from "@/components/app/chat/turn/trace";
 
 function turnLabelQueryKey(agentId: string) {
   return ["agent-turn-label", agentId] as const;
@@ -21,9 +22,22 @@ export function recordTurnLabel(
 ): void {
   if (!isTurnEntry(entry)) return;
   const turn = entry.block.turn;
+  // The verb reads only what each step is and touched, so the steps are
+  // not converted in full (times parsed, children walked) on every event.
   const label = turn.settled
     ? null
-    : (turnLabelFromSteps(turn.trace.steps.map(turnStep)) ?? null);
+    : (turnLabelFromSteps(
+        turn.trace.steps.map(
+          (step): Step => ({
+            id: step.id,
+            kind: step.kind,
+            label: step.label,
+            status: step.status,
+            startedAt: 0,
+            detail: step.detail,
+          })
+        )
+      ) ?? null);
   queryClient.setQueryData<string | null>(
     turnLabelQueryKey(turn.agentId),
     label
