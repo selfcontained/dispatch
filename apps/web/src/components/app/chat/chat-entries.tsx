@@ -1437,7 +1437,7 @@ export const BlockView = memo(function BlockView({
           </div>
         ) : null}
         {body}
-        <AttachmentList attachments={block.attachments} ctx={ctx} />
+        <AttachmentList block={block} ctx={ctx} />
         <DeliveryMeta block={block} ctx={ctx} />
         <ReactionBar
           reactions={reactions}
@@ -1502,7 +1502,7 @@ export const BlockView = memo(function BlockView({
         <Markdown>{block.text}</Markdown>
       ) : null}
       {body}
-      <AttachmentList attachments={block.attachments} ctx={ctx} />
+      <AttachmentList block={block} ctx={ctx} />
       <DeliveryMeta block={block} ctx={ctx} />
       <ReactionBar
         reactions={reactions}

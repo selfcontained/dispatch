@@ -1318,6 +1318,81 @@ describe("ChatFeed", () => {
     );
   });
 
+  it("serves another agent's image from the agent that owns it, not the page's agent", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "kid-shot",
+            author: { kind: "agent", agentId: "agt_2" },
+            attachments: [
+              {
+                type: "file",
+                fileId: 11,
+                fileName: "kid.png",
+                sizeBytes: 512,
+                mimeType: "image/png",
+                ownerAgentId: "agt_2",
+              },
+            ],
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const image = screen.getByTestId("chat-attachment-image");
+    expect(image.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/v1/agents/agt_2/files/kid.png"
+    );
+  });
+
+  it("finds the owner of an attachment stored without one from its post", () => {
+    renderFeed(
+      [
+        // An agent's post holds its own files.
+        blockEntry(
+          block({
+            id: "old-kid",
+            author: { kind: "agent", agentId: "agt_2" },
+            attachments: [
+              fileAttachment({
+                fileId: 12,
+                fileName: "old-kid.png",
+                sizeBytes: 512,
+              }),
+            ],
+          })
+        ),
+        // A person's post holds the files of the agent it was sent to.
+        blockEntry(
+          block({
+            id: "old-user",
+            authorKind: "user",
+            toAgentId: "agt_2",
+            createdAt: "2026-09-02T10:01:00.000Z",
+            attachments: [
+              fileAttachment({
+                fileId: 13,
+                fileName: "old-user.png",
+                sizeBytes: 512,
+              }),
+            ],
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const sources = screen
+      .getAllByTestId("chat-attachment-image")
+      .map((image) => image.querySelector("img")?.getAttribute("src"));
+    expect(sources).toEqual([
+      "/api/v1/agents/agt_2/files/old-kid.png",
+      "/api/v1/agents/agt_2/files/old-user.png",
+    ]);
+  });
+
   it("renders every attachment type", () => {
     const { onOpenFile } = renderFeed([
       blockEntry(

@@ -144,7 +144,7 @@ function FoldedBlock({
         <div className="text-xs text-muted-foreground">{block.text}</div>
       ) : null}
       {block.kind === "link" ? <LinkBlockBody block={block} /> : null}
-      <AttachmentList attachments={block.attachments} ctx={ctx} />
+      <AttachmentList block={block} ctx={ctx} />
     </div>
   );
 }
@@ -197,7 +197,7 @@ function SentTo({
           {block.text}
         </div>
       ) : null}
-      <AttachmentList attachments={block.attachments} ctx={ctx} />
+      <AttachmentList block={block} ctx={ctx} />
     </div>
   );
 }
