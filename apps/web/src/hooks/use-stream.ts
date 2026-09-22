@@ -306,7 +306,10 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
  */
 export function useStreamFeedSelect<T>(
   rootId: string | null,
-  select: (entries: StreamEntry[], openInputs: readonly Block[]) => T
+  select: (
+    entries: StreamEntry[],
+    across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
+  ) => T
 ): { data: T | undefined; isLoading: boolean } {
   const query = useInfiniteQuery<
     StreamFeedResponse,
@@ -317,7 +320,10 @@ export function useStreamFeedSelect<T>(
   >({
     ...feedQueryOptions(rootId),
     select: (data) =>
-      select(flattenFeedPages(data.pages), data.pages[0]?.openInputs ?? []),
+      select(flattenFeedPages(data.pages), {
+        openInputs: data.pages[0]?.openInputs ?? [],
+        threadLinks: data.pages[0]?.threadLinks ?? [],
+      }),
   });
   return { data: query.data, isLoading: query.isLoading };
 }
@@ -413,32 +419,70 @@ function removeThreadReplyObject(
   return { ...thread, replies: thread.replies.filter((r) => r !== target) };
 }
 
+/** A block that carries a link or a pull request, as the Inbox lists them. */
+function carriesLink(block: Block): boolean {
+  return (
+    block.kind === "link" ||
+    block.attachments.some((a) => a.type === "link" || a.type === "pr")
+  );
+}
+
+/** Put a block in a list by id (or take it out), keeping the list's order. */
+function upsertListed(
+  list: readonly Block[],
+  block: Block,
+  keep: boolean,
+  at: "start" | "end"
+): Block[] | null {
+  const index = list.findIndex((b) => b.id === block.id);
+  if (!keep && index === -1) return null;
+  const next = list.slice();
+  if (!keep) next.splice(index, 1);
+  else if (index !== -1) next[index] = block;
+  else if (at === "start") next.unshift(block);
+  else next.push(block);
+  return next;
+}
+
 /**
- * Keep the first page's open asks in step with a block that changed: an
- * agent's question or form for people joins while it is open and leaves
- * once answered, wherever in the stream it was asked.
+ * Keep what the first page carries from across the stream in step with a
+ * block that changed: an agent's question or form for people is listed
+ * while it is open and leaves once answered, and a post in a thread that
+ * carries a link joins the thread links — wherever in the stream either
+ * was posted.
  */
-export function syncOpenInput(
+export function syncAcrossStream(
   cache: FeedCache | undefined,
   block: Block
 ): FeedCache | undefined {
   const first = cache?.pages[0];
   if (!cache || !first) return cache;
-  const list = first.openInputs ?? [];
   const open =
     block.author.kind === "agent" &&
     block.toAgentId === null &&
     ((block.kind === "question" && block.state?.answer === undefined) ||
       (block.kind === "form" && block.state?.submission === undefined));
-  const index = list.findIndex((b) => b.id === block.id);
-  if (!open && index === -1) return cache;
-  const next = list.slice();
-  if (!open) next.splice(index, 1);
-  else if (index === -1) next.push(block);
-  else next[index] = block;
+  const inputs = upsertListed(first.openInputs ?? [], block, open, "end");
+  const links =
+    block.threadId !== null
+      ? upsertListed(
+          first.threadLinks ?? [],
+          block,
+          carriesLink(block),
+          "start"
+        )
+      : null;
+  if (!inputs && !links) return cache;
   return {
     ...cache,
-    pages: [{ ...first, openInputs: next }, ...cache.pages.slice(1)],
+    pages: [
+      {
+        ...first,
+        ...(inputs ? { openInputs: inputs } : {}),
+        ...(links ? { threadLinks: links } : {}),
+      },
+      ...cache.pages.slice(1),
+    ],
   };
 }
 

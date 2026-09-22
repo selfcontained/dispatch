@@ -30,6 +30,9 @@ const ID = {
   general: "10000000-0000-4000-8000-00000000000a",
   askOnF2: "10000000-0000-4000-8000-00000000000b",
   turn: "10000000-0000-4000-8000-00000000000c",
+  answerOnF2: "10000000-0000-4000-8000-00000000000d",
+  followUpOnF2: "10000000-0000-4000-8000-00000000000e",
+  taggedElsewhere: "10000000-0000-4000-8000-00000000000f",
 };
 
 const STARTUP = {
@@ -269,6 +272,45 @@ beforeAll(async () => {
     delivered: true,
     at: at(11),
   });
+  // The old answer path wrote the answer untagged, replying to the
+  // question in the review's thread; a follow-up to it, untagged too, and
+  // one that named another finding outright.
+  await insert({
+    id: ID.answerOnF2,
+    stream: PARENT,
+    authorKind: "user",
+    to: CHILD,
+    threadId: ID.review,
+    replyTo: ID.askOnF2,
+    text: "foo",
+    delivered: true,
+    at: at(11),
+  });
+  await insert({
+    id: ID.followUpOnF2,
+    stream: PARENT,
+    authorKind: "agent",
+    author: CHILD,
+    to: PARENT,
+    threadId: ID.review,
+    replyTo: ID.answerOnF2,
+    text: "Renamed.",
+    delivered: true,
+    at: at(11),
+  });
+  await insert({
+    id: ID.taggedElsewhere,
+    stream: PARENT,
+    authorKind: "agent",
+    author: PARENT,
+    to: CHILD,
+    threadId: ID.review,
+    replyTo: ID.answerOnF2,
+    text: "Same goes for the guard.",
+    data: { findingId: "f1" },
+    delivered: true,
+    at: at(11),
+  });
   // A text row that carried a startup record alongside its own data.
   await insert({
     id: ID.turn,
@@ -425,6 +467,20 @@ describe("migration 0005: launch cards and findings", () => {
       thread_id: f2,
       reply_to: f2,
       data: { options: [{ label: "foo" }] },
+    });
+    // An untagged answer to a question about f2, and a follow-up to that,
+    // go with it; a reply tagged with another finding goes to that one.
+    expect(await row(ID.answerOnF2)).toMatchObject({
+      thread_id: f2,
+      reply_to: ID.askOnF2,
+    });
+    expect(await row(ID.followUpOnF2)).toMatchObject({
+      thread_id: f2,
+      reply_to: ID.answerOnF2,
+    });
+    expect(await row(ID.taggedElsewhere)).toMatchObject({
+      thread_id: f1,
+      data: null,
     });
     // A comment about no finding stays in the review's thread.
     expect(await row(ID.general)).toMatchObject({

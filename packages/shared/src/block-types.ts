@@ -395,6 +395,11 @@ export type StreamFeedResponse = {
    */
   openInputs?: Block[];
   /**
+   * First page only: the newest posts in threads that carry a link or a pull
+   * request, newest first — a child's work lands in its own thread.
+   */
+  threadLinks?: Block[];
+  /**
    * The name of every agent this page's blocks mention, archived agents
    * included: the agents list leaves those out, and their posts keep their
    * names. The live directory is preferred; this is the fallback. Always

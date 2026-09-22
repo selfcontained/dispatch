@@ -19,7 +19,7 @@ import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
   applyStreamRead,
   bumpReplyCount,
-  syncOpenInput,
+  syncAcrossStream,
   type FeedCache,
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
@@ -175,7 +175,7 @@ export function applyStreamEntry(
       (old) => replaceThreadRoot(old, reply)
     );
     queryClient.setQueryData<FeedCache>(key, (old) =>
-      syncOpenInput(bumpReplyCount(old, reply), reply)
+      syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
     return;
   }
@@ -193,7 +193,7 @@ export function applyStreamEntry(
     return;
   }
   const result = upsertFeedEntry(
-    syncOpenInput(state.data, entry.block)!,
+    syncAcrossStream(state.data, entry.block)!,
     entry
   );
   if (!result.placed) {

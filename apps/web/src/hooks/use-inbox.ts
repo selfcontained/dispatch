@@ -82,7 +82,8 @@ export function deriveInbox(
   entries: readonly StreamEntry[],
   agentId: string | null,
   rootId: string | null,
-  openInputs: readonly Block[] = []
+  openInputs: readonly Block[] = [],
+  threadLinks: readonly Block[] = []
 ): Pick<Inbox, "inputs" | "links" | "reviews"> {
   const own = (block: Block) =>
     agentId === null ||
@@ -124,7 +125,13 @@ export function deriveInbox(
     reviewStatus(reviewFindings(review)) === "resolved";
   reviews.sort((a, b) => Number(settled(a)) - Number(settled(b)));
   reviews.length = Math.min(reviews.length, REVIEWS_MAX);
-  const recent = blocks.slice(-LINKS_WINDOW);
+  // A child's links are posted in its own thread, which the feed does not
+  // list; the first page carries the newest of those. Newest first, all
+  // together.
+  const recent = [
+    ...blocks.slice(-LINKS_WINDOW),
+    ...threadLinks.filter((block) => own(block)),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   for (let i = recent.length - 1; i >= 0 && links.length < LINKS_MAX; i--) {
     for (const link of linksOf(recent[i]!)) {
       if (seen.has(link.url)) continue;
@@ -148,8 +155,17 @@ export function useInbox(agentId: string | null): Inbox {
   // Selected, not read whole: the page that holds the Inbox re-renders only
   // when the Inbox changes, not on every step of every turn in the stream.
   const select = useCallback(
-    (entries: StreamEntry[], openInputs: readonly Block[]) =>
-      deriveInbox(entries, agentId, rootId, openInputs),
+    (
+      entries: StreamEntry[],
+      across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
+    ) =>
+      deriveInbox(
+        entries,
+        agentId,
+        rootId,
+        across.openInputs,
+        across.threadLinks
+      ),
     [agentId, rootId]
   );
   const feed = useStreamFeedSelect(rootId, select);

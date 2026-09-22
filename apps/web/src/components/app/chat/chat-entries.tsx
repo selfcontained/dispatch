@@ -1031,7 +1031,7 @@ function ShownBlocks({
   answersDisabled: boolean;
   onAnswer: (blockId: string, option: BlockOption) => void;
 }): JSX.Element | null {
-  // A review draws its own findings; everything else it shows would too.
+  // A review's body is the list of its findings: it draws what it shows.
   if (block.kind === "review") return null;
   const shown = block.blocks ?? [];
   if (shown.length === 0) return null;
@@ -1044,9 +1044,9 @@ function ShownBlocks({
           data-block-id={item.id}
           data-kind={item.kind}
         >
-          {item.text && item.kind !== "review" ? (
-            <Markdown>{item.text}</Markdown>
-          ) : null}
+          {/* The shown block's own content, all of it: its words, its kind's
+              body, its attachments, and the blocks it shows in turn. */}
+          {item.text ? <Markdown>{item.text}</Markdown> : null}
           <BlockBody
             block={item}
             ctx={ctx}
@@ -1057,6 +1057,16 @@ function ShownBlocks({
             inThread={inThread}
             threadRootId={threadRootId}
             highlightFindingId={highlightFindingId}
+          />
+          <AttachmentList block={item} ctx={ctx} />
+          <ShownBlocks
+            block={item}
+            ctx={ctx}
+            inThread={inThread}
+            threadRootId={threadRootId}
+            highlightFindingId={highlightFindingId}
+            answersDisabled={answersDisabled}
+            onAnswer={onAnswer}
           />
         </div>
       ))}

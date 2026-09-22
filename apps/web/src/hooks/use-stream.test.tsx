@@ -44,7 +44,7 @@ import {
   shareFeedCache,
   showsBlock,
   streamFeedQueryKey,
-  syncOpenInput,
+  syncAcrossStream,
   threadQueryKey,
   updateBlockReactions,
   upsertFeedEntry,
@@ -605,7 +605,7 @@ describe("shown blocks", () => {
   });
 });
 
-describe("syncOpenInput", () => {
+describe("syncAcrossStream", () => {
   const cache = (openInputs?: Block[]): FeedCache => ({
     pageParams: [undefined, "c1"],
     pages: [
@@ -629,26 +629,54 @@ describe("syncOpenInput", () => {
 
   it("adds an agent's open question asked anywhere, replaces it, and drops it once answered", () => {
     const empty = cache();
-    const added = syncOpenInput(empty, ask())!;
+    const added = syncAcrossStream(empty, ask())!;
     expect(added.pages[0]!.openInputs!.map((b) => b.id)).toEqual(["q1"]);
     // Only the first page carries the list.
     expect(added.pages[1]).toBe(empty.pages[1]);
     const edited = { ...ask(), text: "Still?" };
-    const replaced = syncOpenInput(added, edited)!;
+    const replaced = syncAcrossStream(added, edited)!;
     expect(replaced.pages[0]!.openInputs).toEqual([edited]);
-    const gone = syncOpenInput(replaced, ask(answered("Yes")))!;
+    const gone = syncAcrossStream(replaced, ask(answered("Yes")))!;
     expect(gone.pages[0]!.openInputs).toEqual([]);
+  });
+
+  it("puts a post with a link in a thread at the head of the thread links, and leaves top-level posts to the feed", () => {
+    const empty = cache();
+    const linked = block({
+      id: "p1",
+      threadId: "card",
+      replyTo: "card",
+      text: "PR up",
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+    });
+    const added = syncAcrossStream(empty, linked)!;
+    expect(added.pages[0]!.threadLinks).toEqual([linked]);
+    const older = block({
+      id: "p0",
+      threadId: "card",
+      replyTo: "card",
+      attachments: [{ type: "link", url: "https://example.com" }],
+    });
+    expect(
+      syncAcrossStream(added, older)!.pages[0]!.threadLinks!.map((b) => b.id)
+    ).toEqual(["p0", "p1"]);
+    // A top-level post is a row of the feed already.
+    expect(
+      syncAcrossStream(empty, { ...linked, threadId: null, replyTo: null })
+    ).toBe(empty);
   });
 
   it("leaves the cache alone for anything that is not an open ask", () => {
     const empty = cache();
-    expect(syncOpenInput(empty, block({ id: "t1" }))).toBe(empty);
-    expect(syncOpenInput(empty, ask(answered("Yes")))).toBe(empty);
+    expect(syncAcrossStream(empty, block({ id: "t1" }))).toBe(empty);
+    expect(syncAcrossStream(empty, ask(answered("Yes")))).toBe(empty);
     // A question an agent put to another agent is not for people.
-    expect(syncOpenInput(empty, { ...ask(), toAgentId: "agt_2" })).toBe(empty);
+    expect(syncAcrossStream(empty, { ...ask(), toAgentId: "agt_2" })).toBe(
+      empty
+    );
     // A person's post is never an ask.
     expect(
-      syncOpenInput(empty, {
+      syncAcrossStream(empty, {
         ...ask(),
         author: { kind: "user" },
       })
@@ -658,9 +686,9 @@ describe("syncOpenInput", () => {
       id: "form1",
       body: formBody([{ id: "a", label: "A", type: "text" }]),
     });
-    expect(syncOpenInput(empty, form)!.pages[0]!.openInputs).toEqual([form]);
+    expect(syncAcrossStream(empty, form)!.pages[0]!.openInputs).toEqual([form]);
     expect(
-      syncOpenInput(
+      syncAcrossStream(
         cache([form]),
         block({
           id: "form1",
@@ -670,7 +698,7 @@ describe("syncOpenInput", () => {
         })
       )!.pages[0]!.openInputs
     ).toEqual([]);
-    expect(syncOpenInput(undefined, ask())).toBeUndefined();
+    expect(syncAcrossStream(undefined, ask())).toBeUndefined();
   });
 });
 

@@ -542,6 +542,7 @@ describe("composeStreamFeed", () => {
       nextCursor: null,
       unreadCount: 0,
       openInputs: [],
+      threadLinks: [],
       agentNames: {},
     });
   });
@@ -607,6 +608,8 @@ describe("composeStreamFeed", () => {
     const feed = await composeStreamFeed(store, A);
     expect(feed.openInputs?.map((b) => b.id)).toEqual([q1.id, inThread.id]);
     expect(feed.openInputs?.map((b) => b.id)).not.toContain(answered.id);
+    // An archived agent named only by an ask in a thread is still named.
+    expect(feed.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
     // A later page leaves them to the first.
     const first = await composeStreamFeed(store, A, { limit: 1 });
     expect(first.openInputs).toHaveLength(2);
@@ -615,6 +618,45 @@ describe("composeStreamFeed", () => {
       cursor: decodeFeedCursor(first.nextCursor!),
     });
     expect("openInputs" in paged).toBe(false);
+  });
+
+  it("lists the newest posts with links in threads on the first page", async () => {
+    const top = await store.insert({ streamId: A, author: USER, text: "Hi" });
+    const pr = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      threadId: top.id,
+      replyTo: top.id,
+      text: "PR up",
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+    });
+    await stamp(pr.id, at(1));
+    const card = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      kind: "link",
+      threadId: top.id,
+      replyTo: top.id,
+      data: { url: "https://example.com/dev" },
+    });
+    await stamp(card.id, at(2));
+    // No link, or top-level (the feed lists it): not a thread link.
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      threadId: top.id,
+      replyTo: top.id,
+      text: "Plain",
+    });
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "Top",
+      attachments: [{ type: "link", url: "https://example.com/top" }],
+    });
+    const feed = await composeStreamFeed(store, A);
+    expect(feed.threadLinks?.map((b) => b.id)).toEqual([card.id, pr.id]);
+    expect(feed.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
   });
 
   it("attaches the blocks a block shows, recursively, and counts none of them as replies", async () => {

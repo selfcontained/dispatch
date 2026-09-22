@@ -747,6 +747,41 @@ describe("ChatFeed", () => {
     );
   });
 
+  it("draws a shown block whole on its card: its own words and attachments too", () => {
+    const review = reviewBlock({
+      id: "rv1",
+      author: { kind: "agent", agentId: "agt_2" },
+      toAgentId: AGENT_ID,
+      threadId: "l1",
+      replyTo: "l1",
+      text: "Checked both edits; screenshot attached.",
+      attachments: [
+        { type: "link", url: "https://example.com/run", title: "The run" },
+      ],
+      summary: "Fine.",
+    });
+    renderFeed(
+      [
+        blockEntry(
+          launchBlock({
+            id: "l1",
+            toAgentId: "agt_2",
+            launchedByAgentId: AGENT_ID,
+            blocks: [review],
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    const shown = screen.getByTestId("chat-shown-block");
+    expect(shown.textContent).toContain(
+      "Checked both edits; screenshot attached."
+    );
+    expect(within(shown).getByTestId("chat-attachment-link")).toBeTruthy();
+    expect(within(shown).getByTestId("chat-review-block")).toBeTruthy();
+  });
+
   it("shows the review a launched reviewer posted on its card, compactly, opening the card's thread", () => {
     const onOpenThread = vi.fn();
     const finding = findingBlock(

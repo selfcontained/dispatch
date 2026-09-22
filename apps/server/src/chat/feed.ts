@@ -280,11 +280,18 @@ export async function composeStreamFeed(
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
   const blocks = page.map((item) => item.entry.block);
-  const [agentNames, openInputs] = await Promise.all([
-    agentNamesFor(db, blocks),
+  const [openInputs, threadLinks] = await Promise.all([
     cursor ? Promise.resolve(null) : listOpenInputs(db, streamId),
+    cursor ? Promise.resolve(null) : listThreadLinks(db, streamId),
     attachTurns(db, blocks),
     attachShown(db, streamId, blocks, opts.isHeld),
+  ]);
+  // Names last: the blocks the page shows, and the asks and links it
+  // carries, name agents of their own.
+  const agentNames = await agentNamesFor(db, [
+    ...blocks,
+    ...(openInputs ?? []),
+    ...(threadLinks ?? []),
   ]);
   if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
@@ -302,8 +309,34 @@ export async function composeStreamFeed(
     nextCursor,
     unreadCount,
     ...(openInputs ? { openInputs } : {}),
+    ...(threadLinks ? { threadLinks } : {}),
     agentNames,
   };
+}
+
+/** How many posts with links from threads the first page carries: the Inbox's glance. */
+const THREAD_LINKS_MAX = 20;
+
+/**
+ * The newest posts in threads that carry a link or a pull request: a
+ * child's work lands in its own thread, which the feed does not list, and
+ * the links it produces are the Inbox's to show.
+ */
+async function listThreadLinks(
+  db: Queryable,
+  streamId: string
+): Promise<Block[]> {
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.thread_id IS NOT NULL
+        AND (b.kind = 'link'
+             OR b.attachments @> '[{"type": "link"}]'::jsonb
+             OR b.attachments @> '[{"type": "pr"}]'::jsonb)
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${THREAD_LINKS_MAX}`,
+    [streamId]
+  );
+  return result.rows.map(toBlock);
 }
 
 /** How many open asks the first page carries; more would be a stream in trouble. */

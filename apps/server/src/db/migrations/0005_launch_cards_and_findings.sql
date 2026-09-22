@@ -73,6 +73,15 @@ DELETE FROM blocks
 ALTER TABLE blocks ADD CONSTRAINT blocks_origin_check
   CHECK (origin IS NULL OR origin = 'turn');
 
+-- An open ask can sit in a thread now (a child asks in its own): the index
+-- behind "what is waiting on a person" covers threads too.
+DROP INDEX IF EXISTS blocks_open_input_idx;
+CREATE INDEX blocks_open_input_idx
+  ON blocks (stream_id, author_agent_id)
+  WHERE kind IN ('question', 'form')
+    AND to_agent_id IS NULL
+    AND (state IS NULL OR (state->'answer' IS NULL AND state->'submission' IS NULL));
+
 -- ── Findings ─────────────────────────────────────────────────────────────
 
 -- Each finding a block in its review's thread, with a stable id so the
@@ -107,14 +116,27 @@ SELECT fb.id, r.stream_id, r.author_kind, r.author_agent_id, r.to_agent_id,
   JOIN blocks r ON r.id = fb.review_id
 ON CONFLICT (id) DO NOTHING;
 
--- A comment about a finding is a reply in the finding's own thread.
+-- A comment about a finding is a reply in the finding's own thread, and so
+-- is everything that answers it: an answer to a question asked under a
+-- finding never carried the tag, and must not be left behind in the
+-- review's thread. A descendant tagged with another finding follows its own.
+WITH RECURSIVE moved AS (
+  SELECT c.id, fb.id AS finding_id, fb.review_id
+    FROM blocks c
+    JOIN finding_blocks fb
+      ON c.thread_id = fb.review_id AND c.data->>'findingId' = fb.finding_key
+  UNION
+  SELECT d.id, m.finding_id, m.review_id
+    FROM blocks d
+    JOIN moved m ON d.reply_to = m.id AND d.thread_id = m.review_id
+   WHERE d.data IS NULL OR NOT (d.data ? 'findingId')
+)
 UPDATE blocks c
-   SET thread_id = fb.id,
-       reply_to = CASE WHEN c.reply_to = fb.review_id THEN fb.id ELSE c.reply_to END,
+   SET thread_id = m.finding_id,
+       reply_to = CASE WHEN c.reply_to = m.review_id THEN m.finding_id ELSE c.reply_to END,
        data = NULLIF(c.data - 'findingId', '{}'::jsonb)
-  FROM finding_blocks fb
- WHERE c.thread_id = fb.review_id
-   AND c.data->>'findingId' = fb.finding_key;
+  FROM moved m
+ WHERE c.id = m.id;
 
 UPDATE blocks SET data = NULLIF(data - 'findingId', '{}'::jsonb)
  WHERE data ? 'findingId';

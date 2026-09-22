@@ -260,6 +260,38 @@ describe("deriveInbox", () => {
     );
   });
 
+  it("adds links a child posted in its own thread, from the first page's list, in time order", () => {
+    const threadLinks = [
+      {
+        ...link("t9", CHILD, at("10:07"), "https://example.com/child").block,
+        threadId: "card",
+        replyTo: "card",
+      },
+      {
+        ...link("t8", CHILD, at("10:02"), "https://github.com/o/r/pull/9")
+          .block,
+        threadId: "card",
+        replyTo: "card",
+      },
+    ];
+    const inbox = deriveInbox(entries, ROOT, ROOT, [], threadLinks);
+    expect(inbox.links.map((l) => l.url)).toEqual([
+      "https://example.com/child",
+      "https://github.com/o/r/pull/8",
+      "https://example.com/a",
+      "https://github.com/o/r/pull/7",
+      "https://github.com/o/r/pull/9",
+    ]);
+    // On the child's page, its own links: the thread's and the feed's.
+    expect(
+      deriveInbox(entries, CHILD, ROOT, [], threadLinks).links.map((l) => l.url)
+    ).toEqual([
+      "https://example.com/child",
+      "https://github.com/o/r/pull/7",
+      "https://github.com/o/r/pull/9",
+    ]);
+  });
+
   it("lists links newest first, once per url, marking pull requests", () => {
     const inbox = deriveInbox(entries, ROOT, ROOT);
     expect(inbox.links.map((l) => [l.url, l.pr])).toEqual([
