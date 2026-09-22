@@ -11,4 +11,4 @@
 * feat(agent-models): add GPT-6 Sol and GPT-6 Luna to Codex catalog by @selfcontained in https://github.com/selfcontained/dispatch/pull/1099
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.14...v0.38.15
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.14...v0.38.16
