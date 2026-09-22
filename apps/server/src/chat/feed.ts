@@ -19,7 +19,9 @@ import { attachTurns } from "./turns.js";
 import {
   type BlockRow,
   type BlockStore,
+  OPEN_INPUT_SQL,
   type Queryable,
+  shownIdsOf,
   toBlock,
 } from "./store.js";
 
@@ -76,17 +78,17 @@ async function listBlockEntries(
   streamId: string,
   cursor: FeedCursor | null,
   limit: number,
-  onlyId?: string
+  onlyIds?: readonly string[]
 ): Promise<Keyed<StreamBlockEntry>[]> {
   const params: unknown[] = [streamId];
   let clause = cursorClause("block", "uuid", cursor, params, "b");
-  // A page lists top-level blocks only; a single read by id may name a
-  // reply, which is published as its own entry so a client can file it
-  // into its thread.
+  // A page lists top-level blocks only; a read by id may name a reply (or
+  // a block another one shows), which is published as its own entry so a
+  // client can file it into its thread.
   let scope = "AND b.thread_id IS NULL";
-  if (onlyId !== undefined) {
-    params.push(onlyId);
-    clause += ` AND b.id = $${params.length}::uuid`;
+  if (onlyIds !== undefined) {
+    params.push([...onlyIds]);
+    clause += ` AND b.id = ANY($${params.length}::uuid[])`;
     scope = "";
   }
   params.push(limit);
@@ -148,10 +150,15 @@ async function listBlockEntries(
                                 ORDER BY a.first_at)
                  FROM (SELECT b.author_kind, b.author_agent_id, MIN(b.created_at) AS first_at
                          FROM blocks b
+                         JOIN blocks host ON host.id = c.thread_id
                         WHERE b.thread_id = c.thread_id
+                          AND NOT (COALESCE(host.state->'blocks', '[]'::jsonb) ? b.id::text)
                         GROUP BY b.author_kind, b.author_agent_id) a) AS repliers
          FROM page p
+         -- The blocks a host shows are in its thread but are not replies:
+         -- the host draws them, so they are not counted.
          JOIN blocks c ON c.thread_id = p.id
+          AND NOT (COALESCE(p.state->'blocks', '[]'::jsonb) ? c.id::text)
         GROUP BY c.thread_id
      )
      SELECT ${PAGE_COLUMNS_SQL},
@@ -209,11 +216,46 @@ export async function loadBlockEntry(
   blockId: string,
   isHeld?: (agentId: string) => boolean
 ): Promise<StreamBlockEntry | null> {
-  const [found] = await listBlockEntries(db, streamId, null, 1, blockId);
+  const [found] = await listBlockEntries(db, streamId, null, 1, [blockId]);
   if (!found) return null;
   await attachTurns(db, [found.entry.block]);
+  await attachShown(db, streamId, [found.entry.block], isHeld);
   if (isHeld) markHeld([found.entry.block], isHeld);
   return found.entry;
+}
+
+/** Deeper than any card goes (a launch card shows a review, which shows findings). */
+const SHOWN_MAX_DEPTH = 4;
+
+/**
+ * Put the blocks each block shows onto it as `blocks`, read the way the
+ * feed reads any row (reactions, thread counts), and theirs onto them in
+ * turn. A host is drawn with what it shows, so it has to arrive with it.
+ */
+export async function attachShown(
+  db: Queryable,
+  streamId: string,
+  blocks: Block[],
+  isHeld?: (agentId: string) => boolean,
+  depth = 0
+): Promise<void> {
+  if (depth >= SHOWN_MAX_DEPTH) return;
+  const hosts = blocks.filter((block) => shownIdsOf(block).length > 0);
+  if (hosts.length === 0) return;
+  const ids = [...new Set(hosts.flatMap((host) => shownIdsOf(host)))];
+  const rows = await listBlockEntries(db, streamId, null, ids.length, ids);
+  const byId = new Map(
+    rows.map((row) => [row.entry.block.id, row.entry.block])
+  );
+  const shown = [...byId.values()];
+  await attachTurns(db, shown);
+  if (isHeld) markHeld(shown, isHeld);
+  await attachShown(db, streamId, shown, isHeld, depth + 1);
+  for (const host of hosts) {
+    host.blocks = shownIdsOf(host)
+      .map((id) => byId.get(id))
+      .filter((block): block is Block => block !== undefined);
+  }
 }
 
 /**
@@ -238,9 +280,18 @@ export async function composeStreamFeed(
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
   const blocks = page.map((item) => item.entry.block);
-  const [agentNames] = await Promise.all([
-    agentNamesFor(db, blocks),
+  const [openInputs, threadLinks] = await Promise.all([
+    cursor ? Promise.resolve(null) : listOpenInputs(db, streamId),
+    cursor ? Promise.resolve(null) : listThreadLinks(db, streamId),
     attachTurns(db, blocks),
+    attachShown(db, streamId, blocks, opts.isHeld),
+  ]);
+  // Names last: the blocks the page shows, and the asks and links it
+  // carries, name agents of their own.
+  const agentNames = await agentNamesFor(db, [
+    ...blocks,
+    ...(openInputs ?? []),
+    ...(threadLinks ?? []),
   ]);
   if (opts.isHeld) markHeld(blocks, opts.isHeld);
   const oldest = page[page.length - 1];
@@ -257,6 +308,56 @@ export async function composeStreamFeed(
     hasMore,
     nextCursor,
     unreadCount,
+    ...(openInputs ? { openInputs } : {}),
+    ...(threadLinks ? { threadLinks } : {}),
     agentNames,
   };
+}
+
+/** How many posts with links from threads the first page carries: the Inbox's glance. */
+const THREAD_LINKS_MAX = 20;
+
+/**
+ * The newest posts in threads that carry a link or a pull request: a
+ * child's work lands in its own thread, which the feed does not list, and
+ * the links it produces are the Inbox's to show.
+ */
+async function listThreadLinks(
+  db: Queryable,
+  streamId: string
+): Promise<Block[]> {
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.thread_id IS NOT NULL
+        AND (b.kind = 'link'
+             OR b.attachments @> '[{"type": "link"}]'::jsonb
+             OR b.attachments @> '[{"type": "pr"}]'::jsonb)
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${THREAD_LINKS_MAX}`,
+    [streamId]
+  );
+  return result.rows.map(toBlock);
+}
+
+/** How many open asks the first page carries; more would be a stream in trouble. */
+const OPEN_INPUTS_MAX = 50;
+
+/**
+ * Every question or form an agent has open for people in this stream,
+ * wherever it was asked: a child asks in its own thread, which the feed
+ * does not list, and an open ask must never be out of sight.
+ */
+async function listOpenInputs(
+  db: Queryable,
+  streamId: string
+): Promise<Block[]> {
+  const result = await db.query<BlockRow>(
+    `SELECT b.* FROM blocks b
+      WHERE b.stream_id = $1 AND b.author_kind = 'agent'
+        AND b.to_agent_id IS NULL AND ${OPEN_INPUT_SQL}
+      ORDER BY b.created_at, b.id
+      LIMIT ${OPEN_INPUTS_MAX}`,
+    [streamId]
+  );
+  return result.rows.map(toBlock);
 }

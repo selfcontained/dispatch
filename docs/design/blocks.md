@@ -29,8 +29,14 @@ stream  = the root agent's id. A child has no stream of its own; its page is
           the parent's stream filtered to it.
 block   = one post in a stream: who wrote it, whom it is for, what kind, its
           text and typed data, its mutable state, its thread.
-thread  = the blocks that reply to one top-level block. Collapsed in the
-          stream to "3 replies", opened as a page in the right drawer.
+thread  = the blocks that reply to one block: a top-level block, or a block
+          another shows (a finding in a review). Collapsed in the stream to
+          "3 replies", opened as a page in the right drawer.
+shows   = a block may show other blocks inside it (`state.blocks`, ids in
+          order): a launch card its agent's review, a review its findings.
+          Each is a row of its own — its own state, its own thread — stored in
+          the host's thread and drawn by the host, never listed as a reply.
+          Read back resolved as `block.blocks`.
 turn    = an agent's unit of work (prompt → steps → answer). The answer is a
           block (`origin: turn`) written empty when the turn opens and filled
           when it settles; the steps come from `agent_stream_events` and ride
@@ -39,25 +45,25 @@ turn    = an agent's unit of work (prompt → steps → answer). The answer is a
 
 ### `blocks`
 
-| column            | type        | meaning                                                                     |
-| ----------------- | ----------- | --------------------------------------------------------------------------- |
-| `id`              | uuid        | client-mintable, so an optimistic row and the stored row are one            |
-| `stream_id`       | text        | the root agent                                                              |
-| `author_kind`     | text        | `agent` \| `user`                                                           |
-| `author_agent_id` | text null   | which agent, when `author_kind = agent`                                     |
-| `to_agent_id`     | text null   | the agent that must receive this as a prompt; null = for people             |
-| `kind`            | text        | see block kinds                                                             |
-| `thread_id`       | uuid null   | the top-level block this replies under; null for a top-level block          |
-| `reply_to`        | uuid null   | the specific block replied to (inside `thread_id`)                          |
-| `text`            | text        | markdown; may be blank when `data` or `attachments` carry the content       |
-| `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author   |
-| `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution                |
-| `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)     |
-| `origin`          | text null   | `launch` for the launch-context post; `turn` for a turn's answer; else null |
-| `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending      |
-| `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                   |
-| `created_at`      | timestamptz |                                                                             |
-| `updated_at`      | timestamptz |                                                                             |
+| column            | type        | meaning                                                                   |
+| ----------------- | ----------- | ------------------------------------------------------------------------- |
+| `id`              | uuid        | client-mintable, so an optimistic row and the stored row are one          |
+| `stream_id`       | text        | the root agent                                                            |
+| `author_kind`     | text        | `agent` \| `user`                                                         |
+| `author_agent_id` | text null   | which agent, when `author_kind = agent`                                   |
+| `to_agent_id`     | text null   | the agent that must receive this as a prompt; null = for people           |
+| `kind`            | text        | see block kinds                                                           |
+| `thread_id`       | uuid null   | the block whose thread this is in; null for a top-level block             |
+| `reply_to`        | uuid null   | the specific block replied to (inside `thread_id`)                        |
+| `text`            | text        | markdown; may be blank when `data` or `attachments` carry the content     |
+| `data`            | jsonb       | kind-specific, immutable after post except through `update` by the author |
+| `state`           | jsonb       | kind-specific, mutable: an answer, item states, a resolution              |
+| `attachments`     | jsonb       | `[]`; file, link, code references (the file row is the source of truth)   |
+| `origin`          | text null   | `turn` for a turn's answer; else null                                     |
+| `delivered`       | bool null   | blocks with `to_agent_id`: prompt delivery outcome, null while pending    |
+| `read_at`         | timestamptz | when the user saw it (agent-authored, `to_agent_id` null)                 |
+| `created_at`      | timestamptz |                                                                           |
+| `updated_at`      | timestamptz |                                                                           |
 
 `block_reactions (id, block_id, stream_id, author_kind, author_agent_id,
 emoji, delivered, created_at)`, one row per (block, author, emoji).
@@ -73,36 +79,48 @@ dropped. Rows are not migrated.
 
 ### Block kinds
 
-| kind       | data                                                                          | state                                                                                              | who posts                       |
-| ---------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `text`     | —                                                                             | —                                                                                                  | anyone                          |
-| `question` | `{ options: [{label, value?}], allowFreeform? }`                              | `{ answer?: {value, label?, by, blockId, at} }`                                                    | agent (to the user or an agent) |
-| `form`     | `{ fields: [{id, label, type, options?, required?}] }`                        | `{ submission?: {values, by, blockId, at} }`                                                       | agent                           |
-| `file`     | — (the file is an attachment)                                                 | —                                                                                                  | agent, user                     |
-| `link`     | `{ url, title? }` (a PR is a link)                                            | —                                                                                                  | agent, user                     |
-| `review`   | `{ verdict, summary, findings: [{id, severity, title, body, path?, line?}] }` | `{ findings: { [id]: { status: open\|resolved, resolution?: fixed\|dismissed, note?, by, at } } }` | agent, user                     |
-| `tasks`    | `{ items: [{id, text}] }`                                                     | `{ items: { [id]: done\|now\|todo } }`                                                             | agent                           |
-| `board`    | later: kanban, table                                                          |                                                                                                    |                                 |
-| `preview`  | later: a served URL with a live status                                        |                                                                                                    |                                 |
+| kind       | data                                                                            | state                                                                      | who posts                       |
+| ---------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------- |
+| `text`     | —                                                                               | —                                                                          | anyone                          |
+| `question` | `{ options: [{label, value?}], allowFreeform? }`                                | `{ answer?: {value, label?, by, blockId, at} }`                            | agent (to the user or an agent) |
+| `form`     | `{ fields: [{id, label, type, options?, required?}] }`                          | `{ submission?: {values, by, blockId, at} }`                               | agent                           |
+| `file`     | — (the file is an attachment)                                                   | —                                                                          | agent, user                     |
+| `link`     | `{ url, title? }` (a PR is a link)                                              | —                                                                          | agent, user                     |
+| `review`   | `{ summary }` (posted with `findings: [{severity, title, body, path?, line?}]`) | `{ blocks: [finding ids] }`                                                | agent, user                     |
+| `finding`  | `{ severity, title, body, path?, line? }`                                       | `{ status: open\|resolved, resolution?: fixed\|dismissed, note?, by, at }` | written with its review         |
+| `launch`   | — (`text` is the briefing, `to_agent_id` the agent it launched)                 | `{ startup?, instructions?, blocks? }`                                     | Dispatch, one per agent         |
+| `tasks`    | `{ items: [{id, text}] }`                                                       | `{ items: { [id]: done\|now\|todo } }`                                     | agent                           |
+| `board`    | later: kanban, table                                                            |                                                                            |                                 |
+| `preview`  | later: a served URL with a live status                                          |                                                                            |                                 |
 
 A `question` is a `form` with one field; it exists as its own kind because
 it is the common case and renders as a row of buttons.
 
 ### Threads
 
-`thread_id` is the id of a top-level block; a reply to a reply still carries
-the top-level id in `thread_id` and the parent in `reply_to`. The stream
+`thread_id` is the id of the block a thread opens on: a top-level block, or
+a block another shows (each finding is a thread of its own). A reply to a
+reply carries the same `thread_id` and the parent in `reply_to`. The stream
 shows a top-level block with a "_n_ replies" line; the drawer shows the
-thread as a page (`?thread=<id>`), and a review's finding as a page over
-that (`&finding=<id>`). A reply reaches exactly one agent, never everyone
-in the thread: the root's author and the agent it was addressed to are the
-two sides (on a review, the reviewer and the builder); one side's reply goes
-to the other, a person's reply goes to whoever's move it is (the builder on
-an open finding, the reviewer on a resolved one), and an answer to a
-particular comment goes to that comment's author. A plain reply under a
-finding's comment is about that finding too. Reviews: a finding is `open`
-until resolved as `fixed` or `dismissed` (with a note), and can be reopened;
-the review is open, partially resolved or resolved by its findings.
+thread as a page (`?thread=<id>`), and a finding's thread as a page over its
+review's (`&finding=<id>`). A reply goes to the agents on its thread's two
+sides — the host's author (or launcher) and whoever the host is for: one
+side's reply goes to the other; a person's goes to both; an answer to a
+particular comment goes to that comment's author.
+
+Every agent has a launch card, a `launch` block written when it starts: its
+briefing, its startup steps and its instructions. Who it is (name, model,
+persona, status) is read from the agent, so the card follows it. A child's
+card is its one entry in its parent's stream and its default channel: a
+child's posts and turns land in the card's thread unless they name another,
+and so does a post addressed to the child with no `replyTo`. A child's
+review goes on its card, which shows it.
+
+Reviews: a review shows one `finding` block per item. A finding is `open`
+until its reviewer (or a person) resolves it as `fixed` or `dismissed` (with
+a note), and can be reopened, which tells the agent whose work it is; that
+agent answers under the finding. Where a review stands — open, partially
+resolved or resolved — comes from its findings alone.
 
 ### Delivery
 
@@ -160,9 +178,8 @@ any agent may address any agent. `kind` defaults from the data given
 `notify: true` sends the browser/Slack notification a `notify` call used to.
 
 `update` on your own block may change `text`, `data`, `attachments` and
-`state`. `update` on a block addressed to you may change `state` only (a
-builder resolving a finding on a review it received). Nobody else may
-update. People do the same through the UI: answer a question, submit a form,
+`state` (a reviewer resolving its finding). `update` on a block addressed to
+you may change `state` only. Nobody else may update. People do the same through the UI: answer a question, submit a form,
 resolve a finding, tick a task.
 
 These replace `chat_post`, `chat_update`, `chat_react`, `send_message`,

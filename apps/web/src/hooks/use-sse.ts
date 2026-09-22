@@ -19,6 +19,7 @@ import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
   applyStreamRead,
   bumpReplyCount,
+  syncAcrossStream,
   type FeedCache,
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
@@ -201,8 +202,14 @@ export function applyStreamEntry(
       threadQueryKey(agentId, reply.threadId),
       (old) => upsertThreadReply(old, reply)
     );
+    // A block that opens a thread of its own (a finding, a review on a
+    // card) is also that thread's root.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, reply.id),
+      (old) => replaceThreadRoot(old, reply)
+    );
     queryClient.setQueryData<FeedCache>(key, (old) =>
-      bumpReplyCount(old, reply)
+      syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
     return;
   }
@@ -230,7 +237,10 @@ export function applyStreamEntry(
     return;
   }
   if (!state.data) return;
-  const result = upsertFeedEntry(state.data, entry);
+  const result = upsertFeedEntry(
+    syncAcrossStream(state.data, entry.block)!,
+    entry
+  );
   if (!result.placed) {
     invalidateStreamFeed(queryClient, agentId);
     return;

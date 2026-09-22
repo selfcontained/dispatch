@@ -124,6 +124,40 @@ describe("registerAgentLaunchTools", () => {
       });
     });
 
+    // The handler copies named keys only, so a key it forgets never reaches
+    // launchAgent: a persona launch silently became a plain agent.
+    it("passes persona and includeDiff through, false included", async () => {
+      const ctx = baseContext();
+      registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
+
+      const tool = server.tools.find((t) => t.name === "launch_agent")!;
+      await tool.handler({
+        name: "reviewer",
+        prompt: "Review the diff",
+        persona: "code-review",
+        includeDiff: false,
+      });
+      expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
+        name: "reviewer",
+        prompt: "Review the diff",
+        persona: "code-review",
+        includeDiff: false,
+      });
+
+      await tool.handler({
+        name: "reviewer-2",
+        prompt: "Again",
+        persona: "security-review",
+        includeDiff: true,
+      });
+      expect(ctx.launchAgent).toHaveBeenLastCalledWith(AGENT_ID, {
+        name: "reviewer-2",
+        prompt: "Again",
+        persona: "security-review",
+        includeDiff: true,
+      });
+    });
+
     // Worktree placement is an instance-wide, operator-owned setting. The tool
     // must not offer a per-call override, at either layer: the schema has no
     // such key (so the SDK's z.object strips it off the wire), and the handler

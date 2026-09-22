@@ -13,7 +13,7 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { threadQueryKey } from "@/hooks/use-stream";
-import { block, reviewBody } from "@/test-utils/blocks";
+import { block, findingBlock, reviewBlock } from "@/test-utils/blocks";
 
 import { DrawerFrame } from "./drawer";
 import { ThreadDrawer } from "./thread-drawer";
@@ -45,29 +45,49 @@ class ResizeObserverStub {
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
   ResizeObserverStub;
 
-const review = block({
+const finding = (id: string, title: string, severity: "major" | "nit") =>
+  findingBlock(
+    id,
+    { severity, title, body: `${title}: fix it.` },
+    {
+      reviewId: "rv",
+      author: { kind: "agent", agentId: "agt_rev" },
+      toAgentId: "agt_1",
+    }
+  );
+
+const review = reviewBlock({
   id: "rv",
   author: { kind: "agent", agentId: "agt_rev" },
   toAgentId: "agt_1",
-  replyCount: 1,
-  body: reviewBody("request_changes", "Two things.", [
-    { id: "f1", severity: "major", title: "Null deref", body: "Guard it." },
-    { id: "f2", severity: "nit", title: "Typo", body: "Fix it." },
-  ]),
+  summary: "Two things.",
+  findings: [
+    {
+      ...finding("f1", "Null deref", "major"),
+      replyCount: 1,
+      unreadReplies: 1,
+    },
+    finding("f2", "Typo", "nit"),
+  ],
 });
 
-const thread: StreamThreadResponse = {
-  root: review,
-  replies: [
-    block({
-      id: "c1",
-      author: { kind: "agent", agentId: "agt_rev" },
-      text: "Still spins.",
-      threadId: "rv",
-      replyTo: "rv",
-      body: { kind: "text", data: { findingId: "f1" }, state: null },
-    }),
-  ],
+const thread: StreamThreadResponse = { root: review, replies: [] };
+
+/** Each finding's discussion is a thread of its own, rooted at it. */
+const findingThreads: Record<string, StreamThreadResponse> = {
+  f1: {
+    root: review.blocks![0]!,
+    replies: [
+      block({
+        id: "c1",
+        author: { kind: "agent", agentId: "agt_rev" },
+        text: "Still spins.",
+        threadId: "f1",
+        replyTo: "f1",
+      }),
+    ],
+  },
+  f2: { root: review.blocks![1]!, replies: [] },
 };
 
 const note = block({
@@ -165,14 +185,19 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   client.setQueryData(threadQueryKey("agt_1", "rv"), thread);
+  for (const [id, data] of Object.entries(findingThreads)) {
+    client.setQueryData(threadQueryKey("agt_1", id), data);
+  }
   client.setQueryData(threadQueryKey("agt_1", "n2"), {
     root: note,
     replies: [],
   } satisfies StreamThreadResponse);
   apiMock.mockReset();
-  apiMock.mockImplementation(async (url: string) =>
-    url.endsWith("/thread") ? thread : { ids: [], readAt: null }
-  );
+  apiMock.mockImplementation(async (url: string) => {
+    const threadOf = /\/blocks\/([^/]+)\/thread$/.exec(url)?.[1];
+    if (threadOf) return findingThreads[threadOf] ?? thread;
+    return { ids: [], readAt: null };
+  });
   Element.prototype.scrollTo = vi.fn();
 });
 
@@ -197,15 +222,19 @@ describe("ThreadDrawer", () => {
     expect(screen.getByTestId("drawer-subtitle").textContent).toBe(
       "in the review by reviewer"
     );
-    // The finding page is the top one: its detail, its own composer.
+    // The finding page is the top one: its detail, its discussion, its own
+    // composer.
     expect(screen.getByTestId("chat-finding-detail").textContent).toContain(
       "Null deref"
     );
-    // Opening the finding marks its comments seen.
+    expect(
+      screen.getAllByTestId("chat-thread-replies").at(-1)!.textContent
+    ).toContain("Still spins.");
+    // Opening the finding marks its own thread's comments seen.
     await waitFor(() =>
       expect(apiMock).toHaveBeenCalledWith(
-        "/api/v1/streams/agt_1/blocks/rv/read",
-        { method: "POST", body: JSON.stringify({ finding: "f1" }) }
+        "/api/v1/streams/agt_1/blocks/f1/read",
+        { method: "POST", body: "{}" }
       )
     );
 
@@ -228,6 +257,28 @@ describe("ThreadDrawer", () => {
     fireEvent.click(screen.getByTestId("drawer-close"));
     expect(screen.getByTestId("location-search").textContent).toBe("");
     expect(screen.queryByTestId("thread-drawer")).toBeNull();
+  });
+
+  it("keeps the reviewer's face, engine and model in the header over its finding", () => {
+    client.setQueryData(
+      ["agents"],
+      [
+        { id: "agt_1", name: "builder", type: "claude", parentAgentId: null },
+        {
+          id: "agt_rev",
+          name: "reviewer",
+          type: "codex",
+          model: "gpt-6-sol",
+          parentAgentId: "agt_1",
+        },
+      ]
+    );
+    renderThreadDrawer("?thread=rv&finding=f1");
+    expect(screen.getByTestId("drawer-title").textContent).toBe("Finding");
+    expect(screen.getByTestId("drawer-identity")).toBeTruthy();
+    const meta = screen.getByTestId("drawer-meta").textContent ?? "";
+    expect(meta).toContain("Codex");
+    expect(meta).toContain("gpt-6-sol");
   });
 
   it("closes from the finding page in one go", () => {

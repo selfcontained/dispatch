@@ -233,14 +233,13 @@ export function AgentsContent() {
         <P>
           In review mode, a bar at the top shows your draft count and a{" "}
           <strong>Post review</strong> button. Keep adding draft comments across
-          different files, then post them all at once with a verdict and a
-          summary; each comment can be given a severity in the dialog. The
-          result is a <Code>review</Code> block in the agent&apos;s stream,
-          addressed to the agent, with one finding per comment — the same block
-          a reviewer persona posts. The agent marks findings fixed or dismisses
-          them with <Code>update</Code> and replies in each finding&apos;s
-          thread; you do the same from the review&apos;s page in the drawer, or
-          from the finding where it sits in the diff.
+          different files, then post them all at once with a summary; each
+          comment can be given a severity in the dialog. The result is a{" "}
+          <Code>review</Code> block in the agent&apos;s stream, addressed to the
+          agent, with one finding per comment — the same block a reviewer
+          persona posts. The agent answers under each finding in its thread, and
+          you resolve, dismiss or reopen it — from the review&apos;s page in the
+          drawer, or from the finding where it sits in the diff.
         </P>
       </Section>
 

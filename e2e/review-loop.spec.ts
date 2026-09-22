@@ -42,26 +42,20 @@ function repoWithChanges(): string {
   return dir;
 }
 
-async function reviewState(
+/** A finding's record: the state of its block, read through its own thread. */
+async function findingState(
   request: APIRequestContext,
   streamId: string,
-  reviewId: string
-): Promise<
-  Record<string, { status: string; resolution?: string; note?: string }>
-> {
-  const res = await request.get(`/api/v1/streams/${streamId}/blocks`, {
-    headers: authHeaders(),
-  });
-  const body = (await res.json()) as {
-    entries: Array<{
-      type: string;
-      block?: { id: string; state: { findings: Record<string, never> } };
-    }>;
-  };
-  const entry = body.entries.find(
-    (e) => e.type === "block" && e.block?.id === reviewId
+  findingId: string
+): Promise<{ status: string; resolution?: string; note?: string }> {
+  const res = await request.get(
+    `/api/v1/streams/${streamId}/blocks/${findingId}/thread`,
+    { headers: authHeaders() }
   );
-  return (entry?.block?.state?.findings ?? {}) as never;
+  const body = (await res.json()) as {
+    root: { state: { status: string; resolution?: string; note?: string } };
+  };
+  return body.root.state;
 }
 
 async function thread(
@@ -76,12 +70,13 @@ async function thread(
     }
   );
   return (await res.json()) as {
+    root: { id: string; threadId: string | null };
     replies: Array<{
       id: string;
       text: string;
       toAgentId: string | null;
       readAt: string | null;
-      data: { findingId?: string } | null;
+      data: { recipients?: string[] } | null;
     }>;
   };
 }
@@ -105,10 +100,21 @@ async function launched(
     .not.toBe("creating");
 }
 
-function postedId(result: Record<string, unknown>): string {
+function posted(result: Record<string, unknown>): {
+  id: string;
+  findings: Array<{ id: string; title: string }>;
+} {
   const text = (result as { result?: { content?: Array<{ text?: string }> } })
     .result?.content?.[0]?.text;
-  return (JSON.parse(text ?? "{}") as { id?: string }).id ?? "";
+  const body = JSON.parse(text ?? "{}") as {
+    id?: string;
+    findings?: Array<{ id: string; title: string }>;
+  };
+  return { id: body.id ?? "", findings: body.findings ?? [] };
+}
+
+function postedId(result: Record<string, unknown>): string {
+  return posted(result).id;
 }
 
 test.describe("Review loop", () => {
@@ -116,7 +122,7 @@ test.describe("Review loop", () => {
     await cleanupE2EAgents(request, "all");
   });
 
-  test("findings sit in the diff and the drawer; fixes, dismissals, reopens and comments route to one side", async ({
+  test("findings sit in the diff and the drawer; fixes, dismissals, reopens and comments reach the right sides", async ({
     page,
     request,
   }) => {
@@ -137,35 +143,39 @@ test.describe("Review loop", () => {
     await launched(request, reviewer.id);
 
     // The reviewer posts its review to the builder: two findings on the
-    // changed lines.
-    const posted = await callMcpToolViaAPI(request, reviewer.id, "post", {
-      to: builder.id,
-      text: "Checked both edits.",
-      review: {
-        verdict: "request_changes",
-        summary: "Two things on the edited lines.",
-        findings: [
-          {
-            id: "f-four",
-            severity: "major",
-            title: "Line four is now forty",
-            body: "Was that intended?",
-            path: FILE,
-            line: 4,
-          },
-          {
-            id: "f-ten",
-            severity: "nit",
-            title: "Line ten comment",
-            body: "Drop the trailing comment.",
-            path: FILE,
-            line: 10,
-          },
-        ],
-      },
-    });
-    const reviewId = postedId(posted);
-    expect(reviewId).toBeTruthy();
+    // changed lines. It lands on the reviewer's launch card.
+    const review = posted(
+      await callMcpToolViaAPI(request, reviewer.id, "post", {
+        to: builder.id,
+        text: "Checked both edits.",
+        review: {
+          summary: "Two things on the edited lines.",
+          findings: [
+            {
+              severity: "major",
+              title: "Line four is now forty",
+              body: "Was that intended?",
+              path: FILE,
+              line: 4,
+            },
+            {
+              severity: "nit",
+              title: "Line ten comment",
+              body: "Drop the trailing comment.",
+              path: FILE,
+              line: 10,
+            },
+          ],
+        },
+      })
+    );
+    expect(review.id).toBeTruthy();
+    expect(review.findings).toHaveLength(2);
+    const [fFour, fTen] = review.findings.map((f) => f.id) as [string, string];
+    // The card the review is on: the reviewer's thread, and the page a
+    // finding opens over.
+    const cardId = (await thread(request, builder.id, review.id)).root.threadId;
+    expect(cardId).toBeTruthy();
 
     // Changes tab: one card per finding, at its line, folded.
     await page.goto(`/agents/${builder.id}/changes`, {
@@ -173,10 +183,7 @@ test.describe("Review loop", () => {
     });
     const cards = page.getByTestId("diff-finding");
     await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0)).toHaveAttribute(
-      "data-finding-key",
-      `${reviewId}:f-four`
-    );
+    await expect(cards.nth(0)).toHaveAttribute("data-finding-key", fFour);
     await expect(cards.nth(0)).toHaveAttribute("data-expanded", "false");
     await expect(cards.nth(0)).toContainText("Line four is now forty");
     await expect(cards.nth(0)).toContainText(reviewer.name);
@@ -188,8 +195,8 @@ test.describe("Review loop", () => {
     await cards.nth(0).getByTestId("chat-review-resolve").click();
     await expect(cards.nth(0)).toHaveAttribute("data-outcome", "fixed");
     await expect
-      .poll(() => reviewState(request, builder.id, reviewId))
-      .toMatchObject({ "f-four": { status: "resolved", resolution: "fixed" } });
+      .poll(() => findingState(request, builder.id, fFour))
+      .toMatchObject({ status: "resolved", resolution: "fixed" });
 
     // Dismiss the second with a note from the diff.
     await cards.nth(1).getByTestId("diff-finding-header").click();
@@ -203,21 +210,19 @@ test.describe("Review loop", () => {
       "Comment stays for now."
     );
     await expect
-      .poll(() => reviewState(request, builder.id, reviewId))
+      .poll(() => findingState(request, builder.id, fTen))
       .toMatchObject({
-        "f-ten": {
-          status: "resolved",
-          resolution: "dismissed",
-          note: "Comment stays for now.",
-        },
+        status: "resolved",
+        resolution: "dismissed",
+        note: "Comment stays for now.",
       });
 
-    // Discussion opens the finding's page in the drawer, over the review page,
-    // without leaving the Changes tab.
+    // Discussion opens the finding's thread in the drawer, over the
+    // reviewer's card, without leaving the Changes tab.
     await cards.nth(1).getByTestId("diff-finding-open").click();
     await page.waitForURL(
       new RegExp(
-        `/agents/${builder.id}/changes\\?thread=${reviewId}&finding=f-ten$`
+        `/agents/${builder.id}/changes\\?thread=${cardId}&finding=${fTen}$`
       )
     );
     // A thread has a drawer of its own; the sidebar keeps its place.
@@ -232,7 +237,8 @@ test.describe("Review loop", () => {
       "Comment stays for now."
     );
 
-    // A person's comment on a resolved finding goes to the reviewer.
+    // A person's comment on a finding goes to both sides: the reviewer and
+    // the agent whose work it is.
     await top
       .getByTestId("chat-composer-input")
       .fill("Reviewer, fine with this?");
@@ -242,13 +248,17 @@ test.describe("Review loop", () => {
     );
     await expect
       .poll(async () =>
-        (await thread(request, builder.id, reviewId)).replies.map((r) => [
+        (await thread(request, builder.id, fTen)).replies.map((r) => [
           r.text,
           r.toAgentId,
-          r.data?.findingId,
+          r.data?.recipients,
         ])
       )
-      .toContainEqual(["Reviewer, fine with this?", reviewer.id, "f-ten"]);
+      .toContainEqual([
+        "Reviewer, fine with this?",
+        reviewer.id,
+        [reviewer.id, builder.id],
+      ]);
 
     // Reopen it with a note from the drawer: the builder's move again.
     await top.getByTestId("chat-review-reopen").click();
@@ -263,21 +273,18 @@ test.describe("Review loop", () => {
       "Reopened by you"
     );
     await expect
-      .poll(() => reviewState(request, builder.id, reviewId))
-      .toMatchObject({
-        "f-ten": { status: "open", note: "Actually, drop it." },
-      });
+      .poll(() => findingState(request, builder.id, fTen))
+      .toMatchObject({ status: "open", note: "Actually, drop it." });
     await expect(cards.nth(1)).toHaveAttribute("data-outcome", "open");
 
-    // Back on the review page. The builder's comment goes to the reviewer;
-    // the reviewer's answer to it comes back to the builder, inherits the
-    // finding, and is unseen until the finding's page is opened again.
+    // Back on the reviewer's card. The builder's comment on a finding goes
+    // to the reviewer; the reviewer's answer to it comes back to the
+    // builder, in the same finding's thread.
     await page.getByTestId("drawer-back").click();
     await expect(threadDrawer).toHaveAttribute("data-depth", "1");
-    await expect(page.getByTestId("drawer-title")).toHaveText("Review");
+    await expect(page.getByTestId("drawer-title")).toHaveText(reviewer.name);
     const builderSaid = await callMcpToolViaAPI(request, builder.id, "post", {
-      replyTo: reviewId,
-      finding: "f-ten",
+      replyTo: fTen,
       text: "Dropped it in the next commit.",
     });
     const builderCommentId = postedId(builderSaid);
@@ -285,20 +292,21 @@ test.describe("Review loop", () => {
       replyTo: builderCommentId,
       text: "Confirmed, thanks.",
     });
-    const replies = (await thread(request, builder.id, reviewId)).replies;
-    expect(
-      replies.map((r) => [r.text, r.toAgentId, r.data?.findingId])
-    ).toEqual(
+    const replies = (await thread(request, builder.id, fTen)).replies;
+    expect(replies.map((r) => [r.text, r.toAgentId])).toEqual(
       expect.arrayContaining([
-        ["Dropped it in the next commit.", reviewer.id, "f-ten"],
-        ["Confirmed, thanks.", builder.id, "f-ten"],
+        ["Dropped it in the next commit.", reviewer.id],
+        ["Confirmed, thanks.", builder.id],
       ])
     );
-    // Seen from the review page as they land (it lists every comment), so
-    // the unread marks show where the review is only a card: the Inbox.
+    // The card's own thread lists none of it: a finding's discussion is
+    // the finding's.
+    expect(
+      (await thread(request, builder.id, cardId!)).replies.map((r) => r.text)
+    ).not.toContain("Dropped it in the next commit.");
     await page.getByTestId("drawer-close").click();
-    // The review page slides out before it unmounts; until then it still
-    // counts as reading, so wait for the thread drawer to be gone.
+    // The page slides out before it unmounts; until then it still counts
+    // as reading, so wait for the thread drawer to be gone.
     await expect(threadDrawer).toHaveCount(0);
     await expect(page.getByTestId("drawer-page")).toHaveCount(0);
     // The sidebar is a surface of its own: open it for the Inbox.
@@ -308,18 +316,23 @@ test.describe("Review loop", () => {
     const inboxCard = drawer.getByTestId("inbox-review");
     await expect(inboxCard).toHaveCount(1);
     await callMcpToolViaAPI(request, reviewer.id, "post", {
-      replyTo: reviewId,
-      finding: "f-four",
+      replyTo: fFour,
       text: "One more thought on four.",
     });
     await expect(inboxCard.getByTestId("inbox-review-unread")).toBeVisible();
-    await expect(inboxCard.getByTestId("inbox-review-unread")).toHaveText("1");
-    // Opening the review reads them.
+    // Opening the review goes to the card it is on; the finding's own
+    // thread is where its comments are read.
     await inboxCard.click();
     await expect(threadDrawer).toHaveAttribute("data-depth", "1");
+    await page
+      .locator('[data-testid="drawer-page"][data-top="true"]')
+      .getByTestId("chat-review-finding-link")
+      .first()
+      .click();
+    await expect(threadDrawer).toHaveAttribute("data-depth", "2");
     await expect
       .poll(async () =>
-        (await thread(request, builder.id, reviewId)).replies
+        (await thread(request, builder.id, fFour)).replies
           .filter((r) => r.text === "One more thought on four.")
           .map((r) => r.readAt !== null)
       )
@@ -332,7 +345,7 @@ test.describe("Review loop", () => {
     await page.waitForURL(new RegExp(`/agents/${builder.id}/changes$`));
     await drawer.getByTestId("sidebar-tab-inbox").click();
     await expect(inboxCard.getByTestId("inbox-review-status")).toHaveText(
-      "In progress"
+      "Changes requested"
     );
     await expect(inboxCard).toContainText("2 findings · 1 open");
   });
@@ -420,20 +433,20 @@ test.describe("Review loop", () => {
       type: "claude",
     });
     await launched(request, builder.id);
-    const posted = await callMcpToolViaAPI(request, builder.id, "post", {
-      text: "",
-      review: {
-        verdict: "comment",
-        summary: "One note.",
-        findings: [
-          { id: "f1", severity: "nit", title: "A nit", body: "Tiny." },
-        ],
-      },
-    });
-    const reviewId = postedId(posted);
-    await page.goto(`/agents/${builder.id}?thread=${reviewId}&finding=f1`, {
-      waitUntil: "domcontentloaded",
-    });
+    const review = posted(
+      await callMcpToolViaAPI(request, builder.id, "post", {
+        text: "",
+        review: {
+          summary: "One note.",
+          findings: [{ severity: "nit", title: "A nit", body: "Tiny." }],
+        },
+      })
+    );
+    const findingId = review.findings[0]!.id;
+    await page.goto(
+      `/agents/${builder.id}?thread=${review.id}&finding=${findingId}`,
+      { waitUntil: "domcontentloaded" }
+    );
     const sheet = page.getByRole("dialog", { name: "Thread" });
     await expect(sheet.getByTestId("thread-drawer")).toHaveAttribute(
       "data-depth",

@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type DraftComment } from "@/components/app/review-mode";
 import type { DiffFinding } from "@/components/app/diff-review-annotation-props";
-import { block, reviewBody } from "@/test-utils/blocks";
+import { reviewFindings } from "@dispatch/shared";
+import { findingBlock, reviewBlock } from "@/test-utils/blocks";
 
 import { UnifiedDiffView } from "./unified-diff-view";
 
@@ -336,36 +337,54 @@ describe("UnifiedDiffView draft annotations", () => {
 });
 
 describe("UnifiedDiffView review findings", () => {
-  const review = block({
-    id: "rv",
-    author: { kind: "agent", agentId: "agt_rev" },
-    body: reviewBody("request_changes", "s", [
-      {
-        id: "f1",
-        severity: "major",
-        title: "Off by one",
-        body: "c should be 5.",
-        path: FILE_PATH,
-        line: 3,
-      },
-      {
-        id: "f2",
-        severity: "nit",
-        title: "Elsewhere",
-        body: "x",
-        path: "src/other.ts",
-        line: 3,
-      },
-      { id: "f3", severity: "nit", title: "No place", body: "y" },
-    ]),
-  }) as Extract<ReturnType<typeof block>, { kind: "review" }>;
-  const items: DiffFinding[] = review.data.findings.map((finding) => ({
-    key: `rv:${finding.id}`,
-    block: review,
-    finding,
-    record: null,
-    reviewerName: "reviewer",
-  }));
+  const reviewer = { kind: "agent", agentId: "agt_rev" } as const;
+  const reviewWith = (overrides: Parameters<typeof reviewBlock>[0] = {}) =>
+    reviewBlock({
+      id: "rv",
+      author: reviewer,
+      summary: "s",
+      findings: [
+        findingBlock(
+          "f1",
+          {
+            severity: "major",
+            title: "Off by one",
+            body: "c should be 5.",
+            path: FILE_PATH,
+            line: 3,
+          },
+          { author: reviewer }
+        ),
+        findingBlock(
+          "f2",
+          {
+            severity: "nit",
+            title: "Elsewhere",
+            body: "x",
+            path: "src/other.ts",
+            line: 3,
+          },
+          { author: reviewer }
+        ),
+        findingBlock(
+          "f3",
+          { severity: "nit", title: "No place", body: "y" },
+          { author: reviewer }
+        ),
+      ],
+      ...overrides,
+    });
+  // As the Changes tab builds them: one per finding block, keyed by its id.
+  const itemsOf = (review: ReturnType<typeof reviewWith>): DiffFinding[] =>
+    reviewFindings(review).map((finding) => ({
+      key: finding.id,
+      block: review,
+      findingId: finding.id,
+      finding: finding.data,
+      record: finding.state,
+      reviewerName: "reviewer",
+    }));
+  const items = itemsOf(reviewWith());
 
   it("places a finding under the line it names, and only in its own file", () => {
     const onOpen = vi.fn();
@@ -384,7 +403,7 @@ describe("UnifiedDiffView review findings", () => {
     expect(widgetRows(container)).toHaveLength(1);
     const widget = widgetAfter(container, "const c = 4;");
     const card = widget.querySelector("[data-testid='diff-finding']")!;
-    expect(card.getAttribute("data-finding-key")).toBe("rv:f1");
+    expect(card.getAttribute("data-finding-key")).toBe("f1");
     expect(card.textContent).toContain("Off by one");
     expect(card.textContent).toContain("reviewer");
     expect(card.getAttribute("data-expanded")).toBe("false");
@@ -393,9 +412,29 @@ describe("UnifiedDiffView review findings", () => {
     expect(card.getAttribute("data-expanded")).toBe("true");
     expect(card.textContent).toContain("c should be 5.");
     fireEvent.click(card.querySelector("[data-testid='chat-review-resolve']")!);
-    expect(onSetState).toHaveBeenCalledWith("rv", "f1", "fixed");
+    // The patch goes to the finding block itself.
+    expect(onSetState).toHaveBeenCalledWith("f1", { status: "fixed" });
     fireEvent.click(card.querySelector("[data-testid='diff-finding-open']")!);
+    // The finding's thread opens over its review's.
     expect(onOpen).toHaveBeenCalledWith("rv", "f1");
+  });
+
+  it("opens a finding of a review on a launch card over the card's thread", () => {
+    const onOpen = vi.fn();
+    const { container } = renderView({
+      findings: {
+        items: itemsOf(reviewWith({ threadId: "card", replyTo: "card" })),
+        focusedKey: null,
+        onFocusComplete: vi.fn(),
+        onOpen,
+        disabled: false,
+        nameOf: () => "reviewer",
+      },
+    });
+    const card = container.querySelector("[data-testid='diff-finding']")!;
+    fireEvent.click(card.querySelector("[data-testid='diff-finding-header']")!);
+    fireEvent.click(card.querySelector("[data-testid='diff-finding-open']")!);
+    expect(onOpen).toHaveBeenCalledWith("card", "f1");
   });
 
   it("expands and reports the focused finding", () => {
@@ -404,7 +443,7 @@ describe("UnifiedDiffView review findings", () => {
     const { container } = renderView({
       findings: {
         items,
-        focusedKey: "rv:f1",
+        focusedKey: "f1",
         onFocusComplete,
         onOpen: vi.fn(),
         disabled: false,

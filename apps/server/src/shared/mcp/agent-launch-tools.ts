@@ -184,6 +184,9 @@ export function registerAgentLaunchTools(
           input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
         if (args.child !== undefined) input.child = args.child;
+        if (args.persona !== undefined) input.persona = args.persona;
+        if (args.includeDiff !== undefined)
+          input.includeDiff = args.includeDiff;
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;

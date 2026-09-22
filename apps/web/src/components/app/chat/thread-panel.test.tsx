@@ -16,8 +16,11 @@ import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { threadQueryKey } from "@/hooks/use-stream";
 import {
   block,
+  findingBlock,
+  findingRecord,
+  launchBlock,
   questionBody,
-  reviewBody,
+  reviewBlock,
   turnBlock,
 } from "@/test-utils/blocks";
 
@@ -212,56 +215,249 @@ describe("ThreadPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("becomes the named finding's own panel: its detail, its comments, its composer", () => {
-    const review = block({
+  const naming = () =>
+    findingBlock(
+      "f1",
+      { severity: "minor", title: "Naming", body: "Rename x." },
+      { reviewId: "rv", author: { kind: "agent", agentId: "agt_2" } }
+    );
+  const spacing = (overrides: Parameters<typeof findingBlock>[2] = {}) =>
+    findingBlock(
+      "f2",
+      { severity: "nit", title: "Spacing", body: "Add a gap." },
+      {
+        reviewId: "rv",
+        author: { kind: "agent", agentId: "agt_2" },
+        replyCount: 1,
+        ...overrides,
+      }
+    );
+  const reviewWith = () =>
+    reviewBlock({
       id: "rv",
-      body: reviewBody("comment", "Looks fine.", [
-        { id: "f1", severity: "minor", title: "Naming", body: "Rename x." },
-        { id: "f2", severity: "nit", title: "Spacing", body: "Add a gap." },
-      ]),
+      author: { kind: "agent", agentId: "agt_2" },
+      summary: "Looks fine.",
+      findings: [naming(), spacing()],
     });
+  const peerCtx: FeedContext = {
+    ...ctx,
+    peers: {
+      agt_2: { name: "Reviewer", agentType: "codex", relation: "child" },
+    },
+  };
+
+  it("becomes the named finding's own panel: its detail, its comments, its composer", async () => {
     client.setQueryData(threadQueryKey("agt_1", "rv"), {
-      root: review,
+      root: reviewWith(),
+      replies: [],
+    });
+    // The finding's discussion is its own thread, rooted at the finding.
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing(),
       replies: [
         block({
           id: "c1",
           text: "on f2",
-          body: { kind: "text", data: { findingId: "f2" }, state: null },
+          threadId: "f2",
+          replyTo: "f2",
+          author: { kind: "agent", agentId: "agt_2" },
+          readAt: "2026-09-02T10:00:00.000Z",
         }),
-        block({
-          id: "c2",
-          text: "on f1",
-          body: { kind: "text", data: { findingId: "f1" }, state: null },
-        }),
-        block({ id: "c3", text: "general" }),
       ],
     });
-    renderPanel({ blockId: "rv", findingId: "f2" });
-    expect(screen.getByTestId("chat-thread-subject").textContent).toContain(
-      "in the review by"
-    );
+    const onSetBlockState = vi.fn();
+    const onOpenThread = vi.fn();
+    renderPanel({
+      blockId: "rv",
+      findingId: "f2",
+      ctx: { ...peerCtx, onSetBlockState, onOpenThread },
+    });
+    expect(
+      screen.getByTestId("chat-thread-panel").getAttribute("data-finding-id")
+    ).toBe("f2");
+    const subject = screen.getByTestId("chat-thread-subject");
+    expect(subject.textContent).toContain("in the review by Reviewer");
+    // Back to the review's page.
+    fireEvent.click(subject);
+    expect(onOpenThread).toHaveBeenCalledWith("rv");
     const detail = screen.getByTestId("chat-finding-detail");
     expect(detail.textContent).toContain("Spacing");
     expect(detail.textContent).toContain("Add a gap.");
+    // The finding in full, not the review's rows.
     expect(screen.queryByTestId("chat-review-finding")).toBeNull();
-    // Only this finding's comments.
+    expect(screen.queryByTestId("chat-review-block")).toBeNull();
     const replies = screen.getByTestId("chat-thread-replies");
     expect(replies.textContent).toContain("on f2");
-    expect(replies.textContent).not.toContain("on f1");
-    expect(replies.textContent).not.toContain("general");
     expect(screen.getByTestId("chat-thread-count").textContent).toBe(
       "1 comment"
     );
+    // Its controls change the finding block itself.
+    fireEvent.click(screen.getByTestId("chat-review-resolve"));
+    expect(onSetBlockState).toHaveBeenCalledWith("f2", { status: "fixed" });
+
+    // The composer replies to the finding: its own thread.
+    apiMock.mockImplementation(async (_url: string, init: { body: string }) => {
+      const { id } = JSON.parse(init.body) as { id: string };
+      return {
+        block: block({
+          id,
+          authorKind: "user",
+          toAgentId: "agt_2",
+          text: "why?",
+          threadId: "f2",
+          replyTo: "f2",
+          createdAt: "2026-09-02T10:03:00.000Z",
+        }),
+        delivered: null,
+        held: false,
+      };
+    });
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "why?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith("/api/v1/streams/agt_1/blocks", {
+        method: "POST",
+        body: expect.stringMatching(
+          /^\{"id":"[0-9a-f-]{36}","text":"why\?","replyTo":"f2"\}$/
+        ),
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-thread-count").textContent).toBe(
+        "2 comments"
+      )
+    );
+    expect(
+      client
+        .getQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "f2"))!
+        .replies.map((r) => r.text)
+    ).toEqual(["on f2", "why?"]);
+    // The review's page is untouched: a finding's comment is not a reply there.
+    expect(
+      client.getQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "rv"))!
+        .replies
+    ).toEqual([]);
   });
 
-  it("draws a turn a reply opened in place of that reply, and only its finding's turns on a finding page", () => {
+  it("says in a finding's thread who settled it and when, among the comments at that time", () => {
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing({
+        record: findingRecord("fixed", {
+          by: { kind: "agent", agentId: "agt_2" },
+          at: "2026-09-02T10:01:30.000Z",
+          note: "Verified the gap.",
+        }),
+      }),
+      replies: [
+        block({
+          id: "c1",
+          text: "Added the gap.",
+          threadId: "f2",
+          replyTo: "f2",
+          createdAt: "2026-09-02T10:01:00.000Z",
+          readAt: "2026-09-02T10:01:00.000Z",
+        }),
+        block({
+          id: "c2",
+          text: "Thanks.",
+          threadId: "f2",
+          replyTo: "f2",
+          createdAt: "2026-09-02T10:02:00.000Z",
+          readAt: "2026-09-02T10:02:00.000Z",
+        }),
+      ],
+    });
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
+    const change = screen.getByTestId("chat-finding-change");
+    expect(change.getAttribute("data-outcome")).toBe("fixed");
+    expect(change.textContent).toContain("Fixed by Reviewer");
+    expect(change.textContent).toContain("Verified the gap.");
+    // After the comment before it, ahead of the one that came later.
+    const order = [
+      ...screen
+        .getByTestId("chat-thread-replies")
+        .querySelectorAll(
+          "[data-chat-entry-id], [data-testid='chat-finding-change']"
+        ),
+    ].map((el) => el.getAttribute("data-chat-entry-id") ?? "change");
+    expect(order).toEqual(["c1", "change", "c2"]);
+  });
+
+  it("leaves a finding's thread without an entry while it stands as raised", () => {
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing(),
+      replies: [],
+    });
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
+    expect(screen.queryByTestId("chat-finding-change")).toBeNull();
+  });
+
+  it("loads the finding's thread route and marks its comments read by the finding", async () => {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/f2/thread")) {
+        return {
+          root: spacing({ unreadReplies: 1 }),
+          replies: [
+            block({
+              id: "c1",
+              text: "fixed it",
+              threadId: "f2",
+              replyTo: "f2",
+              author: { kind: "agent", agentId: "agt_2" },
+            }),
+          ],
+        } satisfies StreamThreadResponse;
+      }
+      return { ids: ["c1"], readAt: "2026-09-02T10:05:00.000Z" };
+    });
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/streams/agt_1/blocks/f2/thread"
+    );
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        "/api/v1/streams/agt_1/blocks/f2/read",
+        { method: "POST", body: "{}" }
+      )
+    );
+    // The review's own thread was never asked for.
+    expect(apiMock).not.toHaveBeenCalledWith(
+      "/api/v1/streams/agt_1/blocks/rv/thread"
+    );
+  });
+
+  it("opens a finding from the review's page over that page", () => {
+    client.setQueryData(threadQueryKey("agt_1", "rv"), {
+      root: reviewWith(),
+      replies: [],
+    });
+    apiMock.mockResolvedValue({ root: reviewWith(), replies: [] });
+    const onOpenThread = vi.fn();
+    renderPanel({ blockId: "rv", ctx: { ...peerCtx, onOpenThread } });
+    // The review in full: open, its findings as rows.
+    const rows = screen.getAllByTestId("chat-review-finding");
+    expect(rows.map((r) => r.getAttribute("data-finding-id"))).toEqual([
+      "f1",
+      "f2",
+    ]);
+    expect(rows[1]!.textContent).toContain("1 comment");
+    fireEvent.click(screen.getAllByTestId("chat-review-finding-link")[1]!);
+    expect(onOpenThread).toHaveBeenCalledWith("rv", "f2");
+  });
+
+  it("draws a turn a reply opened in place of that reply, on a review's page and a finding's", () => {
     // A turn a thread reply opened answers in that thread: its block is a
-    // reply under the review, with the turn attached, and carries no
-    // finding of its own.
-    const turnFor = (id: string, chatMessageId: string, at: string): Block =>
+    // reply in the same thread, with the turn attached.
+    const turnFor = (
+      id: string,
+      threadId: string,
+      chatMessageId: string,
+      at: string
+    ): Block =>
       turnBlock({
         id,
-        threadId: "rv",
+        threadId,
         replyTo: chatMessageId,
         text: `answer for ${chatMessageId}`,
         createdAt: at,
@@ -271,52 +467,46 @@ describe("ThreadPanel", () => {
             text: "",
             attachments: [],
             chatMessageId,
-            threadId: "rv",
+            threadId,
           },
         },
       });
-    const review = block({
-      id: "rv",
-      body: reviewBody("comment", "Looks fine.", [
-        { id: "f1", severity: "minor", title: "Naming", body: "Rename x." },
-        { id: "f2", severity: "nit", title: "Spacing", body: "Add a gap." },
-      ]),
-    });
+    const comment = (id: string, threadId: string, text: string, at: string) =>
+      block({
+        id,
+        authorKind: "user",
+        text,
+        threadId,
+        replyTo: threadId,
+        createdAt: at,
+      });
     client.setQueryData(threadQueryKey("agt_1", "rv"), {
-      root: review,
+      root: reviewWith(),
       replies: [
-        block({
-          id: "c1",
-          authorKind: "user",
-          text: "please fix f2",
-          threadId: "rv",
-          replyTo: "rv",
-          createdAt: "2026-09-02T10:01:00.000Z",
-          body: { kind: "text", data: { findingId: "f2" }, state: null },
-        }),
-        turnFor("turn:1", "c1", "2026-09-02T10:01:10.000Z"),
-        block({
-          id: "c2",
-          authorKind: "user",
-          text: "and f1",
-          threadId: "rv",
-          replyTo: "rv",
-          createdAt: "2026-09-02T10:02:00.000Z",
-          body: { kind: "text", data: { findingId: "f1" }, state: null },
-        }),
-        turnFor("turn:2", "c2", "2026-09-02T10:02:10.000Z"),
+        comment("c1", "rv", "overall?", "2026-09-02T10:01:00.000Z"),
+        turnFor("turn:1", "rv", "c1", "2026-09-02T10:01:10.000Z"),
+        comment("c2", "rv", "and?", "2026-09-02T10:02:00.000Z"),
+        turnFor("turn:2", "rv", "c2", "2026-09-02T10:02:10.000Z"),
+      ],
+    });
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing(),
+      replies: [
+        comment("c3", "f2", "please fix f2", "2026-09-02T10:03:00.000Z"),
+        turnFor("turn:3", "f2", "c3", "2026-09-02T10:03:10.000Z"),
       ],
     });
     apiMock.mockResolvedValue({ ids: [], readAt: null });
 
-    const { unmount } = renderPanel({ blockId: "rv" });
+    const { unmount } = renderPanel({ blockId: "rv", ctx: peerCtx });
     const turns = screen.getAllByTestId("chat-thread-turn");
     expect(turns.map((t) => t.getAttribute("data-turn-id"))).toEqual([
       "turn:1",
       "turn:2",
     ]);
     // Each turn is the agent's answer post under the reply that opened it,
-    // with its step list; the reply itself keeps its own row.
+    // with its step list; the reply itself keeps its own row. The findings
+    // are the review's rows, not posts.
     expect(
       screen
         .getAllByTestId("chat-message")
@@ -335,15 +525,21 @@ describe("ThreadPanel", () => {
     );
     unmount();
 
-    // A finding's page keeps only the replies filed under that finding; a
-    // turn's answer names no finding, so it stays on the review's page.
-    renderPanel({ blockId: "rv", findingId: "f2" });
+    // A finding's page is the finding's own thread, turns and all.
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
     expect(
       screen
         .getAllByTestId("chat-message")
         .map((m) => m.getAttribute("data-block-id"))
-    ).toEqual(["c1"]);
-    expect(screen.queryByTestId("chat-thread-turn")).toBeNull();
+    ).toEqual(["f2", "c3", "turn:3"]);
+    expect(
+      screen
+        .getAllByTestId("chat-thread-turn")
+        .map((t) => t.getAttribute("data-turn-id"))
+    ).toEqual(["turn:3"]);
+    expect(screen.getByTestId("chat-thread-count").textContent).toBe(
+      "2 comments"
+    );
   });
 
   it("reports a failed load with a retry", async () => {
@@ -371,6 +567,50 @@ describe("groupReplies", () => {
 });
 
 describe("threadTitle", () => {
+  const nameOf = (id: string) =>
+    ({ agt_1: "builder", agt_2: "Reviewer", agt_3: "orchestrator" })[id] ??
+    "Agent";
+
+  it("names a finding's page after the review it is in", () => {
+    const finding = findingBlock(
+      "f1",
+      { severity: "minor", title: "Naming", body: "" },
+      { author: { kind: "agent", agentId: "agt_2" } }
+    );
+    expect(threadTitle(finding, true, nameOf)).toEqual({
+      title: "Finding",
+      subtitle: "in the review by Reviewer",
+    });
+    expect(threadTitle(null, true, nameOf)).toEqual({
+      title: "Finding",
+      subtitle: "",
+    });
+    const review = reviewBlock({
+      author: { kind: "agent", agentId: "agt_2" },
+    });
+    expect(threadTitle(review, false, nameOf)).toEqual({
+      title: "Review",
+      subtitle: "by Reviewer",
+    });
+  });
+
+  it("names a launch card's thread after the agent it launched", () => {
+    expect(
+      threadTitle(launchBlock({ id: "l1", toAgentId: "agt_2" }), false, nameOf)
+    ).toEqual({ title: "Reviewer", subtitle: "launched by you" });
+    expect(
+      threadTitle(
+        launchBlock({
+          id: "l2",
+          toAgentId: "agt_2",
+          launchedByAgentId: "agt_3",
+        }),
+        false,
+        nameOf
+      )
+    ).toEqual({ title: "Reviewer", subtitle: "launched by orchestrator" });
+  });
+
   it("strips markdown marks from the subject", () => {
     const root = block({
       id: "r",

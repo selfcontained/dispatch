@@ -10,7 +10,7 @@ import type {
   Block,
   BlockOption,
   BlockReaction,
-  BlockReviewData,
+  BlockReviewInput,
   ChatAttachment,
   ChatUserAttachmentInput,
   StreamAnswerRequest,
@@ -24,7 +24,6 @@ import type {
   StreamReactionResponse,
   StreamStateRequest,
   StreamSubmitRequest,
-  StreamThreadReadRequest,
   StreamThreadReadResponse,
   StreamThreadResponse,
 } from "@dispatch/shared";
@@ -307,7 +306,10 @@ export function useStreamFeed(rootId: string | null): StreamFeedState {
  */
 export function useStreamFeedSelect<T>(
   rootId: string | null,
-  select: (entries: StreamEntry[]) => T
+  select: (
+    entries: StreamEntry[],
+    across: { openInputs: readonly Block[]; threadLinks: readonly Block[] }
+  ) => T
 ): { data: T | undefined; isLoading: boolean } {
   const query = useInfiniteQuery<
     StreamFeedResponse,
@@ -317,7 +319,11 @@ export function useStreamFeedSelect<T>(
     string | undefined
   >({
     ...feedQueryOptions(rootId),
-    select: (data) => select(flattenFeedPages(data.pages)),
+    select: (data) =>
+      select(flattenFeedPages(data.pages), {
+        openInputs: data.pages[0]?.openInputs ?? [],
+        threadLinks: data.pages[0]?.threadLinks ?? [],
+      }),
   });
   return { data: query.data, isLoading: query.isLoading };
 }
@@ -377,6 +383,16 @@ export function upsertThreadReply(
     const shared = replaceEqualDeep(thread.root, reply);
     return shared === thread.root ? thread : { ...thread, root: shared };
   }
+  // A block the root shows is drawn by the root, not listed as a reply.
+  if (showsBlock(thread.root, reply.id)) {
+    const root = mapShownBlock(thread.root, reply.id, (previous) =>
+      replaceEqualDeep(previous, {
+        ...reply,
+        blocks: reply.blocks ?? previous.blocks,
+      })
+    );
+    return root === thread.root ? thread : { ...thread, root };
+  }
   const index = thread.replies.findIndex((r) => r.id === reply.id);
   if (index !== -1) {
     const previous = thread.replies[index]!;
@@ -403,6 +419,77 @@ function removeThreadReplyObject(
   return { ...thread, replies: thread.replies.filter((r) => r !== target) };
 }
 
+/** A block that carries a link or a pull request, as the Inbox lists them. */
+function carriesLink(block: Block): boolean {
+  return (
+    block.kind === "link" ||
+    block.attachments.some((a) => a.type === "link" || a.type === "pr")
+  );
+}
+
+/** Put a block in a list by id (or take it out), keeping the list's order. */
+function upsertListed(
+  list: readonly Block[],
+  block: Block,
+  keep: boolean,
+  at: "start" | "end"
+): Block[] | null {
+  const index = list.findIndex((b) => b.id === block.id);
+  if (!keep && index === -1) return null;
+  const next = list.slice();
+  if (!keep) next.splice(index, 1);
+  else if (index !== -1) next[index] = block;
+  else if (at === "start") next.unshift(block);
+  else next.push(block);
+  return next;
+}
+
+/**
+ * Keep what the first page carries from across the stream in step with a
+ * block that changed: an agent's question or form for people is listed
+ * while it is open and leaves once answered, and a post in a thread that
+ * carries a link joins the thread links — wherever in the stream either
+ * was posted.
+ */
+export function syncAcrossStream(
+  cache: FeedCache | undefined,
+  block: Block
+): FeedCache | undefined {
+  const first = cache?.pages[0];
+  if (!cache || !first) return cache;
+  const open =
+    block.author.kind === "agent" &&
+    block.toAgentId === null &&
+    ((block.kind === "question" &&
+      block.state?.answer === undefined &&
+      block.state?.cancellation === undefined) ||
+      (block.kind === "form" &&
+        block.state?.submission === undefined &&
+        block.state?.cancellation === undefined));
+  const inputs = upsertListed(first.openInputs ?? [], block, open, "end");
+  const links =
+    block.threadId !== null
+      ? upsertListed(
+          first.threadLinks ?? [],
+          block,
+          carriesLink(block),
+          "start"
+        )
+      : null;
+  if (!inputs && !links) return cache;
+  return {
+    ...cache,
+    pages: [
+      {
+        ...first,
+        ...(inputs ? { openInputs: inputs } : {}),
+        ...(links ? { threadLinks: links } : {}),
+      },
+      ...cache.pages.slice(1),
+    ],
+  };
+}
+
 /**
  * A reply landed under a top-level block: the feed's copy of that block
  * shows one more reply and a newer last-reply time. A republish of a reply
@@ -415,6 +502,8 @@ export function bumpReplyCount(
 ): FeedCache | undefined {
   if (!cache || !reply.threadId) return cache;
   return mapBlock(cache, reply.threadId, (block) => {
+    // A block the host shows is not a reply to it.
+    if (showsBlock(block, reply.id)) return block;
     const last = block.lastReplyAt ?? null;
     if (last !== null && reply.createdAt <= last) return block;
     return {
@@ -465,8 +554,8 @@ export function optimisticUserBlock(
   thread: { threadId: string; replyTo: string } | null = null,
   /** The agent it is for; the stream's root when not given. */
   to?: string,
-  /** A review left by hand: the block is a `review` with no findings resolved. */
-  review?: BlockReviewData
+  /** A review left by hand: the block is a `review`; its findings arrive with the stored row. */
+  review?: BlockReviewInput
 ): Block {
   const now = new Date().toISOString();
   const base = {
@@ -487,8 +576,8 @@ export function optimisticUserBlock(
     return {
       ...base,
       kind: "review",
-      data: review,
-      state: { findings: {} },
+      data: { summary: review.summary },
+      state: { blocks: [] },
     };
   }
   return { ...base, kind: "text", data: null, state: null };
@@ -512,6 +601,17 @@ function rollbackPlaceholder(
     removeEntryObject(old, placeholder)
   );
   void queryClient.invalidateQueries({ queryKey: key, exact: true });
+}
+
+/** Take a placeholder block out of the feed, by identity. */
+function removeEntryObjectByBlock(
+  cache: FeedCache | undefined,
+  placeholder: Block
+): FeedCache | undefined {
+  const entry = cache?.pages
+    .flatMap((page) => page.entries)
+    .find((e) => e.type === "block" && e.block === placeholder);
+  return entry ? removeEntryObject(cache, entry) : cache;
 }
 
 function removeEntryObject(
@@ -550,6 +650,34 @@ function appendEntry(
  * Rewrite one block wherever it sits. The mapper returning the same object
  * leaves the cache untouched; everything else keeps its identity.
  */
+/**
+ * Apply `map` to the block with this id, wherever it is: the block itself,
+ * or one it shows (a review on a launch card, a finding in a review), at
+ * any depth. The same object back when nothing matched.
+ */
+export function mapShownBlock(
+  block: Block,
+  blockId: string,
+  map: (block: Block) => Block
+): Block {
+  if (block.id === blockId) return map(block);
+  if (!block.blocks || block.blocks.length === 0) return block;
+  let changed = false;
+  const blocks = block.blocks.map((shown) => {
+    const next = mapShownBlock(shown, blockId, map);
+    if (next !== shown) changed = true;
+    return next;
+  });
+  return changed ? ({ ...block, blocks } as Block) : block;
+}
+
+/** Whether `block` shows the block with this id, at any depth. */
+export function showsBlock(block: Block, blockId: string): boolean {
+  return (block.blocks ?? []).some(
+    (shown) => shown.id === blockId || showsBlock(shown, blockId)
+  );
+}
+
 export function mapBlock(
   cache: FeedCache | undefined,
   blockId: string,
@@ -560,8 +688,8 @@ export function mapBlock(
   const pages = cache.pages.map((page) => {
     let touched = false;
     const entries = page.entries.map((entry) => {
-      if (entry.type !== "block" || entry.block.id !== blockId) return entry;
-      const next = map(entry.block);
+      if (entry.type !== "block") return entry;
+      const next = mapShownBlock(entry.block, blockId, map);
       if (next === entry.block) return entry;
       touched = true;
       return { ...entry, at: next.createdAt, block: next };
@@ -782,7 +910,6 @@ export function usePostBlock(rootId: string | null) {
       to,
       text,
       replyTo,
-      finding,
       attachments,
       review,
       interrupt,
@@ -791,7 +918,6 @@ export function usePostBlock(rootId: string | null) {
       if (interrupt) body.interrupt = true;
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
-      if (replyTo && finding) body.finding = finding;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       if (review) body.review = review;
       return api<StreamPostResponse>(`${streamPath(rootId)}/blocks`, {
@@ -862,6 +988,22 @@ export function usePostBlock(rootId: string | null) {
         );
         queryClient.setQueryData<FeedCache>(key, (old) =>
           bumpReplyCount(old, data.block)
+        );
+        return;
+      }
+      // A message for one child lands in the child's own thread, on its
+      // card: the placeholder leaves the channel for that thread.
+      if (data.block.threadId) {
+        const reply = data.block;
+        queryClient.setQueryData<FeedCache>(key, (old) =>
+          bumpReplyCount(
+            context ? removeEntryObjectByBlock(old, context.placeholder) : old,
+            reply
+          )
+        );
+        queryClient.setQueryData<StreamThreadResponse>(
+          threadQueryKey(rootId, reply.threadId),
+          (old) => upsertThreadReply(old, reply)
         );
         return;
       }
@@ -1074,16 +1216,18 @@ export function mergeBlockState(
 export type StreamStateInput = StreamStateRequest & { blockId: string };
 
 /**
- * What the cached block should show for a patch before the server answers.
- * The wire carries a finding's status as a bare string
- * (`{ findings: { f1: "resolved" } }`); the stored state records who and
- * when alongside it, so the optimistic copy is given the same shape.
+ * What a cached block should show for a state patch before the server
+ * answers. A finding's patch (`{ status: "fixed" }`) replaces its record,
+ * which the server stamps with who and when; the optimistic copy is given
+ * the same shape. Anything else merges.
  */
-export function optimisticStatePatch(
+export function optimisticState(
+  block: Block,
   patch: Record<string, unknown>,
   now: string = new Date().toISOString()
-): Record<string, unknown> {
+): Block {
   const cancellation = patch.cancellation;
+  let stampedPatch = patch;
   if (cancellation !== undefined) {
     const reason =
       typeof cancellation === "string"
@@ -1091,7 +1235,7 @@ export function optimisticStatePatch(
         : isPlainObject(cancellation) && typeof cancellation.reason === "string"
           ? cancellation.reason.trim()
           : "";
-    return {
+    stampedPatch = {
       ...patch,
       cancellation: {
         by: { kind: "user" },
@@ -1100,41 +1244,39 @@ export function optimisticStatePatch(
       },
     };
   }
-  const findings = patch.findings;
-  if (!isPlainObject(findings)) return patch;
-  const filled: Record<string, unknown> = {};
-  for (const [id, value] of Object.entries(findings)) {
-    const word =
-      typeof value === "string"
-        ? value
-        : isPlainObject(value)
-          ? (value as { status?: string }).status
+  if (block.kind !== "finding") {
+    return {
+      ...block,
+      state: mergeBlockState(
+        block.state as Record<string, unknown> | null,
+        stampedPatch
+      ),
+    } as Block;
+  }
+  const word = patch.status;
+  const status = word === "open" ? "open" : "resolved";
+  const resolution =
+    word === "dismissed"
+      ? "dismissed"
+      : word === "fixed"
+        ? "fixed"
+        : word === "resolved"
+          ? ((patch.resolution as "fixed" | "dismissed" | undefined) ?? "fixed")
           : undefined;
-    const record = isPlainObject(value)
-      ? (value as Record<string, unknown>)
-      : {};
-    const status = word === "open" ? "open" : "resolved";
-    const resolution =
-      word === "dismissed"
-        ? "dismissed"
-        : word === "fixed"
-          ? "fixed"
-          : word === "resolved"
-            ? ((record.resolution as string | undefined) ?? "fixed")
-            : undefined;
-    const note =
-      typeof record.note === "string" && record.note.trim()
-        ? record.note.trim()
-        : undefined;
-    filled[id] = {
+  const note =
+    typeof patch.note === "string" && patch.note.trim()
+      ? patch.note.trim()
+      : undefined;
+  return {
+    ...block,
+    state: {
       status,
       ...(resolution ? { resolution } : {}),
       ...(note ? { note } : {}),
       by: { kind: "user" },
       at: now,
-    };
-  }
-  return { ...patch, findings: filled };
+    },
+  };
 }
 
 /**
@@ -1250,24 +1392,19 @@ export function useSetBlockState(rootId: string | null) {
       }),
     onMutate: async ({ blockId, state }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
-      const patched = (block: Block): Block =>
-        ({
-          ...block,
-          state: mergeBlockState(
-            block.state as Record<string, unknown> | null,
-            optimisticStatePatch(state)
-          ),
-        }) as Block;
       let previous: Block | null = null;
       queryClient.setQueryData<FeedCache>(key, (old) =>
         mapBlock(old, blockId, (block) => {
           previous = block;
-          return patched(block);
+          return optimisticState(block, state);
         })
       );
-      queryClient.setQueryData<StreamThreadResponse>(
-        threadQueryKey(rootId, blockId),
-        (old) => (old ? replaceThreadRoot(old, patched(old.root)) : old)
+      // The block may be the root of an open thread, or shown by one (a
+      // finding on its review's page, a review on a launch card's).
+      mapThreads(queryClient, rootId, (thread) =>
+        mapThreadBlock(thread, blockId, (block) =>
+          optimisticState(block, state)
+        )
       );
       return { previous };
     },
@@ -1282,21 +1419,60 @@ export function useSetBlockState(rootId: string | null) {
       }
       void queryClient.invalidateQueries({ queryKey: key, exact: true });
       void queryClient.invalidateQueries({
-        queryKey: threadQueryKey(rootId, blockId),
-        exact: true,
+        queryKey: [...STREAM_QUERY_PREFIX, rootId, "thread"],
       });
     },
     onSuccess: (data) => {
       if (!data?.block) return;
+      const stored = data.block;
+      // The state route returns the stored block without feed projections.
+      // A thread note may have arrived over SSE while this request was in
+      // flight, so keep its reply count and faces when applying the response.
+      const keep = (previous: Block): Block =>
+        ({
+          ...stored,
+          blocks: stored.blocks ?? previous.blocks,
+          replyCount: stored.replyCount ?? previous.replyCount,
+          lastReplyAt: stored.lastReplyAt ?? previous.lastReplyAt,
+          repliers: stored.repliers ?? previous.repliers,
+          unreadReplies: stored.unreadReplies ?? previous.unreadReplies,
+        }) as Block;
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        replaceBlock(old, data.block.id, data.block)
+        mapBlock(old, stored.id, keep)
       );
-      queryClient.setQueryData<StreamThreadResponse>(
-        threadQueryKey(rootId, data.block.id),
-        (old) => replaceThreadRoot(old, data.block)
+      mapThreads(queryClient, rootId, (thread) =>
+        mapThreadBlock(thread, stored.id, keep)
       );
     },
   });
+}
+
+/** Every loaded thread of this stream, through `map`. */
+function mapThreads(
+  queryClient: QueryClient,
+  rootId: string | null,
+  map: (thread: StreamThreadResponse) => StreamThreadResponse
+): void {
+  queryClient.setQueriesData<StreamThreadResponse>(
+    { queryKey: [...STREAM_QUERY_PREFIX, rootId, "thread"] },
+    (old) => (old ? map(old) : old)
+  );
+}
+
+/** A thread with one block changed, wherever in it the block is. */
+function mapThreadBlock(
+  thread: StreamThreadResponse,
+  blockId: string,
+  map: (block: Block) => Block
+): StreamThreadResponse {
+  const root = mapShownBlock(thread.root, blockId, map);
+  let changed = root !== thread.root;
+  const replies = thread.replies.map((reply) => {
+    const next = mapShownBlock(reply, blockId, map);
+    if (next !== reply) changed = true;
+    return next;
+  });
+  return changed ? { ...thread, root, replies } : thread;
 }
 
 // ---------------------------------------------------------------------------
@@ -1425,21 +1601,26 @@ export function useToggleReaction(rootId: string | null) {
  */
 export function useMarkThreadRead(rootId: string | null) {
   const queryClient = useQueryClient();
-  return useMutation<
-    StreamThreadReadResponse,
-    Error,
-    { blockId: string; finding?: string | null }
-  >({
-    mutationFn: async ({ blockId, finding }) =>
+  return useMutation<StreamThreadReadResponse, Error, { blockId: string }>({
+    mutationFn: async ({ blockId }) =>
       api<StreamThreadReadResponse>(`${blockPath(rootId, blockId)}/read`, {
         method: "POST",
-        body: JSON.stringify(
-          (finding ? { finding } : {}) satisfies StreamThreadReadRequest
-        ),
+        body: JSON.stringify({}),
       }),
     onSuccess: (data, { blockId }) => {
       if (data.ids.length === 0 || !data.readAt) return;
       const ids = new Set(data.ids);
+      // The block the thread opens on counts its unseen replies wherever
+      // it is drawn (a finding on its review, on a launch card): nothing
+      // is unseen now.
+      const seen = (block: Block): Block =>
+        (block.unreadReplies ?? 0) > 0 ? { ...block, unreadReplies: 0 } : block;
+      queryClient.setQueryData<FeedCache>(streamFeedQueryKey(rootId), (old) =>
+        mapBlock(old, blockId, seen)
+      );
+      mapThreads(queryClient, rootId, (thread) =>
+        mapThreadBlock(thread, blockId, seen)
+      );
       queryClient.setQueryData<StreamThreadResponse>(
         threadQueryKey(rootId, blockId),
         (old) =>

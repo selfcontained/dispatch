@@ -9,10 +9,10 @@ import type {
   BlockFormField,
   BlockOption,
   BlockQuestionState,
+  BlockFindingData,
+  BlockFindingState,
+  BlockLaunchState,
   BlockReaction,
-  BlockReviewFinding,
-  BlockReviewState,
-  BlockReviewVerdict,
   BlockTasksState,
   ChatTurnEntry,
   StreamBlockEntry,
@@ -153,13 +153,110 @@ export function formBody(
   };
 }
 
+/** A review's body: its summary, showing these finding blocks in order. */
 export function reviewBody(
-  verdict: BlockReviewVerdict,
   summary: string,
-  findings: BlockReviewFinding[],
-  state: BlockReviewState = { findings: {} }
+  findingIds: string[] = []
 ): BlockBody {
-  return { kind: "review", data: { verdict, summary, findings }, state };
+  return { kind: "review", data: { summary }, state: { blocks: findingIds } };
+}
+
+export type FindingBlock = Extract<Block, { kind: "finding" }>;
+export type ReviewBlock = Extract<Block, { kind: "review" }>;
+export type LaunchBlock = Extract<Block, { kind: "launch" }>;
+
+/**
+ * A finding's record: open as the reviewer posted it, or fixed/dismissed
+ * by the person, with an optional note.
+ */
+export function findingRecord(
+  outcome: "open" | "fixed" | "dismissed" = "open",
+  extra: Partial<Pick<BlockFindingState, "note" | "by" | "at">> = {}
+): BlockFindingState {
+  return {
+    status: outcome === "open" ? "open" : "resolved",
+    ...(outcome === "open" ? {} : { resolution: outcome }),
+    ...(extra.note !== undefined ? { note: extra.note } : {}),
+    by:
+      extra.by ??
+      (outcome === "open"
+        ? { kind: "agent", agentId: STREAM_ID }
+        : { kind: "user" }),
+    at: extra.at ?? "2026-09-02T10:00:30.000Z",
+  };
+}
+
+/**
+ * A finding block as the server writes it: in its review's thread, by the
+ * reviewer, its record its state (open, the reviewer's stamp, by default).
+ */
+export function findingBlock(
+  id: string,
+  finding: BlockFindingData,
+  overrides: Omit<BlockOverrides, "body"> & {
+    record?: BlockFindingState;
+    reviewId?: string;
+  } = {}
+): FindingBlock {
+  const { record = findingRecord(), reviewId = "rv1", ...rest } = overrides;
+  return block({
+    id,
+    threadId: reviewId,
+    replyTo: reviewId,
+    text: "",
+    ...rest,
+    body: { kind: "finding", data: finding, state: record },
+  }) as FindingBlock;
+}
+
+/**
+ * A review with its findings resolved onto it, as a read returns it: the
+ * summary, `state.blocks` naming the findings, and `blocks` the findings.
+ */
+export function reviewBlock(
+  overrides: Omit<BlockOverrides, "body"> & {
+    summary?: string;
+    findings?: Block[];
+  } = {}
+): ReviewBlock {
+  const { summary = "Looks fine.", findings = [], ...rest } = overrides;
+  return block({
+    id: "rv1",
+    text: "",
+    ...rest,
+    blocks: findings,
+    body: reviewBody(
+      summary,
+      findings.map((f) => f.id)
+    ),
+  }) as ReviewBlock;
+}
+
+/**
+ * A launch card: the person (or `launchedByAgentId`) starting `toAgentId`,
+ * its text the briefing, its state the startup and instructions and the
+ * blocks it shows.
+ */
+export function launchBlock(
+  overrides: Omit<BlockOverrides, "body"> & {
+    launchState?: BlockLaunchState | null;
+  } = {}
+): LaunchBlock {
+  const { launchState, ...rest } = overrides;
+  const shown = rest.blocks;
+  const state: BlockLaunchState | null =
+    launchState !== undefined
+      ? launchState
+      : shown && shown.length > 0
+        ? { blocks: shown.map((b) => b.id) }
+        : {};
+  return block({
+    authorKind: "user",
+    text: "",
+    delivered: true,
+    ...rest,
+    body: { kind: "launch", data: null, state },
+  }) as LaunchBlock;
 }
 
 export function tasksBody(

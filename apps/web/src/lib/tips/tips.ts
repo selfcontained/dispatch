@@ -263,7 +263,7 @@ export const tips: Tip[] = [
   {
     id: "review-blocks",
     title: "Reviews Live in the Stream",
-    body: "A reviewer posts one review block: verdict, summary and findings. Open a finding to discuss it in its thread, and resolve, dispute or reopen it right on the block.",
+    body: "A reviewer posts one review onto its launch card: a summary and findings. Open a finding to discuss it in its own thread, and resolve, dismiss or reopen it there.",
     docsSection: "personas",
     since: "0.38.0",
     surfaces: ["ambient"],

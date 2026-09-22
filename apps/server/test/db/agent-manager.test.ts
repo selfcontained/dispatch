@@ -44,7 +44,8 @@ const {
   LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
 } = await import("../../src/agents/manager.js");
-const { StreamService } = await import("../../src/chat/service.js");
+const { StreamService, launchBlockId } =
+  await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { forgetLearnedAgentModels } =
@@ -144,18 +145,23 @@ let manager: InstanceType<typeof AgentManager>;
 let chatEvents: unknown[] = [];
 
 /**
- * The published stream entries a launch produced, minus the system-prompt
- * record every launch writes. These tests are about launch context.
- */
-/**
- * The launch's own chat events, without the records a launch writes about
- * itself: what the agent was told, and its workspace coming up.
+ * The published stream entries that carry a launch briefing. Every launch
+ * writes its card (its startup steps and instructions land on it); these
+ * tests are about the briefing: the prompt, files and links it was given.
  */
 function launchChatEvents(): unknown[] {
   return chatEvents.filter((event) => {
-    const entry = (event as { entry?: { block?: { origin?: string } } }).entry;
-    const origin = entry?.block?.origin;
-    return origin !== "system_prompt" && origin !== "workspace";
+    const block = (
+      event as {
+        entry?: {
+          block?: { kind?: string; text?: string; attachments?: unknown[] };
+        };
+      }
+    ).entry?.block;
+    return (
+      block?.kind === "launch" &&
+      (!!block.text || (block.attachments?.length ?? 0) > 0)
+    );
   });
 }
 
@@ -474,21 +480,33 @@ describe("AgentManager", () => {
     });
 
     describe("launch context in the Chat feed", () => {
-      async function launchPosts(agentId: string) {
+      type CardRow = {
+        id: string;
+        author_kind: string;
+        kind: string;
+        text: string;
+        delivered: boolean | null;
+        origin: string | null;
+        thread_id: string | null;
+        launched_by_agent_id: string | null;
+        state: Record<string, unknown> | null;
+        attachments: Array<Record<string, unknown>>;
+      };
+
+      /** Every launch card written for the agent (there should be one). */
+      async function launchCards(agentId: string): Promise<CardRow[]> {
         const result = await pool.query(
-          `SELECT * FROM blocks WHERE to_agent_id = $1 AND origin = 'launch' ORDER BY created_at`,
+          `SELECT * FROM blocks WHERE to_agent_id = $1 AND kind = 'launch' ORDER BY created_at`,
           [agentId]
         );
-        return result.rows as Array<{
-          id: string;
-          author_kind: string;
-          kind: string;
-          text: string;
-          delivered: boolean | null;
-          origin: string | null;
-          launched_by_agent_id: string | null;
-          attachments: Array<Record<string, unknown>>;
-        }>;
+        return result.rows as CardRow[];
+      }
+
+      /** The cards that carry a briefing: a prompt, files or links. */
+      async function launchPosts(agentId: string): Promise<CardRow[]> {
+        return (await launchCards(agentId)).filter(
+          (card) => card.text !== "" || card.attachments.length > 0
+        );
       }
 
       it("records the prompt, startup file and link as one delivered user post", async () => {
@@ -515,13 +533,18 @@ describe("AgentManager", () => {
           `SELECT id, file_name FROM files WHERE agent_id = $1`,
           [agent.id]
         );
+        // The briefing is on the agent's one card, with the startup and
+        // instructions its launch wrote there too.
+        expect(await launchCards(agent.id)).toHaveLength(1);
         expect(posts[0]).toMatchObject({
+          id: launchBlockId(agent.id),
           author_kind: "user",
-          kind: "text",
+          kind: "launch",
           to_agent_id: agent.id,
           text: "Build the widget",
           delivered: true,
-          origin: "launch",
+          origin: null,
+          thread_id: null,
           launched_by_agent_id: null,
           attachments: [
             {
@@ -533,25 +556,50 @@ describe("AgentManager", () => {
             { type: "link", url: "https://example.com/spec" },
           ],
         });
-        expect(launchChatEvents()).toEqual([
-          expect.objectContaining({
-            type: "stream.entry",
-            agentId: agent.id,
-            entry: expect.objectContaining({
-              type: "block",
-              block: expect.objectContaining({ origin: "launch" }),
-            }),
-          }),
-        ]);
+        expect(posts[0]!.state).toMatchObject({
+          instructions: expect.any(String),
+          startup: expect.objectContaining({ steps: expect.any(Array) }),
+        });
+        // The card is republished as the startup goes on; every copy that
+        // carries the briefing is the one card, with the briefing on it.
+        const published = launchChatEvents();
+        expect(published.length).toBeGreaterThan(0);
+        for (const event of published) {
+          expect(event).toEqual(
+            expect.objectContaining({
+              type: "stream.entry",
+              agentId: agent.id,
+              entry: expect.objectContaining({
+                type: "block",
+                block: expect.objectContaining({
+                  id: launchBlockId(agent.id),
+                  kind: "launch",
+                  text: "Build the widget",
+                }),
+              }),
+            })
+          );
+        }
       });
 
-      it("records nothing for a bare launch", async () => {
+      it("records no briefing for a bare launch, only its card", async () => {
         const bare = await manager.createAgent({
           cwd: "/tmp",
           useWorktree: false,
         });
         expect(await launchPosts(bare.id)).toEqual([]);
         expect(launchChatEvents()).toEqual([]);
+        // The card is still there: the instructions and the startup it ran.
+        const [card, ...rest] = await launchCards(bare.id);
+        expect(rest).toEqual([]);
+        expect(card).toMatchObject({
+          id: launchBlockId(bare.id),
+          author_kind: "user",
+          text: "",
+          attachments: [],
+          delivered: true,
+        });
+        expect(card!.state).toMatchObject({ instructions: expect.any(String) });
       });
 
       it("attributes an agent-launched post to the launcher and uses the unwrapped prompt", async () => {
@@ -571,8 +619,8 @@ describe("AgentManager", () => {
         expect(posts).toHaveLength(1);
         expect(posts[0]).toMatchObject({
           author_kind: "user",
+          kind: "launch",
           text: "Review the diff",
-          origin: "launch",
           launched_by_agent_id: parent.id,
           delivered: true,
         });
@@ -634,9 +682,10 @@ describe("AgentManager", () => {
         });
         const posts = await launchPosts(agent.id);
         expect(posts).toHaveLength(1);
+        expect(posts[0]!.id).toBe(launchBlockId(agent.id));
         const [firstTurn] = promptsFor(agent.id);
-        // The envelope names the post that was written, so the agent's reply
-        // threads onto the launch post in the feed.
+        // The envelope names the card that was written, so the agent's reply
+        // threads onto the launch card in the feed.
         expect(firstTurn).toContain(
           `--- DISPATCH POST (id: ${posts[0].id}, from: user) ---`
         );
@@ -729,6 +778,7 @@ describe("AgentManager", () => {
         const failing = managerWith({ warn, runtime: spy });
         failing.attachLaunchContextRecorder({
           prepareLaunchContext: async () => ({
+            id: "6a4f9e60-1111-4222-8333-444455556666",
             attachmentLines: [],
             record: async () => {
               throw new Error("db down");
@@ -755,6 +805,7 @@ describe("AgentManager", () => {
         const hung = managerWith({ warn, runtime: spy });
         hung.attachLaunchContextRecorder({
           prepareLaunchContext: async () => ({
+            id: "6a4f9e60-1111-4222-8333-444455556666",
             attachmentLines: [],
             record: () => new Promise(() => {}),
           }),
@@ -777,50 +828,49 @@ describe("AgentManager", () => {
         expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
       }, 15_000);
 
-      it("launches unwrapped when the post's id is already taken", async () => {
-        // Between resolving the id and writing it, something else claims the
-        // row. The insert is ON CONFLICT DO NOTHING, so the write reports
-        // failure and the envelope is dropped rather than naming a row this
-        // launch does not own.
-        const warn = vi.fn();
+      it("writes the briefing onto a card that was already there", async () => {
+        // The card may predate the briefing (the startup steps write it
+        // first, or an older card has an id of its own): the briefing fills
+        // it in rather than failing on a taken id, and the first turn names
+        // that card.
         const spy = createSpyRuntime();
-        const racing = managerWith({ warn, runtime: spy });
+        const early = managerWith({ runtime: spy });
         const chat = new StreamService({
           pool,
           publishUiEvent: (event) => chatEvents.push(event),
-          getAgent: (id) => racing.getAgent(id),
+          getAgent: (id) => early.getAgent(id),
           filesRoot: testConfig.filesRoot,
         });
-        racing.attachLaunchContextRecorder({
+        const legacyId = "5a4f9e60-1111-4222-8333-444455556666";
+        early.attachLaunchContextRecorder({
           prepareLaunchContext: async (input) => {
-            const prepared = await chat.prepareLaunchContext(input);
             await pool.query(
-              `INSERT INTO blocks (id, stream_id, author_kind, to_agent_id, kind, text)
-               VALUES ($1, $2, 'user', $2, 'text', 'squatter')`,
-              [input.id, input.agentId]
+              `INSERT INTO blocks (id, stream_id, author_kind, to_agent_id, kind, text, state, delivered)
+               VALUES ($1, $2, 'user', $2, 'launch', '', '{"instructions":"old"}'::jsonb, true)`,
+              [legacyId, input.agentId]
             );
-            return prepared;
+            return chat.prepareLaunchContext(input);
           },
         });
 
-        const agent = await racing.createAgent({
+        const agent = await early.createAgent({
           cwd: "/tmp",
           type: "claude",
           useWorktree: false,
           initialPrompt: "Go",
           launchContext: { prompt: "Go" },
         });
-        expect(warn).toHaveBeenCalledWith(
-          expect.objectContaining({ agentId: agent.id }),
-          expect.stringContaining("launching without the Chat envelope")
+        const cards = await launchCards(agent.id);
+        expect(cards).toHaveLength(1);
+        expect(cards[0]).toMatchObject({
+          id: legacyId,
+          text: "Go",
+          state: { instructions: "old" },
+        });
+        const [firstTurn] = promptsFor(agent.id, spy);
+        expect(firstTurn).toContain(
+          `--- DISPATCH POST (id: ${legacyId}, from: user) ---`
         );
-        expect(promptsFor(agent.id, spy)).toEqual(["Go"]);
-        // The squatter row is untouched: the launch wrote nothing.
-        const rows = await pool.query<{ text: string }>(
-          `SELECT text FROM blocks WHERE stream_id = $1`,
-          [agent.id]
-        );
-        expect(rows.rows).toEqual([{ text: "squatter" }]);
       }, 15_000);
     });
 

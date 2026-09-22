@@ -11,7 +11,7 @@ import type {
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
 import { agentNamesFor } from "../chat/agent-names.js";
-import { decodeFeedCursor } from "../chat/feed.js";
+import { attachShown, decodeFeedCursor } from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
@@ -40,12 +40,10 @@ const userAttachmentSchema = z.discriminatedUnion("type", [
 ]);
 
 const reviewBodySchema = z.object({
-  verdict: z.enum(["approve", "request_changes", "comment"]),
   summary: z.string().min(1).max(4000),
   findings: z
     .array(
       z.object({
-        id: z.string().min(1).max(64),
         severity: z.enum(["blocker", "major", "minor", "nit"]),
         title: z.string().min(1).max(300),
         body: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
@@ -69,7 +67,6 @@ const postBodySchema = z.object({
     )
     .default(""),
   replyTo: z.uuid().optional(),
-  finding: z.string().min(1).max(64).optional(),
   attachments: z
     .array(userAttachmentSchema)
     .max(BLOCK_ATTACHMENTS_MAX)
@@ -165,10 +162,15 @@ export async function registerStreamRoutes(
       if (!thread || thread.root.streamId !== rootId) {
         return reply.code(404).send({ error: "Block not found." });
       }
-      // A turn answered into the thread carries its turn like any feed row.
+      // A turn answered into the thread carries its turn like any feed
+      // row, and a block that shows others arrives with them.
       const blocks = [thread.root, ...thread.replies];
+      await attachShown(store.db, rootId, blocks);
       const [agentNames] = await Promise.all([
-        agentNamesFor(store.db, blocks),
+        agentNamesFor(store.db, [
+          ...blocks,
+          ...blocks.flatMap((block) => block.blocks ?? []),
+        ]),
         attachTurns(store.db, blocks),
       ]);
       return { ...thread, agentNames } satisfies StreamThreadResponse;
@@ -190,7 +192,6 @@ export async function registerStreamRoutes(
         to: parsed.data.to ?? null,
         text: parsed.data.text,
         replyTo: parsed.data.replyTo ?? null,
-        finding: parsed.data.finding ?? null,
         attachments: parsed.data.attachments ?? [],
         ...(parsed.data.review ? { review: parsed.data.review } : {}),
         ...(parsed.data.interrupt ? { interrupt: true } : {}),
@@ -346,18 +347,13 @@ export async function registerStreamRoutes(
         rootId?: string;
         blockId?: string;
       };
-      const body = request.body as { finding?: unknown } | null;
-      const finding = body?.finding;
-      if (finding != null && typeof finding !== "string") {
-        return reply.code(400).send({ error: "finding must be a string." });
-      }
       if (!isBlockId(blockId)) {
         return reply.code(400).send({ error: "blockId must be a UUID." });
       }
       if (!(await agentExists(rootId))) {
         return reply.code(404).send({ error: "Agent not found." });
       }
-      const marked = await store.markThreadRead(rootId, blockId, finding);
+      const marked = await store.markThreadRead(rootId, blockId);
       return { ids: marked.ids, readAt: marked.readAt };
     }
   );

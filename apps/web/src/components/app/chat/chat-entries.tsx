@@ -11,14 +11,12 @@ import {
   Bot,
   Check,
   ChevronRight,
-  ClipboardCheck,
   Copy,
   Hourglass,
   Loader2,
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
-  ScrollText,
   UserRound,
 } from "lucide-react";
 
@@ -43,17 +41,18 @@ import { MentionText } from "@/components/app/chat/mention-picker";
 import { type Mentionable, mentionSpans } from "@/lib/mentions";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
-import { useThread } from "@/hooks/use-stream";
+import { useAgentRecord } from "@/hooks/use-agent-tree";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { cn } from "@/lib/utils";
 
 import {
   type BlockStatePatch,
+  FindingDetail,
   FormBlockBody,
   LinkBlockBody,
   QuestionOptions,
   ReviewBlockBody,
   TasksBlockBody,
-  findingIdOf,
 } from "./block-bodies";
 import { AttachmentList } from "./chat-attachment-views";
 import {
@@ -188,6 +187,11 @@ export type PostAuthor = {
   relation?: AgentRelation;
   /** Its number in the tree, drawn as its avatar. */
   seat?: number;
+  /**
+   * A launch card's header: the record of an agent starting, not a post
+   * the agent wrote. It wears a launch mark instead of the agent's face.
+   */
+  launch?: boolean;
 };
 
 function userAuthor(): PostAuthor {
@@ -246,6 +250,15 @@ export function peerAuthor(
  * this stream.
  */
 export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
+  // A launch card stands for the agent it launched: its header is that
+  // agent's, whoever wrote the briefing.
+  if (block.kind === "launch" && block.toAgentId) {
+    const agent =
+      block.toAgentId === ctx.agentId
+        ? agentAuthor(ctx, "Agent")
+        : peerAuthor(block.toAgentId, peerName(block.toAgentId, ctx), ctx);
+    return launchHeader(agent, block.id);
+  }
   if (block.author.kind === "agent") {
     if (block.author.agentId === ctx.agentId) return agentAuthor(ctx, "Agent");
     return peerAuthor(
@@ -267,6 +280,30 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     );
   }
   return userAuthor();
+}
+
+/**
+ * A launch card's header: which agent started, told apart from anything the
+ * agent itself posts — "Started <name>" under a launch mark — with the same
+ * engine, model and relation chips its posts carry.
+ */
+function launchHeader(agent: PostAuthor, blockId: string): PostAuthor {
+  return {
+    ...agent,
+    key: `launch:${blockId}`,
+    name: `Started ${agent.name}`,
+    launch: true,
+  };
+}
+
+/** Who the agent a block stands for is, as its posts read: a launch card's agent itself. */
+export function blockIdentity(block: Block, ctx: FeedContext): PostAuthor {
+  if (block.kind === "launch" && block.toAgentId) {
+    return block.toAgentId === ctx.agentId
+      ? agentAuthor(ctx, "Agent")
+      : peerAuthor(block.toAgentId, peerName(block.toAgentId, ctx), ctx);
+  }
+  return blockAuthor(block, ctx);
 }
 
 /**
@@ -292,7 +329,7 @@ export function blockSide(
   block: Block,
   ctx: FeedContext
 ): { recipientName: string } | undefined {
-  if (block.toAgentId === null) return undefined;
+  if (block.toAgentId === null || block.kind === "launch") return undefined;
   if (block.author.kind === "agent") {
     return { recipientName: agentDisplayName(block.toAgentId, ctx) };
   }
@@ -307,10 +344,11 @@ export function blockSide(
   };
 }
 
-/** Everyone a post was delivered to: its `@mentions`, or its one recipient. */
+/** Everyone a post was delivered to: its `@mentions` or recipients, or its one recipient. */
 export function blockRecipients(block: Block): string[] {
-  const mentions = block.kind === "text" ? block.data?.mentions : undefined;
-  if (mentions && mentions.length > 0) return mentions;
+  const data = block.kind === "text" ? block.data : undefined;
+  const named = data?.mentions?.length ? data.mentions : data?.recipients;
+  if (named && named.length > 0) return named;
   return block.toAgentId ? [block.toAgentId] : [];
 }
 
@@ -331,7 +369,19 @@ export function mentionablesOf(ctx: FeedContext): Mentionable[] {
   return list.sort((a, b) => (a.seat ?? 99) - (b.seat ?? 99));
 }
 
-function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+  if (author.launch) {
+    return (
+      <span
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
+        aria-label={author.name}
+        title={author.name}
+        data-testid="chat-avatar-launch"
+      >
+        <Rocket className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
+  }
   if (author.kind === "user") {
     return (
       <span
@@ -912,6 +962,8 @@ function ReplierFace({
 /**
  * A block's body by kind, under its text. `text` and `file` have nothing
  * past the text and the attachments; every other kind hangs its own view.
+ * `threadRootId` is the thread page this is drawn on, when it is: a
+ * finding opens over it.
  */
 function BlockBody({
   block,
@@ -921,6 +973,7 @@ function BlockBody({
   submitting,
   onAnswer,
   inThread,
+  threadRootId,
   highlightFindingId,
 }: {
   block: Block;
@@ -930,6 +983,7 @@ function BlockBody({
   submitting: boolean;
   onAnswer: (blockId: string, option: BlockOption) => void;
   inThread: boolean;
+  threadRootId: string;
   highlightFindingId: string | null;
 }): JSX.Element | null {
   const { onSubmitForm, onSetBlockState, onOpenThread, onOpenPath } = ctx;
@@ -965,26 +1019,42 @@ function BlockBody({
       );
     case "review":
       return (
-        <ReviewBlockWithCounts
+        <ReviewBlockBody
           block={block}
-          rootId={ctx.rootId ?? null}
-          inThread={inThread}
-          disabled={answersDisabled}
-          onSetState={setState}
           onOpenFinding={
             onOpenThread
-              ? (findingId) => onOpenThread(block.id, findingId)
+              ? (findingId) => onOpenThread(threadRootId, findingId)
               : undefined
           }
           onOpenPath={onOpenPath}
-          // In the stream the card is a summary that opens the review in
+          // In the stream the card is a summary that opens its thread in
           // the drawer; in the drawer it is the whole subject, open.
           compact={!inThread}
-          onOpen={onOpenThread ? () => onOpenThread(block.id) : undefined}
+          onOpen={onOpenThread ? () => onOpenThread(threadRootId) : undefined}
           defaultExpanded={inThread}
           highlightFindingId={highlightFindingId}
         />
       );
+    case "finding":
+      return (
+        <div className="mt-1">
+          <FindingDetail
+            block={block}
+            disabled={answersDisabled || !onSetBlockState}
+            onSetState={
+              onSetBlockState
+                ? (patch) => onSetBlockState(block.id, patch)
+                : undefined
+            }
+            onOpenPath={onOpenPath}
+            authorName={(by) =>
+              by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+            }
+          />
+        </div>
+      );
+    case "launch":
+      return <LaunchCardBody block={block} ctx={ctx} />;
     case "tasks":
       return <TasksBlockBody block={block} />;
     case "link":
@@ -993,6 +1063,72 @@ function BlockBody({
     case "file":
       return null;
   }
+}
+
+/**
+ * The blocks a block shows, under its own body: a launch card's review, a
+ * review's findings being the review's own business. Each is a block of
+ * its own — its own state, its own thread — drawn as part of the post that
+ * shows it rather than as a post of its own, so it carries no header.
+ */
+function ShownBlocks({
+  block,
+  ctx,
+  inThread,
+  threadRootId,
+  highlightFindingId,
+  answersDisabled,
+  onAnswer,
+}: {
+  block: Block;
+  ctx: FeedContext;
+  inThread: boolean;
+  threadRootId: string;
+  highlightFindingId: string | null;
+  answersDisabled: boolean;
+  onAnswer: (blockId: string, option: BlockOption) => void;
+}): JSX.Element | null {
+  // A review's body is the list of its findings: it draws what it shows.
+  if (block.kind === "review") return null;
+  const shown = block.blocks ?? [];
+  if (shown.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-2" data-testid="chat-shown-blocks">
+      {shown.map((item) => (
+        <div
+          key={item.id}
+          data-testid="chat-shown-block"
+          data-block-id={item.id}
+          data-kind={item.kind}
+        >
+          {/* The shown block's own content, all of it: its words, its kind's
+              body, its attachments, and the blocks it shows in turn. */}
+          {item.text ? <Markdown>{item.text}</Markdown> : null}
+          <BlockBody
+            block={item}
+            ctx={ctx}
+            answering={false}
+            answersDisabled={answersDisabled}
+            submitting={false}
+            onAnswer={onAnswer}
+            inThread={inThread}
+            threadRootId={threadRootId}
+            highlightFindingId={highlightFindingId}
+          />
+          <AttachmentList block={item} ctx={ctx} />
+          <ShownBlocks
+            block={item}
+            ctx={ctx}
+            inThread={inThread}
+            threadRootId={threadRootId}
+            highlightFindingId={highlightFindingId}
+            answersDisabled={answersDisabled}
+            onAnswer={onAnswer}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export type BlockViewProps = {
@@ -1009,166 +1145,175 @@ export type BlockViewProps = {
   onAnswer: (blockId: string, option: BlockOption) => void;
   /** Inside a thread page: no reply line, no thread to open. */
   inThread?: boolean;
+  /** The thread page this is drawn on, when it is one. */
+  threadRoot?: string | null;
   /** A review's finding to pick out (the panel's `?finding=`). */
   highlightFindingId?: string | null;
   /** A turn block only: what the agent produced while the turn ran, folded under its answer. */
   folded?: readonly FoldedEntry[];
 };
 
-/**
- * One block as a post: the author header, the text, the kind's own body,
- * the attachments, and then the delivery state (a person's block), the
- * reactions, and the thread's reply line.
- */
-/** How many replies in a review's thread are about each finding. */
-export function commentCountsOf(
-  replies: readonly Block[]
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const reply of replies) {
-    const findingId = findingIdOf(reply);
-    if (findingId) counts[findingId] = (counts[findingId] ?? 0) + 1;
-  }
-  return counts;
+/** "Started in 12s": how long a finished startup took. */
+function startupDuration(startup: BlockStartup): string | null {
+  const first = Date.parse(startup.steps[0]?.startedAt ?? "");
+  const last = Date.parse(startup.readyAt ?? "");
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
+  const seconds = Math.max(0, (last - first) / 1000);
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
 }
 
 /**
- * Agent comments the person has not seen, by finding id. Comments on the
- * review as a whole (no finding) count under `""`.
+ * One part of a launch card that folds: a short line (what it is, and a
+ * note on it) that opens onto the whole.
  */
-export function unreadCommentsOf(
-  replies: readonly Block[]
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const reply of replies) {
-    if (reply.author.kind !== "agent" || reply.readAt !== null) continue;
-    const findingId = findingIdOf(reply) ?? "";
-    counts[findingId] = (counts[findingId] ?? 0) + 1;
-  }
-  return counts;
-}
-
-/**
- * The review card with each finding's comment count and the comments not
- * yet seen, read from the review's thread once it has replies.
- */
-function ReviewBlockWithCounts({
-  rootId,
-  inThread,
-  ...props
-}: Omit<
-  Parameters<typeof ReviewBlockBody>[0],
-  "commentCounts" | "unreadCounts"
-> & {
-  rootId: string | null;
-  /** Already on the review's page: its thread is loaded whatever the count says. */
-  inThread: boolean;
+function LaunchSection({
+  title,
+  aside,
+  stateKey,
+  defaultOpen,
+  testId,
+  children,
+}: {
+  title: string;
+  aside?: string;
+  stateKey: string;
+  defaultOpen: boolean;
+  testId: string;
+  children: ReactNode;
 }): JSX.Element {
-  const thread = useThread(
-    rootId,
-    inThread || (props.block.replyCount ?? 0) > 0 ? props.block.id : null
-  );
-  const commentCounts = useMemo(
-    () => commentCountsOf(thread.replies),
-    [thread.replies]
-  );
-  const unreadCounts = useMemo(
-    () => unreadCommentsOf(thread.replies),
-    [thread.replies]
-  );
+  const [open, setOpen] = useChatRowState<boolean>(stateKey, defaultOpen);
   return (
-    <ReviewBlockBody
-      {...props}
-      commentCounts={commentCounts}
-      unreadCounts={unreadCounts}
-    />
-  );
-}
-
-/**
- * What the agent was told at launch, as a row of the stream rather than a
- * chip in it: the full width and the same gutter every post uses, its icon
- * where an avatar would be, and the prompt itself folded away until asked
- * for. Not a post — nobody wrote it to anybody — so it carries no author
- * and none of a post's actions, and it reads as the startup record it is.
- */
-function SystemPromptBlock({ block }: { block: Block }): JSX.Element {
-  const [open, setOpen] = useChatRowState<boolean>("system-prompt-open", false);
-  const lines = block.text.split("\n").length;
-  return (
-    <div
-      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
-      data-testid="chat-system-prompt"
-      data-open={open ? "true" : "false"}
-      data-block-id={block.id}
-    >
-      {/* The header is its own flex row, so the icon and the title centre
-          on each other whatever either one's height turns out to be. The
-          prompt unfolds underneath rather than beside, so nothing here
-          depends on the icon's size. */}
+    <div data-testid={testId} data-open={open ? "true" : "false"}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-3 text-left"
-        data-testid="chat-system-prompt-toggle"
+        className="flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-[12px] text-muted-foreground hover:text-foreground"
+        data-testid={`${testId}-toggle`}
       >
-        <span
-          className="flex shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 p-2 text-muted-foreground"
-          aria-hidden="true"
-        >
-          <ScrollText className="h-4 w-4" />
-        </span>
-        <span className="truncate text-sm font-semibold text-foreground">
-          Starting Agent with instructions
-        </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {lines} lines
-        </span>
         <ChevronRight
           className={cn(
-            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            "h-3 w-3 shrink-0 transition-transform",
             open && "rotate-90"
           )}
           aria-hidden="true"
         />
+        <span className="shrink-0 font-medium">{title}</span>
+        {aside ? <span className="min-w-0 truncate">{aside}</span> : null}
       </button>
-      <Collapse open={open} data-testid="chat-system-prompt-body">
-        <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-          {block.text}
-        </pre>
+      <Collapse open={open} data-testid={`${testId}-body`}>
+        <div className="pb-1 pl-[18px] pt-1">{children}</div>
       </Collapse>
     </div>
   );
 }
 
+/** The first line of some text, for a folded section's note. */
+function firstLineOf(text: string): string {
+  const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
+  return line.length > 90 ? `${line.slice(0, 89).trimEnd()}…` : line;
+}
+
 /**
- * The workspace coming up, as a row of the stream, drawn as the agent's
- * own activity is: the same step list, the same glyphs and durations.
- * Creating a worktree and installing dependencies are work an agent is
- * doing, and there is no reason for them to look like a different kind of
- * thing. There are only a few steps, so the list stands open on its own,
- * without a turn's summary line over it repeating the step that is running.
+ * A launch card's own body: who launched the agent, where it stands now
+ * (read from the agent, so it stays current), the briefing it was given,
+ * its workspace coming up, and the instructions it runs with. Startup
+ * stands open while it runs and folds to one line once the agent is up.
  */
-function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
-  const startup = block.kind === "text" ? block.data?.startup : undefined;
+function LaunchCardBody({
+  block,
+  ctx,
+}: {
+  block: Extract<Block, { kind: "launch" }>;
+  ctx: FeedContext;
+}): JSX.Element {
+  const agent = useAgentRecord(block.toAgentId);
+  const state = block.state ?? {};
+  const startup = state.startup;
   const trace = useMemo(() => startupTrace(startup), [startup]);
+  const launcher = block.launchedByAgentId
+    ? agentDisplayName(block.launchedByAgentId, ctx)
+    : "you";
+  const starting = !!startup && !startup.readyAt && !startup.failed;
+  const took = startup ? startupDuration(startup) : null;
   return (
-    <div
-      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
-      data-testid="chat-workspace"
-      data-state={
-        startup?.failed ? "failed" : startup?.readyAt ? "ready" : "running"
-      }
-      data-block-id={block.id}
-    >
-      <div className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}>
-        <StepList trace={trace} />
+    <div className="flex flex-col gap-0.5" data-testid="chat-launch-card-body">
+      <div
+        className="mb-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground"
+        data-testid="chat-launch-meta"
+      >
+        <span className="inline-flex items-center gap-1">
+          <Rocket className="h-3 w-3" aria-hidden="true" />
+          Launched by {launcher}
+        </span>
+        {agent?.persona ? (
+          <span
+            className="rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium"
+            data-testid="chat-launch-persona"
+          >
+            {agent.persona}
+          </span>
+        ) : null}
+        {agent ? (
+          <AgentActivityLabel agent={agent} className="min-w-0 text-[11px]" />
+        ) : null}
       </div>
+      {block.text ? (
+        <LaunchSection
+          title="Briefing"
+          aside={firstLineOf(block.text)}
+          stateKey="launch-briefing-open"
+          // A person's own words open; a briefing an agent wrote folds.
+          defaultOpen={!block.launchedByAgentId}
+          testId="chat-launch-briefing"
+        >
+          <Markdown>{block.text}</Markdown>
+        </LaunchSection>
+      ) : null}
+      {startup && startup.steps.length > 0 ? (
+        starting ? (
+          <div
+            className="w-full min-w-0 font-terminal"
+            data-testid="chat-launch-startup"
+          >
+            <StepList trace={trace} />
+          </div>
+        ) : (
+          <LaunchSection
+            title={startup.failed ? "Startup failed" : "Started"}
+            aside={startup.failed ?? (took ? `in ${took}` : undefined)}
+            stateKey="launch-startup-open"
+            defaultOpen={!!startup.failed}
+            testId="chat-launch-startup"
+          >
+            <div className="w-full min-w-0 font-terminal">
+              <StepList trace={trace} />
+            </div>
+          </LaunchSection>
+        )
+      ) : null}
+      {state.instructions ? (
+        <LaunchSection
+          title="Instructions"
+          aside={`${state.instructions.split("\n").length} lines`}
+          stateKey="launch-instructions-open"
+          defaultOpen={false}
+          testId="chat-launch-instructions"
+        >
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            {state.instructions}
+          </pre>
+        </LaunchSection>
+      ) : null}
     </div>
   );
 }
 
+/**
+ * One block as a post: the author header, the text, the kind's own body,
+ * the blocks it shows, the attachments, and then the delivery state (a
+ * person's block), the reactions, and the thread's reply line.
+ */
 /**
  * The startup record as the step list's own model. The worktree step
  * carries the directory it made and a failed step carries the reason, in
@@ -1221,179 +1366,6 @@ function startupTrace(startup: BlockStartup | undefined): Trace {
   };
 }
 
-/**
- * A record of something that happened, rather than something anybody
- * said: one line with an icon, openable for the whole text. The same
- * shape the instructions and workspace rows use, so a stream reads as a
- * conversation with a few quiet marks in it.
- */
-function RecordRow({
-  icon: Icon,
-  title,
-  aside,
-  detail,
-  stateKey,
-  testId,
-  attribution,
-  children,
-}: {
-  icon: typeof Rocket;
-  title: string;
-  /** The muted note after the title: a count, a name, a model. */
-  aside?: string;
-  /** The full text, shown when the row is opened. */
-  detail?: string;
-  /** Where the open/closed state is kept for this row. */
-  stateKey: string;
-  testId: string;
-  /** "You asked", "Dev instance asked": who this record is from. */
-  attribution?: string;
-  children?: ReactNode;
-}): JSX.Element {
-  const [open, setOpen] = useChatRowState<boolean>(stateKey, false);
-  const openable = Boolean(detail || children);
-  return (
-    <div
-      className="mt-3 flex min-w-0 max-w-full flex-col px-4 pb-1.5 pt-2"
-      data-testid={testId}
-      data-open={open ? "true" : "false"}
-      data-block-id={undefined}
-    >
-      <button
-        type="button"
-        onClick={() => openable && setOpen(!open)}
-        aria-expanded={openable ? open : undefined}
-        className={cn(
-          "flex w-full min-w-0 items-center gap-3 text-left",
-          !openable && "cursor-default"
-        )}
-        data-testid={`${testId}-toggle`}
-      >
-        <span
-          className="flex shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 p-2 text-muted-foreground"
-          aria-hidden="true"
-        >
-          <Icon className="h-4 w-4" />
-        </span>
-        <span className="truncate text-sm font-semibold text-foreground">
-          {title}
-        </span>
-        {attribution ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {attribution}
-          </span>
-        ) : null}
-        {aside ? (
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-            {aside}
-          </span>
-        ) : null}
-        {openable ? (
-          <ChevronRight
-            className={cn(
-              "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90"
-            )}
-            aria-hidden="true"
-          />
-        ) : null}
-      </button>
-      <Collapse open={open} data-testid={`${testId}-body`}>
-        {children ?? (
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-            {detail}
-          </pre>
-        )}
-      </Collapse>
-    </div>
-  );
-}
-
-/** "architecture review and frontend UX review", from persona slugs. */
-function personaList(slugs: readonly string[]): string {
-  const names = slugs.map((slug) => slug.replace(/[-_]+/g, " "));
-  if (names.length <= 1) return names[0] ?? "a review";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/**
- * Someone asked for reviews. The row says who asked and for what; the
- * instruction the agent was handed is folded underneath, because it is
- * written in tool calls and nobody typed it.
- */
-function ReviewRequestBlock({
-  block,
-  ctx,
-}: {
-  block: Block;
-  ctx: FeedContext;
-}): JSX.Element {
-  const request = block.kind === "text" ? block.data?.reviewRequest : undefined;
-  const who =
-    block.author.kind === "user"
-      ? "You"
-      : agentDisplayName(block.author.agentId, ctx);
-  const personas = request?.personas ?? [];
-  return (
-    <RecordRow
-      icon={ClipboardCheck}
-      title={`Review requested: ${personaList(personas)}`}
-      attribution={`by ${who}`}
-      {...(request?.note ? { aside: `“${request.note}”` } : {})}
-      detail={block.text}
-      stateKey="review-request-open"
-      testId="chat-review-request"
-    />
-  );
-}
-
-/**
- * The briefing an agent wrote for one it launched. It is a record of a
- * launch rather than a message to read, so it folds like the others; the
- * row names the agent it started.
- */
-function LaunchContextBlock({
-  block,
-  ctx,
-}: {
-  block: Block;
-  ctx: FeedContext;
-}): JSX.Element {
-  const started = block.toAgentId
-    ? agentDisplayName(block.toAgentId, ctx)
-    : "an agent";
-  const from =
-    block.author.kind === "agent"
-      ? agentDisplayName(block.author.agentId, ctx)
-      : "You";
-  return (
-    <RecordRow
-      icon={Rocket}
-      title={`Started ${started}`}
-      attribution={`by ${from}`}
-      aside="launch briefing"
-      detail={block.text}
-      stateKey="launch-context-open"
-      testId="chat-launch-brief"
-    />
-  );
-}
-
-/**
- * A launch post that is a record rather than a message: the briefing one
- * agent wrote for another. The post that started this stream — what a
- * person wrote when they launched it — is the conversation's first
- * message and stays as it is.
- */
-function isLaunchBrief(block: Block): boolean {
-  return (
-    block.origin === "launch" &&
-    block.author.kind === "agent" &&
-    block.toAgentId !== null &&
-    block.toAgentId !== block.streamId
-  );
-}
-
 export const BlockView = memo(function BlockView({
   block,
   grouped,
@@ -1404,21 +1376,10 @@ export const BlockView = memo(function BlockView({
   answersDisabled = false,
   onAnswer,
   inThread = false,
+  threadRoot = null,
   highlightFindingId = null,
   folded,
 }: BlockViewProps): JSX.Element {
-  if (block.origin === "system_prompt") {
-    return <SystemPromptBlock block={block} />;
-  }
-  if (block.origin === "workspace") {
-    return <WorkspaceBlock block={block} />;
-  }
-  if (block.origin === "review_request") {
-    return <ReviewRequestBlock block={block} ctx={ctx} />;
-  }
-  if (isLaunchBrief(block)) {
-    return <LaunchContextBlock block={block} ctx={ctx} />;
-  }
   const author = blockAuthor(block, ctx);
   // Inside the panel the thread itself says who is talking to whom; the
   // side indent would only push the replies off the left edge.
@@ -1436,22 +1397,38 @@ export const BlockView = memo(function BlockView({
     ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : <ThreadLine block={block} ctx={ctx} />;
+  // The thread this post opens onto: its own, or the one it is drawn in.
+  const threadRootId = threadRoot ?? block.id;
   const body = (
-    <BlockBody
-      block={block}
-      ctx={ctx}
-      answering={answering}
-      answersDisabled={answersDisabled}
-      submitting={submitting}
-      onAnswer={onAnswer}
-      inThread={inThread}
-      highlightFindingId={highlightFindingId}
-    />
+    <>
+      <BlockBody
+        block={block}
+        ctx={ctx}
+        answering={answering}
+        answersDisabled={answersDisabled}
+        submitting={submitting}
+        onAnswer={onAnswer}
+        inThread={inThread}
+        threadRootId={threadRootId}
+        highlightFindingId={highlightFindingId}
+      />
+      <ShownBlocks
+        block={block}
+        ctx={ctx}
+        inThread={inThread}
+        threadRootId={threadRootId}
+        highlightFindingId={highlightFindingId}
+        answersDisabled={answersDisabled}
+        onAnswer={onAnswer}
+      />
+    </>
   );
 
   // A person's block, whoever it reads as: a launch-context post made by
   // another agent keeps the user-post layout under that agent's name.
-  if (block.author.kind === "user") {
+  // A launch card reads as the agent it launched (see `blockAuthor`), so
+  // it takes the agent layout below, whoever wrote the briefing.
+  if (block.author.kind === "user" && block.kind !== "launch") {
     return (
       <Post
         author={author}
@@ -1467,16 +1444,6 @@ export const BlockView = memo(function BlockView({
         data-block-id={block.id}
         action={copyAction}
       >
-        {block.origin === "launch" ? (
-          <div
-            className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
-            title="What this agent was started with — the prompt, files and links from its launch."
-            data-testid="chat-launch-context"
-          >
-            <Rocket className="h-3 w-3" aria-hidden="true" />
-            Launch context
-          </div>
-        ) : null}
         {block.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             <MentionText
@@ -1519,10 +1486,12 @@ export const BlockView = memo(function BlockView({
   }
 
   const { onToggleReaction } = ctx;
-  const toggleReaction = onToggleReaction
-    ? (emoji: string, remove: boolean) =>
-        onToggleReaction(block.id, emoji, remove)
-    : undefined;
+  // A launch card is a record Dispatch keeps, not something to react to.
+  const toggleReaction =
+    onToggleReaction && block.kind !== "launch"
+      ? (emoji: string, remove: boolean) =>
+          onToggleReaction(block.id, emoji, remove)
+      : undefined;
   // Adding a reaction is delivered like a message, so the picker is disabled
   // whenever a message could not be sent; taking one back off never needs
   // the agent.
@@ -1546,9 +1515,12 @@ export const BlockView = memo(function BlockView({
       grouped={grouped}
       rule={rule}
       side={side}
-      // The drawer's review page is the review: give the card the width.
-      flush={inThread && block.kind === "review"}
-      data-testid="chat-message"
+      data-launch-card={block.kind === "launch" ? "true" : undefined}
+      // A launch card is a record of an agent, not a message in the
+      // conversation: it answers to its own name.
+      data-testid={
+        block.kind === "launch" ? "chat-launch-card" : "chat-message"
+      }
       data-author={author.kind === "peer" ? "peer" : "agent"}
       data-kind={block.kind}
       data-origin={block.origin}
@@ -1556,24 +1528,16 @@ export const BlockView = memo(function BlockView({
       data-block-id={block.id}
       action={agentAction}
     >
-      {block.origin === "launch" ? (
-        <div
-          className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
-          title="What the agent this is addressed to was started with."
-          data-testid="chat-launch-context"
-        >
-          <Rocket className="h-3 w-3" aria-hidden="true" />
-          Launch context
-        </div>
-      ) : null}
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
-      ) : block.text ? (
+      ) : block.text && block.kind !== "launch" ? (
         <Markdown>{block.text}</Markdown>
       ) : null}
       {body}
       <AttachmentList block={block} ctx={ctx} />
-      <DeliveryMeta block={block} ctx={ctx} />
+      {block.kind === "launch" ? null : (
+        <DeliveryMeta block={block} ctx={ctx} />
+      )}
       <ReactionBar
         reactions={reactions}
         agentName={author.name}

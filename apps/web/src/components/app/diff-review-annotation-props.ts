@@ -1,18 +1,20 @@
 import type {
   Block,
   BlockFindingPatch,
+  BlockFindingData,
   BlockFindingState,
-  BlockReviewFinding,
 } from "@dispatch/shared";
 
 import type { DraftComment } from "@/components/app/review-mode";
 
 /** One review finding placed in the diff: the finding, its record, its review. */
 export type DiffFinding = {
-  /** `${blockId}:${finding.id}`: unique across every review in the stream. */
+  /** The finding block's id: unique across every review in the stream. */
   key: string;
   block: Extract<Block, { kind: "review" }>;
-  finding: BlockReviewFinding;
+  /** The finding block: its thread is the finding's discussion. */
+  findingId: string;
+  finding: BlockFindingData;
   record: BlockFindingState | null;
   /** Who left the review. */
   reviewerName: string;
@@ -28,12 +30,9 @@ export type DiffFindingsProps = {
   /** A finding to expand and scroll to, from the URL. */
   focusedKey: string | null;
   onFocusComplete: (key: string) => void;
-  onOpen: (blockId: string, findingId: string) => void;
-  onSetState?: (
-    blockId: string,
-    findingId: string,
-    patch: BlockFindingPatch
-  ) => void;
+  /** Opens the finding's thread over the thread its review is shown in. */
+  onOpen: (threadId: string, findingId: string) => void;
+  onSetState?: (findingId: string, patch: BlockFindingPatch) => void;
   /** Status changes cannot be sent right now. */
   disabled: boolean;
   /** An agent's name, for who left or changed a finding. */

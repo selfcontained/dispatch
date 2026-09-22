@@ -541,7 +541,203 @@ describe("composeStreamFeed", () => {
       hasMore: false,
       nextCursor: null,
       unreadCount: 0,
+      openInputs: [],
+      threadLinks: [],
       agentNames: {},
+    });
+  });
+
+  it("lists every open ask for people on the first page, threads included", async () => {
+    const top = await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "root",
+    });
+    await stamp(top.id, at(1));
+    // Asked top-level, and asked inside a thread the feed does not list.
+    const q1 = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "question",
+      text: "Which?",
+      data: { options: [{ label: "a" }] },
+      state: {},
+    });
+    await stamp(q1.id, at(2));
+    const inThread = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      kind: "form",
+      threadId: top.id,
+      replyTo: top.id,
+      text: "Details",
+      data: { fields: [{ id: "n", label: "N", type: "text" }] },
+      state: {},
+    });
+    await stamp(inThread.id, at(3));
+    // Answered, addressed to an agent, asked by a person, or another
+    // stream's: none is open for people here.
+    const answered = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "question",
+      text: "Done?",
+      data: { options: [{ label: "y" }] },
+      state: {
+        answer: { value: "y", label: "y", by: USER, at: "t", blockId: top.id },
+      },
+    });
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      toAgentId: OTHER,
+      kind: "question",
+      text: "Agent?",
+      data: { options: [{ label: "y" }] },
+      state: {},
+      delivered: true,
+    });
+    await store.insert({
+      streamId: OTHER,
+      author: agent(OTHER),
+      kind: "question",
+      text: "Elsewhere?",
+      data: { options: [{ label: "y" }] },
+      state: {},
+    });
+    const feed = await composeStreamFeed(store, A);
+    expect(feed.openInputs?.map((b) => b.id)).toEqual([q1.id, inThread.id]);
+    expect(feed.openInputs?.map((b) => b.id)).not.toContain(answered.id);
+    // An archived agent named only by an ask in a thread is still named.
+    expect(feed.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
+    // A later page leaves them to the first.
+    const first = await composeStreamFeed(store, A, { limit: 1 });
+    expect(first.openInputs).toHaveLength(2);
+    const paged = await composeStreamFeed(store, A, {
+      limit: 1,
+      cursor: decodeFeedCursor(first.nextCursor!),
+    });
+    expect("openInputs" in paged).toBe(false);
+  });
+
+  it("lists the newest posts with links in threads on the first page", async () => {
+    const top = await store.insert({ streamId: A, author: USER, text: "Hi" });
+    const pr = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      threadId: top.id,
+      replyTo: top.id,
+      text: "PR up",
+      attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+    });
+    await stamp(pr.id, at(1));
+    const card = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      kind: "link",
+      threadId: top.id,
+      replyTo: top.id,
+      data: { url: "https://example.com/dev" },
+    });
+    await stamp(card.id, at(2));
+    // No link, or top-level (the feed lists it): not a thread link.
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      threadId: top.id,
+      replyTo: top.id,
+      text: "Plain",
+    });
+    await store.insert({
+      streamId: A,
+      author: agent(A),
+      text: "Top",
+      attachments: [{ type: "link", url: "https://example.com/top" }],
+    });
+    const feed = await composeStreamFeed(store, A);
+    expect(feed.threadLinks?.map((b) => b.id)).toEqual([card.id, pr.id]);
+    expect(feed.agentNames?.[ARCHIVED_CHILD]).toBe("Archived child");
+  });
+
+  it("attaches the blocks a block shows, recursively, and counts none of them as replies", async () => {
+    const card = await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: ARCHIVED_CHILD,
+      kind: "launch",
+      text: "Review it",
+      state: {},
+      delivered: true,
+    });
+    const review = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      toAgentId: A,
+      kind: "review",
+      threadId: card.id,
+      replyTo: card.id,
+      data: { summary: "s" },
+      state: { blocks: [] },
+      delivered: true,
+    });
+    await store.appendShown(card.id, review.id);
+    const findings = [];
+    for (const title of ["one", "two"]) {
+      const f = await store.insert({
+        streamId: A,
+        author: agent(ARCHIVED_CHILD),
+        toAgentId: A,
+        kind: "finding",
+        threadId: review.id,
+        replyTo: review.id,
+        data: { severity: "minor", title, body: "b" },
+        state: { status: "open", by: USER, at: "t" },
+        delivered: true,
+      });
+      await store.appendShown(review.id, f.id);
+      findings.push(f);
+    }
+    // A plain reply on the card, and a comment on the first finding.
+    const onCard = await store.insert({
+      streamId: A,
+      author: agent(ARCHIVED_CHILD),
+      threadId: card.id,
+      replyTo: card.id,
+      text: "Starting.",
+    });
+    await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: ARCHIVED_CHILD,
+      threadId: findings[0]!.id,
+      replyTo: findings[0]!.id,
+      text: "Why?",
+      delivered: true,
+    });
+    const feed = await composeStreamFeed(store, A);
+    const listed = blockEntries(feed);
+    expect(listed.map((e) => e.id)).toEqual([card.id]);
+    const read = listed[0]!.block;
+    // The card counts its reply, not the review it shows.
+    expect(read.replyCount).toBe(1);
+    expect(read.lastReplyAt).toBe(onCard.createdAt);
+    expect(read.blocks?.map((b) => b.id)).toEqual([review.id]);
+    const shownReview = read.blocks![0]!;
+    expect(shownReview.replyCount ?? 0).toBe(0);
+    expect(shownReview.blocks?.map((b) => b.id)).toEqual(
+      findings.map((f) => f.id)
+    );
+    expect(shownReview.blocks![0]!.replyCount).toBe(1);
+    expect(shownReview.blocks![1]!.replyCount ?? 0).toBe(0);
+    // A single read by id arrives the same way.
+    const single = await loadBlockEntry(pool, A, card.id);
+    expect(single?.block.blocks?.[0]?.blocks?.map((b) => b.id)).toEqual(
+      findings.map((f) => f.id)
+    );
+    // A shown block read on its own is published as itself, with its thread.
+    expect(await loadBlockEntry(pool, A, findings[0]!.id)).toMatchObject({
+      id: findings[0]!.id,
+      block: { threadId: review.id, replyCount: 1 },
     });
   });
 

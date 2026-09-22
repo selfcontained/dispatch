@@ -19,7 +19,10 @@ function collect(value: unknown, into: Set<string>): void {
   for (const [key, child] of Object.entries(value)) {
     if (typeof child === "string") {
       if (AGENT_ID_KEYS.has(key)) into.add(child);
-    } else if (key === "mentions" && Array.isArray(child)) {
+    } else if (
+      (key === "mentions" || key === "recipients") &&
+      Array.isArray(child)
+    ) {
       for (const id of child) if (typeof id === "string") into.add(id);
     } else if (key !== "turn") {
       // A turn's steps are the engine's, never an agent's name.

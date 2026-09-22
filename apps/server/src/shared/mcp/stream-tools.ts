@@ -85,12 +85,10 @@ const linkSchema = z
 
 const reviewSchema = z
   .object({
-    verdict: z.enum(["approve", "request_changes", "comment"]),
     summary: z.string().min(1).max(4000),
     findings: z
       .array(
         z.object({
-          id: z.string().min(1).max(64),
           severity: z.enum(["blocker", "major", "minor", "nit"]),
           title: z.string().min(1).max(300),
           body: z.string().min(1).max(BLOCK_TEXT_MAX_CHARS),
@@ -101,7 +99,7 @@ const reviewSchema = z
       .max(BLOCK_REVIEW_FINDINGS_MAX),
   })
   .describe(
-    "A structured review of an agent's work: one block, findings inside it, each finding a thread. Post it with `to` set to the agent whose work you reviewed."
+    "A structured review of an agent's work: one block, each finding a block of its own with its own thread. Post it with `to` set to the agent whose work you reviewed. Where it stands comes from its findings: resolve each once it is addressed."
   );
 
 const tasksSchema = z
@@ -177,17 +175,17 @@ const textSchema = z
   .describe(`Markdown body, up to ${BLOCK_TEXT_MAX_CHARS} characters.`);
 
 const POST_DESCRIPTION =
-  "Post a block into a stream. Without `to` it goes to your own stream, where the user reads it. " +
+  "Post a block into a stream. Without `to` it goes to your own stream, where the user reads it (a child agent's goes to the thread on its launch card). " +
   "With `to: <agentId>` it is delivered to that agent as a prompt (any agent, any time); the user still sees it in the stream. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
   'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
   "or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
-  "`notify: true` also sends the browser/Slack notification. Returns { id, createdAt }; keep the id to update the block later.";
+  "`notify: true` also sends the browser/Slack notification. Returns { id, createdAt } (a review also returns its findings' ids); keep the id to update the block later.";
 
 const UPDATE_DESCRIPTION =
   "Revise a block you posted (text, data, attachments, state) or change the state of a block addressed to you " +
-  '(close a finding on a review you received: { state: { findings: { <id>: "fixed" } } }, or { <id>: { status: "resolved", resolution: "dismissed", note } }; reopen with "open"; tick a task: { state: { items: { <id>: "done" } } }; close your own question: { state: { answer: "<what settled it>" } }). ' +
-  'Cancel your own question or form if you no longer need it — before anyone answers, it goes away with no answer expected: { state: { cancellation: true } }, or with a short reason: { state: { cancellation: "<reason>" } } (or { cancellation: { reason } }). Whoever it was addressed to is told; it cannot be answered after. ' +
+  '(resolve a finding you raised, by its id: { state: { status: "fixed" } }, or { status: "dismissed", note }; reopen with { status: "open", note }; tick a task: { state: { items: { <id>: "done" } } }; close your own question: { state: { answer: "<what settled it>" } }). ' +
+  'Cancel your own question or form before anyone answers: { state: { cancellation: true } }, or with a short reason: { state: { cancellation: "<reason>" } } (or { cancellation: { reason } }). The ask remains visible, disabled, with a cancellation note. ' +
   "Supply only the fields to change; attachments, when given, replace the whole list. Returns { id, updatedAt }.";
 
 const REACT_DESCRIPTION =
@@ -217,14 +215,6 @@ export function registerStreamTools(
             .describe("Agent id to deliver to. Omit for your own stream."),
           text: textSchema.optional(),
           replyTo: z.uuid().optional(),
-          finding: z
-            .string()
-            .min(1)
-            .max(64)
-            .optional()
-            .describe(
-              "With replyTo on a review: the id of the finding this reply is about, so it shows under that item."
-            ),
           question: questionSchema.optional(),
           form: formSchema.optional(),
           link: linkSchema.optional(),
@@ -240,7 +230,6 @@ export function registerStreamTools(
             to: args.to ?? null,
             text: args.text,
             replyTo: args.replyTo ?? null,
-            finding: args.finding ?? null,
             question: args.question ?? null,
             form: args.form ?? null,
             link: args.link ?? null,
@@ -249,10 +238,16 @@ export function registerStreamTools(
             attachments: args.attachments ?? [],
             notify: args.notify,
           });
+          const findings = (block.blocks ?? []).flatMap((shown) =>
+            shown.kind === "finding"
+              ? [{ id: shown.id, title: shown.data.title }]
+              : []
+          );
           const result = {
             id: block.id,
             kind: block.kind,
             createdAt: block.createdAt,
+            ...(findings.length > 0 ? { findings } : {}),
           };
           return {
             content: [{ type: "text", text: jsonText(result) }],
@@ -285,7 +280,7 @@ export function registerStreamTools(
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-              'Partial state to merge: { findings: { <id>: "fixed" | "dismissed" | "open" | { status, resolution?, note? } } } or { items: { <id>: <status> } }.'
+              'A finding: { status: "fixed" | "dismissed" | "open", note? }. Tasks: { items: { <id>: <status> } }.'
             ),
           attachments: attachmentsSchema.optional(),
         },

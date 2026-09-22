@@ -142,27 +142,28 @@ describe("BlockStore.insert", () => {
       streamId: A,
       author: USER,
       toAgentId: A,
+      kind: "launch",
       text: "Build it",
+      state: {},
       delivered: true,
-      origin: "launch",
       launchedByAgentId: B,
     });
     expect(launch).toMatchObject({
-      origin: "launch",
+      kind: "launch",
       launchedByAgentId: B,
       delivered: true,
     });
+    expect("origin" in launch).toBe(false);
     expect(await store.getById(launch.id)).toEqual(launch);
 
-    const own = await store.insert({
+    const turn = await store.insert({
       streamId: A,
-      author: USER,
-      toAgentId: A,
-      text: "Build it",
-      origin: "launch",
+      author: agent(A),
+      text: "",
+      origin: "turn",
     });
-    expect(own.origin).toBe("launch");
-    expect("launchedByAgentId" in own).toBe(false);
+    expect(turn.origin).toBe("turn");
+    expect("launchedByAgentId" in turn).toBe(false);
   });
 
   it("stores kind, data, state and attachments as given", async () => {
@@ -244,14 +245,23 @@ describe("BlockStore.insert", () => {
         [A]
       )
     ).rejects.toThrow(/check constraint/i);
-    // Only the launch origin exists.
-    await expect(
-      pool.query(
-        `INSERT INTO blocks (id, stream_id, author_kind, text, origin)
-         VALUES (gen_random_uuid(), $1, 'user', 'x', 'typed')`,
-        [A]
-      )
-    ).rejects.toThrow(/check constraint/i);
+    // Only the turn origin exists; the launch, workspace, system-prompt and
+    // review-request rows are gone (a launch is a kind now).
+    for (const origin of [
+      "typed",
+      "launch",
+      "workspace",
+      "system_prompt",
+      "review_request",
+    ]) {
+      await expect(
+        pool.query(
+          `INSERT INTO blocks (id, stream_id, author_kind, text, origin)
+           VALUES (gen_random_uuid(), $1, 'user', 'x', $2)`,
+          [A, origin]
+        )
+      ).rejects.toThrow(/check constraint/i);
+    }
     // Unknown kinds are refused; the later steps add theirs by migration.
     await expect(
       pool.query(
@@ -974,8 +984,12 @@ describe("BlockStore threads", () => {
       ],
     });
     expect("reactions" in thread!.replies[0]!).toBe(false);
-    // A reply is not a thread root, and an unknown id is nothing.
-    expect(await store.listThread(r1.id)).toBeNull();
+    // Any block is a thread host (a finding a review shows opens one); a
+    // reply with nothing under it lists no replies. An unknown id is nothing.
+    expect(await store.listThread(r1.id)).toMatchObject({
+      root: expect.objectContaining({ id: r1.id }),
+      replies: [],
+    });
     expect(await store.listThread(NIL)).toBeNull();
     // A root with no replies is still a thread.
     expect(await store.listThread(other.id)).toMatchObject({
@@ -1026,5 +1040,163 @@ describe("BlockStore threads", () => {
       "user",
     ]);
     expect(await store.threadParticipants(NIL, USER)).toEqual([]);
+  });
+
+  it("appends shown blocks once, in order, and leaves them out of the host's replies", async () => {
+    const host = await store.insert({
+      streamId: A,
+      author: agent(B),
+      toAgentId: A,
+      kind: "review",
+      text: "",
+      data: { summary: "s" },
+      state: { blocks: [] },
+      delivered: true,
+    });
+    const shown = [];
+    for (const title of ["one", "two"]) {
+      shown.push(
+        await store.insert({
+          streamId: A,
+          author: agent(B),
+          toAgentId: A,
+          kind: "finding",
+          threadId: host.id,
+          replyTo: host.id,
+          text: "",
+          data: { severity: "minor", title, body: "b" },
+          state: { status: "open", by: agent(B), at: new Date().toISOString() },
+          delivered: true,
+        })
+      );
+    }
+    await store.appendShown(host.id, shown[0]!.id);
+    await store.appendShown(host.id, shown[1]!.id);
+    // Appending one already shown is a no-op; malformed ids are ignored.
+    await store.appendShown(host.id, shown[0]!.id);
+    await store.appendShown("nope", shown[0]!.id);
+    const reply = await store.insert({
+      streamId: A,
+      author: agent(A),
+      threadId: host.id,
+      replyTo: host.id,
+      text: "a reply",
+    });
+    const read = await store.getById(host.id);
+    expect(read?.state).toEqual({ blocks: shown.map((b) => b.id) });
+    const thread = await store.listThread(host.id);
+    expect(thread?.replies.map((b) => b.id)).toEqual([reply.id]);
+  });
+
+  it("sets one state key without touching the others", async () => {
+    const card = await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: A,
+      kind: "launch",
+      text: "",
+      state: { instructions: "be good" },
+      delivered: true,
+    });
+    const updated = await store.setStateKey(card.id, "startup", { steps: [] });
+    expect(updated?.state).toEqual({
+      instructions: "be good",
+      startup: { steps: [] },
+    });
+    expect(await store.setStateKey("nope", "startup", {})).toBeNull();
+    expect(await store.setStateKey(NIL, "startup", {})).toBeNull();
+  });
+
+  it("writes a launch briefing onto the card whether or not it is there yet", async () => {
+    const id = "7b4f9e60-1111-4222-8333-444455556666";
+    const fresh = await store.writeLaunchBriefing({
+      id,
+      streamId: A,
+      agentId: A,
+      text: "Build it",
+      attachments: [{ type: "link", url: "https://e.com" }],
+      launchedByAgentId: B,
+    });
+    expect(fresh).toMatchObject({
+      id,
+      kind: "launch",
+      author: { kind: "user" },
+      toAgentId: A,
+      text: "Build it",
+      delivered: true,
+      launchedByAgentId: B,
+      threadId: null,
+    });
+    expect((await store.findLaunchBlock(A))?.id).toBe(id);
+
+    // A card the startup already wrote keeps its state; the briefing fills in.
+    await store.setStateKey(id, "instructions", "prompt");
+    const again = await store.writeLaunchBriefing({
+      id,
+      streamId: A,
+      agentId: A,
+      text: "Build it better",
+      attachments: [],
+      launchedByAgentId: null,
+    });
+    expect(again).toMatchObject({
+      text: "Build it better",
+      attachments: [],
+      launchedByAgentId: B,
+      state: { instructions: "prompt" },
+    });
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM blocks WHERE kind = 'launch'`
+    );
+    expect(rows[0].n).toBe(1);
+  });
+
+  it("finds only an agent's top-level launch card", async () => {
+    // A text post to the agent is not its card.
+    await store.insert({ streamId: A, author: USER, toAgentId: A, text: "hi" });
+    expect(await store.findLaunchBlock(A)).toBeNull();
+    const card = await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: B,
+      kind: "launch",
+      text: "",
+      state: {},
+      delivered: true,
+    });
+    expect((await store.findLaunchBlock(B))?.id).toBe(card.id);
+    expect(await store.findLaunchBlock(A)).toBeNull();
+  });
+
+  it("marks every agent reply in a thread read", async () => {
+    const root = await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: A,
+      text: "q",
+    });
+    const mine = await store.insert({
+      streamId: A,
+      author: agent(A),
+      threadId: root.id,
+      replyTo: root.id,
+      text: "a",
+    });
+    await store.insert({
+      streamId: A,
+      author: USER,
+      toAgentId: A,
+      threadId: root.id,
+      replyTo: root.id,
+      text: "b",
+    });
+    const marked = await store.markThreadRead(A, root.id);
+    expect(marked.ids).toEqual([mine.id]);
+    expect(marked.readAt).not.toBeNull();
+    expect((await store.markThreadRead(A, root.id)).ids).toEqual([]);
+    expect(await store.markThreadRead(A, "nope")).toEqual({
+      ids: [],
+      readAt: null,
+    });
   });
 });

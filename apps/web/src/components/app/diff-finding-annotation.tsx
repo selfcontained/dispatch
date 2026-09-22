@@ -143,7 +143,7 @@ export function InlineFindingAnnotation({
               <FindingActions
                 record={record}
                 disabled={disabled}
-                onPatch={(patch) => onSetState(block.id, finding.id, patch)}
+                onPatch={(patch) => onSetState(item.findingId, patch)}
               />
             ) : null}
             <Button
@@ -151,7 +151,8 @@ export function InlineFindingAnnotation({
               variant="ghost"
               className="ml-auto h-9 gap-1.5 text-xs"
               data-testid="diff-finding-open"
-              onClick={() => onOpen(block.id, finding.id)}
+              // A review on a launch card opens on the card's thread.
+              onClick={() => onOpen(block.threadId ?? block.id, item.findingId)}
             >
               <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
               Discussion

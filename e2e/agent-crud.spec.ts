@@ -212,8 +212,9 @@ test.describe("Agent CRUD", () => {
     });
     expect(res.status()).toBe(201);
     const { agent } = (await res.json()) as { agent: { id: string } };
-    // The startup context is the launch block in the agent's stream, with
-    // the link as an attachment.
+    // The startup context is on the agent's launch card, with the link as
+    // an attachment. The card is up from the agent's first startup step;
+    // the briefing lands on it once the workspace is ready.
     await expect
       .poll(async () => {
         const feed = await request.get(`/api/v1/streams/${agent.id}/blocks`, {
@@ -224,15 +225,14 @@ test.describe("Agent CRUD", () => {
           entries: Array<{
             type: string;
             block?: {
-              origin?: string;
+              kind?: string;
               attachments: Array<{ type: string; url?: string }>;
             };
           }>;
         };
-        const launch = entries.find(
-          (entry) => entry.type === "block" && entry.block?.origin === "launch"
-        );
-        return launch?.block?.attachments;
+        return entries.find(
+          (entry) => entry.type === "block" && entry.block?.kind === "launch"
+        )?.block?.attachments;
       })
       .toEqual(
         expect.arrayContaining([
