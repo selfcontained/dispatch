@@ -51,6 +51,10 @@ function isPullRequestUrl(url: string): boolean {
 /** An agent's open question or form for people. */
 export function isOpenInput(block: Block): block is InboxInput {
   if (block.author.kind !== "agent" || block.toAgentId !== null) return false;
+  const canceled = (
+    block.state as { cancellation?: unknown } | null | undefined
+  )?.cancellation;
+  if (canceled !== undefined) return false;
   if (block.kind === "question") return block.state?.answer === undefined;
   if (block.kind === "form") return block.state?.submission === undefined;
   return false;

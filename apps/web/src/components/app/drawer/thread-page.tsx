@@ -99,6 +99,9 @@ export function ThreadPage({
     },
     [reactNow]
   );
+  const settingBlockStateId = setBlockState.isPending
+    ? (setBlockState.variables?.blockId ?? null)
+    : null;
 
   const { ctx } = useChatFeedContext({
     agentId,
@@ -110,6 +113,7 @@ export function ThreadPage({
     onOpenThread,
     onSubmitForm,
     onSetBlockState,
+    settingBlockStateId,
   });
   const disabledReason = useMemo(() => composerDisabledReason(agent), [agent]);
 

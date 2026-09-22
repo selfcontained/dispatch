@@ -345,6 +345,19 @@ describe("latestOpenFreeformQuestion", () => {
     ).toBe("q1");
   });
 
+  it("looks past a canceled freeform question", () => {
+    const canceled = freeform("q2");
+    canceled.block.state = {
+      cancellation: {
+        by: { kind: "user" },
+        at: "2026-09-22T12:00:00.000Z",
+      },
+    } as never;
+    expect(latestOpenFreeformQuestion([freeform("q1"), canceled])?.id).toBe(
+      "q1"
+    );
+  });
+
   it("returns nothing when the newest open question is option-only", () => {
     expect(
       latestOpenFreeformQuestion([freeform("q1"), fixed("q2")])
@@ -1283,6 +1296,50 @@ describe("ChatFeed", () => {
     expect(options[0]!.className).toContain(
       "[@media(pointer:coarse)]:min-h-11"
     );
+  });
+
+  it("cancels an open user-addressed ask through the block state route", () => {
+    const onSetBlockState = vi.fn();
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "q1",
+            text: "Still need this?",
+            body: questionBody([{ label: "Yes" }]),
+          })
+        ),
+      ],
+      { answersDisabled: true },
+      { onSetBlockState }
+    );
+    const cancel = screen.getByTestId("chat-ask-cancel") as HTMLButtonElement;
+    expect(cancel.disabled).toBe(false);
+    expect(
+      (screen.getByTestId("chat-question-option") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.click(cancel);
+    expect(onSetBlockState).toHaveBeenCalledWith("q1", {
+      cancellation: true,
+    });
+  });
+
+  it("does not offer a user cancel action on an agent-addressed ask", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "q1",
+            toAgentId: "agt_2",
+            text: "Reviewer choice?",
+            body: questionBody([{ label: "Yes" }]),
+          })
+        ),
+      ],
+      {},
+      { onSetBlockState: vi.fn() }
+    );
+    expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
   });
 
   it("marks the chosen option and disables the rest once answered", () => {

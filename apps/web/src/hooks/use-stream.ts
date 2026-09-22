@@ -1083,6 +1083,23 @@ export function optimisticStatePatch(
   patch: Record<string, unknown>,
   now: string = new Date().toISOString()
 ): Record<string, unknown> {
+  const cancellation = patch.cancellation;
+  if (cancellation !== undefined) {
+    const reason =
+      typeof cancellation === "string"
+        ? cancellation.trim()
+        : isPlainObject(cancellation) && typeof cancellation.reason === "string"
+          ? cancellation.reason.trim()
+          : "";
+    return {
+      ...patch,
+      cancellation: {
+        by: { kind: "user" },
+        at: now,
+        ...(reason ? { reason } : {}),
+      },
+    };
+  }
   const findings = patch.findings;
   if (!isPlainObject(findings)) return patch;
   const filled: Record<string, unknown> = {};

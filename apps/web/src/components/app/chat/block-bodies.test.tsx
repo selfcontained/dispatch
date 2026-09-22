@@ -7,6 +7,7 @@ import {
   block,
   formBody,
   linkBody,
+  questionBody,
   reviewBody,
   tasksBody,
 } from "@/test-utils/blocks";
@@ -17,6 +18,7 @@ import {
   LinkBlockBody,
   FindingDetail,
   ReviewBlockBody,
+  QuestionOptions,
   summarySentence,
   TasksBlockBody,
 } from "./block-bodies";
@@ -37,6 +39,64 @@ class ResizeObserverStub {
   ResizeObserverStub;
 
 afterEach(cleanup);
+
+describe("QuestionOptions", () => {
+  const question = (canceled = false) =>
+    block({
+      id: "q1",
+      body: questionBody([{ label: "Yes" }, { label: "No" }]),
+      ...(canceled
+        ? {
+            body: {
+              ...questionBody([{ label: "Yes" }, { label: "No" }]),
+              state: {
+                cancellation: {
+                  by: { kind: "user" },
+                  at: "2026-09-22T12:00:00.000Z",
+                  reason: "No longer needed",
+                },
+              },
+            } as never,
+          }
+        : {}),
+    }) as Extract<Block, { kind: "question" }>;
+
+  it("offers a modest cancel action while the user-addressed ask is open", () => {
+    const onCancel = vi.fn();
+    render(
+      <QuestionOptions
+        block={question()}
+        answering={false}
+        answersDisabled={false}
+        onAnswer={vi.fn()}
+        onCancel={onCancel}
+      />
+    );
+    fireEvent.click(screen.getByTestId("chat-ask-cancel"));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a canceled question visible with every choice disabled", () => {
+    render(
+      <QuestionOptions
+        block={question(true)}
+        answering={false}
+        answersDisabled={false}
+        onAnswer={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("chat-ask-canceled").textContent).toContain(
+      "Canceled · No longer needed"
+    );
+    expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
+    expect(
+      screen
+        .getAllByTestId("chat-question-option")
+        .every((option) => (option as HTMLButtonElement).disabled)
+    ).toBe(true);
+  });
+});
 
 describe("FormBlockBody", () => {
   const form = () =>
@@ -122,6 +182,52 @@ describe("FormBlockBody", () => {
     expect(
       (screen.getByTestId("chat-form-submit") as HTMLButtonElement).disabled
     ).toBe(true);
+  });
+
+  it("keeps a canceled form visible and read-only", () => {
+    const onSubmit = vi.fn();
+    const canceled = {
+      ...form(),
+      state: {
+        cancellation: {
+          by: { kind: "user" },
+          at: "2026-09-22T12:00:00.000Z",
+        },
+      },
+    } as unknown as Extract<Block, { kind: "form" }>;
+    const { rerender } = render(
+      <FormBlockBody
+        block={form()}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/Name/), {
+      target: { value: "unsent value" },
+    });
+    rerender(
+      <FormBlockBody
+        block={canceled}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("chat-ask-canceled").textContent).toContain(
+      "Canceled · no response is needed"
+    );
+    expect(screen.getAllByTestId("chat-form-field")).toHaveLength(3);
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).disabled).toBe(
+      true
+    );
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByTestId("chat-form-submit")).toBeNull();
+    expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
+    fireEvent.submit(screen.getByTestId("chat-form"));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });
 

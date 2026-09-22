@@ -162,8 +162,10 @@ export type FeedContext = {
     blockId: string,
     values: Record<string, string | number | boolean>
   ) => void;
-  /** `PATCH …/state`: resolve, dispute or reopen a finding. */
+  /** `PATCH …/state`: cancel an ask or update a review/task. */
   onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
+  /** Block whose state patch is in flight, if any. */
+  settingBlockStateId?: string | null;
   /** Sends a post the agent never took to it again. */
   onRetryDelivery?: (blockId: string) => void;
   /** Runs a failed turn again, from the turn's own answer block. */
@@ -934,6 +936,10 @@ function BlockBody({
   const setState = onSetBlockState
     ? (patch: BlockStatePatch) => onSetBlockState(block.id, patch)
     : undefined;
+  const cancelAsk =
+    setState && block.author.kind === "agent" && block.toAgentId === null
+      ? () => setState({ cancellation: true })
+      : undefined;
   switch (block.kind) {
     case "question":
       return (
@@ -941,7 +947,9 @@ function BlockBody({
           block={block}
           answering={answering}
           answersDisabled={answersDisabled}
+          canceling={ctx.settingBlockStateId === block.id}
           onAnswer={(option) => onAnswer(block.id, option)}
+          onCancel={cancelAsk}
         />
       );
     case "form":
@@ -950,7 +958,9 @@ function BlockBody({
           block={block}
           submitting={submitting}
           disabled={answersDisabled || !onSubmitForm}
+          canceling={ctx.settingBlockStateId === block.id}
           onSubmit={(values) => onSubmitForm?.(block.id, values)}
+          onCancel={cancelAsk}
         />
       );
     case "review":

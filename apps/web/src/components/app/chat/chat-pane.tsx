@@ -856,6 +856,10 @@ export function ChatPane({
     [toggleReactionNow]
   );
 
+  const settingBlockStateId = setBlockState.isPending
+    ? (setBlockState.variables?.blockId ?? null)
+    : null;
+
   const { ctx } = useChatFeedContext({
     agentId,
     rootId,
@@ -866,6 +870,7 @@ export function ChatPane({
     onOpenThread,
     onSubmitForm,
     onSetBlockState,
+    settingBlockStateId,
     onRetryDelivery,
     onRetryTurn,
     retrying,

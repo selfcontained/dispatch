@@ -127,6 +127,14 @@ describe("isOpenInput", () => {
     expect(isOpenInput(question("q", ROOT, at("10:00"), true).block)).toBe(
       false
     );
+    const canceled = question("q-canceled", ROOT, at("10:00")).block;
+    canceled.state = {
+      cancellation: {
+        by: { kind: "user" },
+        at: "2026-09-22T12:00:00.000Z",
+      },
+    } as never;
+    expect(isOpenInput(canceled)).toBe(false);
     expect(
       isOpenInput(
         block({

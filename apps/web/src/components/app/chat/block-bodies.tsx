@@ -96,21 +96,81 @@ const ASK_CLOSED = "border-border border-l-border bg-muted/30";
 const ASK_HEAD =
   "mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-primary";
 
+type AskCancellation = {
+  by?: unknown;
+  at?: string;
+  reason?: string;
+};
+
+/** The shared contract stamps a person's cancellation onto the ask. */
+function askCancellation(block: Extract<Block, { kind: "question" | "form" }>) {
+  return (block.state as { cancellation?: AskCancellation } | null)
+    ?.cancellation;
+}
+
+function CanceledAskStatus({
+  cancellation,
+}: {
+  cancellation: AskCancellation;
+}): JSX.Element {
+  return (
+    <div
+      className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+      data-testid="chat-ask-canceled"
+    >
+      <XCircle className="h-3 w-3" aria-hidden="true" />
+      {cancellation.reason
+        ? `Canceled · ${cancellation.reason}`
+        : "Canceled · no response is needed"}
+    </div>
+  );
+}
+
+function CancelAskButton({
+  disabled,
+  onCancel,
+}: {
+  disabled: boolean;
+  onCancel?: () => void;
+}): JSX.Element | null {
+  if (!onCancel) return null;
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      className="h-7 px-2 text-xs"
+      disabled={disabled}
+      data-testid="chat-ask-cancel"
+      onClick={onCancel}
+    >
+      Cancel
+    </Button>
+  );
+}
+
 export function QuestionOptions({
   block,
   answering,
   answersDisabled,
+  canceling = false,
   onAnswer,
+  onCancel,
 }: {
   block: Extract<Block, { kind: "question" }>;
   /** This question's answer is in flight. */
   answering: boolean;
   /** Nothing can be sent right now, so neither buttons nor a typed reply. */
   answersDisabled: boolean;
+  /** This ask's cancellation is in flight. */
+  canceling?: boolean;
   onAnswer: (option: BlockOption) => void;
+  /** Closes an ask the person no longer needs to answer. */
+  onCancel?: () => void;
 }): JSX.Element {
   const answer = block.state?.answer;
-  const open = answer === undefined;
+  const cancellation = askCancellation(block);
+  const open = answer === undefined && cancellation === undefined;
   const optionsDisabled = !open || answering || answersDisabled;
   return (
     <div
@@ -122,11 +182,13 @@ export function QuestionOptions({
           <MessageCircleQuestion className="h-3.5 w-3.5" aria-hidden="true" />
           Needs your reply
         </div>
+      ) : cancellation ? (
+        <CanceledAskStatus cancellation={cancellation} />
       ) : (
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           Answered
-          <span className="truncate">· {answer.label ?? answer.value}</span>
+          <span className="truncate">· {answer!.label ?? answer!.value}</span>
         </div>
       )}
       <div className="flex flex-wrap gap-1.5">
@@ -166,6 +228,14 @@ export function QuestionOptions({
       {open && block.data.allowFreeform && !answersDisabled ? (
         <div className="mt-2 text-[11px] text-muted-foreground">
           Or type a reply below.
+        </div>
+      ) : null}
+      {open && onCancel ? (
+        <div className="mt-2 flex justify-end">
+          <CancelAskButton
+            disabled={answering || canceling}
+            onCancel={onCancel}
+          />
         </div>
       ) : null}
     </div>
@@ -304,26 +374,34 @@ export function FormBlockBody({
   block,
   submitting,
   disabled,
+  canceling = false,
   onSubmit,
+  onCancel,
 }: {
   block: Extract<Block, { kind: "form" }>;
   /** This form's submission is in flight. */
   submitting: boolean;
   /** Nothing can be sent right now. */
   disabled: boolean;
+  /** This ask's cancellation is in flight. */
+  canceling?: boolean;
   onSubmit: (values: Record<string, FormValue>) => void;
+  /** Closes an ask the person no longer needs to answer. */
+  onCancel?: () => void;
 }): JSX.Element {
   const submission = block.state?.submission;
+  const cancellation = askCancellation(block);
   const [values, setValues] = useState(() =>
     initialFormValues(block.data.fields)
   );
-  const open = submission === undefined;
+  const originalValues = initialFormValues(block.data.fields);
+  const open = submission === undefined && cancellation === undefined;
   const missing = block.data.fields.some(
     (field) => field.required && isBlank(values[field.id])
   );
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (missing || submitting || disabled) return;
+    if (!open || missing || submitting || disabled) return;
     onSubmit(values);
   };
   return (
@@ -338,6 +416,8 @@ export function FormBlockBody({
           <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
           {block.data.title ?? "Needs your input"}
         </div>
+      ) : cancellation ? (
+        <CanceledAskStatus cancellation={cancellation} />
       ) : (
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
@@ -357,7 +437,7 @@ export function FormBlockBody({
               ) : null}
             </label>
           );
-          if (!open) {
+          if (submission) {
             const value = submission.values[field.id];
             return (
               <div
@@ -392,8 +472,8 @@ export function FormBlockBody({
               {label}
               <FormFieldInput
                 field={field}
-                value={values[field.id]}
-                disabled={disabled || submitting}
+                value={open ? values[field.id] : originalValues[field.id]}
+                disabled={!open || disabled || submitting}
                 onChange={(value) =>
                   setValues((prev) => ({ ...prev, [field.id]: value }))
                 }
@@ -403,7 +483,7 @@ export function FormBlockBody({
         })}
       </div>
       {open ? (
-        <div className="mt-3">
+        <div className="mt-3 flex items-center justify-between gap-2">
           <Button
             type="submit"
             size="sm"
@@ -414,6 +494,10 @@ export function FormBlockBody({
           >
             {submitting ? "Sending…" : (block.data.submitLabel ?? "Submit")}
           </Button>
+          <CancelAskButton
+            disabled={submitting || canceling}
+            onCancel={onCancel}
+          />
         </div>
       ) : null}
     </form>

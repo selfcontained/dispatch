@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
 import {
   useAnswerQuestion,
+  useSetBlockState,
   useSubmitForm,
   useThread,
 } from "@/hooks/use-stream";
@@ -69,16 +70,21 @@ function InboxInputCard({
   authorName,
   rootId,
   disabledReason,
+  cancelError,
+  onCancelError,
   onOpenBlock,
 }: {
   block: InboxInput;
   authorName: string | null;
   rootId: string;
   disabledReason: string | null;
+  cancelError: string | null;
+  onCancelError: (message: string | null) => void;
   onOpenBlock?: (blockId: string) => void;
 }): JSX.Element {
   const answer = useAnswerQuestion(rootId);
   const submit = useSubmitForm(rootId);
+  const setState = useSetBlockState(rootId);
   const [error, setError] = useState<string | null>(null);
   const onAnswer = (option: BlockOption) => {
     setError(null);
@@ -98,6 +104,16 @@ function InboxInputCard({
       { onError: (err) => setError(err.message) }
     );
   };
+  const onCancel = () => {
+    setError(null);
+    onCancelError(null);
+    setState.mutate(
+      { blockId: block.id, state: { cancellation: true } },
+      { onError: (err) => onCancelError(err.message) }
+    );
+  };
+  const actionPending =
+    answer.isPending || submit.isPending || setState.isPending;
   return (
     <div
       className="mx-3 mb-2 rounded-md border border-border/60 bg-card/40 px-3 py-2"
@@ -126,8 +142,10 @@ function InboxInputCard({
         <QuestionOptions
           block={block}
           answering={answer.isPending && answer.variables?.blockId === block.id}
-          answersDisabled={disabledReason !== null}
+          answersDisabled={disabledReason !== null || actionPending}
+          canceling={setState.isPending}
           onAnswer={onAnswer}
+          onCancel={onCancel}
         />
       ) : (
         <FormBlockBody
@@ -135,8 +153,10 @@ function InboxInputCard({
           submitting={
             submit.isPending && submit.variables?.blockId === block.id
           }
-          disabled={disabledReason !== null}
+          disabled={disabledReason !== null || actionPending}
+          canceling={setState.isPending}
           onSubmit={onSubmit}
+          onCancel={onCancel}
         />
       )}
       {disabledReason ? (
@@ -144,13 +164,13 @@ function InboxInputCard({
           {disabledReason}
         </div>
       ) : null}
-      {error ? (
+      {error || cancelError ? (
         <div
           role="alert"
           className="mt-1.5 text-[11px] text-destructive"
           data-testid="inbox-input-error"
         >
-          {error}
+          {error ?? cancelError}
         </div>
       ) : null}
     </div>
@@ -253,6 +273,10 @@ export function InboxPanel({
   onOpenBlock,
 }: InboxPanelProps): JSX.Element {
   const { rootId, inputs, links, reviews } = inbox;
+  const [cancelError, setCancelError] = useState<{
+    blockId: string;
+    message: string;
+  } | null>(null);
   const empty =
     inputs.length === 0 && links.length === 0 && reviews.length === 0;
   return (
@@ -292,6 +316,12 @@ export function InboxPanel({
               }
               rootId={rootId}
               disabledReason={disabledReason}
+              cancelError={
+                cancelError?.blockId === block.id ? cancelError.message : null
+              }
+              onCancelError={(message) =>
+                setCancelError(message ? { blockId: block.id, message } : null)
+              }
               onOpenBlock={onOpenBlock}
             />
           ))}

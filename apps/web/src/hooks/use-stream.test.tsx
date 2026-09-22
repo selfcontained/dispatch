@@ -350,6 +350,15 @@ describe("useSetBlockState", () => {
     expect(mergeBlockState(null, { items: { t1: "done" } })).toEqual({
       items: { t1: "done" },
     });
+    expect(optimisticStatePatch({ cancellation: " Not needed " }, "T")).toEqual(
+      {
+        cancellation: {
+          by: { kind: "user" },
+          at: "T",
+          reason: "Not needed",
+        },
+      }
+    );
     expect(optimisticStatePatch({ findings: { a: "resolved" } }, "T")).toEqual({
       findings: {
         a: {
