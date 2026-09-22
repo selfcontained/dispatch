@@ -182,6 +182,8 @@ export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
  */
 export type BlockTextData = {
   findingId?: string;
+  /** A user post first delivered as a raw ACP slash command. */
+  acpCommand?: true;
   /** Workspace blocks (`origin: "workspace"`): the startup's steps. */
   startup?: BlockStartup;
   /** Review-request blocks: what was asked for, for the row to say. */

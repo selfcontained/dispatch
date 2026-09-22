@@ -3190,6 +3190,27 @@ describe("StreamService delivery that is never taken", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.retryDelivery", () => {
+  it("retries a failed ACP command as the same raw, isolated prompt", async () => {
+    const { svc: failing, injected: first } = build({
+      fail: true,
+      commands: ["compact"],
+    });
+    const posted = await failing.sendUserPost(A, { text: "/compact" });
+    const failed = await settled(failing, posted.block.id);
+    expect(failed.delivered).toBe(false);
+    expect(first).toEqual([{ agentId: A, text: "/compact" }]);
+
+    // A restarted runtime may not have rediscovered commands yet.
+    const { svc, injected, injectedOpts } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected).toEqual([{ agentId: A, text: "/compact" }]);
+    expect(injectedOpts[0]).toMatchObject({
+      blockId: failed.id,
+      alone: true,
+    });
+  });
+
   /** A post whose delivery failed: the row the Retry button acts on. */
   async function undelivered(text: string, to?: string) {
     const { svc } = build({ fail: true });

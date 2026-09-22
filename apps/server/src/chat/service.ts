@@ -728,6 +728,7 @@ export class StreamService {
     const rawCommand =
       !!commandName &&
       !review &&
+      !input.reviewRequest &&
       !thread &&
       attachments.length === 0 &&
       mentioned.length === 0 &&
@@ -759,6 +760,7 @@ export class StreamService {
     const live = liveRecipients.length === recipients.length;
     const textData = {
       ...(finding ? { findingId: finding.id } : {}),
+      ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
       ...(input.reviewRequest ? { reviewRequest: input.reviewRequest } : {}),
     };
@@ -2256,6 +2258,19 @@ export class StreamService {
       .filter((entry) => entry.state === "failed")
       .map((entry) => entry.agentId);
     const recipients = missed.length > 0 ? missed : named;
+    // The first send persisted this intent. Retrying must not reclassify it
+    // against the host's current command list: it may be unavailable while
+    // the host reconnects, and wrapping the prompt would change its meaning.
+    const rawCommand =
+      block.kind === "text" &&
+      block.author.kind === "user" &&
+      block.data?.acpCommand === true &&
+      block.threadId === null &&
+      block.replyTo === null &&
+      block.attachments.length === 0 &&
+      !mentioned?.length &&
+      named.length === 1 &&
+      recipients.length === 1;
     const agents = await Promise.all(named.map((id) => this.requireAgent(id)));
     // An agent that cannot take a prompt gets the reason now rather than a
     // second spinner: a retry is for a message that missed, not a way to
@@ -2297,6 +2312,7 @@ export class StreamService {
       recipients,
       from,
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: block.text, alone: true } : {}),
         attachmentLines: lines.get(agentId) ?? [],
         answers,
         // "also to" names everyone the post was addressed to, not just the
