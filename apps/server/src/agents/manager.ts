@@ -576,9 +576,10 @@ export class AgentManager {
   promptAgent(
     id: string,
     text: string,
-    source?: PromptSource
+    source?: PromptSource,
+    opts?: { alone?: boolean }
   ): { accepted: Promise<void>; settled: Promise<void> } {
-    return this.runtime.prompt(id, text, source);
+    return this.runtime.prompt(id, text, source, opts);
   }
 
   /** A turn is running or prompts are waiting behind one. */

@@ -54,6 +54,7 @@ describe("enqueueAgentPrompt", () => {
     expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
       "agt_1",
       "hello",
+      undefined,
       undefined
     );
     ctx.accepted.resolve();
@@ -72,7 +73,19 @@ describe("enqueueAgentPrompt", () => {
     expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
       "agt_1",
       "hello",
-      source
+      source,
+      undefined
+    );
+  });
+
+  it("asks for an interrupting prompt to go alone", async () => {
+    const ctx = build();
+    await ctx.enqueueAgentPrompt("agt_1", "stop", { alone: true });
+    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
+      "agt_1",
+      "stop",
+      undefined,
+      { alone: true }
     );
   });
 

@@ -78,11 +78,20 @@ function promptFor(
 ): ChatTurnPrompt {
   if (source.source === "chat") {
     const block = chat.get(source.chatMessageId);
+    // Posts delivered together: the turn's prompt reads as all of them, in
+    // order, under the first one's sender and place.
+    const combinedText =
+      source.chatMessageIds && source.chatMessageIds.length > 1
+        ? source.chatMessageIds
+            .map((id) => chat.get(id)?.text ?? "")
+            .filter((t) => t.length > 0)
+            .join("\n\n")
+        : null;
     if (block?.author.kind === "agent") {
       // Another agent's post, delivered as this turn's prompt.
       return {
         source: "agent",
-        text: block.text,
+        text: combinedText ?? block.text,
         chatMessageId: source.chatMessageId,
         senderName: block.authorName ?? block.author.agentId,
         senderAgentId: block.author.agentId,
@@ -92,7 +101,7 @@ function promptFor(
     }
     return {
       source: block?.origin === "launch" ? "launch" : "chat",
-      text: block?.text ?? "",
+      text: combinedText ?? block?.text ?? "",
       chatMessageId: source.chatMessageId,
       ...(block?.threadId ? { threadId: block.threadId } : {}),
       ...(block && block.kind !== "text" ? { kind: block.kind } : {}),
@@ -614,7 +623,7 @@ function chatPromptIds(rows: TurnSourceRow[]): string[] {
     .filter(
       (p): p is Extract<PromptSource, { source: "chat" }> => p.source === "chat"
     )
-    .map((p) => p.chatMessageId);
+    .flatMap((p) => p.chatMessageIds ?? [p.chatMessageId]);
 }
 
 /**

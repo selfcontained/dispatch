@@ -62,7 +62,12 @@ export type AgentRuntime = {
      * the turn's started event, so the stream knows which block opened the
      * turn without reading the envelope back out of the text.
      */
-    source?: PromptSource
+    source?: PromptSource,
+    /**
+     * `alone`: never combine this prompt with others waiting beside it. A
+     * post sent to interrupt is the point of its own turn.
+     */
+    opts?: { alone?: boolean }
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;

@@ -410,6 +410,7 @@ const streamService = new StreamService({
             : opts?.blockId
               ? { source: { source: "chat", chatMessageId: opts.blockId } }
               : {}),
+          ...(opts?.alone ? { alone: true } : {}),
         })
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
