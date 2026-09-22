@@ -2923,12 +2923,17 @@ describe("StreamService review threads", () => {
       threadId: null,
       replyTo: null,
     });
-    // Opened by a finding itself (a reopen notification): answered under
-    // that finding, its own thread.
+    // Opened by a reopen notification, whose prompt names the finding:
+    // answered under that finding, its own thread.
     const findingTurn = await svc.recordTurnStarted({
       agentId: A,
       turnRow: turnRow(43, A),
-      prompt: { source: "chat", text: "", chatMessageId: f1.id },
+      prompt: {
+        source: "chat",
+        text: "",
+        chatMessageId: f1.id,
+        answerIn: f1.id,
+      },
     });
     expect(await svc.store.getById(findingTurn!)).toMatchObject({
       threadId: f1.id,
@@ -2962,7 +2967,7 @@ describe("StreamService review threads", () => {
   });
 
   it("tells the builder only when the reviewer reopens a finding, and the reviewer when the builder resolves one", async () => {
-    const { svc, injected } = build();
+    const { svc, injected, injectedOpts } = build();
     const { f1, f2 } = await reviewed(svc);
     injected.length = 0;
     // The reviewer resolving its own finding: nothing asked of the builder.
@@ -2981,6 +2986,10 @@ describe("StreamService review threads", () => {
       `--- DISPATCH POST (id: ${f1.id}, from: Peer (${B})) ---\nFinding "a" reopened: Regressed.`
     );
     expect(injected[0]!.text).toContain(`In the thread under ${f1.id}.`);
+    // The notice says where its answer goes: under the finding.
+    expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
+      source: { source: "chat", chatMessageId: f1.id, answerIn: f1.id },
+    });
     injected.length = 0;
     await svc.update(A, f2.id, {
       state: { status: "dismissed", note: "Out of scope." },
@@ -3462,7 +3471,7 @@ describe("StreamService turn blocks", () => {
     });
   });
 
-  it("a turn opened by a comment on a finding answers on that finding, one opened by the finding on it, and one opened by the review goes home", async () => {
+  it("a turn opened by a comment on a finding answers on that finding, one whose prompt names the finding on it, and one opened by a shown block goes home", async () => {
     const review = await service.store.insert({
       streamId: A,
       author: { kind: "agent", agentId: B },
@@ -3514,14 +3523,28 @@ describe("StreamService turn blocks", () => {
       threadId: null,
       replyTo: null,
     });
-    // A finding (a reopen reaching the agent) is a discussion of its own:
-    // the turn answers under it.
+    // A shown block on its own opens work, whatever its kind: the prompt
+    // itself says when its answer belongs under the block (a reopen).
     const fromFinding = await service.recordTurnStarted({
       agentId: A,
       turnRow: turnRow(10, { source: "chat", chatMessageId: finding.id }),
       prompt: { source: "chat", text: "", chatMessageId: finding.id },
     });
     expect(await service.store.getById(fromFinding!)).toMatchObject({
+      threadId: null,
+      replyTo: null,
+    });
+    const reopened = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(11, { source: "chat", chatMessageId: finding.id }),
+      prompt: {
+        source: "chat",
+        text: "",
+        chatMessageId: finding.id,
+        answerIn: finding.id,
+      },
+    });
+    expect(await service.store.getById(reopened!)).toMatchObject({
       threadId: finding.id,
       replyTo: finding.id,
     });

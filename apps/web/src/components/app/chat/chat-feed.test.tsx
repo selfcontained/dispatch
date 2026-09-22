@@ -600,8 +600,12 @@ describe("ChatFeed", () => {
     const post = screen.getByTestId("chat-launch-card");
     expect(post.getAttribute("data-launch-card")).toBe("true");
     expect(post.getAttribute("data-kind")).toBe("launch");
-    // The card stands for the agent it launched: this page's agent.
-    expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
+    // The card stands for the agent it launched, this page's agent, under
+    // a launch mark: a record of it starting, not a post it wrote.
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "Started builder"
+    );
+    expect(screen.getByTestId("chat-avatar-launch")).toBeTruthy();
     expect(post.getAttribute("data-author-kind")).toBe("agent");
     expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
       "Launched by you"
@@ -816,7 +820,9 @@ describe("ChatFeed", () => {
     // One post, the reviewer's card, with the review inside it.
     expect(screen.getAllByTestId("chat-launch-card")).toHaveLength(1);
     expect(screen.queryAllByTestId("chat-message")).toHaveLength(0);
-    expect(screen.getByTestId("chat-post-author").textContent).toBe("Reviewer");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "Started Reviewer"
+    );
     const shown = screen.getAllByTestId("chat-shown-block");
     expect(
       shown.map((el) => [
@@ -923,7 +929,7 @@ describe("ChatFeed", () => {
     expect(post.getAttribute("data-launch-card")).toBe("true");
     expect(post.getAttribute("data-author")).toBe("peer");
     expect(screen.getByTestId("chat-post-author").textContent).toBe(
-      "architecture review"
+      "Started architecture review"
     );
     expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
       "Launched by builder"
@@ -976,7 +982,7 @@ describe("ChatFeed", () => {
     expect(posts[0]!.getAttribute("data-author-kind")).toBe("agent");
     expect(
       screen.getAllByTestId("chat-post-author").map((a) => a.textContent)
-    ).toEqual(["builder", "You"]);
+    ).toEqual(["Started builder", "You"]);
     expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
       "Launched by you"
     );
@@ -1215,7 +1221,9 @@ describe("ChatFeed", () => {
     const post = screen.getByTestId("chat-launch-card");
     // The card is the launched agent's: this page's.
     expect(post.getAttribute("data-author-kind")).toBe("agent");
-    expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "Started builder"
+    );
     expect(screen.getByTestId("chat-launch-meta").textContent).toContain(
       "Launched by orchestrator"
     );

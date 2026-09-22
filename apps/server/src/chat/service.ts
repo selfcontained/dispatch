@@ -1244,17 +1244,26 @@ export class StreamService {
                 : "addressee"
             )
           : null;
+      // The change is about the block, so the answer belongs in its thread
+      // when it opens one (a finding), and in the thread it is in otherwise.
+      const answerIn = (await this.isShown(updated))
+        ? updated.id
+        : (updated.threadId ?? null);
       this.injectDetached({
         agentId,
         envelope: buildPostEnvelope({
           blockId: updated.id,
           from,
           text: hint ? `${summary}\n${hint}` : summary,
-          // A finding's discussion is its own thread: an answer goes there.
-          threadId: updated.kind === "finding" ? updated.id : updated.threadId,
+          threadId: answerIn,
         }),
         record: async () => undefined,
         logContext: { blockId: updated.id, side: agentId },
+        source: {
+          source: "chat",
+          chatMessageId: updated.id,
+          ...(answerIn ? { answerIn } : {}),
+        },
       });
     }
     return updated;
@@ -1921,7 +1930,13 @@ export class StreamService {
   }): Promise<string | null> {
     const streamId = await this.streamOf(input.agentId);
     let thread: { threadId: string; replyTo: string } | null = null;
-    if (input.prompt.source === "chat") {
+    if (input.prompt.source === "chat" && input.prompt.answerIn) {
+      // The prompt said where its answer goes.
+      const host = await this.store.getById(input.prompt.answerIn);
+      if (host && host.streamId === streamId) {
+        thread = { threadId: host.id, replyTo: host.id };
+      }
+    } else if (input.prompt.source === "chat") {
       // Posts delivered together each say where their answer belongs. The
       // turn answers in a thread only when every one of them points into
       // that same thread; any disagreement puts it in the agent's own
@@ -1956,7 +1971,7 @@ export class StreamService {
    * question. A reply to anything else — a comment on a finding, an
    * ordinary post — is a discussion, and its turns belong in that thread.
    * A post that is not a reply (a review delivered to the agent whose work
-   * it is) opens work, not a discussion; a finding reopened is its own.
+   * it is) opens work, not a discussion.
    *
    * The test is what the reply answers, not what the thread is rooted at:
    * an agent's question is usually itself a reply inside some other thread,
@@ -1968,16 +1983,10 @@ export class StreamService {
   } | null> {
     if (!isBlockId(blockId)) return null;
     const opener = await this.store.getById(blockId);
-    if (!opener?.threadId) return null;
-    if (await this.isShown(opener)) {
-      // A finding is a discussion of its own: work it prompts (it was
-      // reopened) is answered under it. Anything else a card shows — a
-      // review delivered to the agent whose work it is — opens work, which
-      // belongs in the agent's own place.
-      return opener.kind === "finding"
-        ? { threadId: opener.id, replyTo: opener.id }
-        : null;
-    }
+    // A block another shows (a review delivered to the agent whose work it
+    // is) opens work, which belongs in the agent's own place. A prompt
+    // about such a block that belongs under it says so (`answerIn`).
+    if (!opener?.threadId || (await this.isShown(opener))) return null;
     const answered = opener.replyTo
       ? await this.store.getById(opener.replyTo)
       : null;

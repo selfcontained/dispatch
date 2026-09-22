@@ -13,6 +13,13 @@ export type PromptSource =
        * behind a turn were delivered to it together.
        */
       chatMessageIds?: string[];
+      /**
+       * The block whose thread this prompt's answer belongs in, when the
+       * prompt says so rather than leaving it to what the post is: a
+       * notice that a finding changed is answered under the finding.
+       * Dropped when prompts are delivered together.
+       */
+      answerIn?: string;
     }
   | { source: "agent"; senderId: string; senderName: string; text: string }
   | { source: "system"; text: string };

@@ -185,6 +185,11 @@ export type PostAuthor = {
   relation?: AgentRelation;
   /** Its number in the tree, drawn as its avatar. */
   seat?: number;
+  /**
+   * A launch card's header: the record of an agent starting, not a post
+   * the agent wrote. It wears a launch mark instead of the agent's face.
+   */
+  launch?: boolean;
 };
 
 function userAuthor(): PostAuthor {
@@ -246,8 +251,11 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
   // A launch card stands for the agent it launched: its header is that
   // agent's, whoever wrote the briefing.
   if (block.kind === "launch" && block.toAgentId) {
-    if (block.toAgentId === ctx.agentId) return agentAuthor(ctx, "Agent");
-    return peerAuthor(block.toAgentId, peerName(block.toAgentId, ctx), ctx);
+    const agent =
+      block.toAgentId === ctx.agentId
+        ? agentAuthor(ctx, "Agent")
+        : peerAuthor(block.toAgentId, peerName(block.toAgentId, ctx), ctx);
+    return launchHeader(agent, block.id);
   }
   if (block.author.kind === "agent") {
     if (block.author.agentId === ctx.agentId) return agentAuthor(ctx, "Agent");
@@ -270,6 +278,30 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     );
   }
   return userAuthor();
+}
+
+/**
+ * A launch card's header: which agent started, told apart from anything the
+ * agent itself posts — "Started <name>" under a launch mark — with the same
+ * engine, model and relation chips its posts carry.
+ */
+function launchHeader(agent: PostAuthor, blockId: string): PostAuthor {
+  return {
+    ...agent,
+    key: `launch:${blockId}`,
+    name: `Started ${agent.name}`,
+    launch: true,
+  };
+}
+
+/** Who the agent a block stands for is, as its posts read: a launch card's agent itself. */
+export function blockIdentity(block: Block, ctx: FeedContext): PostAuthor {
+  if (block.kind === "launch" && block.toAgentId) {
+    return block.toAgentId === ctx.agentId
+      ? agentAuthor(ctx, "Agent")
+      : peerAuthor(block.toAgentId, peerName(block.toAgentId, ctx), ctx);
+  }
+  return blockAuthor(block, ctx);
 }
 
 /**
@@ -335,7 +367,19 @@ export function mentionablesOf(ctx: FeedContext): Mentionable[] {
   return list.sort((a, b) => (a.seat ?? 99) - (b.seat ?? 99));
 }
 
-function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+  if (author.launch) {
+    return (
+      <span
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
+        aria-label={author.name}
+        title={author.name}
+        data-testid="chat-avatar-launch"
+      >
+        <Rocket className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
+  }
   if (author.kind === "user") {
     return (
       <span

@@ -259,6 +259,28 @@ describe("ThreadDrawer", () => {
     expect(screen.queryByTestId("thread-drawer")).toBeNull();
   });
 
+  it("keeps the reviewer's face, engine and model in the header over its finding", () => {
+    client.setQueryData(
+      ["agents"],
+      [
+        { id: "agt_1", name: "builder", type: "claude", parentAgentId: null },
+        {
+          id: "agt_rev",
+          name: "reviewer",
+          type: "codex",
+          model: "gpt-6-sol",
+          parentAgentId: "agt_1",
+        },
+      ]
+    );
+    renderThreadDrawer("?thread=rv&finding=f1");
+    expect(screen.getByTestId("drawer-title").textContent).toBe("Finding");
+    expect(screen.getByTestId("drawer-identity")).toBeTruthy();
+    const meta = screen.getByTestId("drawer-meta").textContent ?? "";
+    expect(meta).toContain("Codex");
+    expect(meta).toContain("gpt-6-sol");
+  });
+
   it("closes from the finding page in one go", () => {
     renderThreadDrawer("?thread=rv&finding=f1");
     fireEvent.click(screen.getByTestId("drawer-close"));

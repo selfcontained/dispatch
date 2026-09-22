@@ -88,7 +88,7 @@ own thread.
 
 **After fixing a finding, say what you changed under it.** That is the claim the
 reviewer checks, so say enough for it to verify: the file, the behavior, the
-test.
+test. Once the reviewer resolves it, there is nothing to answer.
 
 **Not every finding has to be accepted.** When you disagree, say why under the
 finding and give the evidence — what the system actually does, what the API or

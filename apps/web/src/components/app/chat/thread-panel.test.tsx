@@ -17,6 +17,7 @@ import { threadQueryKey } from "@/hooks/use-stream";
 import {
   block,
   findingBlock,
+  findingRecord,
   launchBlock,
   questionBody,
   reviewBlock,
@@ -337,6 +338,59 @@ describe("ThreadPanel", () => {
       client.getQueryData<StreamThreadResponse>(threadQueryKey("agt_1", "rv"))!
         .replies
     ).toEqual([]);
+  });
+
+  it("says in a finding's thread who settled it and when, among the comments at that time", () => {
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing({
+        record: findingRecord("fixed", {
+          by: { kind: "agent", agentId: "agt_2" },
+          at: "2026-09-02T10:01:30.000Z",
+          note: "Verified the gap.",
+        }),
+      }),
+      replies: [
+        block({
+          id: "c1",
+          text: "Added the gap.",
+          threadId: "f2",
+          replyTo: "f2",
+          createdAt: "2026-09-02T10:01:00.000Z",
+          readAt: "2026-09-02T10:01:00.000Z",
+        }),
+        block({
+          id: "c2",
+          text: "Thanks.",
+          threadId: "f2",
+          replyTo: "f2",
+          createdAt: "2026-09-02T10:02:00.000Z",
+          readAt: "2026-09-02T10:02:00.000Z",
+        }),
+      ],
+    });
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
+    const change = screen.getByTestId("chat-finding-change");
+    expect(change.getAttribute("data-outcome")).toBe("fixed");
+    expect(change.textContent).toContain("Fixed by Reviewer");
+    expect(change.textContent).toContain("Verified the gap.");
+    // After the comment before it, ahead of the one that came later.
+    const order = [
+      ...screen
+        .getByTestId("chat-thread-replies")
+        .querySelectorAll(
+          "[data-chat-entry-id], [data-testid='chat-finding-change']"
+        ),
+    ].map((el) => el.getAttribute("data-chat-entry-id") ?? "change");
+    expect(order).toEqual(["c1", "change", "c2"]);
+  });
+
+  it("leaves a finding's thread without an entry while it stands as raised", () => {
+    client.setQueryData(threadQueryKey("agt_1", "f2"), {
+      root: spacing(),
+      replies: [],
+    });
+    renderPanel({ blockId: "rv", findingId: "f2", ctx: peerCtx });
+    expect(screen.queryByTestId("chat-finding-change")).toBeNull();
   });
 
   it("loads the finding's thread route and marks its comments read by the finding", async () => {

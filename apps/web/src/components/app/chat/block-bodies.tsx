@@ -747,6 +747,60 @@ export function FindingActions({
   );
 }
 
+/**
+ * The latest change to a finding's record, as an entry in its thread, at
+ * the time it was made: who fixed, dismissed or reopened it, and the note.
+ * Null while the finding stands as its reviewer raised it.
+ */
+export function findingChange(
+  block: Block
+): { at: string; record: BlockFindingState } | null {
+  if (block.kind !== "finding" || !block.state) return null;
+  const record = block.state;
+  if (record.status === "open" && record.note === undefined) return null;
+  return { at: record.at, record };
+}
+
+/** A finding's change as a line of its thread: "✓ Fixed by reviewer · 5:13 PM". */
+export function FindingChangeEntry({
+  record,
+  authorName,
+}: {
+  record: BlockFindingState;
+  authorName: (by: BlockFindingState["by"]) => string;
+}): JSX.Element {
+  const outcome = findingOutcome(record);
+  const Icon =
+    outcome === "open" ? RotateCcw : outcome === "fixed" ? Check : XCircle;
+  const verb =
+    outcome === "open"
+      ? "Reopened"
+      : outcome === "fixed"
+        ? "Fixed"
+        : "Dismissed";
+  return (
+    <div
+      className="mx-4 mt-3 flex min-w-0 items-start gap-2 text-xs text-muted-foreground"
+      data-testid="chat-finding-change"
+      data-outcome={outcome}
+    >
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0">
+        <span>
+          <span className="font-medium text-foreground/80">{verb}</span> by{" "}
+          {authorName(record.by)}
+          {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
+        </span>
+        {record.note ? (
+          <Markdown className="text-xs text-foreground/80">
+            {record.note}
+          </Markdown>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** "Fixed by Codex · 2m ago", with the note under it when there is one. */
 function FindingRecordLine({
   record,
@@ -970,40 +1024,49 @@ export function ReviewBlockBody({
                   const comments = item.replyCount ?? 0;
                   const fresh = item.unreadReplies ?? 0;
                   const highlighted = highlightFindingId === item.id;
+                  // The title has a line of its own, wrapping, so a narrow
+                  // drawer or a phone still tells one finding from the next;
+                  // the status, severity and counts sit under it.
                   const row = (
                     <>
-                      <FindingStatusPill record={record} />
-                      <SeverityChip severity={finding.severity} />
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
-                          status === "resolved" &&
-                            "text-muted-foreground line-through"
-                        )}
-                        title={finding.title}
-                      >
-                        {finding.title}
-                      </span>
-                      {comments > 0 ? (
+                      <span className="flex min-w-0 flex-1 flex-col gap-1">
                         <span
                           className={cn(
-                            "shrink-0 text-[11px]",
-                            fresh > 0
-                              ? "font-semibold text-foreground"
-                              : "text-muted-foreground"
+                            "line-clamp-2 text-sm font-medium text-foreground [overflow-wrap:anywhere]",
+                            status === "resolved" &&
+                              "text-muted-foreground line-through"
                           )}
-                          data-testid="chat-review-finding-comments"
+                          title={finding.title}
+                          data-testid="chat-review-finding-title"
                         >
-                          {comments} {comments === 1 ? "comment" : "comments"}
+                          {finding.title}
                         </span>
-                      ) : null}
-                      {fresh > 0 ? (
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                          data-testid="chat-review-finding-unread"
-                          aria-label={`${fresh} new`}
-                        />
-                      ) : null}
+                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <FindingStatusPill record={record} />
+                          <SeverityChip severity={finding.severity} />
+                          {comments > 0 ? (
+                            <span
+                              className={cn(
+                                "shrink-0 text-[11px]",
+                                fresh > 0
+                                  ? "font-semibold text-foreground"
+                                  : "text-muted-foreground"
+                              )}
+                              data-testid="chat-review-finding-comments"
+                            >
+                              {comments}{" "}
+                              {comments === 1 ? "comment" : "comments"}
+                            </span>
+                          ) : null}
+                          {fresh > 0 ? (
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                              data-testid="chat-review-finding-unread"
+                              aria-label={`${fresh} new`}
+                            />
+                          ) : null}
+                        </span>
+                      </span>
                       <ChevronRight
                         className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
                         aria-hidden="true"

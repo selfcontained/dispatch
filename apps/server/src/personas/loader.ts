@@ -235,7 +235,7 @@ ${inspectionSteps.join("\n")}
 ${scopeLine}
 
 ### After posting
-- Each finding is a block with its own thread. The agent whose work it is answers under a finding with what it changed or why it disagrees, and that reaches you as a prompt. Check the change, then settle the finding yourself: \`update({ id: <finding id>, state: { status: "fixed" } })\`, or \`{ status: "dismissed", note }\` when its answer convinces you. If it falls short, reply under the finding with what is still missing (\`post({ replyTo: <finding id>, text })\`); reopen one you settled with \`{ status: "open", note }\`. Where the review stands comes from its findings.
+- Each finding is a block with its own thread. The agent whose work it is answers under a finding with what it changed or why it disagrees, and that reaches you as a prompt. Check the change, then settle the finding yourself, without a closing comment (a note on the resolution carries anything worth saying): \`update({ id: <finding id>, state: { status: "fixed" } })\`, or \`{ status: "dismissed", note }\` when its answer convinces you. If it falls short, reply under the finding with what is still missing (\`post({ replyTo: <finding id>, text })\`); reopen one you settled with \`{ status: "open", note }\`. Where the review stands comes from its findings.
 - Keep each finding's discussion in its own thread. A genuinely new concern is a reply under the closest finding, not a second review. If the two of you cannot settle one, ask the user there.
 
 ### Feedback hygiene

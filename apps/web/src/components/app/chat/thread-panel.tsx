@@ -4,14 +4,20 @@
  * replies, and a composer whose posts reply under the root. Replies never
  * render in the main stream; this is the only place they appear.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
+
+import {
+  FindingChangeEntry,
+  findingChange,
+} from "@/components/app/chat/block-bodies";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import {
   BlockView,
+  agentDisplayName,
   blockAuthor,
   type FeedContext,
   mentionablesOf,
@@ -186,6 +192,20 @@ export function ThreadPanel({
   const finding = thread.root?.kind === "finding";
   const replies = thread.replies;
   const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
+  // A finding's latest change is part of its discussion: who settled or
+  // reopened it, and when, among the comments at the time it happened.
+  const change = thread.root ? findingChange(thread.root) : null;
+  const changeAt = change
+    ? replies.filter((reply) => reply.createdAt <= change.at).length
+    : -1;
+  const changeEntry = change ? (
+    <FindingChangeEntry
+      record={change.record}
+      authorName={(by) =>
+        by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+      }
+    />
+  ) : null;
   const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const groupedById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, grouped[index]])),
@@ -229,7 +249,11 @@ export function ThreadPanel({
   const seenRepliesRef = useRef<{ blockId: string; count: number } | null>(
     null
   );
+  const loadedRootId = thread.root?.id ?? null;
   useEffect(() => {
+    // The page's first load is where it opens, not replies arriving: the
+    // count to follow from is taken once the thread is here.
+    if (loadedRootId !== threadBlockId) return;
     const el = scrollRef.current;
     const seen = seenRepliesRef.current;
     // A jump to a reply (see useBlockJump) that just landed with this
@@ -245,7 +269,7 @@ export function ThreadPanel({
       el.scrollTop = el.scrollHeight;
     }
     seen.count = replyCount;
-  }, [replyCount, threadBlockId, jumpedRef]);
+  }, [replyCount, threadBlockId, loadedRootId, jumpedRef]);
 
   // Escape closes the panel, as it would a sheet.
   useEffect(() => {
@@ -395,25 +419,33 @@ export function ThreadPanel({
               </div>
             ) : null}
             <div data-testid="chat-thread-replies">
-              {replies.map((reply) => (
-                <div
-                  key={reply.id}
-                  data-chat-entry-id={reply.id}
-                  data-testid={reply.turn ? "chat-thread-turn" : undefined}
-                  data-turn-id={reply.turn ? reply.id : undefined}
-                >
-                  <BlockView
-                    block={reply}
-                    grouped={groupedById.get(reply.id) ?? false}
-                    ctx={ctx}
-                    answering={answeringBlockId === reply.id}
-                    submitting={submittingBlockId === reply.id}
-                    answersDisabled={disabledReason !== null}
-                    onAnswer={onAnswer}
-                    inThread
-                  />
-                </div>
+              {replies.map((reply, index) => (
+                <Fragment key={reply.id}>
+                  {change && changeAt === index ? changeEntry : null}
+                  <div
+                    data-chat-entry-id={reply.id}
+                    data-testid={reply.turn ? "chat-thread-turn" : undefined}
+                    data-turn-id={reply.turn ? reply.id : undefined}
+                  >
+                    <BlockView
+                      block={reply}
+                      grouped={
+                        // The change entry above breaks the run of posts.
+                        index === changeAt
+                          ? false
+                          : (groupedById.get(reply.id) ?? false)
+                      }
+                      ctx={ctx}
+                      answering={answeringBlockId === reply.id}
+                      submitting={submittingBlockId === reply.id}
+                      answersDisabled={disabledReason !== null}
+                      onAnswer={onAnswer}
+                      inThread
+                    />
+                  </div>
+                </Fragment>
               ))}
+              {change && changeAt === replies.length ? changeEntry : null}
             </div>
           </>
         ) : null}

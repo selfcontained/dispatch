@@ -2,7 +2,13 @@ import { useMemo, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { ArrowLeft, X } from "lucide-react";
 
+import {
+  AuthorMeta,
+  Avatar,
+  blockIdentity,
+} from "@/components/app/chat/chat-entries";
 import { threadTitle } from "@/components/app/chat/thread-panel";
+import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import {
   DrawerStack,
   type DrawerPage,
@@ -99,6 +105,16 @@ export function ThreadDrawer({
       ? (selectedAgentName ?? "Agent")
       : (agentNameById?.(agentId) ?? "Agent");
   const heading = threadTitle(thread.root, findingId !== null, nameOf);
+  // Who the page is about, as the stream draws them — the reviewer on a
+  // finding, the launched agent on its card — so the header keeps their
+  // face, engine and model while the page scrolls.
+  const { ctx } = useChatFeedContext({
+    agentId: targetAgentId,
+    rootId: targetRootId,
+    agent: pageAgent,
+    openLightbox,
+  });
+  const identity = thread.root ? blockIdentity(thread.root, ctx) : null;
   const { openThread, back, closeAll } = route;
 
   const pages = useMemo<DrawerPage[]>(() => {
@@ -165,6 +181,11 @@ export function ThreadDrawer({
         ) : (
           <span className="w-2" aria-hidden="true" />
         )}
+        {identity && identity.kind !== "user" ? (
+          <div className="mr-2 shrink-0" data-testid="drawer-identity">
+            <Avatar author={identity} />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
           <div
             className="truncate text-sm font-semibold text-foreground"
@@ -178,6 +199,11 @@ export function ThreadDrawer({
               data-testid="drawer-subtitle"
             >
               {heading.subtitle}
+            </div>
+          ) : null}
+          {identity ? (
+            <div className="mt-0.5 flex min-w-0" data-testid="drawer-meta">
+              <AuthorMeta author={identity} />
             </div>
           ) : null}
         </div>

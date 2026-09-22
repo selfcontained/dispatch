@@ -154,8 +154,8 @@ export function buildPostEnvelope(input: {
     context.push(
       `About the finding "${input.finding.title}".`,
       input.finding.opened
-        ? `You raised it: once the reply settles it, resolve it with update({ id: "${input.finding.id}", state: { status: "fixed" } }) (or "dismissed", with a note); if it falls short, say here what is still missing.`
-        : "Its reviewer resolves it; reply here with what you changed or why you disagree."
+        ? `You raised it: once the reply settles it, resolve it with update({ id: "${input.finding.id}", state: { status: "fixed" } }) (or "dismissed", with a note) instead of replying; if it falls short, say here what is still missing.`
+        : "Its reviewer resolves it; reply here with what you changed or why you disagree. Once it is settled, no reply is needed."
     );
   }
   const replyArgs = input.threadId ? `replyTo: "${input.threadId}"` : "";
