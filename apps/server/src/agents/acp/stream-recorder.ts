@@ -35,6 +35,10 @@ const LOCATIONS_MAX = 200;
  * with backoff before it gave the turn up, so a second attempt is the
  * user's to take. Auth, quota, budget and context failures need something
  * changed first and are never offered one.
+ *
+ * `unknown` is in the list on purpose: it is what the SDK reports for a
+ * failure it could not place, which is where a dropped stream or a
+ * network blip lands, and the offer costs nothing until someone takes it.
  */
 const RETRYABLE_ERROR_KINDS = new Set([
   "server_error",
@@ -230,13 +234,20 @@ export class StreamRecorder {
     prompt: PromptSource
   ): Promise<void> {
     if (!this.turnBlocks) return;
-    const blockId = await this.turnBlocks.started({ agentId, turnRow: row, prompt });
+    const blockId = await this.turnBlocks.started({
+      agentId,
+      turnRow: row,
+      prompt,
+    });
     if (!blockId) return;
     row.payload = { ...row.payload, blockId };
     await this.store.updatePayload(row.id, row.payload);
   }
 
-  private async settleTurnBlock(agentId: string, row: StreamEventRow): Promise<void> {
+  private async settleTurnBlock(
+    agentId: string,
+    row: StreamEventRow
+  ): Promise<void> {
     if (!this.turnBlocks) return;
     await this.turnBlocks.settled({ agentId, turnRow: row });
   }
@@ -359,7 +370,10 @@ export class StreamRecorder {
     this.loaded.add(agentId);
     this.openTurn.delete(agentId);
     this.trailingPrompt.delete(agentId);
-    const cut = await this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+    const cut = await this.store.settleInterrupted(
+      agentId,
+      INTERRUPTED_BY_RESTART
+    );
     for (const row of cut) await this.settleTurnBlock(agentId, row);
     return cut.length;
   }

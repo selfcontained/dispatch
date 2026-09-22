@@ -48,6 +48,7 @@ import {
   describeReview,
   buildReactionEnvelope,
   buildRetryTurnEnvelope,
+  RETRY_TURN_NOTICE,
   type EnvelopeSender,
   formatAttachmentSize,
 } from "./envelope.js";
@@ -131,9 +132,6 @@ export type UpdateInput = {
  * spinner for the rest of the session.
  */
 const DELIVERY_GIVE_UP_MS = 90_000;
-
-/** The notice the feed shows above the turn a retry opened. */
-const RETRY_TURN_NOTICE = "Retried the turn that stopped on an error.";
 
 export type StreamDeliveryAdapter = {
   /**
@@ -265,7 +263,8 @@ function derivedBlockId(seed: string): string {
     h.slice(0, 8),
     h.slice(8, 12),
     `5${h.slice(13, 16)}`,
-    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
+    ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16) +
+      h.slice(17, 20),
     h.slice(20, 32),
   ].join("-");
 }
@@ -1740,7 +1739,11 @@ export class StreamService {
       this.heldCheck()
     );
     if (!entry) return;
-    this.deps.publishUiEvent({ type: "stream.entry", agentId: streamId, entry });
+    this.deps.publishUiEvent({
+      type: "stream.entry",
+      agentId: streamId,
+      entry,
+    });
   }
 
   /**
@@ -1954,7 +1957,11 @@ export class StreamService {
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
-            await this.store.setRecipientDelivered(block.id, agentId, delivered);
+            await this.store.setRecipientDelivered(
+              block.id,
+              agentId,
+              delivered
+            );
           }
           if (outcomes.size < recipients.length) {
             // Say so as each one lands: a reader watching a post to three

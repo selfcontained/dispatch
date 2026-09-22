@@ -33,9 +33,7 @@ import { Collapse } from "@/components/app/chat/collapse";
 import { ActivityBlock } from "@/components/app/chat/turn/activity-block";
 import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
-import {
-  type FoldedEntry,
-} from "@/components/app/chat/turn/turn-attachments";
+import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
 import { TurnAnswer } from "@/components/app/chat/turn/turn-entry-view";
 import { MentionText } from "@/components/app/chat/mention-picker";
 import { type Mentionable, mentionSpans } from "@/lib/mentions";
@@ -280,16 +278,13 @@ export function blockSide(
     return undefined;
   }
   return {
-    recipientName: recipients
-      .map((id) => agentDisplayName(id, ctx))
-      .join(", "),
+    recipientName: recipients.map((id) => agentDisplayName(id, ctx)).join(", "),
   };
 }
 
 /** Everyone a post was delivered to: its `@mentions`, or its one recipient. */
 export function blockRecipients(block: Block): string[] {
-  const mentions =
-    block.kind === "text" ? block.data?.mentions : undefined;
+  const mentions = block.kind === "text" ? block.data?.mentions : undefined;
   if (mentions && mentions.length > 0) return mentions;
   return block.toAgentId ? [block.toAgentId] : [];
 }
@@ -521,7 +516,9 @@ export function Post({
         // row: the "→ recipient" in its header says who it was for. An
         // indent read as a different, harder-to-follow kind of message.
         flush ? "px-3" : "px-4",
-        side && author.kind !== "user" ? POST_TINT.peer : POST_TINT[author.kind],
+        side && author.kind !== "user"
+          ? POST_TINT.peer
+          : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
       )}
@@ -655,10 +652,7 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 /** The recipients of a post in one of the states worth reporting. */
-function inState(
-  block: Block,
-  state: BlockDeliveryState
-): readonly string[] {
+function inState(block: Block, state: BlockDeliveryState): readonly string[] {
   return (block.delivery ?? [])
     .filter((entry) => entry.state === state)
     .map((entry) => entry.agentId);
@@ -705,7 +699,8 @@ function DeliveryMeta({
           ? `Not delivered to ${nameList(failed, ctx)}`
           : "Not delivered"}
         {/* The same post, sent again, and only to whoever missed it:
-            nothing new lands in the stream and nobody reads it twice. */}
+            nothing new lands in the stream and nobody reads it twice. Not
+            "Retry", which on a failed turn runs the agent again. */}
         {ctx.onRetryDelivery ? (
           <button
             type="button"
@@ -714,7 +709,7 @@ function DeliveryMeta({
             onClick={() => ctx.onRetryDelivery?.(block.id)}
             data-testid="chat-delivery-retry"
           >
-            {retrying ? "Retrying…" : "Retry"}
+            {retrying ? "Sending…" : "Send again"}
           </button>
         ) : null}
       </div>
@@ -790,7 +785,10 @@ function ThreadLine({
       onClick={() => onOpen?.(block.id)}
     >
       {repliers.length > 0 ? (
-        <span className="flex items-center -space-x-1" data-testid="chat-thread-faces">
+        <span
+          className="flex items-center -space-x-1"
+          data-testid="chat-thread-faces"
+        >
           {repliers.slice(0, THREAD_FACES).map((who, index) => (
             <ReplierFace key={index} who={who} ctx={ctx} />
           ))}
@@ -801,7 +799,10 @@ function ThreadLine({
           ) : null}
         </span>
       ) : (
-        <MessagesSquare className="ml-0.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+        <MessagesSquare
+          className="ml-0.5 h-3.5 w-3.5 text-muted-foreground"
+          aria-hidden="true"
+        />
       )}
       <span className="font-medium text-status-done underline-offset-2 group-hover/thread:underline group-disabled/thread:no-underline">
         {count} {count === 1 ? "reply" : "replies"}
@@ -1118,9 +1119,7 @@ function WorkspaceBlock({ block }: { block: Block }): JSX.Element {
       }
       data-block-id={block.id}
     >
-      <div
-        className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}
-      >
+      <div className={cn(POST_BODY_MEASURE, "w-full min-w-0 font-terminal")}>
         <ActivityBlock trace={trace} label={label} />
       </div>
     </div>
@@ -1153,8 +1152,7 @@ function startupTrace(startup: BlockStartup | undefined): Trace {
       const startedAt = at(step.startedAt) ?? first;
       const endedAt = at(step.endedAt);
       const aside =
-        step.detail ??
-        (step.phase === "worktree" ? startup?.cwd : undefined);
+        step.detail ?? (step.phase === "worktree" ? startup?.cwd : undefined);
       return {
         id: step.phase,
         kind: "setup",
@@ -1282,8 +1280,7 @@ function ReviewRequestBlock({
   block: Block;
   ctx: FeedContext;
 }): JSX.Element {
-  const request =
-    block.kind === "text" ? block.data?.reviewRequest : undefined;
+  const request = block.kind === "text" ? block.data?.reviewRequest : undefined;
   const who =
     block.author.kind === "user"
       ? "You"
@@ -1390,9 +1387,7 @@ export const BlockView = memo(function BlockView({
       </div>
     ) : undefined;
   const reactions = block.reactions ?? [];
-  const threadLine = inThread ? null : (
-    <ThreadLine block={block} ctx={ctx} />
-  );
+  const threadLine = inThread ? null : <ThreadLine block={block} ctx={ctx} />;
   const body = (
     <BlockBody
       block={block}
@@ -1436,7 +1431,9 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {block.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            <MentionText spans={mentionSpans(block.text, mentionablesOf(ctx))} />
+            <MentionText
+              spans={mentionSpans(block.text, mentionablesOf(ctx))}
+            />
           </div>
         ) : null}
         {body}

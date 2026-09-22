@@ -2783,7 +2783,11 @@ describe("StreamService turn blocks", () => {
       agentId: A,
       turnRow: {
         ...turnRow(eventId, { source: "chat", text: "go" }),
-        payload: { state: "settled", blockId, prompt: { source: "chat", text: "go" } },
+        payload: {
+          state: "settled",
+          blockId,
+          prompt: { source: "chat", text: "go" },
+        },
       },
     });
     const settled = await service.store.getById(blockId!);
@@ -2795,7 +2799,10 @@ describe("StreamService turn blocks", () => {
       entry: {
         type: "block",
         id: blockId,
-        block: { text: "All done.", turn: { settled: true, result: { text: "All done." } } },
+        block: {
+          text: "All done.",
+          turn: { settled: true, result: { text: "All done." } },
+        },
       },
     });
     expect(published[1]).toEqual({ type: "stream.changed", agentId: A });
@@ -2838,7 +2845,9 @@ describe("StreamService turn blocks", () => {
       data: {
         verdict: "request_changes",
         summary: "One thing.",
-        findings: [{ id: "f1", severity: "major", title: "Null", body: "Guard." }],
+        findings: [
+          { id: "f1", severity: "major", title: "Null", body: "Guard." },
+        ],
       },
       state: { findings: {} },
     });
@@ -2950,8 +2959,18 @@ describe("StreamService @mentions", () => {
        ON CONFLICT (id) DO UPDATE SET parent_agent_id = EXCLUDED.parent_agent_id, deleted_at = NULL`,
       [A]
     );
-    AGENTS["agt_m_kid1"] = { id: "agt_m_kid1", name: "reviewer", filesDir: null, status: "running" };
-    AGENTS["agt_m_kid2"] = { id: "agt_m_kid2", name: "builder", filesDir: null, status: "running" };
+    AGENTS["agt_m_kid1"] = {
+      id: "agt_m_kid1",
+      name: "reviewer",
+      filesDir: null,
+      status: "running",
+    };
+    AGENTS["agt_m_kid2"] = {
+      id: "agt_m_kid2",
+      name: "builder",
+      filesDir: null,
+      status: "running",
+    };
     const { svc, injected } = build({ withDelivery: true });
     const res = await svc.sendUserPost(A, {
       text: "@builder take the front end, @reviewer check it after",
@@ -2988,9 +3007,13 @@ describe("StreamService @mentions", () => {
 
   it("a name outside the tree is just text", async () => {
     const { svc } = build({ withDelivery: true });
-    const res = await svc.sendUserPost(A, { text: "@Peer is not in this tree" });
+    const res = await svc.sendUserPost(A, {
+      text: "@Peer is not in this tree",
+    });
     expect(res.block.toAgentId).toBe(A);
-    expect(res.block.kind === "text" && res.block.data?.mentions).toBeUndefined();
+    expect(
+      res.block.kind === "text" && res.block.data?.mentions
+    ).toBeUndefined();
   });
 });
 
@@ -3060,7 +3083,9 @@ describe("StreamService.retryDelivery", () => {
     // Pending the moment it is pressed, so the row stops saying "not
     // delivered" while the prompt is on its way.
     expect(block.delivered).toBeNull();
-    expect(events.some((e) => (e as { type: string }).type === "stream.entry")).toBe(true);
+    expect(
+      events.some((e) => (e as { type: string }).type === "stream.entry")
+    ).toBe(true);
     const after = await settled(svc, failed.id);
     expect(after.delivered).toBe(true);
     expect(injected).toEqual([
@@ -3298,7 +3323,13 @@ describe("StreamService workspace block", () => {
     expect(rows.rowCount).toBe(1);
     void svc;
     return rows.rows[0]!.data.startup as {
-      steps: Array<{ phase: string; label: string; status: string; endedAt?: string; detail?: string }>;
+      steps: Array<{
+        phase: string;
+        label: string;
+        status: string;
+        endedAt?: string;
+        detail?: string;
+      }>;
       readyAt?: string;
       failed?: string;
       cwd?: string;
@@ -3307,8 +3338,16 @@ describe("StreamService workspace block", () => {
 
   it("keeps one block per agent and ends the step before as each phase starts", async () => {
     const { svc, events } = build();
-    await svc.recordStartupStep({ agentId: A, phase: "worktree", label: "Creating git worktree" });
-    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "worktree",
+      label: "Creating git worktree",
+    });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
     const startup = await startupOf(svc);
     expect(startup.steps).toMatchObject([
       { phase: "worktree", status: "done" },
@@ -3323,7 +3362,11 @@ describe("StreamService workspace block", () => {
 
   it("reads as the running step, then as ready", async () => {
     const { svc } = build();
-    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
     const during = await svc.store.getById(workspaceBlockId(A));
     expect(during!.text).toBe("Installing dependencies");
     await svc.recordStartupDone({ agentId: A, cwd: "/tmp/work" });
@@ -3337,8 +3380,15 @@ describe("StreamService workspace block", () => {
 
   it("marks the step that was running as the one that failed", async () => {
     const { svc } = build();
-    await svc.recordStartupStep({ agentId: A, phase: "worktree", label: "Creating git worktree" });
-    await svc.recordStartupDone({ agentId: A, error: "branch already checked out" });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "worktree",
+      label: "Creating git worktree",
+    });
+    await svc.recordStartupDone({
+      agentId: A,
+      error: "branch already checked out",
+    });
     const startup = await startupOf(svc);
     expect(startup.failed).toBe("branch already checked out");
     expect(startup.steps[0]).toMatchObject({
@@ -3351,15 +3401,27 @@ describe("StreamService workspace block", () => {
 
   it("does not repeat a phase it already recorded", async () => {
     const { svc } = build();
-    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
-    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
     const startup = await startupOf(svc);
     expect(startup.steps).toHaveLength(1);
   });
 
   it("never counts as something the agent said to the person", async () => {
     const { svc } = build();
-    await svc.recordStartupStep({ agentId: A, phase: "deps", label: "Installing dependencies" });
+    await svc.recordStartupStep({
+      agentId: A,
+      phase: "deps",
+      label: "Installing dependencies",
+    });
     await svc.recordStartupDone({ agentId: A });
     // The workspace record is not a message: it leaves no unread mark, the
     // way the system-prompt record does not.
@@ -3370,7 +3432,9 @@ describe("StreamService workspace block", () => {
 describe("StreamService.retryTurn", () => {
   /** The agent's newest turn, failed; `retry` as the recorder left it. */
   async function failedTurn(retry: string | null = "open") {
-    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [A]);
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
     const row = await pool.query<{ id: string }>(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
        VALUES ($1, 1, 'turn', $2::jsonb) RETURNING id`,
@@ -3418,7 +3482,7 @@ describe("StreamService.retryTurn", () => {
       {
         agentId: A,
         text: expect.stringMatching(
-          /^The user retried your last turn.*Continue where you left off\.\n\(The error was API Error: 500 Internal server error\.\)$/s
+          /^The user retried the turn that stopped on an error\. Continue where you left off\.\n\(The error was API Error: 500 Internal server error\.\)$/s
         ),
       },
     ]);
@@ -3426,7 +3490,9 @@ describe("StreamService.retryTurn", () => {
     expect(injected[0]!.text).not.toContain("go\n");
     // A prompt of Dispatch's own, not the failed turn's block again.
     expect(injectedOpts).toEqual([
-      { source: { source: "system", text: expect.stringContaining("Retried") } },
+      {
+        source: { source: "system", text: expect.stringContaining("Retried") },
+      },
     ]);
     expect(await retryOf(turnId)).toBe("retried");
     expect(events).toContainEqual(

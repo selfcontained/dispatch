@@ -338,7 +338,7 @@ describe("TurnEntryView", () => {
         ERROR
       );
 
-    it("says the error once and offers Retry, which runs the turn again", () => {
+    it("says the error once and offers Retry turn, which runs it again", () => {
       const onRetryTurn = vi.fn();
       renderTurn(failed("open"), { ...ctx, onRetryTurn });
       const result = screen.getByTestId("harness-result");

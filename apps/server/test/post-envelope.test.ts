@@ -290,14 +290,14 @@ describe("buildRetryTurnEnvelope", () => {
     expect(
       buildRetryTurnEnvelope("API Error: 500 Internal server error.\nstack…")
     ).toBe(
-      "The user retried your last turn after it stopped on an error. Continue where you left off.\n" +
+      "The user retried the turn that stopped on an error. Continue where you left off.\n" +
         "(The error was API Error: 500 Internal server error.)"
     );
   });
 
   it("leaves the error out when there is none", () => {
     expect(buildRetryTurnEnvelope("")).toBe(
-      "The user retried your last turn after it stopped on an error. Continue where you left off."
+      "The user retried the turn that stopped on an error. Continue where you left off."
     );
   });
 

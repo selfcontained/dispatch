@@ -69,8 +69,9 @@ function ResultTurnImpl({
         <ResultText content={error.message} error />
       ) : null}
       {error && retry?.state === "open" && retry.onRetry ? (
-        // Worded like a post's "Not delivered · Retry": the same failure
-        // line, and the same turn run again rather than a new message.
+        // Worded like a post's "Not delivered · Send again": the same
+        // failure line. "Turn" is what tells the two apart — this one runs
+        // the agent again, where that one re-sends words it never took.
         <p
           className="flex items-center gap-[9px] text-[11.5px] text-status-blocked"
           data-testid="harness-turn-failed"
@@ -86,7 +87,7 @@ function ResultTurnImpl({
             onClick={retry.onRetry}
             data-testid="harness-retry-turn"
           >
-            {retry.pending ? "Retrying…" : "Retry"}
+            {retry.pending ? "Retrying…" : "Retry turn"}
           </button>
         </p>
       ) : null}
