@@ -716,6 +716,7 @@ describe("StreamService.post", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 123,
         mimeType: "image/png",
+        ownerAgentId: A,
       },
       {
         type: "file",
@@ -723,6 +724,7 @@ describe("StreamService.post", () => {
         fileName: "report.pdf",
         sizeBytes: 456,
         mimeType: "application/pdf",
+        ownerAgentId: A,
       },
       { type: "link", url: "https://example.com" },
       { type: "pr", url: "https://gh/1", title: "PR" },
@@ -1351,6 +1353,46 @@ describe("StreamService.sendUserPost", () => {
     expect(svc.inFlightDeliveryCount).toBe(0);
   });
 
+  it("marks a file attachment with the agent it was sent to, whose file it is", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+       VALUES ('agt_own_kid', 'kid', '/tmp', 'running', $1)
+       ON CONFLICT (id) DO UPDATE SET parent_agent_id = EXCLUDED.parent_agent_id, deleted_at = NULL`,
+      [A]
+    );
+    AGENTS["agt_own_kid"] = {
+      id: "agt_own_kid",
+      name: "kid",
+      filesDir: null,
+      status: "running",
+    };
+    const fileId = await seedFiles("agt_own_kid", "kid-brief.png", 64);
+    const { svc } = build({});
+    const res = await svc.sendUserPost(A, {
+      to: "agt_own_kid",
+      text: "look",
+      attachments: [{ type: "file", fileId }],
+    });
+    expect(res.block).toMatchObject({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: "agt_own_kid",
+    });
+    expect(res.block.attachments).toEqual([
+      {
+        type: "file",
+        fileId,
+        fileName: "kid-brief.png",
+        sizeBytes: 64,
+        mimeType: "image/png",
+        ownerAgentId: "agt_own_kid",
+      },
+    ]);
+    expect((await svc.store.getById(res.block.id))!.attachments).toEqual(
+      res.block.attachments
+    );
+  });
+
   it("records delivered=false when the inject fails", async () => {
     const { svc } = build({ fail: true });
     const res = await svc.sendUserPost(A, { text: "hello" });
@@ -1422,6 +1464,7 @@ describe("StreamService.sendUserPost", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
+        ownerAgentId: A,
       },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
     ]);
@@ -1686,6 +1729,7 @@ describe("StreamService.answerQuestion", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
+        ownerAgentId: A,
       },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
     ]);

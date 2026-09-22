@@ -2534,6 +2534,7 @@ export class StreamService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),
+      ownerAgentId: agentId,
     };
   }
 }

@@ -1231,6 +1231,7 @@ describe("stream routes with a deliverable engine", () => {
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
+        ownerAgentId: agentId,
       },
       { type: "link", url: "https://example.com/x" },
     ]);
@@ -1412,6 +1413,7 @@ describe("stream routes with a deliverable engine", () => {
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
+        ownerAgentId: agentId,
       },
       { type: "link", url: "https://example.com/x" },
     ]);

@@ -5,7 +5,7 @@
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { type ReactNode } from "react";
-import type { ChatAttachment } from "@dispatch/shared";
+import type { Block, ChatAttachment } from "@dispatch/shared";
 import {
   ArrowUpRight,
   ExternalLink,
@@ -27,6 +27,22 @@ type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenFile">;
 /** The URL a file is served from. */
 export function fileUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/files/${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * The agent whose files directory holds a post's file. Attachments carry
+ * it; ones written before they did fall back to what the post implies —
+ * an agent posts its own files, a person's post holds the files of the
+ * agent it was sent to.
+ */
+export function fileOwnerOf(
+  attachment: Extract<ChatAttachment, { type: "file" }>,
+  block: Pick<Block, "author" | "toAgentId">,
+  pageAgentId: string
+): string {
+  if (attachment.ownerAgentId) return attachment.ownerAgentId;
+  if (block.author.kind === "agent") return block.author.agentId;
+  return block.toAgentId ?? pageAgentId;
 }
 
 function hostOf(url: string): string {
@@ -126,12 +142,14 @@ function extensionOf(fileName: string): string | null {
 
 function FileAttachment({
   attachment,
+  ownerAgentId,
   ctx,
 }: {
   attachment: Extract<ChatAttachment, { type: "file" }>;
+  ownerAgentId: string;
   ctx: AttachmentCtx;
 }): JSX.Element {
-  const url = fileUrl(ctx.agentId, attachment.fileName);
+  const url = fileUrl(ownerAgentId, attachment.fileName);
   const open = () => ctx.onOpenFile(attachment.fileId);
   // By stored name or by the file row's type: a file shared without an
   // extension still renders as the image it is.
@@ -220,14 +238,22 @@ function CodeAttachment({
 
 function AttachmentView({
   attachment,
+  block,
   ctx,
 }: {
   attachment: ChatAttachment;
+  block: AttachmentBlockOf;
   ctx: AttachmentCtx;
 }): JSX.Element {
   switch (attachment.type) {
     case "file":
-      return <FileAttachment attachment={attachment} ctx={ctx} />;
+      return (
+        <FileAttachment
+          attachment={attachment}
+          ownerAgentId={fileOwnerOf(attachment, block, ctx.agentId)}
+          ctx={ctx}
+        />
+      );
     case "link":
       return (
         <LinkAttachment
@@ -251,18 +277,26 @@ function AttachmentView({
   }
 }
 
+/** What the list reads off the post its attachments hang under. */
+type AttachmentBlockOf = Pick<Block, "author" | "toAgentId" | "attachments">;
+
 export function AttachmentList({
-  attachments,
+  block,
   ctx,
 }: {
-  attachments: ChatAttachment[];
+  block: AttachmentBlockOf;
   ctx: AttachmentCtx;
 }): JSX.Element | null {
-  if (attachments.length === 0) return null;
+  if (block.attachments.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2">
-      {attachments.map((attachment, index) => (
-        <AttachmentView key={index} attachment={attachment} ctx={ctx} />
+      {block.attachments.map((attachment, index) => (
+        <AttachmentView
+          key={index}
+          attachment={attachment}
+          block={block}
+          ctx={ctx}
+        />
       ))}
     </div>
   );

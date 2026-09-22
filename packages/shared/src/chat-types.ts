@@ -45,6 +45,14 @@ export type ChatAttachment =
       sizeBytes: number;
       mimeType?: string;
       /**
+       * The agent whose files directory holds the file, and so the agent its
+       * URL is served under. Not always the post's author: a person's post
+       * holds files of the agent it was sent to. Absent on attachments
+       * written before it was recorded; readers fall back to what the post
+       * implies.
+       */
+      ownerAgentId?: string;
+      /**
        * Natural pixel size of an image, filled in at read time from the live
        * file row. The feed reserves a box of this aspect ratio before the
        * image loads, so an arriving image never pushes the reader's place down
