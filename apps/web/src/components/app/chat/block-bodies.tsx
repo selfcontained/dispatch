@@ -949,8 +949,6 @@ export function FindingDetail({
  */
 export function ReviewBlockBody({
   block,
-  disabled,
-  onSetState,
   onOpenFinding,
   onOpenPath,
   highlightFindingId = null,
