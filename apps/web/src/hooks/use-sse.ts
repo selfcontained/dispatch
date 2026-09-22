@@ -322,6 +322,15 @@ export function useSSE(authState: AuthState): void {
           // its first appearance adds to the count.
           const block =
             payload.entry.type === "block" ? payload.entry.block : null;
+          // Closing an ask changes the agent's derived Waiting activity.
+          // The stream row updates the card, but the sidebar agent cache
+          // needs a fresh agent projection to clear that status immediately.
+          if (
+            (block?.kind === "question" || block?.kind === "form") &&
+            block.state?.cancellation !== undefined
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ["agents"] });
+          }
           if (
             block !== null &&
             block.author.kind === "agent" &&

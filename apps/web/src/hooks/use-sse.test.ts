@@ -22,7 +22,12 @@ import {
   type FileItem,
 } from "@/components/app/types";
 
-import { block, blockEntry, turnEntry } from "@/test-utils/blocks";
+import {
+  block,
+  blockEntry,
+  questionBody,
+  turnEntry,
+} from "@/test-utils/blocks";
 
 import { applyDiffStateChanged, applyStreamEntry, useSSE } from "./use-sse";
 
@@ -774,6 +779,38 @@ describe("useSSE message handling", () => {
         "agt_1",
       ])?.pages[0]?.entries
     ).toHaveLength(3);
+  });
+
+  it("refreshes sidebar activity when an ask is canceled in the stream", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    const cancellation = {
+      by: { kind: "user" as const },
+      at: "2026-09-02T10:00:03.000Z",
+    };
+    const question = block({
+      id: "q1",
+      body: questionBody([{ label: "Yes" }], {
+        state: { cancellation },
+      }),
+    });
+    emit({
+      type: "stream.entry",
+      agentId: "agt_1",
+      entry: blockEntry(question),
+    });
+    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
+
+    invalidateQueries.mockClear();
+    const form = block({
+      id: "f1",
+      body: {
+        kind: "form",
+        data: { fields: [{ id: "note", label: "Note", type: "text" }] },
+        state: { cancellation },
+      },
+    });
+    emit({ type: "stream.entry", agentId: "agt_1", entry: blockEntry(form) });
+    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
   });
 
   it("moves the unread badges once per turn, not on every step it republishes", () => {

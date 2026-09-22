@@ -332,6 +332,7 @@ test.describe("Stream blocks", () => {
     await expect(inbox).toHaveAttribute("data-open-inputs", "1");
     await inbox.getByTestId("chat-ask-cancel").click();
     await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    await expect(page.getByTestId(`agent-activity-${agent.id}`)).toHaveCount(0);
     const form = page
       .getByTestId("chat-pane")
       .locator(`[data-chat-entry-id="${formId}"]`);
