@@ -14,6 +14,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
+import type { PromptSource } from "./prompt-source.js";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -32,6 +33,15 @@ const ATTACH_TIMEOUT_MS = 5_000;
 const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 20;
+
+/**
+ * Posts that queued up behind a turn go to the agent together, as one
+ * prompt, rather than one turn apiece. A backlog longer than this carries
+ * on into the next turn: nothing is dropped, and no prompt grows without
+ * bound. One post larger than the size cap still goes, on its own.
+ */
+export const COMBINE_MAX_PROMPTS = 8;
+export const COMBINE_MAX_CHARS = 32_000;
 
 /**
  * The command that runs the host: the same executable as the server. Under
@@ -161,10 +171,23 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
+/** A prompt waiting for the turn ahead of it to settle. */
+type Waiting = {
+  text: string;
+  source?: PromptSource;
+  /** Not to be combined with others: an interrupting post, a job's nudge. */
+  alone: boolean;
+  /** The turn that took it, once one has; later jobs for it just wait on it. */
+  taken: Promise<void> | null;
+  resolveAccepted: () => void;
+};
+
 type Live = {
   client: HostClient;
   /** Prompts run one at a time, in order. */
   queue: Promise<void>;
+  /** Prompts not yet sent, oldest first. */
+  waiting: Waiting[];
   pending: number;
   turnOpen: boolean;
   /** Event handling is serialized per agent so rows land in seq order. */
@@ -173,6 +196,87 @@ type Live = {
   /** Resolvers for turns waiting on their settle event. */
   settleWaiters: Array<() => void>;
 };
+
+/**
+ * The prompts the next turn sends, removed from the front of the queue: the
+ * oldest alone if it must go alone, otherwise it and the posts right behind
+ * it, up to the caps. Order is kept: the batch stops at the first prompt
+ * that cannot join it.
+ */
+function takeBatch(waiting: Waiting[]): Waiting[] {
+  const batch = [waiting.shift()!];
+  if (batch[0]!.alone) return batch;
+  let size = batch[0]!.text.length;
+  while (batch.length < COMBINE_MAX_PROMPTS) {
+    const next = waiting[0];
+    if (!next || next.alone) break;
+    size += next.text.length + COMBINED_SEPARATOR.length;
+    if (size + combinedPreamble(batch.length + 1).length > COMBINE_MAX_CHARS) {
+      break;
+    }
+    batch.push(waiting.shift()!);
+  }
+  return batch;
+}
+
+const COMBINED_SEPARATOR = "\n\n";
+
+function combinedPreamble(count: number): string {
+  return `${count} posts arrived while you were busy. Each is a separate message with its own envelope; read them all, then answer each one as it needs.\n\n`;
+}
+
+/**
+ * One prompt for the batch. A single prompt goes as it came; several go as
+ * their envelopes in order, and the turn names the first post as its
+ * opener along with every post it carries.
+ */
+function combine(batch: Waiting[]): { text: string; source?: PromptSource } {
+  if (batch.length === 1) {
+    const [only] = batch;
+    return {
+      text: only!.text,
+      ...(only!.source ? { source: only!.source } : {}),
+    };
+  }
+  const ids = batch.map((w) =>
+    w.source?.source === "chat" ? w.source.chatMessageId : ""
+  );
+  return {
+    text:
+      combinedPreamble(batch.length) +
+      batch.map((w) => w.text).join(COMBINED_SEPARATOR),
+    source: { source: "chat", chatMessageId: ids[0]!, chatMessageIds: ids },
+  };
+}
+
+/** Send one turn's prompt; resolves when that turn settles. */
+async function runTurn(entry: Live, batch: Waiting[]): Promise<void> {
+  const { text, source } = combine(batch);
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let settledEarly = false;
+  let resolveSettle!: () => void;
+  const settle = new Promise<void>((resolve) => {
+    resolveSettle = () => {
+      settledEarly = true;
+      resolve();
+    };
+  });
+  entry.settleWaiters.push(resolveSettle);
+  try {
+    await entry.client.prompt(id, text, source);
+  } catch (err) {
+    entry.settleWaiters = entry.settleWaiters.filter(
+      (w) => w !== resolveSettle
+    );
+    throw err;
+  }
+  // A turn that fails at once can settle in the same chunk as its ack,
+  // before this continuation runs; marking it open then would hold every
+  // later prompt behind a turn that is already over.
+  if (!settledEarly) entry.turnOpen = true;
+  for (const w of batch) w.resolveAccepted();
+  await settle;
+}
 
 export type AcpRuntimeDeps = {
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
@@ -242,6 +346,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const entry: Live = {
       client: null as unknown as HostClient,
       queue: Promise.resolve(),
+      waiting: [],
       pending: 0,
       turnOpen: false,
       events: Promise.resolve(),
@@ -400,7 +505,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       return pid !== null && pidAlive(pid);
     },
 
-    prompt(agentId, text, source) {
+    prompt(agentId, text, source, opts) {
       const entry = live.get(agentId);
       if (!entry) {
         const err = new Error(
@@ -414,41 +519,34 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         resolveAccepted = resolve;
         rejectAccepted = reject;
       });
+      const own: Waiting = {
+        text,
+        ...(source ? { source } : {}),
+        // Only posts are combined: each carries its own envelope, so the
+        // agent can tell them apart and answer each. Anything else is a
+        // turn of its own, as is a post sent to cut in.
+        alone: opts?.alone === true || source?.source !== "chat",
+        taken: null,
+        resolveAccepted,
+      };
+      entry.waiting.push(own);
       entry.pending += 1;
       const settled = entry.queue
         .catch(() => {})
         .then(async () => {
           // Wait out a turn the engine started before this prompt was queued
           // (a reconnect mid-turn), then run ours and wait for its settle.
-          while (entry.turnOpen) {
+          while (entry.turnOpen && !own.taken) {
             await new Promise<void>((resolve) =>
               entry.settleWaiters.push(resolve)
             );
           }
-          const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-          let settledEarly = false;
-          let resolveSettle!: () => void;
-          const settle = new Promise<void>((resolve) => {
-            resolveSettle = () => {
-              settledEarly = true;
-              resolve();
-            };
-          });
-          entry.settleWaiters.push(resolveSettle);
-          try {
-            await entry.client.prompt(id, text, source);
-          } catch (err) {
-            entry.settleWaiters = entry.settleWaiters.filter(
-              (w) => w !== resolveSettle
-            );
-            throw err;
-          }
-          // A turn that fails at once can settle in the same chunk as its
-          // ack, before this continuation runs; marking it open then would
-          // hold every later prompt behind a turn that is already over.
-          if (!settledEarly) entry.turnOpen = true;
-          resolveAccepted();
-          await settle;
+          // An earlier prompt's turn took this one along with it.
+          if (own.taken) return own.taken;
+          const batch = takeBatch(entry.waiting);
+          const turn = runTurn(entry, batch);
+          for (const w of batch) w.taken = turn;
+          return turn;
         })
         .finally(() => {
           entry.pending -= 1;

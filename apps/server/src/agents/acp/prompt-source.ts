@@ -4,7 +4,16 @@
  * human-facing source behind it, not the envelope.
  */
 export type PromptSource =
-  | { source: "chat"; chatMessageId: string }
+  | {
+      source: "chat";
+      /** The post that opened the turn: the first, when there were several. */
+      chatMessageId: string;
+      /**
+       * Every post the turn was given, in order, when posts that queued up
+       * behind a turn were delivered to it together.
+       */
+      chatMessageIds?: string[];
+    }
   | { source: "agent"; senderId: string; senderName: string; text: string }
   | { source: "system"; text: string };
 

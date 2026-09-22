@@ -13,7 +13,7 @@ import type { PromptSource } from "../agents/acp/prompt-source.js";
 export type EnqueueAgentPrompt = (
   agentId: string,
   prompt: string,
-  opts?: { gate?: boolean; source?: PromptSource }
+  opts?: { gate?: boolean; source?: PromptSource; alone?: boolean }
 ) => Promise<{ held: boolean; delivery: Promise<void> }>;
 
 export type InjectAgentPrompt = (
@@ -43,7 +43,8 @@ export function createPromptInjector(
     const { accepted, settled } = agentManager.promptAgent(
       agentId,
       prompt,
-      opts?.source
+      opts?.source,
+      opts?.alone ? { alone: true } : undefined
     );
     settled.catch((err: unknown) => {
       appLog.warn({ err, agentId }, "agent turn failed");

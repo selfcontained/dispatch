@@ -1201,6 +1201,7 @@ describe("AgentManager", () => {
       expect(runtime.prompt).toHaveBeenLastCalledWith(
         agent.id,
         "next",
+        undefined,
         undefined
       );
       // What the prompt is travels with it, for the turn it opens.
@@ -1210,7 +1211,19 @@ describe("AgentManager", () => {
       };
       runtime.prompt.mockReturnValueOnce(turn);
       manager.promptAgent(agent.id, "next", source);
-      expect(runtime.prompt).toHaveBeenLastCalledWith(agent.id, "next", source);
+      expect(runtime.prompt).toHaveBeenLastCalledWith(
+        agent.id,
+        "next",
+        source,
+        undefined
+      );
+      manager.promptAgent(agent.id, "cut in", source, { alone: true });
+      expect(runtime.prompt).toHaveBeenLastCalledWith(
+        agent.id,
+        "cut in",
+        source,
+        { alone: true }
+      );
       expect(manager.isPromptHeld(agent.id)).toBe(true);
       await manager.cancelTurn(agent.id);
       expect(runtime.cancel).toHaveBeenCalledWith(agent.id);

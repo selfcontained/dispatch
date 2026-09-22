@@ -2917,6 +2917,72 @@ describe("StreamService turn blocks", () => {
     });
   });
 
+  it("posts delivered together answer in their thread only when they share one", async () => {
+    const root = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      text: "root",
+    });
+    const inThread = async (text: string) =>
+      service.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        toAgentId: A,
+        threadId: root.id,
+        replyTo: root.id,
+        text,
+        delivered: true,
+      });
+    const one = await inThread("one");
+    const two = await inThread("two");
+    const both = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(21, { source: "chat", chatMessageId: one.id }),
+      prompt: {
+        source: "chat",
+        chatMessageId: one.id,
+        chatMessageIds: [one.id, two.id],
+      },
+    });
+    expect(await service.store.getById(both!)).toMatchObject({
+      threadId: root.id,
+      replyTo: two.id,
+    });
+
+    const top = await service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      text: "in the channel",
+      delivered: true,
+    });
+    const mixed = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(22, { source: "chat", chatMessageId: one.id }),
+      prompt: {
+        source: "chat",
+        chatMessageId: one.id,
+        chatMessageIds: [one.id, top.id],
+      },
+    });
+    expect(await service.store.getById(mixed!)).toMatchObject({
+      threadId: null,
+      replyTo: null,
+    });
+  });
+
+  it("an interrupting post is delivered to go alone", async () => {
+    const { svc, injectedOpts, cancelled } = build();
+    const plain = await svc.sendUserPost(A, { text: "a note" });
+    const cut = await svc.sendUserPost(A, { text: "stop", interrupt: true });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(cancelled).toEqual([A]);
+    expect(injectedOpts).toEqual([
+      { blockId: plain.block.id },
+      { blockId: cut.block.id, alone: true },
+    ]);
+  });
+
   it("a turn set off by answering a question lands in the channel, not the question's thread", async () => {
     // An agent's question is usually a reply inside some other thread, so
     // the thread's root is not the question: what the answer replies to is.

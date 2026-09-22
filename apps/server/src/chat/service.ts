@@ -149,7 +149,7 @@ export type StreamDeliveryAdapter = {
   inject: (
     agentId: string,
     text: string,
-    opts?: { blockId?: string; source?: PromptSource }
+    opts?: { blockId?: string; source?: PromptSource; alone?: boolean }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
@@ -804,6 +804,7 @@ export class StreamService {
                   .map((id) => nameOf.get(id) ?? id),
               }
             : null,
+        ...(input.interrupt ? { alone: true } : {}),
       })
     );
     return { block, delivered: null, held };
@@ -1759,35 +1760,25 @@ export class StreamService {
     const streamId = await this.streamOf(input.agentId);
     let thread: { threadId: string; replyTo: string } | null = null;
     let findingId: string | null = null;
-    if (
-      input.prompt.source === "chat" &&
-      input.prompt.chatMessageId &&
-      isBlockId(input.prompt.chatMessageId)
-    ) {
-      const opener = await this.store.getById(input.prompt.chatMessageId);
-      if (opener?.threadId) {
-        // Where a turn's answer lands depends on what set it off. Answering
-        // a question or a form settles that ask and nothing more, so the
-        // work it leads to belongs back in the channel where it can be
-        // seen; the answer itself stays threaded under the question. A
-        // reply to anything else — a finding, an ordinary post — is a
-        // discussion, and its turns belong in that thread.
-        //
-        // The test is what the reply answers, not what the thread is
-        // rooted at: an agent's question is usually itself a reply inside
-        // some other thread, so the root is rarely the question.
-        const answered = opener.replyTo
-          ? await this.store.getById(opener.replyTo)
-          : null;
-        const settlesAnAsk =
-          answered?.kind === "question" || answered?.kind === "form";
-        if (!settlesAnAsk) {
-          thread = { threadId: opener.threadId, replyTo: opener.id };
-          // A comment on a finding is answered on that finding's page.
-          const about =
-            opener.kind === "text" ? opener.data?.findingId : undefined;
-          if (typeof about === "string") findingId = about;
-        }
+    if (input.prompt.source === "chat") {
+      // Posts delivered together each say where their answer belongs. The
+      // turn answers in a thread only when every one of them points into
+      // that same thread (and at the same finding); any disagreement puts
+      // it in the channel, where an answer to a post in a thread is still
+      // seen and one about a channel post is not buried in a thread.
+      const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
+      const places = await Promise.all(ids.map((id) => this.turnPlaceFor(id)));
+      const [first] = places;
+      const agree =
+        !!first &&
+        places.every(
+          (p) =>
+            p?.threadId === first.threadId && p?.findingId === first.findingId
+        );
+      if (agree) {
+        const last = places[places.length - 1]!;
+        thread = { threadId: first.threadId, replyTo: last.replyTo };
+        findingId = first.findingId;
       }
     }
     const block = await this.store.insert({
@@ -1804,6 +1795,42 @@ export class StreamService {
       replyTo: thread?.replyTo ?? null,
     });
     return block.id;
+  }
+
+  /**
+   * Where a turn a post opened belongs: that post's thread, or null for the
+   * channel. Where a turn's answer lands depends on what set it off.
+   * Answering a question or a form settles that ask and nothing more, so the
+   * work it leads to belongs back in the channel where it can be seen; the
+   * answer itself stays threaded under the question. A reply to anything
+   * else — a finding, an ordinary post — is a discussion, and its turns
+   * belong in that thread.
+   *
+   * The test is what the reply answers, not what the thread is rooted at:
+   * an agent's question is usually itself a reply inside some other thread,
+   * so the root is rarely the question.
+   */
+  private async turnPlaceFor(blockId: string): Promise<{
+    threadId: string;
+    replyTo: string;
+    findingId: string | null;
+  } | null> {
+    if (!isBlockId(blockId)) return null;
+    const opener = await this.store.getById(blockId);
+    if (!opener?.threadId) return null;
+    const answered = opener.replyTo
+      ? await this.store.getById(opener.replyTo)
+      : null;
+    if (answered?.kind === "question" || answered?.kind === "form") {
+      return null;
+    }
+    // A comment on a finding is answered on that finding's page.
+    const about = opener.kind === "text" ? opener.data?.findingId : undefined;
+    return {
+      threadId: opener.threadId,
+      replyTo: opener.id,
+      findingId: typeof about === "string" ? about : null,
+    };
   }
 
   /** A turn settled or was cut: its block takes the answer as its text. */
@@ -1928,6 +1955,8 @@ export class StreamService {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
+      /** Sent to cut in: its own turn, never combined with other posts. */
+      alone?: boolean;
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
@@ -1980,6 +2009,7 @@ export class StreamService {
           await this.publishEntry(block.streamId, block.id);
         },
         logContext: { blockId: block.id },
+        ...(own.alone ? { alone: true } : {}),
       });
       held = held || result.held;
     }
@@ -2003,6 +2033,7 @@ export class StreamService {
     logContext: Record<string, string>;
     /** What the prompt is, for a prompt that is not a block being delivered. */
     source?: PromptSource;
+    alone?: boolean;
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
@@ -2012,6 +2043,7 @@ export class StreamService {
         ...(input.source
           ? { source: input.source }
           : { blockId: input.logContext.blockId }),
+        ...(input.alone ? { alone: true } : {}),
       })
       .then(
         () => true,
