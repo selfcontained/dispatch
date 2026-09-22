@@ -20,9 +20,13 @@ import {
   mentionablesOf,
 } from "@/components/app/chat/chat-entries";
 import { Button } from "@/components/ui/button";
+import { useBlockJump } from "@/hooks/use-block-jump";
 import { useMarkThreadRead, usePostBlock, useThread } from "@/hooks/use-stream";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
+
+/** How long a jump outranks the panel's own open-at-the-top and follow. */
+const JUMP_HOLD_MS = 1000;
 
 /** Posts by one author this close together share a header, as in the feed. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -221,6 +225,7 @@ export function ThreadPanel({
   // thread is under. A reply that lands while it is open scrolls into
   // view at the bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
+  const jumpedRef = useBlockJump(scrollRef);
   const replyCount = thread.replies.length;
   const seenRepliesRef = useRef<{ blockId: string; count: number } | null>(
     null
@@ -228,14 +233,20 @@ export function ThreadPanel({
   useEffect(() => {
     const el = scrollRef.current;
     const seen = seenRepliesRef.current;
+    // A jump to a reply (see useBlockJump) that just landed with this
+    // update keeps the reader on it; later replies scroll in as usual.
+    const jump = jumpedRef.current;
+    const jumped = jump !== null && Date.now() - jump.at < JUMP_HOLD_MS;
     if (!seen || seen.blockId !== blockId) {
       seenRepliesRef.current = { blockId, count: replyCount };
-      if (el) el.scrollTop = 0;
+      if (el && !jumped) el.scrollTop = 0;
       return;
     }
-    if (replyCount > seen.count && el) el.scrollTop = el.scrollHeight;
+    if (replyCount > seen.count && el && !jumped) {
+      el.scrollTop = el.scrollHeight;
+    }
     seen.count = replyCount;
-  }, [replyCount, blockId]);
+  }, [replyCount, blockId, jumpedRef]);
 
   // Escape closes the panel, as it would a sheet.
   useEffect(() => {
@@ -404,6 +415,7 @@ export function ThreadPanel({
               {replies.map((reply) => (
                 <div
                   key={reply.id}
+                  data-chat-entry-id={reply.id}
                   data-testid={reply.turn ? "chat-thread-turn" : undefined}
                   data-turn-id={reply.turn ? reply.id : undefined}
                 >

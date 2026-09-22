@@ -404,3 +404,56 @@ describe("withThreadNames", () => {
     expect(withThreadNames(named, { agt_gone: "helper" })).toBe(named);
   });
 });
+
+describe("ThreadPanel jump to a reply", () => {
+  const realRect = HTMLElement.prototype.getBoundingClientRect;
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = realRect;
+  });
+
+  it("scrolls to the `block` reply once the thread loads, and keeps it there", async () => {
+    // The reply sits 600px down the panel; everything else at the top.
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const top = this.dataset.chatEntryId === "r1" ? 600 : 0;
+      return { top, bottom: top + 40, height: 40 } as DOMRect;
+    };
+    let resolve: (value: StreamThreadResponse) => void = () => {};
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamThreadResponse>((r) => {
+        resolve = r;
+      })
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/agents/agt_1?thread=root&block=r1"]}>
+          <ThreadPanel
+            agentId="agt_1"
+            rootId="agt_1"
+            blockId="root"
+            ctx={ctx}
+            disabledReason={null}
+            isMobile={false}
+            onClose={vi.fn()}
+            onAnswer={vi.fn()}
+            answeringBlockId={null}
+            submittingBlockId={null}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const scroll = screen.getByTestId("chat-thread-scroll");
+    expect(scroll.scrollTop).toBe(0);
+
+    // The thread arrives after the panel opened on it.
+    resolve(thread);
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-chat-entry-id="r1"]')
+          ?.hasAttribute("data-jump-flash")
+      ).toBe(true)
+    );
+    // Its top edge, less the gap: the panel's open-at-the-top did not undo it.
+    expect(scroll.scrollTop).toBe(592);
+  });
+});

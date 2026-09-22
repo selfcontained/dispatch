@@ -28,6 +28,7 @@ type LenientAgentField =
   | "lastError"
   | "latestEvent"
   | "activity"
+  | "currentTurn"
   | "gitContext"
   | "gitContextStale"
   | "gitContextUpdatedAt"

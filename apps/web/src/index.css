@@ -1492,3 +1492,29 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   .token.interpolation {
   color: #cf222e;
 }
+
+/* A block the reader jumped to (a sidebar row's current turn, a pasted
+   `?block=` link): a brief wash so the eye finds it, then gone. Doubled
+   up so it outranks a row's own enter animation. */
+@keyframes chat-jump-flash {
+  0%,
+  50% {
+    background-color: hsl(var(--primary) / 0.16);
+    box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.7);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+[data-chat-entry-id][data-jump-flash] {
+  animation: chat-jump-flash 2.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-chat-entry-id][data-jump-flash] {
+    animation: none;
+    background-color: hsl(var(--primary) / 0.1);
+  }
+}

@@ -68,6 +68,11 @@ export type AgentGitContext = {
   repoIconPath?: string | null;
 };
 
+export type AgentCurrentTurn = {
+  blockId: string;
+  threadId: string | null;
+};
+
 export type AgentRecord = {
   id: string;
   name: string;
@@ -88,6 +93,12 @@ export type AgentRecord = {
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
   activity: AgentActivity;
+  /**
+   * The turn the agent is running right now, while `activity` is
+   * `working`: its block, and the thread that block sits in (null when it
+   * is in the main column). Null otherwise.
+   */
+  currentTurn: AgentCurrentTurn | null;
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;
