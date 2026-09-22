@@ -1,13 +1,8 @@
 import React from "react";
 
-import {
-  latestEventLabel,
-  latestEventColor,
-} from "@/components/app/agent-event-utils";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { type Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { formatRelativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 function RepoLabel({
   agentId,
@@ -39,33 +34,15 @@ function RepoLabel({
 }
 
 /**
- * Transient setup/archive progress lines shown under the card header while the
- * agent is being created or torn down.
+ * Archive progress shown under the card header while the agent is torn
+ * down. Setup has no lines of its own here: the card says "Starting…" and
+ * the stream's workspace block carries the detail.
  */
 export function AgentCardPhaseStatus({
   agent,
 }: {
   agent: Agent;
 }): JSX.Element | null {
-  if (agent.status === "creating" && agent.setupPhase) {
-    return (
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
-        <ActivityBars size={12} className="shrink-0" />
-        <span className="truncate font-medium">
-          {agent.setupPhase === "worktree"
-            ? "Creating worktree…"
-            : agent.setupPhase === "env"
-              ? "Copying environment…"
-              : agent.setupPhase === "deps"
-                ? "Installing dependencies…"
-                : agent.setupPhase === "session"
-                  ? "Starting session…"
-                  : "Setting up…"}
-        </span>
-      </div>
-    );
-  }
-
   if (agent.status === "archiving") {
     return (
       <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
@@ -88,28 +65,23 @@ export function AgentCardPhaseStatus({
   return null;
 }
 
-function LatestEventSummary({
+/**
+ * The agent's activity, as the server derives it, beside the repo it works
+ * in. Hidden while archiving, which has its own progress line.
+ */
+export function AgentCardActivity({
   agent,
-  event,
-  className,
 }: {
   agent: Agent;
-  event: NonNullable<Agent["latestEvent"]>;
-  className: string;
-}): JSX.Element {
+}): JSX.Element | null {
+  if (agent.status === "archiving") return null;
   const repoName = agent.gitContext
     ? (agent.gitContext.repoRoot.split("/").pop() ?? null)
     : (agent.cwd.split("/").pop() ?? null);
 
   return (
-    <div className={className}>
-      <span
-        className={cn("shrink-0 font-medium", latestEventColor(event.type))}
-      >
-        {latestEventLabel(event.type)}
-      </span>
-      <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
-      <span className="shrink-0">{formatRelativeTime(event.updatedAt)}</span>
+    <div className="mt-1 flex min-h-4 min-w-0 items-center text-xs text-muted-foreground">
+      <AgentActivityLabel agent={agent} />
       {repoName ? (
         <RepoLabel
           agentId={agent.id}
@@ -118,43 +90,5 @@ function LatestEventSummary({
         />
       ) : null}
     </div>
-  );
-}
-
-/**
- * The agent's most recent status event. Expanded cards also show the event
- * message below the summary line.
- */
-export function AgentCardLatestEvent({
-  agent,
-  isExpanded,
-}: {
-  agent: Agent;
-  isExpanded: boolean;
-}): JSX.Element | null {
-  const event = agent.latestEvent;
-  if (!event) return null;
-
-  if (isExpanded) {
-    return (
-      <div className="mt-1 text-xs text-muted-foreground">
-        <LatestEventSummary
-          agent={agent}
-          event={event}
-          className="flex items-baseline"
-        />
-        <div className="mt-0.5 leading-relaxed text-muted-foreground">
-          {event.message}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <LatestEventSummary
-      agent={agent}
-      event={event}
-      className="mt-1 flex min-w-0 items-baseline text-xs text-muted-foreground"
-    />
   );
 }

@@ -28,6 +28,19 @@ export type AgentLatestEventType =
   | "done"
   | "idle";
 
+/**
+ * What the agent is doing now, derived by the server each time the record is
+ * read (runtime busy state, open questions, the last turn) rather than taken
+ * from the last status event written.
+ */
+export type AgentActivity =
+  | "starting"
+  | "working"
+  | "waiting"
+  | "idle"
+  | "blocked"
+  | "stopped";
+
 export type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 
 export type ArchivePhase =
@@ -74,6 +87,7 @@ export type AgentRecord = {
   archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
+  activity: AgentActivity;
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;

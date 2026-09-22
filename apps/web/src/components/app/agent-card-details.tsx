@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { type Agent, type DiffStats } from "@/components/app/types";
@@ -79,8 +80,9 @@ export type AgentCardDetailsProps = {
 };
 
 /**
- * The location panel inside an expanded agent card: branch/worktree info, diff
- * stats, IDE launch, and the sandbox/full-access indicator.
+ * The location panel inside an expanded agent card: branch/worktree info, the
+ * engine and model, diff stats, IDE launch, and the sandbox/full-access
+ * indicator.
  */
 export function AgentCardDetails({
   agent,
@@ -150,6 +152,17 @@ export function AgentCardDetails({
           ) : null}
         </>
       )}
+      <CompactMetaRow
+        label="Engine"
+        icon={
+          <AgentTypeIcon
+            type={agent.type}
+            className="h-3.5 w-3.5 border-0 bg-transparent [&_svg]:h-3.5 [&_svg]:w-3.5"
+          />
+        }
+        value={agent.model ?? agent.type ?? "agent"}
+        mono
+      />
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {agent.cwd ? (

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardPhaseStatus } from "@/components/app/agent-card-status";
-import { describeAgentStatus } from "@/components/app/agent-event-utils";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { isFullAccessEnabled } from "@/components/app/agents-view-utils";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,7 @@ import { Input } from "@/components/ui/input";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
-import { formatRelativeTime } from "@/lib/format";
 import { type IdeType } from "@/lib/ide-types";
-import { cn } from "@/lib/utils";
 
 const MAX_NAME_LENGTH = 120;
 
@@ -60,19 +58,6 @@ export function SessionSettingsDialog({
     open && agent != null
   );
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
-
-  // Mirrors ChildAgentRow's own derivation (same shared helper): the latest
-  // event's own label/color describes the EVENT, not the agent's current
-  // status, so a stopped or errored agent needs this rather than
-  // AgentCardLatestEvent's summary alone — that only reflects the event
-  // type, and would show a stale "Working" in the active-work color for an
-  // agent that has since stopped.
-  const isStopped = agent
-    ? agent.status !== "running" && agent.status !== "creating"
-    : false;
-  const { label: statusLabel, colorClass: statusColor } = agent
-    ? describeAgentStatus(agent, isStopped)
-    : { label: "", colorClass: "" };
 
   useEffect(() => {
     if (open && agent) {
@@ -139,24 +124,7 @@ export function SessionSettingsDialog({
             {agent ? (
               <div className="space-y-1.5">
                 <AgentCardPhaseStatus agent={agent} />
-                <div className="flex min-w-0 items-center gap-1 text-xs">
-                  <span className={cn("font-medium", statusColor)}>
-                    {statusLabel}
-                  </span>
-                  {agent.latestEvent?.updatedAt ? (
-                    <>
-                      <span className="text-muted-foreground/50">•</span>
-                      <span className="text-muted-foreground/70">
-                        {formatRelativeTime(agent.latestEvent.updatedAt)}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-                {agent.latestEvent?.message ? (
-                  <div className="text-xs leading-relaxed text-muted-foreground">
-                    {agent.latestEvent.message}
-                  </div>
-                ) : null}
+                <AgentActivityLabel agent={agent} className="text-xs" />
                 <AgentCardDetails
                   agent={agent}
                   diffStats={diffStats}

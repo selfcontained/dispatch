@@ -28,6 +28,7 @@ import {
   upsertFeedEntry,
   upsertThreadReply,
 } from "@/hooks/use-stream";
+import { recordTurnLabel } from "@/hooks/use-agent-turn-label";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
@@ -267,6 +268,7 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "stream.entry") {
           applyStreamEntry(queryClient, payload.agentId, payload.entry);
+          recordTurnLabel(queryClient, payload.entry);
           // Only an agent's post for people can move the sidebar's unread
           // badges.
           if (

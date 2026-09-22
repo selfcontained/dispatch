@@ -11,6 +11,7 @@
 import type { AgentLatestEventType, AgentRecord } from "@dispatch/shared";
 
 export type {
+  AgentActivity,
   AgentGitContext,
   AgentLatestEvent,
   AgentLatestEventType,

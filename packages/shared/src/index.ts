@@ -10,6 +10,7 @@
 export { AGENT_TYPES, CLI_AGENT_TYPES } from "./agent-types.js";
 export type { AgentType, CliAgentType } from "./agent-types.js";
 export type {
+  AgentActivity,
   AgentGitContext,
   AgentLatestEvent,
   AgentLatestEventType,

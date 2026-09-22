@@ -53,18 +53,17 @@ import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
-import {
-  parsePromptSource,
-  type PromptSource,
-} from "./acp/prompt-source.js";
+import { parsePromptSource, type PromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
-import { StreamRecorder, type TurnBlocks } from "./acp/stream-recorder.js";
 import {
-  engineStatuses,
-  missingEngineMessage,
-} from "./engine-availability.js";
+  INTERRUPTED_BY_RESTART,
+  StreamRecorder,
+  type TurnBlocks,
+} from "./acp/stream-recorder.js";
+import { OPEN_INPUT_SQL } from "../chat/store.js";
+import { engineStatuses, missingEngineMessage } from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
@@ -421,7 +420,8 @@ export class AgentManager {
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options
     );
-    if (modelChanged) this.eventBus.publish(await this.getRequiredAgent(agentId));
+    if (modelChanged)
+      this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 
   /**
@@ -704,7 +704,9 @@ export class AgentManager {
     const result = await this.pool.query(
       `${this.baseAgentSelectSql()} ORDER BY created_at DESC`
     );
-    return result.rows as AgentRecord[];
+    return (result.rows as AgentRecord[]).map((row) =>
+      this.withLiveActivity(row)
+    );
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
@@ -712,7 +714,27 @@ export class AgentManager {
       `${this.baseAgentSelectSql()} AND id = $1`,
       [id]
     );
-    return (result.rows[0] as AgentRecord | undefined) ?? null;
+    const row = result.rows[0] as AgentRecord | undefined;
+    return row ? this.withLiveActivity(row) : null;
+  }
+
+  /**
+   * The select reads `activity` from the rows; whether a turn is running
+   * right now only the runtime knows, and it outranks what the rows say.
+   */
+  private withLiveActivity(agent: AgentRecord): AgentRecord {
+    const resting =
+      agent.activity === "idle" ||
+      agent.activity === "waiting" ||
+      agent.activity === "blocked";
+    if (
+      agent.status === "running" &&
+      resting &&
+      this.runtime.isBusy(agent.id)
+    ) {
+      return { ...agent, activity: "working" };
+    }
+    return agent;
   }
 
   async renameAgent(id: string, name: string): Promise<AgentRecord> {
@@ -1757,6 +1779,7 @@ export class AgentManager {
             COALESCE(latest_event_metadata, '{}'::jsonb)
           )
         END AS "latestEvent",
+        ${ACTIVITY_SQL} AS activity,
         git_context AS "gitContext",
         git_context_stale AS "gitContextStale",
         git_context_updated_at AS "gitContextUpdatedAt",
@@ -1848,3 +1871,28 @@ export class AgentManager {
     };
   }
 }
+
+/**
+ * An agent's activity as its rows state it, on the unaliased `agents` row.
+ * Its status wins while it is starting or not running; then an open question
+ * or form for people; then a newest turn that failed. A turn cut by a restart
+ * is an interruption, not a failure, as the stream shows it too. A turn
+ * running right now is the runtime's to say: see withLiveActivity.
+ */
+const ACTIVITY_SQL = `CASE
+          WHEN status = 'creating' THEN 'starting'
+          WHEN status = 'error' THEN 'blocked'
+          WHEN status <> 'running' THEN 'stopped'
+          WHEN setup_phase IS NOT NULL THEN 'starting'
+          WHEN EXISTS (
+            SELECT 1 FROM blocks b
+             WHERE b.author_kind = 'agent' AND b.author_agent_id = agents.id
+               AND b.to_agent_id IS NULL AND ${OPEN_INPUT_SQL}
+          ) THEN 'waiting'
+          WHEN COALESCE((
+            SELECT t.payload->>'error' FROM agent_stream_events t
+             WHERE t.agent_id = agents.id AND t.kind = 'turn'
+             ORDER BY t.seq DESC LIMIT 1
+          ) <> '${INTERRUPTED_BY_RESTART}', false) THEN 'blocked'
+          ELSE 'idle'
+        END`;

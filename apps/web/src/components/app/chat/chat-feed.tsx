@@ -12,7 +12,7 @@ import {
   type FoldedEntry,
   foldAttachments,
 } from "@/components/app/chat/turn/turn-attachments";
-import { isTurnEntry } from "@/components/app/chat/turn/turn-entry-view";
+import { isTurnEntry } from "@/components/app/chat/turn/trace";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
 

@@ -9,8 +9,8 @@ import {
   Unplug,
 } from "lucide-react";
 
-import { describeAgentStatus } from "@/components/app/agent-event-utils";
-import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { AgentActivityLabel } from "@/components/app/agent-activity";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export type ChildAgentRowProps = {
   agent: Agent;
+  /** Its seat in the tree, as the stream numbers it. */
+  seat: number | null;
   state: AgentVisualState;
   isInitialReviewActive: boolean;
   openAgent: (agent: Agent) => Promise<void>;
@@ -46,6 +47,7 @@ export type ChildAgentRowProps = {
 
 export function ChildAgentRow({
   agent,
+  seat,
   state,
   isInitialReviewActive,
   openAgent,
@@ -83,10 +85,6 @@ export function ChildAgentRow({
         ? "Review agent — paused"
         : "Review in progress";
   const displayName = agent.persona ?? agent.name;
-  const { label: statusLabel, colorClass: statusColor } = describeAgentStatus(
-    agent,
-    isStopped
-  );
 
   const row = (
     <div
@@ -140,12 +138,11 @@ export function ChildAgentRow({
         showReviewActivity && "child-agent-review-active-row"
       )}
     >
-      <AgentTypeIcon
-        type={agent.type}
-        eventType={
-          agent.status === "running" ? agent.latestEvent?.type : undefined
-        }
-        className="h-4.5 w-4.5 shrink-0"
+      <AgentSeatBadge
+        seat={seat}
+        name={displayName}
+        size="sm"
+        data-testid={`child-agent-avatar-${agent.id}`}
       />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -156,17 +153,7 @@ export function ChildAgentRow({
             {displayName}
           </span>
         </div>
-        <div className="mt-0.5 flex min-w-0 items-center text-[10px]">
-          <span className={cn("font-medium", statusColor)}>{statusLabel}</span>
-          {agent.latestEvent?.updatedAt ? (
-            <>
-              <span className="mx-1 text-muted-foreground/50">•</span>
-              <span className="truncate text-muted-foreground/70">
-                {formatRelativeTime(agent.latestEvent.updatedAt)}
-              </span>
-            </>
-          ) : null}
-        </div>
+        <AgentActivityLabel agent={agent} className="mt-0.5 text-[10px]" />
       </div>
       {/*
         Right-side action cluster: reviewer badge, resume button (stopped
