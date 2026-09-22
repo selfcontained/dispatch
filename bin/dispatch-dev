@@ -132,6 +132,7 @@ DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
 DEV_NO_SEED=${OPT_NO_SEED:-0}
 DEV_DISPLAY_HOST=${DEV_DISPLAY_HOST:-127.0.0.1}
+DEV_LAN_HOST=${DEV_LAN_HOST:-}
 DEV_RELEASE_CACHE_DIR=${DEV_RELEASE_CACHE_DIR:-}
 EOF
 }
@@ -183,6 +184,23 @@ stop_service() {
     kill_tree "$pid" 9
   fi
   echo "Stopped ${name} (PID ${pid})"
+}
+
+# This machine's address on the network, for a stack bound to every
+# interface: what another device on the same network opens. Empty when
+# there is no such address to report.
+lan_address() {
+  local ip=""
+  if command -v ipconfig >/dev/null 2>&1; then
+    for iface in en0 en1 en2; do
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      [ -n "$ip" ] && break
+    done
+  fi
+  if [ -z "$ip" ] && command -v hostname >/dev/null 2>&1; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  echo "$ip"
 }
 
 # Detect docker compose command
@@ -264,7 +282,16 @@ cmd_up() {
 
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
-  DEV_DISPLAY_HOST="${DISPATCH_HOST:-127.0.0.1}"; [ "$DEV_DISPLAY_HOST" = "0.0.0.0" ] && DEV_DISPLAY_HOST="127.0.0.1"
+  # What the servers bind, and what to print for it. Both the API and Vite
+  # already listen on every interface by default, so a stack is reachable
+  # from a phone or another laptop; the URLs below say so rather than
+  # leaving it to be discovered. 0.0.0.0 is not an address a browser can
+  # open, so they use the loopback plus this machine's network address.
+  DEV_BIND_HOST="${DISPATCH_HOST:-0.0.0.0}"
+  DEV_DISPLAY_HOST="$DEV_BIND_HOST"
+  [ "$DEV_DISPLAY_HOST" = "0.0.0.0" ] && DEV_DISPLAY_HOST="127.0.0.1"
+  DEV_LAN_HOST=""
+  [ "$DEV_BIND_HOST" = "0.0.0.0" ] && DEV_LAN_HOST="$(lan_address)"
 
   # Build environment
   (
@@ -385,7 +412,8 @@ cmd_up() {
     env \
       DISPATCH_PORT="$DEV_API_PORT" \
       DISPATCH_VITE_CACHE_DIR="$vite_cache_dir" \
-      pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+      pnpm exec vite --port "$DEV_VITE_PORT" --host "$DEV_BIND_HOST" \
+        >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 
@@ -408,6 +436,10 @@ cmd_up() {
   fi
   echo "  api: http://${DEV_DISPLAY_HOST}:${DEV_API_PORT}"
   echo "  web: http://${DEV_DISPLAY_HOST}:${DEV_VITE_PORT}"
+  if [ -n "${DEV_LAN_HOST:-}" ]; then
+    echo "  on this network: http://${DEV_LAN_HOST}:${DEV_VITE_PORT}"
+    echo "  (reachable by anything on the network — set a password in Settings)"
+  fi
   echo "  release cache: ${DEV_RELEASE_CACHE_DIR}"
   echo ""
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
@@ -570,6 +602,8 @@ cmd_status() {
   # Vite
   if pid_alive "${DEV_VITE_PID:-}"; then
     echo "vite: running — http://${DEV_DISPLAY_HOST:-127.0.0.1}:${DEV_VITE_PORT}"
+    [ -n "${DEV_LAN_HOST:-}" ] &&
+      echo "      on this network — http://${DEV_LAN_HOST}:${DEV_VITE_PORT}"
   else
     if [ -n "${DEV_VITE_PID:-}" ]; then
       echo "vite: stopped"
