@@ -153,7 +153,12 @@ export function ChildAgentRow({
             {displayName}
           </span>
         </div>
-        <AgentActivityLabel agent={agent} className="mt-0.5 text-[10px]" />
+        <AgentActivityLabel
+          agent={agent}
+          linkToTurn
+          onNavigate={closeOnSessionAction ? onRequestClose : undefined}
+          className="mt-0.5 text-[10px]"
+        />
       </div>
       {/*
         Right-side action cluster: reviewer badge, resume button (stopped

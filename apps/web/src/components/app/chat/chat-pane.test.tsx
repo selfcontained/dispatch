@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
@@ -457,9 +457,7 @@ describe("ChatPane", () => {
       ).toBe("reviewer")
     );
     // Its steps fold under the answer, as the parent's do.
-    expect(
-      childPost.querySelector('[data-testid="chat-turn"]')
-    ).not.toBeNull();
+    expect(childPost.querySelector('[data-testid="chat-turn"]')).not.toBeNull();
   });
 
   it("removes child activity from the rendered feed when filtered", () => {
@@ -1136,7 +1134,9 @@ describe("ChatPane threads", () => {
     expect(line.textContent).toContain("3 replies");
     expect(line.textContent).toContain("last");
     // The row shows who wrote in the thread and what is new in it.
-    expect(line.querySelectorAll('[data-testid="chat-thread-replier"]')).toHaveLength(2);
+    expect(
+      line.querySelectorAll('[data-testid="chat-thread-replier"]')
+    ).toHaveLength(2);
     expect(screen.getByTestId("chat-thread-unread").textContent).toBe("2 new");
     fireEvent.click(line);
     expect(screen.getByTestId("location-search").textContent).toBe(
@@ -1176,5 +1176,167 @@ describe("ChatPane threads", () => {
         .getAllByTestId("chat-message")
         .map((p) => p.getAttribute("data-block-id"))
     ).toEqual(["root"]);
+  });
+});
+
+describe("ChatPane jump to a block", () => {
+  /** A turn still running with nothing to say: the feed's status line. */
+  function pendingTurn(id: string, agentId: string, at: string): StreamEntry {
+    return turnRow({
+      id,
+      author: { kind: "agent", agentId },
+      text: "",
+      createdAt: at,
+      turn: {
+        prompt: { source: "chat", text: `prompt ${id}`, attachments: [] },
+        settled: false,
+        trace: { startedAt: at, steps: [] },
+      },
+    });
+  }
+
+  /** Navigates like a sidebar row does: the URL plus a fresh nonce. */
+  let jump: ((blockId: string) => void) | null = null;
+  function JumpProbe() {
+    const navigate = useNavigate();
+    jump = (blockId: string) =>
+      navigate(
+        { pathname: "/agents/agt_1", search: `?block=${blockId}` },
+        { state: { blockJump: `${Math.random()}` } }
+      );
+    return null;
+  }
+
+  function renderAt(search: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const pane = () => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
+          <ChatPane
+            agentId="agt_1"
+            agent={agent}
+            active={true}
+            showChildAgents={true}
+            onShowChildAgentsChange={vi.fn()}
+            openLightbox={vi.fn()}
+            isMobile={false}
+          />
+          <JumpProbe />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const result = render(pane());
+    // A fresh element each time, so the pane renders again and reads the
+    // feed as it now is.
+    return { ...result, rerenderPane: () => result.rerender(pane()) };
+  }
+
+  /** Rows 100px tall in a 200px view; the feed has no layout otherwise. */
+  function stubLayout() {
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+    });
+    scroll.getBoundingClientRect = () => ({ top: 0, bottom: 200 }) as DOMRect;
+    return scroll;
+  }
+
+  function rowOf(id: string): HTMLElement {
+    return document.querySelector<HTMLElement>(`[data-chat-entry-id="${id}"]`)!;
+  }
+
+  function placeRow(id: string, top: number, scroll: HTMLElement) {
+    rowOf(id).getBoundingClientRect = () =>
+      ({
+        top: top - scroll.scrollTop,
+        bottom: top + 40 - scroll.scrollTop,
+        height: 40,
+      }) as DOMRect;
+  }
+
+  const older = [
+    blockEntry(block({ id: "m1", text: "one" })),
+    blockEntry(block({ id: "m2", text: "two" })),
+  ];
+
+  it("scrolls to a running turn's status line and marks it", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("");
+    const scroll = stubLayout();
+    scroll.scrollTop = 0;
+    placeRow("t1", 500, scroll);
+    expect(screen.getByTestId("chat-pending-turn")).toBeTruthy();
+
+    act(() => jump!("t1"));
+
+    // Centred: 500px down, a 40px row in a 200px view.
+    expect(scroll.scrollTop).toBe(500 - 80);
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+  });
+
+  it("jumps from a link on a cold load", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("?block=t1");
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+    // Not pinned to the newest message after the jump.
+    expect(screen.queryByTestId("chat-jump-to-bottom")).toBeNull();
+  });
+
+  it("waits for a target that is not in the feed yet", () => {
+    H.entries = [...older];
+    const { rerenderPane } = renderAt("?block=t1");
+    expect(document.querySelector("[data-jump-flash]")).toBeNull();
+
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    rerenderPane();
+
+    expect(rowOf("t1").hasAttribute("data-jump-flash")).toBe(true);
+  });
+
+  it("jumps again when the same row is clicked again", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    renderAt("");
+    const scroll = stubLayout();
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    expect(scroll.scrollTop).toBe(420);
+
+    // The reader scrolls away; the same URL is asked for again.
+    scroll.scrollTop = 0;
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    expect(scroll.scrollTop).toBe(420);
+  });
+
+  it("does not jump again on its own once the reader moved on", () => {
+    H.entries = [
+      ...older,
+      pendingTurn("t1", "agt_1", "2026-09-02T10:01:00.000Z"),
+    ];
+    const { rerenderPane } = renderAt("");
+    const scroll = stubLayout();
+    placeRow("t1", 500, scroll);
+    act(() => jump!("t1"));
+    scroll.scrollTop = 0;
+
+    // A live update re-renders the feed; the request was already served.
+    H.entries = [...H.entries];
+    rerenderPane();
+    expect(scroll.scrollTop).toBe(0);
   });
 });

@@ -755,6 +755,13 @@ export class AgentManager {
    * right now only the runtime knows, and it outranks what the rows say.
    */
   private withLiveActivity(agent: AgentRecord): AgentRecord {
+    const live = this.liveActivity(agent);
+    return live.activity === "working" || live.currentTurn === null
+      ? live
+      : { ...live, currentTurn: null };
+  }
+
+  private liveActivity(agent: AgentRecord): AgentRecord {
     const resting =
       agent.activity === "idle" ||
       agent.activity === "waiting" ||
@@ -1825,6 +1832,7 @@ export class AgentManager {
           )
         END AS "latestEvent",
         ${ACTIVITY_SQL} AS activity,
+        ${CURRENT_TURN_SQL} AS "currentTurn",
         git_context AS "gitContext",
         git_context_stale AS "gitContextStale",
         git_context_updated_at AS "gitContextUpdatedAt",
@@ -1925,6 +1933,21 @@ export class AgentManager {
  * the stream shows it too. A turn
  * running right now is the runtime's to say: see withLiveActivity.
  */
+/**
+ * The newest turn's block and the thread it sits in, while that turn is
+ * still open. Only a working agent keeps it: see withLiveActivity.
+ */
+const CURRENT_TURN_SQL = `(
+          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id)
+            FROM (
+              SELECT t.payload FROM agent_stream_events t
+               WHERE t.agent_id = agents.id AND t.kind = 'turn'
+               ORDER BY t.seq DESC LIMIT 1
+            ) newest
+            JOIN blocks b ON b.id = (newest.payload->>'blockId')::uuid
+           WHERE newest.payload->>'state' = 'started'
+        )`;
+
 const ACTIVITY_SQL = `CASE
           WHEN status = 'creating' THEN 'starting'
           WHEN status = 'error' THEN 'blocked'

@@ -47,6 +47,7 @@ import {
   useSubmitForm,
   useToggleReaction,
 } from "@/hooks/use-stream";
+import { useBlockJump } from "@/hooks/use-block-jump";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
@@ -663,8 +664,23 @@ export function ChatPane({
   }, [agentId]);
 
   useEffect(() => {
-    if (active && following) scrollToBottom();
+    // The ref, not the state: a jump in this same commit has already let
+    // go of the bottom (see useBlockJump below).
+    if (active && followingRef.current) scrollToBottom();
   }, [active, following, scrollToBottom]);
+
+  // A jump to one block (a sidebar row's running turn, a `?block=` link):
+  // the reader is put at that block and held there, as at the start of a
+  // tall reply — the bottom stops pinning until they scroll down to it.
+  // Declared after the effects above so a jump on the feed's first rows
+  // wins over opening at the newest.
+  useBlockJump(scrollRef, () => {
+    anchoredRef.current = Date.now();
+    anchorTurnRef.current = null;
+    followingRef.current = false;
+    setFollowing(false);
+    setPendingBelow(false);
+  });
 
   // ---- unread: mark read while visible and focused --------------------------
   // markRead itself is a no-op while nothing is unread.

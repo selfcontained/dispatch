@@ -71,8 +71,11 @@ export function AgentCardPhaseStatus({
  */
 export function AgentCardActivity({
   agent,
+  onNavigate,
 }: {
   agent: Agent;
+  /** Called as the running-turn link navigates. */
+  onNavigate?: () => void;
 }): JSX.Element | null {
   if (agent.status === "archiving") return null;
   const repoName = agent.gitContext
@@ -81,7 +84,7 @@ export function AgentCardActivity({
 
   return (
     <div className="mt-1 flex min-h-4 min-w-0 items-center text-xs text-muted-foreground">
-      <AgentActivityLabel agent={agent} />
+      <AgentActivityLabel agent={agent} linkToTurn onNavigate={onNavigate} />
       {repoName ? (
         <RepoLabel
           agentId={agent.id}

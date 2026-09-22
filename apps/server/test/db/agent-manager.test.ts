@@ -1484,6 +1484,80 @@ describe("AgentManager", () => {
       expect(await activityOf(agent.id)).toBe("idle");
     });
 
+    describe("current turn", () => {
+      /** An open turn whose block sits under `threadId`, if given. */
+      async function openTurn(agentId: string, threadId?: string) {
+        const { BlockStore } = await import("../../src/chat/store.js");
+        const store = new BlockStore(pool);
+        await runtime.emit(
+          agentId,
+          { type: "turn", agentId, state: "started", text: "go" },
+          1
+        );
+        const block = await store.insert({
+          streamId: agentId,
+          author: { kind: "agent", agentId },
+          kind: "text",
+          text: "",
+          ...(threadId ? { threadId, replyTo: threadId } : {}),
+        });
+        await pool.query(
+          `UPDATE agent_stream_events SET payload = payload || jsonb_build_object('blockId', $2::text)
+            WHERE agent_id = $1 AND kind = 'turn'`,
+          [agentId, block.id]
+        );
+        return block;
+      }
+
+      async function currentTurnOf(id: string) {
+        const one = (await manager.getAgent(id))!.currentTurn;
+        const listed = (await manager.listAgents()).find((a) => a.id === id)!;
+        expect(listed.currentTurn).toEqual(one);
+        return one;
+      }
+
+      it("names the open turn's block only while the agent is working", async () => {
+        const agent = await running();
+        const block = await openTurn(agent.id);
+        expect(await currentTurnOf(agent.id)).toBeNull();
+        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        expect(await currentTurnOf(agent.id)).toEqual({
+          blockId: block.id,
+          threadId: null,
+        });
+      });
+
+      it("carries the thread the turn's block sits in", async () => {
+        const { BlockStore } = await import("../../src/chat/store.js");
+        const agent = await running();
+        const root = await new BlockStore(pool).insert({
+          streamId: agent.id,
+          author: { kind: "user" },
+          kind: "text",
+          text: "launch",
+        });
+        const block = await openTurn(agent.id, root.id);
+        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        expect(await currentTurnOf(agent.id)).toEqual({
+          blockId: block.id,
+          threadId: root.id,
+        });
+      });
+
+      it("is null once the newest turn settled, even with prompts queued", async () => {
+        const agent = await running();
+        await openTurn(agent.id);
+        await pool.query(
+          `UPDATE agent_stream_events SET payload = payload || '{"state": "settled"}'
+            WHERE agent_id = $1 AND kind = 'turn'`,
+          [agent.id]
+        );
+        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        expect(await activityOf(agent.id)).toBe("working");
+        expect(await currentTurnOf(agent.id)).toBeNull();
+      });
+    });
+
     it("reads waiting while a question for people is open", async () => {
       const { BlockStore } = await import("../../src/chat/store.js");
       const agent = await running();

@@ -172,7 +172,10 @@ function AgentCardImpl({
 
         <AgentCardPhaseStatus agent={agent} />
 
-        <AgentCardActivity agent={agent} />
+        <AgentCardActivity
+          agent={agent}
+          onNavigate={closeOnSessionAction ? onRequestClose : undefined}
+        />
 
         <AnimatePresence initial={false}>
           {isExpanded ? (

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
@@ -398,5 +398,87 @@ describe("ChildAgentRow", () => {
       ).toBe("true");
       expect(screen.queryByTestId("child-agent-pause-agt_child")).toBeNull();
     });
+  });
+});
+
+describe("ChildAgentRow running-turn link", () => {
+  function LocationProbe() {
+    const location = useLocation();
+    return (
+      <div data-testid="location">
+        {location.pathname}
+        {location.search}
+      </div>
+    );
+  }
+
+  function renderLinkRow(agent: Agent) {
+    const openAgent = vi.fn().mockResolvedValue(undefined);
+    const closeAgent = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/agents/agt_parent"]}>
+        <TooltipProvider>
+          <ChildAgentRow
+            agent={agent}
+            seat={2}
+            state="idle"
+            isInitialReviewActive={false}
+            openAgent={openAgent}
+            closeAgent={closeAgent}
+            startAgent={vi.fn()}
+            setStopTarget={vi.fn()}
+            setStopConfirmOpen={vi.fn()}
+            setDeleteTarget={vi.fn()}
+            setDeleteConfirmOpen={vi.fn()}
+            onEditSettings={vi.fn()}
+          />
+        </TooltipProvider>
+        <LocationProbe />
+      </MemoryRouter>
+    );
+    return { openAgent, closeAgent };
+  }
+
+  const working: Agent = {
+    ...baseAgent,
+    activity: "working",
+    currentTurn: { blockId: "blk_turn", threadId: null },
+  };
+
+  it("links the activity only while the child is working", () => {
+    renderLinkRow(working);
+    const label = screen.getByTestId("agent-activity-agt_child");
+    expect(label.tagName).toBe("BUTTON");
+    expect(label.getAttribute("data-turn-link")).toBe("blk_turn");
+    cleanup();
+
+    renderLinkRow({ ...working, activity: "waiting" });
+    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe("DIV");
+    cleanup();
+
+    // Working, but the turn's block is not known (yet): nothing to go to.
+    renderLinkRow({ ...working, currentTurn: null });
+    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe("DIV");
+  });
+
+  it("opens the child's page on its turn without the row's own click", () => {
+    const { openAgent, closeAgent } = renderLinkRow(working);
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_child?block=blk_turn"
+    );
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
+  });
+
+  it("opens the thread a turn sits in, on the turn", () => {
+    renderLinkRow({
+      ...working,
+      currentTurn: { blockId: "blk_turn", threadId: "blk_launch" },
+    });
+    fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/agents/agt_child?thread=blk_launch&block=blk_turn"
+    );
   });
 });
