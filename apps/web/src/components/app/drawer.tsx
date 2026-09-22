@@ -1,8 +1,19 @@
-import { type ReactNode, type RefObject } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { useAtom } from "jotai";
 import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
-import { type DrawerTab } from "@/lib/store";
+import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
 import { FilesContent } from "@/components/app/files-content";
 import { StreamRailPanel } from "@/components/app/stream-rail";
 import { type StreamRail } from "@/hooks/use-stream-rail";
@@ -10,8 +21,13 @@ import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import {
+  clampDrawerWidth,
+  DRAWER_KEYBOARD_BIG_STEP_PX,
+  DRAWER_KEYBOARD_STEP_PX,
+  DRAWER_MIN_WIDTH_PX,
   DRAWER_TRANSITION_MS,
   DRAWER_WIDTH_PX,
+  drawerMaxWidth,
 } from "@/components/app/drawer-constants";
 
 export {
@@ -152,7 +168,7 @@ export function DrawerContent({
     >
       {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
-        {(
+        {
           <div className="flex min-w-0 flex-1">
             <SidebarTab
               label="Rail"
@@ -171,7 +187,7 @@ export function DrawerContent({
               testId="sidebar-tab-files"
             />
           </div>
-        )}
+        }
         <div className="flex items-center gap-1 px-2">
           {onTogglePin ? (
             <Button
@@ -253,12 +269,142 @@ export function DrawerContent({
   );
 }
 
+function subscribeViewportWidth(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+function useViewportWidth(): number {
+  return useSyncExternalStore(
+    subscribeViewportWidth,
+    () => window.innerWidth,
+    () => DRAWER_WIDTH_PX + DRAWER_MIN_WIDTH_PX
+  );
+}
+
+/**
+ * The drawer's width, from the one client-wide preference, clamped to what
+ * this viewport allows. `dragWidth` is the width mid-drag: it lives only in
+ * the frame being dragged and is written to the preference on release, so a
+ * drag is one storage write, not one per pointer move.
+ */
+function useDrawerWidth() {
+  const [storedWidth, setStoredWidth] = useAtom(drawerWidthAtom);
+  const viewportWidth = useViewportWidth();
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const clamp = useCallback(
+    (width: number) => clampDrawerWidth(width, viewportWidth),
+    [viewportWidth]
+  );
+  const width = clamp(dragWidth ?? storedWidth ?? DRAWER_WIDTH_PX);
+  return {
+    width,
+    min: DRAWER_MIN_WIDTH_PX,
+    max: drawerMaxWidth(viewportWidth),
+    dragging: dragWidth !== null,
+    clamp,
+    setDragWidth,
+    commit: (next: number) => {
+      setDragWidth(null);
+      setStoredWidth(clamp(next));
+    },
+  };
+}
+
+/**
+ * The drawer's left edge, dragged (mouse, pen, touch) or stepped with the
+ * arrow keys to resize it. The drawer grows leftward, so moving the pointer
+ * left widens it and ArrowLeft does the same.
+ */
+function DrawerResizeHandle({
+  drawerWidth,
+}: {
+  drawerWidth: ReturnType<typeof useDrawerWidth>;
+}): JSX.Element {
+  const { width, min, max, clamp, setDragWidth, commit } = drawerWidth;
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    // No text selection, and no native drag of whatever is under the edge.
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: width,
+      width,
+    };
+    setDragWidth(width);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag.width = clamp(drag.startWidth + (drag.startX - event.clientX));
+    setDragWidth(drag.width);
+  };
+  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    commit(drag.width);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey
+      ? DRAWER_KEYBOARD_BIG_STEP_PX
+      : DRAWER_KEYBOARD_STEP_PX;
+    let next: number | null = null;
+    if (event.key === "ArrowLeft") next = width + step;
+    else if (event.key === "ArrowRight") next = width - step;
+    else if (event.key === "Home") next = min;
+    else if (event.key === "End") next = max;
+    if (next === null) return;
+    event.preventDefault();
+    commit(next);
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize drawer"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={width}
+      tabIndex={0}
+      data-testid="drawer-resize-handle"
+      className="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => commit(DRAWER_WIDTH_PX)}
+    >
+      <div
+        className={cn(
+          "mx-auto h-full w-0.5 bg-transparent transition-colors",
+          "group-hover:bg-primary/40 group-focus-visible:bg-primary",
+          drawerWidth.dragging && "bg-primary/60"
+        )}
+      />
+    </div>
+  );
+}
+
 /**
  * The slot at the right edge, in the sidebar's mode: pinned, it takes
  * layout width (0 when closed) and shrinks the centre; unpinned, it floats
  * over the centre and slides in from the edge. The sidebar and the thread
  * drawer each sit in one, so a thread takes the sidebar's place while it
- * is open and gives it back on close.
+ * is open and gives it back on close. Its left edge resizes it, and the
+ * width is one preference for the client, shared by every frame.
  */
 export function DrawerFrame({
   open,
@@ -269,27 +415,53 @@ export function DrawerFrame({
 }: {
   open: boolean;
   pinned: boolean;
+  /**
+   * Pinned only: the width transition of an open or close finished. A
+   * resize is not an open or close, so it never calls this.
+   */
   onWidthTransitionEnd?: () => void;
   children: ReactNode;
   testId?: string;
 }): JSX.Element {
+  const drawerWidth = useDrawerWidth();
+  const { width, dragging } = drawerWidth;
+  // Pinned, a resize changes the same `width` an open or close animates, so
+  // a keyboard step (which animates) ends in a `transitionend` too. This
+  // marks the transitions that are an open or close; only those report.
+  const toggleInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (mountedRef.current) toggleInFlightRef.current = true;
+    mountedRef.current = true;
+  }, [open]);
+  // A drag follows the pointer, so it runs with no transition at all. One
+  // that starts mid-open cuts that transition short, so no `transitionend`
+  // comes for it: the caller's own fallback timer settles it, and the flag
+  // must not be left for the next resize to report.
+  useLayoutEffect(() => {
+    if (dragging) toggleInFlightRef.current = false;
+  }, [dragging]);
+  const transitionDuration = `${dragging ? 0 : DRAWER_TRANSITION_MS}ms`;
+  const handle = open ? <DrawerResizeHandle drawerWidth={drawerWidth} /> : null;
+
   if (pinned) {
     return (
       <div
         data-testid={testId}
         data-pinned="true"
-        className="h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
-        style={{
-          width: open ? DRAWER_WIDTH_PX : 0,
-          transitionDuration: `${DRAWER_TRANSITION_MS}ms`,
-        }}
+        data-resizing={dragging ? "true" : undefined}
+        className="relative h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
+        style={{ width: open ? width : 0, transitionDuration }}
         onTransitionEnd={(event) => {
-          if (event.propertyName === "width") {
-            onWidthTransitionEnd?.();
-          }
+          if (event.target !== event.currentTarget) return;
+          if (event.propertyName !== "width") return;
+          if (!toggleInFlightRef.current) return;
+          toggleInFlightRef.current = false;
+          onWidthTransitionEnd?.();
         }}
       >
-        <div className="h-full min-h-0" style={{ width: DRAWER_WIDTH_PX }}>
+        {handle}
+        <div className="h-full min-h-0" style={{ width }}>
           {children}
         </div>
       </div>
@@ -308,16 +480,18 @@ export function DrawerFrame({
     <div
       data-testid={testId}
       data-pinned="false"
+      data-resizing={dragging ? "true" : undefined}
       className={cn(
         "fixed bottom-0 right-0 top-0 z-30 transition-transform ease-out",
         !open && "pointer-events-none"
       )}
       style={{
-        width: DRAWER_WIDTH_PX,
-        transform: open ? "translateX(0)" : `translateX(${DRAWER_WIDTH_PX}px)`,
-        transitionDuration: `${DRAWER_TRANSITION_MS}ms`,
+        width,
+        transform: open ? "translateX(0)" : `translateX(${width}px)`,
+        transitionDuration,
       }}
     >
+      {handle}
       {children}
     </div>
   );

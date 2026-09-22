@@ -107,6 +107,20 @@ export const leftSidebarOpenAtom = atomWithLocalStorage(
   "dispatch:leftSidebarOpen",
   true
 );
+// The right-hand drawer's width, dragged by its left edge. One width for the
+// client: the sidebar and every agent's thread drawer share it. null until
+// someone resizes it, so the default in drawer-constants stays the default.
+// Stored as dragged; it is clamped to the viewport where it is read, so a
+// width saved on a wide monitor comes back whole when the window does.
+export const drawerWidthAtom = atomWithLocalStorage<number | null>(
+  "dispatch:drawerWidth",
+  null,
+  {
+    validate: (value): value is number | null =>
+      value === null || (typeof value === "number" && Number.isFinite(value)),
+  }
+);
+
 // Collapsed state for the desktop-only bar under the center pane. Default
 // expanded: on iPad-with-keyboard setups the bar buffers iPadOS's floating
 // keyboard control, which can't be dismissed, so it must stay opt-out.
