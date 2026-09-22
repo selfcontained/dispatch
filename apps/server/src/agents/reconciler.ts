@@ -117,7 +117,16 @@ async function reconcileAgentStatuses(
       continue;
     }
 
-    const alive = await runtime.isAlive(row.id);
+    // A running/creating row gets a reconnect attempt, not just a pid
+    // check: a host that is alive but didn't answer `hello` in time (busy
+    // journal replay, boot contention) must not read as gone. Falling back
+    // to isAlive keeps a merely-unreachable host "running" so the next
+    // reconcile pass can retry attach — it never mistakes "not attached
+    // yet" for "not there".
+    const alive =
+      row.status === "running" || row.status === "creating"
+        ? (await runtime.attach(row.id)) || (await runtime.isAlive(row.id))
+        : await runtime.isAlive(row.id);
     if (!alive) {
       const logTail = await runtime.readLogTail(row.id);
       const launchFailed = row.status === "creating";
@@ -182,7 +191,10 @@ async function cleanupOrphanedHosts(deps: ReconcilerDeps): Promise<void> {
     // instance sharing the state root; only act on agents this database
     // knows about.
     if (!status) {
-      logger.debug({ agentId }, "Ignoring agent host with no matching DB record");
+      logger.debug(
+        { agentId },
+        "Ignoring agent host with no matching DB record"
+      );
     }
   }
 }

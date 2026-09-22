@@ -636,7 +636,12 @@ export class AgentManager {
   /**
    * At boot: reconnect to every host that outlived the last server process.
    * An agent whose host is gone is marked stopped rather than left "running"
-   * with nothing behind it.
+   * with nothing behind it. A host that is alive but didn't answer this
+   * one attach attempt (busy journal replay, boot contention) is left
+   * "running" rather than declared lost: `reconcileAgents()` runs right
+   * after this and would otherwise hand a still-live, possibly mid-turn
+   * host to `cleanupOrphanedHosts` for force-stopping. The periodic
+   * reconciler keeps retrying the reconnect for it.
    */
   async restoreRunningAgents(): Promise<{
     attached: string[];
@@ -644,6 +649,7 @@ export class AgentManager {
   }> {
     const attached: string[] = [];
     const lost: string[] = [];
+    const pending: string[] = [];
     const result = await this.pool.query<{ id: string; cwd: string }>(
       `SELECT id, cwd FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
@@ -653,6 +659,10 @@ export class AgentManager {
       this.streamRecorder.setCwd(row.id, row.cwd);
       if (await this.runtime.attach(row.id)) {
         attached.push(row.id);
+        continue;
+      }
+      if (await this.runtime.isAlive(row.id)) {
+        pending.push(row.id);
         continue;
       }
       lost.push(row.id);
@@ -671,8 +681,8 @@ export class AgentManager {
         metadata: { source: "system" },
       });
     }
-    if (attached.length || lost.length) {
-      this.logger.info({ attached, lost }, "Restored running agents");
+    if (attached.length || lost.length || pending.length) {
+      this.logger.info({ attached, lost, pending }, "Restored running agents");
     }
     return { attached, lost };
   }

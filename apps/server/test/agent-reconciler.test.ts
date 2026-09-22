@@ -80,6 +80,11 @@ const makeAgent = (
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
   tracksProcesses: () => true,
+  // Unlike InertRuntime's always-true stub, the default here has no live
+  // connection to reconnect to — tests that want a successful reconnect
+  // override this explicitly, so the isAlive fallback stays what most
+  // reconciler tests actually exercise.
+  attach: vi.fn().mockResolvedValue(false),
   isAlive: vi.fn().mockResolvedValue(true),
   listHosted: vi.fn().mockResolvedValue([]),
   stop: vi.fn().mockResolvedValue(undefined),
@@ -235,6 +240,39 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
     expect(eventArg?.message).toBe("The agent is no longer running.");
     expect(eventArg?.metadata).toMatchObject({ launchFailed: false });
     expect(reconciled.map((a) => a.id)).toEqual(["agt_died"]);
+  });
+
+  it("running agent whose host is alive but missed this attach → stays running, not settled", async () => {
+    // The host didn't answer `hello` inside the attach window (busy
+    // journal replay, boot contention), but its pid is still there. This
+    // must not read the same as "gone" — that flip is what let boot
+    // cleanup kill a still-live, possibly mid-turn host.
+    const runtime = makeRuntime({
+      attach: vi.fn().mockResolvedValue(false),
+      isAlive: vi.fn().mockResolvedValue(true),
+    });
+    const { reconciler, setAgentStatus, setSystemLatestEvent, settleStream } =
+      setup({
+        activeRows: [
+          { id: "agt_slow", status: "running", updatedAt: minutesAgo(2) },
+        ],
+        runtime,
+      });
+
+    const reconciled = await reconciler.reconcileAgentStatuses();
+
+    expect(runtime.attach).toHaveBeenCalledWith("agt_slow");
+    expect(runtime.isAlive).toHaveBeenCalledWith("agt_slow");
+    expect(settleStream).not.toHaveBeenCalled();
+    expect(setAgentStatus).not.toHaveBeenCalled();
+    expect(setSystemLatestEvent).not.toHaveBeenCalled();
+    expect(reconciled).toEqual([]);
+
+    // A later pass (the periodic tick) is where the retry actually lands.
+    runtime.attach = vi.fn().mockResolvedValue(true);
+    const second = await reconciler.reconcileAgentStatuses();
+    expect(second).toEqual([]);
+    expect(setAgentStatus).not.toHaveBeenCalled();
   });
 
   it("creating agent past the launch grace with no host → flips to error", async () => {

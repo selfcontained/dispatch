@@ -2189,6 +2189,9 @@ describe("AgentManager", () => {
       });
       await manager.stopAgent(stopped.id);
       runtime.attach.mockImplementation(async (id) => id === alive.id);
+      // "gone" is the genuinely-dead case: no process behind the pid file
+      // at all, not merely one that didn't answer this attach attempt.
+      runtime.isAlive.mockImplementation(async (id) => id !== gone.id);
 
       const result = await manager.restoreRunningAgents();
 
@@ -2201,6 +2204,41 @@ describe("AgentManager", () => {
       expect(lost!.latestEvent?.message).toBe(
         "Session ended while Dispatch was down."
       );
+    });
+
+    it("does not lose, or let boot cleanup kill, a host that is alive but missed its first attach — and recovers once a later attach succeeds", async () => {
+      // Models the real failure this closes: a host busy replaying its
+      // journal (or plain boot contention) doesn't answer `hello` inside
+      // the attach window, even though its process is still there.
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      runtime.attach.mockResolvedValue(false);
+      runtime.isAlive.mockResolvedValue(true);
+      runtime.listHosted.mockResolvedValue([agent.id]);
+
+      const restored = await manager.restoreRunningAgents();
+      expect(restored.lost).toEqual([]);
+      expect((await manager.getAgent(agent.id))!.status).toBe("running");
+
+      // reconcileAgents() is what boot actually runs right after restore —
+      // status reconciliation (another attach attempt, still failing) plus
+      // the orphan-host cleanup pass, in the same startup. The host must
+      // still be standing afterward: cleanup only force-stops a host whose
+      // agent row reads a terminal status, and this one never got there.
+      await manager.reconcileAgents();
+      expect((await manager.getAgent(agent.id))!.status).toBe("running");
+      expect(runtime.stop).not.toHaveBeenCalled();
+
+      // A later reconcile tick (the periodic loop) is what actually
+      // reconnects: once attach succeeds, the agent reads exactly as it
+      // would if it had never missed a beat.
+      runtime.attach.mockResolvedValue(true);
+      const reconciled = await manager.reconcileAgentStatuses();
+      expect(reconciled).toEqual([]);
+      expect((await manager.getAgent(agent.id))!.status).toBe("running");
+      expect(runtime.stop).not.toHaveBeenCalled();
     });
   });
 
