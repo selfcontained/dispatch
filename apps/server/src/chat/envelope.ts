@@ -258,6 +258,23 @@ export function buildReactionEnvelope(input: {
   ].join("\n");
 }
 
+/**
+ * The prompt that runs a failed turn again. The engine's session already
+ * holds the prompt the failed turn was answering, and the turn may have
+ * run tools before it broke off, so that prompt is not sent twice: the
+ * agent is told what happened and continues from where its session
+ * stands. The first line is what the feed's notice shows; the error, which
+ * the failed turn already shows, follows it.
+ */
+export function buildRetryTurnEnvelope(error: string): string {
+  // One line of it, after other words: it cannot stand as a marker line.
+  const reason = error.split("\n")[0].trim().slice(0, 200);
+  return [
+    "The user retried your last turn after it stopped on an error. Continue where you left off.",
+    ...(reason ? [`(The error was ${reason})`] : []),
+  ].join("\n");
+}
+
 /** `120 KB`, `3.4 MB`, `900 B` — for the attachment lines. */
 export function formatAttachmentSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "0 B";

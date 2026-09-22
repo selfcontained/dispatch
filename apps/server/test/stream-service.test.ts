@@ -23,6 +23,7 @@ import {
   StreamValidationError,
   workspaceBlockId,
 } from "../src/chat/service.js";
+import type { PromptSource } from "../src/agents/acp/prompt-source.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
@@ -81,6 +82,10 @@ function build(
 ) {
   const events: unknown[] = [];
   const injected: Injected[] = [];
+  /** What each inject said the prompt is, in step with `injected`. */
+  const injectedOpts: Array<
+    { blockId?: string; source?: PromptSource } | undefined
+  > = [];
   const cancelled: string[] = [];
   const svc = new StreamService({
     pool,
@@ -92,9 +97,10 @@ function build(
       : {
           delivery: {
             access: opts.access ?? (async () => ({ mode: "live" as const })),
-            inject: async (agentId, text) => {
+            inject: async (agentId, text, injectOpts) => {
               if (opts.gate) await opts.gate;
               injected.push({ agentId, text });
+              injectedOpts.push(injectOpts);
               if (opts.fail || opts.failFor?.includes(agentId)) {
                 throw new Error("engine gone");
               }
@@ -107,7 +113,7 @@ function build(
         }),
     ...opts.deps,
   });
-  return { svc, events, injected, cancelled };
+  return { svc, events, injected, injectedOpts, cancelled };
 }
 
 /**
@@ -3358,5 +3364,122 @@ describe("StreamService workspace block", () => {
     // The workspace record is not a message: it leaves no unread mark, the
     // way the system-prompt record does not.
     expect(await svc.store.countUnread(A)).toBe(0);
+  });
+});
+
+describe("StreamService.retryTurn", () => {
+  /** The agent's newest turn, failed; `retry` as the recorder left it. */
+  async function failedTurn(retry: string | null = "open") {
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [A]);
+    const row = await pool.query<{ id: string }>(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 1, 'turn', $2::jsonb) RETURNING id`,
+      [
+        A,
+        JSON.stringify({
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          error: "API Error: 500 Internal server error.",
+          errorKind: "server_error",
+          ...(retry ? { retry } : {}),
+        }),
+      ]
+    );
+    const turnId = Number(row.rows[0]!.id);
+    const block = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      kind: "text",
+      origin: "turn",
+      data: { turnEventId: turnId },
+      text: "",
+    });
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [turnId, JSON.stringify({ blockId: block.id })]
+    );
+    return { turnId, blockId: block.id };
+  }
+
+  async function retryOf(turnId: number): Promise<unknown> {
+    const res = await pool.query<{ retry: string | null }>(
+      `SELECT payload->>'retry' AS retry FROM agent_stream_events WHERE id = $1`,
+      [turnId]
+    );
+    return res.rows[0]?.retry ?? null;
+  }
+
+  it("tells the agent its turn broke off, once, and the entry says retried", async () => {
+    const { turnId, blockId } = await failedTurn();
+    const { svc, injected, injectedOpts, events } = build();
+    await svc.retryTurn(A, blockId);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([
+      {
+        agentId: A,
+        text: expect.stringMatching(
+          /^The user retried your last turn.*Continue where you left off\.\n\(The error was API Error: 500 Internal server error\.\)$/s
+        ),
+      },
+    ]);
+    // The original prompt is not sent again.
+    expect(injected[0]!.text).not.toContain("go\n");
+    // A prompt of Dispatch's own, not the failed turn's block again.
+    expect(injectedOpts).toEqual([
+      { source: { source: "system", text: expect.stringContaining("Retried") } },
+    ]);
+    expect(await retryOf(turnId)).toBe("retried");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stream.entry",
+        entry: expect.objectContaining({
+          block: expect.objectContaining({
+            id: blockId,
+            turn: expect.objectContaining({ retry: "retried" }),
+          }),
+        }),
+      })
+    );
+    await expect(svc.retryTurn(A, blockId)).rejects.toBeInstanceOf(
+      StreamConflictError
+    );
+    expect(injected).toHaveLength(1);
+  });
+
+  it("refuses a turn the agent has had another turn since", async () => {
+    const { blockId } = await failedTurn();
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, 2, 'turn', '{"state":"settled","prompt":{"source":"system","text":"next"}}')`,
+      [A]
+    );
+    const { svc, injected } = build();
+    await expect(svc.retryTurn(A, blockId)).rejects.toThrow(/latest turn/);
+    expect(injected).toEqual([]);
+  });
+
+  it("refuses a failure a retry cannot clear", async () => {
+    const { blockId } = await failedTurn(null);
+    const { svc, injected } = build();
+    await expect(svc.retryTurn(A, blockId)).rejects.toBeInstanceOf(
+      StreamConflictError
+    );
+    expect(injected).toEqual([]);
+  });
+
+  it("keeps offering the retry when the agent can't take it", async () => {
+    const { turnId, blockId } = await failedTurn();
+    const { svc, injected } = build({ access: inert });
+    await expect(svc.retryTurn(A, blockId)).rejects.toThrow("No engine.");
+    expect(injected).toEqual([]);
+    expect(await retryOf(turnId)).toBe("open");
+  });
+
+  it("offers the retry again when the prompt never reached the agent", async () => {
+    const { turnId, blockId } = await failedTurn();
+    const { svc } = build({ fail: true });
+    await svc.retryTurn(A, blockId);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(await retryOf(turnId)).toBe("open");
   });
 });

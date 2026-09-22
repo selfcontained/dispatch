@@ -159,6 +159,8 @@ export type FeedContext = {
   onSetBlockState?: (blockId: string, patch: BlockStatePatch) => void;
   /** Sends a post the agent never took to it again. */
   onRetryDelivery?: (blockId: string) => void;
+  /** Runs a failed turn again, from the turn's own answer block. */
+  onRetryTurn?: (blockId: string) => void;
   /** Blocks with a retry in flight, so the row can say so. */
   retrying?: ReadonlySet<string>;
 };

@@ -1,3 +1,4 @@
+import * as acp from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -252,6 +253,34 @@ describe("AcpDriver", () => {
       type: "turn",
       state: "settled",
       error: expect.stringContaining("no API key"),
+    });
+    await driver.stop("agt_1");
+  });
+
+  it("a turn the adapter failed with an errorKind carries it apart from the message", async () => {
+    const fake = createFakeAcpAgent({
+      turn: async () => {
+        throw acp.RequestError.internalError(
+          { errorKind: "server_error" },
+          "API Error: 500 Internal server error."
+        );
+      },
+    });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((e) => events.push(e));
+    await driver.start(launch());
+    await expect(driver.prompt("agt_1", "x")).rejects.toThrow(/API Error: 500/);
+    expect(events.at(-1)).toEqual({
+      type: "turn",
+      agentId: "agt_1",
+      state: "settled",
+      error: "API Error: 500 Internal server error.",
+      errorKind: "server_error",
     });
     await driver.stop("agt_1");
   });

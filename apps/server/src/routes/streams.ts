@@ -239,6 +239,21 @@ export async function registerStreamRoutes(
     }
   );
 
+  // Run a failed turn again. The block is the turn's own answer block;
+  // the agent is told the turn broke off and continues from there.
+  app.post(
+    "/api/v1/streams/:rootId/blocks/:blockId/retry-turn",
+    async (request, reply) => {
+      const params = request.params as { rootId?: string; blockId?: string };
+      try {
+        await streams.retryTurn(params.rootId ?? "", params.blockId ?? "");
+        return { ok: true };
+      } catch (error) {
+        return sendError(reply, error);
+      }
+    }
+  );
+
   app.post(
     "/api/v1/streams/:rootId/blocks/:blockId/submit",
     async (request, reply) => {

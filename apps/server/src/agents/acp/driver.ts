@@ -50,6 +50,11 @@ export type DriverEvent =
       /** Cumulative session usage reported with the prompt response. */
       usage?: DriverUsage;
       error?: string;
+      /**
+       * The adapter's category for a failed turn (`server_error`,
+       * `overloaded`, `transport_lost`…), when it gave one.
+       */
+      errorKind?: string;
     }
   | {
       type: "exit";
@@ -107,10 +112,25 @@ const HANDSHAKE_TIMEOUT_MS = 30_000;
  * The ACP SDK reports an agent-side exception as JSON-RPC "Internal error"
  * and keeps the real message in `data.details` (the agent itself does the
  * same for a failed turn), so surface that detail instead of the bare code.
+ * An `errorKind` in the data is a category for the client to act on, not
+ * words for a reader: it comes back on its own and stays out of the text,
+ * and a message that has one drops the generic "Internal error" label.
  */
-function describeRpcError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-  const data = (err as { data?: unknown }).data;
+function describeRpcError(err: unknown): {
+  message: string;
+  errorKind?: string;
+} {
+  if (!(err instanceof Error)) return { message: String(err) };
+  const raw = (err as { data?: unknown }).data;
+  let data = raw;
+  let errorKind: string | undefined;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const { errorKind: kind, ...rest } = raw as Record<string, unknown>;
+    if (typeof kind === "string") {
+      errorKind = kind;
+      data = rest;
+    }
+  }
   let detail: string | null = null;
   if (typeof data === "string") detail = data;
   else if (data && typeof data === "object") {
@@ -118,9 +138,14 @@ function describeRpcError(err: unknown): string {
     if (typeof details === "string") detail = details;
     else if (Object.keys(data).length > 0) detail = JSON.stringify(data);
   }
-  return detail && !err.message.includes(detail)
-    ? `${err.message}: ${detail}`
-    : err.message;
+  let message =
+    detail && !err.message.includes(detail)
+      ? `${err.message}: ${detail}`
+      : err.message;
+  if (errorKind) {
+    message = message.replace(/^Internal error: (?=\S)/, "");
+  }
+  return errorKind ? { message, errorKind } : { message };
 }
 
 /**
@@ -401,7 +426,7 @@ export class AcpDriver {
     const outcome = await Promise.race<Outcome>([
       handshake.then(
         (session) => ({ ok: true, session }),
-        (err) => ({ ok: false, reason: describeRpcError(err) })
+        (err) => ({ ok: false, reason: describeRpcError(err).message })
       ),
       exited.then((exit) => ({
         ok: false,
@@ -494,7 +519,7 @@ export class AcpDriver {
       this.emit({ type: "config", agentId, options: entry.config.options });
       return entry.config.options;
     } catch (err) {
-      throw new Error(describeRpcError(err), { cause: err });
+      throw new Error(describeRpcError(err).message, { cause: err });
     }
   }
 
@@ -542,11 +567,17 @@ export class AcpDriver {
         ...(res.usage ? { usage: res.usage } : {}),
       });
     } catch (err) {
-      const message = describeRpcError(err);
+      const { message, errorKind } = describeRpcError(err);
       // The exit event already settled the turn row; a second settle would
       // only add a duplicate status line.
       if (!exited) {
-        this.emit({ type: "turn", agentId, state: "settled", error: message });
+        this.emit({
+          type: "turn",
+          agentId,
+          state: "settled",
+          error: message,
+          ...(errorKind ? { errorKind } : {}),
+        });
       }
       throw new Error(message, { cause: err });
     }

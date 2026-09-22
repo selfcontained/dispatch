@@ -54,6 +54,11 @@ vi.mock("@/hooks/use-stream", () => ({
     isPending: false,
     variables: undefined,
   }),
+  useRetryTurn: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    variables: undefined,
+  }),
   useSetBlockState: () => ({
     mutate: vi.fn(),
     isPending: false,
