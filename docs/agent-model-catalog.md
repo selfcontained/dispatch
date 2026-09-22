@@ -89,3 +89,7 @@ parses this section for `**YYYY-MM-DD**` and fails once a date is behind us.
 
 - None currently tracked. `gpt-5.4` and `gpt-5.4-mini` retired 2026-08-31 and
   were removed; their successors are `gpt-5.6-terra` and `gpt-5.6-luna`.
+- `gpt-6-sol` and `gpt-6-luna` added 2026-09-22, remote-cache-only (not yet in
+  the embedded fallback registry) — labeled "(preview)" per the qualifier
+  rule above until they show up in `strings $(which codex) | grep slug`.
+  `gpt-6-terra` does not exist; Terra remains at `gpt-5.6-terra`.

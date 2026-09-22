@@ -27,6 +27,10 @@ export const AGENT_MODEL_OPTIONS: Partial<
 > = {
   codex: [
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
+    // Remote catalog cache only as of 2026-09-22; not yet in the embedded
+    // fallback registry, so may not be available to every account.
+    { id: "gpt-6-sol", label: "GPT-6 Sol (preview)" },
+    { id: "gpt-6-luna", label: "GPT-6 Luna (preview)" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
