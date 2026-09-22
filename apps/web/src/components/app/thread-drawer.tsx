@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { ArrowLeft, X } from "lucide-react";
 
@@ -8,6 +8,7 @@ import {
   type DrawerPage,
 } from "@/components/app/drawer/drawer-stack";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
+import { useDrawerClosing } from "@/components/app/drawer";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
@@ -30,12 +31,31 @@ export type ThreadDrawerProps = {
   className?: string;
 };
 
+/** What the drawer shows: a thread in an agent's stream, and a finding in it. */
+type ThreadTarget = {
+  agentId: string;
+  rootId: string;
+  threadId: string;
+  findingId: string | null;
+};
+
+function sameTarget(a: ThreadTarget, b: ThreadTarget | null): boolean {
+  return (
+    b !== null &&
+    a.agentId === b.agentId &&
+    a.rootId === b.rootId &&
+    a.threadId === b.threadId &&
+    a.findingId === b.findingId
+  );
+}
+
 /**
  * A thread (or a review, or another agent's turn) open beside the stream,
  * from the URL. Its own panel, not a page over the sidebar: closing it
  * returns to the stream, and the sidebar is wherever it was. Only a
  * finding stacks over its review inside it, with a way back to the
- * review; everywhere else the one control is close.
+ * review; everywhere else the one control is close. While its frame
+ * slides shut it keeps showing the thread the URL just stopped naming.
  */
 export function ThreadDrawer({
   selectedAgentId,
@@ -49,10 +69,29 @@ export function ThreadDrawer({
   className,
 }: ThreadDrawerProps): JSX.Element | null {
   const route = useDrawerRoute();
-  const live = Boolean(selectedAgentId && rootId);
-  const threadId = live ? route.threadId : null;
-  const findingId = threadId ? route.findingId : null;
-  const thread = useThread(rootId, threadId);
+  const closing = useDrawerClosing();
+  const current: ThreadTarget | null =
+    selectedAgentId && rootId && route.threadId
+      ? {
+          agentId: selectedAgentId,
+          rootId,
+          threadId: route.threadId,
+          findingId: route.findingId,
+        }
+      : null;
+  // The last thread shown, for the slide shut. Only ever read while
+  // closing, and anything open replaces it, so it never shows over a
+  // thread the URL names.
+  const [held, setHeld] = useState<ThreadTarget | null>(current);
+  if (current && !sameTarget(current, held)) setHeld(current);
+  const target = current ?? (closing ? held : null);
+  const targetAgentId = target?.agentId ?? null;
+  const targetRootId = target?.rootId ?? null;
+  const threadId = target?.threadId ?? null;
+  const findingId = target?.findingId ?? null;
+  // Closing after the agent changed, the held thread is the old agent's.
+  const pageAgent = targetAgentId === selectedAgentId ? agent : null;
+  const thread = useThread(targetRootId, threadId);
   const nameOf = (agentId: string) =>
     agentId === selectedAgentId
       ? (selectedAgentName ?? "Agent")
@@ -61,16 +100,16 @@ export function ThreadDrawer({
   const { openThread, back, closeAll } = route;
 
   const pages = useMemo<DrawerPage[]>(() => {
-    if (!selectedAgentId || !rootId || !threadId) return [];
+    if (!targetAgentId || !targetRootId || !threadId) return [];
     // One page per level: moving between findings on the same review
     // changes what the finding page shows rather than swapping pages.
     const page = (finding: string | null): DrawerPage => ({
       key: finding ? `finding:${threadId}` : `thread:${threadId}`,
       node: (
         <ThreadPage
-          agentId={selectedAgentId}
-          agent={agent}
-          rootId={rootId}
+          agentId={targetAgentId}
+          agent={pageAgent}
+          rootId={targetRootId}
           blockId={threadId}
           findingId={finding}
           isMobile={isMobile}
@@ -83,15 +122,15 @@ export function ThreadDrawer({
     });
     return findingId ? [page(null), page(findingId)] : [page(null)];
   }, [
-    agent,
     back,
     findingId,
     isMobile,
     onOpenPath,
     openLightbox,
     openThread,
-    rootId,
-    selectedAgentId,
+    pageAgent,
+    targetAgentId,
+    targetRootId,
     threadId,
   ]);
 
