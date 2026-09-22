@@ -75,6 +75,44 @@ describe("findEngineBin", () => {
     expect(await findEngineBin(shim, { PATH: "", HOME: home }, [])).toBe(shim);
   });
 
+  it("takes the newest release when several install locations have the CLI", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const brew = path.join(dir, "brew-bin");
+    const nvmOld = path.join(dir, "nvm", "v20", "bin");
+    const nvmNew = path.join(dir, "nvm", "v22", "bin");
+    for (const d of [brew, nvmOld, nvmNew]) mkdirSync(d, { recursive: true });
+    const versions: Record<string, string> = {
+      [path.join(brew, "codex")]: "0.154.0",
+      [path.join(nvmOld, "codex")]: "0.150.2",
+      [path.join(nvmNew, "codex")]: "0.155.1",
+    };
+    for (const file of Object.keys(versions))
+      put(path.dirname(file), "codex", 0o755);
+    const version = async (bin: string) => versions[bin] ?? null;
+    const env = { PATH: "", HOME: home };
+    expect(
+      await findEngineBin("codex", env, [brew, nvmOld, nvmNew], version)
+    ).toBe(path.join(nvmNew, "codex"));
+    // A CLI that will not say its version loses to one that does; equal
+    // versions keep the list's order.
+    expect(
+      await findEngineBin("codex", env, [nvmNew, brew], async (bin) =>
+        bin.startsWith(nvmNew) ? null : "0.1.0"
+      )
+    ).toBe(path.join(brew, "codex"));
+    expect(
+      await findEngineBin("codex", env, [brew, nvmNew], async () => "1.0.0")
+    ).toBe(path.join(brew, "codex"));
+  });
+
+  it("never returns a relative path", async () => {
+    // A relative PATH entry or configured path resolves against whatever
+    // cwd the adapter runs in; the adapter needs an absolute one.
+    const env = { PATH: `.${path.delimiter}bin`, HOME: home };
+    expect(await findEngineBin("claude", env, [])).toBeNull();
+    expect(await findEngineBin("./claude", env, [])).toBeNull();
+  });
+
   it("takes an absolute path as given", async () => {
     const claude = path.join(dir, "claude");
     expect(await findEngineBin(claude, { PATH: "", HOME: home }, [])).toBe(

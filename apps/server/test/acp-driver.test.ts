@@ -20,7 +20,7 @@ const resolveBinary = async (bin: string) => bin;
 
 const bins: EngineBins = {
   claudeBin: "/home/u/.local/bin/claude",
-  codexBin: null,
+  codexBin: "/home/u/.local/bin/codex",
 };
 
 function launch(
@@ -92,6 +92,7 @@ describe("AcpDriver", () => {
         env: expect.objectContaining({
           INITIAL_AGENT_MODE: "agent-full-access",
           NO_BROWSER: "1",
+          CODEX_PATH: "/home/u/.local/bin/codex",
         }),
       })
     );
@@ -193,7 +194,12 @@ describe("AcpDriver", () => {
     await driver.start(launch());
     await driver.prompt("agt_1", "hello");
     expect(fake.seen.prompts).toEqual(["hello"]);
-    expect(events.map((e) => e.type)).toEqual(["config", "turn", "update", "turn"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "config",
+      "turn",
+      "update",
+      "turn",
+    ]);
     expect(events[3]).toMatchObject({
       type: "turn",
       state: "settled",

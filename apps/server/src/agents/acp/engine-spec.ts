@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { AgentType } from "@dispatch/shared";
 
 import { selfCommand } from "./runtime.js";
@@ -59,7 +61,6 @@ export function adapterCommand(
   return { bin: bin!, args };
 }
 
-
 export type FullAccess =
   /** Already in `args`. */
   | { kind: "args" }
@@ -84,7 +85,32 @@ export type EngineSpec = {
   subagentTranscripts: boolean;
 };
 
-export function engineSpecFor(engine: AcpEngineId, bins: EngineBins): EngineSpec {
+/**
+ * The launched engine's CLI as an absolute path, or an error saying so.
+ * Each adapter falls back to a CLI of its own when its env var is unset —
+ * codex-acp to the @openai/codex it depends on, which from a source run is
+ * the repo's copy and months stale. A launch that fails with "could not
+ * find codex" beats one that quietly runs a CLI nobody chose. A fake
+ * adapter (tests) drives no CLI, so it needs none.
+ */
+function engineBin(engine: AcpEngineId, bins: EngineBins): string {
+  const bin = engine === "claude" ? bins.claudeBin : bins.codexBin;
+  if (bins.adapter || process.env.DISPATCH_ACP_ADAPTER_COMMAND)
+    return bin ?? "";
+  if (!bin || !path.isAbsolute(bin)) {
+    const name = engine === "claude" ? "claude" : "codex";
+    throw new Error(
+      `Could not find the ${name} CLI${bin ? ` (got "${bin}")` : ""}. Install it, or set DISPATCH_${name.toUpperCase()}_BIN to its absolute path.`
+    );
+  }
+  return bin;
+}
+
+export function engineSpecFor(
+  engine: AcpEngineId,
+  bins: EngineBins
+): EngineSpec {
+  const bin = engineBin(engine, bins);
   switch (engine) {
     case "claude":
       return {
@@ -94,7 +120,7 @@ export function engineSpecFor(engine: AcpEngineId, bins: EngineBins): EngineSpec
           ...adapterCommand(engine, bins).args,
           "--dangerously-skip-permissions",
         ],
-        env: { CLAUDE_CODE_EXECUTABLE: bins.claudeBin },
+        env: { CLAUDE_CODE_EXECUTABLE: bin },
         personaDelivery: "system_prompt",
         fullAccess: { kind: "args" },
         subagentTranscripts: true,
@@ -107,7 +133,7 @@ export function engineSpecFor(engine: AcpEngineId, bins: EngineBins): EngineSpec
         env: {
           INITIAL_AGENT_MODE: "agent-full-access",
           NO_BROWSER: "1",
-          ...(bins.codexBin ? { CODEX_PATH: bins.codexBin } : {}),
+          CODEX_PATH: bin,
         },
         personaDelivery: "first_prompt",
         fullAccess: { kind: "env" },
