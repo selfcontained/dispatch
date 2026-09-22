@@ -159,17 +159,39 @@ pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }
 
+# Return success when a PID is one of this stack's detached agent hosts.
+# Hosts stay parented to the API's wrapper tree even though they lead their
+# own process group, so a recursive PPID walk must explicitly preserve them
+# during a soft restart.
+is_agent_host_pid() {
+  local target="${1:-}"
+  [ -n "$target" ] || return 1
+  local pidfile host_pid
+  for pidfile in "$(log_dir)"/agents/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    host_pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ "$host_pid" = "$target" ] && return 0
+  done
+  return 1
+}
+
 # Recursively kill a process and all its descendants (depth-first).
 # This ensures child processes spawned by npm/tsx are cleaned up even
-# when signals don't propagate through the wrapper chain.
+# when signals don't propagate through the wrapper chain. A soft restart
+# preserves registered agent-host roots (and therefore their process groups);
+# explicit down stops those groups separately before using this helper.
 kill_tree() {
   local pid="${1:-}"
   local sig="${2:-TERM}"
+  local preserve_agent_hosts="${3:-0}"
   [ -z "$pid" ] && return 0
+  if [ "$preserve_agent_hosts" = "1" ] && is_agent_host_pid "$pid"; then
+    return 0
+  fi
   local children
   children=$(pgrep -P "$pid" 2>/dev/null) || true
   for child in $children; do
-    kill_tree "$child" "$sig"
+    kill_tree "$child" "$sig" "$preserve_agent_hosts"
   done
   kill -"$sig" "$pid" 2>/dev/null || true
 }
@@ -178,17 +200,18 @@ kill_tree() {
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
+  local preserve_agent_hosts="${3:-0}"
   if ! pid_alive "$pid"; then
     return 0
   fi
-  kill_tree "$pid"
+  kill_tree "$pid" TERM "$preserve_agent_hosts"
   local i=0
   while [ $i -lt 10 ] && pid_alive "$pid"; do
     sleep 0.5
     i=$((i + 1))
   done
   if pid_alive "$pid"; then
-    kill_tree "$pid" 9
+    kill_tree "$pid" 9 "$preserve_agent_hosts"
   fi
   echo "Stopped ${name} (PID ${pid})"
 }
@@ -540,8 +563,8 @@ cmd_restart() {
   fi
 
   # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  stop_service "${DEV_API_PID:-}" "API server" 1
+  stop_service "${DEV_VITE_PID:-}" "Vite server" 1
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
