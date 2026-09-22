@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { useEngines } from "@/hooks/use-engines";
+import { engineSummary, useEngines } from "@/hooks/use-engines";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
@@ -89,6 +89,7 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
+  const engineLine = engineSummary(engines, form.createType);
   const showModelSelect =
     form.modelCatalogLoading || form.modelOptions.length > 0;
 
@@ -145,6 +146,15 @@ function CreateAgentDialogContent({
                     />
                   ) : null}
                 </div>
+                {engineLine ? (
+                  <p
+                    className="-mt-1 truncate text-xs text-muted-foreground/70"
+                    title={engineLine}
+                    data-testid="create-agent-engine"
+                  >
+                    {engineLine}
+                  </p>
+                ) : null}
 
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">Name</label>

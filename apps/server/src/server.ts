@@ -663,6 +663,7 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
+    engineBins: { claude: config.claudeBin, codex: config.codexBin },
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 

@@ -25,7 +25,10 @@ import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 import { agentModelCatalog } from "../shared/agent-models.js";
-import { engineStatuses } from "../agents/engine-availability.js";
+import {
+  engineStatuses,
+  withEngineVersions,
+} from "../agents/engine-availability.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -42,6 +45,8 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
+  /** The configured engine CLIs, so this reports what a launch would run. */
+  engineBins: { claude: string; codex: string };
 };
 
 export async function registerSystemRoutes(
@@ -72,7 +77,9 @@ export async function registerSystemRoutes(
   });
 
   app.get("/api/v1/system/engines", async () => {
-    return { engines: await engineStatuses() };
+    return {
+      engines: await withEngineVersions(await engineStatuses(deps.engineBins)),
+    };
   });
 
   app.get("/api/v1/agent-models", async () => {
