@@ -1,3 +1,4 @@
+import type { PromptSource } from "./prompt-source.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
 import path from "node:path";
@@ -28,7 +29,19 @@ export type DriverEvent =
    * server learns which model is really running and which it could run.
    */
   | { type: "config"; agentId: string; options: acp.SessionConfigOption[] }
-  | { type: "turn"; agentId: string; state: "started"; text: string }
+  | {
+      type: "turn";
+      agentId: string;
+      state: "started";
+      text: string;
+      /**
+       * What this prompt is, as the sender knew it. Dispatch puts the
+       * block id in the envelope for the agent to quote back; this is the
+       * same id for Dispatch's own use, so nothing has to read the
+       * envelope back off the wire to find out what opened the turn.
+       */
+      source?: PromptSource;
+    }
   | {
       type: "turn";
       agentId: string;
@@ -496,10 +509,17 @@ export class AcpDriver {
   async prompt(
     agentId: string,
     text: string,
-    onAccepted?: () => void
+    onAccepted?: () => void,
+    source?: PromptSource
   ): Promise<void> {
     const entry = this.require(agentId);
-    this.emit({ type: "turn", agentId, state: "started", text });
+    this.emit({
+      type: "turn",
+      agentId,
+      state: "started",
+      text,
+      ...(source ? { source } : {}),
+    });
     // A child that exits mid-turn never answers the request; the pending
     // call would hang and hold the agent's turn slot for ever.
     let exited = false;

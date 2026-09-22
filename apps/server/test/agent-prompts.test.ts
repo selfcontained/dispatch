@@ -51,9 +51,29 @@ describe("enqueueAgentPrompt", () => {
     const ctx = build();
     const { held, delivery } = await ctx.enqueueAgentPrompt("agt_1", "hello");
     expect(held).toBe(false);
-    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith("agt_1", "hello");
+    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
+      "agt_1",
+      "hello",
+      undefined
+    );
     ctx.accepted.resolve();
     await expect(delivery).resolves.toBeUndefined();
+  });
+
+  it("passes what the prompt is through to the runtime", async () => {
+    const ctx = build();
+    // The block the envelope carries, so the turn it opens can be tied
+    // back to it without reading the id out of the envelope again.
+    const source = {
+      source: "chat" as const,
+      chatMessageId: "11111111-2222-4333-8444-555555555555",
+    };
+    await ctx.enqueueAgentPrompt("agt_1", "hello", { source });
+    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
+      "agt_1",
+      "hello",
+      source
+    );
   });
 
   it("reports held when a turn is already running", async () => {

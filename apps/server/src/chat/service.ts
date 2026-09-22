@@ -130,7 +130,16 @@ export type StreamDeliveryAdapter = {
    */
   access: (agentId: string) => Promise<AgentTerminalAccess>;
   /** Queue `text` as a prompt for the agent; resolves when accepted. */
-  inject: (agentId: string, text: string) => Promise<void>;
+  /**
+   * Queue the envelope as a prompt. `blockId` names the block the envelope
+   * carries, so the turn it opens can be tied back to it without anything
+   * reading the id out of the envelope text again.
+   */
+  inject: (
+    agentId: string,
+    text: string,
+    opts?: { blockId?: string }
+  ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
@@ -1966,7 +1975,7 @@ export class StreamService {
     const delivery = this.delivery();
     let accepted = false;
     const settlement = delivery
-      .inject(agentId, input.envelope)
+      .inject(agentId, input.envelope, { blockId: input.logContext.blockId })
       .then(
         () => true,
         (error: unknown) => {

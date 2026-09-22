@@ -255,7 +255,10 @@ export class StreamRecorder {
           // reply starts a row of its own.
           await this.closeText(event.agentId);
           this.trailingPrompt.delete(event.agentId);
-          const prompt = parsePromptSource(event.text);
+          // What the prompt was, from the sender. Only a prompt that came
+          // from somewhere else — a job, a nudge, another process — has to
+          // be read out of its own text.
+          const prompt = event.source ?? parsePromptSource(event.text);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt,

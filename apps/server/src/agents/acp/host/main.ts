@@ -249,8 +249,11 @@ async function main(): Promise<void> {
         // The driver emits the turn's start, settle and error events; the
         // ack only says the adapter has the request.
         driver
-          .prompt(agentId, message.text, () =>
-            send(client, { type: "prompt_accepted", id: message.id })
+          .prompt(
+            agentId,
+            message.text,
+            () => send(client, { type: "prompt_accepted", id: message.id }),
+            message.source
           )
           .catch((err) => {
             logger.warn({ err: String(err) }, "host: turn failed");

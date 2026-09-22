@@ -348,6 +348,36 @@ describe("StreamRecorder", () => {
     expect(typeof rows[0].payload.endedAt).toBe("string");
   });
 
+  it("takes the prompt's source from the sender, not from its text", async () => {
+    const rec = new StreamRecorder(store);
+    // Dispatch knows which block it is delivering, so it says so. The text
+    // carries no envelope here: reading the id back out of the wire would
+    // find nothing, and the turn would lose the message that opened it.
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "hi",
+      source: {
+        source: "chat",
+        chatMessageId: "11111111-2222-4333-8444-555555555555",
+      },
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0].payload).toMatchObject({
+      prompt: {
+        source: "chat",
+        chatMessageId: "11111111-2222-4333-8444-555555555555",
+      },
+    });
+  });
+
   it("records the error on a failed turn's row", async () => {
     const rec = new StreamRecorder(store);
     await rec.handle({

@@ -400,7 +400,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       return pid !== null && pidAlive(pid);
     },
 
-    prompt(agentId, text) {
+    prompt(agentId, text, source) {
       const entry = live.get(agentId);
       if (!entry) {
         const err = new Error(
@@ -432,7 +432,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           });
           entry.settleWaiters.push(resolveSettle);
           try {
-            await entry.client.prompt(id, text);
+            await entry.client.prompt(id, text, source);
           } catch (err) {
             entry.settleWaiters = entry.settleWaiters.filter(
               (w) => w !== resolveSettle

@@ -1,3 +1,4 @@
+import type { PromptSource } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
@@ -55,7 +56,13 @@ export type AgentRuntime = {
    */
   prompt(
     agentId: string,
-    text: string
+    text: string,
+    /**
+     * What the prompt is, for Dispatch's own bookkeeping: it comes back on
+     * the turn's started event, so the stream knows which block opened the
+     * turn without reading the envelope back out of the text.
+     */
+    source?: PromptSource
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;

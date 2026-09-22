@@ -1,3 +1,4 @@
+import type { PromptSource } from "./prompt-source.js";
 import net from "node:net";
 
 import type { DriverLogger } from "./driver.js";
@@ -244,11 +245,11 @@ export class HostClient {
   }
 
   /** Resolves once the adapter has accepted the prompt. */
-  prompt(id: string, text: string): Promise<void> {
+  prompt(id: string, text: string, source?: PromptSource): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.pendingPrompts.set(id, { resolve, reject });
       try {
-        this.send({ type: "prompt", id, text });
+        this.send({ type: "prompt", id, text, ...(source ? { source } : {}) });
       } catch (err) {
         this.pendingPrompts.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));

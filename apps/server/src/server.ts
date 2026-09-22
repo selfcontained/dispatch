@@ -402,8 +402,14 @@ const streamService = new StreamService({
     }),
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
-    inject: async (agentId, text) =>
-      (await enqueueAgentPrompt(agentId, text)).delivery,
+    inject: async (agentId, text, opts) =>
+      (
+        await enqueueAgentPrompt(agentId, text, {
+          ...(opts?.blockId
+            ? { source: { source: "chat", chatMessageId: opts.blockId } }
+            : {}),
+        })
+      ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     cancel: (agentId) => agentManager.cancelTurn(agentId),
   },

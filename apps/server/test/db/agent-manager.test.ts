@@ -1199,7 +1199,23 @@ describe("AgentManager", () => {
       runtime.isBusy.mockReturnValueOnce(true);
 
       expect(manager.promptAgent(agent.id, "next")).toBe(turn);
-      expect(runtime.prompt).toHaveBeenLastCalledWith(agent.id, "next");
+      expect(runtime.prompt).toHaveBeenLastCalledWith(
+        agent.id,
+        "next",
+        undefined
+      );
+      // What the prompt is travels with it, for the turn it opens.
+      const source = {
+        source: "chat" as const,
+        chatMessageId: "11111111-2222-4333-8444-555555555555",
+      };
+      runtime.prompt.mockReturnValueOnce(turn);
+      manager.promptAgent(agent.id, "next", source);
+      expect(runtime.prompt).toHaveBeenLastCalledWith(
+        agent.id,
+        "next",
+        source
+      );
       expect(manager.isPromptHeld(agent.id)).toBe(true);
       await manager.cancelTurn(agent.id);
       expect(runtime.cancel).toHaveBeenCalledWith(agent.id);

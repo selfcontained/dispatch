@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
+import type { PromptSource } from "../agents/acp/prompt-source.js";
 
 /**
  * Enqueue a prompt for an agent and return at once. Resolves once the prompt
@@ -12,7 +13,7 @@ import type { AgentManager } from "../agents/manager.js";
 export type EnqueueAgentPrompt = (
   agentId: string,
   prompt: string,
-  opts?: { gate?: boolean }
+  opts?: { gate?: boolean; source?: PromptSource }
 ) => Promise<{ held: boolean; delivery: Promise<void> }>;
 
 export type InjectAgentPrompt = (
@@ -28,14 +29,22 @@ export function createPromptInjector(
   enqueueAgentPrompt: EnqueueAgentPrompt;
   injectAgentPrompt: InjectAgentPrompt;
 } {
-  const enqueueAgentPrompt: EnqueueAgentPrompt = async (agentId, prompt) => {
+  const enqueueAgentPrompt: EnqueueAgentPrompt = async (
+    agentId,
+    prompt,
+    opts
+  ) => {
     const access = await agentManager.getTerminalAccess(agentId);
     if (access.mode !== "live") {
       throw new Error(
         "Agent has no live session — prompt cannot be delivered."
       );
     }
-    const { accepted, settled } = agentManager.promptAgent(agentId, prompt);
+    const { accepted, settled } = agentManager.promptAgent(
+      agentId,
+      prompt,
+      opts?.source
+    );
     settled.catch((err: unknown) => {
       appLog.warn({ err, agentId }, "agent turn failed");
     });

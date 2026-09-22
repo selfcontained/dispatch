@@ -53,7 +53,10 @@ import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
-import { parsePromptSource } from "./acp/prompt-source.js";
+import {
+  parsePromptSource,
+  type PromptSource,
+} from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -437,7 +440,9 @@ export class AgentManager {
     if (event.state === "started") {
       await this.setSystemLatestEvent(agentId, {
         type: "working",
-        message: statusLine(await this.promptGist(agentId, event.text)),
+        message: statusLine(
+          await this.promptGist(agentId, event.text, event.source)
+        ),
         metadata: { source: "system", phase: "turn" },
       });
     } else if (event.error) {
@@ -462,8 +467,12 @@ export class AgentManager {
    * the message id, so its text is read back; an agent or system prompt
    * carries the text itself.
    */
-  private async promptGist(agentId: string, prompt: string): Promise<string> {
-    const source = parsePromptSource(prompt);
+  private async promptGist(
+    agentId: string,
+    prompt: string,
+    given?: PromptSource
+  ): Promise<string> {
+    const source = given ?? parsePromptSource(prompt);
     if (source.source !== "chat") return source.text;
     const result = await this.pool.query<{ text: string }>(
       `SELECT text FROM blocks WHERE id = $1 AND (to_agent_id = $2 OR stream_id = $2)`,
@@ -566,9 +575,10 @@ export class AgentManager {
   /** Queue one turn; see AgentRuntime.prompt. */
   promptAgent(
     id: string,
-    text: string
+    text: string,
+    source?: PromptSource
   ): { accepted: Promise<void>; settled: Promise<void> } {
-    return this.runtime.prompt(id, text);
+    return this.runtime.prompt(id, text, source);
   }
 
   /** A turn is running or prompts are waiting behind one. */

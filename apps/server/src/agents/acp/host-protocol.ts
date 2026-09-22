@@ -1,3 +1,4 @@
+import type { PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
 import type { DriverEvent } from "./driver.js";
@@ -49,7 +50,7 @@ export type JournalEntry = { seq: number; at: string; event: DriverEvent };
 
 export type ClientMessage =
   | { type: "hello"; fromSeq: number }
-  | { type: "prompt"; id: string; text: string }
+  | { type: "prompt"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
   | { type: "shutdown"; force?: boolean }
   | { type: "ping" };
