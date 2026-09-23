@@ -312,6 +312,10 @@ export function useSSE(authState: AuthState): void {
           // open Chat tab keeps missing whatever landed while the stream was
           // down. Prefix match: one key per agent.
           void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
+          // The sidebar's running-step labels missed the same steps.
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-turn-label"],
+          });
           return;
         }
 

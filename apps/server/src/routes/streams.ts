@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
 import type {
+  AgentTurnResponse,
   ChatUnreadSummary,
   StreamAnswerRequest,
   StreamPostRequest,
@@ -129,6 +130,16 @@ export async function registerStreamRoutes(
 
   app.get("/api/v1/chat/unread", async (): Promise<ChatUnreadSummary> => {
     return store.unreadSummary();
+  });
+
+  app.get("/api/v1/agents/:id/turn", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await agentExists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    return {
+      entry: await streams.turnEntry(id),
+    } satisfies AgentTurnResponse;
   });
 
   app.get("/api/v1/streams/:rootId/blocks", async (request, reply) => {

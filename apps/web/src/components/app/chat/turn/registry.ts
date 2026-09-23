@@ -88,6 +88,21 @@ export function activeStepLabel(steps: Step[]): string | undefined {
   return running ? stepLabel(running) : undefined;
 }
 
+/**
+ * The one line a running turn shows, in its own summary row and in the
+ * sidebar alike: the step running now, or between steps "thinking" before
+ * the first and what the turn has done so far after it.
+ */
+export function runningTurnVerb(
+  steps: Step[],
+  label: string | undefined = turnLabelFromSteps(steps)
+): string {
+  return (
+    activeStepLabel(steps) ??
+    (steps.length === 0 ? "thinking" : (label ?? "working"))
+  );
+}
+
 /** The tool's input as a record, when it is one. */
 export function inputRecord(input: unknown): Record<string, unknown> | null {
   return typeof input === "object" && input !== null && !Array.isArray(input)

@@ -609,6 +609,7 @@ describe("useSSE message handling", () => {
     emit({ type: "snapshot", agents: [] });
 
     expectInvalidatedSet(invalidateQueries, [
+      ["agent-turn-label"],
       ["jobs"],
       ["templates"],
       ["brain"],

@@ -433,6 +433,14 @@ export type StreamEntryEvent = {
   entry: StreamEntry;
 };
 
+/**
+ * `GET /agents/:id/turn`: the agent's newest turn as the feed row that
+ * `stream.entry` would carry, wherever it answers. Null before a first turn.
+ */
+export type AgentTurnResponse = {
+  entry: StreamBlockEntry | null;
+};
+
 /** `GET /streams/:rootId/blocks/:id/thread`. */
 export type StreamThreadResponse = {
   root: Block;

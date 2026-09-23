@@ -81,6 +81,7 @@ export {
 } from "./block-types.js";
 export type {
   Block,
+  AgentTurnResponse,
   BlockActor,
   BlockAuthor,
   BlockAuthorKind,

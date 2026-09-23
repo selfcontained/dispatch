@@ -3758,6 +3758,16 @@ describe("StreamService turn blocks", () => {
       threadId: null,
       toAgentId: null,
     });
+    // The running turn reads back as the row its stream events carry.
+    expect(await service.turnEntry(A)).toBeNull();
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [eventId, JSON.stringify({ blockId })]
+    );
+    expect(await service.turnEntry(A)).toMatchObject({
+      id: blockId,
+      block: { id: blockId, turn: { agentId: A, settled: false } },
+    });
     await pool.query(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
        VALUES ($1, 2, 'assistant', '{"text":"All done.","streaming":false}')`,

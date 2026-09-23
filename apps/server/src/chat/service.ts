@@ -2106,6 +2106,14 @@ export class StreamService {
     return state.done;
   }
 
+  /** The agent's newest turn as its feed row, the one `publishTurnEntry` sends. */
+  async turnEntry(agentId: string): Promise<StreamBlockEntry | null> {
+    const blockId = await loadNewestTurnBlockId(this.store.db, agentId);
+    if (!blockId) return null;
+    const streamId = await this.streamOf(agentId);
+    return loadBlockEntry(this.store.db, streamId, blockId, this.heldCheck());
+  }
+
   private async composeTurnEntry(agentId: string): Promise<void> {
     try {
       const blockId = await loadNewestTurnBlockId(this.store.db, agentId);

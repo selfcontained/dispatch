@@ -106,17 +106,19 @@ function makeChild(overrides: Partial<Agent> = {}): Agent {
 function turnEntry({
   settled,
   running = false,
+  blockId = "blk_turn",
 }: {
   settled: boolean;
   running?: boolean;
+  blockId?: string;
 }): StreamEntry {
   const at = "2026-07-15T12:00:00.000Z";
   return {
     type: "block",
-    id: "blk_turn",
+    id: blockId,
     at,
     block: {
-      id: "blk_turn",
+      id: blockId,
       streamId: AGENT_ID,
       threadId: null,
       author: { kind: "agent", agentId: AGENT_ID },
@@ -561,15 +563,64 @@ describe("AgentCardStatus wiring", () => {
     rerender(wrap(client, <AgentCard {...baseProps(agent)} />));
     expect(activity()?.textContent).toMatch(/bash$/);
 
+    // Between steps it says what the turn's own summary row says.
     act(() => {
       recordTurnLabel(client, turnEntry({ settled: false }));
     });
-    await waitFor(() => expect(activity()).toBeNull());
+    await waitFor(() =>
+      expect(activity()?.textContent).toMatch(/ran pnpm test$/)
+    );
 
     act(() => {
       recordTurnLabel(client, turnEntry({ settled: true }));
     });
     await waitFor(() => expect(activity()).toBeNull());
+  });
+
+  it("keeps the running turn's step when an older turn is published again", async () => {
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    render(wrap(client, <AgentCard {...baseProps(agent)} />));
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+
+    // A reaction on an earlier turn republishes that turn's row.
+    act(() => {
+      recordTurnLabel(
+        client,
+        turnEntry({ settled: true, blockId: "blk_older" })
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(activity()?.textContent).toMatch(/bash$/);
+  });
+
+  it("reads a turn already running when the card mounts", async () => {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return { entry: turnEntry({ settled: false, running: true }) };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    const client = new QueryClient();
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
   });
 });
 
