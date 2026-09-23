@@ -188,6 +188,8 @@ type Waiting = {
   /** The turn that took it, once one has; later jobs for it just wait on it. */
   taken: Promise<void> | null;
   resolveAccepted: () => void;
+  rejectAccepted: (error: Error) => void;
+  cancelled: boolean;
 };
 
 type Live = {
@@ -614,6 +616,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         alone: opts?.alone === true || source?.source !== "chat",
         taken: null,
         resolveAccepted,
+        rejectAccepted,
+        cancelled: false,
       };
       entry.waiting.push(own);
       entry.pending += 1;
@@ -622,17 +626,23 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         .then(async () => {
           // Wait out a turn the engine started before this prompt was queued
           // (a reconnect mid-turn), then run ours and wait for its settle.
-          while (entry.turnOpen && !own.taken) {
-            await new Promise<void>((resolve) =>
-              entry.settleWaiters.push(resolve)
-            );
+          while (!own.taken && !own.cancelled) {
+            while (entry.turnOpen && !own.taken && !own.cancelled) {
+              await new Promise<void>((resolve) =>
+                entry.settleWaiters.push(resolve)
+              );
+            }
+            // An earlier prompt's turn took this one along with it.
+            if (own.cancelled) return;
+            if (own.taken) return own.taken;
+            const batch = takeBatch(entry.waiting);
+            const turn = runTurn(entry, batch);
+            for (const w of batch) w.taken = turn;
+            await turn.catch((error: Error) => {
+              for (const w of batch) w.rejectAccepted(error);
+            });
           }
-          // An earlier prompt's turn took this one along with it.
-          if (own.taken) return own.taken;
-          const batch = takeBatch(entry.waiting);
-          const turn = runTurn(entry, batch);
-          for (const w of batch) w.taken = turn;
-          return turn;
+          if (own.taken) await own.taken;
         })
         .finally(() => {
           entry.pending -= 1;
@@ -641,6 +651,38 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       settled.catch((err: Error) => rejectAccepted(err));
       accepted.catch(() => {});
       return { accepted, settled };
+    },
+
+    controlQueuedPrompt(agentIds, blockId, action) {
+      const targets = agentIds.map((id) => {
+        const entry = live.get(id);
+        const prompt = entry?.waiting.find(
+          (w) =>
+            !w.taken &&
+            !w.cancelled &&
+            w.source?.source === "chat" &&
+            w.source.chatMessageId === blockId
+        );
+        return entry && prompt ? { entry, prompt } : null;
+      });
+      // No awaits between checking and claiming: partially delivered posts
+      // cannot be deleted, nor can a prompt already handed to the engine.
+      if (!targets.length || targets.some((target) => !target)) return false;
+      for (const target of targets) {
+        const { entry, prompt } = target!;
+        entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
+        if (action === "delete") {
+          prompt.cancelled = true;
+          const error = new Error("Queued message deleted.");
+          error.name = "QueuedPromptDeletedError";
+          prompt.rejectAccepted(error);
+        } else {
+          prompt.alone = true;
+          entry.waiting.unshift(prompt);
+          entry.client.cancel();
+        }
+      }
+      return true;
     },
 
     isBusy(agentId) {

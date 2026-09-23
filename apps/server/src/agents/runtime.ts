@@ -72,6 +72,12 @@ export type AgentRuntime = {
      */
     opts?: { alone?: boolean }
   ): { accepted: Promise<void>; settled: Promise<void> };
+  /** Atomically claim an unsent post at every recipient. */
+  controlQueuedPrompt(
+    agentIds: string[],
+    blockId: string,
+    action: "delete" | "send-now"
+  ): boolean;
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;
   /** A turn is actually running, excluding prompts waiting in the queue. */
@@ -125,6 +131,7 @@ export function createInertRuntime(): AgentRuntime {
     prompt() {
       return { accepted: Promise.resolve(), settled: Promise.resolve() };
     },
+    controlQueuedPrompt: () => false,
     isBusy: () => false,
     hasOpenTurn: () => false,
     async cancel() {},

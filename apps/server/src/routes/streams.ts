@@ -257,6 +257,25 @@ export async function registerStreamRoutes(
     }
   );
 
+  for (const action of ["delete", "send-now"] as const) {
+    app.route({
+      method: action === "delete" ? "DELETE" : "POST",
+      url: `/api/v1/streams/:rootId/blocks/:blockId${action === "delete" ? "" : "/send-now"}`,
+      handler: async (request, reply) => {
+        const params = request.params as { rootId: string; blockId: string };
+        try {
+          return await streams.controlQueuedMessage(
+            params.rootId,
+            params.blockId,
+            action
+          );
+        } catch (error) {
+          return sendError(reply, error);
+        }
+      },
+    });
+  }
+
   // Run a failed turn again. The block is the turn's own answer block;
   // the agent is told the turn broke off and continues from there.
   app.post(

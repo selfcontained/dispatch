@@ -567,6 +567,14 @@ export class AgentManager {
     return this.runtime.hostPid(id);
   }
 
+  controlQueuedPrompt(
+    agentIds: string[],
+    blockId: string,
+    action: "delete" | "send-now"
+  ): boolean {
+    return this.runtime.controlQueuedPrompt(agentIds, blockId, action);
+  }
+
   /** Cancel the running turn (Stop). */
   async cancelTurn(id: string): Promise<void> {
     await this.runtime.cancel(id);

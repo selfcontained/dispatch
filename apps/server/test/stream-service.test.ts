@@ -79,6 +79,7 @@ function build(
     failFor?: readonly string[];
     deps?: Partial<StreamServiceDeps>;
     withDelivery?: boolean;
+    controlQueuedPrompt?: StreamDeliveryAdapter["controlQueuedPrompt"];
     commands?: readonly string[];
   } = {}
 ) {
@@ -120,6 +121,7 @@ function build(
             },
             held: () => opts.held ?? queued.size > 0,
             activeTurn: () => opts.held ?? false,
+            controlQueuedPrompt: opts.controlQueuedPrompt,
             commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
@@ -4920,5 +4922,43 @@ describe("StreamService.retryTurn", () => {
     await svc.retryTurn(A, blockId);
     await svc.waitForInFlightDeliveries(1_000);
     expect(await retryOf(turnId)).toBe("open");
+  });
+});
+
+describe("StreamService queued message controls", () => {
+  it("checks stream and delivery state before claiming a prompt", async () => {
+    const control = vi.fn(() => true);
+    const { svc } = build({ controlQueuedPrompt: control });
+    const { block } = await svc.sendUserPost(A, { text: "Already sent" });
+    await settled(svc, block.id);
+    await expect(
+      svc.controlQueuedMessage(B, block.id, "delete")
+    ).rejects.toThrow("not found");
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "delete")
+    ).rejects.toThrow("no longer queued");
+    expect(control).not.toHaveBeenCalled();
+  });
+
+  it("keeps a queued block on a failed claim and deletes only after a successful claim", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const control = vi.fn(() => false);
+    const { svc } = build({ gate, held: true, controlQueuedPrompt: control });
+    const { block } = await svc.sendUserPost(A, { text: "Queued" });
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "delete")
+    ).rejects.toThrow("no longer queued");
+    expect(await svc.store.getById(block.id)).not.toBeNull();
+    control.mockReturnValue(true);
+    await svc.controlQueuedMessage(A, block.id, "send-now");
+    expect(control).toHaveBeenLastCalledWith([A], block.id, "send-now");
+    expect(await svc.store.getById(block.id)).not.toBeNull();
+    await svc.controlQueuedMessage(A, block.id, "delete");
+    expect(await svc.store.getById(block.id)).toBeNull();
+    release();
+    await svc.waitForInFlightDeliveries(1000);
   });
 });
