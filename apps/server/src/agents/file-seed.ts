@@ -11,6 +11,8 @@ export type SeedFileInput = {
   buffer: Buffer;
   source: "text" | "user";
   description?: string | null;
+  /** Read from `buffer` by whoever took the upload; see `detectFileType`. */
+  mimeType: string;
 };
 
 export type SeededFile = {
@@ -75,8 +77,8 @@ export async function seedInitialFiles(
     await writeFile(path.join(filesDir, timestampedFileName), file.buffer);
     const inserted = await pool.query<{ id: number }>(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
-                          metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)
+                          metadata, mime_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
       [
         agentId,
@@ -85,6 +87,7 @@ export async function seedInitialFiles(
         file.buffer.length,
         file.description ?? null,
         fileMetadataFromBuffer(file.buffer),
+        file.mimeType,
       ]
     );
     results.push({

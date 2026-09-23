@@ -5,6 +5,9 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import { fileMedia } from "@dispatch/shared";
+
+import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import {
   getFileById,
@@ -13,10 +16,7 @@ import {
   markSeenFileKeys,
 } from "../files/store.js";
 import {
-  isSupportedFile,
-  isTextFile,
   isValidFileKey,
-  mimeType,
   resolveFilesDir,
   sanitizeUploadedFileName,
   toFileKey,
@@ -129,6 +129,8 @@ export async function registerFileRoutes(
         updatedAt: file.updatedAt,
         url: fileContentUrl(id, file.fileName),
         description: file.description,
+        mimeType: file.mimeType,
+        media: fileMedia(file.mimeType),
         seen: seenKeys.has(
           toFileKey({ name: file.fileName, updatedAt: file.updatedAt })
         ),
@@ -161,6 +163,8 @@ export async function registerFileRoutes(
         updatedAt: row.updatedAt,
         url: fileContentUrl(row.agentId, row.fileName),
         description: row.description,
+        mimeType: row.mimeType,
+        media: fileMedia(row.mimeType),
       },
     };
   });
@@ -168,17 +172,23 @@ export async function registerFileRoutes(
   app.get("/api/v1/agents/:id/files/:file", async (request, reply) => {
     const params = request.params as { id?: string; file?: string };
     const id = params.id ?? "";
-    const agentRow = await deps.pool.query<{
-      id: string;
-      files_dir: string | null;
-    }>("SELECT id, files_dir FROM agents WHERE id = $1", [id]);
-    if (agentRow.rows.length === 0) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-
     const file = params.file ?? "";
     if (!/^[A-Za-z0-9._-]+$/.test(file)) {
       return reply.code(400).send({ error: "Invalid file name." });
+    }
+    const agentRow = await deps.pool.query<{
+      id: string;
+      files_dir: string | null;
+      mime_type: string | null;
+    }>(
+      `SELECT a.id, a.files_dir, f.mime_type
+         FROM agents a
+         LEFT JOIN files f ON f.agent_id = a.id AND f.file_name = $2
+        WHERE a.id = $1`,
+      [id, file]
+    );
+    if (agentRow.rows.length === 0) {
+      return reply.code(404).send({ error: "Agent not found." });
     }
 
     const filePath = path.join(
@@ -190,7 +200,10 @@ export async function registerFileRoutes(
       return reply.code(404).send({ error: "File not found." });
     }
 
-    const contentType = mimeType(file);
+    // The type stored with the file, read from its bytes. Bytes with no row
+    // are served as opaque data, which the sandbox below also covers.
+    const contentType =
+      agentRow.rows[0].mime_type ?? "application/octet-stream";
     reply.header("X-Content-Type-Options", "nosniff");
     // Agent-authored files render in the browser (lightbox iframe or new
     // tab) but must never run same-origin against the Dispatch API. Only
@@ -307,14 +320,13 @@ export async function registerFileRoutes(
     if (!fileName) {
       return reply.code(400).send({ error: "Invalid file name." });
     }
-    if (!isSupportedFile(fileName)) {
-      return reply.code(400).send({
-        error:
-          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).",
-      });
+    const buffer = await data.toBuffer();
+    const type = detectFileType(buffer, fileName);
+    if (!type.ok) {
+      return reply.code(400).send({ error: type.error });
     }
 
-    const isText = isTextFile(fileName);
+    const isText = fileMedia(type.mimeType) === "text";
     const sourceField =
       (data.fields.source as { value?: string } | undefined)?.value ??
       (isText ? "text" : "screenshot");
@@ -331,7 +343,6 @@ export async function registerFileRoutes(
     const filesDir = resolveFilesDir(agent.id, agent.filesDir, deps.filesRoot);
     await mkdir(filesDir, { recursive: true });
 
-    const buffer = await data.toBuffer();
     const timestamp = new Date()
       .toISOString()
       .replace(/[:.]/g, "-")
@@ -345,8 +356,8 @@ export async function registerFileRoutes(
 
     const result = await deps.pool.query<{ id: number; created_at: Date }>(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
-                          metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)
+                          metadata, mime_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, created_at`,
       [
         id,
@@ -355,6 +366,7 @@ export async function registerFileRoutes(
         buffer.length,
         description,
         fileMetadataFromBuffer(buffer),
+        type.mimeType,
       ]
     );
 
@@ -371,6 +383,8 @@ export async function registerFileRoutes(
         fileName: timestampedFileName,
         source,
         sizeBytes: buffer.length,
+        mimeType: type.mimeType,
+        media: fileMedia(type.mimeType),
         createdAt: result.rows[0].created_at.toISOString(),
         url: `/api/v1/agents/${id}/files/${encodeURIComponent(timestampedFileName)}`,
         path: path.join(filesDir, timestampedFileName),

@@ -7,6 +7,7 @@ import {
   parseCreateAgentRequest,
   MAX_STARTUP_FILE_COUNT,
 } from "../src/routes/agent-startup.js";
+import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 describe("parseOptionalBooleanField", () => {
   it("returns undefined for undefined input", () => {
@@ -164,7 +165,7 @@ describe("parseCreateAgentRequest", () => {
           type: "file",
           fieldname: "startupFiles",
           filename: "screenshot.png",
-          toBuffer: async () => Buffer.from("fake-png"),
+          toBuffer: async () => PNG_BYTES,
         };
       },
     });
@@ -188,7 +189,7 @@ describe("parseCreateAgentRequest", () => {
     ).rejects.toThrow("Unexpected file field");
   });
 
-  it("rejects unsupported file types", async () => {
+  it("rejects contents that are no type Dispatch stores", async () => {
     await expect(
       parseCreateAgentRequest({
         body: undefined,
@@ -198,7 +199,7 @@ describe("parseCreateAgentRequest", () => {
             type: "file",
             fieldname: "startupFiles",
             filename: "script.exe",
-            toBuffer: async () => Buffer.from(""),
+            toBuffer: async () => BINARY_BYTES,
           };
         },
       })

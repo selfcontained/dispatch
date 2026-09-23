@@ -1400,8 +1400,8 @@ describe("stream routes with a deliverable engine", () => {
 
   it("stores user attachments and lists them in the injected envelope", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes)
-       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048, 'application/pdf')
        RETURNING id`,
       [agentId]
     );
@@ -1429,6 +1429,7 @@ describe("stream routes with a deliverable engine", () => {
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
+        media: "pdf",
         ownerAgentId: agentId,
       },
       { type: "link", url: "https://example.com/x" },
@@ -1581,8 +1582,8 @@ describe("stream routes with a deliverable engine", () => {
 
   it("answers with attachments: stores them on the reply and lists them in the envelope", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes)
-       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048, 'application/pdf')
        RETURNING id`,
       [agentId]
     );
@@ -1611,6 +1612,7 @@ describe("stream routes with a deliverable engine", () => {
         fileName: "upload-2026-01-01-00-00-00-000.pdf",
         sizeBytes: 2048,
         mimeType: "application/pdf",
+        media: "pdf",
         ownerAgentId: agentId,
       },
       { type: "link", url: "https://example.com/x" },

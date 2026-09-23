@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { fileMedia } from "@dispatch/shared";
 
 import { FileLightbox } from "@/components/app/file-lightbox";
 import { type FileItem } from "@/components/app/types";
@@ -28,6 +29,8 @@ export function DetailTabs({
         url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(item.file_name)}`,
         description: item.description,
         source: item.source as FileItem["source"],
+        mimeType: item.mime_type,
+        media: fileMedia(item.mime_type),
       });
     }
   }, [agentId, files, queryClient]);
@@ -47,7 +50,7 @@ export function DetailTabs({
                   onClick={() => setLightboxFileId(m.id)}
                   className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
-                  {m.source === "screenshot" || m.source === "simulator" ? (
+                  {fileMedia(m.mime_type) === "image" ? (
                     <img
                       src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
                       alt={m.description ?? m.file_name}

@@ -41,6 +41,7 @@ export type HistoryFile = {
   size_bytes: number;
   description: string | null;
   created_at: string;
+  mime_type: string;
 };
 
 export type HistoryFeedbackItem = {

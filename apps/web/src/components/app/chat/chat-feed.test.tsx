@@ -5,6 +5,7 @@ import type {
   ChatTurnStep,
   StreamEntry,
 } from "@dispatch/shared";
+import { fileMedia } from "@dispatch/shared";
 import {
   cleanup,
   fireEvent,
@@ -106,10 +107,14 @@ const REVIEWER_PEER = {
 function fileAttachment(
   fields: Pick<
     Extract<ChatAttachment, { type: "file" }>,
-    "fileId" | "fileName" | "sizeBytes" | "mimeType"
+    "fileId" | "fileName" | "sizeBytes" | "mimeType" | "media"
   >
 ): ChatAttachment {
-  return { type: "file", ...fields };
+  // As the server reads it back: `media` from the file's type.
+  const mimeType =
+    fields.mimeType ??
+    (/\.png$/i.test(fields.fileName) ? "image/png" : undefined);
+  return { type: "file", media: fileMedia(mimeType), ...fields };
 }
 
 function makeCtx(
@@ -1545,7 +1550,7 @@ describe("ChatFeed", () => {
     expect((option as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("renders a file attachment as an image by its MIME type when the name has no extension", () => {
+  it("renders a file attachment by its media, not by its name", () => {
     renderFeed([
       blockEntry(
         block({
@@ -1557,11 +1562,13 @@ describe("ChatFeed", () => {
               sizeBytes: 512,
               mimeType: "image/png",
             }),
+            // A name that looks like an image is still whatever the server
+            // says it is.
             fileAttachment({
               fileId: 10,
-              fileName: "archive",
+              fileName: "archive.png",
               sizeBytes: 512,
-              mimeType: "application/zip",
+              media: "file",
             }),
           ],
         })
@@ -1573,8 +1580,47 @@ describe("ChatFeed", () => {
     );
     expect(image.querySelector("button")).not.toBeNull();
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
-      "archive"
+      "archive.png"
     );
+  });
+
+  it("lays a post's images out as one gallery, capped at six tiles", () => {
+    const image = (fileId: number) =>
+      fileAttachment({
+        fileId,
+        fileName: `shot-${fileId}.png`,
+        sizeBytes: 512,
+        mimeType: "image/png",
+      });
+    const { onOpenFile } = renderFeed([
+      blockEntry(
+        block({
+          id: "shots",
+          attachments: [
+            image(1),
+            fileAttachment({
+              fileId: 99,
+              fileName: "notes.md",
+              sizeBytes: 64,
+            }),
+            ...[2, 3, 4, 5, 6, 7, 8].map(image),
+          ],
+        })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-attachment-image")).toBeNull();
+    const tiles = screen.getAllByTestId("chat-attachment-gallery-tile");
+    // Eight images: five tiles, then a sixth that stands for itself and the rest.
+    expect(tiles).toHaveLength(6);
+    expect(tiles[5]!.textContent).toBe("+3");
+    fireEvent.click(tiles[5]!);
+    expect(onOpenFile).toHaveBeenCalledWith(6, [1, 2, 3, 4, 5, 6, 7, 8]);
+    // The gallery sits where the first image was; the file keeps its card.
+    const gallery = screen.getByTestId("chat-attachment-gallery");
+    const file = screen.getByTestId("chat-attachment-file");
+    expect(
+      gallery.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("serves another agent's image from the agent that owns it, not the page's agent", () => {
@@ -1591,6 +1637,7 @@ describe("ChatFeed", () => {
                 fileName: "kid.png",
                 sizeBytes: 512,
                 mimeType: "image/png",
+                media: "image",
                 ownerAgentId: "agt_2",
               },
             ],

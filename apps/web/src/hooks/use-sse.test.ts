@@ -710,6 +710,8 @@ describe("useSSE message handling", () => {
       updatedAt,
       size: 1,
       url: `/files/${name}`,
+      mimeType: "image/png",
+      media: "image",
     });
     queryClient.setQueryData<FileItem[]>(
       ["files", "a1"],

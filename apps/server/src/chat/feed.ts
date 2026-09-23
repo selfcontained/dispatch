@@ -69,9 +69,9 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
  * are read through the thread route.
  *
  * The page is materialized first, then its attachments are expanded once,
- * joined to `files` for live image dimensions, and re-aggregated — one
- * function scan and a hash join for the planner to price instead of a
- * per-row lookup it would estimate at a hundred index scans.
+ * joined to `files` for each file's live type and image dimensions, and
+ * re-aggregated — one function scan and a hash join for the planner to price
+ * instead of a per-row lookup it would estimate at a hundred index scans.
  */
 async function listBlockEntries(
   db: Queryable,
@@ -103,15 +103,19 @@ async function listBlockEntries(
         LIMIT $${params.length}
      ), expanded AS (
        SELECT p.id AS block_id, t.ord,
-              CASE
-                WHEN t.a->>'type' = 'file'
-                     AND md.metadata ? 'width'
-                     AND md.metadata ? 'height'
-                THEN t.a || jsonb_build_object(
-                              'width', md.metadata->'width',
-                              'height', md.metadata->'height')
-                ELSE t.a - 'width' - 'height'
-              END AS attachment
+              (t.a - 'width' - 'height')
+                || CASE
+                     WHEN md.id IS NOT NULL
+                     THEN jsonb_build_object('mimeType', md.mime_type)
+                     ELSE '{}'::jsonb
+                   END
+                || CASE
+                     WHEN md.metadata ? 'width' AND md.metadata ? 'height'
+                     THEN jsonb_build_object(
+                            'width', md.metadata->'width',
+                            'height', md.metadata->'height')
+                     ELSE '{}'::jsonb
+                   END AS attachment
          FROM page p
          CROSS JOIN LATERAL
            jsonb_array_elements(p.attachments) WITH ORDINALITY AS t(a, ord)

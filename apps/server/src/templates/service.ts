@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
@@ -42,13 +43,7 @@ export type LaunchTemplateInput = {
   /** Per-launch override. Undefined keeps the template's saved model; null
    * forces the CLI default. */
   model?: string | null;
-  startupFiles?: Array<{
-    fileName: string;
-    originalName?: string;
-    buffer: Buffer;
-    source: "text" | "user";
-    description?: string | null;
-  }>;
+  startupFiles?: SeedFileInput[];
   /** Raw startup links, recorded as link attachments on the launch post. */
   startupLinks?: string[];
 };

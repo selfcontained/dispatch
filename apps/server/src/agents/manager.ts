@@ -33,7 +33,11 @@ import {
 import { AgentError } from "./errors.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { type SeededFile, seedInitialFiles } from "./file-seed.js";
+import {
+  type SeedFileInput,
+  type SeededFile,
+  seedInitialFiles,
+} from "./file-seed.js";
 import {
   RECONNECT_WARNING,
   type Reconciler,
@@ -154,13 +158,7 @@ type CreateAgentInput = {
     prompt?: string;
     links?: string[];
   };
-  initialFiles?: Array<{
-    fileName: string;
-    originalName?: string;
-    buffer: Buffer;
-    source: "text" | "user";
-    description?: string | null;
-  }>;
+  initialFiles?: SeedFileInput[];
   templateId?: string;
 };
 

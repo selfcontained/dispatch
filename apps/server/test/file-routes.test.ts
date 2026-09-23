@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 const filesRoot = path.join(os.tmpdir(), `file-routes-test-${process.pid}`);
@@ -47,7 +48,7 @@ async function createAgent(
 function buildMultipartPayload(
   fields: Record<string, string>,
   file?: { fieldname: string; filename: string; content: Buffer }
-): { body: string; boundary: string } {
+): { body: Buffer; boundary: string } {
   const boundary = "----dispatch-files-test-boundary";
   const parts: string[] = [];
   for (const [name, value] of Object.entries(fields)) {
@@ -58,20 +59,43 @@ function buildMultipartPayload(
       value
     );
   }
+  const chunks: Buffer[] = [Buffer.from(parts.map((p) => p + "\r\n").join(""))];
   if (file) {
-    parts.push(
-      `--${boundary}`,
-      `Content-Disposition: form-data; name="${file.fieldname}"; filename="${file.filename}"`,
-      "Content-Type: application/octet-stream",
-      "",
-      file.content.toString("binary")
+    chunks.push(
+      Buffer.from(
+        [
+          `--${boundary}`,
+          `Content-Disposition: form-data; name="${file.fieldname}"; filename="${file.filename}"`,
+          "Content-Type: application/octet-stream",
+          "",
+          "",
+        ].join("\r\n")
+      ),
+      file.content,
+      Buffer.from("\r\n")
     );
   }
-  parts.push(`--${boundary}--`, "");
-  return { body: parts.join("\r\n"), boundary };
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  return { body: Buffer.concat(chunks), boundary };
 }
 
 let agentId: string;
+
+/** A file on disk and its row, typed as the upload path would type it. */
+async function storeFile(
+  fileName: string,
+  content: Buffer | string,
+  mimeType: string
+): Promise<void> {
+  const agentFilesDir = path.join(filesRoot, agentId);
+  await mkdir(agentFilesDir, { recursive: true });
+  await writeFile(path.join(agentFilesDir, fileName), content);
+  await ctx.pool.query(
+    `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+     VALUES ($1, $2, 'screenshot', $3, $4)`,
+    [agentId, fileName, Buffer.byteLength(content), mimeType]
+  );
+}
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM files_seen");
@@ -103,8 +127,8 @@ describe("GET /api/v1/agents/:id/files (list)", () => {
 
   it("returns files with metadata after seeding", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image')
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, description, mime_type)
+       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image', 'image/png')
        RETURNING id`,
       [agentId]
     );
@@ -124,8 +148,8 @@ describe("GET /api/v1/agents/:id/files (list)", () => {
 
   it("reflects seen status after marking keys", async () => {
     await ctx.pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
-       VALUES ($1, 'img.png', 'screenshot', 100, '2026-01-01T00:00:00Z')`,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, mime_type)
+       VALUES ($1, 'img.png', 'screenshot', 100, '2026-01-01T00:00:00Z', 'image/png')`,
       [agentId]
     );
 
@@ -155,8 +179,8 @@ describe("GET /api/v1/agents/:id/files (list)", () => {
 describe("GET /api/v1/files/:fileId (metadata)", () => {
   it("resolves metadata and content URL by ID without an owner", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, 'by-id.png', 'screenshot', 512, 'resolved by id')
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, description, mime_type)
+       VALUES ($1, 'by-id.png', 'screenshot', 512, 'resolved by id', 'image/png')
        RETURNING id`,
       [agentId]
     );
@@ -214,11 +238,9 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("serves an existing file with correct mime type", async () => {
-    const agentFilesDir = path.join(filesRoot, agentId);
-    await mkdir(agentFilesDir, { recursive: true });
-    const content = Buffer.from("fake-png-data");
-    await writeFile(path.join(agentFilesDir, "test-image.png"), content);
+  it("serves an existing file with its stored mime type", async () => {
+    const content = PNG_BYTES;
+    await storeFile("test-image.png", content, "image/png");
 
     const res = await authedInject(
       "GET",
@@ -230,10 +252,7 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
   });
 
   it("serves a JSON file with application/json mime type", async () => {
-    const agentFilesDir = path.join(filesRoot, agentId);
-    await mkdir(agentFilesDir, { recursive: true });
-    const content = Buffer.from('{"hello":"world"}');
-    await writeFile(path.join(agentFilesDir, "data.json"), content);
+    await storeFile("data.json", '{"hello":"world"}', "application/json");
 
     const res = await authedInject(
       "GET",
@@ -244,9 +263,7 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
   });
 
   it("serves HTML sandboxed so it cannot run same-origin", async () => {
-    const agentFilesDir = path.join(filesRoot, agentId);
-    await mkdir(agentFilesDir, { recursive: true });
-    await writeFile(path.join(agentFilesDir, "report.html"), "<h1>hello</h1>");
+    await storeFile("report.html", "<h1>hello</h1>", "text/html");
 
     const res = await authedInject(
       "GET",
@@ -261,11 +278,10 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
   });
 
   it("sandboxes XML too — browsers render it actively (XHTML/XSLT)", async () => {
-    const agentFilesDir = path.join(filesRoot, agentId);
-    await mkdir(agentFilesDir, { recursive: true });
-    await writeFile(
-      path.join(agentFilesDir, "evil.xml"),
-      '<html xmlns="http://www.w3.org/1999/xhtml"><script>fetch("/api")</script></html>'
+    await storeFile(
+      "evil.xml",
+      '<html xmlns="http://www.w3.org/1999/xhtml"><script>fetch("/api")</script></html>',
+      "application/xml"
     );
 
     const res = await authedInject(
@@ -280,9 +296,7 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
   });
 
   it("omits the CSP sandbox header for passive types", async () => {
-    const agentFilesDir = path.join(filesRoot, agentId);
-    await mkdir(agentFilesDir, { recursive: true });
-    await writeFile(path.join(agentFilesDir, "shot.png"), "fake-png");
+    await storeFile("shot.png", PNG_BYTES, "image/png");
 
     const res = await authedInject(
       "GET",
@@ -291,6 +305,28 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-security-policy"]).toBeUndefined();
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("serves by the stored type, not the name, and sandboxes bytes with no row", async () => {
+    // Named like an image, stored as text: the row wins.
+    await storeFile("looks.png", "plain words", "text/plain");
+    const typed = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/looks.png`
+    );
+    expect(typed.headers["content-type"]).toContain("text/plain");
+
+    const agentFilesDir = path.join(filesRoot, agentId);
+    await writeFile(path.join(agentFilesDir, "stray.png"), PNG_BYTES);
+    const stray = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/stray.png`
+    );
+    expect(stray.statusCode).toBe(200);
+    expect(stray.headers["content-type"]).toContain("application/octet-stream");
+    expect(stray.headers["content-security-policy"]).toBe(
+      "sandbox allow-scripts allow-popups"
+    );
   });
 
   it("advertises Accept-Ranges and Content-Length on a plain 200", async () => {
@@ -466,7 +502,7 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
       {
         fieldname: "file",
         filename: "malware.exe",
-        content: Buffer.from("evil"),
+        content: BINARY_BYTES,
       }
     );
     const res = await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
@@ -479,13 +515,32 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
     expect(res.json().error).toContain("Unsupported file type");
   });
 
+  it("returns 400 for a name that promises a type its contents are not", async () => {
+    const { body, boundary } = buildMultipartPayload(
+      {},
+      {
+        fieldname: "file",
+        filename: "capture.png",
+        content: Buffer.from("not an image"),
+      }
+    );
+    const res = await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
+      payload: body,
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("named as image/png");
+  });
+
   it("uploads an image and returns metadata", async () => {
     const { body, boundary } = buildMultipartPayload(
       { source: "screenshot", description: "test upload" },
       {
         fieldname: "file",
         filename: "capture.png",
-        content: Buffer.from("fake-png-bytes"),
+        content: PNG_BYTES,
       }
     );
     const res = await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
@@ -498,7 +553,9 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
     const { file } = res.json();
     expect(file.fileName).toMatch(/^capture-.*\.png$/);
     expect(file.source).toBe("screenshot");
-    expect(file.sizeBytes).toBe(Buffer.from("fake-png-bytes").length);
+    expect(file.sizeBytes).toBe(PNG_BYTES.length);
+    expect(file.mimeType).toBe("image/png");
+    expect(file.media).toBe("image");
     expect(file.url).toContain(agentId);
   });
 
@@ -527,7 +584,7 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
       {
         fieldname: "file",
         filename: "img.png",
-        content: Buffer.from("fake"),
+        content: PNG_BYTES,
       }
     );
     const res = await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
@@ -546,7 +603,7 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
       {
         fieldname: "file",
         filename: "trace.png",
-        content: Buffer.from("data"),
+        content: PNG_BYTES,
       }
     );
     await authedInject("POST", `/api/v1/agents/${agentId}/files`, {
@@ -559,6 +616,8 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
     const list = await authedInject("GET", `/api/v1/agents/${agentId}/files`);
     expect(list.json().files).toHaveLength(1);
     expect(list.json().files[0].name).toMatch(/^trace-.*\.png$/);
+    expect(list.json().files[0].mimeType).toBe("image/png");
+    expect(list.json().files[0].media).toBe("image");
   });
 });
 
@@ -606,8 +665,8 @@ describe("POST /api/v1/agents/:id/files/seen (mark seen)", () => {
 
   it("marks keys as seen and reflects in list endpoint", async () => {
     await ctx.pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
-       VALUES ($1, 'photo.png', 'screenshot', 50, '2026-02-01T00:00:00Z')`,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, mime_type)
+       VALUES ($1, 'photo.png', 'screenshot', 50, '2026-02-01T00:00:00Z', 'image/png')`,
       [agentId]
     );
 

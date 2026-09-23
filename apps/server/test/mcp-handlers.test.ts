@@ -56,9 +56,8 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
 }));
 
-vi.mock("../src/shared/files.js", () => ({
-  isSupportedFile: vi.fn(() => true),
-  isTextFile: vi.fn(() => false),
+vi.mock("../src/shared/files.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/shared/files.js")>()),
   resolveFilesDir: vi.fn(() => "/tmp/files/agt_test1"),
 }));
 
@@ -80,11 +79,9 @@ import {
 } from "../src/personas/loader.js";
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
-import {
-  isSupportedFile,
-  isTextFile,
-  resolveFilesDir,
-} from "../src/shared/files.js";
+import { resolveFilesDir } from "../src/shared/files.js";
+import { readFile } from "node:fs/promises";
+import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -2060,8 +2057,8 @@ describe("createMcpHandlers", () => {
   });
 
   describe("shareFile", () => {
-    it("rejects unsupported file types", async () => {
-      vi.mocked(isSupportedFile).mockReturnValue(false);
+    it("rejects contents that are no type Dispatch stores", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(BINARY_BYTES);
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/file.exe",
@@ -2080,8 +2077,18 @@ describe("createMcpHandlers", () => {
       ).rejects.toThrow("Agent not found.");
     });
 
-    it("creates new file entry and publishes event", async () => {
-      vi.mocked(isSupportedFile).mockReturnValue(true);
+    it("rejects a name that promises a type its contents are not", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("not an image"));
+      await expect(
+        handlers.shareFile("agt_test1", {
+          filePath: "/tmp/shot.png",
+          description: "screenshot",
+        })
+      ).rejects.toThrow("named as image/png");
+    });
+
+    it("creates new file entry, typed from its bytes, and publishes event", async () => {
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "a screenshot",
@@ -2090,14 +2097,17 @@ describe("createMcpHandlers", () => {
       expect(result).toHaveProperty("sizeBytes");
       expect(result.source).toBe("screenshot");
       expect(result.description).toBe("a screenshot");
+      expect(deps.pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("mime_type"),
+        expect.arrayContaining(["image/png"])
+      );
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "files.changed", agentId: "agt_test1" })
       );
     });
 
     it("uses text source for text files", async () => {
-      vi.mocked(isSupportedFile).mockReturnValue(true);
-      vi.mocked(isTextFile).mockReturnValue(true);
+      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("# Notes"));
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/notes.md",
         description: "notes",
@@ -2106,7 +2116,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("updates existing file when update option is provided", async () => {
-      vi.mocked(isSupportedFile).mockReturnValue(true);
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
@@ -2123,7 +2133,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when update target not found", async () => {
-      vi.mocked(isSupportedFile).mockReturnValue(true);
+      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
         handlers.shareFile("agt_test1", {

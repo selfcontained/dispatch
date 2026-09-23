@@ -41,7 +41,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
-import { mimeType, resolveFilesDir } from "../shared/files.js";
+import { resolveFilesDir } from "../shared/files.js";
 import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
   buildPostEnvelope,
@@ -2871,7 +2871,7 @@ export class StreamService {
     for (const attachment of attachments) {
       switch (attachment.type) {
         case "file": {
-          const mime = attachment.mimeType ?? mimeType(attachment.fileName);
+          const mime = attachment.mimeType ?? "application/octet-stream";
           lines.push(
             `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
           );
@@ -2916,8 +2916,9 @@ export class StreamService {
       id: number;
       file_name: string;
       size_bytes: number;
+      mime_type: string;
     }>(
-      `SELECT id, file_name, size_bytes FROM files
+      `SELECT id, file_name, size_bytes, mime_type FROM files
         WHERE agent_id = $1
           AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text ELSE id = $3::int END`,
       [agentId, fileName ?? null, fileId ?? null]
@@ -2933,7 +2934,7 @@ export class StreamService {
       fileId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
-      mimeType: mimeType(match.file_name),
+      mimeType: match.mime_type,
       ownerAgentId: agentId,
     };
   }

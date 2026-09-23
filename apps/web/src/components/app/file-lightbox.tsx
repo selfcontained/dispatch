@@ -8,11 +8,7 @@ import {
   MarkdownViewer,
   TextFileViewer,
 } from "@/components/app/file-lightbox-text";
-import {
-  fileExtension,
-  isTextFile,
-  stripTimestamp,
-} from "@/components/app/file-utils";
+import { stripTimestamp } from "@/components/app/file-utils";
 import { Button } from "@/components/ui/button";
 import { type FileItem } from "@/components/app/types";
 import { fileItemQueryKey } from "@/hooks/use-files";
@@ -28,14 +24,6 @@ type FileLightboxProps = {
 async function fetchFileItem(fileId: number): Promise<FileItem> {
   const payload = await api<{ file: FileItem }>(`/api/v1/files/${fileId}`);
   return payload.file;
-}
-
-function isMarkdownFile(name: string): boolean {
-  return fileExtension(name) === ".md";
-}
-
-function isHtmlFile(name: string): boolean {
-  return fileExtension(name) === ".html";
 }
 
 function isNotFoundError(error: unknown): boolean {
@@ -126,12 +114,13 @@ export function FileLightbox({
   const src = file ? `${file.url}?t=${encodeURIComponent(file.updatedAt)}` : "";
   const displayName = file ? stripTimestamp(file.name) : "";
   const caption = file ? file.description || displayName : "";
-  const isText = file ? file.source === "text" || isTextFile(file.name) : false;
-  const isMarkdown = file ? isMarkdownFile(file.name) : false;
-  const isHtml = file ? isHtmlFile(file.name) : false;
-  const isDocument = file ? /\.pdf$/i.test(file.name) : false;
-  const isVideo = file ? /\.mp4/i.test(src) : false;
-  const isImage = file ? !isDocument && !isText && !isVideo : true;
+  const isText = file?.media === "text";
+  const isMarkdown = file?.mimeType === "text/markdown";
+  const isHtml = file?.mimeType === "text/html";
+  const isDocument = file?.media === "pdf";
+  const isVideo = file?.media === "video";
+  // Before the file loads the viewer is dark, as it is for an image.
+  const isImage = file ? file.media === "image" : true;
   const sizeLabel = file
     ? file.size >= 1024 * 1024
       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`

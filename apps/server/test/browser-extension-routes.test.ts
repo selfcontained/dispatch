@@ -827,11 +827,11 @@ describe("browser extension scoped API", () => {
       await writeFile(path.join(agentDir, name), Buffer.from("x"));
     }
     await ctx.pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, mime_type)
        VALUES
-         ('agt_running', $1, 'screenshot', 1, now() - interval '91 days'),
-         ('agt_running', $2, 'screenshot', 1, now()),
-         ('agt_running', $3, 'screenshot', 1, now() - interval '91 days')`,
+         ('agt_running', $1, 'screenshot', 1, now() - interval '91 days', 'image/png'),
+         ('agt_running', $2, 'screenshot', 1, now(), 'image/png'),
+         ('agt_running', $3, 'screenshot', 1, now() - interval '91 days', 'image/png')`,
       [staleName, freshName, uploadName]
     );
 

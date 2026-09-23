@@ -6,6 +6,9 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
+import { fileMedia } from "@dispatch/shared";
+
+import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
@@ -32,11 +35,7 @@ import {
   type AgentRelation,
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
-import {
-  isSupportedFile,
-  isTextFile,
-  resolveFilesDir,
-} from "../shared/files.js";
+import { resolveFilesDir } from "../shared/files.js";
 import type { ListedFileItem } from "../shared/mcp/agent-lifecycle-tools.js";
 import type {
   LaunchAgentInput,
@@ -577,13 +576,15 @@ async function handleShareFile(
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
-  if (!isSupportedFile(opts.filePath)) {
-    throw new Error(
-      "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
-    );
-  }
+  const buffer = await readFile(opts.filePath);
+  // Typed against the name it will be stored and shown under.
+  const type = detectFileType(
+    buffer,
+    opts.update ?? opts.name ?? path.basename(opts.filePath)
+  );
+  if (!type.ok) throw new Error(type.error);
 
-  const isText = isTextFile(opts.filePath);
+  const isText = fileMedia(type.mimeType) === "text";
   const validSources = ["screenshot", "stream", "simulator", "text"];
   const source = isText
     ? "text"
@@ -591,7 +592,6 @@ async function handleShareFile(
       ? opts.source
       : "screenshot";
 
-  const buffer = await readFile(opts.filePath);
   const filesDir = resolveFilesDir(agentId, agent.filesDir, deps.filesRoot);
   await mkdir(filesDir, { recursive: true });
 
@@ -624,9 +624,16 @@ async function handleShareFile(
     await writeFile(filePath, buffer);
     await deps.pool.query(
       `UPDATE files SET size_bytes = $1, description = $2, updated_at = NOW(),
-              metadata = $5
+              metadata = $5, mime_type = $6
        WHERE agent_id = $3 AND file_name = $4`,
-      [buffer.length, opts.description, agentId, fileName, metadata]
+      [
+        buffer.length,
+        opts.description,
+        agentId,
+        fileName,
+        metadata,
+        type.mimeType,
+      ]
     );
 
     deps.publishUiEvent({ type: "files.changed", agentId });
@@ -658,9 +665,17 @@ async function handleShareFile(
   await writeFile(path.join(filesDir, fileName), buffer);
   await deps.pool.query(
     `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
-                        metadata)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [agentId, fileName, source, buffer.length, opts.description, metadata]
+                        metadata, mime_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      agentId,
+      fileName,
+      source,
+      buffer.length,
+      opts.description,
+      metadata,
+      type.mimeType,
+    ]
   );
 
   deps.publishUiEvent({ type: "files.changed", agentId });

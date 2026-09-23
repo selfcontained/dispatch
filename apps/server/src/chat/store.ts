@@ -12,6 +12,7 @@ import type {
   ChatAttachment,
   ChatUnreadSummary,
 } from "@dispatch/shared";
+import { fileMedia } from "@dispatch/shared";
 
 /** A pool or a checked-out client — lets one store run inside a transaction. */
 export type Queryable = {
@@ -191,6 +192,16 @@ export function shownIdsOf(block: Pick<Block, "state">): string[] {
     : [];
 }
 
+/**
+ * A file attachment with its `media`, derived from its MIME type rather than
+ * stored beside it, so the two cannot disagree. The feed query refreshes
+ * `mimeType` from the file's row before this runs.
+ */
+function withMedia(attachment: ChatAttachment): ChatAttachment {
+  if (attachment.type !== "file") return attachment;
+  return { ...attachment, media: fileMedia(attachment.mimeType) };
+}
+
 export function toBlock(row: BlockRow): Block {
   const base = {
     id: row.id,
@@ -200,7 +211,9 @@ export function toBlock(row: BlockRow): Block {
     threadId: row.thread_id,
     replyTo: row.reply_to,
     text: row.text,
-    attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    attachments: Array.isArray(row.attachments)
+      ? row.attachments.map(withMedia)
+      : [],
     delivered: row.delivered,
     ...(row.to_agent_id ? { delivery: deliveryOf(row) } : {}),
     readAt: row.read_at ? row.read_at.toISOString() : null,

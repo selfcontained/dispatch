@@ -518,6 +518,7 @@ describe("AgentManager", () => {
               originalName: "brief.md",
               buffer: Buffer.from("# brief"),
               source: "text",
+              mimeType: "text/markdown",
             },
           ],
         });
@@ -671,6 +672,7 @@ describe("AgentManager", () => {
               originalName: "brief.md",
               buffer: Buffer.from("# brief"),
               source: "text",
+              mimeType: "text/markdown",
             },
           ],
         });
@@ -1832,7 +1834,7 @@ describe("AgentManager", () => {
 
       // Insert a file row directly
       await pool.query(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes) VALUES ($1, 'test.png', 'screenshot', 100)`,
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type) VALUES ($1, 'test.png', 'screenshot', 100, 'image/png')`,
         [agent.id]
       );
       await pool.query(
@@ -2258,8 +2260,8 @@ describe("AgentManager", () => {
       });
 
       await pool.query(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
-         VALUES ($1, 'doc.pdf', 'upload', 4096, 'Product brief')`,
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, description, mime_type)
+         VALUES ($1, 'doc.pdf', 'upload', 4096, 'Product brief', 'application/pdf')`,
         [agent.id]
       );
 
@@ -2295,8 +2297,8 @@ describe("AgentManager", () => {
         ]);
 
         await pool.query(
-          `INSERT INTO files (agent_id, file_name, source, size_bytes)
-           VALUES ($1, 'screen.png', 'screenshot', 256)`,
+          `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+           VALUES ($1, 'screen.png', 'screenshot', 256, 'image/png')`,
           [agent.id]
         );
 

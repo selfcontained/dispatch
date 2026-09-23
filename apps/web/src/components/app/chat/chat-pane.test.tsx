@@ -744,7 +744,13 @@ describe("ChatPane", () => {
           text: "",
           body: FILE_BODY,
           attachments: [
-            { type: "file", fileId: 1, fileName: "shot.png", sizeBytes: 10 },
+            {
+              type: "file",
+              fileId: 1,
+              fileName: "shot.png",
+              sizeBytes: 10,
+              media: "image",
+            },
           ],
           createdAt: "2026-09-02T10:00:01.000Z",
         })

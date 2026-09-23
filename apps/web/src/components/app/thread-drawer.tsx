@@ -30,7 +30,7 @@ export type ThreadDrawerProps = {
   agentNameById?: (agentId: string) => string;
   /** The page's agent: the thread pages post as it and read its state. */
   agent?: Agent | null;
-  openLightbox: (fileId: number) => void;
+  openLightbox: (fileId: number, order?: number[]) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;
   isMobile?: boolean;

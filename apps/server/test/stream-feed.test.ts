@@ -403,8 +403,8 @@ describe("composeStreamFeed", () => {
     // live file row is the only source, read when the page is composed.
     async function postWithAttachment(fileName: string): Promise<number> {
       const inserted = await pool.query<{ id: number }>(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata)
-         VALUES ($1, $2, 'screenshot', 9, $3, '{"width":120,"height":90}'::jsonb)
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata, mime_type)
+         VALUES ($1, $2, 'screenshot', 9, $3, '{"width":120,"height":90}'::jsonb, 'image/png')
          RETURNING id`,
         [A, fileName, at(60)]
       );
@@ -451,8 +451,8 @@ describe("composeStreamFeed", () => {
 
     it("overrides a stale pair that somehow reached the blob", async () => {
       const inserted = await pool.query<{ id: number }>(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata)
-         VALUES ($1, 'stale.png', 'screenshot', 9, $2, '{"width":90,"height":120}'::jsonb)
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, metadata, mime_type)
+         VALUES ($1, 'stale.png', 'screenshot', 9, $2, '{"width":90,"height":120}'::jsonb, 'image/png')
          RETURNING id`,
         [A, at(60)]
       );
@@ -476,8 +476,8 @@ describe("composeStreamFeed", () => {
 
     it("strips a stale pair when the row has no dimensions", async () => {
       const inserted = await pool.query<{ id: number }>(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at)
-         VALUES ($1, 'unmeasured.png', 'screenshot', 9, $2) RETURNING id`,
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, created_at, mime_type)
+         VALUES ($1, 'unmeasured.png', 'screenshot', 9, $2, 'image/png') RETURNING id`,
         [A, at(60)]
       );
       await store.insert({

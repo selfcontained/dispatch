@@ -63,8 +63,8 @@ async function seedAgent(
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "shot.png"), "png");
   await pool.query(
-    `INSERT INTO files (agent_id, file_name, source, size_bytes)
-     VALUES ($1, 'shot.png', 'screenshot', 3)`,
+    `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+     VALUES ($1, 'shot.png', 'screenshot', 3, 'image/png')`,
     [id]
   );
 }

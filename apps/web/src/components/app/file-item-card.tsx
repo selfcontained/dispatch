@@ -2,11 +2,7 @@ import { FileText, MonitorPlay, User } from "lucide-react";
 
 import { type FileItem } from "@/components/app/types";
 import { FileActions } from "@/components/app/file-lightbox";
-import {
-  fileExtension,
-  isTextFile,
-  stripTimestamp,
-} from "@/components/app/file-utils";
+import { fileExtension, stripTimestamp } from "@/components/app/file-utils";
 import { cn } from "@/lib/utils";
 
 export function FileItemCard({
@@ -21,8 +17,8 @@ export function FileItemCard({
   openLightbox: (fileId: number) => void;
 }): JSX.Element {
   const isStream = file.source === "stream";
-  const isText = file.source === "text" || isTextFile(file.name);
-  const isDocument = /\.pdf$/i.test(file.name);
+  const isText = file.media === "text";
+  const isDocument = file.media === "pdf";
   const isUser = file.source === "user";
   const unseen = !file.seen;
 
@@ -77,7 +73,7 @@ export function FileItemCard({
             </span>
           </div>
         </button>
-      ) : /\.mp4$/i.test(file.name) ? (
+      ) : file.media === "video" ? (
         <div
           className={cn(
             "block w-full overflow-hidden border-2 bg-black/60",

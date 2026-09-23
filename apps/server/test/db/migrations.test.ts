@@ -110,7 +110,7 @@ describe("migrations", () => {
       `INSERT INTO agents (id, name, status, cwd) VALUES ('test-cascade', 'Cascade Test', 'stopped', '/tmp')`
     );
     await pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes) VALUES ('test-cascade', 'test.png', 'screenshot', 1024)`
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type) VALUES ('test-cascade', 'test.png', 'screenshot', 1024, 'image/png')`
     );
     await pool.query(
       `INSERT INTO files_seen (agent_id, file_key) VALUES ('test-cascade', 'test.png')`

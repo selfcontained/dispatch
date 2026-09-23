@@ -35,6 +35,7 @@ function makeFile(overrides: Partial<HistoryFile> = {}): HistoryFile {
     size_bytes: 2048,
     description: "A screenshot",
     created_at: "2026-07-20T10:00:00.000Z",
+    mime_type: "image/png",
     ...overrides,
   };
 }
@@ -78,7 +79,7 @@ describe("DetailTabs", () => {
     expect(screen.getByText("No files captured.")).toBeTruthy();
   });
 
-  it("renders screenshot tiles as images with encoded file URLs and text tiles as placeholders", () => {
+  it("renders image files as images with encoded file URLs and others as placeholders", () => {
     renderTabs({
       files: [
         makeFile({
@@ -90,6 +91,7 @@ describe("DetailTabs", () => {
           id: 2,
           file_name: "capture-2026-07-20-10-00-00-222.mp4",
           source: "stream",
+          mime_type: "video/mp4",
           description: null,
         }),
         makeFile({
@@ -107,9 +109,9 @@ describe("DetailTabs", () => {
     );
     // The tile caption comes from the description, and only when present.
     expect(screen.getByText("Login page")).toBeTruthy();
-    // Non-image sources render a source placeholder instead of an <img>.
+    // A non-image file renders its source as a placeholder, not an <img>.
     expect(screen.getByText("stream")).toBeTruthy();
-    // Simulator captures are the other half of the image guard.
+    // What decides is the stored type, whatever the source.
     expect(screen.getByAltText("Simulator frame")).toBeTruthy();
   });
 

@@ -22,6 +22,8 @@ function file(overrides: Partial<FileItem> = {}): FileItem {
     size: 100,
     updatedAt: "2026-08-31T00:00:00Z",
     url: "/api/v1/agents/agt_test/files/report.md",
+    mimeType: "text/markdown",
+    media: "text",
     ...overrides,
   };
 }
@@ -120,6 +122,34 @@ describe("useFiles lightbox identity", () => {
     // (still "c.md" last, index 2) is unchanged.
     expect(result.current.lightboxFileIds.indexOf(3)).toBe(2);
     expect(result.current.lightboxFileId).toBe(3);
+  });
+
+  it("walks a caller-given order, then drops it when the lightbox closes", async () => {
+    const files: FileItem[] = [
+      file({ id: 1, name: "a.png" }),
+      file({ id: 2, name: "b.png" }),
+      file({ id: 3, name: "c.png" }),
+      file({ id: 4, name: "d.png" }),
+    ];
+    apiMock.mockImplementation(async () => ({ files }));
+
+    const { result } = renderHook(() => useFiles(AGENT_ID, true), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.files).toHaveLength(4));
+
+    // One post's images, in the post's order.
+    act(() => result.current.openLightbox(3, [3, 1]));
+    expect(result.current.lightboxFileIds).toEqual([3, 1]);
+    act(() => result.current.setLightboxFileId(1));
+    expect(result.current.lightboxFileId).toBe(1);
+    // A file outside the post is not a step.
+    act(() => result.current.setLightboxFileId(2));
+    expect(result.current.lightboxFileId).toBe(1);
+
+    act(() => result.current.setLightboxFileId(null));
+    act(() => result.current.openLightbox(2));
+    expect(result.current.lightboxFileIds).toHaveLength(4);
   });
 
   it("appends a newly-arrived file at the end instead of reordering an open session", async () => {
