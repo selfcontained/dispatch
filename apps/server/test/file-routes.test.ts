@@ -531,7 +531,7 @@ describe("POST /api/v1/agents/:id/files (upload)", () => {
       },
     });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("named as image/png");
+    expect(res.json().error).toContain("capture.png isn't a PNG image");
   });
 
   it("uploads an image and returns metadata", async () => {

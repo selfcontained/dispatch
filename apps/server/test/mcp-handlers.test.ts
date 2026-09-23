@@ -2084,7 +2084,7 @@ describe("createMcpHandlers", () => {
           filePath: "/tmp/shot.png",
           description: "screenshot",
         })
-      ).rejects.toThrow("named as image/png");
+      ).rejects.toThrow("shot.png isn't a PNG image");
     });
 
     it("creates new file entry, typed from its bytes, and publishes event", async () => {

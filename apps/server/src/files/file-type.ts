@@ -29,8 +29,18 @@ export type DetectedFileType =
   | { ok: true; mimeType: string; media: FileMedia }
   | { ok: false; error: string };
 
-const UNSUPPORTED =
-  "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).";
+/** How a binary type reads in a message to a person. */
+const DESCRIBED: Readonly<Record<string, string>> = {
+  "image/png": "a PNG image",
+  "image/jpeg": "a JPEG image",
+  "image/gif": "a GIF image",
+  "image/webp": "a WebP image",
+  "application/pdf": "a PDF",
+  "video/mp4": "an MP4 video",
+};
+
+const described = (mimeType: string): string =>
+  DESCRIBED[mimeType] ?? "that type";
 
 /** ISO base media brands that are MP4 video, not HEIC, AVIF or QuickTime. */
 const MP4_BRANDS = new Set([
@@ -122,7 +132,7 @@ export function detectFileType(
     if (namedBinary && named !== sniffed) {
       return {
         ok: false,
-        error: `"${fileName}" is named as ${named} but its contents are ${sniffed}.`,
+        error: `${fileName} isn't ${described(named)}, it's actually ${described(sniffed)}.`,
       };
     }
     return { ok: true, mimeType: sniffed, media: fileMedia(sniffed) };
@@ -130,10 +140,15 @@ export function detectFileType(
   if (namedBinary) {
     return {
       ok: false,
-      error: `"${fileName}" is named as ${named} but its contents are not.`,
+      error: `${fileName} isn't ${described(named)}: its contents don't match its name.`,
     };
   }
-  if (!isText(buffer)) return { ok: false, error: UNSUPPORTED };
+  if (!isText(buffer)) {
+    return {
+      ok: false,
+      error: `Unsupported file type: ${fileName} isn't an image (PNG, JPEG, GIF, WebP), an MP4 video, a PDF or a text file.`,
+    };
+  }
   const mimeType = namedText ? named : "text/plain";
   return { ok: true, mimeType, media: fileMedia(mimeType) };
 }

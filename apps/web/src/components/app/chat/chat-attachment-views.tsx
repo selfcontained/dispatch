@@ -21,6 +21,7 @@ import {
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
+import { stripTimestamp } from "@/components/app/file-utils";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
@@ -307,7 +308,7 @@ function ImageGallery({
     >
       {shown.map((attachment, index) => {
         const more = overflow > 0 && index === shown.length - 1 ? overflow : 0;
-        const label = `${attachment.fileName} (${formatBytes(attachment.sizeBytes)})`;
+        const label = `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
         return (
           <button
             key={`${attachment.fileId}-${index}`}
@@ -323,8 +324,11 @@ function ImageGallery({
                 fileOwnerOf(attachment, block, ctx.agentId),
                 attachment.fileName
               )}
-              alt={attachment.fileName}
-              className="h-full w-full object-cover"
+              // The button's label names the tile; the image adds nothing.
+              alt=""
+              // From the top: a tall screenshot keeps the header that
+              // identifies the screen.
+              className="h-full w-full object-cover object-top"
               loading="lazy"
             />
             {more ? (
@@ -351,7 +355,10 @@ export function AttachmentList({
 }): JSX.Element | null {
   if (block.attachments.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-col gap-2">
+    // clear-both: start below the post's floated actions, so attachments get
+    // the column's full width rather than whatever the float leaves beside it
+    // (on a phone that made one post's gallery narrower than the next).
+    <div className="clear-both mt-2 flex flex-col gap-2">
       {layoutAttachments(block.attachments).map((group, index) =>
         group.kind === "gallery" ? (
           <ImageGallery

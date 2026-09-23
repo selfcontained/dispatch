@@ -64,6 +64,17 @@ describe("detectFileType", () => {
     });
   });
 
+  it("says in plain words why a file was refused", () => {
+    expect(typeOf(JPEG_BYTES, "shot.png")).toEqual({
+      ok: false,
+      error: "shot.png isn't a PNG image, it's actually a JPEG image.",
+    });
+    expect(typeOf(Buffer.from("hello"), "clip.mp4")).toEqual({
+      ok: false,
+      error: "clip.mp4 isn't an MP4 video: its contents don't match its name.",
+    });
+  });
+
   it("refuses a name that promises a binary type the bytes are not", () => {
     expect(typeOf(JPEG_BYTES, "shot.png")).toMatchObject({ ok: false });
     expect(typeOf(Buffer.from("hello"), "shot.png")).toMatchObject({

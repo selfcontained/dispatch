@@ -1588,7 +1588,7 @@ describe("ChatFeed", () => {
     const image = (fileId: number) =>
       fileAttachment({
         fileId,
-        fileName: `shot-${fileId}.png`,
+        fileName: `shot-${fileId}-2026-09-23-04-37-57-498.png`,
         sizeBytes: 512,
         mimeType: "image/png",
       });
@@ -1613,6 +1613,9 @@ describe("ChatFeed", () => {
     // Eight images: five tiles, then a sixth that stands for itself and the rest.
     expect(tiles).toHaveLength(6);
     expect(tiles[5]!.textContent).toBe("+3");
+    // Named for people: no stored timestamp, and the image itself is decorative.
+    expect(tiles[0]!.getAttribute("aria-label")).toBe("shot-1.png (512 B)");
+    expect(tiles[0]!.querySelector("img")?.getAttribute("alt")).toBe("");
     fireEvent.click(tiles[5]!);
     expect(onOpenFile).toHaveBeenCalledWith(6, [1, 2, 3, 4, 5, 6, 7, 8]);
     // The gallery sits where the first image was; the file keeps its card.
