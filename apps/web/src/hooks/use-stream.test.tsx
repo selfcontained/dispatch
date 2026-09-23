@@ -9,7 +9,7 @@ import type {
 } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -50,6 +50,8 @@ import {
   upsertFeedEntry,
   upsertThreadReply,
   useAnswerQuestion,
+  MARK_READ_RETRY_MS,
+  useMarkStreamRead,
   useMarkThreadRead,
   usePostBlock,
   useSetBlockState,
@@ -1715,5 +1717,74 @@ describe("useMarkThreadRead", () => {
     expect(
       feedBlocks(client)[0]!.blocks?.find((b) => b.id === "f1")?.unreadReplies
     ).toBe(0);
+  });
+});
+
+describe("useMarkStreamRead", () => {
+  /** A pane's visibility effect: marks up to its newest agent block. */
+  function usePaneMark(upTo: string, unreadCount: number) {
+    const markRead = useMarkStreamRead("agt_1", unreadCount);
+    useEffect(() => {
+      markRead(upTo);
+    }, [markRead, upTo]);
+    return markRead;
+  }
+
+  function wrapperFor(client: QueryClient) {
+    return ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+  }
+
+  it("marks once when the rows left unread are out of its reach, not in a loop", async () => {
+    const client = seededClient([]);
+    // A turn answering in a thread stays unread: the count does not move.
+    apiMock.mockResolvedValue({ unreadCount: 1 });
+    const { result, rerender } = renderHook(
+      ({ upTo }: { upTo: string }) => usePaneMark(upTo, 1),
+      { wrapper: wrapperFor(client), initialProps: { upTo: "b1" } }
+    );
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The pane's effect re-runs whenever the request settles, and focus and
+    // visibility changes call it too: in the browser that was ~200 marks a
+    // second. The same mark at the same count goes once.
+    for (let i = 0; i < 3; i += 1) {
+      act(() => result.current("b1"));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(apiMock).toHaveBeenCalledTimes(1);
+
+    // A newer post for people moves the mark forward.
+    rerender({ upTo: "b2" });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(apiMock.mock.calls[1]![1].body)).toEqual({ upTo: "b2" });
+  });
+
+  it("marks again when the count moves, and after a failure only once the pause is over", async () => {
+    const client = seededClient([]);
+    apiMock.mockRejectedValueOnce(new Error("offline"));
+    apiMock.mockResolvedValue({ unreadCount: 0 });
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => usePaneMark("b1", count),
+      { wrapper: wrapperFor(client), initialProps: { count: 2 } }
+    );
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The failure settled and re-ran the effect: no immediate retry.
+    act(() => result.current("b1"));
+    expect(apiMock).toHaveBeenCalledTimes(1);
+
+    const now = Date.now();
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(now + MARK_READ_RETRY_MS + 1);
+    act(() => result.current("b1"));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    clock.mockRestore();
+
+    // Another unread post arrived: the same mark is worth sending again.
+    rerender({ count: 3 });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(3));
   });
 });
