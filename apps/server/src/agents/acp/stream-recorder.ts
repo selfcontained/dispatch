@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { DriverEvent, DriverUpdate } from "./driver.js";
-import { parsePromptSource, type PromptSource } from "./prompt-source.js";
+import { systemPromptSource, type PromptSource } from "./prompt-source.js";
 import type {
   PlanPayload,
   StreamEventRow,
@@ -306,10 +306,9 @@ export class StreamRecorder {
           for (const row of passed) {
             await this.settleTurnBlock(event.agentId, row);
           }
-          // What the prompt was, from the sender. Only a prompt that came
-          // from somewhere else — a job, a nudge, another process — has to
-          // be read out of its own text.
-          const prompt = event.source ?? parsePromptSource(event.text);
+          // Normal delivery supplies the source explicitly. If an event lacks
+          // it, record an internal turn without interpreting its prompt text.
+          const prompt = event.source ?? systemPromptSource(event.text);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt,

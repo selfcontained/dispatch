@@ -32,7 +32,10 @@ function createMockDeps() {
     },
     streams: {
       promptAgent: vi.fn(
-        async (_agentId: string, _input: { text: string; notice: string }) => ({
+        async (
+          _agentId: string,
+          _input: { text: string; description: string }
+        ) => ({
           held: false,
         })
       ),
@@ -142,7 +145,9 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(deps.streams.promptAgent).toHaveBeenCalledTimes(1);
     const [agentId, input] = deps.streams.promptAgent.mock.calls[0]!;
     expect(agentId).toBe("agt_parent");
-    expect(input.notice).toBe("Review requested: security-review, ux-review");
+    expect(input.description).toBe(
+      "Review requested: security-review, ux-review"
+    );
     // The agent writes the briefing; the request names the personas, the
     // runtime, and carries the user's note.
     expect(input.text).toContain('persona: "security-review"');
@@ -166,7 +171,7 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true, held: true });
-    expect(deps.streams.promptAgent.mock.calls[0]![1].notice).toBe(
+    expect(deps.streams.promptAgent.mock.calls[0]![1].description).toBe(
       "Review requested: security-review"
     );
   });

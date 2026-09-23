@@ -938,14 +938,13 @@ export class StreamService {
   }
 
   /**
-   * Give an agent a prompt of Dispatch's own — a review asked for with a
-   * button, say — without writing it into the stream. The instructions are
-   * for the agent; the stream shows what the agent does with them. `notice`
-   * is the line its turn carries to say what set it off.
+   * Start an agent turn from a UI action without writing a prompt post into
+   * the stream. The agent receives the instructions; the turn records a short
+   * description of what started it.
    */
   async promptAgent(
     agentId: string,
-    input: { text: string; notice: string }
+    input: { text: string; description: string }
   ): Promise<{ held: boolean }> {
     await this.requireAgent(agentId);
     await this.canDeliver(agentId, false);
@@ -954,7 +953,7 @@ export class StreamService {
       envelope: input.text,
       record: async () => undefined,
       logContext: { agentId, reason: "dispatch-prompt" },
-      source: { source: "system", text: input.notice },
+      source: { source: "system", text: input.description },
     });
   }
 

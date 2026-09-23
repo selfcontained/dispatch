@@ -349,8 +349,8 @@ describe("StreamRecorder", () => {
       state: "settled",
       stopReason: "end_turn",
       prompt: {
-        source: "chat",
-        chatMessageId: "11111111-2222-4333-8444-555555555555",
+        source: "system",
+        text: "--- DISPATCH POST (id: 11111111-2222-4333-8444-555555555555, from: user) ---\nhi\n--- END DISPATCH POST ---",
       },
     });
     expect(typeof rows[0].payload.endedAt).toBe("string");

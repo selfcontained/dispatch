@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { ActivityBlock } from "./activity-block";
 import { AutoHeight } from "./auto-height";
 import type { Trace, Turn } from "./contracts";
-import { parseDispatchNotice, PromptLine } from "./prompt-line";
 import { turnLabelFromSteps } from "./registry";
 import { turnTrace } from "./trace";
 import { type ResultRetry, ResultTurn } from "./result-turn";
@@ -39,17 +38,6 @@ export function resultTurnModel(
     ...(turn.error
       ? { error: { code: "turn_failed", message: turn.error } }
       : {}),
-  };
-}
-
-/** A Dispatch-injected prompt as the notice line's model. */
-export function promptTurnModel(turn: ChatTurnEntry): Turn {
-  return {
-    id: `${turn.id}:prompt`,
-    role: "user",
-    content: turn.prompt.text,
-    timestamp: Date.parse(turn.at),
-    extra: { source: turn.prompt.source },
   };
 }
 
@@ -94,9 +82,8 @@ function TurnEntryViewImpl({
 
 /**
  * The body of a turn's block: the answer, and under it one quiet activity
- * line that opens into the step list on click. A prompt Dispatch injected
- * (a job, a nudge) has no post of its own in the column, so its notice
- * line sits above the answer. The message lands whole when the turn
+ * line that opens into the step list on click. An internal prompt leaves only
+ * the agent's turn. The message lands whole when the turn
  * settles, as a chat message does; nothing streams into the column. Until
  * then the block is its header and one activity line.
  */
@@ -122,11 +109,6 @@ export function TurnAnswer({
     () => turnLabelFromSteps(trace.steps),
     [trace.steps]
   );
-  const notice = useMemo(
-    () => parseDispatchNotice(turn.prompt.text, turn.prompt.source),
-    [turn.prompt.source, turn.prompt.text]
-  );
-  const promptTurn = useMemo(() => promptTurnModel(turn), [turn]);
   const onRetryTurn = ctx.onRetryTurn;
   const retryPending = ctx.retrying?.has(block.id) ?? false;
   const retry = useMemo<ResultRetry | undefined>(
@@ -150,11 +132,6 @@ export function TurnAnswer({
       data-turn-id={block.id}
       data-settled={turn.settled ? "true" : undefined}
     >
-      {notice ? (
-        <div className="mb-1" data-testid="chat-turn-notice">
-          <PromptLine turn={promptTurn} />
-        </div>
-      ) : null}
       {/* One measured body for the steps and the answer: every size change
           inside it eases instead of snapping, so the feed above glides
           rather than jumps while it follows the bottom. */}
@@ -185,8 +162,8 @@ export function TurnAnswer({
 }
 
 /**
- * A running turn that has nothing to say yet: no words of its reply, no
- * notice line, nothing it produced. It is presence, not a message, so the
+ * A running turn that has nothing to say yet: no words of its reply and
+ * nothing it produced. It is presence, not a message, so the
  * feed shows it as a status line rather than a post with a header.
  */
 export function isPendingTurn(
@@ -197,7 +174,7 @@ export function isPendingTurn(
   if (turn.settled || turn.error) return false;
   if (turn.result?.text) return false;
   if (folded?.length || block.attachments?.length) return false;
-  return parseDispatchNotice(turn.prompt.text, turn.prompt.source) === null;
+  return true;
 }
 
 /**

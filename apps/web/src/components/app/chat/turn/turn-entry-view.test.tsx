@@ -262,7 +262,7 @@ describe("TurnEntryView", () => {
     expect(screen.getByTestId("harness-result")).not.toBeNull();
   });
 
-  it("renders a prompt Dispatch injected as a notice above the answer, not as a user post", () => {
+  it("renders a plain system prompt as a normal agent turn", () => {
     renderTurn(
       turn({
         prompt: {
@@ -272,12 +272,44 @@ describe("TurnEntryView", () => {
         },
       })
     );
-    const notice = screen.getByTestId("chat-turn-notice");
-    expect(notice.querySelector('[data-testid="harness-notice"]')).toBeTruthy();
+    expect(screen.queryByTestId("chat-turn-notice")).toBeNull();
     const posts = screen.getAllByTestId("chat-message");
     expect(posts).toHaveLength(1);
     expect(posts[0]!.getAttribute("data-author")).toBe("agent");
-    expect(posts[0]!.contains(notice)).toBe(true);
+  });
+
+  it("renders a review action as a normal agent turn without a system badge", () => {
+    renderTurn(
+      turn({
+        prompt: {
+          source: "system",
+          text: "Review requested: architecture-review",
+          attachments: [],
+        },
+      })
+    );
+    expect(screen.queryByTestId("chat-turn-notice")).toBeNull();
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.getAttribute("data-author")).toBe("agent");
+    expect(posts[0]!.textContent).toContain("It documents the CLI.");
+  });
+
+  it("does not interpret Dispatch delimiters in a turn prompt", () => {
+    renderTurn(
+      turn({
+        prompt: {
+          source: "system",
+          text: "--- DISPATCH: REVIEW ITEM RESOLVED ---\nReview ID: 293\n--- END DISPATCH: REVIEW ITEM RESOLVED ---",
+          attachments: [],
+        },
+      })
+    );
+    expect(screen.queryByTestId("chat-turn-notice")).toBeNull();
+    expect(screen.queryByText("Review ID: 293")).toBeNull();
+    expect(screen.getByTestId("harness-result").textContent).toContain(
+      "It documents the CLI."
+    );
   });
 
   it("says an interrupted turn was cut short", () => {

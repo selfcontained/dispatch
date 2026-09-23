@@ -215,12 +215,11 @@ export async function registerPersonaRoutes(
           : {}),
         ...(typeof body.note === "string" ? { note: body.note } : {}),
       });
-      // A prompt, not a post: the instructions are the agent's to follow,
-      // and the stream shows what it does with them. Its turn carries one
-      // line saying what was asked for.
+      // Start the agent's turn with its own review instructions. The stream
+      // shows the agent's response as a normal turn.
       const { held } = await deps.streams.promptAgent(agentId, {
         text,
-        notice: `Review requested: ${personas.join(", ")}`,
+        description: `Review requested: ${personas.join(", ")}`,
       });
       return { ok: true, held };
     } catch (error) {
