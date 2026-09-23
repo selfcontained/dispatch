@@ -21,10 +21,6 @@ export type ListedFileItem = {
 
 export type AgentLifecycleContext = {
   agentId: string;
-  upsertEvent?: (
-    agentId: string,
-    event: { type: string; message: string; metadata?: Record<string, unknown> }
-  ) => Promise<void>;
   renameSession?: (
     agentId: string,
     name: string

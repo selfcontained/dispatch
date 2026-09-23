@@ -32,7 +32,6 @@ const AGENT_ID = "agt_test123";
 function baseContext(): AgentLifecycleContext {
   return {
     agentId: AGENT_ID,
-    upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
     listFiles: vi.fn(async () => []),
     deleteFile: vi.fn(async () => {}),

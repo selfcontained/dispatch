@@ -299,14 +299,14 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
-            their IDs, names, statuses, and latest activity, plus lineage: each
-            entry's parent, how it relates to the caller (child, descendant,
-            parent, ancestor, sibling, unrelated), and who launched it when that
-            is not the parent
+            their IDs, names, lifecycle statuses, and lineage: each entry's
+            parent, how it relates to the caller (child, descendant, parent,
+            ancestor, sibling, unrelated), and who launched it when that is not
+            the parent
           </li>
           <li>
-            <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
-            — analytics queries over recent Dispatch activity
+            <Code>get_feedback_summary</Code> — review feedback over recent
+            Dispatch activity
           </li>
           <li>
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}

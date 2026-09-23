@@ -37,7 +37,7 @@ Role is orthogonal to `AgentType`, which names the engine: `claude` or `codex`.
 - `session` — starting the host and waiting for the engine's ACP handshake
 - `null` — setup is complete (or never used; agents that don't create a worktree start at `session`)
 
-Phases are written directly by the manager as it goes; there is no callback from a script. Worktree creation is the only unrecoverable step: on failure the agent goes to `stopped` with the git output in `last_error` and a `blocked` latest_event, and the partial worktree and branch are removed. A missing lockfile, a failed dependency install, or a missing local config file are non-fatal.
+Phases are written directly by the manager as it goes; there is no callback from a script. Worktree creation is the only unrecoverable step: on failure the agent goes to `stopped` with the git output in `last_error`, and the partial worktree and branch are removed. A missing lockfile, a failed dependency install, or a missing local config file are non-fatal.
 
 ## Archive Phases
 
@@ -89,7 +89,7 @@ For each agent with status in (`running`, `stopping`, `creating`, `archiving`):
 - **host alive, status `running`**: leave as-is.
 - **host missing, status `creating`** (after a 15-minute grace for workspace preparation): → `error` with a launch-failure message and the tail of the host log.
 - **host missing, status `running`**: → `stopped`, open turn settled.
-- **status `stopping`** for >60s: → `running` (revert; user can retry stop). Surfaces an "agent reverted" latest_event.
+- **status `stopping`** for >60s: → `running` (revert; user can retry stop).
 - **status `archiving`** for >30s: archive is resumed.
 
 An engine that exits on its own while the host is up is reported by the host as an `exit` event; the manager moves the agent to `error` with the exit code and the engine's stderr tail, without waiting for a reconcile tick.

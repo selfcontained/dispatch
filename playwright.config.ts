@@ -27,6 +27,8 @@ const serialTests = [
   "e2e/persona-recheck-ui.spec.ts",
   "e2e/mobile-layout.spec.ts",
   "e2e/drawer.spec.ts",
+  "e2e/web-notifications.spec.ts",
+  "e2e/chat-surface.spec.ts",
 ];
 
 export default defineConfig({

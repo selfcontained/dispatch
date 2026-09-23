@@ -19,7 +19,6 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM job_runs");
   await ctx.pool.query("DELETE FROM jobs");
   await ctx.pool.query("DELETE FROM agent_token_usage");
-  await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
 });

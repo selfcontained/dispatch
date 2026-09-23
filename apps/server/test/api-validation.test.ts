@@ -17,7 +17,6 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 const ctx = useInjectApp({ setupAuth: false });
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agents");
 });
 

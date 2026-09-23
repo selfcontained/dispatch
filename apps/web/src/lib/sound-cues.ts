@@ -86,7 +86,7 @@ function playTones(tones: Tone[], masterGain = 0.18): void {
   }
 }
 
-export type CueIntent = "done" | "blocked" | "waiting_user";
+export type CueIntent = "blocked" | "waiting_user";
 
 type SoundCue = {
   id: string;
@@ -95,15 +95,6 @@ type SoundCue = {
 };
 
 const SOUND_CUES: SoundCue[] = [
-  {
-    id: "done-bloom",
-    intent: "done",
-    play: () =>
-      playTones([
-        { freq: 523.25, startSec: 0, durSec: 0.2 },
-        { freq: 783.99, startSec: 0.1, durSec: 0.26 },
-      ]),
-  },
   {
     id: "blocked-thud",
     intent: "blocked",
@@ -132,7 +123,6 @@ export const CUE_INTENTS: Array<{
   label: string;
   description: string;
 }> = [
-  { intent: "done", label: "Done", description: "Agent finished its task." },
   {
     intent: "waiting_user",
     label: "Waiting for input",

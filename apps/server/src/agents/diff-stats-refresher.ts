@@ -48,13 +48,13 @@ const DEFAULT_FRESHNESS_MS = 3_000;
 
 /**
  * In-memory cache + signal funnel for per-agent diff stats. Three callers
- * share the same throttle: agent status transitions, the GET diff-stats
+ * share the same throttle: ACP updates, the GET diff-stats
  * route, and tap-to-refresh. The freshness window collapses bursts and the
  * in-flight map dedupes simultaneous signals so we don't fan out git
  * subprocesses across tabs.
  *
  * `signal` returns a promise that resolves once the (possibly shared)
- * compute settles, so callers can await if they care. Status-event callers
+ * compute settles, so callers can await if they care. ACP callers
  * just fire-and-forget.
  */
 export class DiffStatsRefresher {

@@ -265,7 +265,7 @@ function toQuestion(block: Block): AssembledQuestion {
 
 /**
  * Hang each step that names a parent under that parent, in stream order.
- * A parent outside the turn (or dropped as a status event) leaves the child
+ * A parent outside the turn (or absent from the trace) leaves the child
  * at the top level rather than losing it.
  */
 function nestSteps(

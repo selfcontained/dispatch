@@ -1,7 +1,3 @@
-import type { Pool } from "pg";
-
-import type { ActivityEventRow } from "../activity-metrics.js";
-
 export type ActivityGranularity = "hour" | "day" | "week" | "month";
 
 export type ActivityQuery = {
@@ -77,50 +73,4 @@ export function dateTruncTz(
     return `to_char(${trunc}, 'YYYY-MM-DD HH24:00')`;
   }
   return `${trunc}::date::text`;
-}
-
-export async function loadScopedActivityEvents(
-  pool: Pool,
-  aq: ActivityQuery,
-  opts: { includeProjectDir?: boolean } = {}
-): Promise<{ rows: ActivityEventRow[]; rangeStart: Date | null }> {
-  const rangeStart = aq.start;
-  const alias = opts.includeProjectDir ? "ae." : "";
-  const columns = opts.includeProjectDir
-    ? `ae.agent_id, ae.event_type, ae.created_at,
-       COALESCE(ae.project_dir, a.cwd) AS project_dir`
-    : "agent_id, event_type, created_at";
-  const from = opts.includeProjectDir
-    ? `FROM agent_events ae
-       LEFT JOIN agents a ON a.id = ae.agent_id`
-    : "FROM agent_events";
-  const eventFilter = timeRangeClause(aq, `${alias}created_at`);
-
-  const inRangeResult = await pool.query<ActivityEventRow>(
-    `SELECT ${columns}
-     ${from}
-     ${eventFilter.clause}
-     ORDER BY ${alias}agent_id, ${alias}created_at`,
-    eventFilter.params
-  );
-
-  if (!rangeStart) {
-    return { rows: inRangeResult.rows, rangeStart: null };
-  }
-
-  const boundaryResult = await pool.query<ActivityEventRow>(
-    `SELECT DISTINCT ON (${alias}agent_id) ${columns}
-     ${from}
-     WHERE ${alias}created_at < $1
-     ORDER BY ${alias}agent_id, ${alias}created_at DESC`,
-    [rangeStart]
-  );
-
-  const rows = [...boundaryResult.rows, ...inRangeResult.rows].sort((a, b) => {
-    const agentCompare = a.agent_id.localeCompare(b.agent_id);
-    if (agentCompare !== 0) return agentCompare;
-    return a.created_at.getTime() - b.created_at.getTime();
-  });
-
-  return { rows, rangeStart };
 }

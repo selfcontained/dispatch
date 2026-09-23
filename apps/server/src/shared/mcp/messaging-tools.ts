@@ -9,7 +9,6 @@ export type AgentListing = {
   id: string;
   name: string;
   status: string;
-  latestEvent: { type: string; message: string } | null;
   parentAgentId: string | null;
   parentName: string | null;
   /**
@@ -45,7 +44,7 @@ export function registerMessagingTools(
       "list_agents",
       {
         description:
-          "List other agents on this Dispatch server with their IDs, names, statuses, and latest activity. " +
+          "List other agents on this Dispatch server with their IDs, names, and lifecycle statuses. " +
           "Use this to discover agents you can reach with post (to: <agentId>). " +
           "Each entry carries two separate things. Lineage: parentAgentId/parentName name the agent this one is a " +
           "child of, and relation says how it sits relative to you in that same parent tree (child, descendant, " +

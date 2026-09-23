@@ -34,15 +34,23 @@ function RepoLabel({
 }
 
 /**
- * Archive progress shown under the card header while the agent is torn
- * down. Setup has no lines of its own here: the card says "Starting…" and
- * the stream's workspace block carries the detail.
+ * Setup and archive are lifecycle phases, separate from a turn's ACP steps.
+ * The stream's workspace block carries setup's individual steps.
  */
 export function AgentCardPhaseStatus({
   agent,
 }: {
   agent: Agent;
 }): JSX.Element | null {
+  if (agent.status === "creating" || agent.setupPhase) {
+    return (
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
+        <ActivityBars size={12} className="shrink-0" />
+        <span className="truncate font-medium">Starting…</span>
+      </div>
+    );
+  }
+
   if (agent.status === "archiving") {
     return (
       <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
@@ -66,8 +74,8 @@ export function AgentCardPhaseStatus({
 }
 
 /**
- * The agent's activity, as the server derives it, beside the repo it works
- * in. Hidden while archiving, which has its own progress line.
+ * The current turn's reported step beside the repo it works in. Archive
+ * progress has its own line.
  */
 export function AgentCardActivity({
   agent,

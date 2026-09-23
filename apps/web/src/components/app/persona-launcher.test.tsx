@@ -22,7 +22,6 @@ const agent: Agent = {
   agentArgs: [],
   model: null,
   fullAccess: false,
-  latestEvent: null,
   filesDir: null,
   persona: null,
   parentAgentId: null,

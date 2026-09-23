@@ -23,10 +23,6 @@ import type {
   SlackNotifier,
 } from "../notifications/slack.js";
 import {
-  AGENT_LATEST_EVENT_TYPES,
-  isAgentLatestEventType,
-} from "../agents/latest-event.js";
-import {
   createLineageIndex,
   delegationChain,
   formatDelegationChain,
@@ -200,27 +196,6 @@ async function addressableAgents<
 // ---------------------------------------------------------------------------
 // Extracted handler functions
 // ---------------------------------------------------------------------------
-
-async function handleUpsertEvent(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  event: { type: string; message: string; metadata?: Record<string, unknown> }
-): Promise<void> {
-  if (!isAgentLatestEventType(event.type)) {
-    throw new Error(
-      `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
-    );
-  }
-  const agent = await deps.agentManager.upsertLatestEvent(agentId, {
-    type: event.type,
-    message: event.message.trim(),
-    metadata: event.metadata,
-  });
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
-  });
-}
 
 async function handleSendNotify(
   deps: CreateMcpHandlersDeps,
@@ -707,7 +682,6 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
-    latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -746,7 +720,6 @@ async function handleListAgentsForAgent(
     id: string;
     name: string;
     status: string;
-    latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
     launchedByAgentId?: string;
@@ -770,9 +743,6 @@ async function handleListAgentsForAgent(
       id: a.id,
       name: a.name,
       status: a.status,
-      latestEvent: a.latestEvent
-        ? { type: a.latestEvent.type, message: a.latestEvent.message }
-        : null,
       parentAgentId: visibleParentId,
       parentName,
       ...(launcherName && rawLauncherId
@@ -926,15 +896,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     },
 
     clearActivePersonality: () => setActivePersonalityId(deps.pool, null),
-
-    upsertEvent: (
-      agentId: string,
-      event: {
-        type: string;
-        message: string;
-        metadata?: Record<string, unknown>;
-      }
-    ) => handleUpsertEvent(deps, agentId, event),
 
     sendNotify: (agentId: string, input: NotifyInput) =>
       handleSendNotify(deps, agentId, input),

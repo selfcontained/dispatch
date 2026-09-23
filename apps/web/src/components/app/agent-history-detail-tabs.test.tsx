@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { HistoryEvent, HistoryFile } from "@/hooks/use-agent-history";
+import type { HistoryFile } from "@/hooks/use-agent-history";
 
 import { DetailTabs } from "./agent-history-detail-tabs";
 
@@ -26,16 +26,6 @@ vi.mock("framer-motion", async (importOriginal) => {
 });
 
 const AGENT_ID = "agt_history";
-
-function makeEvent(id: number, message: string): HistoryEvent {
-  return {
-    id,
-    event_type: "working",
-    message,
-    metadata: {},
-    created_at: "2026-07-20T10:00:00.000Z",
-  };
-}
 
 function makeFile(overrides: Partial<HistoryFile> = {}): HistoryFile {
   return {
@@ -72,17 +62,9 @@ function renderTabs(
   });
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <DetailTabs events={[]} files={[]} agentId={AGENT_ID} {...overrides} />
+      <DetailTabs files={[]} agentId={AGENT_ID} {...overrides} />
     </QueryClientProvider>
   );
-}
-
-function tabButton(label: string): HTMLElement {
-  const button = screen
-    .getAllByRole("button")
-    .find((b) => b.textContent?.startsWith(label));
-  if (!button) throw new Error(`No tab button labeled ${label}`);
-  return button;
 }
 
 afterEach(() => {
@@ -91,33 +73,9 @@ afterEach(() => {
 });
 
 describe("DetailTabs", () => {
-  it("defaults to the events tab and shows the empty state", () => {
+  it("shows an empty file state", () => {
     renderTabs();
-    expect(screen.getByText("No events recorded.")).toBeTruthy();
-    expect(screen.queryByText("No files captured.")).toBeNull();
-  });
-
-  it("shows a count badge only for non-empty collections", () => {
-    renderTabs({ events: [makeEvent(1, "first"), makeEvent(2, "second")] });
-    expect(tabButton("Events").textContent).toBe("Events2");
-    // Empty tabs must not render a stray "0" badge.
-    expect(tabButton("Files").textContent).toBe("Files");
-  });
-
-  it("renders the event timeline when events exist", () => {
-    renderTabs({ events: [makeEvent(1, "compiled the plan")] });
-    expect(screen.getByText("compiled the plan")).toBeTruthy();
-  });
-
-  it("switches panes per tab and shows each tab's empty state", () => {
-    renderTabs({ events: [makeEvent(1, "only event")] });
-
-    fireEvent.click(tabButton("Files"));
     expect(screen.getByText("No files captured.")).toBeTruthy();
-    expect(screen.queryByText("only event")).toBeNull();
-
-    fireEvent.click(tabButton("Events"));
-    expect(screen.getByText("only event")).toBeTruthy();
   });
 
   it("renders screenshot tiles as images with encoded file URLs and text tiles as placeholders", () => {
@@ -142,7 +100,6 @@ describe("DetailTabs", () => {
         }),
       ],
     });
-    fireEvent.click(tabButton("Files"));
 
     const img = screen.getByAltText("Login page");
     expect(img.getAttribute("src")).toBe(
@@ -176,7 +133,6 @@ describe("DetailTabs", () => {
         }),
       ],
     });
-    fireEvent.click(tabButton("Files"));
     expect(screen.queryByTestId("file-lightbox")).toBeNull();
 
     // Second tile has no description, so its alt falls back to the file name.

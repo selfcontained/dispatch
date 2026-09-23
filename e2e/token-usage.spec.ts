@@ -213,8 +213,7 @@ test.describe("Token usage UI", () => {
     // Open the activity pane
     await page.getByTestId("activity-button").click();
 
-    // Heatmap should render
-    await expect(page.getByText("Activity this year")).toBeVisible();
+    await expect(page.getByText("No token usage yet.")).toBeVisible();
 
     await page.getByTestId("activity-range-select").click();
     await page.getByRole("option", { name: "This year" }).click();
@@ -223,7 +222,7 @@ test.describe("Token usage UI", () => {
       "This year"
     );
 
-    // After switching to "This year", requests should include tz and granularity params
+    // After switching to "This year", token requests use the selected range.
     await expect
       .poll(
         () =>
@@ -231,11 +230,11 @@ test.describe("Token usage UI", () => {
             (url) => url.includes("tz=") && url.includes("granularity=")
           ).length
       )
-      .toBeGreaterThanOrEqual(6);
+      .toBeGreaterThanOrEqual(4);
 
     // Navigate back to agents to close activity
     await page.getByTestId("agents-button").click();
-    await expect(page.getByText("Activity this year")).not.toBeVisible();
+    await expect(page.getByText("No token usage yet.")).not.toBeVisible();
   });
 });
 

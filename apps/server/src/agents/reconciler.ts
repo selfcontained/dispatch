@@ -4,11 +4,7 @@ import type { Pool } from "pg";
 import type { DiagnosticsRecorder } from "../diagnostics.js";
 
 import type { AgentRuntime } from "./runtime.js";
-import type {
-  AgentLatestEventInput,
-  AgentRecord,
-  AgentStatus,
-} from "./types.js";
+import type { AgentRecord, AgentStatus } from "./types.js";
 
 /**
  * How long an agent can sit in `stopping` before the reconciler
@@ -42,10 +38,7 @@ export type ReconcilerDeps = {
     status: AgentStatus,
     lastError: string | null
   ) => Promise<void>;
-  setSystemLatestEvent: (
-    id: string,
-    input: AgentLatestEventInput
-  ) => Promise<void>;
+  notifyBlocked: (id: string, message: string) => Promise<void>;
   /** Settle stream rows a dead host left open. */
   settleStream: (id: string, reason: string) => Promise<number>;
 };
@@ -127,11 +120,12 @@ async function reconcileAgentStatuses(
         : "The agent is no longer running.";
       await deps.settleStream(row.id, "the agent stopped");
       await deps.setAgentStatus(row.id, nextStatus, logTail || null);
-      await deps.setSystemLatestEvent(row.id, {
-        type: launchFailed ? "blocked" : "idle",
-        message: logTail ? `${baseMessage}\n${logTail}` : baseMessage,
-        metadata: { source: "system", launchFailed },
-      });
+      if (launchFailed) {
+        await deps.notifyBlocked(
+          row.id,
+          logTail ? `${baseMessage}\n${logTail}` : baseMessage
+        );
+      }
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
     } else if (
@@ -143,11 +137,6 @@ async function reconcileAgentStatuses(
         "Agent stuck in stopping state, reverting to running"
       );
       await deps.setAgentStatus(row.id, "running", null);
-      await deps.setSystemLatestEvent(row.id, {
-        type: "working",
-        message: "Stop timed out — agent reverted to running. Try force stop.",
-        metadata: { source: "system" },
-      });
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
     }
@@ -182,7 +171,10 @@ async function cleanupOrphanedHosts(deps: ReconcilerDeps): Promise<void> {
     // instance sharing the state root; only act on agents this database
     // knows about.
     if (!status) {
-      logger.debug({ agentId }, "Ignoring agent host with no matching DB record");
+      logger.debug(
+        { agentId },
+        "Ignoring agent host with no matching DB record"
+      );
     }
   }
 }

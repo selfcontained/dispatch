@@ -1,175 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
-import type { Pool } from "pg";
-
-import { AgentError } from "./errors.js";
-import type {
-  AgentEventListener,
-  AgentLatestEventInput,
-  AgentRecord,
-} from "./types.js";
-
-/** An `agent_events` row as written, for anything that mirrors the history. */
-export type AgentEventHistoryRow = {
-  id: number;
-  agentId: string;
-  eventType: string;
-  message: string;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-};
-
-export type AgentEventHistoryListener = (row: AgentEventHistoryRow) => void;
-
-/**
- * The history INSERT behind both latest-event writers. Fire-and-forget by
- * design (see `writeLatestEvent`); the written row is handed to
- * `onRecorded` once it exists, so the Chat feed can carry it as an entry
- * without a second read.
- */
-function recordEventHistory(
-  pool: Pool,
-  logger: FastifyBaseLogger,
-  id: string,
-  input: AgentLatestEventInput,
-  message: string,
-  onRecorded?: AgentEventHistoryListener
-): void {
-  pool
-    .query<{
-      id: number;
-      event_type: string;
-      message: string;
-      created_at: Date;
-    }>(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1
-       RETURNING id, event_type, message, created_at`,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    )
-    .then((result) => {
-      const row = result.rows[0];
-      if (row && onRecorded) {
-        onRecorded({
-          id: row.id,
-          agentId: id,
-          eventType: row.event_type,
-          message: row.message,
-          metadata: input.metadata ?? {},
-          createdAt: row.created_at.toISOString(),
-        });
-      }
-    })
-    .catch((err) =>
-      logger.warn({ err }, "Failed to insert agent event history")
-    );
-}
-
-/**
- * Persist a latest-event update for `id`. Two writes:
- *   1. UPDATE the agent's `latest_event_*` columns synchronously. Throws
- *      `AgentError(404)` if the agent has no live row.
- *   2. INSERT into `agent_events` history fire-and-forget — failures are
- *      logged but never propagated, since losing one history row should
- *      not block the live status indicator update.
- *
- * Validates that `message` trims to non-empty; throws `AgentError(400)`
- * otherwise. Returns void — callers that need the resulting AgentRecord
- * read it back themselves (the manager façade fetches + publishes to the
- * listener bus before returning to the caller).
- */
-export async function writeLatestEvent(
-  pool: Pool,
-  logger: FastifyBaseLogger,
-  id: string,
-  input: AgentLatestEventInput,
-  onRecorded?: AgentEventHistoryListener
-): Promise<void> {
-  const message = input.message.trim();
-  if (!message) {
-    throw new AgentError(
-      "Latest event message must be a non-empty string.",
-      400
-    );
-  }
-
-  const result = await pool.query(
-    `
-    UPDATE agents
-    SET latest_event_type = $2,
-        latest_event_message = $3,
-        latest_event_metadata = $4::jsonb,
-        latest_event_updated_at = NOW(),
-        updated_at = NOW()
-    WHERE id = $1 AND deleted_at IS NULL
-    `,
-    [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-  );
-
-  if (result.rowCount !== 1) {
-    throw new AgentError("Agent not found.", 404);
-  }
-
-  // Append to event history (fire-and-forget — keeping this off the critical
-  // path means the agent status indicator updates even if the history table
-  // is briefly unavailable).
-  recordEventHistory(pool, logger, id, input, message, onRecorded);
-}
-
-/**
- * Conditional variant of `writeLatestEvent`. Only updates the agent's
- * latest-event columns when `latest_event_updated_at` still matches
- * `expectedUpdatedAt` — i.e. no other event was written between the
- * caller's read and this write. Returns `true` when the row was updated,
- * `false` when the precondition failed (another event landed first).
- */
-export async function writeLatestEventIfCurrent(
-  pool: Pool,
-  logger: FastifyBaseLogger,
-  id: string,
-  expectedUpdatedAt: string,
-  input: AgentLatestEventInput,
-  onRecorded?: AgentEventHistoryListener
-): Promise<boolean> {
-  const message = input.message.trim();
-  if (!message) {
-    throw new AgentError(
-      "Latest event message must be a non-empty string.",
-      400
-    );
-  }
-
-  const result = await pool.query(
-    `
-    UPDATE agents
-    SET latest_event_type = $2,
-        latest_event_message = $3,
-        latest_event_metadata = $4::jsonb,
-        latest_event_updated_at = NOW(),
-        updated_at = NOW()
-    WHERE id = $1 AND deleted_at IS NULL
-      AND latest_event_updated_at::text = $5
-    `,
-    [
-      id,
-      input.type,
-      message,
-      JSON.stringify(input.metadata ?? {}),
-      expectedUpdatedAt,
-    ]
-  );
-
-  if (result.rowCount !== 1) {
-    return false;
-  }
-
-  recordEventHistory(pool, logger, id, input, message, onRecorded);
-
-  return true;
-}
+import type { AgentEventListener, AgentRecord } from "./types.js";
 
 export type AgentEventBus = {
-  /** Register a callback invoked after every successful upsert + agent fetch. */
+  /** Register a callback invoked when an agent record changes. */
   subscribe(listener: AgentEventListener): void;
 
   /**
@@ -196,10 +29,10 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 /**
- * In-memory pub/sub for agent latest-event updates. Listeners are invoked
+ * In-memory pub/sub for agent record updates. Listeners are invoked
  * in registration order. The bus deliberately swallows listener errors
  * (sync throws *and* async rejections) so a buggy SSE writer cannot poison
- * the data layer that drove the event.
+ * the data layer that published the record.
  */
 export function createAgentEventBus(logger: FastifyBaseLogger): AgentEventBus {
   const listeners: AgentEventListener[] = [];

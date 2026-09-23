@@ -11,7 +11,6 @@ let sessionCookie: string;
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agent_token_usage");
-  await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM files_seen");
   await ctx.pool.query("DELETE FROM files");
   await ctx.pool.query("DELETE FROM sessions");

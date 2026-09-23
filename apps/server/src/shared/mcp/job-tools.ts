@@ -28,11 +28,6 @@ export type JobTools = {
   listAgents: () => Promise<
     Array<{ id: string; name: string; status: string; cwd: string }>
   >;
-  getActivitySummary: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }) => Promise<Record<string, unknown>>;
   getFeedbackSummary: (params: {
     start: Date;
     end: Date;

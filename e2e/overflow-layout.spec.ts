@@ -14,7 +14,6 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentLatestEventViaAPI,
   seedBlockViaDB,
   uploadFileViaAPI,
 } from "./helpers";
@@ -98,10 +97,6 @@ async function seedOverflowAgents(
         // Keep them in an owned directory outside the repo so bulk cleanup does
         // not discover repository or shared temporary-directory lifecycle hooks.
         cwd,
-      });
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "working",
-        message: `Overflow validation task ${index + 1}`,
       });
       return agent;
     })

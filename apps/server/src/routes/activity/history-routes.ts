@@ -1,12 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import {
-  computeActivityStats,
-  type ActivityEventRow,
-} from "../../activity-metrics.js";
 import type {
   HistoryChildAgent,
-  HistoryEvent,
   HistoryFile,
   HistoryTokenByModel,
   HistoryTokenTotals,
@@ -149,15 +144,6 @@ async function handleHistoryAgents(
           a.cwd,
           a.worktree_path AS "worktreePath",
           a.worktree_branch AS "worktreeBranch",
-          CASE
-            WHEN a.latest_event_type IS NULL OR a.latest_event_message IS NULL OR a.latest_event_updated_at IS NULL THEN NULL
-            ELSE json_build_object(
-              'type', a.latest_event_type,
-              'message', a.latest_event_message,
-              'updatedAt', a.latest_event_updated_at,
-              'metadata', COALESCE(a.latest_event_metadata, '{}'::jsonb)
-            )
-          END AS "latestEvent",
           a.git_context AS "gitContext",
           a.created_at AS "createdAt",
           a.updated_at AS "updatedAt",
@@ -186,15 +172,6 @@ async function handleHistoryAgents(
           a.name,
           a.persona,
           a.status,
-          CASE
-            WHEN a.latest_event_type IS NULL OR a.latest_event_message IS NULL OR a.latest_event_updated_at IS NULL THEN NULL
-            ELSE json_build_object(
-              'type', a.latest_event_type,
-              'message', a.latest_event_message,
-              'updatedAt', a.latest_event_updated_at,
-              'metadata', COALESCE(a.latest_event_metadata, '{}'::jsonb)
-            )
-          END AS "latestEvent",
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
@@ -217,7 +194,6 @@ async function handleHistoryAgents(
         name: child.name,
         persona: child.persona,
         status: child.status,
-        latestEvent: child.latestEvent,
         totalTokens: child.totalTokens,
         createdAt: child.createdAt,
         updatedAt: child.updatedAt,
@@ -254,15 +230,6 @@ async function handleHistoryAgentDetail(
         id, name, type, status, cwd,
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
-        CASE
-          WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL
-          ELSE json_build_object(
-            'type', latest_event_type,
-            'message', latest_event_message,
-            'updatedAt', latest_event_updated_at,
-            'metadata', COALESCE(latest_event_metadata, '{}'::jsonb)
-          )
-        END AS "latestEvent",
         git_context AS "gitContext",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
@@ -273,51 +240,36 @@ async function handleHistoryAgentDetail(
     return reply.code(404).send({ error: "Agent not found" });
   }
 
-  const [eventsResult, tokenResult, tokenByModelResult, filesResult] =
-    await Promise.all([
-      deps.pool.query<HistoryEvent>(
-        `SELECT id, event_type, message, metadata, created_at
-           FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
-        [id]
-      ),
-      deps.pool.query<HistoryTokenTotals>(
-        `SELECT
+  const [tokenResult, tokenByModelResult, filesResult] = await Promise.all([
+    deps.pool.query<HistoryTokenTotals>(
+      `SELECT
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
             COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(message_count), 0) AS total_messages
            FROM agent_token_usage WHERE agent_id = $1`,
-        [id]
-      ),
-      deps.pool.query<HistoryTokenByModel>(
-        `SELECT model,
+      [id]
+    ),
+    deps.pool.query<HistoryTokenByModel>(
+      `SELECT model,
             SUM(input_tokens + cache_creation_tokens + cache_read_tokens) AS input_tokens,
             SUM(output_tokens) AS output_tokens
            FROM agent_token_usage WHERE agent_id = $1
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
-        [id]
-      ),
-      deps.pool.query<HistoryFile>(
-        `SELECT id, file_name, source, size_bytes, description, created_at
+      [id]
+    ),
+    deps.pool.query<HistoryFile>(
+      `SELECT id, file_name, source, size_bytes, description, created_at
            FROM files WHERE agent_id = $1 ORDER BY created_at`,
-        [id]
-      ),
-    ]);
-
-  const eventRows: ActivityEventRow[] = eventsResult.rows.map((row) => ({
-    agent_id: id,
-    event_type: row.event_type,
-    created_at: new Date(row.created_at),
-  }));
-  const stats = computeActivityStats(eventRows, null);
+      [id]
+    ),
+  ]);
 
   return {
     agent: agentResult.rows[0],
-    events: eventsResult.rows,
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
     files: filesResult.rows,
-    stateDurations: stats.stateDurations,
   };
 }
 

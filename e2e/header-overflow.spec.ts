@@ -5,7 +5,6 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
-  setAgentLatestEventViaAPI,
 } from "./helpers";
 
 test.describe("Chrome overflow", () => {
@@ -13,19 +12,12 @@ test.describe("Chrome overflow", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("long agent status messages do not recreate a dedicated header row", async ({
+  test("agent selection does not recreate a dedicated header row", async ({
     page,
     request,
   }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-${Date.now()}`,
-    });
-    const longMessage =
-      "This is a deliberately long agent description used to verify that status text no longer reserves a dedicated header row or pushes the agent layout beyond the viewport width while a session is attached and actively reporting status updates.";
-
-    await setAgentLatestEventViaAPI(request, agent.id, {
-      type: "working",
-      message: longMessage,
     });
     await loadApp(page);
 

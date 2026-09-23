@@ -299,14 +299,6 @@ export async function executeArchive(
     await publishPhase("finalizing");
 
     const tDb = Date.now();
-    await pool
-      .query(
-        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-         SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-         FROM agents WHERE id = $1`,
-        [id]
-      )
-      .catch((err) => logger.warn({ err }, "Failed to insert delete event"));
 
     await pool.query(
       "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
@@ -423,14 +415,6 @@ export async function deleteAgentDirect(
   }
 
   const tDb = Date.now();
-  await pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id]
-    )
-    .catch((err) => logger.warn({ err }, "Failed to insert delete event"));
 
   // Keeping it would leave a worktree no agent record can reach.
   await cleanupAgentWorktree(

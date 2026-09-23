@@ -31,14 +31,7 @@ import {
   type ArchiveDeps,
 } from "./archive.js";
 import { AgentError } from "./errors.js";
-import {
-  type AgentEventBus,
-  type AgentEventHistoryListener,
-  type AgentEventHistoryRow,
-  createAgentEventBus,
-  writeLatestEvent,
-  writeLatestEventIfCurrent,
-} from "./events.js";
+import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { type SeededFile, seedInitialFiles } from "./file-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
@@ -53,7 +46,7 @@ import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
-import { parsePromptSource, type PromptSource } from "./acp/prompt-source.js";
+import type { PromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -73,7 +66,6 @@ import { StreamStore } from "./acp/stream-store.js";
 import { buildSystemPrompt } from "./acp/system-prompt.js";
 import type {
   AgentGitContext,
-  AgentLatestEventInput,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -302,7 +294,13 @@ export class AgentManager {
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
-  private readonly eventRecordedListeners: AgentEventHistoryListener[] = [];
+  private readonly attentionListeners: Array<
+    (event: {
+      agent: AgentRecord;
+      type: "waiting_user" | "blocked";
+      message: string;
+    }) => void | Promise<void>
+  > = [];
   private readonly modelsLearnedListeners: Array<
     (agentType: AgentType) => void
   > = [];
@@ -343,7 +341,8 @@ export class AgentManager {
       getAgent: (id) => this.getAgent(id),
       setAgentStatus: (id, status, lastError) =>
         this.setAgentStatus(id, status, lastError),
-      setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
+      notifyBlocked: (id, message) =>
+        this.emitAttention(id, "blocked", message),
       settleStream: async (id, reason) =>
         (await this.streamStore.settleInterrupted(id, reason)).length,
     });
@@ -388,6 +387,10 @@ export class AgentManager {
     seq: number
   ): Promise<void> {
     await this.streamRecorder.handle(event);
+    if (event.type === "update" || event.type === "turn") {
+      // ACP activity can change the worktree; the refresher throttles Git reads.
+      void this.diffStatsRefresher?.signal(agentId);
+    }
     if (seq > 0) {
       await this.pool.query(
         "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
@@ -404,7 +407,7 @@ export class AgentManager {
         this.streamRecorder.isStopping(agentId)
       )
     ) {
-      await this.deriveTurnStatus(agentId, event);
+      await this.publishTurnActivity(agentId, event);
     }
     if (event.type === "config") {
       await this.applyEngineConfig(agentId, event.options);
@@ -450,98 +453,25 @@ export class AgentManager {
     }
   }
 
-  /**
-   * The agent's status, read off its stream rather than reported by it: a
-   * turn opening means working, a turn closing means idle unless a question
-   * of the agent's is still unanswered (waiting) or the turn failed
-   * (blocked). Written as status events so the sidebar, notifications and
-   * the Activity page keep one source; the feed hides the per-turn ones.
-   */
-  private async deriveTurnStatus(
+  /** A turn change updates live presence; a failed turn also asks for attention. */
+  private async publishTurnActivity(
     agentId: string,
     event: Extract<DriverEvent, { type: "turn" }>
   ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
-    if (event.state === "started") {
-      await this.setSystemLatestEvent(agentId, {
-        type: "working",
-        message: statusLine(
-          await this.promptGist(agentId, event.text, event.source)
-        ),
-        metadata: { source: "system", phase: "turn" },
-      });
-    } else if (event.error) {
-      await this.setSystemLatestEvent(agentId, {
-        type: "blocked",
-        message: statusLine(event.error),
-        metadata: { source: "system", phase: "turn" },
-      });
-    } else {
-      const question = await this.openQuestion(agentId);
-      await this.setSystemLatestEvent(agentId, {
-        type: question ? "waiting_user" : "idle",
-        message: question ? statusLine(question) : "Ready.",
-        metadata: { source: "system", phase: "turn" },
-      });
+    if (event.state === "settled" && event.error) {
+      await this.emitAttention(agentId, "blocked", statusLine(event.error));
     }
     this.eventBus.publish(await this.getRequiredAgent(agentId));
-  }
-
-  /**
-   * What a prompt says, without its envelope: a Chat prompt carries only
-   * the message id, so its text is read back; an agent or system prompt
-   * carries the text itself.
-   */
-  private async promptGist(
-    agentId: string,
-    prompt: string,
-    given?: PromptSource
-  ): Promise<string> {
-    const source = given ?? parsePromptSource(prompt);
-    if (source.source !== "chat") return source.text;
-    const result = await this.pool.query<{ text: string }>(
-      `SELECT text FROM blocks WHERE id = $1 AND (to_agent_id = $2 OR stream_id = $2)`,
-      [source.chatMessageId, agentId]
-    );
-    return result.rows[0]?.text ?? "";
-  }
-
-  /** The newest open question or form the agent posted for people. */
-  private async openQuestion(agentId: string): Promise<string | null> {
-    const result = await this.pool.query<{ text: string; data: unknown }>(
-      `SELECT text, data FROM blocks b
-        WHERE b.author_kind = 'agent' AND b.author_agent_id = $1
-          AND b.to_agent_id IS NULL AND b.thread_id IS NULL
-          AND b.kind IN ('question', 'form')
-          AND (b.state IS NULL OR (b.state->'answer' IS NULL AND b.state->'submission' IS NULL))
-        ORDER BY b.created_at DESC, b.id DESC
-        LIMIT 1`,
-      [agentId]
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    if (row.text) return row.text;
-    const data = row.data as {
-      title?: string;
-      options?: Array<{ label: string }>;
-    } | null;
-    return (
-      data?.title ??
-      data?.options?.map((o) => o.label).join(" / ") ??
-      "Waiting for input"
-    );
   }
 
   /** The agent asked the user something in Chat: it is waiting on them now. */
   async noteQuestionPosted(agentId: string, text: string): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
-    await this.setSystemLatestEvent(agentId, {
-      type: "waiting_user",
-      message: statusLine(text),
-      metadata: { source: "system", phase: "turn" },
-    });
+
+    await this.emitAttention(agentId, "waiting_user", statusLine(text));
     this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 
@@ -553,11 +483,8 @@ export class AgentManager {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
     await this.setAgentStatus(agentId, "error", message.slice(0, 1000));
-    await this.setSystemLatestEvent(agentId, {
-      type: "blocked",
-      message: message.slice(0, 200),
-      metadata: { source: "system", phase: "exit" },
-    });
+
+    await this.emitAttention(agentId, "blocked", message.slice(0, 200));
     this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 
@@ -665,11 +592,6 @@ export class AgentManager {
         "stopped",
         "The agent host was not running when Dispatch restarted."
       );
-      await this.setSystemLatestEvent(row.id, {
-        type: "idle",
-        message: "Session ended while Dispatch was down.",
-        metadata: { source: "system" },
-      });
     }
     if (attached.length || lost.length) {
       this.logger.info({ attached, lost }, "Restored running agents");
@@ -677,9 +599,37 @@ export class AgentManager {
     return { attached, lost };
   }
 
-  /** Register a callback invoked after every upsertLatestEvent. */
-  onLatestEvent(listener: AgentEventListener): void {
+  /** Register for agent record changes from the runtime and lifecycle. */
+  onAgentUpdated(listener: AgentEventListener): void {
     this.eventBus.subscribe(listener);
+  }
+
+  onAttention(
+    listener: (event: {
+      agent: AgentRecord;
+      type: "waiting_user" | "blocked";
+      message: string;
+    }) => void | Promise<void>
+  ): void {
+    this.attentionListeners.push(listener);
+  }
+
+  private async emitAttention(
+    agentId: string,
+    type: "waiting_user" | "blocked",
+    message: string
+  ): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent) return;
+    for (const listener of this.attentionListeners) {
+      try {
+        void Promise.resolve(listener({ agent, type, message })).catch((err) =>
+          this.logger.warn({ err, agentId }, "Agent attention listener failed")
+        );
+      } catch (err) {
+        this.logger.warn({ err, agentId }, "Agent attention listener failed");
+      }
+    }
   }
 
   /** Register a callback told when an engine's published model list changed the catalog for its type. */
@@ -691,24 +641,6 @@ export class AgentManager {
   onAgentCreated(listener: (agent: AgentRecord) => void): void {
     this.agentCreatedListeners.push(listener);
   }
-
-  /**
-   * Register a callback invoked with each `agent_events` history row as it
-   * is written — after the latest-event update, off its critical path.
-   */
-  onEventRecorded(listener: AgentEventHistoryListener): void {
-    this.eventRecordedListeners.push(listener);
-  }
-
-  private readonly notifyEventRecorded = (row: AgentEventHistoryRow): void => {
-    for (const listener of this.eventRecordedListeners) {
-      try {
-        listener(row);
-      } catch (err) {
-        this.logger.warn({ err }, "agent event history listener threw");
-      }
-    }
-  };
 
   /**
    * Inject the diff-stats refresher singleton. Wired post-construction so
@@ -756,9 +688,11 @@ export class AgentManager {
    */
   private withLiveActivity(agent: AgentRecord): AgentRecord {
     const live = this.liveActivity(agent);
-    return live.activity === "working" || live.currentTurn === null
-      ? live
-      : { ...live, currentTurn: null };
+    // The open turn comes from the stream; only ACP's live turn state decides
+    // whether it is still current. Derived activity is a separate UI summary.
+    if (agent.status === "running" && this.runtime.isBusy(agent.id))
+      return live;
+    return live.currentTurn === null ? live : { ...live, currentTurn: null };
   }
 
   private liveActivity(agent: AgentRecord): AgentRecord {
@@ -840,7 +774,7 @@ export class AgentManager {
    * (jobs, templates and MCP launches want the outcome). With
    * `detachLaunch`, it returns as soon as the row exists in `creating` and
    * the workspace and host come up in the background, reporting progress
-   * through the agent's setup phase and status events: what the UI wants,
+   * through the agent's setup phase and workspace block: what the UI wants,
    * since it shows the agent while it starts.
    */
   async createAgent(
@@ -1276,18 +1210,14 @@ export class AgentManager {
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
       );
+      await this.populateGitContext(id);
       await this.recordStartup(() =>
         this.launchContextRecorder?.recordStartupDone?.({
           agentId: id,
           cwd: workspace.effectiveCwd,
         })
       );
-      await this.populateGitContext(id);
-      await this.setSystemLatestEvent(id, {
-        type: "idle",
-        message: `${ENGINE_LABELS[opts.type]} session started.`,
-        metadata: { source: "system", phase: "started" },
-      });
+
       this.eventBus.publish(await this.getRequiredAgent(id));
       const firstTurn = buildStartupTurn(
         {
@@ -1303,21 +1233,15 @@ export class AgentManager {
         const lastError = `Worktree creation failed: ${error.message}`;
         await this.setAgentStatus(id, "stopped", lastError);
         await this.setSetupPhase(id, null);
-        await this.setSystemLatestEvent(id, {
-          type: "blocked",
-          message: lastError,
-        });
+        await this.emitAttention(id, "blocked", lastError);
+
         throw new AgentError(lastError, error.statusCode);
       }
       await this.failCreate(id, error);
     }
   }
 
-  /**
-   * The Chat feed and the sidebar show the agent's latest status event, so
-   * each setup phase reports one: with no pane to watch, this is the only
-   * sign that anything is happening while the worktree and host come up.
-   */
+  /** Record setup progress in the stream's workspace block. */
   private async reportStartupPhase(
     id: string,
     phase: SetupPhase,
@@ -1334,14 +1258,8 @@ export class AgentManager {
               ? { phase, label: `Starting ${ENGINE_LABELS[type]}` }
               : null;
     if (!step) return;
-    const message = `${step.label}…`;
-    await this.setSystemLatestEvent(id, {
-      type: "working",
-      message,
-      metadata: { source: "system", phase: "setup", setupPhase: phase },
-    });
-    // The same phase in the stream, where there is room to show it as the
-    // work it is. A recorder that is absent or fails must never take the
+
+    // A recorder that is absent or fails must never take the
     // launch down with it.
     await this.recordStartup(() =>
       this.launchContextRecorder?.recordStartupStep?.({
@@ -1493,7 +1411,7 @@ export class AgentManager {
    *
    * Anything on the create path that can reject has to land here: the row is
    * already inserted as `creating`, so an escaping error would strand it in
-   * that state with a stale setup phase and no event explaining why.
+   * that state with a stale setup phase.
    */
   private async failCreate(id: string, error: unknown): Promise<never> {
     const message = errorMessage(error);
@@ -1506,11 +1424,12 @@ export class AgentManager {
       })
     );
     await this.setSetupPhase(id, null);
-    await this.setSystemLatestEvent(id, {
-      type: "blocked",
-      message: `Failed to create agent: ${message}`,
-      metadata: { source: "system", phase: "create" },
-    });
+    await this.emitAttention(
+      id,
+      "blocked",
+      `Failed to create agent: ${message}`
+    );
+
     throw new AgentError(`Failed to create agent: ${message}`, 500);
   }
 
@@ -1536,16 +1455,13 @@ export class AgentManager {
     if (await this.runtime.attach(id)) {
       this.streamRecorder.setCwd(id, agent.cwd);
       await this.setAgentStatus(id, "running", null);
-      await this.setSystemLatestEvent(id, {
-        type: "idle",
-        message: "Reattached to the running agent.",
-      });
+
       return (await this.getAgent(id)) as AgentRecord;
     }
 
     await this.setAgentStatus(id, "creating", null);
     try {
-      const { sessionId, resumed } = await this.startHost(agent, {
+      const { sessionId } = await this.startHost(agent, {
         resumeSessionId: agent.cliSessionId ?? null,
         jobRunId: undefined,
       });
@@ -1556,18 +1472,16 @@ export class AgentManager {
       // Re-populate gitContext on every restart so drift from external git
       // activity gets picked up at start time.
       await this.populateGitContext(id);
-      await this.setSystemLatestEvent(id, {
-        type: "idle",
-        message: resumed ? "Session resumed." : "Session started.",
-      });
+      this.eventBus.publish(await this.getRequiredAgent(id));
     } catch (error) {
       const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message);
-      await this.setSystemLatestEvent(id, {
-        type: "blocked",
-        message: `Failed to start agent: ${message}`,
-        metadata: { source: "system", phase: "start" },
-      });
+      await this.emitAttention(
+        id,
+        "blocked",
+        `Failed to start agent: ${message}`
+      );
+
       throw new AgentError(`Failed to start agent: ${message}`, 500);
     }
 
@@ -1600,19 +1514,17 @@ export class AgentManager {
       await this.runtime.stop(id, force);
       await this.streamRecorder.settleStopped(id);
       await this.setAgentStatus(id, "stopped", null);
-      await this.setSystemLatestEvent(id, {
-        type: "idle",
-        message: "Session stopped.",
-      });
+
       this.notifyStreamWrite(id, true);
     } catch (error) {
       const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message);
-      await this.setSystemLatestEvent(id, {
-        type: "blocked",
-        message: `Failed to stop agent: ${message}`,
-        metadata: { source: "system", phase: "stop" },
-      });
+      await this.emitAttention(
+        id,
+        "blocked",
+        `Failed to stop agent: ${message}`
+      );
+
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
 
@@ -1653,55 +1565,6 @@ export class AgentManager {
     }
 
     return readWorktreeStatus(agent.worktreePath);
-  }
-
-  async upsertLatestEvent(
-    id: string,
-    input: AgentLatestEventInput
-  ): Promise<AgentRecord> {
-    await writeLatestEvent(
-      this.pool,
-      this.logger,
-      id,
-      input,
-      this.notifyEventRecorded
-    );
-
-    // Agent could be soft-deleted between the UPDATE and this SELECT in rare
-    // races. Guard against null to prevent downstream crashes (e.g. in event
-    // listeners).
-    const agent = await this.getAgent(id);
-    if (!agent) {
-      throw new AgentError("Agent not found.", 404);
-    }
-    this.eventBus.publish(agent);
-    // Fire-and-forget: refresher swallows its own errors, throttles bursts,
-    // and dedupes concurrent signals. We just nudge it on every status
-    // transition so the diff badge tracks scope as work lands.
-    void this.diffStatsRefresher?.signal(id);
-    return agent;
-  }
-
-  async upsertLatestEventIfCurrent(
-    id: string,
-    expectedUpdatedAt: string,
-    input: AgentLatestEventInput
-  ): Promise<AgentRecord | null> {
-    const updated = await writeLatestEventIfCurrent(
-      this.pool,
-      this.logger,
-      id,
-      expectedUpdatedAt,
-      input,
-      this.notifyEventRecorded
-    );
-    if (!updated) return null;
-
-    const agent = await this.getAgent(id);
-    if (!agent) return null;
-    this.eventBus.publish(agent);
-    void this.diffStatsRefresher?.signal(id);
-    return agent;
   }
 
   async reconcileAgents(): Promise<void> {
@@ -1778,6 +1641,8 @@ export class AgentManager {
         { id, status },
         "Agent status update skipped because row was missing."
       );
+    } else {
+      this.eventBus.publish(await this.getRequiredAgent(id));
     }
   }
 
@@ -1818,19 +1683,6 @@ export class AgentManager {
         archive_phase AS "archivePhase",
         archive_cleanup_mode AS "archiveCleanupMode",
         last_error AS "lastError",
-        CASE
-          WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL
-          ELSE json_build_object(
-            'type',
-            latest_event_type,
-            'message',
-            latest_event_message,
-            'updatedAt',
-            latest_event_updated_at,
-            'metadata',
-            COALESCE(latest_event_metadata, '{}'::jsonb)
-          )
-        END AS "latestEvent",
         ${ACTIVITY_SQL} AS activity,
         ${CURRENT_TURN_SQL} AS "currentTurn",
         git_context AS "gitContext",
@@ -1876,6 +1728,7 @@ export class AgentManager {
       `UPDATE agents SET setup_phase = $2, updated_at = NOW() WHERE id = $1`,
       [id, phase]
     );
+    this.eventBus.publish(await this.getRequiredAgent(id));
   }
 
   private async setArchivePhase(
@@ -1886,26 +1739,6 @@ export class AgentManager {
       `UPDATE agents SET archive_phase = $2, updated_at = NOW() WHERE id = $1`,
       [id, phase]
     );
-  }
-
-  private async setSystemLatestEvent(
-    id: string,
-    input: AgentLatestEventInput
-  ): Promise<void> {
-    try {
-      await this.upsertLatestEvent(id, {
-        ...input,
-        metadata: {
-          ...(input.metadata ?? {}),
-          source: "system",
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        { err: error, id, eventType: input.type },
-        "Failed to upsert system latest event."
-      );
-    }
   }
 
   private archiveDeps(): ArchiveDeps {
@@ -1935,7 +1768,8 @@ export class AgentManager {
  */
 /**
  * The newest turn's block and the thread it sits in, while that turn is
- * still open. Only a working agent keeps it: see withLiveActivity.
+ * still open. ACP's live turn state checks whether to expose it: see
+ * withLiveActivity.
  */
 const CURRENT_TURN_SQL = `(
           SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id)

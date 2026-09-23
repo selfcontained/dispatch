@@ -12,9 +12,7 @@ vi.mock("../src/db/settings.js", () => ({
     if (key === "slack_webhook_url")
       return Promise.resolve("https://hooks.slack.com/test");
     if (key === "slack_notify_events")
-      return Promise.resolve(
-        JSON.stringify(["done", "waiting_user", "blocked"])
-      );
+      return Promise.resolve(JSON.stringify(["waiting_user", "blocked"]));
     return Promise.resolve(null);
   }),
   setSetting: vi.fn(() => Promise.resolve()),
@@ -42,12 +40,6 @@ function makeAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     fullAccess: false,
     setupPhase: null,
     lastError: null,
-    latestEvent: {
-      type: "done",
-      message: "Task complete",
-      updatedAt: new Date().toISOString(),
-      metadata: null,
-    },
     gitContext: null,
     gitContextStale: false,
     gitContextUpdatedAt: null,
@@ -126,6 +118,13 @@ describe("SlackNotifier webhook URL validation", () => {
   });
 });
 
+async function notifyForAttention(notifier: SlackNotifier, agent: AgentRecord) {
+  await notifier.onAttention(agent, {
+    type: "waiting_user",
+    message: "Needs input",
+  });
+}
+
 describe("SlackNotifier focus suppression", () => {
   beforeEach(() => {
     fetchSpy.mockClear();
@@ -134,7 +133,7 @@ describe("SlackNotifier focus suppression", () => {
 
   it("sends notification when no focus check is registered", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
-    await notifier.onAgentEvent(makeAgent());
+    await notifyForAttention(notifier, makeAgent());
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url] = fetchSpy.mock.calls[0] as [string, ...unknown[]];
@@ -145,7 +144,7 @@ describe("SlackNotifier focus suppression", () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     notifier.setFocusCheck(() => false);
 
-    await notifier.onAgentEvent(makeAgent());
+    await notifyForAttention(notifier, makeAgent());
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
@@ -154,7 +153,7 @@ describe("SlackNotifier focus suppression", () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     notifier.setFocusCheck(() => true);
 
-    await notifier.onAgentEvent(makeAgent());
+    await notifyForAttention(notifier, makeAgent());
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockLog.debug).toHaveBeenCalledWith(
@@ -168,29 +167,23 @@ describe("SlackNotifier focus suppression", () => {
     notifier.setFocusCheck((id) => id === "agent-1");
 
     // Focused agent — should be suppressed
-    await notifier.onAgentEvent(makeAgent({ id: "agent-1" }));
+    await notifyForAttention(notifier, makeAgent({ id: "agent-1" }));
     expect(fetchSpy).not.toHaveBeenCalled();
 
     // Different agent — should send
-    await notifier.onAgentEvent(makeAgent({ id: "agent-2" }));
+    await notifyForAttention(notifier, makeAgent({ id: "agent-2" }));
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("sends notification for non-notify event types regardless of focus", async () => {
+  it("ignores non-notify signals before checking focus", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     notifier.setFocusCheck(() => true);
 
     // "working" is not in the notify list, so it exits early before the focus check
-    await notifier.onAgentEvent(
-      makeAgent({
-        latestEvent: {
-          type: "working",
-          message: "doing stuff",
-          updatedAt: new Date().toISOString(),
-          metadata: null,
-        },
-      })
-    );
+    await notifier.onAttention(makeAgent(), {
+      type: "working",
+      message: "doing stuff",
+    });
 
     expect(fetchSpy).not.toHaveBeenCalled();
     // Should NOT have logged the focus skip message (exited before that check)
@@ -361,7 +354,7 @@ describe("SlackNotifier.sendNotification (notify)", () => {
 
   it("sanitizes renamed agent names in event notifications", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
-    await notifier.onAgentEvent(makeAgent({ name: "<!here>" }));
+    await notifyForAttention(notifier, makeAgent({ name: "<!here>" }));
 
     const body = JSON.parse(
       (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string

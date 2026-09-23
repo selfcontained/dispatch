@@ -21,17 +21,9 @@ export type AgentStatus =
 
 export type AgentRole = "standard" | "review" | "assisted_update";
 
-export type AgentLatestEventType =
-  | "working"
-  | "blocked"
-  | "waiting_user"
-  | "done"
-  | "idle";
-
 /**
  * What the agent is doing now, derived by the server each time the record is
- * read (runtime busy state, open questions, the last turn) rather than taken
- * from the last status event written.
+ * read (runtime busy state, open questions, the last turn).
  */
 export type AgentActivity =
   | "starting"
@@ -51,13 +43,6 @@ export type ArchivePhase =
   | null;
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
-
-export type AgentLatestEvent = {
-  type: AgentLatestEventType;
-  message: string;
-  updatedAt: string;
-  metadata: Record<string, unknown> | null;
-};
 
 export type AgentGitContext = {
   repoRoot: string;
@@ -91,7 +76,6 @@ export type AgentRecord = {
   archivePhase: ArchivePhase;
   archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
-  latestEvent: AgentLatestEvent | null;
   activity: AgentActivity;
   /**
    * The turn the agent is running right now, while `activity` is

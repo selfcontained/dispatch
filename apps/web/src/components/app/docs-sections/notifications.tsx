@@ -4,23 +4,20 @@ export function NotificationsContent() {
   return (
     <>
       <P>
-        Dispatch can notify you when agents finish, need input, or get stuck —
-        so you don't have to watch the dashboard. Notifications are delivered
-        through three channels: native browser notifications, Slack, and local
-        sound cues. All three are configured in{" "}
+        Dispatch can notify you when agents need input or encounter a failed
+        turn — so you don't have to watch the dashboard. Notifications are
+        delivered through three channels: native browser notifications, Slack,
+        and local sound cues. All three are configured in{" "}
         <strong>Settings → Notifications</strong>.
       </P>
 
       <Section>
         <H3>Configurable events</H3>
         <P>
-          For browser and Slack notifications, you choose which agent status
-          changes trigger a notification:
+          For browser and Slack notifications, you choose which agent actions
+          trigger a notification:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
-          <li>
-            <Code>done</Code> — agent finished its task
-          </li>
           <li>
             <Code>waiting_user</Code> — agent needs your input
           </li>
@@ -67,18 +64,18 @@ export function NotificationsContent() {
           as soon as you flip them. Configured events fire to Slack whenever a
           browser notification isn't delivered (no tab open, permission denied,
           or the event isn't in your browser-notification list). Agents launched
-          by a job are the exception: their status events go to browser
-          notifications only, never to Slack.
+          by a job are the exception: their attention notifications go to
+          browser notifications only, never to Slack.
         </P>
       </Section>
 
       <Section>
         <H3>Sound cues</H3>
         <P>
-          A soft synthesized tone on status changes. Cues are per-device — they
-          don't touch server state and only play in tabs where you've enabled
-          them. Three status cues are available: <Code>done</Code>,{" "}
-          <Code>waiting_user</Code>, and <Code>blocked</Code>. A fourth cue
+          A soft synthesized tone when an agent asks for input or a turn fails.
+          Cues are per-device — they don't touch server state and only play in
+          tabs where you've enabled them. Cues are available for{" "}
+          <Code>waiting_user</Code> and <Code>blocked</Code>. A third cue
           provides tactile feedback for mobile toolbar taps. Use the preview
           buttons in settings to hear each one.
         </P>

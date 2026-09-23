@@ -75,10 +75,6 @@ export async function purgeExpiredArchivedAgents(
       [ids]
     );
     await client.query(
-      `DELETE FROM agent_events WHERE agent_id = ANY($1::text[])`,
-      [ids]
-    );
-    await client.query(
       `DELETE FROM browser_feedback_submissions WHERE agent_id = ANY($1::text[])`,
       [ids]
     );

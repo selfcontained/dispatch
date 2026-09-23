@@ -1,4 +1,4 @@
-export type NotifyEventType = "done" | "waiting_user" | "blocked";
+export type NotifyEventType = "waiting_user" | "blocked";
 
 export type NotificationSettingsResponse = {
   webhookUrl: string;
@@ -12,7 +12,6 @@ export const EVENT_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  { id: "done", label: "Done", description: "Agent finished its task" },
   {
     id: "waiting_user",
     label: "Waiting for input",

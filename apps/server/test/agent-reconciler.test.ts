@@ -61,7 +61,7 @@ const makeAgent = (
   archivePhase: null,
   archiveCleanupMode: null,
   lastError: null,
-  latestEvent: null,
+
   gitContext: null,
   gitContextStale: false,
   gitContextUpdatedAt: null,
@@ -110,7 +110,7 @@ const setup = (args: {
   const setAgentStatus = vi.fn<
     (id: string, status: AgentStatus, lastError: string | null) => Promise<void>
   >(async () => {});
-  const setSystemLatestEvent = vi.fn().mockResolvedValue(undefined);
+  const notifyBlocked = vi.fn().mockResolvedValue(undefined);
   const settleStream = vi.fn().mockResolvedValue(0);
   const getAgent = vi.fn(async (id: string) => args.agentsById?.[id] ?? null);
 
@@ -137,7 +137,7 @@ const setup = (args: {
     diagnostics,
     getAgent,
     setAgentStatus,
-    setSystemLatestEvent,
+    notifyBlocked,
     settleStream,
   });
 
@@ -147,7 +147,7 @@ const setup = (args: {
     runtime,
     diagnostics,
     setAgentStatus,
-    setSystemLatestEvent,
+    notifyBlocked,
     settleStream,
     getAgent,
   };
@@ -197,7 +197,7 @@ describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
       isAlive: vi.fn().mockResolvedValue(false),
     });
 
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
+    const { reconciler, setAgentStatus, notifyBlocked } = setup({
       activeRows: [
         { id: "agt_inert", status: "running", updatedAt: minutesAgo(5) },
       ],
@@ -209,37 +209,33 @@ describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
     expect(reconciled).toEqual([]);
     expect(runtime.isAlive).not.toHaveBeenCalled();
     expect(setAgentStatus).not.toHaveBeenCalled();
-    expect(setSystemLatestEvent).not.toHaveBeenCalled();
+    expect(notifyBlocked).not.toHaveBeenCalled();
   });
 });
 
 describe("reconcileAgentStatuses — missing-host detection", () => {
   it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
-    const { reconciler, setAgentStatus, setSystemLatestEvent, settleStream } =
-      setup({
-        activeRows: [
-          { id: "agt_died", status: "running", updatedAt: minutesAgo(2) },
-        ],
-        runtime,
-        agentsById: { agt_died: makeAgent("agt_died", { status: "stopped" }) },
-      });
+    const { reconciler, setAgentStatus, notifyBlocked, settleStream } = setup({
+      activeRows: [
+        { id: "agt_died", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime,
+      agentsById: { agt_died: makeAgent("agt_died", { status: "stopped" }) },
+    });
 
     const reconciled = await reconciler.reconcileAgentStatuses();
 
     expect(runtime.isAlive).toHaveBeenCalledWith("agt_died");
     expect(settleStream).toHaveBeenCalledWith("agt_died", "the agent stopped");
     expect(setAgentStatus).toHaveBeenCalledWith("agt_died", "stopped", null);
-    const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
-    expect(eventArg?.type).toBe("idle");
-    expect(eventArg?.message).toBe("The agent is no longer running.");
-    expect(eventArg?.metadata).toMatchObject({ launchFailed: false });
+    expect(notifyBlocked).not.toHaveBeenCalled();
     expect(reconciled.map((a) => a.id)).toEqual(["agt_died"]);
   });
 
   it("creating agent past the launch grace with no host → flips to error", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
+    const { reconciler, setAgentStatus, notifyBlocked } = setup({
       activeRows: [
         {
           id: "agt_neverstarted",
@@ -257,12 +253,10 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       "error",
       null
     );
-    const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
-    expect(eventArg?.type).toBe("blocked");
-    expect(eventArg?.message).toContain(
-      "Launch failed before the agent became ready"
+    expect(notifyBlocked).toHaveBeenCalledWith(
+      "agt_neverstarted",
+      "Launch failed before the agent became ready."
     );
-    expect(eventArg?.metadata?.launchFailed).toBe(true);
   });
 
   it("leaves a creating agent alone inside the launch grace", async () => {
@@ -280,12 +274,12 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
     expect(setAgentStatus).not.toHaveBeenCalled();
   });
 
-  it("includes the host log tail in lastError and the system event", async () => {
+  it("includes the host log tail in lastError", async () => {
     const runtime = makeRuntime({
       isAlive: vi.fn().mockResolvedValue(false),
       readLogTail: vi.fn().mockResolvedValue("fatal: boom"),
     });
-    const { reconciler, setSystemLatestEvent, setAgentStatus } = setup({
+    const { reconciler, notifyBlocked, setAgentStatus } = setup({
       activeRows: [
         { id: "agt_died", status: "running", updatedAt: minutesAgo(2) },
       ],
@@ -300,15 +294,13 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       "stopped",
       "fatal: boom"
     );
-    expect(setSystemLatestEvent.mock.calls[0]?.[1]?.message).toBe(
-      "The agent is no longer running.\nfatal: boom"
-    );
+    expect(notifyBlocked).not.toHaveBeenCalled();
   });
 });
 
 describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
   it("reverts an agent stuck in stopping > 60s back to running", async () => {
-    const { reconciler, setAgentStatus, setSystemLatestEvent } = setup({
+    const { reconciler, setAgentStatus, notifyBlocked } = setup({
       activeRows: [
         { id: "agt_stuck_stop", status: "stopping", updatedAt: minutesAgo(2) },
       ],
@@ -322,9 +314,7 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
       "running",
       null
     );
-    const eventArg = setSystemLatestEvent.mock.calls[0]?.[1];
-    expect(eventArg?.type).toBe("working");
-    expect(eventArg?.message).toContain("Stop timed out");
+    expect(notifyBlocked).not.toHaveBeenCalled();
   });
 
   it("leaves an agent stopping for < 60s alone (still within grace)", async () => {
@@ -342,17 +332,16 @@ describe("reconcileAgentStatuses — stuck-stopping recovery", () => {
 
 describe("reconcileAgentStatuses — happy path", () => {
   it("doesn't touch a running agent whose host is still alive", async () => {
-    const { reconciler, setAgentStatus, setSystemLatestEvent, settleStream } =
-      setup({
-        activeRows: [
-          { id: "agt_running", status: "running", updatedAt: minutesAgo(5) },
-        ],
-      });
+    const { reconciler, setAgentStatus, notifyBlocked, settleStream } = setup({
+      activeRows: [
+        { id: "agt_running", status: "running", updatedAt: minutesAgo(5) },
+      ],
+    });
 
     const reconciled = await reconciler.reconcileAgentStatuses();
     expect(reconciled).toEqual([]);
     expect(setAgentStatus).not.toHaveBeenCalled();
-    expect(setSystemLatestEvent).not.toHaveBeenCalled();
+    expect(notifyBlocked).not.toHaveBeenCalled();
     expect(settleStream).not.toHaveBeenCalled();
   });
 

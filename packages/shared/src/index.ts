@@ -12,8 +12,6 @@ export type { AgentType, CliAgentType } from "./agent-types.js";
 export type {
   AgentActivity,
   AgentGitContext,
-  AgentLatestEvent,
-  AgentLatestEventType,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -58,7 +56,6 @@ export type {
   ChatReactionResponse,
   ChatSendRequest,
   ChatSendResponse,
-  ChatStatusEntry,
   ChatUnreadSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";

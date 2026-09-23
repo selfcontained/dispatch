@@ -170,30 +170,6 @@ export type ChatMessage = {
   updatedAt: string;
 };
 
-/** A row from `agent_events`, surfaced as a compact feed line. */
-export type ChatStatusEntry = {
-  type: "status";
-  id: string;
-  eventType: string;
-  message: string;
-  at: string;
-  /**
-   * Written by Dispatch itself (a lifecycle mark: started, stopped, resumed,
-   * a setup phase, a status derived from the stream) rather than reported
-   * by the agent.
-   */
-  system?: boolean;
-  /**
-   * What a system event marks: `setup` (one workspace step, see
-   * `setupPhase`), `started`, `create` (setup failed), `start`, `stop`,
-   * `exit`, or `turn` (status derived from a turn opening or closing).
-   */
-  phase?: string;
-  /** For `phase: "setup"`: worktree | env | deps | session. */
-  setupPhase?: string;
-};
-
-/** A file the agent shared via share_file. */
 export type ChatFileEntry = {
   type: "file";
   id: string;
@@ -322,11 +298,7 @@ export type ChatMessageEntry = {
   message: ChatMessage;
 };
 
-export type ChatFeedEntry =
-  | ChatMessageEntry
-  | ChatStatusEntry
-  | ChatFileEntry
-  | ChatTurnEntry;
+export type ChatFeedEntry = ChatMessageEntry | ChatFileEntry | ChatTurnEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];
@@ -382,8 +354,8 @@ export type RuntimeChangedEvent = {
 /**
  * One feed row, exactly as `GET /agents/:id/chat` would return it, published
  * when that row is written or edited so a mounted feed can put it in place
- * instead of refetching every loaded page. Chat messages and status events
- * are published this way; the other sources still announce themselves with
+ * instead of refetching every loaded page. Stream blocks
+ * are published this way; other sources still announce themselves with
  * the coarse `chat.changed`, which stays the fallback for anything a client
  * cannot place.
  */

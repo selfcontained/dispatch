@@ -70,10 +70,6 @@ describe("migrations", () => {
       "last_error",
       "created_at",
       "updated_at",
-      "latest_event_type",
-      "latest_event_message",
-      "latest_event_metadata",
-      "latest_event_updated_at",
       "git_context",
       "git_context_stale",
       "git_context_updated_at",
@@ -91,6 +87,21 @@ describe("migrations", () => {
     for (const col of expected) {
       expect(colNames).toContain(col);
     }
+    for (const col of [
+      "latest_event_type",
+      "latest_event_message",
+      "latest_event_metadata",
+      "latest_event_updated_at",
+    ]) {
+      expect(colNames).not.toContain(col);
+    }
+  });
+
+  it("removes the obsolete agent event history", async () => {
+    const table = await pool.query(
+      "SELECT to_regclass('public.agent_events') AS name"
+    );
+    expect(table.rows[0]?.name).toBeNull();
   });
 
   it("should have ON DELETE CASCADE for files foreign keys", async () => {

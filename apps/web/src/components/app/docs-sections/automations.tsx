@@ -391,7 +391,6 @@ export function AutomationsContent() {
             <Code>persona</Code>), <Code>archive_agent</Code>,{" "}
             <Code>list_personas</Code>, <Code>persona_templates</Code>,{" "}
             <Code>persona_upsert</Code>, <Code>persona_validate</Code>,{" "}
-            <Code>get_activity_summary</Code> and{" "}
             <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>

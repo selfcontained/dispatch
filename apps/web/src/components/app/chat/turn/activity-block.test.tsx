@@ -78,6 +78,13 @@ describe("ActivityBlock step list", () => {
 });
 
 describe("ActivityBlock settle", () => {
+  it("keeps the turn summary between reported running steps", () => {
+    render(<ActivityBlock trace={open} label="read a.ts" />);
+    expect(
+      screen.getByTestId("harness-activity-summary").textContent
+    ).toContain("read a.ts");
+  });
+
   it("does not toggle step details as the stream progresses", () => {
     const step = {
       ...open.steps[0],

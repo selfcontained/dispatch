@@ -120,7 +120,6 @@ import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
-  loadScopedActivityEvents,
   parseActivityQuery,
   timeRangeClause,
 } from "./server/activity-query.js";
@@ -367,7 +366,7 @@ const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
 // Status and phase changes the manager makes on its own (a detached launch
 // coming up, an engine exiting, a restore at boot) reach the sidebar and the
 // Chat presence line through the same upsert the routes publish.
-agentManager.onLatestEvent((agent) => {
+agentManager.onAgentUpdated((agent) => {
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 });
 // A launched engine taught the server a new model list; open pickers refetch.
@@ -400,10 +399,7 @@ const streamService = new StreamService({
       description: input.description,
     }),
   notify: (agentId, input) =>
-    mcpHandlers.sendNotify(agentId, {
-      message: input.message,
-      ...(input.title ? { title: input.title } : {}),
-    }),
+    notificationRuntime.sendExplicitNotification(agentId, input),
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
     inject: async (agentId, text, opts) =>
@@ -636,7 +632,6 @@ async function registerRoutes() {
     validateJobMcpToken,
     validateAgentMcpToken,
     mcpSendNotify: mcpHandlers.sendNotify,
-    mcpUpsertEvent: mcpHandlers.upsertEvent,
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareFile: mcpHandlers.shareFile,
     mcpListFiles: mcpHandlers.listFiles,
@@ -681,8 +676,6 @@ async function registerRoutes() {
     pool,
     agentManager,
     parseActivityQuery,
-    loadScopedActivityEvents: (aq, opts) =>
-      loadScopedActivityEvents(pool, aq, opts),
     timeRangeClause,
     dateTruncTz,
     escapeLike,

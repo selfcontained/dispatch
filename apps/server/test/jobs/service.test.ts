@@ -293,7 +293,7 @@ describe("JobService", () => {
           codexArgs: [],
           claudeArgs: [],
           opencodeArgs: [],
-          latestEvent: null,
+
           fullAccess: false,
           useWorktree: false,
           worktreePath: null,
@@ -541,7 +541,7 @@ describe("JobService", () => {
           codexArgs: [],
           claudeArgs: [],
           opencodeArgs: [],
-          latestEvent: null,
+
           fullAccess: false,
           useWorktree: false,
           worktreePath: null,

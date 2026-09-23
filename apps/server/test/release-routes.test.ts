@@ -85,7 +85,6 @@ beforeEach(async () => {
   ensureCachedTarballMock.mockRejectedValue(
     new Error("artifact download disabled in route test")
   );
-  await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
   await writeReleaseStore({

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import http from "http";
-import { createAgentViaAPI, setAgentLatestEventViaAPI } from "./helpers";
+import { callMcpToolViaAPI, createAgentViaAPI } from "./helpers";
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 const authHeader = { Authorization: `Bearer ${AUTH_TOKEN}` };
@@ -73,354 +73,133 @@ async function waitForEvents(
   );
 }
 
-test.describe("Web notification settings API", () => {
-  test("GET /api/v1/notifications/settings returns web notification fields", async ({
-    request,
-  }) => {
-    const res = await request.get("/api/v1/notifications/settings", {
-      headers: authHeader,
-    });
-    expect(res.ok()).toBe(true);
-    const data = await res.json();
-    expect(data).toHaveProperty("webNotifyEnabled");
-    expect(data).toHaveProperty("webNotifyEvents");
-    expect(Array.isArray(data.webNotifyEvents)).toBe(true);
+async function settings(
+  request: import("@playwright/test").APIRequestContext,
+  enabled: boolean,
+  events = ["waiting_user", "blocked"]
+) {
+  const res = await request.post("/api/v1/notifications/settings", {
+    headers: authHeader,
+    data: { webNotifyEnabled: enabled, webNotifyEvents: events },
   });
+  expect(res.ok()).toBe(true);
+  return res.json();
+}
 
-  test("POST /api/v1/notifications/settings saves web notification settings", async ({
-    request,
-  }) => {
-    // Enable web notifications with only "done" events
-    const res = await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: {
-        webNotifyEnabled: true,
-        webNotifyEvents: ["done"],
-      },
-    });
-    expect(res.ok()).toBe(true);
-    const data = await res.json();
-    expect(data.webNotifyEnabled).toBe(true);
-    expect(data.webNotifyEvents).toEqual(["done"]);
+async function postQuestion(
+  request: import("@playwright/test").APIRequestContext,
+  agentId: string
+) {
+  await callMcpToolViaAPI(request, agentId, "post", {
+    text: "Which option should I use?",
+    question: { options: [{ label: "First" }, { label: "Second" }] },
+  });
+}
 
-    // Verify it persists
-    const verify = await request.get("/api/v1/notifications/settings", {
+test.describe("Web notifications from stream actions", () => {
+  test.afterEach(async ({ request }) => {
+    await settings(request, false);
+    await request.post("/api/v1/focus", {
       headers: authHeader,
-    });
-    const verifyData = await verify.json();
-    expect(verifyData.webNotifyEnabled).toBe(true);
-    expect(verifyData.webNotifyEvents).toEqual(["done"]);
-
-    // Reset
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: {
-        webNotifyEnabled: false,
-        webNotifyEvents: ["done", "waiting_user", "blocked"],
-      },
+      data: { agentId: null },
     });
   });
 
-  test("POST /api/v1/notifications/settings filters invalid event types", async ({
+  test("settings accept real attention events and discard old done status", async ({
     request,
   }) => {
-    const res = await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEvents: ["done", "invalid_event", "blocked"] },
-    });
-    expect(res.ok()).toBe(true);
-    const data = await res.json();
-    expect(data.webNotifyEvents).toEqual(["done", "blocked"]);
-
-    // Reset
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEvents: ["done", "waiting_user", "blocked"] },
-    });
-  });
-});
-
-test.describe("Web notification SSE events", () => {
-  test("web notification settings integrate with event pipeline", async ({
-    request,
-  }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: {
-        webNotifyEnabled: true,
-        webNotifyEvents: ["done", "waiting_user", "blocked"],
-      },
-    });
-
-    // Create an agent and set it to "done"
-    const agent = await createAgentViaAPI(request);
-    await setAgentLatestEventViaAPI(request, agent.id, {
-      type: "done",
-      message: "Task completed successfully",
-    });
-
-    // Verify the settings are still correct after event processing
-    const settings = await request.get("/api/v1/notifications/settings", {
-      headers: authHeader,
-    });
-    const data = await settings.json();
-    expect(data.webNotifyEnabled).toBe(true);
-    expect(data.webNotifyEvents).toEqual(["done", "waiting_user", "blocked"]);
-
-    // Clean up
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: false },
-    });
+    const data = await settings(request, true, ["done", "waiting_user"]);
+    expect(data.webNotifyEvents).toEqual(["waiting_user"]);
   });
 
-  test("web notification respects event type filtering", async ({
+  test("an agent question sends a browser notification with an ack ID", async ({
     request,
   }) => {
-    // Enable web notifications for "done" only
-    const res = await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-    expect(res.ok()).toBe(true);
-    const data = await res.json();
-    expect(data.webNotifyEvents).toEqual(["done"]);
-
-    // "blocked" is not in the configured events — verify it's excluded
-    expect(data.webNotifyEvents).not.toContain("blocked");
-    expect(data.webNotifyEvents).not.toContain("waiting_user");
-
-    // Clean up
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: {
-        webNotifyEnabled: false,
-        webNotifyEvents: ["done", "waiting_user", "blocked"],
-      },
-    });
-  });
-});
-
-test.describe("Web notification ack endpoint", () => {
-  test("POST /api/v1/notifications/ack accepts a valid notificationId", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/notifications/ack", {
-      headers: authHeader,
-      data: { notificationId: "test-notification-id" },
-    });
-    expect(res.status()).toBe(204);
-  });
-});
-
-test.describe("Web notification SSE delivery and ack flow", () => {
-  test("SSE notification event includes notificationId when web notifications are enabled", async ({
-    request,
-  }) => {
-    // Enable web notifications for "done"
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
-    // Open SSE stream so the server sees a connected client
+    await settings(request, true, ["waiting_user"]);
     const sse = openSSEStream(SSE_BASE_URL);
     await sse.ready;
-
     try {
-      // Create an agent and trigger a "done" event
       const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Task completed",
-      });
-
-      // Wait for the notification event in the SSE stream
+      await postQuestion(request, agent.id);
       await waitForEvents(
         sse.events,
-        (e) => e.type === "notification",
-        1,
-        5000
+        (e) => e.type === "notification" && e.agentId === agent.id,
+        1
       );
-
-      const notification = sse.events.find((e) => e.type === "notification");
-      expect(notification).toBeDefined();
-      expect(notification!.notificationId).toBeDefined();
-      expect(typeof notification!.notificationId).toBe("string");
-      expect(notification!.agentName).toBeDefined();
-      expect(notification!.eventType).toBe("done");
-      expect(notification!.message).toBe("Task completed");
+      const notification = sse.events.find(
+        (e) => e.type === "notification" && e.agentId === agent.id
+      )!;
+      expect(notification.agentId).toBe(agent.id);
+      expect(notification.eventType).toBe("waiting_user");
+      expect(notification.message).toBe("Which option should I use?");
+      expect(typeof notification.notificationId).toBe("string");
+      const ack = await request.post("/api/v1/notifications/ack", {
+        headers: authHeader,
+        data: { notificationId: notification.notificationId },
+      });
+      expect(ack.status()).toBe(204);
     } finally {
       sse.close();
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
     }
   });
 
-  test("acking a notification prevents Slack fallback (ack returns 204)", async ({
+  test("an explicit notify post sends a browser notice", async ({
     request,
   }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
+    await settings(request, true);
     const sse = openSSEStream(SSE_BASE_URL);
     await sse.ready;
-
     try {
       const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Ack test",
+      await callMcpToolViaAPI(request, agent.id, "post", {
+        text: "Please review the result",
+        notify: true,
       });
-
       await waitForEvents(
         sse.events,
-        (e) => e.type === "notification",
-        1,
-        5000
+        (e) => e.type === "notification" && e.agentId === agent.id,
+        1
       );
-
-      const notification = sse.events.find((e) => e.type === "notification");
-      expect(notification).toBeDefined();
-
-      // Ack the notification — this should cancel the Slack fallback timer
-      const ackRes = await request.post("/api/v1/notifications/ack", {
-        headers: authHeader,
-        data: { notificationId: notification!.notificationId },
+      expect(
+        sse.events.find(
+          (e) => e.type === "notification" && e.agentId === agent.id
+        )
+      ).toMatchObject({
+        agentId: agent.id,
+        eventType: "notice",
+        message: "Please review the result",
       });
-      expect(ackRes.status()).toBe(204);
-    } finally {
-      sse.close();
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
-    }
-  });
-
-  test("no notification SSE event for unconfigured event types", async ({
-    request,
-  }) => {
-    // Enable web notifications for "done" only
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
-    const sse = openSSEStream(SSE_BASE_URL);
-    await sse.ready;
-
-    try {
-      const agent = await createAgentViaAPI(request);
-
-      // Trigger a "blocked" event — not in configured events
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "blocked",
-        message: "Something went wrong",
-      });
-
-      // Wait a bit and verify no notification event was sent
-      // (we should see the agent.upsert but no notification)
-      await new Promise((r) => setTimeout(r, 1500));
-      const notifications = sse.events.filter((e) => e.type === "notification");
-      expect(notifications).toHaveLength(0);
-    } finally {
-      sse.close();
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
-    }
-  });
-
-  test("no notification SSE event when web notifications are disabled", async ({
-    request,
-  }) => {
-    // Ensure web notifications are disabled
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: false },
-    });
-
-    const sse = openSSEStream(SSE_BASE_URL);
-    await sse.ready;
-
-    try {
-      const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Should not notify",
-      });
-
-      // Wait and verify no notification event
-      await new Promise((r) => setTimeout(r, 1500));
-      const notifications = sse.events.filter((e) => e.type === "notification");
-      expect(notifications).toHaveLength(0);
     } finally {
       sse.close();
     }
   });
 
-  test("focused agent does not trigger notification SSE event", async ({
+  test("a focused agent's question does not send a browser notification", async ({
     request,
   }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
+    await settings(request, true, ["waiting_user"]);
     const sse = openSSEStream(SSE_BASE_URL);
     await sse.ready;
-
     try {
       const agent = await createAgentViaAPI(request);
-
-      // Report focus on this agent
       await request.post("/api/v1/focus", {
         headers: authHeader,
         data: { agentId: agent.id },
       });
-
-      // Trigger a "done" event — should be suppressed because agent is focused
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Focused agent done",
-      });
-
-      // Wait and verify no notification event
-      await new Promise((r) => setTimeout(r, 1500));
-      const notifications = sse.events.filter((e) => e.type === "notification");
-      expect(notifications).toHaveLength(0);
+      await postQuestion(request, agent.id);
+      await waitForEvents(
+        sse.events,
+        (e) => e.type === "stream.entry" && e.agentId === agent.id,
+        1
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(
+        sse.events.filter(
+          (e) => e.type === "notification" && e.agentId === agent.id
+        )
+      ).toHaveLength(0);
     } finally {
       sse.close();
-      // Clear focus
-      await request.post("/api/v1/focus", {
-        headers: authHeader,
-        data: { agentId: null },
-      });
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
     }
   });
 });

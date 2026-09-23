@@ -33,8 +33,8 @@ type SessionSettingsDialogProps = {
  * "Session details": the rename form this dialog has always offered, plus —
  * for a sub agent, which otherwise has no way to see this — the same
  * read-only info a parent agent's own expanded card shows in the sidebar
- * (branch/worktree, IDE links, sandbox state, latest event). Reuses the
- * exact same components (AgentCardDetails, AgentCardLatestEvent,
+ * (branch/worktree, IDE links, sandbox state, live turn activity). Reuses the
+ * exact same components (AgentCardDetails, AgentActivityLabel,
  * AgentCardPhaseStatus) a parent card renders, rather than a second
  * implementation of the same information.
  */

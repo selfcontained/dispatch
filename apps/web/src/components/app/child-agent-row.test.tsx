@@ -20,7 +20,8 @@ vi.mock("@/hooks/use-chat-unread-summary", () => ({
 // The running turn's verb comes from the app-wide React Query cache.
 const turnLabel = vi.hoisted(() => ({ value: null as string | null }));
 vi.mock("@/hooks/use-agent-turn-label", () => ({
-  useAgentTurnLabel: () => turnLabel.value,
+  useAgentTurnLabel: (_agentId: string, blockId: string | null) =>
+    blockId ? turnLabel.value : null,
 }));
 
 const baseAgent: Agent = {
@@ -35,12 +36,6 @@ const baseAgent: Agent = {
   agentArgs: [],
   model: null,
   fullAccess: false,
-  latestEvent: {
-    type: "working",
-    message: "Reviewing changed routes",
-    updatedAt: "2026-07-15T12:00:00.000Z",
-    metadata: {},
-  },
   filesDir: null,
   persona: "security-review",
   parentAgentId: "agt_parent",
@@ -137,15 +132,7 @@ describe("ChildAgentRow", () => {
   });
 
   it("labels review agents and chases before their initial review is submitted", () => {
-    renderRow({
-      ...baseAgent,
-      latestEvent: {
-        type: "done",
-        message: "Incorrect stale event",
-        updatedAt: "2026-07-15T12:00:00.000Z",
-        metadata: {},
-      },
-    });
+    renderRow(baseAgent);
 
     const indicator = screen.getByRole("img", { name: "Review in progress" });
     expect(indicator.className).toContain("text-muted-foreground");
@@ -445,7 +432,8 @@ describe("ChildAgentRow running-turn link", () => {
     currentTurn: { blockId: "blk_turn", threadId: null },
   };
 
-  it("links the activity only while the child is working", () => {
+  it("links a reported current step without checking derived activity", () => {
+    turnLabel.value = "bash";
     renderLinkRow(working);
     const label = screen.getByTestId("agent-activity-agt_child");
     expect(label.tagName).toBe("BUTTON");
@@ -453,15 +441,18 @@ describe("ChildAgentRow running-turn link", () => {
     cleanup();
 
     renderLinkRow({ ...working, activity: "waiting" });
-    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe("DIV");
+    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe(
+      "BUTTON"
+    );
     cleanup();
 
     // Working, but the turn's block is not known (yet): nothing to go to.
     renderLinkRow({ ...working, currentTurn: null });
-    expect(screen.getByTestId("agent-activity-agt_child").tagName).toBe("DIV");
+    expect(screen.queryByTestId("agent-activity-agt_child")).toBeNull();
   });
 
   it("opens the child's page on its turn without the row's own click", () => {
+    turnLabel.value = "bash";
     const { openAgent, closeAgent } = renderLinkRow(working);
     fireEvent.click(screen.getByTestId("agent-activity-agt_child"));
     expect(screen.getByTestId("location").textContent).toBe(
@@ -472,6 +463,7 @@ describe("ChildAgentRow running-turn link", () => {
   });
 
   it("opens the thread a turn sits in, on the turn", () => {
+    turnLabel.value = "bash";
     renderLinkRow({
       ...working,
       currentTurn: { blockId: "blk_turn", threadId: "blk_launch" },

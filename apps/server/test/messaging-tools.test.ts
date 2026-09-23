@@ -91,7 +91,6 @@ describe("registerMessagingTools", () => {
           id: "agt_other",
           name: "Other Agent",
           status: "running",
-          latestEvent: { type: "working", message: "Coding" },
         },
       ];
       ctx.listAgentsForAgent = vi.fn(async () => agents);

@@ -82,6 +82,12 @@ export function stepLabel(step: Step): string {
   return toolName(title).name.toLowerCase();
 }
 
+/** The label of a step actually reported as running in the turn trace. */
+export function activeStepLabel(steps: Step[]): string | undefined {
+  const running = steps.find((step) => step.status === "running");
+  return running ? stepLabel(running) : undefined;
+}
+
 /** The tool's input as a record, when it is one. */
 export function inputRecord(input: unknown): Record<string, unknown> | null {
   return typeof input === "object" && input !== null && !Array.isArray(input)

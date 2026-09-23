@@ -20,7 +20,6 @@
   "effectiveCwd": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
   "fullAccess": true,
   "setupPhase": null,
-  "latestEvent": { "type": "working", "message": "Running tests" },
   "parentAgentId": null,
   "persona": null,
   "worktreePath": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
@@ -118,29 +117,18 @@ Used during agent initialization to track setup progress.
 { "message": "Could not create worktree: branch is checked out elsewhere." }
 ```
 
-Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"Setup failed."` if omitted) and surfaces a blocked latest-event in the UI.
+Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"Setup failed."` if omitted) and records the setup failure.
 
 ## Agent Events & State
 
 | Method | Path                          | Description                                                 |
 | ------ | ----------------------------- | ----------------------------------------------------------- |
-| POST   | `/agents/:id/latest-event`    | Update agent's latest status event                          |
 | POST   | `/focus`                      | Track which agent the user is viewing                       |
 | GET    | `/events`                     | SSE stream of real-time UI events                           |
 | GET    | `/agents/git-context`         | Get git context for agents (filtered by `ids` query param)  |
 | GET    | `/agents/:id/worktree-status` | Check worktree for unmerged commits and uncommitted changes |
 
-### `POST /agents/:id/latest-event`
-
-```json
-{
-  "type": "working",
-  "message": "Running E2E tests",
-  "metadata": {}
-}
-```
-
-Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`. Status is derived on the server — a turn starting is `working`, a turn settling is `idle` unless the agent has an open `question` or `form` for the user (`waiting_user`), a failed turn or engine exit is `blocked` — so agents never report it themselves. This route is the internal write path the runtime uses.
+The sidebar's current step comes from the live ACP turn stream. Open questions and failed turns trigger attention notifications directly from those actions.
 
 ### `GET /events` (SSE)
 
@@ -205,7 +193,7 @@ Every agent's product is a stream of blocks (`docs/design/blocks.md`). Wire type
 | DELETE | `/streams/:rootId/blocks/:blockId/reactions/:emoji` | Take the user's reaction back off (chip only; nothing is injected)                                    |
 | POST   | `/streams/:rootId/read`                             | Mark agent blocks read (`{ upTo? }` block id); returns `{ unreadCount }`                              |
 
-The feed is composed at read time from `blocks`, `agent_events`, and the agent's turns. The response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards. A block with `to_agent_id` is a prompt for that agent: the write routes respond as soon as it is queued, with `delivered: null` until delivery settles, at which point the row flips to `true`/`false`. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; `submit` does the same for a form. Every write publishes a `stream.entry` (one entry upserted) or `stream.changed` (refetch) SSE event; `read` publishes `stream.read`.
+The feed is composed at read time from `blocks` and the agent's turns. The response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards. A block with `to_agent_id` is a prompt for that agent: the write routes respond as soon as it is queued, with `delivered: null` until delivery settles, at which point the row flips to `true`/`false`. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; `submit` does the same for a form. Every write publishes a `stream.entry` (one entry upserted) or `stream.changed` (refetch) SSE event; `read` publishes `stream.read`.
 
 Agents write to the stream with the `post` / `update` / `react` MCP tools. `post` without `to` goes to the agent's own stream; `to: <agentId>` addresses another agent, and `notify: true` also sends the browser/Slack notification. `kind` defaults from the data given (`question`, `form`, `link`, `review`, `tasks`) and otherwise to `text`; a file is an attachment (`{ type: "file", path }`, uploaded on post). `update` on the author's own block may change `text`, `data`, `attachments` and `state`; on a block addressed to the agent, `state` only. `react` takes a block id and an emoji.
 
@@ -282,17 +270,6 @@ A reviewer persona finishes its pass by posting one `review` block (`{ verdict, 
 
 Pass `{ "id": null }` to deactivate. Returns `404` if the ID doesn't match an existing personality.
 
-## Activity & Analytics
-
-| Method | Path                                | Description                                                 |
-| ------ | ----------------------------------- | ----------------------------------------------------------- |
-| GET    | `/activity/heatmap`                 | Activity heatmap data (configurable `days`, `timezone`)     |
-| GET    | `/activity/stats`                   | Aggregate stats (working/blocked/waiting time, busiest day) |
-| GET    | `/activity/daily-status`            | Daily status breakdown                                      |
-| GET    | `/activity/active-hours`            | Events marked as working/blocked/waiting_user               |
-| GET    | `/activity/agents-created`          | Agent creation counts over time                             |
-| GET    | `/activity/working-time-by-project` | Working time by project directory                           |
-
 ## Token Usage
 
 | Method | Path                         | Description                                                    |
@@ -333,13 +310,13 @@ All fields are optional — the request updates only the fields it contains.
 ```json
 {
   "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
-  "notifyEvents": ["done", "waiting_user"],
+  "notifyEvents": ["waiting_user", "blocked"],
   "webNotifyEnabled": true,
-  "webNotifyEvents": ["done", "waiting_user", "blocked"]
+  "webNotifyEvents": ["waiting_user", "blocked"]
 }
 ```
 
-`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their status events reach browser notifications only.
+`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`waiting_user`, `blocked`). When an agent asks a question or a turn fails, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their attention notifications reach browser notifications only.
 
 ### `POST /notifications/ack`
 

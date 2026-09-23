@@ -260,13 +260,6 @@ function sanitizeAgent(agent: AgentRecord) {
       ? (agent.gitContext.repoRoot.split("/").filter(Boolean).at(-1) ?? null)
       : null,
     branch: agent.gitContext?.branch ?? agent.worktreeBranch ?? null,
-    latestEvent: agent.latestEvent
-      ? {
-          type: agent.latestEvent.type,
-          message: agent.latestEvent.message,
-          updatedAt: agent.latestEvent.updatedAt,
-        }
-      : null,
   };
 }
 

@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, expect } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { workspaceBlockId } from "../../src/chat/service.js";
 
 import {
   setupTestDb,
@@ -64,35 +65,25 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
   const extraEnv = opts?.env ?? {};
 
   const ctx = {} as InjectAppContext;
-  /**
-   * Wait for a launch to be finished with the row, not merely past
-   * `creating`. The status flips to `running` partway through: the launch
-   * then reads the agent's git context and writes it, and posts the
-   * "session started" event. A test that writes to the row on the status
-   * alone races those writes, and loses under load — which is what made
-   * the git-context tests fail in a full run and pass on their own.
-   *
-   * The started event is the last thing a launch does, so it is the end.
-   */
+  /** Wait until the asynchronous launch leaves its creation phase. */
   ctx.awaitLaunched = async (agentId: string): Promise<void> => {
     const deadline = Date.now() + 10_000;
     for (;;) {
       const res = await ctx.pool.query<{ status: string; done: boolean }>(
         `SELECT a.status,
                 EXISTS (
-                  SELECT 1 FROM agent_events e
-                   WHERE e.agent_id = a.id
-                     AND e.metadata->>'phase' IN ('started', 'create')
+                  SELECT 1 FROM blocks b
+                   WHERE b.id = $2
+                     AND b.origin = 'workspace'
+                     AND (b.data->'startup'->>'readyAt' IS NOT NULL
+                       OR b.data->'startup'->>'failed' IS NOT NULL)
                 ) AS done
            FROM agents a WHERE a.id = $1`,
-        [agentId]
+        [agentId, workspaceBlockId(agentId)]
       );
       const row = res.rows[0];
-      // A row that never appeared, or a launch that failed, is as settled
-      // as it is going to get.
-      if (row === undefined) return;
-      if (row.status !== "creating" && row.done) return;
-      if (row.status === "error") return;
+      if (!row || row.status === "error" || row.status === "stopped") return;
+      if (row.status === "running" && row.done) return;
       if (Date.now() > deadline) {
         throw new Error(`Agent ${agentId} still creating after 10s`);
       }

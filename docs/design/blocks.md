@@ -130,18 +130,13 @@ the input block, and the input block's `state` records it.
 
 Reactions deliver as `--- DISPATCH REACTION ---` naming the block, as today.
 
-### Status
+### Current turn and attention
 
-Derived on the server and written as system status events (`phase: turn`):
-
-- turn started → `working`, message = the prompt's gist
-- turn settled → `idle`, unless the agent has an open `question`/`form`
-  with `to_agent_id` null → `waiting_user` with the question's text
-- turn error, unexpected exit, setup failure → `blocked`
-- an input block posted for the user → `waiting_user` at once
-
-They never enter the stream; the presence line and sidebar show them. A
-turn's own error rides on its block (`block.turn.error`).
+The sidebar reads the current step from the same ACP turn block shown in the
+stream. It does not create a separate status label when the turn has no reported
+step. An open `question` or `form` for the user and a failed turn trigger
+attention notifications from those actions. A turn's error is recorded on its
+block (`block.turn.error`).
 
 ## Tools
 
