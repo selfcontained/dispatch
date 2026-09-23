@@ -15,6 +15,10 @@ import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { type Agent, type DiffStats } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
+  agentModelLabel,
+  useAgentModelCatalogData,
+} from "@/hooks/use-agent-model-catalog";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -94,10 +98,13 @@ export function AgentCardDetails({
   copyWorktreePath,
 }: AgentCardDetailsProps): JSX.Element {
   const sidebarBaseBranch = agent.baseBranch ?? "main";
+  const modelCatalog = useAgentModelCatalogData();
 
   return (
     <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
-      <div className="absolute right-3 top-3">
+      {/* Concentric with the rounded-xl corner: 11px inner radius minus this
+          3px gap leaves the ~8px radius of the 16px-tall pill. */}
+      <div className="absolute right-[3px] top-[3px]">
         <DiffStatBadge diffStats={diffStats} onRefresh={refreshDiffStats} />
       </div>
       {agent.gitContext?.isWorktree ? (
@@ -156,7 +163,11 @@ export function AgentCardDetails({
             className="h-3.5 w-3.5 border-0 bg-transparent [&_svg]:h-3.5 [&_svg]:w-3.5"
           />
         }
-        value={agent.model ?? agent.type ?? "agent"}
+        value={
+          agent.model
+            ? agentModelLabel(modelCatalog, agent.type, agent.model)
+            : (agent.type ?? "agent")
+        }
         mono
       />
       <div className="flex items-center justify-between gap-2 pt-1">
