@@ -89,6 +89,7 @@ function build(
     { blockId?: string; source?: PromptSource; alone?: boolean } | undefined
   > = [];
   const cancelled: string[] = [];
+  const queued = new Set<string>();
   const svc = new StreamService({
     pool,
     publishUiEvent: (event) => events.push(event),
@@ -100,14 +101,25 @@ function build(
           delivery: {
             access: opts.access ?? (async () => ({ mode: "live" as const })),
             inject: async (agentId, text, injectOpts) => {
-              if (opts.gate) await opts.gate;
-              injected.push({ agentId, text });
-              injectedOpts.push(injectOpts);
-              if (opts.fail || opts.failFor?.includes(agentId)) {
-                throw new Error("engine gone");
+              const key =
+                injectOpts?.blockId ??
+                (injectOpts?.source?.source === "chat"
+                  ? injectOpts.source.chatMessageId
+                  : `${agentId}:${text}`);
+              queued.add(key);
+              try {
+                if (opts.gate) await opts.gate;
+                injected.push({ agentId, text });
+                injectedOpts.push(injectOpts);
+                if (opts.fail || opts.failFor?.includes(agentId)) {
+                  throw new Error("engine gone");
+                }
+              } finally {
+                queued.delete(key);
               }
             },
-            held: () => opts.held ?? false,
+            held: () => opts.held ?? queued.size > 0,
+            activeTurn: () => opts.held ?? false,
             commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
@@ -4191,9 +4203,10 @@ describe("StreamService delivery that is never taken", () => {
 
   it("gives up on a prompt an idle engine never takes, so the post can be retried", async () => {
     vi.useFakeTimers();
-    const { svc } = build({ gate: never, held: false });
+    const { svc } = build({ gate: never });
     const res = await svc.sendUserPost(A, { text: "are you there?" });
     expect(res.block.delivered).toBeNull();
+    expect(res.held).toBe(true); // The fake queue includes this very prompt.
     // Nothing has taken it, and the agent is not busy: past the bound it
     // reads as undelivered rather than sending forever.
     await vi.advanceTimersByTimeAsync(95_000);
@@ -4206,6 +4219,31 @@ describe("StreamService delivery that is never taken", () => {
       row = await svc.store.getById(res.block.id);
     }
     expect(row).toMatchObject({ delivered: false });
+  });
+
+  it("gives up on multiple unaccepted prompts without treating their queue as active work", async () => {
+    vi.useFakeTimers();
+    const { svc } = build({ gate: never });
+    const first = await svc.sendUserPost(A, { text: "first" });
+    const second = await svc.sendUserPost(A, { text: "second" });
+    expect(first.held).toBe(true);
+    expect(second.held).toBe(true);
+    await vi.advanceTimersByTimeAsync(95_000);
+    vi.useRealTimers();
+    for (let i = 0; i < 50; i += 1) {
+      const rows = await Promise.all([
+        svc.store.getById(first.block.id),
+        svc.store.getById(second.block.id),
+      ]);
+      if (rows.every((row) => row?.delivered === false)) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(await svc.store.getById(first.block.id)).toMatchObject({
+      delivered: false,
+    });
+    expect(await svc.store.getById(second.block.id)).toMatchObject({
+      delivered: false,
+    });
   });
 
   it("keeps waiting while the agent is busy, however long that takes", async () => {

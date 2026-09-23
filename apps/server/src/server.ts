@@ -418,6 +418,7 @@ const streamService = new StreamService({
         })
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
+    activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
     cancel: (agentId) => agentManager.cancelTurn(agentId),
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),

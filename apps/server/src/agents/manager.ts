@@ -341,11 +341,24 @@ export class AgentManager {
       options.runtime ??
       createAgentRuntime(config, logger, {
         hostSeq: async (agentId) => {
-          const result = await pool.query<{ host_seq: number }>(
-            "SELECT host_seq FROM agents WHERE id = $1",
-            [agentId]
+          const result = await pool.query<{
+            host_seq: number;
+            host_journal_id: string | null;
+          }>("SELECT host_seq, host_journal_id FROM agents WHERE id = $1", [
+            agentId,
+          ]);
+          return {
+            seq: result.rows[0]?.host_seq ?? 0,
+            journalId: result.rows[0]?.host_journal_id ?? null,
+          };
+        },
+        syncJournal: async (agentId, journalId, reset) => {
+          await pool.query(
+            `UPDATE agents SET host_journal_id = $2,
+              host_seq = CASE WHEN $3 THEN 0 ELSE host_seq END
+             WHERE id = $1`,
+            [agentId, journalId, reset]
           );
-          return result.rows[0]?.host_seq ?? 0;
         },
       });
     this.runtime.onEvent((agentId, event, seq) =>
@@ -538,6 +551,10 @@ export class AgentManager {
   /** A turn is running or prompts are waiting behind one. */
   isPromptHeld(id: string): boolean {
     return this.runtime.isBusy(id);
+  }
+
+  hasOpenTurn(id: string): boolean {
+    return this.runtime.hasOpenTurn(id);
   }
 
   /** The live session's ACP slash commands, including advertised skills. */

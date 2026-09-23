@@ -5,7 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
-import { createAcpRuntime } from "./acp/runtime.js";
+import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
 /**
  * What the manager hands to `runtime.launch()` to start an agent's host.
@@ -74,6 +74,8 @@ export type AgentRuntime = {
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;
+  /** A turn is actually running, excluding prompts waiting in the queue. */
+  hasOpenTurn(agentId: string): boolean;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;
@@ -92,12 +94,12 @@ export type AgentRuntime = {
 export function createAgentRuntime(
   config: AppConfig,
   logger: FastifyBaseLogger,
-  deps: { hostSeq: (agentId: string) => Promise<number> }
+  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal">
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
     return createInertRuntime();
   }
-  return createAcpRuntime({ config, logger, hostSeq: deps.hostSeq });
+  return createAcpRuntime({ config, logger, ...deps });
 }
 
 /**
@@ -124,6 +126,7 @@ export function createInertRuntime(): AgentRuntime {
       return { accepted: Promise.resolve(), settled: Promise.resolve() };
     },
     isBusy: () => false,
+    hasOpenTurn: () => false,
     async cancel() {},
     async stop() {},
     async listHosted() {

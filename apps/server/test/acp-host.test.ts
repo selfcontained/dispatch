@@ -5,7 +5,13 @@
  * the design promises and unit tests cannot: a host that outlives its
  * client, replay from a sequence number, and a clean stop.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,9 +42,15 @@ type Seen = { agentId: string; event: DriverEvent; seq: number };
 
 function runtimeWith(
   stateRoot: string,
-  hostSeq: () => number
-): { runtime: AgentRuntime; seen: Seen[] } {
+  hostSeq: () => number,
+  journalId: string | null = null
+): {
+  runtime: AgentRuntime;
+  seen: Seen[];
+  synced: Array<{ journalId: string | null; reset: boolean }>;
+} {
   const seen: Seen[] = [];
+  const synced: Array<{ journalId: string | null; reset: boolean }> = [];
   const runtime = createAcpRuntime({
     config: {
       agentStateRoot: stateRoot,
@@ -46,12 +58,15 @@ function runtimeWith(
       dispatchBinDir: path.join(repoRoot, "bin"),
     },
     logger,
-    hostSeq: async () => hostSeq(),
+    hostSeq: async () => ({ seq: hostSeq(), journalId }),
+    syncJournal: async (_agentId, id, reset) => {
+      synced.push({ journalId: id, reset });
+    },
   });
   runtime.onEvent((agentId, event, seq) => {
     seen.push({ agentId, event, seq });
   });
-  return { runtime, seen };
+  return { runtime, seen, synced };
 }
 
 function launchFor(agentId: string, cwd: string): RuntimeLaunch {
@@ -177,11 +192,97 @@ describe("agent host", () => {
     );
     expect(third.seen.length).toBe(journalLines);
 
+    // A stored position from another journal must replay from the start
+    // even when the current journal has already passed that position.
+    const replacement = runtimeWith(stateRoot, () => 1, "another-journal");
+    expect(await replacement.runtime.attach(agentId)).toBe(true);
+    await until(() => replacement.seen.length >= journalLines);
+    expect(replacement.seen[0]?.seq).toBe(1);
+    expect(replacement.synced).toContainEqual({
+      journalId: expect.any(String),
+      reset: true,
+    });
+
     // Stop: the host exits and its pid and socket go away.
-    await third.runtime.stop(agentId, false);
+    await replacement.runtime.stop(agentId, false);
     await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(await third.runtime.isAlive(agentId)).toBe(false);
-    expect(await third.runtime.listHosted()).toEqual([]);
+    expect(await replacement.runtime.isAlive(agentId)).toBe(false);
+    expect(await replacement.runtime.listHosted()).toEqual([]);
+  }, 60_000);
+
+  it("recovers a replaced journal even when the stored sequence is far ahead", async () => {
+    const id = "agt_reset";
+    const stateDir = path.join(stateRoot, id);
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(path.join(stateDir, "journal.jsonl"), "");
+    writeFileSync(path.join(stateDir, "journal.id"), "previous-journal\n");
+    const { runtime, seen, synced } = runtimeWith(
+      stateRoot,
+      () => 22_974,
+      "previous-journal"
+    );
+    await runtime.launch(launchFor(id, cwd));
+    expect(
+      readFileSync(path.join(stateDir, "journal.id"), "utf8").trim()
+    ).not.toBe("previous-journal");
+    const turn = runtime.prompt(id, "can you hear me?");
+    await Promise.race([
+      turn.accepted,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("accept timed out")), 10_000)
+      ),
+    ]);
+    await Promise.race([
+      turn.settled,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("settle timed out")), 10_000)
+      ),
+    ]);
+    await until(() =>
+      seen.some(
+        (item) => item.event.type === "turn" && item.event.state === "settled"
+      )
+    );
+    expect(seen.map((item) => item.seq)).toEqual(
+      seen.map((_, index) => index + 1)
+    );
+    expect(synced).toContainEqual({
+      journalId: expect.any(String),
+      reset: true,
+    });
+    expect(runtime.isBusy(id)).toBe(false);
+    await runtime.stop(id, false);
+  }, 60_000);
+
+  it("keeps an intact journal's identity when its sidecar is deleted", async () => {
+    const id = "agt_sidecar";
+    const first = runtimeWith(stateRoot, () => 0);
+    await first.runtime.launch(launchFor(id, cwd));
+    await first.runtime.prompt(id, "before restart").settled;
+    await until(() =>
+      first.seen.some(
+        (item) => item.event.type === "turn" && item.event.state === "settled"
+      )
+    );
+    const lastSeq = Math.max(...first.seen.map((item) => item.seq));
+    const idFile = path.join(stateRoot, id, "journal.id");
+    const journalId = readFileSync(idFile, "utf8").trim();
+    await first.runtime.stop(id, false);
+    rmSync(idFile);
+
+    const second = runtimeWith(stateRoot, () => lastSeq, journalId);
+    await second.runtime.launch(launchFor(id, cwd));
+    await until(() => readFileSync(idFile, "utf8").trim() === journalId);
+    expect(second.synced.some((item) => item.reset)).toBe(false);
+    expect(second.seen.every((item) => item.seq > lastSeq)).toBe(true);
+    await second.runtime.stop(id, false);
+
+    writeFileSync(idFile, "");
+    const third = runtimeWith(stateRoot, () => lastSeq, journalId);
+    await third.runtime.launch(launchFor(id, cwd));
+    expect(readFileSync(idFile, "utf8").trim()).toBe(journalId);
+    expect(third.synced.some((item) => item.reset)).toBe(false);
+    await third.runtime.stop(id, false);
   }, 60_000);
 
   it("fails a launch whose engine CLI cannot be found instead of falling back to the adapter's own", async () => {

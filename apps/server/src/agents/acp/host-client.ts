@@ -22,6 +22,7 @@ export type HostClientDeps = {
   logger: DriverLogger;
   /** The newest journal seq already applied; the host replays after it. */
   fromSeq: () => number;
+  journalId: () => string | null;
   onEvent: (entry: JournalEntry) => void;
   /** The engine is up and the session is known. Fires on every reconnect too. */
   onWelcome: (welcome: HostWelcome) => void;
@@ -49,6 +50,8 @@ export class HostClient {
     reject: (err: Error) => void;
   }> = [];
   private lastWelcome: HostWelcome | null = null;
+  private sentFromSeq = 0;
+  private reconnectingForLegacyReplay = false;
 
   constructor(private readonly deps: HostClientDeps) {}
 
@@ -70,7 +73,9 @@ export class HostClient {
     let lastError = "";
     while (Date.now() < deadline && !this.closed) {
       if (abandoned()) {
-        throw new Error(lastError || "the agent host exited before it answered");
+        throw new Error(
+          lastError || "the agent host exited before it answered"
+        );
       }
       try {
         await this.dial();
@@ -99,10 +104,13 @@ export class HostClient {
   private awaitRunningWelcome(timeoutMs: number): Promise<HostWelcome> {
     if (this.lastWelcome?.running) return Promise.resolve(this.lastWelcome);
     return new Promise<HostWelcome>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.welcomeWaiters = this.welcomeWaiters.filter((w) => w !== waiter);
-        reject(new Error("the agent host did not report a running engine"));
-      }, Math.max(0, timeoutMs));
+      const timer = setTimeout(
+        () => {
+          this.welcomeWaiters = this.welcomeWaiters.filter((w) => w !== waiter);
+          reject(new Error("the agent host did not report a running engine"));
+        },
+        Math.max(0, timeoutMs)
+      );
       const waiter = {
         resolve: (w: HostWelcome) => {
           clearTimeout(timer);
@@ -128,10 +136,12 @@ export class HostClient {
         this.attempts = 0;
         this.socket = socket;
         this.wire(socket);
+        this.sentFromSeq = this.deps.fromSeq();
         socket.write(
           encodeMessage({
             type: "hello",
-            fromSeq: this.deps.fromSeq(),
+            fromSeq: this.sentFromSeq,
+            journalId: this.deps.journalId(),
           } satisfies ClientMessage)
         );
         resolve();
@@ -166,6 +176,20 @@ export class HostClient {
   private handle(message: HostMessage): void {
     switch (message.type) {
       case "welcome":
+        if (
+          !message.journalId &&
+          message.journalSeq < this.sentFromSeq &&
+          !this.reconnectingForLegacyReplay
+        ) {
+          // An older host does not know journal identities or replay when
+          // fromSeq exceeds its head. Let the runtime reset the cursor,
+          // then reconnect with hello(0) before any live event is applied.
+          this.reconnectingForLegacyReplay = true;
+          this.deps.onWelcome(message);
+          this.socket?.destroy();
+          return;
+        }
+        this.reconnectingForLegacyReplay = false;
         this.lastWelcome = message;
         if (message.running) {
           const waiters = this.welcomeWaiters;
@@ -175,6 +199,7 @@ export class HostClient {
         this.deps.onWelcome(message);
         return;
       case "event":
+        if (this.reconnectingForLegacyReplay) return;
         this.deps.onEvent({
           seq: message.seq,
           at: message.at,

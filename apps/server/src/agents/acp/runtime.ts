@@ -202,6 +202,7 @@ type Live = {
   /** Event handling is serialized per agent so rows land in seq order. */
   events: Promise<void>;
   lastSeq: number;
+  journalId: string | null;
   /** Resolvers for turns waiting on their settle event. */
   settleWaiters: Array<() => void>;
 };
@@ -290,8 +291,16 @@ async function runTurn(entry: Live, batch: Waiting[]): Promise<void> {
 export type AcpRuntimeDeps = {
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
-  /** The last journal seq the server applied for this agent (agents.host_seq). */
-  hostSeq: (agentId: string) => Promise<number>;
+  /** The journal position last applied for this agent. */
+  hostSeq: (
+    agentId: string
+  ) => Promise<{ seq: number; journalId: string | null }>;
+  /** Persist a new journal identity and reset its sequence watermark. */
+  syncJournal: (
+    agentId: string,
+    journalId: string | null,
+    reset: boolean
+  ) => Promise<void>;
 };
 
 /**
@@ -313,6 +322,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (journal.seq <= entry.lastSeq) return; // replayed, already applied
     entry.lastSeq = journal.seq;
     emit(agentId, entry, journal.event, journal.seq);
+  }
+
+  async function syncJournal(
+    agentId: string,
+    entry: Live,
+    journalId: string | null,
+    reset: boolean
+  ): Promise<void> {
+    while (live.get(agentId) === entry) {
+      try {
+        await deps.syncJournal(agentId, journalId, reset);
+        return;
+      } catch (err) {
+        logger.warn(
+          { err, agentId, journalId },
+          "could not sync agent host journal; retrying before replay"
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
   }
 
   /** Seq 0 marks an event the server made up (a host that vanished). */
@@ -357,7 +386,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   ): Promise<Live> {
     const existing = live.get(agentId);
     if (existing) return existing;
-    const lastSeq = await deps.hostSeq(agentId);
+    const cursor = await deps.hostSeq(agentId);
     const entry: Live = {
       client: null as unknown as HostClient,
       commands: [],
@@ -366,7 +395,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       pending: 0,
       turnOpen: false,
       events: Promise.resolve(),
-      lastSeq,
+      lastSeq: cursor.seq,
+      journalId: cursor.journalId,
       settleWaiters: [],
     };
     entry.client = new HostClient({
@@ -374,8 +404,43 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       socketPath: hostFile(stateDir(agentId), "socket"),
       logger,
       fromSeq: () => entry.lastSeq,
+      journalId: () => entry.journalId,
       onEvent: (journal) => dispatchEntry(agentId, entry, journal),
       onWelcome: (welcome) => {
+        const changed = Boolean(
+          welcome.journalId &&
+          entry.journalId &&
+          welcome.journalId !== entry.journalId
+        );
+        const reset = changed || welcome.journalSeq < entry.lastSeq;
+        if (reset) {
+          logger.warn(
+            {
+              agentId,
+              storedSeq: entry.lastSeq,
+              journalSeq: welcome.journalSeq,
+              storedJournalId: entry.journalId,
+              journalId: welcome.journalId,
+            },
+            "agent host journal changed; replaying from the beginning"
+          );
+          entry.lastSeq = 0;
+        }
+        if (
+          welcome.journalId &&
+          (reset || entry.journalId !== welcome.journalId)
+        ) {
+          entry.journalId = welcome.journalId;
+          // Replay events are serialized after this reset, so their GREATEST
+          // updates start from the new journal's position.
+          entry.events = entry.events.then(() =>
+            syncJournal(agentId, entry, welcome.journalId!, reset)
+          );
+        } else if (reset) {
+          entry.events = entry.events.then(() =>
+            syncJournal(agentId, entry, null, true)
+          );
+        }
         entry.turnOpen = welcome.turn !== null;
         entry.commands = welcome.commands;
       },
@@ -581,6 +646,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     isBusy(agentId) {
       const entry = live.get(agentId);
       return entry ? entry.turnOpen || entry.pending > 0 : false;
+    },
+
+    hasOpenTurn(agentId) {
+      return live.get(agentId)?.turnOpen ?? false;
     },
 
     async cancel(agentId) {
