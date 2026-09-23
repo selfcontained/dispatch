@@ -452,8 +452,8 @@ export function ChatPane({
     [entries, view]
   );
   // A launch card with no briefing is a startup record, not a
-  // conversation: a stream holding only that still reads as empty, which
-  // is what a fresh agent should look like.
+  // conversation: with child activity filtered out, a stream holding only
+  // that still says what the filter is hiding.
   const hasConversation = visibleEntries.some(
     (entry) => entry.block.kind !== "launch" || entry.block.text.trim() !== ""
   );
@@ -1087,7 +1087,12 @@ export function ChatPane({
                     </Button>
                   </div>
                 ) : null}
-                {!feed.isLoading && !hasConversation && !feed.error ? (
+                {/* An agent's stream needs no empty prompt: its launch card
+                    arrives with it, and a prompt shown until then would
+                    only flash. */}
+                {!feed.isLoading &&
+                !feed.error &&
+                (!agentId || (hasHiddenChildActivity && !hasConversation)) ? (
                   <div
                     className={cn(
                       "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
@@ -1110,13 +1115,6 @@ export function ChatPane({
                         >
                           Show child agents
                         </Button>
-                      </>
-                    ) : agent ? (
-                      <>
-                        <div className="text-foreground">
-                          No messages yet. Send the first one below and the
-                          agent replies here.
-                        </div>
                       </>
                     ) : (
                       <div>Select an agent to start chatting.</div>
