@@ -12,6 +12,7 @@ import type {
   StreamEntry,
 } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
+import { getDefaultStore } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
@@ -22,6 +23,7 @@ import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
 import {
   arrivedEntryIds,
   ChatFeed,
+  type FeedPlace,
   latestAgentBlockId,
   latestOpenFreeformQuestion,
   entryGrowthKey,
@@ -54,6 +56,11 @@ import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { BLOCK_PARAM } from "@/lib/agent-routes";
 import { windowingSupported } from "@/components/app/chat/windowed-rows";
 import { uploadAgentFile } from "@/lib/file-upload";
+import {
+  type ChatScrollAnchor,
+  type ChatScrollPosition,
+  chatScrollPositionAtomFamily,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export type ChatPaneProps = {
@@ -160,54 +167,90 @@ const JUMP_BUTTON_PX = 160;
  * unmounts it and its scroll position goes with it: the feed always
  * reopened pinned to the newest message, and anyone reading back through
  * history had to walk down to their place again. This remembers the row
- * they were parked on instead.
+ * they were parked on instead, per agent, in local storage, so a reload
+ * lands there too.
  *
- * A module-level map rather than state or an atom: nothing re-renders when
- * it changes. It is read once at mount and written from a scroll handler,
- * and it is deliberately session-scoped — reopening the app should land on
- * the newest message, not on wherever yesterday ended.
+ * Read once at mount and written from a throttled scroll handler, through
+ * the store rather than a hook: nothing needs to re-render when it changes.
  */
-/** One row the feed can be put back against: which row, and where it sat. */
-export type ChatScrollAnchor = {
-  entryId: string;
-  /** The row's top edge, relative to the top of the viewport. */
-  offset: number;
-};
+export type { ChatScrollAnchor, ChatScrollPosition };
 
-export type ChatScrollPosition = {
-  /** At the bottom on the way out: reopen following the feed. */
-  following: boolean;
-  /** Visible rows, top first, for restoring the scroll position. */
-  anchors: ChatScrollAnchor[];
-};
-
-/** Bounded so a long session's agent hopping can't grow it without end. */
+/** Bounded so a long history of agent hopping can't grow storage without end. */
 const SCROLL_MEMORY_LIMIT = 50;
-const scrollPositions = new Map<string, ChatScrollPosition>();
+/** The agents with a remembered position, least recently read or written first. */
+const SCROLL_MEMORY_INDEX_KEY = "dispatch:chat-scroll-index";
+
+function scrollMemoryKey(agentId: string): string {
+  return `dispatch:chat-scroll:${agentId}`;
+}
+
+function readScrollIndex(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SCROLL_MEMORY_INDEX_KEY);
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value)
+      ? value.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The agent this tab last marked most recent: scrolling it needs no new mark. */
+let lastTouchedAgent: string | null = null;
+
+/** Mark `agentId` most recent, and forget whoever falls off the end. */
+function touchScrollIndex(agentId: string): void {
+  if (lastTouchedAgent === agentId) return;
+  lastTouchedAgent = agentId;
+  const index = readScrollIndex().filter((id) => id !== agentId);
+  index.push(agentId);
+  for (const dropped of index.splice(
+    0,
+    Math.max(0, index.length - SCROLL_MEMORY_LIMIT)
+  )) {
+    forgetScrollPosition(dropped);
+  }
+  try {
+    window.localStorage.setItem(SCROLL_MEMORY_INDEX_KEY, JSON.stringify(index));
+  } catch {
+    // Storage unavailable: positions live for this tab only.
+  }
+}
+
+function forgetScrollPosition(agentId: string): void {
+  chatScrollPositionAtomFamily.remove(agentId);
+  try {
+    window.localStorage.removeItem(scrollMemoryKey(agentId));
+  } catch {
+    // Storage unavailable: nothing was kept there either.
+  }
+}
 
 export function rememberChatScrollPosition(
   agentId: string,
   position: ChatScrollPosition
 ): void {
-  // Re-inserting makes this the newest key, so the eviction below drops the
-  // agent nobody has looked at in longest.
-  scrollPositions.delete(agentId);
-  scrollPositions.set(agentId, position);
-  if (scrollPositions.size > SCROLL_MEMORY_LIMIT) {
-    const oldest = scrollPositions.keys().next();
-    if (!oldest.done) scrollPositions.delete(oldest.value);
-  }
+  touchScrollIndex(agentId);
+  getDefaultStore().set(chatScrollPositionAtomFamily(agentId), position);
 }
 
 export function readChatScrollPosition(
   agentId: string | null
 ): ChatScrollPosition | null {
-  return agentId ? (scrollPositions.get(agentId) ?? null) : null;
+  if (!agentId) return null;
+  return getDefaultStore().get(chatScrollPositionAtomFamily(agentId));
 }
 
 /** Tests share the module with each other; let them start clean. */
 export function clearChatScrollMemory(): void {
-  scrollPositions.clear();
+  lastTouchedAgent = null;
+  for (const agentId of readScrollIndex()) forgetScrollPosition(agentId);
+  try {
+    window.localStorage.removeItem(SCROLL_MEMORY_INDEX_KEY);
+  } catch {
+    // Storage unavailable.
+  }
 }
 
 /**
@@ -566,12 +609,12 @@ export function ChatPane({
 
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
-  const holdPlaceRef = useRef<(() => void) | null>(null);
+  const placeRef = useRef<FeedPlace | null>(null);
   const loadOlder = useCallback(() => {
     const el = scrollRef.current;
     if (el)
       olderLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
-    holdPlaceRef.current?.();
+    placeRef.current?.holdBelow();
     fetchOlder();
   }, [fetchOlder]);
 
@@ -634,7 +677,10 @@ export function ChatPane({
       const saved = savedPositionRef.current;
       const restored =
         saved !== null && !saved.following && scrollToAnchor(el, saved.anchors);
-      if (restored) return;
+      if (restored) {
+        placeRef.current?.takeHere();
+        return;
+      }
       setFollowing(true);
       scrollToBottom();
       return;
@@ -694,13 +740,17 @@ export function ChatPane({
   // tall reply — the bottom stops pinning until they scroll down to it.
   // Declared after the effects above so a jump on the feed's first rows
   // wins over opening at the newest.
-  useBlockJump(scrollRef, () => {
-    anchoredRef.current = Date.now();
-    anchorTurnRef.current = null;
-    followingRef.current = false;
-    setFollowing(false);
-    setPendingBelow(false);
-  });
+  useBlockJump(
+    scrollRef,
+    () => {
+      anchoredRef.current = Date.now();
+      anchorTurnRef.current = null;
+      followingRef.current = false;
+      setFollowing(false);
+      setPendingBelow(false);
+    },
+    () => placeRef.current?.takeHere()
+  );
 
   // Only the rows near the view render (see useWindowedRows). The rows this
   // pane scrolls to itself must be there wherever they are: a `?block=`
@@ -1036,7 +1086,7 @@ export function ChatPane({
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
                     isFollowing={isFollowing}
-                    holdPlaceRef={holdPlaceRef}
+                    placeRef={placeRef}
                   />
                 ) : null}
               </div>

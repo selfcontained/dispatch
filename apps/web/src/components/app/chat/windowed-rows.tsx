@@ -36,6 +36,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { useAtomValue } from "jotai";
+
+import { streamFullHistoryAtom } from "@/lib/store";
 
 /** Rendered beyond each edge of the view, in px. */
 const OVERSCAN_PX = 1200;
@@ -71,6 +74,19 @@ function heightCacheFor(
 /** Tests share the module; let them start clean. */
 export function clearWindowedRowHeights(): void {
   heightCaches.clear();
+}
+
+/**
+ * How far the content under an anchor has moved since the anchor was
+ * taken, net of scrolling: where the row sits in the content now (its
+ * offset in the view plus scrollTop) against where it sat then.
+ */
+export function placeDrift(
+  anchor: { offset: number; scrollTop: number },
+  offset: number,
+  scrollTop: number
+): number {
+  return offset + scrollTop - (anchor.offset + anchor.scrollTop);
 }
 
 export type WindowSegment =
@@ -115,6 +131,12 @@ export type WindowedRows = {
    * list cannot see coming (a page of older rows is on its way).
    */
   holdPlace: () => void;
+  /**
+   * Take the reader's place from the rows in view now, straight after the
+   * pane moved the scroller itself (a jump, a restore), before any row
+   * around the new place has measured itself.
+   */
+  takePlace: () => void;
   /** Spread on that element too: the row holding focus stays rendered. */
   containerProps: {
     onFocus: (event: FocusEvent<HTMLElement>) => void;
@@ -351,6 +373,43 @@ export function useWindowedRows({
     else captureAnchor();
   }, [captureAnchor, scrollRef]);
 
+  /**
+   * Put the rows holding the place back where they sat in the content.
+   * Anchors are compared where they sit in the content (offset plus
+   * scrollTop), so a scroll not yet reported by its event is not taken
+   * for a shift, nor a shift for a scroll. The scroller having moved by
+   * more than a view since they were taken is a jump or a restore: that
+   * stands, and nothing is corrected. False when nothing could be held.
+   */
+  const correct = useCallback((): boolean => {
+    const scroller = scrollRef.current;
+    const anchors = anchorsRef.current;
+    if (
+      !scroller ||
+      anchors.length === 0 ||
+      Math.abs(scroller.scrollTop - anchors[0]!.scrollTop) >
+        scroller.clientHeight
+    ) {
+      return false;
+    }
+    const viewTop = scroller.getBoundingClientRect().top;
+    for (const anchor of anchors) {
+      const el = elements.current.get(anchor.key);
+      if (!el?.isConnected) continue;
+      const drift = placeDrift(
+        anchor,
+        el.getBoundingClientRect().top - viewTop,
+        scroller.scrollTop
+      );
+      if (Math.abs(drift) >= 0.5) {
+        scroller.scrollTop += drift;
+        ownScrollRef.current = scroller.scrollTop;
+      }
+      return true;
+    }
+    return false;
+  }, [scrollRef]);
+
   const keepPlace = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller || !windowing) return;
@@ -360,29 +419,14 @@ export function useWindowedRows({
       captureAnchor();
       return;
     }
-    // The scroller moved since the anchors were taken: someone scrolled on
-    // purpose (a jump, a restore), so that stands and the rows now in view
-    // hold the place from here.
-    const anchors = anchorsRef.current;
-    if (anchors.length === 0 || scroller.scrollTop !== anchors[0]!.scrollTop) {
-      captureAnchor();
-      return;
-    }
-    for (const anchor of anchors) {
-      const el = elements.current.get(anchor.key);
-      if (!el?.isConnected) continue;
-      const offset =
-        el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-      const drift = offset - anchor.offset;
-      if (Math.abs(drift) >= 0.5) {
-        scroller.scrollTop += drift;
-        ownScrollRef.current = scroller.scrollTop;
-      }
-      break;
-    }
-    refreshAnchors();
-  }, [captureAnchor, refreshAnchors, scrollRef, windowing]);
+    if (correct()) refreshAnchors();
+    else captureAnchor();
+  }, [captureAnchor, correct, refreshAnchors, scrollRef, windowing]);
 
+  const takePlaceHere = useCallback(
+    () => captureAnchor("top"),
+    [captureAnchor]
+  );
   const holdPlaceBelow = useCallback(
     () => captureAnchor("bottom"),
     [captureAnchor]
@@ -466,6 +510,10 @@ export function useWindowedRows({
       if (own !== null && Math.abs(scroller.scrollTop - own) < 1) {
         refreshAnchors();
       } else {
+        // Anything that moved the rows since the last look (a row above
+        // the view resized in the same frame) is put right before the new
+        // place is taken, or it would be taken as the new place.
+        if (!isFollowingRef.current?.()) correct();
         captureAnchor();
       }
       scheduleRangeRef.current();
@@ -477,7 +525,7 @@ export function useWindowedRows({
       scroller.removeEventListener("scroll", onScroll);
       resize.disconnect();
     };
-  }, [captureAnchor, refreshAnchors, scrollRef, windowing]);
+  }, [captureAnchor, correct, refreshAnchors, scrollRef, windowing]);
 
   // Keyboard focus keeps its row: React's focus events bubble, so the
   // container hears every row's.
@@ -527,7 +575,12 @@ export function useWindowedRows({
     },
     []
   );
+  // Windowing switched off (the full history asked for): every row mounts
+  // at once, above the view too, so the place is put back one last time.
+  const wasWindowingRef = useRef(windowing);
   useLayoutEffect(() => {
+    if (wasWindowingRef.current && !windowing) correct();
+    wasWindowingRef.current = windowing;
     keepPlace();
     if (windowing) scheduleRange();
   });
@@ -536,9 +589,11 @@ export function useWindowedRows({
   const count = keys.length;
   // The range is kept by index, but it means rows: when rows land above
   // (a page of older ones) the same rows are found at their new place.
-  let shown: Range = laidOutRef.current
-    ? { from: Math.min(range.from, count), to: Math.min(range.to, count) }
-    : initialRange(count, align, windowing);
+  let shown: Range = !windowing
+    ? { from: 0, to: count }
+    : laidOutRef.current
+      ? { from: Math.min(range.from, count), to: Math.min(range.to, count) }
+      : initialRange(count, align, windowing);
   if (
     laidOutRef.current &&
     range.first !== null &&
@@ -571,6 +626,7 @@ export function useWindowedRows({
     containerRef,
     containerProps: { onFocus, onBlur },
     holdPlace: holdPlaceBelow,
+    takePlace: takePlaceHere,
     segments,
     measure,
   };
@@ -616,6 +672,34 @@ export function windowSegments(
     segments.push({ kind: "gap", key: `gap:${last.key}`, height: last.height });
   }
   return segments;
+}
+
+/**
+ * Whether a list should render every row it has: always, when the reader
+ * asked for that in settings (for a screen reader that walks the whole
+ * page), and from the moment they reach for the browser's find
+ * (Cmd/Ctrl+F) for as long as the list is on screen, so the find searches
+ * everything loaded rather than the rows near the view.
+ */
+export function useFullHistory(): boolean {
+  const always = useAtomValue(streamFullHistoryAtom);
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    if (always || finding) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        setFinding(true);
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKey, { capture: true });
+  }, [always, finding]);
+  return always || finding;
 }
 
 /** A spacer standing in for rows that are not rendered. */

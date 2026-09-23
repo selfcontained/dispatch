@@ -82,12 +82,14 @@ export function scrollBlockIntoView(
  * again on every render until it appears.
  *
  * `onJump` runs just before the scroll, for a pane that must stop pinning
- * its bottom. Returns a ref to the last jump, for a pane whose own scroll
+ * its bottom; `onJumped` just after, for a windowed list that must hold
+ * the new place from there. Returns a ref to the last jump, for a pane whose own scroll
  * bookkeeping must not undo it straight away.
  */
 export function useBlockJump(
   scrollRef: RefObject<HTMLElement>,
-  onJump?: (blockId: string) => void
+  onJump?: (blockId: string) => void,
+  onJumped?: (blockId: string) => void
 ): RefObject<BlockJump | null> {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -101,6 +103,8 @@ export function useBlockJump(
   const flashRef = useRef<{ node: HTMLElement; timer: number } | null>(null);
   const onJumpRef = useRef(onJump);
   onJumpRef.current = onJump;
+  const onJumpedRef = useRef(onJumped);
+  onJumpedRef.current = onJumped;
 
   // Every render: the target can arrive with any update to the content.
   useLayoutEffect(() => {
@@ -121,6 +125,7 @@ export function useBlockJump(
     jumpedRef.current = { blockId, at: Date.now() };
     onJumpRef.current?.(blockId);
     scrollBlockIntoView(scroller, node);
+    onJumpedRef.current?.(blockId);
     const prev = flashRef.current;
     if (prev) {
       window.clearTimeout(prev.timer);

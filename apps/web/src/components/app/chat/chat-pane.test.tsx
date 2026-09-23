@@ -1112,6 +1112,16 @@ describe("ChatPane scroll memory", () => {
     expect(Element.prototype.scrollTo).toHaveBeenCalled();
   });
 
+  it("keeps the position in local storage, so a reload finds it", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "m1", offset: 12 }],
+    });
+    expect(
+      JSON.parse(window.localStorage.getItem("dispatch:chat-scroll:agt_1")!)
+    ).toEqual({ following: false, anchors: [{ entryId: "m1", offset: 12 }] });
+  });
+
   it("forgets the agents nobody has looked at in longest", () => {
     for (let i = 0; i < 60; i += 1) {
       rememberChatScrollPosition(`agt_${i}`, {

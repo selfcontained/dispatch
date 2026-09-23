@@ -31,17 +31,7 @@ import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
-import {
-  useWindowedRows as useCustomWindowedRows,
-  WindowGap,
-} from "./windowed-rows";
-import { useWindowedRowsTanstack } from "./windowed-rows-tanstack";
-
-/** Which windowing to build with, while the two are compared. */
-const useWindowedRows =
-  import.meta.env.VITE_WINDOWING === "tanstack"
-    ? useWindowedRowsTanstack
-    : useCustomWindowedRows;
+import { useFullHistory, useWindowedRows, WindowGap } from "./windowed-rows";
 
 /** How long a jump outranks the panel's own open-at-the-top and follow. */
 const JUMP_HOLD_MS = 1000;
@@ -261,7 +251,12 @@ export function ThreadPanel({
   // thread is under. A reply that lands while it is open scrolls into
   // view at the bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
-  const jumpedRef = useBlockJump(scrollRef);
+  // The windowed replies hold the place from wherever a jump put the
+  // reader (set below, once the windowing is set up).
+  const takePlaceRef = useRef<(() => void) | null>(null);
+  const jumpedRef = useBlockJump(scrollRef, undefined, () =>
+    takePlaceRef.current?.()
+  );
 
   // A long discussion renders only the replies near the view (see
   // useWindowedRows); a jump's target renders wherever it is. The finding's
@@ -277,14 +272,17 @@ export function ThreadPanel({
     if (change) keys.splice(changeAt, 0, CHANGE_ROW_KEY);
     return keys;
   }, [replies, change, changeAt]);
+  const fullHistory = useFullHistory();
   const windowed = useWindowedRows({
     scrollRef,
+    enabled: !fullHistory,
     keys: rowKeys,
     align: "start",
     pinned: pinnedIds,
     cacheKey: `thread:${threadBlockId}`,
     anchorable: (key) => key !== CHANGE_ROW_KEY,
   });
+  takePlaceRef.current = windowed.takePlace;
   const repliesById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, { reply, index }])),
     [replies]

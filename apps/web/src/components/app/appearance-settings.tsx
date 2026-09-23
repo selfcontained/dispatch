@@ -1,8 +1,46 @@
 import { useEffect, useState } from "react";
+import { useAtom } from "jotai";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { DEFAULT_THEME_ID, type ThemeId, THEMES } from "@/hooks/use-theme";
+import { streamFullHistoryAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+/**
+ * Long streams render only the rows near the view. A screen reader walking
+ * the page needs all of them; find-in-page gets them on its own (Cmd/Ctrl+F
+ * turns it on for the stream on screen).
+ */
+function StreamHistorySection(): JSX.Element {
+  const [fullHistory, setFullHistory] = useAtom(streamFullHistoryAtom);
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Stream
+      </div>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Long streams keep only the messages near the view in the page, to save
+        memory. Cmd/Ctrl+F shows the whole loaded history so find can reach it.
+      </p>
+      <label className="flex max-w-lg cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+        <Checkbox
+          checked={fullHistory}
+          onCheckedChange={(checked) => setFullHistory(checked === true)}
+          data-testid="stream-full-history"
+        />
+        <div>
+          <div className="text-sm font-medium text-foreground">
+            Always keep the whole history in the page
+          </div>
+          <div className="text-xs text-muted-foreground">
+            For screen readers. Uses more memory on long streams.
+          </div>
+        </div>
+      </label>
+    </div>
+  );
+}
 
 export function AppearanceSettings({
   theme,
@@ -162,6 +200,8 @@ export function AppearanceSettings({
           </p>
         )}
       </div>
+
+      <StreamHistorySection />
     </div>
   );
 }

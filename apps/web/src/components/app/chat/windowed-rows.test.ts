@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { windowSegments } from "./windowed-rows";
+import { placeDrift, windowSegments } from "./windowed-rows";
 
 const keys = ["a", "b", "c", "d", "e", "f"];
 const height = (key: string) => (key === "c" ? 300 : 100);
@@ -44,5 +44,17 @@ describe("windowSegments", () => {
     expect(windowSegments([], { from: 0, to: 0 }, () => false, height)).toEqual(
       []
     );
+  });
+});
+
+describe("placeDrift", () => {
+  it("is the row's move in the content, net of scrolling", () => {
+    const anchor = { offset: 100, scrollTop: 1000 };
+    // Scrolled up 300 and nothing shifted: the row sits 300 lower in view.
+    expect(placeDrift(anchor, 400, 700)).toBe(0);
+    // Scrolled up 300 while 240px landed above it.
+    expect(placeDrift(anchor, 640, 700)).toBe(240);
+    // No scroll, 50px removed above it.
+    expect(placeDrift(anchor, 50, 1000)).toBe(-50);
   });
 });

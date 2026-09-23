@@ -22,17 +22,7 @@ import {
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
-import {
-  useWindowedRows as useCustomWindowedRows,
-  WindowGap,
-} from "./windowed-rows";
-import { useWindowedRowsTanstack } from "./windowed-rows-tanstack";
-
-/** Which windowing to build with, while the two are compared. */
-const useWindowedRows =
-  import.meta.env.VITE_WINDOWING === "tanstack"
-    ? useWindowedRowsTanstack
-    : useCustomWindowedRows;
+import { useFullHistory, useWindowedRows, WindowGap } from "./windowed-rows";
 
 /**
  * What the channel draws, top to bottom: day rules, and posts that know
@@ -358,6 +348,14 @@ export function latestAgentBlockId(entries: StreamEntry[]): string | null {
   return null;
 }
 
+/** What the pane can ask of a windowed feed around its own scrolling. */
+export type FeedPlace = {
+  /** Before older rows load above: hold the place by the rows in view. */
+  holdBelow: () => void;
+  /** After the pane scrolled (a jump, a restore): the rows in view now hold it. */
+  takeHere: () => void;
+};
+
 export type ChatFeedProps = {
   entries: StreamEntry[];
   ctx: FeedContext;
@@ -377,8 +375,8 @@ export type ChatFeedProps = {
   pinnedIds?: ReadonlySet<string>;
   /** True while the pane keeps its bottom in view. */
   isFollowing?: () => boolean;
-  /** Filled with a call that takes the reader's place before older rows load. */
-  holdPlaceRef?: MutableRefObject<(() => void) | null>;
+  /** Filled with the feed's hold on the reader's place, for the pane's own scrolls. */
+  placeRef?: MutableRefObject<FeedPlace | null>;
 };
 
 /** The key a feed row renders under: a day rule's, or its entry's. */
@@ -401,7 +399,7 @@ export function ChatFeed({
   scrollRef,
   pinnedIds,
   isFollowing,
-  holdPlaceRef,
+  placeRef,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const rowKeys = useMemo(
@@ -409,6 +407,7 @@ export function ChatFeed({
     [rows, ctx.agentId]
   );
   const fallbackRef = useRef<HTMLElement>(null);
+  const fullHistory = useFullHistory();
   const windowed = useWindowedRows({
     scrollRef: scrollRef ?? fallbackRef,
     keys: rowKeys,
@@ -416,10 +415,15 @@ export function ChatFeed({
     pinned: pinnedIds,
     isFollowing,
     cacheKey: ctx.agentId ? `feed:${ctx.agentId}` : null,
-    enabled: scrollRef !== undefined,
+    enabled: scrollRef !== undefined && !fullHistory,
     anchorable: isEntryRowKey,
   });
-  if (holdPlaceRef) holdPlaceRef.current = windowed.holdPlace;
+  if (placeRef) {
+    placeRef.current = {
+      holdBelow: windowed.holdPlace,
+      takeHere: windowed.takePlace,
+    };
+  }
   const entering = useEnteringEntries(entries, ctx.agentId);
   const playedRef = useRef(new Set<string>());
   // Disclosure state per row (an expanded step, a folded step list), owned here so

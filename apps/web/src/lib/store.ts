@@ -483,3 +483,58 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
 export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }
+
+/**
+ * Keep every loaded row of a stream in the page instead of only those near
+ * the view: for screen readers, at the cost of memory on long streams.
+ */
+export const streamFullHistoryAtom = atomWithLocalStorage<boolean>(
+  "dispatch:stream-full-history",
+  false
+);
+
+/** One row the Chat feed can be put back against: which row, and where it sat. */
+export type ChatScrollAnchor = {
+  entryId: string;
+  /** The row's top edge, relative to the top of the viewport. */
+  offset: number;
+};
+
+/** Where a reader was in one agent's Chat feed. */
+export type ChatScrollPosition = {
+  /** At the bottom on the way out: reopen following the feed. */
+  following: boolean;
+  /** Visible rows, top first, for restoring the scroll position. */
+  anchors: ChatScrollAnchor[];
+};
+
+function isChatScrollPosition(
+  value: unknown
+): value is ChatScrollPosition | null {
+  if (value === null) return true;
+  if (typeof value !== "object") return false;
+  const v = value as Partial<ChatScrollPosition>;
+  return (
+    typeof v.following === "boolean" &&
+    Array.isArray(v.anchors) &&
+    v.anchors.every(
+      (a) =>
+        typeof a === "object" &&
+        a !== null &&
+        typeof (a as ChatScrollAnchor).entryId === "string" &&
+        typeof (a as ChatScrollAnchor).offset === "number"
+    )
+  );
+}
+
+/**
+ * Where the reader was in each agent's Chat feed, so switching agents and
+ * reloading the page both put them back on the row they were reading.
+ */
+export const chatScrollPositionAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<ChatScrollPosition | null>(
+    `dispatch:chat-scroll:${agentId}`,
+    null,
+    { validate: isChatScrollPosition }
+  )
+);
