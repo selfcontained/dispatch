@@ -417,7 +417,8 @@ const streamService = new StreamService({
           ...(opts?.alone ? { alone: true } : {}),
         })
       ).delivery,
-    held: (agentId) => agentManager.isPromptHeld(agentId),
+    held: (agentId, exceptBlockId) =>
+      agentManager.isPromptHeld(agentId, exceptBlockId),
     cancel: (agentId) => agentManager.cancelTurn(agentId),
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),

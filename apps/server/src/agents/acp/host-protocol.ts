@@ -35,6 +35,7 @@ export const HOST_FILES = {
   socket: "host.sock",
   pid: "host.pid",
   journal: "journal.jsonl",
+  journalId: "journal.id",
   session: "session.json",
   log: "host.log",
 } as const;
@@ -50,7 +51,7 @@ export function hostFile(
 export type JournalEntry = { seq: number; at: string; event: DriverEvent };
 
 export type ClientMessage =
-  | { type: "hello"; fromSeq: number }
+  | { type: "hello"; fromSeq: number; journalId?: string | null }
   | { type: "prompt"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
   | { type: "shutdown"; force?: boolean }
@@ -70,6 +71,8 @@ export type HostMessage =
       turn: { seq: number; startedAt: string } | null;
       /** The newest journal seq; replay follows up to here. */
       journalSeq: number;
+      /** Identity of the journal whose sequence numbers are being reported. */
+      journalId?: string;
       /** Current ACP commands, including skills; refreshed on each reconnect. */
       commands: AvailableCommand[];
     }

@@ -125,7 +125,8 @@ describe("AcpRuntime prompt queue", () => {
         dispatchBinDir: "/nonexistent",
       },
       logger,
-      hostSeq: async () => 0,
+      hostSeq: async () => ({ seq: 0, journalId: null }),
+      syncJournal: async () => {},
     });
     // No runtime.stop: the pid file names this test process.
     expect(await runtime.attach(agentId)).toBe(true);
@@ -243,7 +244,8 @@ async function attached(stateRoot: string) {
       dispatchBinDir: "/nonexistent",
     },
     logger,
-    hostSeq: async () => 0,
+    hostSeq: async () => ({ seq: 0, journalId: null }),
+    syncJournal: async () => {},
   });
   // No runtime.stop: the pid file names this test process.
   expect(await runtime.attach(agentId)).toBe(true);

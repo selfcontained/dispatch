@@ -89,6 +89,7 @@ function build(
     { blockId?: string; source?: PromptSource; alone?: boolean } | undefined
   > = [];
   const cancelled: string[] = [];
+  const queued = new Set<string>();
   const svc = new StreamService({
     pool,
     publishUiEvent: (event) => events.push(event),
@@ -100,14 +101,25 @@ function build(
           delivery: {
             access: opts.access ?? (async () => ({ mode: "live" as const })),
             inject: async (agentId, text, injectOpts) => {
-              if (opts.gate) await opts.gate;
-              injected.push({ agentId, text });
-              injectedOpts.push(injectOpts);
-              if (opts.fail || opts.failFor?.includes(agentId)) {
-                throw new Error("engine gone");
+              const key =
+                injectOpts?.blockId ??
+                (injectOpts?.source?.source === "chat"
+                  ? injectOpts.source.chatMessageId
+                  : `${agentId}:${text}`);
+              queued.add(key);
+              try {
+                if (opts.gate) await opts.gate;
+                injected.push({ agentId, text });
+                injectedOpts.push(injectOpts);
+                if (opts.fail || opts.failFor?.includes(agentId)) {
+                  throw new Error("engine gone");
+                }
+              } finally {
+                queued.delete(key);
               }
             },
-            held: () => opts.held ?? false,
+            held: (_agentId, exceptBlockId) =>
+              opts.held ?? [...queued].some((key) => key !== exceptBlockId),
             commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
@@ -4191,9 +4203,10 @@ describe("StreamService delivery that is never taken", () => {
 
   it("gives up on a prompt an idle engine never takes, so the post can be retried", async () => {
     vi.useFakeTimers();
-    const { svc } = build({ gate: never, held: false });
+    const { svc } = build({ gate: never });
     const res = await svc.sendUserPost(A, { text: "are you there?" });
     expect(res.block.delivered).toBeNull();
+    expect(res.held).toBe(true); // The fake queue includes this very prompt.
     // Nothing has taken it, and the agent is not busy: past the bound it
     // reads as undelivered rather than sending forever.
     await vi.advanceTimersByTimeAsync(95_000);

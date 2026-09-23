@@ -11,6 +11,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -69,8 +70,22 @@ function parseArgs(argv: string[]): { stateDir: string } {
 /** Append-only event log. Sync writes: a line is on disk before it is sent. */
 class Journal {
   private seq = 0;
+  readonly id: string;
 
-  constructor(private readonly file: string) {
+  constructor(
+    private readonly file: string,
+    idFile: string
+  ) {
+    // A missing journal starts a new sequence even when the rest of the
+    // state directory survived. Keep its identity across host restarts.
+    const savedId =
+      existsSync(file) && existsSync(idFile)
+        ? readFileSync(idFile, "utf8").trim()
+        : "";
+    this.id = savedId || randomUUID();
+    if (!savedId) {
+      writeFileSync(idFile, `${this.id}\n`, { mode: 0o600 });
+    }
     if (existsSync(file)) {
       const lines = readFileSync(file, "utf8").split("\n");
       for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -127,7 +142,10 @@ async function main(): Promise<void> {
   ) as HostLaunch;
   const { agentId } = launch;
   await writeFile(hostFile(stateDir, "pid"), `${process.pid}\n`);
-  const journal = new Journal(hostFile(stateDir, "journal"));
+  const journal = new Journal(
+    hostFile(stateDir, "journal"),
+    hostFile(stateDir, "journalId")
+  );
 
   // The engine child's environment: the host's own (a login shell's), the
   // launch's additions, and Dispatch's bin directories ahead on PATH.
@@ -237,9 +255,15 @@ async function main(): Promise<void> {
           running,
           turn: openTurn,
           journalSeq: journal.lastSeq,
+          journalId: journal.id,
           commands: driver.getCommands(agentId) ?? [],
         });
-        for (const entry of journal.after(message.fromSeq)) {
+        const fromSeq =
+          (message.journalId && message.journalId !== journal.id) ||
+          message.fromSeq > journal.lastSeq
+            ? 0
+            : message.fromSeq;
+        for (const entry of journal.after(fromSeq)) {
           send(socket, { type: "event", ...entry });
         }
         if (startupError)
@@ -379,6 +403,7 @@ async function main(): Promise<void> {
       running,
       turn: null,
       journalSeq: journal.lastSeq,
+      journalId: journal.id,
       commands: driver.getCommands(agentId) ?? [],
     });
   } catch (err) {

@@ -22,6 +22,7 @@ export type HostClientDeps = {
   logger: DriverLogger;
   /** The newest journal seq already applied; the host replays after it. */
   fromSeq: () => number;
+  journalId: () => string | null;
   onEvent: (entry: JournalEntry) => void;
   /** The engine is up and the session is known. Fires on every reconnect too. */
   onWelcome: (welcome: HostWelcome) => void;
@@ -70,7 +71,9 @@ export class HostClient {
     let lastError = "";
     while (Date.now() < deadline && !this.closed) {
       if (abandoned()) {
-        throw new Error(lastError || "the agent host exited before it answered");
+        throw new Error(
+          lastError || "the agent host exited before it answered"
+        );
       }
       try {
         await this.dial();
@@ -99,10 +102,13 @@ export class HostClient {
   private awaitRunningWelcome(timeoutMs: number): Promise<HostWelcome> {
     if (this.lastWelcome?.running) return Promise.resolve(this.lastWelcome);
     return new Promise<HostWelcome>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.welcomeWaiters = this.welcomeWaiters.filter((w) => w !== waiter);
-        reject(new Error("the agent host did not report a running engine"));
-      }, Math.max(0, timeoutMs));
+      const timer = setTimeout(
+        () => {
+          this.welcomeWaiters = this.welcomeWaiters.filter((w) => w !== waiter);
+          reject(new Error("the agent host did not report a running engine"));
+        },
+        Math.max(0, timeoutMs)
+      );
       const waiter = {
         resolve: (w: HostWelcome) => {
           clearTimeout(timer);
@@ -132,6 +138,7 @@ export class HostClient {
           encodeMessage({
             type: "hello",
             fromSeq: this.deps.fromSeq(),
+            journalId: this.deps.journalId(),
           } satisfies ClientMessage)
         );
         resolve();

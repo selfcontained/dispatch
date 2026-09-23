@@ -151,7 +151,7 @@ export type StreamDeliveryAdapter = {
     opts?: { blockId?: string; source?: PromptSource; alone?: boolean }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
-  held: (agentId: string) => boolean;
+  held: (agentId: string, exceptBlockId?: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
   /** Names of commands this agent's ACP session currently accepts. */
@@ -2543,7 +2543,7 @@ export class StreamService {
         if (input.taken()) return;
         // Still queued behind the agent's own work: that is the queue
         // doing its job, so keep waiting.
-        if (this.delivery().held(agentId)) continue;
+        if (this.delivery().held(agentId, logContext.blockId)) continue;
         this.log.warn(
           { agentId, ...logContext },
           "stream: the engine never took this prompt; marking it undelivered"
