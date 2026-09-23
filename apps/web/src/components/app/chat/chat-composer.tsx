@@ -14,13 +14,7 @@ import {
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import {
-  CornerDownRight,
-  Paperclip,
-  SendHorizontal,
-  X,
-  Zap,
-} from "lucide-react";
+import { CornerDownRight, Paperclip, SendHorizontal, X } from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -1031,9 +1025,8 @@ export function ChatComposer({
               onClick={() => submit({ interrupt: true })}
               title="Stop the running turn and send this now"
               data-testid="chat-composer-send-now"
-              className="my-2 h-7 shrink-0 gap-1 px-2 text-[11px]"
+              className="my-2 h-7 shrink-0 px-2 text-[11px]"
             >
-              <Zap className="h-3 w-3" aria-hidden="true" />
               Send now
             </Button>
           ) : null}
