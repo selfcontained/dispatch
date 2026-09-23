@@ -176,6 +176,15 @@ export function useWindowedRows({
 }: WindowedRowsOptions): WindowedRows {
   const containerRef = useRef<HTMLDivElement>(null);
   const [heights] = useState(() => heightCacheFor(cacheKey));
+  // Keep unmeasured rows at one estimate for this mount. Recomputing the
+  // average after every measurement resizes every spacer at once, making
+  // a long stream's scrollbar move while the feed itself is idle.
+  const [estimatedHeight] = useState(() => {
+    if (heights.size === 0) return DEFAULT_ESTIMATE_PX;
+    let sum = 0;
+    for (const height of heights.values()) sum += height;
+    return sum / heights.size;
+  });
   const keysRef = useRef(keys);
   keysRef.current = keys;
   const isFollowingRef = useRef(isFollowing);
@@ -198,30 +207,19 @@ export function useWindowedRows({
 
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
-  const estimate = useCallback((): number => {
-    if (heights.size === 0) return DEFAULT_ESTIMATE_PX;
-    let sum = 0;
-    for (const h of heights.values()) sum += h;
-    return sum / heights.size;
-  }, [heights]);
-
   /**
-   * The estimate the spacers were drawn with. Positions are worked out with
-   * the same one, or the rows the range picks would not be the rows the
-   * layout has in view.
+   * Positions are worked out with the same estimate the spacers use, or the
+   * range would not match the rows the layout has in view.
    */
-  const guessRef = useRef(DEFAULT_ESTIMATE_PX);
-
   /** Each row's top edge within the list, and the list's height at the end. */
   const tops = useCallback((): Float64Array => {
     const list = keysRef.current;
     const out = new Float64Array(list.length + 1);
-    const guess = guessRef.current;
     for (let i = 0; i < list.length; i += 1) {
-      out[i + 1] = out[i]! + (heights.get(list[i]!) ?? guess);
+      out[i + 1] = out[i]! + (heights.get(list[i]!) ?? estimatedHeight);
     }
     return out;
-  }, [heights]);
+  }, [estimatedHeight, heights]);
 
   /**
    * The rows to render for where the view is now, or null to keep the ones
@@ -597,8 +595,6 @@ export function useWindowedRows({
     align,
   });
   rangeRef.current = shown;
-  const guess = estimate();
-  guessRef.current = guess;
   // The rows holding the reader's place stay too: dropping them would lose
   // the place with them.
   const anchorKeys = new Set(anchorsRef.current.map((anchor) => anchor.key));
@@ -607,7 +603,7 @@ export function useWindowedRows({
     shown,
     (key) =>
       pinned?.has(key) === true || key === focusKey || anchorKeys.has(key),
-    (key) => heights.get(key) ?? guess
+    (key) => heights.get(key) ?? estimatedHeight
   );
 
   return {
