@@ -5,7 +5,13 @@
  * the design promises and unit tests cannot: a host that outlives its
  * client, replay from a sequence number, and a clean stop.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -206,12 +212,19 @@ describe("agent host", () => {
 
   it("recovers a replaced journal even when the stored sequence is far ahead", async () => {
     const id = "agt_reset";
+    const stateDir = path.join(stateRoot, id);
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(path.join(stateDir, "journal.jsonl"), "");
+    writeFileSync(path.join(stateDir, "journal.id"), "previous-journal\n");
     const { runtime, seen, synced } = runtimeWith(
       stateRoot,
       () => 22_974,
       "previous-journal"
     );
     await runtime.launch(launchFor(id, cwd));
+    expect(
+      readFileSync(path.join(stateDir, "journal.id"), "utf8").trim()
+    ).not.toBe("previous-journal");
     const turn = runtime.prompt(id, "can you hear me?");
     await Promise.race([
       turn.accepted,

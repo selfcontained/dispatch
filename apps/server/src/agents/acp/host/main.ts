@@ -105,17 +105,14 @@ class Journal {
         }
       }
     }
-    const savedId =
-      existsSync(file) && existsSync(idFile)
-        ? readFileSync(idFile, "utf8").trim()
-        : "";
     this.id =
       embeddedId ||
       (firstLine
         ? `legacy-${createHash("sha256").update(firstLine).digest("hex")}`
-        : savedId || randomUUID());
+        : randomUUID());
     // The sidecar is a convenient readable identity, but can be rebuilt
-    // from a nonempty journal. A missing journal always gets a new ID.
+    // from a nonempty journal. A missing or empty journal gets a new ID,
+    // even if a stale sidecar survived its replacement.
     writeFileSync(idFile, `${this.id}\n`, { mode: 0o600 });
   }
 
