@@ -804,6 +804,78 @@ describe("ChatFeed", () => {
     expect(within(shown).getByTestId("chat-review-block")).toBeTruthy();
   });
 
+  it.each([false, true])(
+    "puts a launched child's live step below the card content (review: %s)",
+    async (withReview) => {
+      const review = reviewBlock({
+        id: "rv1",
+        author: { kind: "agent", agentId: "agt_2" },
+        toAgentId: AGENT_ID,
+        threadId: "l1",
+        replyTo: "l1",
+        summary: "Checked the change.",
+      });
+      renderFeed(
+        [
+          blockEntry(
+            launchBlock({
+              id: "l1",
+              toAgentId: "agt_2",
+              launchedByAgentId: AGENT_ID,
+              text: "Review the change.",
+              blocks: withReview ? [review] : [],
+              attachments: withReview
+                ? [{ type: "link", url: "https://example.com/spec" }]
+                : [],
+              launchState: {
+                instructions: "Review carefully.",
+                startup: {
+                  steps: [steps.worktree("done", "2026-09-02T10:00:02.000Z")],
+                  readyAt: "2026-09-02T10:00:02.000Z",
+                },
+              },
+            })
+          ),
+        ],
+        {},
+        { peers: REVIEWER_PEER },
+        [
+          {
+            id: "agt_2",
+            name: "Reviewer",
+            type: "claude",
+            status: "running",
+            currentTurn: { blockId: "live-turn", threadId: null },
+          } as Agent,
+        ]
+      );
+      queryClient.setQueryData(["agent-turn-label", "agt_2"], {
+        blockId: "live-turn",
+        label: "post",
+      });
+      const activity = await waitFor(() =>
+        screen.getByTestId("agent-activity-agt_2")
+      );
+      const card = screen.getByTestId("chat-launch-card");
+      expect(screen.getByTestId("chat-launch-meta").contains(activity)).toBe(
+        false
+      );
+      for (const part of [
+        screen.getByTestId("chat-launch-briefing"),
+        screen.getByTestId("chat-launch-startup"),
+        screen.getByTestId("chat-launch-instructions"),
+        ...(withReview ? [screen.getByTestId("chat-shown-block")] : []),
+        ...(withReview ? [screen.getByTestId("chat-attachment-link")] : []),
+      ]) {
+        expect(
+          part.compareDocumentPosition(activity) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+      }
+      expect(card.contains(activity)).toBe(true);
+    }
+  );
+
   it("shows the review a launched reviewer posted on its card, compactly, opening the card's thread", () => {
     const onOpenThread = vi.fn();
     const finding = findingBlock(
