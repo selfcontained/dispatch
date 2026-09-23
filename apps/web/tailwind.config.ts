@@ -66,18 +66,16 @@ export default {
         sm: "0.45rem",
       },
       keyframes: {
-        // Every new post arrives the same way, whoever wrote it: sliding up
-        // as it fades in. A turn's message uses the same curve when it
-        // lands after the activity line settles (`message-in`).
+        // Fade new posts without moving their rendered position. The same
+        // animation is used for changing activity labels inside the stream.
         "chat-enter": {
-          from: { opacity: "0", transform: "translateY(10px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
+          from: { opacity: "0" },
+          to: { opacity: "1" },
         },
-        // A turn's message landing once the turn settles: like a new
-        // message, after the activity line has come to rest.
+        // A turn's message landing once the turn settles.
         "message-in": {
-          from: { opacity: "0", transform: "translateY(10px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
+          from: { opacity: "0" },
+          to: { opacity: "1" },
         },
         // The Chat reaction picker, grown from its trigger.
         "reaction-picker-in": {

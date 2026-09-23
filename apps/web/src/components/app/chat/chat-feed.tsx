@@ -173,8 +173,8 @@ export function arrivedEntryIds(
 }
 
 /**
- * Fades a fresh entry in (a short rise with it, unless the viewer prefers
- * reduced motion, in which case it simply appears). Keyed by the version so
+ * Fades a fresh entry in unless the viewer prefers reduced motion.
+ * Keyed by the version so
  * an in-place edit runs it again; a settled entry renders bare.
  */
 function Enter({
