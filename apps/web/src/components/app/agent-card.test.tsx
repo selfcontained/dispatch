@@ -395,9 +395,10 @@ describe("AgentCardHeader wiring", () => {
         lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
       }),
     });
-    expect(screen.getByText("Attention").getAttribute("title")).toContain(
-      "cannot reconnect"
-    );
+    expect(screen.queryByText("Attention")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnecting" }));
+    expect(screen.getByText("Reconnecting to agent")).toBeTruthy();
+    expect(screen.queryByText("Last error")).toBeNull();
 
     rerender({
       agent: makeAgent({
@@ -755,7 +756,10 @@ describe("AgentCardActions and child agents", () => {
 
   it("surfaces the last error inside the expanded card", () => {
     renderCard({
-      agent: makeAgent({ lastError: "worktree checkout failed" }),
+      agent: makeAgent({
+        status: "error",
+        lastError: "worktree checkout failed",
+      }),
       expandedAgentId: AGENT_ID,
     });
 

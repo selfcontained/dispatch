@@ -15,6 +15,11 @@ import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -60,9 +65,8 @@ export function AgentCardHeader({
   toggleAgentDetails,
 }: AgentCardHeaderProps): JSX.Element {
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
-  const needsAttention =
-    agent.status === "error" ||
-    (agent.status === "running" && Boolean(agent.lastError));
+  const needsAttention = agent.status === "error";
+  const isReconnecting = agent.status === "running" && Boolean(agent.lastError);
   const isJobAgent = Boolean(agent.jobRun);
   const loopIteration = agent.jobRun?.iteration ?? 1;
   const isLoopJob = isJobAgent && agent.jobRun?.continuationEnabled;
@@ -162,6 +166,31 @@ export function AgentCardHeader({
       </div>
 
       <ChatUnreadBadge agentId={agent.id} />
+
+      {isReconnecting ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost-warning"
+              className="h-6 rounded-full border border-status-waiting/45 bg-status-waiting/15 px-2 text-[11px] uppercase tracking-wide max-sm:h-auto max-sm:min-h-11 [@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11"
+              data-agent-control="true"
+              data-testid={`agent-reconnect-badge-${agent.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              Reconnecting
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-3 text-sm">
+            <p className="font-medium">Reconnecting to agent</p>
+            <p className="mt-1 text-muted-foreground">
+              The agent host is still running. Dispatch is retrying the
+              connection, so its work can continue.
+            </p>
+          </PopoverContent>
+        </Popover>
+      ) : null}
 
       {needsAttention ? (
         <Badge
