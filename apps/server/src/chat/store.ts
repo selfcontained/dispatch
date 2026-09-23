@@ -300,6 +300,16 @@ export class BlockStore {
     return new BlockStore(client);
   }
 
+  async deleteQueuedMessage(blockId: string): Promise<void> {
+    // Reopen a question/form whose queued answer was withdrawn.
+    await this.db.query(
+      `UPDATE blocks SET state = state - 'answer' - 'submission'
+      WHERE state->'answer'->>'blockId' = $1 OR state->'submission'->>'blockId' = $1`,
+      [blockId]
+    );
+    await this.db.query(`DELETE FROM blocks WHERE id = $1`, [blockId]);
+  }
+
   async insert(input: InsertBlockInput): Promise<Block> {
     const result = await this.db.query<BlockRow>(
       `INSERT INTO blocks ${INSERT_COLUMNS} VALUES ${INSERT_VALUES} RETURNING *`,

@@ -531,3 +531,54 @@ describe("AcpRuntime combining queued posts", () => {
     settle();
   });
 });
+
+describe("queued post controls", () => {
+  const id = (n: number) =>
+    (post(n) as { chatMessageId: string }).chatMessageId;
+  it("deletes only an unsent prompt and leaves the remaining queue intact", async () => {
+    const host = await heldTurnHost();
+    const runtime = await attached(host.stateRoot);
+    const first = runtime.prompt(agentId, envelope(1), post(1));
+    await first.accepted;
+    const removed = runtime.prompt(agentId, envelope(2), post(2));
+    const kept = runtime.prompt(agentId, envelope(3), post(3));
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "delete")).toBe(false);
+    expect(
+      runtime.controlQueuedPrompt([agentId, "absent"], id(2), "delete")
+    ).toBe(false);
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "delete")).toBe(true);
+    await expect(removed.accepted).rejects.toThrow("deleted");
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "send-now")).toBe(
+      false
+    );
+    host.settle();
+    await withinSeconds(kept.accepted, "remaining prompt");
+    host.settle();
+    await Promise.all([first.settled, removed.settled, kept.settled]);
+    expect(host.prompts.map((p) => p.text)).toEqual([envelope(1), envelope(3)]);
+  });
+
+  it("prioritizes the selected post alone without losing older waiting posts", async () => {
+    const host = await heldTurnHost();
+    const runtime = await attached(host.stateRoot);
+    const first = runtime.prompt(agentId, envelope(1), post(1));
+    await first.accepted;
+    const older = runtime.prompt(agentId, envelope(2), post(2));
+    const urgent = runtime.prompt(agentId, envelope(3), post(3));
+    expect(runtime.controlQueuedPrompt([agentId], id(3), "send-now")).toBe(
+      true
+    );
+    host.settle();
+    await withinSeconds(urgent.accepted, "urgent post");
+    expect(host.prompts.map((p) => p.text)).toEqual([envelope(1), envelope(3)]);
+    host.settle();
+    await withinSeconds(older.accepted, "older post");
+    host.settle();
+    await Promise.all([first.settled, older.settled, urgent.settled]);
+    expect(host.prompts.map((p) => p.text)).toEqual([
+      envelope(1),
+      envelope(3),
+      envelope(2),
+    ]);
+  });
+});

@@ -420,6 +420,8 @@ const streamService = new StreamService({
     held: (agentId) => agentManager.isPromptHeld(agentId),
     activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
     cancel: (agentId) => agentManager.cancelTurn(agentId),
+    controlQueuedPrompt: (ids, blockId, action) =>
+      agentManager.controlQueuedPrompt(ids, blockId, action),
     commands: (agentId) =>
       (agentManager.getCommands(agentId) ?? []).map((command) => command.name),
   },

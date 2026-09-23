@@ -1,3 +1,4 @@
+import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
   Block,
@@ -1450,7 +1451,15 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
-        <DeliveryMeta block={block} ctx={ctx} />
+        {block.delivered === null && block.toAgentId && !block.origin ? (
+          <QueuedMessageActions
+            agentId={block.streamId}
+            messageId={block.id}
+            status={<DeliveryMeta block={block} ctx={ctx} />}
+          />
+        ) : (
+          <DeliveryMeta block={block} ctx={ctx} />
+        )}
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}

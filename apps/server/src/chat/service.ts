@@ -156,6 +156,11 @@ export type StreamDeliveryAdapter = {
   activeTurn: (agentId: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
+  controlQueuedPrompt?: (
+    agentIds: string[],
+    blockId: string,
+    action: "delete" | "send-now"
+  ) => boolean;
   /** Names of commands this agent's ACP session currently accepts. */
   commands?: (agentId: string) => readonly string[];
 };
@@ -2485,6 +2490,11 @@ export class StreamService {
       .then(
         () => true,
         (error: unknown) => {
+          if (
+            error instanceof Error &&
+            error.name === "QueuedPromptDeletedError"
+          )
+            return null;
           this.log.warn(
             { err: error, agentId, ...logContext },
             "stream: delivery failed — agent may have exited"
@@ -2494,7 +2504,7 @@ export class StreamService {
       )
       .then(async (delivered) => {
         accepted = true;
-        await input.record(delivered);
+        if (delivered !== null) await input.record(delivered);
       })
       .catch((error: unknown) => {
         this.log.error(
@@ -2639,6 +2649,39 @@ export class StreamService {
    * is quiet (an answer that never says what it answers), so this is the
    * one place that knows how to reconstruct all of them.
    */
+  async controlQueuedMessage(
+    streamId: string,
+    blockId: string,
+    action: "delete" | "send-now"
+  ): Promise<{ ok: true }> {
+    const block = await this.store.getById(blockId);
+    if (
+      !block ||
+      block.streamId !== streamId ||
+      block.author.kind !== "user" ||
+      !block.toAgentId ||
+      block.origin
+    ) {
+      throw new StreamValidationError("Queued user message not found.");
+    }
+    if (
+      block.delivered !== null ||
+      !this.delivery().controlQueuedPrompt?.(
+        addressedTo(block),
+        blockId,
+        action
+      )
+    ) {
+      throw new StreamConflictError(
+        "This message is no longer queued. Refresh and try again."
+      );
+    }
+    if (action === "delete") await this.store.deleteQueuedMessage(blockId);
+    this.publishChanged(streamId);
+    if (block.threadId) await this.publishEntry(streamId, block.threadId);
+    return { ok: true };
+  }
+
   async retryDelivery(
     streamId: string,
     blockId: string
