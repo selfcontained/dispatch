@@ -3785,6 +3785,65 @@ describe("StreamService turn blocks", () => {
     expect(published[1]).toEqual({ type: "stream.changed", agentId: A });
   });
 
+  it("a settle during a turn compose in flight is published last, as the settled row", async () => {
+    const row = await pool.query<{ id: string }>(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1),
+               'turn', '{"state":"started","prompt":{"source":"chat","text":"go"}}') RETURNING id`,
+      [A]
+    );
+    const eventId = Number(row.rows[0]!.id);
+    const blockId = await service.recordTurnStarted({
+      agentId: A,
+      turnRow: turnRow(eventId, { source: "chat", text: "go" }),
+      prompt: { source: "chat", text: "go" },
+    });
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [eventId, JSON.stringify({ blockId })]
+    );
+    published.length = 0;
+    // A step's compose is under way when the turn settles; the settle's own
+    // publish and a trailing compose follow it.
+    const inFlight = service.publishTurnEntry(A);
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+       VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1),
+               'assistant', '{"text":"All done.","streaming":false}')`,
+      [A]
+    );
+    await pool.query(
+      `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+      [eventId, JSON.stringify({ state: "settled" })]
+    );
+    const trailing = service.publishTurnEntry(A);
+    await service.recordTurnSettled({
+      agentId: A,
+      turnRow: {
+        ...turnRow(eventId, { source: "chat", text: "go" }),
+        payload: {
+          state: "settled",
+          blockId,
+          prompt: { source: "chat", text: "go" },
+        },
+      },
+    });
+    await Promise.all([inFlight, trailing]);
+    const entries = published.filter(
+      (
+        event
+      ): event is {
+        type: "stream.entry";
+        entry: { id: string; block: Block };
+      } => (event as { type: string }).type === "stream.entry"
+    );
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.at(-1)!.entry).toMatchObject({
+      id: blockId,
+      block: { text: "All done.", turn: { settled: true } },
+    });
+  });
+
   it("a turn a thread reply opened answers in that thread", async () => {
     const root = await service.store.insert({
       streamId: A,

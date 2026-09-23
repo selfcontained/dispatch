@@ -78,6 +78,7 @@ import type {
   WorktreeCleanupMode,
   WorktreeStatus,
 } from "./types.js";
+import { StreamWriteThrottle } from "./stream-write-throttle.js";
 import * as telemetry from "./telemetry.js";
 
 export { AgentError } from "./errors.js";
@@ -291,7 +292,15 @@ export class AgentManager {
   private readonly streamRecorder: StreamRecorder;
   /** Listeners told after the stream changed for an agent (coalesced). */
   private readonly streamWriteListeners: Array<(agentId: string) => void> = [];
-  private readonly streamPublishTimers = new Map<string, NodeJS.Timeout>();
+  private readonly streamWrites = new StreamWriteThrottle((agentId) => {
+    for (const listener of this.streamWriteListeners) {
+      try {
+        listener(agentId);
+      } catch (err) {
+        this.logger.warn({ err, agentId }, "stream write listener failed");
+      }
+    }
+  });
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
@@ -356,26 +365,7 @@ export class AgentManager {
   }
 
   private notifyStreamWrite(agentId: string, immediate: boolean): void {
-    const fire = () => {
-      this.streamPublishTimers.delete(agentId);
-      for (const listener of this.streamWriteListeners) {
-        try {
-          listener(agentId);
-        } catch (err) {
-          this.logger.warn({ err, agentId }, "stream write listener failed");
-        }
-      }
-    };
-    const pending = this.streamPublishTimers.get(agentId);
-    if (immediate) {
-      if (pending) clearTimeout(pending);
-      fire();
-      return;
-    }
-    if (pending) return;
-    const timer = setTimeout(fire, 100);
-    timer.unref?.();
-    this.streamPublishTimers.set(agentId, timer);
+    this.streamWrites.write(agentId, immediate);
   }
 
   /**
@@ -1194,7 +1184,6 @@ export class AgentManager {
           worktreeBranchName: opts.worktreeBranchName,
           baseBranch: opts.normalizedBaseBranch,
           worktreePathOverride: opts.worktreePathOverride,
-          simulateMs: this.config.simulateWorkspaceMs,
           onPhase: async (phase) => {
             await this.setSetupPhase(id, phase);
             await this.reportStartupPhase(id, phase, opts.type);
