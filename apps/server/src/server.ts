@@ -39,7 +39,7 @@ import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
-import { mimeType, resolveFilesDir } from "./shared/files.js";
+import { resolveFilesDir } from "./shared/files.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";

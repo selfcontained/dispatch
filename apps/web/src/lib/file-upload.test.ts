@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isSupportedFile } from "../../../server/src/shared/file-types";
 import {
   STARTUP_FILE_ACCEPT,
   isAcceptedUploadFile,
@@ -23,21 +22,6 @@ describe("isAcceptedUploadFile", () => {
   it("accepts every extension the upload endpoint accepts", () => {
     for (const ext of STARTUP_FILE_ACCEPT.split(",")) {
       expect(isAcceptedUploadFile(`report${ext}`), ext).toBe(true);
-    }
-  });
-
-  it("agrees with the server's isSupportedFile validation", () => {
-    const names = [
-      "shot.png",
-      "clip.mp4",
-      "notes.md",
-      "doc.pdf",
-      "binary.exe",
-      "archive.tar.gz",
-      "no-extension",
-    ];
-    for (const name of names) {
-      expect(isAcceptedUploadFile(name), name).toBe(isSupportedFile(name));
     }
   });
 

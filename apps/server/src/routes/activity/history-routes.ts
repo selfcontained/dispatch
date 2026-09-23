@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { fileMedia } from "@dispatch/shared";
 import type {
   HistoryChildAgent,
   HistoryFile,
@@ -259,7 +260,7 @@ async function handleHistoryAgentDetail(
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
       [id]
     ),
-    deps.pool.query<HistoryFile>(
+    deps.pool.query<Omit<HistoryFile, "media">>(
       `SELECT id, file_name, source, size_bytes, description, created_at,
               mime_type
            FROM files WHERE agent_id = $1 ORDER BY created_at`,
@@ -270,7 +271,10 @@ async function handleHistoryAgentDetail(
   return {
     agent: agentResult.rows[0],
     tokenUsage: { ...tokenResult.rows[0], by_model: tokenByModelResult.rows },
-    files: filesResult.rows,
+    files: filesResult.rows.map((file) => ({
+      ...file,
+      media: fileMedia(file.mime_type),
+    })),
   };
 }
 

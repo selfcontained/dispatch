@@ -21,10 +21,12 @@
  * either type: the name is what readers see and what a download is saved as,
  * so it must not lie about the contents.
  */
-import { mimeType as mimeTypeFromName } from "../shared/files.js";
+import { type FileMedia, fileMedia } from "@dispatch/shared";
+
+import { isTextFile } from "../shared/file-types.js";
 
 export type DetectedFileType =
-  | { ok: true; mimeType: string }
+  | { ok: true; mimeType: string; media: FileMedia }
   | { ok: false; error: string };
 
 const UNSUPPORTED =
@@ -84,22 +86,37 @@ function isText(buffer: Buffer): boolean {
   }
 }
 
-/** Whether a type from the name is text, so only the subtype comes from it. */
-function isTextType(mimeType: string): boolean {
-  return (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/xml"
-  );
+/**
+ * The type a file's name claims. Only `detectFileType` should read this: it
+ * is a claim to check against the bytes (and the subtype of text), never a
+ * file's type on its own. Exported for its table's tests.
+ */
+export function claimedMimeType(name: string): string {
+  if (/\.png$/i.test(name)) return "image/png";
+  if (/\.jpe?g$/i.test(name)) return "image/jpeg";
+  if (/\.gif$/i.test(name)) return "image/gif";
+  if (/\.webp$/i.test(name)) return "image/webp";
+  if (/\.mp4$/i.test(name)) return "video/mp4";
+  if (/\.json$/i.test(name)) return "application/json";
+  if (/\.xml$/i.test(name)) return "application/xml";
+  if (/\.html$/i.test(name)) return "text/html";
+  if (/\.css$/i.test(name)) return "text/css";
+  if (/\.(js|jsx|mjs)$/i.test(name)) return "text/javascript";
+  if (/\.csv$/i.test(name)) return "text/csv";
+  if (/\.md$/i.test(name)) return "text/markdown";
+  if (/\.ya?ml$/i.test(name)) return "text/yaml";
+  if (/\.pdf$/i.test(name)) return "application/pdf";
+  if (isTextFile(name)) return "text/plain";
+  return "application/octet-stream";
 }
 
 export function detectFileType(
   buffer: Buffer,
   fileName: string
 ): DetectedFileType {
-  const named = mimeTypeFromName(fileName);
-  const namedBinary =
-    named !== "application/octet-stream" && !isTextType(named);
+  const named = claimedMimeType(fileName);
+  const namedText = fileMedia(named) === "text";
+  const namedBinary = named !== "application/octet-stream" && !namedText;
   const sniffed = sniffBinary(buffer);
   if (sniffed) {
     if (namedBinary && named !== sniffed) {
@@ -108,7 +125,7 @@ export function detectFileType(
         error: `"${fileName}" is named as ${named} but its contents are ${sniffed}.`,
       };
     }
-    return { ok: true, mimeType: sniffed };
+    return { ok: true, mimeType: sniffed, media: fileMedia(sniffed) };
   }
   if (namedBinary) {
     return {
@@ -117,5 +134,6 @@ export function detectFileType(
     };
   }
   if (!isText(buffer)) return { ok: false, error: UNSUPPORTED };
-  return { ok: true, mimeType: isTextType(named) ? named : "text/plain" };
+  const mimeType = namedText ? named : "text/plain";
+  return { ok: true, mimeType, media: fileMedia(mimeType) };
 }

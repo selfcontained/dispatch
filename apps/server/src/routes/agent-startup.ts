@@ -1,7 +1,5 @@
 import path from "node:path";
 
-import { fileMedia } from "@dispatch/shared";
-
 import { detectFileType } from "../files/file-type.js";
 import { sanitizeUploadedFileName } from "../shared/files.js";
 
@@ -52,7 +50,7 @@ export function startupFileUpload(
     fileName,
     originalName,
     buffer,
-    source: fileMedia(type.mimeType) === "text" ? "text" : "user",
+    source: type.media === "text" ? "text" : "user",
     description: null,
     mimeType: type.mimeType,
   };

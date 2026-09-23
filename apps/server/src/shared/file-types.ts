@@ -82,10 +82,6 @@ export const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(
 const DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set(
   DOCUMENT_EXTENSION_LIST
 );
-const IMAGE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
-  ...IMAGE_EXTENSIONS,
-  ...VIDEO_EXTENSIONS,
-]);
 
 /** Lower-cased extension including the leading dot, or "" when there is none. */
 export function fileExtension(name: string): string {
@@ -120,14 +116,6 @@ export function imageMimeType(name: string): string | null {
   return Object.hasOwn(IMAGE_MIME_BY_EXTENSION, ext)
     ? IMAGE_MIME_BY_EXTENSION[ext]!
     : null;
-}
-
-export function isSupportedFile(name: string): boolean {
-  return (
-    IMAGE_VIDEO_EXTENSIONS.has(fileExtension(name)) ||
-    isTextFile(name) ||
-    isDocumentFile(name)
-  );
 }
 
 /** Every accepted upload extension, as an `accept=""`-ready comma list. */

@@ -5,8 +5,6 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
-import { fileMedia } from "@dispatch/shared";
-
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import {
@@ -130,7 +128,7 @@ export async function registerFileRoutes(
         url: fileContentUrl(id, file.fileName),
         description: file.description,
         mimeType: file.mimeType,
-        media: fileMedia(file.mimeType),
+        media: file.media,
         seen: seenKeys.has(
           toFileKey({ name: file.fileName, updatedAt: file.updatedAt })
         ),
@@ -164,7 +162,7 @@ export async function registerFileRoutes(
         url: fileContentUrl(row.agentId, row.fileName),
         description: row.description,
         mimeType: row.mimeType,
-        media: fileMedia(row.mimeType),
+        media: row.media,
       },
     };
   });
@@ -326,7 +324,7 @@ export async function registerFileRoutes(
       return reply.code(400).send({ error: type.error });
     }
 
-    const isText = fileMedia(type.mimeType) === "text";
+    const isText = type.media === "text";
     const sourceField =
       (data.fields.source as { value?: string } | undefined)?.value ??
       (isText ? "text" : "screenshot");
@@ -384,7 +382,7 @@ export async function registerFileRoutes(
         source,
         sizeBytes: buffer.length,
         mimeType: type.mimeType,
-        media: fileMedia(type.mimeType),
+        media: type.media,
         createdAt: result.rows[0].created_at.toISOString(),
         url: `/api/v1/agents/${id}/files/${encodeURIComponent(timestampedFileName)}`,
         path: path.join(filesDir, timestampedFileName),

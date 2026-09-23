@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectFileType } from "../src/files/file-type.js";
+import { claimedMimeType, detectFileType } from "../src/files/file-type.js";
 import {
   BINARY_BYTES,
   JPEG_BYTES,
@@ -13,15 +13,15 @@ const typeOf = (bytes: Buffer, name: string) => detectFileType(bytes, name);
 
 describe("detectFileType", () => {
   it("types binary files by their signature", () => {
-    expect(typeOf(PNG_BYTES, "a.png")).toEqual({
+    expect(typeOf(PNG_BYTES, "a.png")).toMatchObject({
       ok: true,
       mimeType: "image/png",
     });
-    expect(typeOf(JPEG_BYTES, "a.jpeg")).toEqual({
+    expect(typeOf(JPEG_BYTES, "a.jpeg")).toMatchObject({
       ok: true,
       mimeType: "image/jpeg",
     });
-    expect(typeOf(Buffer.from("GIF89a..."), "a.gif")).toEqual({
+    expect(typeOf(Buffer.from("GIF89a..."), "a.gif")).toMatchObject({
       ok: true,
       mimeType: "image/gif",
     });
@@ -30,27 +30,35 @@ describe("detectFileType", () => {
       Buffer.alloc(4),
       Buffer.from("WEBPVP8 "),
     ]);
-    expect(typeOf(webp, "a.webp")).toEqual({
+    expect(typeOf(webp, "a.webp")).toMatchObject({
       ok: true,
       mimeType: "image/webp",
     });
-    expect(typeOf(PDF_BYTES, "a.pdf")).toEqual({
+    expect(typeOf(PDF_BYTES, "a.pdf")).toMatchObject({
       ok: true,
       mimeType: "application/pdf",
     });
-    expect(typeOf(MP4_BYTES, "a.mp4")).toEqual({
+    expect(typeOf(MP4_BYTES, "a.mp4")).toMatchObject({
       ok: true,
       mimeType: "video/mp4",
     });
   });
 
+  it("returns the media readers switch on alongside the type", () => {
+    expect(typeOf(PNG_BYTES, "a.png")).toMatchObject({ media: "image" });
+    expect(typeOf(PDF_BYTES, "a.pdf")).toMatchObject({ media: "pdf" });
+    expect(typeOf(Buffer.from("# hi"), "a.md")).toMatchObject({
+      media: "text",
+    });
+  });
+
   it("goes by the bytes when the name says nothing about them", () => {
     // A pasted image with no extension, or one named for something else.
-    expect(typeOf(PNG_BYTES, "clipboard-image")).toEqual({
+    expect(typeOf(PNG_BYTES, "clipboard-image")).toMatchObject({
       ok: true,
       mimeType: "image/png",
     });
-    expect(typeOf(PNG_BYTES, "notes.txt")).toEqual({
+    expect(typeOf(PNG_BYTES, "notes.txt")).toMatchObject({
       ok: true,
       mimeType: "image/png",
     });
@@ -72,23 +80,23 @@ describe("detectFileType", () => {
   });
 
   it("types text from its bytes and takes only the subtype from the name", () => {
-    expect(typeOf(Buffer.from("# Notes"), "notes.md")).toEqual({
+    expect(typeOf(Buffer.from("# Notes"), "notes.md")).toMatchObject({
       ok: true,
       mimeType: "text/markdown",
     });
-    expect(typeOf(Buffer.from('{"a":1}'), "data.json")).toEqual({
+    expect(typeOf(Buffer.from('{"a":1}'), "data.json")).toMatchObject({
       ok: true,
       mimeType: "application/json",
     });
-    expect(typeOf(Buffer.from("const a = 1;"), "a.ts")).toEqual({
+    expect(typeOf(Buffer.from("const a = 1;"), "a.ts")).toMatchObject({
       ok: true,
       mimeType: "text/plain",
     });
-    expect(typeOf(Buffer.from("déjà vu"), "Makefile")).toEqual({
+    expect(typeOf(Buffer.from("déjà vu"), "Makefile")).toMatchObject({
       ok: true,
       mimeType: "text/plain",
     });
-    expect(typeOf(Buffer.alloc(0), "empty.txt")).toEqual({
+    expect(typeOf(Buffer.alloc(0), "empty.txt")).toMatchObject({
       ok: true,
       mimeType: "text/plain",
     });
@@ -103,5 +111,44 @@ describe("detectFileType", () => {
     expect(typeOf(Buffer.from([0xc3, 0x28]), "bad.txt")).toMatchObject({
       ok: false,
     });
+  });
+});
+
+describe("claimedMimeType", () => {
+  it("returns correct MIME for images", () => {
+    expect(claimedMimeType("a.png")).toBe("image/png");
+    expect(claimedMimeType("a.jpg")).toBe("image/jpeg");
+    expect(claimedMimeType("a.jpeg")).toBe("image/jpeg");
+    expect(claimedMimeType("a.gif")).toBe("image/gif");
+    expect(claimedMimeType("a.webp")).toBe("image/webp");
+  });
+
+  it("returns correct MIME for video", () => {
+    expect(claimedMimeType("clip.mp4")).toBe("video/mp4");
+  });
+
+  it("returns correct MIME for structured text formats", () => {
+    expect(claimedMimeType("d.json")).toBe("application/json");
+    expect(claimedMimeType("d.xml")).toBe("application/xml");
+    expect(claimedMimeType("d.html")).toBe("text/html");
+    expect(claimedMimeType("d.css")).toBe("text/css");
+    expect(claimedMimeType("d.js")).toBe("text/javascript");
+    expect(claimedMimeType("d.mjs")).toBe("text/javascript");
+    expect(claimedMimeType("d.csv")).toBe("text/csv");
+    expect(claimedMimeType("d.md")).toBe("text/markdown");
+    expect(claimedMimeType("d.yaml")).toBe("text/yaml");
+    expect(claimedMimeType("d.yml")).toBe("text/yaml");
+    expect(claimedMimeType("d.pdf")).toBe("application/pdf");
+  });
+
+  it("returns text/plain for recognized text extensions without specific MIME", () => {
+    expect(claimedMimeType("main.go")).toBe("text/plain");
+    expect(claimedMimeType("lib.rs")).toBe("text/plain");
+    expect(claimedMimeType("app.py")).toBe("text/plain");
+  });
+
+  it("returns application/octet-stream for unknown extensions", () => {
+    expect(claimedMimeType("file.xyz")).toBe("application/octet-stream");
+    expect(claimedMimeType("archive.zip")).toBe("application/octet-stream");
   });
 });

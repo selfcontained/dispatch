@@ -36,6 +36,7 @@ function makeFile(overrides: Partial<HistoryFile> = {}): HistoryFile {
     description: "A screenshot",
     created_at: "2026-07-20T10:00:00.000Z",
     mime_type: "image/png",
+    media: "image",
     ...overrides,
   };
 }
@@ -92,6 +93,7 @@ describe("DetailTabs", () => {
           file_name: "capture-2026-07-20-10-00-00-222.mp4",
           source: "stream",
           mime_type: "video/mp4",
+          media: "video",
           description: null,
         }),
         makeFile({

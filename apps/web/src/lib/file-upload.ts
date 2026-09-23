@@ -37,9 +37,9 @@ const ACCEPTED_EXTENSIONS = new Set(
 );
 
 /**
- * Whether the upload endpoint will accept this file based on its extension.
- * The server validates authoritatively via isSupportedFile(); this is a cheap
- * client-side pre-filter so we don't fire obviously-doomed requests.
+ * Whether a file's extension is one the picker offers. A hint only: the
+ * server types every upload from its bytes (`detectFileType`) and is the one
+ * that accepts or refuses it.
  */
 export function isAcceptedUploadFile(name: string): boolean {
   const dot = name.lastIndexOf(".");

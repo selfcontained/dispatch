@@ -6,8 +6,6 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
-import { fileMedia } from "@dispatch/shared";
-
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
@@ -584,7 +582,7 @@ async function handleShareFile(
   );
   if (!type.ok) throw new Error(type.error);
 
-  const isText = fileMedia(type.mimeType) === "text";
+  const isText = type.media === "text";
   const validSources = ["screenshot", "stream", "simulator", "text"];
   const source = isText
     ? "text"

@@ -7,14 +7,13 @@ import { describe, expect, it } from "vitest";
 import {
   extensionForMime,
   isDocumentFile,
-  isSupportedFile,
   isTextFile,
   isValidFileKey,
-  mimeType,
   resolveFilesDir,
   sanitizeUploadedFileName,
   toFileKey,
 } from "../src/shared/files.js";
+import { claimedMimeType } from "../src/files/file-type.js";
 import {
   FILE_UPLOAD_ACCEPT,
   TEXT_EXTENSIONS,
@@ -121,9 +120,11 @@ describe("FILE_UPLOAD_ACCEPT", () => {
     }
   });
 
-  it("only lists extensions the upload endpoint accepts", () => {
+  it("only offers extensions the upload path has a type for", () => {
     for (const ext of FILE_UPLOAD_ACCEPT.split(",")) {
-      expect(isSupportedFile(`file${ext}`)).toBe(true);
+      expect(claimedMimeType(`file${ext}`), ext).not.toBe(
+        "application/octet-stream"
+      );
     }
   });
 });
@@ -137,72 +138,6 @@ describe("isDocumentFile", () => {
   it("rejects non-document files", () => {
     expect(isDocumentFile("image.png")).toBe(false);
     expect(isDocumentFile("notes.txt")).toBe(false);
-  });
-});
-
-describe("isSupportedFile", () => {
-  it("recognizes image files", () => {
-    expect(isSupportedFile("photo.png")).toBe(true);
-    expect(isSupportedFile("photo.jpg")).toBe(true);
-    expect(isSupportedFile("photo.jpeg")).toBe(true);
-    expect(isSupportedFile("photo.gif")).toBe(true);
-    expect(isSupportedFile("photo.webp")).toBe(true);
-  });
-
-  it("recognizes video files", () => {
-    expect(isSupportedFile("clip.mp4")).toBe(true);
-  });
-
-  it("recognizes text files as supported", () => {
-    expect(isSupportedFile("code.ts")).toBe(true);
-  });
-
-  it("recognizes document files as supported", () => {
-    expect(isSupportedFile("report.pdf")).toBe(true);
-  });
-
-  it("rejects unsupported extensions", () => {
-    expect(isSupportedFile("archive.zip")).toBe(false);
-    expect(isSupportedFile("binary.exe")).toBe(false);
-  });
-});
-
-describe("mimeType", () => {
-  it("returns correct MIME for images", () => {
-    expect(mimeType("a.png")).toBe("image/png");
-    expect(mimeType("a.jpg")).toBe("image/jpeg");
-    expect(mimeType("a.jpeg")).toBe("image/jpeg");
-    expect(mimeType("a.gif")).toBe("image/gif");
-    expect(mimeType("a.webp")).toBe("image/webp");
-  });
-
-  it("returns correct MIME for video", () => {
-    expect(mimeType("clip.mp4")).toBe("video/mp4");
-  });
-
-  it("returns correct MIME for structured text formats", () => {
-    expect(mimeType("d.json")).toBe("application/json");
-    expect(mimeType("d.xml")).toBe("application/xml");
-    expect(mimeType("d.html")).toBe("text/html");
-    expect(mimeType("d.css")).toBe("text/css");
-    expect(mimeType("d.js")).toBe("text/javascript");
-    expect(mimeType("d.mjs")).toBe("text/javascript");
-    expect(mimeType("d.csv")).toBe("text/csv");
-    expect(mimeType("d.md")).toBe("text/markdown");
-    expect(mimeType("d.yaml")).toBe("text/yaml");
-    expect(mimeType("d.yml")).toBe("text/yaml");
-    expect(mimeType("d.pdf")).toBe("application/pdf");
-  });
-
-  it("returns text/plain for recognized text extensions without specific MIME", () => {
-    expect(mimeType("main.go")).toBe("text/plain");
-    expect(mimeType("lib.rs")).toBe("text/plain");
-    expect(mimeType("app.py")).toBe("text/plain");
-  });
-
-  it("returns application/octet-stream for unknown extensions", () => {
-    expect(mimeType("file.xyz")).toBe("application/octet-stream");
-    expect(mimeType("archive.zip")).toBe("application/octet-stream");
   });
 });
 
