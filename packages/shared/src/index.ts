@@ -22,15 +22,21 @@ export type {
 } from "./agent-record.js";
 export {
   CHAT_ATTACHMENTS_MAX,
+  CHAT_GALLERY_MAX_TILES,
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_QUESTION_OPTIONS_MAX,
   CHAT_REACTIONS_MAX,
+  fileMedia,
+  layoutAttachments,
 } from "./chat-types.js";
 export type {
   ChatAnswer,
   ChatAnswerRequest,
   ChatAnswerResponse,
   ChatAttachment,
+  ChatAttachmentGroup,
+  ChatFileAttachment,
+  FileMedia,
   ChatAuthorKind,
   ChatChangedEvent,
   ChatEntryEvent,

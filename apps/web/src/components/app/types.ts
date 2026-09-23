@@ -2,6 +2,7 @@ import type {
   AgentRecord,
   AgentStatus,
   DiffStats as ServerDiffStats,
+  FileMedia,
 } from "@dispatch/shared";
 
 /**
@@ -60,6 +61,10 @@ export type FileItem = {
   url: string;
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator" | "text" | "user";
+  /** Read from the file's bytes when it was stored. */
+  mimeType: string;
+  /** What the file is to a reader; the Files tab and lightbox switch on it. */
+  media: FileMedia;
   description?: string | null;
   /**
    * Stamped client-side, not returned by the API. The selected agent's panel

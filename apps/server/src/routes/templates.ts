@@ -8,6 +8,7 @@ import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
+  startupFileUpload,
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
   validateStartupLinks,
@@ -16,11 +17,7 @@ import {
 import type { AgentRecord } from "../agents/manager.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
-import {
-  isSupportedFile,
-  isTextFile,
-  sanitizeUploadedFileName,
-} from "../shared/files.js";
+import { sanitizeUploadedFileName } from "../shared/files.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
@@ -198,22 +195,18 @@ export async function registerTemplateRoutes(
             const fileName = sanitizeUploadedFileName(
               path.basename(part.filename || "")
             );
-            if (!fileName || !isSupportedFile(fileName)) {
-              return reply.code(400).send({
-                error:
-                  "Unsupported file type. Use images, video, documents, or text files.",
-              });
+            if (!fileName) {
+              return reply.code(400).send({ error: "Invalid file name." });
             }
             if (!part.toBuffer) {
               return reply.code(400).send({ error: "Invalid file upload." });
             }
-            files.push({
-              fileName,
-              originalName: fileName,
-              buffer: await part.toBuffer(),
-              source: isTextFile(fileName) ? "text" : "user",
-              description: null,
-            });
+            const buffer = await part.toBuffer();
+            try {
+              files.push(startupFileUpload(fileName, fileName, buffer));
+            } catch (error) {
+              return reply.code(400).send({ error: errorMessage(error) });
+            }
             continue;
           }
           raw[part.fieldname] = part.value;

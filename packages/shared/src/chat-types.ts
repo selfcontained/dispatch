@@ -43,7 +43,14 @@ export type ChatAttachment =
       fileId: number;
       fileName: string;
       sizeBytes: number;
+      /** The file row's `mime_type`, read from its bytes when it was stored. */
       mimeType?: string;
+      /**
+       * What the file is to a reader, derived from `mimeType` on read (see
+       * `fileMedia`): an `image` shows as a picture, and a post's images are
+       * laid out together (see `layoutAttachments`).
+       */
+      media?: FileMedia;
       /**
        * The agent whose files directory holds the file, and so the agent its
        * URL is served under. Not always the post's author: a person's post
@@ -66,6 +73,68 @@ export type ChatAttachment =
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
   | { type: "code"; code: string; language?: string; path?: string };
+
+export type ChatFileAttachment = Extract<ChatAttachment, { type: "file" }>;
+
+/**
+ * What a stored file is to a reader, whichever surface shows it: the Files
+ * tab, the lightbox, or a post's attachments. Derived from the file row's
+ * `mime_type`, which the server reads from the file's bytes, so no reader
+ * works it out again from a name.
+ */
+export type FileMedia = "image" | "video" | "pdf" | "text" | "file";
+
+/** The `media` a file of this MIME type gets. */
+export function fileMedia(mimeType: string | undefined): FileMedia {
+  if (!mimeType) return "file";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType === "application/pdf") return "pdf";
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/xml"
+  ) {
+    return "text";
+  }
+  return "file";
+}
+
+/** Tiles a gallery shows before its last one stands for the rest as "+N". */
+export const CHAT_GALLERY_MAX_TILES = 6;
+
+/**
+ * How a post's attachments are laid out, in order: one `gallery` holding
+ * every image when there are two or more, placed where the first of them
+ * was, and each other attachment (a lone image included) on its own.
+ *
+ * This is the rule, not a suggestion to renderers: whoever posts attaches
+ * the images and every surface that shows the post lays them out the same
+ * way, so no agent has to choose between one post and several.
+ */
+export type ChatAttachmentGroup =
+  | { kind: "gallery"; images: ChatFileAttachment[] }
+  | { kind: "single"; attachment: ChatAttachment };
+
+export function layoutAttachments(
+  attachments: readonly ChatAttachment[]
+): ChatAttachmentGroup[] {
+  const isImage = (a: ChatAttachment): a is ChatFileAttachment =>
+    a.type === "file" && a.media === "image";
+  const images = attachments.filter(isImage);
+  if (images.length < 2) {
+    return attachments.map((attachment) => ({ kind: "single", attachment }));
+  }
+  const groups: ChatAttachmentGroup[] = [];
+  for (const attachment of attachments) {
+    if (!isImage(attachment)) {
+      groups.push({ kind: "single", attachment });
+    } else if (attachment === images[0]) {
+      groups.push({ kind: "gallery", images });
+    }
+  }
+  return groups;
+}
 
 /**
  * An attachment as the user supplies it from the Chat composer. `file` names

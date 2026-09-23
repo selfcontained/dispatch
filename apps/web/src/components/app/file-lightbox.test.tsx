@@ -34,6 +34,8 @@ function file(updatedAt: string): FileItem {
     updatedAt,
     url: "/api/v1/agents/agt_owner/files/shot.png",
     description: "Current shot",
+    mimeType: "image/png",
+    media: "image",
   };
 }
 

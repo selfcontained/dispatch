@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 
+import { type FileMedia, fileMedia } from "@dispatch/shared";
+
 export type FileListItem = {
   id: number;
   fileName: string;
@@ -7,6 +9,10 @@ export type FileListItem = {
   sizeBytes: number;
   updatedAt: string;
   description: string | null;
+  /** Read from the file's bytes when it was stored; see `detectFileType`. */
+  mimeType: string;
+  /** Derived from `mimeType` here, so every response built from a row has it. */
+  media: FileMedia;
 };
 
 export type OwnedFileItem = FileListItem & {
@@ -20,10 +26,12 @@ type FileRow = {
   size_bytes: number;
   effective_updated_at: Date;
   description: string | null;
+  mime_type: string;
 };
 
 const FILE_PROJECTION = `id, file_name, source, size_bytes,
-  COALESCE(updated_at, created_at) AS effective_updated_at, description`;
+  COALESCE(updated_at, created_at) AS effective_updated_at, description,
+  mime_type`;
 
 function mapFileRow(row: FileRow): FileListItem {
   return {
@@ -33,6 +41,8 @@ function mapFileRow(row: FileRow): FileListItem {
     sizeBytes: row.size_bytes,
     updatedAt: row.effective_updated_at.toISOString(),
     description: row.description ?? null,
+    mimeType: row.mime_type,
+    media: fileMedia(row.mime_type),
   };
 }
 

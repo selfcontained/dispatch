@@ -64,6 +64,7 @@ import {
   EMPTY_CHAT_DRAFT,
   readChatComposerDraft,
 } from "@/lib/chat-draft";
+import { ApiError } from "@/lib/api";
 import { isImageFile } from "@/lib/file-accept";
 import { isAcceptedUploadFile } from "@/lib/file-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
@@ -182,6 +183,12 @@ type DraftFileView = {
  * that one gets the retry hint.
  */
 type ComposerError = { text: string; retryable: boolean };
+
+/**
+ * An upload the server refused (a 4xx): the same bytes would be refused
+ * again, so the way on is to remove the file, not to retry.
+ */
+class UploadRefused extends Error {}
 
 const SUPPORTED_FILE_HINT =
   "Choose a supported file type: an image, video, PDF, or text file.";
@@ -702,6 +709,15 @@ export function ChatComposer({
             } catch (err) {
               setFileStatus((current) => ({ ...current, [key]: "failed" }));
               const reason = err instanceof Error ? err.message : "";
+              if (
+                err instanceof ApiError &&
+                err.status >= 400 &&
+                err.status < 500
+              ) {
+                throw new UploadRefused(
+                  `${reason || `Couldn't upload ${file.name}.`} Remove ${file.name} to send the rest.`
+                );
+              }
               throw new Error(
                 `Couldn't upload ${file.name}${reason ? `: ${reason}` : ""}`
               );
@@ -733,10 +749,11 @@ export function ChatComposer({
           for (const key of sentKeys) forgetFile(key);
         })
         .catch((err: unknown) => {
-          // The draft — text and chips — is still here, so a retry can work.
+          // The draft — text and chips — is still here, so a retry can work,
+          // unless the server refused a file, which a retry would send again.
           setError({
             text: err instanceof Error ? err.message : "Message not sent.",
-            retryable: true,
+            retryable: !(err instanceof UploadRefused),
           });
         })
         .finally(() => {

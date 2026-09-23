@@ -1,10 +1,7 @@
 import path from "node:path";
 
-import {
-  isSupportedFile,
-  isTextFile,
-  sanitizeUploadedFileName,
-} from "../shared/files.js";
+import { detectFileType } from "../files/file-type.js";
+import { sanitizeUploadedFileName } from "../shared/files.js";
 
 export type CreateAgentBody = {
   name?: unknown;
@@ -34,7 +31,30 @@ export type StartupFileUpload = {
   buffer: Buffer;
   source: "text" | "user";
   description: string | null;
+  /** Read from `buffer`; see `detectFileType`. */
+  mimeType: string;
 };
+
+/**
+ * A startup file as uploaded, typed from its bytes. Throws with the reason
+ * when the bytes are not a file type Dispatch stores.
+ */
+export function startupFileUpload(
+  fileName: string,
+  originalName: string,
+  buffer: Buffer
+): StartupFileUpload {
+  const type = detectFileType(buffer, fileName);
+  if (!type.ok) throw new Error(type.error);
+  return {
+    fileName,
+    originalName,
+    buffer,
+    source: type.media === "text" ? "text" : "user",
+    description: null,
+    mimeType: type.mimeType,
+  };
+}
 
 export const MAX_STARTUP_FILE_COUNT = 10;
 const MAX_STARTUP_FILE_NAME_LENGTH = 128;
@@ -167,21 +187,16 @@ export async function parseCreateAgentRequest(request: {
       if (!fileName) {
         throw new Error("Invalid file name.");
       }
-      if (!isSupportedFile(fileName)) {
-        throw new Error(
-          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
-        );
-      }
       if (!part.toBuffer) {
         throw new Error("Invalid file upload.");
       }
-      startupFiles.push({
-        fileName,
-        originalName: sanitizeStartupDisplayName(part.filename, fileName),
-        buffer: await part.toBuffer(),
-        source: isTextFile(fileName) ? "text" : "user",
-        description: null,
-      });
+      startupFiles.push(
+        startupFileUpload(
+          fileName,
+          sanitizeStartupDisplayName(part.filename, fileName),
+          await part.toBuffer()
+        )
+      );
       continue;
     }
 

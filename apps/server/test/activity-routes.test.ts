@@ -761,8 +761,8 @@ describe("GET /api/v1/history/agents/:id", () => {
   it("includes file records", async () => {
     const agentId = await createAgent();
     await ctx.pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes)
-       VALUES ($1, 'screenshot.png', 'screenshot', 2048)`,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+       VALUES ($1, 'screenshot.png', 'screenshot', 2048, 'image/png')`,
       [agentId]
     );
 

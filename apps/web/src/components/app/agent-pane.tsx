@@ -98,7 +98,7 @@ export type AgentPaneProps = {
    * has a header of its own and puts `ChatFiltersButton` there instead.
    */
   header: boolean;
-  openLightbox: (fileId: number) => void;
+  openLightbox: (fileId: number, order?: number[]) => void;
   /** Opens the Changes tab on a file (a review finding's path). */
   onOpenPath?: (path: string, line: number | null) => void;
   isMobile: boolean;

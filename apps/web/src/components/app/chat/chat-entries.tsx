@@ -145,7 +145,8 @@ export type FeedContext = {
    * page that mentions them. The directory wins when it has the agent.
    */
   names?: Readonly<Record<string, string>>;
-  onOpenFile: (fileId: number) => void;
+  /** `order` scopes the lightbox's prev/next to those files, e.g. one post's images. */
+  onOpenFile: (fileId: number, order?: number[]) => void;
   /** Opens the Changes tab on a file, at a line when one is given. */
   onOpenPath?: (path: string, line: number | null) => void;
   /**

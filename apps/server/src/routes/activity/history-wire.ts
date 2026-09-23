@@ -6,6 +6,8 @@
  * apps/web/src/hooks/use-agent-history.ts.
  */
 
+import type { FileMedia } from "@dispatch/shared";
+
 export type HistoryChildAgent = {
   id: string;
   name: string;
@@ -41,6 +43,9 @@ export type HistoryFile = {
   size_bytes: number;
   description: string | null;
   created_at: string;
+  mime_type: string;
+  /** Derived from `mime_type` by the route; see `fileMedia`. */
+  media: FileMedia;
 };
 
 export type HistoryFeedbackItem = {

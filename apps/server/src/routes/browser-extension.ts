@@ -8,6 +8,7 @@ import * as z from "zod/v4";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { tokensEqual } from "../auth.js";
+import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveFilesDir } from "../shared/files.js";
@@ -25,14 +26,6 @@ const PUBLIC_DELIVERY_ERROR = "Prompt delivery failed.";
 const MAX_SCREENSHOT_BASE64_LENGTH = 14_000_000;
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const SUBMISSION_BODY_LIMIT = 16 * 1024 * 1024;
-const PNG_SIGNATURE = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]);
-
-function isPng(buffer: Buffer): boolean {
-  return buffer.length >= 8 && buffer.subarray(0, 8).equals(PNG_SIGNATURE);
-}
-
 function fileTimestamp(date: Date): string {
   return date
     .toISOString()
@@ -378,20 +371,22 @@ async function storeSubmissionScreenshot(
     const buffer = Buffer.from(screenshot, "base64");
     if (buffer.length === 0 || buffer.length > MAX_SCREENSHOT_BYTES)
       return null;
-    if (!isPng(buffer)) return null;
-
-    const filesDir = resolveFilesDir(agent.id, agent.filesDir, deps.filesRoot);
-    await mkdir(filesDir, { recursive: true });
     // A random suffix keeps concurrent same-agent submissions from colliding on
     // the millisecond-precision timestamp and overwriting each other's image.
     const fileName = `browser-selection-${fileTimestamp(new Date())}-${crypto.randomUUID()}.png`;
+    // Named .png, so anything but PNG bytes is refused.
+    const type = detectFileType(buffer, fileName);
+    if (!type.ok) return null;
+
+    const filesDir = resolveFilesDir(agent.id, agent.filesDir, deps.filesRoot);
+    await mkdir(filesDir, { recursive: true });
     const filePath = path.join(filesDir, fileName);
     await writeFile(filePath, buffer);
     writtenPath = filePath;
     await deps.pool.query(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
-                          metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+                          metadata, mime_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         agent.id,
         fileName,
@@ -399,6 +394,7 @@ async function storeSubmissionScreenshot(
         buffer.length,
         "Browser feedback: selected element",
         fileMetadataFromBuffer(buffer),
+        type.mimeType,
       ]
     );
   } catch (error) {

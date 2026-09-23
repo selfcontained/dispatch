@@ -2,14 +2,9 @@ import path from "node:path";
 
 import { resolveConfiguredPath } from "./lib/resolve-tilde.js";
 
-import {
-  extensionForMime,
-  isDocumentFile,
-  isSupportedFile,
-  isTextFile,
-} from "./file-types.js";
+import { extensionForMime, isDocumentFile, isTextFile } from "./file-types.js";
 
-export { extensionForMime, isDocumentFile, isSupportedFile, isTextFile };
+export { extensionForMime, isDocumentFile, isTextFile };
 
 export function sanitizeUploadedFileName(name: string): string {
   const ext = path.extname(name).toLowerCase();
@@ -22,25 +17,6 @@ export function sanitizeUploadedFileName(name: string): string {
     .replace(/-+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "");
   return `${collapsed || "file"}${ext}`;
-}
-
-export function mimeType(name: string): string {
-  if (/\.png$/i.test(name)) return "image/png";
-  if (/\.jpe?g$/i.test(name)) return "image/jpeg";
-  if (/\.gif$/i.test(name)) return "image/gif";
-  if (/\.webp$/i.test(name)) return "image/webp";
-  if (/\.mp4$/i.test(name)) return "video/mp4";
-  if (/\.json$/i.test(name)) return "application/json";
-  if (/\.xml$/i.test(name)) return "application/xml";
-  if (/\.html$/i.test(name)) return "text/html";
-  if (/\.css$/i.test(name)) return "text/css";
-  if (/\.(js|jsx|mjs)$/i.test(name)) return "text/javascript";
-  if (/\.csv$/i.test(name)) return "text/csv";
-  if (/\.md$/i.test(name)) return "text/markdown";
-  if (/\.ya?ml$/i.test(name)) return "text/yaml";
-  if (/\.pdf$/i.test(name)) return "application/pdf";
-  if (isTextFile(name)) return "text/plain";
-  return "application/octet-stream";
 }
 
 export function resolveFilesDir(

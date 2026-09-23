@@ -49,7 +49,7 @@ type DrawerSharedProps = {
   onFilesOwnerChange?: (ownerId: string | null) => void;
   animatingFileKeys: Set<string>;
   drawerViewportRef: RefObject<HTMLDivElement>;
-  openLightbox: (fileId: number) => void;
+  openLightbox: (fileId: number, order?: number[]) => void;
   hasStream: boolean;
   streamUrl: string | null;
   unseenFileCount: number;

@@ -5,7 +5,13 @@
  * names. Split out of chat-entries.tsx, which composes them into posts.
  */
 import { type ReactNode } from "react";
-import type { Block, ChatAttachment } from "@dispatch/shared";
+import {
+  CHAT_GALLERY_MAX_TILES,
+  layoutAttachments,
+  type Block,
+  type ChatAttachment,
+  type ChatFileAttachment,
+} from "@dispatch/shared";
 import {
   ArrowUpRight,
   ExternalLink,
@@ -15,11 +21,10 @@ import {
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
+import { stripTimestamp } from "@/components/app/file-utils";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
-
-import { isImageFile } from "../../../../../server/src/shared/file-types";
 
 /** What the attachment views read off the feed they are rendered in. */
 type AttachmentCtx = Pick<FeedContext, "agentId" | "agentName" | "onOpenFile">;
@@ -145,18 +150,13 @@ function FileAttachment({
   ownerAgentId,
   ctx,
 }: {
-  attachment: Extract<ChatAttachment, { type: "file" }>;
+  attachment: ChatFileAttachment;
   ownerAgentId: string;
   ctx: AttachmentCtx;
 }): JSX.Element {
   const url = fileUrl(ownerAgentId, attachment.fileName);
   const open = () => ctx.onOpenFile(attachment.fileId);
-  // By stored name or by the file row's type: a file shared without an
-  // extension still renders as the image it is.
-  const isImage =
-    isImageFile(attachment.fileName) ||
-    (attachment.mimeType?.startsWith("image/") ?? false);
-  if (isImage) {
+  if (attachment.media === "image") {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
         <button
@@ -277,6 +277,72 @@ function AttachmentView({
   }
 }
 
+/**
+ * A post's images, laid out by `layoutAttachments`, as square tiles cropped to fill: a 2-column grid that
+ * spans a phone's width, a wrapping row of fixed tiles on anything wider.
+ * Every tile's size is set by the layout alone, so the gallery reserves its
+ * full height before a single image loads. The file's name and size move to
+ * the tile's tooltip and label; the lightbox shows the whole picture.
+ */
+function ImageGallery({
+  images,
+  block,
+  ctx,
+}: {
+  images: ChatFileAttachment[];
+  block: AttachmentBlockOf;
+  ctx: AttachmentCtx;
+}): JSX.Element {
+  const overflow =
+    images.length > CHAT_GALLERY_MAX_TILES
+      ? images.length - (CHAT_GALLERY_MAX_TILES - 1)
+      : 0;
+  const shown = overflow ? images.slice(0, CHAT_GALLERY_MAX_TILES) : images;
+  // Prev/next in the lightbox walk this post's images, so "+N" leads on to
+  // the ones it stands for.
+  const order = images.map((image) => image.fileId);
+  return (
+    <div
+      className="grid w-full max-w-md grid-cols-2 gap-1.5 sm:flex sm:max-w-none sm:flex-wrap"
+      data-testid="chat-attachment-gallery"
+    >
+      {shown.map((attachment, index) => {
+        const more = overflow > 0 && index === shown.length - 1 ? overflow : 0;
+        const label = `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
+        return (
+          <button
+            key={`${attachment.fileId}-${index}`}
+            type="button"
+            onClick={() => ctx.onOpenFile(attachment.fileId, order)}
+            className="relative aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
+            title={label}
+            aria-label={more ? `${label}, and ${more - 1} more` : label}
+            data-testid="chat-attachment-gallery-tile"
+          >
+            <img
+              src={fileUrl(
+                fileOwnerOf(attachment, block, ctx.agentId),
+                attachment.fileName
+              )}
+              // The button's label names the tile; the image adds nothing.
+              alt=""
+              // From the top: a tall screenshot keeps the header that
+              // identifies the screen.
+              className="h-full w-full object-cover object-top"
+              loading="lazy"
+            />
+            {more ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
+                +{more}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** What the list reads off the post its attachments hang under. */
 type AttachmentBlockOf = Pick<Block, "author" | "toAgentId" | "attachments">;
 
@@ -289,15 +355,27 @@ export function AttachmentList({
 }): JSX.Element | null {
   if (block.attachments.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-col gap-2">
-      {block.attachments.map((attachment, index) => (
-        <AttachmentView
-          key={index}
-          attachment={attachment}
-          block={block}
-          ctx={ctx}
-        />
-      ))}
+    // clear-both: start below the post's floated actions, so attachments get
+    // the column's full width rather than whatever the float leaves beside it
+    // (on a phone that made one post's gallery narrower than the next).
+    <div className="clear-both mt-2 flex flex-col gap-2">
+      {layoutAttachments(block.attachments).map((group, index) =>
+        group.kind === "gallery" ? (
+          <ImageGallery
+            key={index}
+            images={group.images}
+            block={block}
+            ctx={ctx}
+          />
+        ) : (
+          <AttachmentView
+            key={index}
+            attachment={group.attachment}
+            block={block}
+            ctx={ctx}
+          />
+        )
+      )}
     </div>
   );
 }

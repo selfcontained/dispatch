@@ -35,10 +35,11 @@ import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadLearnedAgentModels } from "./agents/engine-models.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
+import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
-import { mimeType, resolveFilesDir } from "./shared/files.js";
+import { resolveFilesDir } from "./shared/files.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
@@ -219,20 +220,23 @@ const streamManager = new StreamManager(
     const filesDir = resolveFilesDir(agentId, agent.filesDir, config.filesRoot);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `stream-capture-${timestamp}.jpg`;
+    const type = detectFileType(lastFrame, fileName);
+    if (!type.ok) return;
 
     await mkdir(filesDir, { recursive: true });
     await writeFile(path.join(filesDir, fileName), lastFrame);
 
     await pool.query(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, description,
-                          metadata)
-       VALUES ($1, $2, 'stream', $3, $4, $5)`,
+                          metadata, mime_type)
+       VALUES ($1, $2, 'stream', $3, $4, $5, $6)`,
       [
         agentId,
         fileName,
         lastFrame.length,
         description,
         fileMetadataFromBuffer(lastFrame),
+        type.mimeType,
       ]
     );
 

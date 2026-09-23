@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "@/components/app/chat/chat-composer";
+import { ApiError } from "@/lib/api";
 
 import {
   isLongPaste,
@@ -365,6 +366,29 @@ describe("ChatComposer attachments", () => {
       { type: "file", fileId: 1 },
       { type: "file", fileId: 2 },
     ]);
+  });
+
+  it("tells the user to remove a file the server refused, not to retry it", async () => {
+    const uploadFile = vi
+      .fn<(file: File) => Promise<{ id: number }>>()
+      .mockRejectedValue(
+        new ApiError(
+          400,
+          "fake.png isn't a PNG image: its contents don't match its name."
+        )
+      );
+    const { onSend, input } = renderComposer({ uploadFile });
+    pasteFiles(input, [new File(["nope"], "fake.png", { type: "image/png" })]);
+    fireEvent.change(input, { target: { value: "look" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toBe(
+      "fake.png isn't a PNG image: its contents don't match its name. Remove fake.png to send the rest."
+    );
+    expect(error.getAttribute("data-retryable")).toBeNull();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("look");
   });
 
   it("highlights the composer while files are dragged over it", () => {

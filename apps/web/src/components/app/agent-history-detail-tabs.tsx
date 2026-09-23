@@ -28,6 +28,8 @@ export function DetailTabs({
         url: `/api/v1/agents/${agentId}/files/${encodeURIComponent(item.file_name)}`,
         description: item.description,
         source: item.source as FileItem["source"],
+        mimeType: item.mime_type,
+        media: item.media,
       });
     }
   }, [agentId, files, queryClient]);
@@ -47,7 +49,7 @@ export function DetailTabs({
                   onClick={() => setLightboxFileId(m.id)}
                   className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
-                  {m.source === "screenshot" || m.source === "simulator" ? (
+                  {m.media === "image" ? (
                     <img
                       src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
                       alt={m.description ?? m.file_name}

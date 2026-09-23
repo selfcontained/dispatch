@@ -137,10 +137,16 @@ async function settled(svc: StreamService, id: string): Promise<Block> {
 }
 
 async function seedFiles(agentId: string, fileName: string, size = 12) {
+  // The type these files would have been stored under.
+  const mimeType = fileName.endsWith(".png")
+    ? "image/png"
+    : fileName.endsWith(".md")
+      ? "text/markdown"
+      : "text/plain";
   const result = await pool.query<{ id: number }>(
-    `INSERT INTO files (agent_id, file_name, source, size_bytes)
-     VALUES ($1, $2, 'user', $3) RETURNING id`,
-    [agentId, fileName, size]
+    `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+     VALUES ($1, $2, 'user', $3, $4) RETURNING id`,
+    [agentId, fileName, size, mimeType]
   );
   return result.rows[0].id;
 }
@@ -792,10 +798,10 @@ describe("StreamService.post", () => {
 
   it("resolves file attachments by stored fileName or fileId", async () => {
     await pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes)
-       VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'screenshot', 123),
-              ($1, 'report.pdf', 'screenshot', 456),
-              ($2, 'theirs.png', 'screenshot', 1)`,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+       VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'screenshot', 123, 'image/png'),
+              ($1, 'report.pdf', 'screenshot', 456, 'application/pdf'),
+              ($2, 'theirs.png', 'screenshot', 1, 'image/png')`,
       [A, B]
     );
     const pdf = await pool.query<{ id: number }>(
@@ -818,6 +824,7 @@ describe("StreamService.post", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 123,
         mimeType: "image/png",
+        media: "image",
         ownerAgentId: A,
       },
       {
@@ -826,6 +833,7 @@ describe("StreamService.post", () => {
         fileName: "report.pdf",
         sizeBytes: 456,
         mimeType: "application/pdf",
+        media: "pdf",
         ownerAgentId: A,
       },
       { type: "link", url: "https://example.com" },
@@ -871,8 +879,8 @@ describe("StreamService.post", () => {
         input: { filePath: string; description: string }
       ) => {
         await pool.query(
-          `INSERT INTO files (agent_id, file_name, source, size_bytes, description)
-         VALUES ($1, 'shot-uploaded.png', 'screenshot', 77, $2)`,
+          `INSERT INTO files (agent_id, file_name, source, size_bytes, description, mime_type)
+         VALUES ($1, 'shot-uploaded.png', 'screenshot', 77, $2, 'image/png')`,
           [agentId, input.description]
         );
         return { fileName: "shot-uploaded.png" };
@@ -899,6 +907,7 @@ describe("StreamService.post", () => {
           fileName: "shot-uploaded.png",
           sizeBytes: 77,
           mimeType: "image/png",
+          media: "image",
         },
       ],
     });
@@ -937,8 +946,8 @@ describe("StreamService.post", () => {
 
   it("stores no dimensions on a file attachment, even for a measured image", async () => {
     await pool.query(
-      `INSERT INTO files (agent_id, file_name, source, size_bytes, metadata)
-       VALUES ($1, 'measured.png', 'screenshot', 9, '{"width":120,"height":90}'::jsonb)`,
+      `INSERT INTO files (agent_id, file_name, source, size_bytes, metadata, mime_type)
+       VALUES ($1, 'measured.png', 'screenshot', 9, '{"width":120,"height":90}'::jsonb, 'image/png')`,
       [A]
     );
     const block = await service.post(A, {
@@ -1221,8 +1230,8 @@ describe("StreamService.update", () => {
   it("replaces attachments wholesale, uploading paths", async () => {
     const uploadFile = vi.fn(async (agentId: string) => {
       await pool.query(
-        `INSERT INTO files (agent_id, file_name, source, size_bytes)
-         VALUES ($1, 'late.png', 'screenshot', 5)`,
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+         VALUES ($1, 'late.png', 'screenshot', 5, 'image/png')`,
         [agentId]
       );
       return { fileName: "late.png" };
@@ -1556,6 +1565,7 @@ describe("StreamService.sendUserPost", () => {
         fileName: "kid-brief.png",
         sizeBytes: 64,
         mimeType: "image/png",
+        media: "image",
         ownerAgentId: "agt_own_kid",
       },
     ]);
@@ -1635,6 +1645,7 @@ describe("StreamService.sendUserPost", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
+        media: "image",
         ownerAgentId: A,
       },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
@@ -1981,6 +1992,7 @@ describe("StreamService.answerQuestion", () => {
         fileName: "shot-2026-01-01-00-00-00-000.png",
         sizeBytes: 122880,
         mimeType: "image/png",
+        media: "image",
         ownerAgentId: A,
       },
       { type: "link", url: "https://example.com/spec", title: "Spec" },
