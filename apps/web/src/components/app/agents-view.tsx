@@ -397,9 +397,14 @@ export function AgentsView({
     />
   ) : null;
 
-  const agentPaneVisible = !isSplit
-    ? centerTabResolved && !changesMatch
-    : splitState.left === "agent" || splitState.right === "agent";
+  // A URL naming an agent selects nothing until the agent list loads; the
+  // pane waits for it rather than flashing "Select an agent".
+  const routeAgentPending = Boolean(routeAgentId) && !agentsLoaded;
+  const agentPaneVisible =
+    !routeAgentPending &&
+    (!isSplit
+      ? centerTabResolved && !changesMatch
+      : splitState.left === "agent" || splitState.right === "agent");
   const agentPaneProps = {
     agentId: focusedAgentId,
     agent: focusedAgent,

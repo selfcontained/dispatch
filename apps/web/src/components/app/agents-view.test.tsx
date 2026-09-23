@@ -492,6 +492,19 @@ describe("AgentsView agent pane", () => {
     expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
   });
 
+  it("holds the pane inactive while a routed agent's list is still loading", () => {
+    H.state.agentsLoaded = false;
+    mount({ path: "/agents/a1" });
+    expect(propsOf("AgentPane").agentId).toBeNull();
+    expect(propsOf("AgentPane").active).toBe(false);
+  });
+
+  it("shows the pane with no agent routed before the list loads", () => {
+    H.state.agentsLoaded = false;
+    mount({ path: "/agents" });
+    expect(propsOf("AgentPane").active).toBe(true);
+  });
+
   it("hands the Agent pane and the chat filters to the split slot", () => {
     focusOn("a1");
     Object.assign(H.state, {
