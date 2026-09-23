@@ -4,7 +4,8 @@
  * replies, and a composer whose posts reply under the root. Replies never
  * render in the main stream; this is the only place they appear.
  */
-import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
 
@@ -25,11 +26,27 @@ import {
 import { Button } from "@/components/ui/button";
 import { useBlockJump } from "@/hooks/use-block-jump";
 import { useMarkThreadRead, usePostBlock, useThread } from "@/hooks/use-stream";
+import { BLOCK_PARAM } from "@/lib/agent-routes";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
+import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
+import {
+  useWindowedRows as useCustomWindowedRows,
+  WindowGap,
+} from "./windowed-rows";
+import { useWindowedRowsTanstack } from "./windowed-rows-tanstack";
+
+/** Which windowing to build with, while the two are compared. */
+const useWindowedRows =
+  import.meta.env.VITE_WINDOWING === "tanstack"
+    ? useWindowedRowsTanstack
+    : useCustomWindowedRows;
+
 /** How long a jump outranks the panel's own open-at-the-top and follow. */
 const JUMP_HOLD_MS = 1000;
+/** The row a finding's latest change renders in, among its comments. */
+const CHANGE_ROW_KEY = "finding-change";
 
 /** Posts by one author this close together share a header, as in the feed. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -245,6 +262,43 @@ export function ThreadPanel({
   // view at the bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
   const jumpedRef = useBlockJump(scrollRef);
+
+  // A long discussion renders only the replies near the view (see
+  // useWindowedRows); a jump's target renders wherever it is. The finding's
+  // latest change sits among the replies as a row of its own.
+  const [searchParams] = useSearchParams();
+  const jumpBlockId = searchParams.get(BLOCK_PARAM);
+  const pinnedIds = useMemo(
+    () => new Set(jumpBlockId ? [jumpBlockId] : []),
+    [jumpBlockId]
+  );
+  const rowKeys = useMemo(() => {
+    const keys = replies.map((reply) => reply.id);
+    if (change) keys.splice(changeAt, 0, CHANGE_ROW_KEY);
+    return keys;
+  }, [replies, change, changeAt]);
+  const windowed = useWindowedRows({
+    scrollRef,
+    keys: rowKeys,
+    align: "start",
+    pinned: pinnedIds,
+    cacheKey: `thread:${threadBlockId}`,
+    anchorable: (key) => key !== CHANGE_ROW_KEY,
+  });
+  const repliesById = useMemo(
+    () => new Map(replies.map((reply, index) => [reply.id, { reply, index }])),
+    [replies]
+  );
+  // Disclosures inside a reply outlive the reply scrolling out of view.
+  const rowStates = useRef(new Map<string, ChatRowState>());
+  const rowState = (id: string): ChatRowState => {
+    let state = rowStates.current.get(id);
+    if (!state) {
+      state = new Map();
+      rowStates.current.set(id, state);
+    }
+    return state;
+  };
   const replyCount = thread.replies.length;
   const seenRepliesRef = useRef<{ blockId: string; count: number } | null>(
     null
@@ -418,34 +472,56 @@ export function ThreadPanel({
                     : "replies"}
               </div>
             ) : null}
-            <div data-testid="chat-thread-replies">
-              {replies.map((reply, index) => (
-                <Fragment key={reply.id}>
-                  {change && changeAt === index ? changeEntry : null}
-                  <div
-                    data-chat-entry-id={reply.id}
-                    data-testid={reply.turn ? "chat-thread-turn" : undefined}
-                    data-turn-id={reply.turn ? reply.id : undefined}
-                  >
-                    <BlockView
-                      block={reply}
-                      grouped={
-                        // The change entry above breaks the run of posts.
-                        index === changeAt
-                          ? false
-                          : (groupedById.get(reply.id) ?? false)
+            <div
+              ref={windowed.containerRef}
+              {...windowed.containerProps}
+              data-testid="chat-thread-replies"
+            >
+              {windowed.segments.flatMap((segment) =>
+                segment.kind === "gap"
+                  ? [<WindowGap key={segment.key} height={segment.height} />]
+                  : rowKeys.slice(segment.from, segment.to).map((key) => {
+                      if (key === CHANGE_ROW_KEY) {
+                        return (
+                          <div key={key} ref={windowed.measure(key)}>
+                            {changeEntry}
+                          </div>
+                        );
                       }
-                      ctx={ctx}
-                      answering={answeringBlockId === reply.id}
-                      submitting={submittingBlockId === reply.id}
-                      answersDisabled={disabledReason !== null}
-                      onAnswer={onAnswer}
-                      inThread
-                    />
-                  </div>
-                </Fragment>
-              ))}
-              {change && changeAt === replies.length ? changeEntry : null}
+                      const { reply, index } = repliesById.get(key)!;
+                      return (
+                        <div
+                          key={key}
+                          ref={windowed.measure(key)}
+                          data-chat-entry-id={reply.id}
+                          data-testid={
+                            reply.turn ? "chat-thread-turn" : undefined
+                          }
+                          data-turn-id={reply.turn ? reply.id : undefined}
+                        >
+                          <ChatRowStateContext.Provider
+                            value={rowState(reply.id)}
+                          >
+                            <BlockView
+                              block={reply}
+                              grouped={
+                                // The change entry above breaks the run of posts.
+                                index === changeAt
+                                  ? false
+                                  : (groupedById.get(reply.id) ?? false)
+                              }
+                              ctx={ctx}
+                              answering={answeringBlockId === reply.id}
+                              submitting={submittingBlockId === reply.id}
+                              answersDisabled={disabledReason !== null}
+                              onAnswer={onAnswer}
+                              inThread
+                            />
+                          </ChatRowStateContext.Provider>
+                        </div>
+                      );
+                    })
+              )}
             </div>
           </>
         ) : null}

@@ -12,6 +12,7 @@ import type {
   StreamEntry,
 } from "@dispatch/shared";
 import { MotionConfig } from "framer-motion";
+import { useSearchParams } from "react-router-dom";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
@@ -50,6 +51,8 @@ import {
 } from "@/hooks/use-stream";
 import { useBlockJump } from "@/hooks/use-block-jump";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
+import { BLOCK_PARAM } from "@/lib/agent-routes";
+import { windowingSupported } from "@/components/app/chat/windowed-rows";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
@@ -552,16 +555,23 @@ export function ChatPane({
       return;
     }
     if (atBottom) anchoredRef.current = 0;
+    // The ref too, at once: a windowed feed changes height as the rows
+    // around the new position mount, and the content observer must not
+    // take that for growth to follow before this state has rendered.
+    followingRef.current = atBottom;
     setFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
   }, [rememberSoon]);
 
   const { loadOlder: fetchOlder } = feed;
+  /** The windowed feed's own hold on the reader's place (see ChatFeed). */
+  const holdPlaceRef = useRef<(() => void) | null>(null);
   const loadOlder = useCallback(() => {
     const el = scrollRef.current;
     if (el)
       olderLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    holdPlaceRef.current?.();
     fetchOlder();
   }, [fetchOlder]);
 
@@ -569,9 +579,14 @@ export function ChatPane({
     const el = scrollRef.current;
     if (!el) return;
     // Older page landed above: keep what the user was reading in place.
+    // A windowed feed holds its own place (the rows below the view are
+    // spacers whose heights move too, so the height difference is not the
+    // page's); only a feed that renders every row is corrected here.
     const anchor = olderLoadRef.current;
     if (anchor && el.scrollHeight > anchor.height) {
-      el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+      if (!windowingSupported()) {
+        el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+      }
       olderLoadRef.current = null;
       return;
     }
@@ -686,6 +701,25 @@ export function ChatPane({
     setFollowing(false);
     setPendingBelow(false);
   });
+
+  // Only the rows near the view render (see useWindowedRows). The rows this
+  // pane scrolls to itself must be there wherever they are: a `?block=`
+  // jump's target, and the rows a reader is put back against on return.
+  const [searchParams] = useSearchParams();
+  const jumpBlockId = searchParams.get(BLOCK_PARAM);
+  const restoreIds = restoredRef.current
+    ? null
+    : (savedPositionRef.current?.anchors.map((a) => a.entryId).join("\n") ??
+      null);
+  const pinnedIds = useMemo(() => {
+    const ids = new Set<string>(restoreIds ? restoreIds.split("\n") : []);
+    if (jumpBlockId) ids.add(jumpBlockId);
+    return ids;
+  }, [jumpBlockId, restoreIds]);
+  const isFollowing = useCallback(
+    () => followingRef.current && anchoredRef.current === 0,
+    []
+  );
 
   // ---- unread: mark read while visible and focused --------------------------
   // markRead itself is a no-op while nothing is unread.
@@ -917,7 +951,7 @@ export function ChatPane({
               onLoadCapture={() => {
                 if (following) scrollToBottom();
               }}
-              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
+              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2 [overflow-anchor:none]"
             >
               <div ref={contentRef} className="min-w-0 max-w-full">
                 {feed.hasOlder ? (
@@ -999,6 +1033,10 @@ export function ChatPane({
                     submittingBlockId={submittingBlockId}
                     answersDisabled={disabledReason !== null}
                     onAnswer={onAnswer}
+                    scrollRef={scrollRef}
+                    pinnedIds={pinnedIds}
+                    isFollowing={isFollowing}
+                    holdPlaceRef={holdPlaceRef}
                   />
                 ) : null}
               </div>

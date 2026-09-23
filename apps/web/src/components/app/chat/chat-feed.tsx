@@ -1,4 +1,11 @@
-import { type ReactNode, useMemo, useRef } from "react";
+import {
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type { Block, BlockOption, StreamEntry } from "@dispatch/shared";
 
 import {
@@ -15,6 +22,17 @@ import {
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
+import {
+  useWindowedRows as useCustomWindowedRows,
+  WindowGap,
+} from "./windowed-rows";
+import { useWindowedRowsTanstack } from "./windowed-rows-tanstack";
+
+/** Which windowing to build with, while the two are compared. */
+const useWindowedRows =
+  import.meta.env.VITE_WINDOWING === "tanstack"
+    ? useWindowedRowsTanstack
+    : useCustomWindowedRows;
 
 /**
  * What the channel draws, top to bottom: day rules, and posts that know
@@ -172,13 +190,30 @@ export function arrivedEntryIds(
 function Enter({
   id,
   entering,
+  played,
   children,
 }: {
   id: string;
   entering: ReadonlyMap<string, string>;
+  /**
+   * Arrivals whose fade already ran. A windowed feed unmounts rows that
+   * scroll out of view; coming back into view is not arriving again.
+   */
+  played: Set<string>;
   children: ReactNode;
 }): JSX.Element {
   const version = entering.get(id);
+  const run = version === undefined ? null : `${id}\n${version}`;
+  // Decided once per version on this mount, so a fade in progress keeps its
+  // class through re-renders.
+  const freshRef = useRef<{ run: string | null; fresh: boolean } | null>(null);
+  if (freshRef.current === null || freshRef.current.run !== run) {
+    freshRef.current = { run, fresh: run !== null && !played.has(run) };
+  }
+  const fresh = freshRef.current.fresh;
+  useEffect(() => {
+    if (run !== null) played.add(run);
+  }, [played, run]);
   // Always a real element, animating or not: `data-chat-entry-id` is how
   // ChatPane names the row a reader was parked on so it can put them back
   // there when the feed reopens.
@@ -187,11 +222,9 @@ function Enter({
       key={version}
       data-chat-entry-id={id}
       className={
-        version === undefined
-          ? undefined
-          : "animate-chat-enter motion-reduce:animate-none"
+        fresh ? "animate-chat-enter motion-reduce:animate-none" : undefined
       }
-      data-testid={version === undefined ? undefined : "chat-entry-enter"}
+      data-testid={fresh ? "chat-entry-enter" : undefined}
     >
       {children}
     </div>
@@ -335,7 +368,28 @@ export type ChatFeedProps = {
   /** Answers go through the same delivery as the composer; lock them together. */
   answersDisabled?: boolean;
   onAnswer: (blockId: string, option: BlockOption) => void;
+  /**
+   * The pane's scroller. Given, only the rows near the view render (see
+   * useWindowedRows); without it every row does.
+   */
+  scrollRef?: RefObject<HTMLElement>;
+  /** Rows that must be rendered wherever the view is: a jump target. */
+  pinnedIds?: ReadonlySet<string>;
+  /** True while the pane keeps its bottom in view. */
+  isFollowing?: () => boolean;
+  /** Filled with a call that takes the reader's place before older rows load. */
+  holdPlaceRef?: MutableRefObject<(() => void) | null>;
 };
+
+/** The key a feed row renders under: a day rule's, or its entry's. */
+function feedRowKey(row: ChatFeedRow, ownerId?: string): string {
+  return row.kind === "divider" ? row.key : rowIdentity(row.entry, ownerId);
+}
+
+/** Day rules move to whichever row is first that day; they hold no place. */
+function isEntryRowKey(key: string): boolean {
+  return !key.startsWith("day:");
+}
 
 export function ChatFeed({
   entries,
@@ -344,9 +398,30 @@ export function ChatFeed({
   submittingBlockId = null,
   answersDisabled = false,
   onAnswer,
+  scrollRef,
+  pinnedIds,
+  isFollowing,
+  holdPlaceRef,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
+  const rowKeys = useMemo(
+    () => rows.map((row) => feedRowKey(row, ctx.agentId)),
+    [rows, ctx.agentId]
+  );
+  const fallbackRef = useRef<HTMLElement>(null);
+  const windowed = useWindowedRows({
+    scrollRef: scrollRef ?? fallbackRef,
+    keys: rowKeys,
+    align: "end",
+    pinned: pinnedIds,
+    isFollowing,
+    cacheKey: ctx.agentId ? `feed:${ctx.agentId}` : null,
+    enabled: scrollRef !== undefined,
+    anchorable: isEntryRowKey,
+  });
+  if (holdPlaceRef) holdPlaceRef.current = windowed.holdPlace;
   const entering = useEnteringEntries(entries, ctx.agentId);
+  const playedRef = useRef(new Set<string>());
   // Disclosure state per row (an expanded step, a folded step list), owned here so
   // it survives a row re-rendering; entries that left the feed drop theirs.
   const rowStates = useRef(new Map<string, ChatRowState>());
@@ -363,17 +438,18 @@ export function ChatFeed({
     return state;
   };
 
-  return (
-    <div
-      className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
-      data-testid="chat-feed"
-    >
-      {rows.map((row) => {
-        if (row.kind === "divider") {
-          return <DayDivider key={row.key} label={row.label} />;
-        }
-        const entry = row.entry;
-        const view = (
+  const renderRow = (row: ChatFeedRow): JSX.Element => {
+    if (row.kind === "divider") {
+      return <DayDivider label={row.label} />;
+    }
+    const entry = row.entry;
+    return (
+      <Enter
+        id={rowIdentity(entry, ctx.agentId)}
+        entering={entering}
+        played={playedRef.current}
+      >
+        <ChatRowStateContext.Provider value={rowState(entry.id)}>
           <BlockView
             block={entry.block}
             grouped={row.grouped}
@@ -385,19 +461,30 @@ export function ChatFeed({
             onAnswer={onAnswer}
             folded={row.folded}
           />
-        );
-        return (
-          <Enter
-            key={rowIdentity(entry, ctx.agentId)}
-            id={rowIdentity(entry, ctx.agentId)}
-            entering={entering}
-          >
-            <ChatRowStateContext.Provider value={rowState(entry.id)}>
-              {view}
-            </ChatRowStateContext.Provider>
-          </Enter>
-        );
-      })}
+        </ChatRowStateContext.Provider>
+      </Enter>
+    );
+  };
+
+  return (
+    <div
+      ref={windowed.containerRef}
+      {...windowed.containerProps}
+      className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
+      data-testid="chat-feed"
+    >
+      {windowed.segments.flatMap((segment) =>
+        segment.kind === "gap"
+          ? [<WindowGap key={segment.key} height={segment.height} />]
+          : rows.slice(segment.from, segment.to).map((row, offset) => {
+              const key = rowKeys[segment.from + offset]!;
+              return (
+                <div key={key} ref={windowed.measure(key)}>
+                  {renderRow(row)}
+                </div>
+              );
+            })
+      )}
     </div>
   );
 }
