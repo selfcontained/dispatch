@@ -5,7 +5,7 @@
  * the design promises and unit tests cannot: a host that outlives its
  * client, replay from a sequence number, and a clean stop.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -239,6 +239,37 @@ describe("agent host", () => {
     });
     expect(runtime.isBusy(id)).toBe(false);
     await runtime.stop(id, false);
+  }, 60_000);
+
+  it("keeps an intact journal's identity when its sidecar is deleted", async () => {
+    const id = "agt_sidecar";
+    const first = runtimeWith(stateRoot, () => 0);
+    await first.runtime.launch(launchFor(id, cwd));
+    await first.runtime.prompt(id, "before restart").settled;
+    await until(() =>
+      first.seen.some(
+        (item) => item.event.type === "turn" && item.event.state === "settled"
+      )
+    );
+    const lastSeq = Math.max(...first.seen.map((item) => item.seq));
+    const idFile = path.join(stateRoot, id, "journal.id");
+    const journalId = readFileSync(idFile, "utf8").trim();
+    await first.runtime.stop(id, false);
+    rmSync(idFile);
+
+    const second = runtimeWith(stateRoot, () => lastSeq, journalId);
+    await second.runtime.launch(launchFor(id, cwd));
+    await until(() => readFileSync(idFile, "utf8").trim() === journalId);
+    expect(second.synced.some((item) => item.reset)).toBe(false);
+    expect(second.seen.every((item) => item.seq > lastSeq)).toBe(true);
+    await second.runtime.stop(id, false);
+
+    writeFileSync(idFile, "");
+    const third = runtimeWith(stateRoot, () => lastSeq, journalId);
+    await third.runtime.launch(launchFor(id, cwd));
+    expect(readFileSync(idFile, "utf8").trim()).toBe(journalId);
+    expect(third.synced.some((item) => item.reset)).toBe(false);
+    await third.runtime.stop(id, false);
   }, 60_000);
 
   it("fails a launch whose engine CLI cannot be found instead of falling back to the adapter's own", async () => {

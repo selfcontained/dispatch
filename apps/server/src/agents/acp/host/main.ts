@@ -11,7 +11,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -76,18 +76,24 @@ class Journal {
     private readonly file: string,
     idFile: string
   ) {
-    // A missing journal starts a new sequence even when the rest of the
-    // state directory survived. Keep its identity across host restarts.
-    const savedId =
-      existsSync(file) && existsSync(idFile)
-        ? readFileSync(idFile, "utf8").trim()
-        : "";
-    this.id = savedId || randomUUID();
-    if (!savedId) {
-      writeFileSync(idFile, `${this.id}\n`, { mode: 0o600 });
-    }
+    // The first event is authoritative: losing only the sidecar must not
+    // turn an intact journal into a new history and replay it twice.
+    let firstLine = "";
+    let embeddedId = "";
     if (existsSync(file)) {
       const lines = readFileSync(file, "utf8").split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line) as JournalEntry;
+          if (!Number.isInteger(entry.seq)) continue;
+          firstLine = line;
+          embeddedId = entry.journalId ?? "";
+          break;
+        } catch {
+          continue;
+        }
+      }
       for (let i = lines.length - 1; i >= 0; i -= 1) {
         const line = lines[i].trim();
         if (!line) continue;
@@ -99,6 +105,18 @@ class Journal {
         }
       }
     }
+    const savedId =
+      existsSync(file) && existsSync(idFile)
+        ? readFileSync(idFile, "utf8").trim()
+        : "";
+    this.id =
+      embeddedId ||
+      (firstLine
+        ? `legacy-${createHash("sha256").update(firstLine).digest("hex")}`
+        : savedId || randomUUID());
+    // The sidecar is a convenient readable identity, but can be rebuilt
+    // from a nonempty journal. A missing journal always gets a new ID.
+    writeFileSync(idFile, `${this.id}\n`, { mode: 0o600 });
   }
 
   get lastSeq(): number {
@@ -111,6 +129,7 @@ class Journal {
       seq: this.seq,
       at: new Date().toISOString(),
       event,
+      journalId: this.id,
     };
     appendFileSync(this.file, `${JSON.stringify(entry)}\n`);
     return entry;

@@ -149,6 +149,93 @@ describe("AcpRuntime prompt queue", () => {
   });
 });
 
+describe("AcpRuntime legacy host replay", () => {
+  it("reconnects with sequence zero when an old host's journal is behind the stored cursor", async () => {
+    const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-legacy-"));
+    const dir = path.join(stateRoot, agentId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    const hellos: number[] = [];
+    const entries: HostMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        at: new Date().toISOString(),
+        event: {
+          type: "turn",
+          agentId,
+          state: "started",
+          text: "old turn",
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        at: new Date().toISOString(),
+        event: {
+          type: "turn",
+          agentId,
+          state: "settled",
+        },
+      },
+    ];
+    const server = net.createServer((socket) => {
+      const decode = ndjsonDecoder<ClientMessage>();
+      socket.on("data", (chunk) => {
+        for (const message of decode(chunk)) {
+          if (message.type !== "hello") continue;
+          hellos.push(message.fromSeq);
+          socket.write(
+            encodeMessage({
+              type: "welcome",
+              agentId,
+              engine: "claude",
+              sessionId: "legacy",
+              resumed: true,
+              running: true,
+              turn: null,
+              journalSeq: 2,
+              commands: [],
+            } satisfies HostMessage)
+          );
+          for (const entry of entries) {
+            if (entry.type === "event" && entry.seq > message.fromSeq) {
+              socket.write(encodeMessage(entry));
+            }
+          }
+        }
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(hostFile(dir, "socket"), resolve)
+    );
+    cleanup.push(() => {
+      server.close();
+      rmSync(stateRoot, { recursive: true, force: true });
+    });
+    const seen: number[] = [];
+    const syncs: boolean[] = [];
+    const runtime = createAcpRuntime({
+      config: {
+        agentStateRoot: stateRoot,
+        agentRuntime: "acp",
+        dispatchBinDir: "/nonexistent",
+      },
+      logger,
+      hostSeq: async () => ({ seq: 10, journalId: null }),
+      syncJournal: async (_id, _journalId, reset) => {
+        syncs.push(reset);
+      },
+    });
+    runtime.onEvent((_id, _event, seq) => seen.push(seq));
+    expect(await runtime.attach(agentId)).toBe(true);
+    await untilPrompts(seen, 2);
+    expect(hellos).toEqual([10, 0]);
+    expect(syncs).toEqual([true]);
+    expect(seen).toEqual([1, 2]);
+  });
+});
+
 /**
  * A host whose turns stay open until the test settles them, so prompts can
  * be queued behind a running turn.

@@ -50,6 +50,8 @@ export class HostClient {
     reject: (err: Error) => void;
   }> = [];
   private lastWelcome: HostWelcome | null = null;
+  private sentFromSeq = 0;
+  private reconnectingForLegacyReplay = false;
 
   constructor(private readonly deps: HostClientDeps) {}
 
@@ -134,10 +136,11 @@ export class HostClient {
         this.attempts = 0;
         this.socket = socket;
         this.wire(socket);
+        this.sentFromSeq = this.deps.fromSeq();
         socket.write(
           encodeMessage({
             type: "hello",
-            fromSeq: this.deps.fromSeq(),
+            fromSeq: this.sentFromSeq,
             journalId: this.deps.journalId(),
           } satisfies ClientMessage)
         );
@@ -173,6 +176,20 @@ export class HostClient {
   private handle(message: HostMessage): void {
     switch (message.type) {
       case "welcome":
+        if (
+          !message.journalId &&
+          message.journalSeq < this.sentFromSeq &&
+          !this.reconnectingForLegacyReplay
+        ) {
+          // An older host does not know journal identities or replay when
+          // fromSeq exceeds its head. Let the runtime reset the cursor,
+          // then reconnect with hello(0) before any live event is applied.
+          this.reconnectingForLegacyReplay = true;
+          this.deps.onWelcome(message);
+          this.socket?.destroy();
+          return;
+        }
+        this.reconnectingForLegacyReplay = false;
         this.lastWelcome = message;
         if (message.running) {
           const waiters = this.welcomeWaiters;
@@ -182,6 +199,7 @@ export class HostClient {
         this.deps.onWelcome(message);
         return;
       case "event":
+        if (this.reconnectingForLegacyReplay) return;
         this.deps.onEvent({
           seq: message.seq,
           at: message.at,

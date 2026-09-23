@@ -48,7 +48,13 @@ export function hostFile(
 }
 
 /** One journal line: an event with its position in the host's stream. */
-export type JournalEntry = { seq: number; at: string; event: DriverEvent };
+export type JournalEntry = {
+  seq: number;
+  at: string;
+  event: DriverEvent;
+  /** Lets a surviving journal recover its identity if journal.id is lost. */
+  journalId?: string;
+};
 
 export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
