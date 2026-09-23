@@ -683,6 +683,8 @@ describe("ThreadPanel jump to a reply", () => {
     );
     const scroll = screen.getByTestId("chat-thread-scroll");
     expect(scroll.scrollTop).toBe(0);
+    // Replies scroll through repeated controls: no backdrop blur in here.
+    expect(scroll.classList.contains("stream-surfaces-flat")).toBe(true);
 
     // The thread arrives after the panel opened on it.
     resolve(thread);

@@ -522,6 +522,8 @@ describe("ChatPane", () => {
       { wrapper: Wrapper }
     );
     const scroll = screen.getByTestId("chat-scroll");
+    // The feed scrolls through repeated controls: no backdrop blur in here.
+    expect(scroll.classList.contains("stream-surfaces-flat")).toBe(true);
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, value: 1_000 },
       clientHeight: { configurable: true, value: 200 },

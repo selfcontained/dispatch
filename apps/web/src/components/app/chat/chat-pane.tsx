@@ -923,7 +923,7 @@ export function ChatPane({
               onLoadCapture={() => {
                 if (following) scrollToBottom();
               }}
-              className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
+              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
             >
               <div ref={contentRef} className="min-w-0 max-w-full">
                 {feed.hasOlder ? (
