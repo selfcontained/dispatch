@@ -22,9 +22,8 @@ a model. `drive.mjs` refuses to start unless both checks pass:
    says. If it doesn't, that agent is deleted and nothing else is
    launched. At worst, one short turn ran on a real engine.
 
-`DISPATCH_ACP_ADAPTER_COMMAND` alone is not enough, because the server
-strips `DISPATCH_*` from the host's environment. `stress-host.sh` sets it
-inside the host instead.
+`stress-host.sh` sets `DISPATCH_ACP_ADAPTER_COMMAND` inside the host. The
+driver verifies that this wrapper was selected before it launches agents.
 
 ## Stack
 
