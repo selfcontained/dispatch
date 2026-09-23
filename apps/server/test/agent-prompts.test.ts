@@ -130,6 +130,12 @@ describe("injectAgentPrompt (wrapper)", () => {
     await new Promise((r) => setTimeout(r, 0));
     ctx.accepted.reject(new Error("host gone"));
     await expect(pending).resolves.toBeUndefined();
+    expect(ctx.agentManager.promptAgent).toHaveBeenCalledWith(
+      "agt_1",
+      "x",
+      { source: "system", text: "x" },
+      undefined
+    );
     expect(ctx.log.warn).toHaveBeenCalled();
   });
 

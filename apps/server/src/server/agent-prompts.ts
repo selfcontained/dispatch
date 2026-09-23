@@ -1,7 +1,10 @@
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
-import type { PromptSource } from "../agents/acp/prompt-source.js";
+import {
+  systemPromptSource,
+  type PromptSource,
+} from "../agents/acp/prompt-source.js";
 
 /**
  * Enqueue a prompt for an agent and return at once. Resolves once the prompt
@@ -65,7 +68,9 @@ export function createPromptInjector(
     try {
       let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>>;
       try {
-        enqueued = await enqueueAgentPrompt(agentId, prompt);
+        enqueued = await enqueueAgentPrompt(agentId, prompt, {
+          source: systemPromptSource(prompt),
+        });
       } catch (error) {
         if (opts.swallowFailure === false) throw error;
         appLog.debug(
