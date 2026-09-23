@@ -34,6 +34,32 @@ function reportedQueryKey(agentId: string) {
   return ["agent-turn-reported", agentId] as const;
 }
 
+/**
+ * Labels and flags are kept until replaced, not collected after five minutes
+ * unwatched: a reported agent's label is never read again, so a row that
+ * mounts mid-step (a card expanded six minutes into `pnpm test`) must find
+ * it still here. A turn's label goes once it is over and unwatched.
+ */
+const keptClients = new WeakSet<QueryClient>();
+
+function keepTurnLabels(queryClient: QueryClient): void {
+  if (keptClients.has(queryClient)) return;
+  keptClients.add(queryClient);
+  queryClient.setQueryDefaults(["agent-turn-label"], { gcTime: Infinity });
+  queryClient.setQueryDefaults(["agent-turn-reported"], { gcTime: Infinity });
+}
+
+/** The agent's labels for turns that are over and that no row shows. */
+function pruneTurnLabels(queryClient: QueryClient, agentId: string): void {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["agent-turn-label", agentId] })) {
+    if (query.state.data == null && query.getObserversCount() === 0) {
+      queryClient.getQueryCache().remove(query);
+    }
+  }
+}
+
 /** The line the turn's own summary row shows while it runs; null once settled. */
 function turnEntryLabel(entry: StreamEntry): string | null {
   if (!isTurnEntry(entry)) return null;
@@ -47,12 +73,14 @@ export function recordTurnLabel(
   entry: StreamEntry
 ): void {
   if (!isTurnEntry(entry)) return;
+  keepTurnLabels(queryClient);
   const agentId = entry.block.turn.agentId;
   if (!queryClient.getQueryData<boolean>(reportedQueryKey(agentId))) {
     queryClient.setQueryData(reportedQueryKey(agentId), true);
   }
+  pruneTurnLabels(queryClient, agentId);
   queryClient.setQueryData<string | null>(
-    turnLabelQueryKey(entry.block.turn.agentId, entry.block.id),
+    turnLabelQueryKey(agentId, entry.block.id),
     turnEntryLabel(entry)
   );
 }
@@ -76,6 +104,7 @@ export function useAgentTurnLabel(
   blockId: string | null
 ): string | null {
   const queryClient = useQueryClient();
+  keepTurnLabels(queryClient);
   const queryKey = turnLabelQueryKey(agentId, blockId ?? "");
   const { data: reported } = useQuery<boolean>({
     queryKey: reportedQueryKey(agentId),

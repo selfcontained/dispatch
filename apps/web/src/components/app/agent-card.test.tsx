@@ -673,6 +673,41 @@ describe("AgentCardStatus wiring", () => {
     );
   });
 
+  it("still has a long step's label when a row mounts minutes into it", async () => {
+    const client = new QueryClient();
+    // The row is not rendered (a collapsed card) when the step starts.
+    recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+    });
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+  });
+
+  it("lets go of an agent's labels for turns that are over", () => {
+    const client = new QueryClient();
+    recordTurnLabel(client, turnEntry({ settled: true, blockId: "blk_a" }));
+    recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    recordTurnLabel(
+      client,
+      turnEntry({ settled: false, running: true, blockId: "blk_b" })
+    );
+    const kept = client
+      .getQueryCache()
+      .findAll({ queryKey: ["agent-turn-label", AGENT_ID] })
+      .map((query) => query.queryKey[2]);
+    expect(kept.sort()).toEqual(["blk_b", "blk_turn"]);
+  });
+
   it("keeps a newer turn it read for when the card catches up", async () => {
     apiMock.mockImplementation(async (url: string) => {
       if (url === `/api/v1/agents/${AGENT_ID}/turn`)
