@@ -36,6 +36,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useAtomValue } from "jotai";
 
 import { streamFullHistoryAtom } from "@/lib/store";
@@ -586,28 +587,15 @@ export function useWindowedRows({
   });
 
   // ---- what to render -------------------------------------------------------
-  const count = keys.length;
   // The range is kept by index, but it means rows: when rows land above
   // (a page of older ones) the same rows are found at their new place.
-  let shown: Range = !windowing
-    ? { from: 0, to: count }
-    : laidOutRef.current
-      ? { from: Math.min(range.from, count), to: Math.min(range.to, count) }
-      : initialRange(count, align, windowing);
-  if (
-    laidOutRef.current &&
-    range.first !== null &&
-    keys[range.from] !== range.first
-  ) {
-    const moved = keys.indexOf(range.first);
-    if (moved !== -1) {
-      const shift = moved - range.from;
-      shown = {
-        from: Math.min(count, range.from + shift),
-        to: Math.min(count, range.to + shift),
-      };
-    }
-  }
+  const shown = shownRange({
+    windowing,
+    laidOut: laidOutRef.current,
+    range,
+    keys,
+    align,
+  });
   rangeRef.current = shown;
   const guess = estimate();
   guessRef.current = guess;
@@ -629,6 +617,41 @@ export function useWindowedRows({
     takePlace: takePlaceHere,
     segments,
     measure,
+  };
+}
+
+/**
+ * The rows to render this pass: all of them when not windowing; before the
+ * first layout, the end (or start) the list opens at; otherwise the range
+ * as set, found again by its first row when rows have landed above it.
+ */
+export function shownRange({
+  windowing,
+  laidOut,
+  range,
+  keys,
+  align,
+}: {
+  windowing: boolean;
+  laidOut: boolean;
+  range: Range & { first: string | null };
+  keys: readonly string[];
+  align: "start" | "end";
+}): Range {
+  const count = keys.length;
+  if (!windowing) return { from: 0, to: count };
+  if (!laidOut) return initialRange(count, align, windowing);
+  const shown = {
+    from: Math.min(range.from, count),
+    to: Math.min(range.to, count),
+  };
+  if (range.first === null || keys[range.from] === range.first) return shown;
+  const moved = keys.indexOf(range.first);
+  if (moved === -1) return shown;
+  const shift = moved - range.from;
+  return {
+    from: Math.min(count, range.from + shift),
+    to: Math.min(count, range.to + shift),
   };
 }
 
@@ -692,7 +715,8 @@ export function useFullHistory(): boolean {
         !event.altKey &&
         event.key.toLowerCase() === "f"
       ) {
-        setFinding(true);
+        // Rendered before the browser's find opens, not batched after it.
+        flushSync(() => setFinding(true));
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });

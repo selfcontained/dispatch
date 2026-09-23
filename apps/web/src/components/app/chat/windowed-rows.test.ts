@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { placeDrift, windowSegments } from "./windowed-rows";
+import { placeDrift, shownRange, windowSegments } from "./windowed-rows";
 
 const keys = ["a", "b", "c", "d", "e", "f"];
 const height = (key: string) => (key === "c" ? 300 : 100);
@@ -56,5 +56,23 @@ describe("placeDrift", () => {
     expect(placeDrift(anchor, 640, 700)).toBe(240);
     // No scroll, 50px removed above it.
     expect(placeDrift(anchor, 50, 1000)).toBe(-50);
+  });
+});
+
+describe("shownRange", () => {
+  const keys = ["o1", "o2", "a", "b", "c"];
+  // Set when "a" was the first row; two older rows have since landed above.
+  const range = { from: 0, to: 2, first: "a" };
+
+  it("finds the range again by its first row after rows land above", () => {
+    expect(
+      shownRange({ windowing: true, laidOut: true, range, keys, align: "end" })
+    ).toEqual({ from: 2, to: 4 });
+  });
+
+  it("renders every row when not windowing, in the pass the rows landed too", () => {
+    expect(
+      shownRange({ windowing: false, laidOut: true, range, keys, align: "end" })
+    ).toEqual({ from: 0, to: 5 });
   });
 });

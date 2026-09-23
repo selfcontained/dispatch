@@ -155,6 +155,9 @@ export function isMainColumnEntry(entry: StreamEntry): boolean {
   return block.author.kind === "agent" && block.toAgentId !== null;
 }
 
+/** How many older pages a reload looks through for the row it left on. */
+const RESTORE_SEEK_PAGES = 20;
+
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
 /** Scrolled up past this much of the view, the jump-to-bottom button shows. */
@@ -618,6 +621,37 @@ export function ChatPane({
     fetchOlder();
   }, [fetchOlder]);
 
+  /** Pages asked for while looking for the row a reader left on. */
+  const seekingRef = useRef(false);
+  const seekPagesRef = useRef(0);
+  const { hasOlder, isFetchingOlder } = feed;
+  /**
+   * Put the reader back on the row they left on: true when that is done,
+   * or still under way (an older page asked for, the row not loaded yet);
+   * false when there is nothing to go back to and the feed should open at
+   * the newest.
+   */
+  const seekSaved = useCallback(
+    (el: HTMLElement): boolean => {
+      const saved = savedPositionRef.current;
+      if (saved === null || saved.following) return false;
+      if (scrollToAnchor(el, saved.anchors)) {
+        seekingRef.current = false;
+        restoredRef.current = true;
+        placeRef.current?.takeHere();
+        return true;
+      }
+      if (!hasOlder || seekPagesRef.current >= RESTORE_SEEK_PAGES) return false;
+      seekingRef.current = true;
+      if (!isFetchingOlder) {
+        seekPagesRef.current += 1;
+        fetchOlder();
+      }
+      return true;
+    },
+    [fetchOlder, hasOlder, isFetchingOlder]
+  );
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -669,18 +703,23 @@ export function ChatPane({
     const grew = !appended && lastKey !== lastEntryKeyRef.current;
     lastEntryIdRef.current = lastId;
     lastEntryKeyRef.current = lastKey;
+    // Seeking the row a reader left on, older than what was loaded: each
+    // page that lands is looked through, and the next asked for, until the
+    // row turns up or the history runs out.
+    if (seekingRef.current) {
+      if (seekSaved(el)) return;
+      seekingRef.current = false;
+      restoredRef.current = true;
+      setFollowing(true);
+      scrollToBottom();
+      return;
+    }
     if (!appended && !grew) return;
     // The feed's first rows: put the reader back where they left this
     // agent, or open at the newest when there is nowhere to go back to.
     if (!restoredRef.current) {
+      if (seekSaved(el)) return;
       restoredRef.current = true;
-      const saved = savedPositionRef.current;
-      const restored =
-        saved !== null && !saved.following && scrollToAnchor(el, saved.anchors);
-      if (restored) {
-        placeRef.current?.takeHere();
-        return;
-      }
       setFollowing(true);
       scrollToBottom();
       return;
@@ -708,7 +747,14 @@ export function ChatPane({
     } else if (appended) {
       setPendingBelow(true);
     }
-  }, [agentId, following, scrollToBottom, showChildAgents, visibleEntries]);
+  }, [
+    agentId,
+    following,
+    scrollToBottom,
+    seekSaved,
+    showChildAgents,
+    visibleEntries,
+  ]);
 
   // Agent switch. AgentPane keys this pane by agent id, so in practice a
   // switch remounts it and the state above is already fresh; this covers
@@ -719,6 +765,8 @@ export function ChatPane({
     shownAgentRef.current = agentId;
     savedPositionRef.current = readChatScrollPosition(agentId);
     restoredRef.current = false;
+    seekingRef.current = false;
+    seekPagesRef.current = 0;
     setFollowing(savedPositionRef.current?.following ?? true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;

@@ -299,4 +299,78 @@ test.describe("Stream windowing", () => {
       })
       .toBe(before.offset);
   });
+
+  test("full history after older rows landed above still mounts every row", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-windowing-find-older-${Date.now()}`,
+    });
+    await seedPosts(agent.id, ROWS);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("window-gap").first()).toBeAttached();
+    await scroller(page).evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    const heightBefore = await scroller(page).evaluate((el) => el.scrollHeight);
+    await scroller(page).getByRole("button", { name: "Load older" }).click();
+    await expect
+      .poll(() => scroller(page).evaluate((el) => el.scrollHeight))
+      .toBeGreaterThan(heightBefore + 3000);
+    await page.waitForTimeout(500);
+
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect.poll(() => mountedRows(page)).toBeGreaterThanOrEqual(200);
+    await expect(page.getByTestId("window-gap")).toHaveCount(0);
+  });
+
+  test("a reload puts the reader back on a row from an older page", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-windowing-reload-older-${Date.now()}`,
+    });
+    const ids = await seedPosts(agent.id, ROWS);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("window-gap").first()).toBeAttached();
+    // Two pages of older posts, then park on one from the oldest of them.
+    for (let i = 0; i < 2; i += 1) {
+      await scroller(page).evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      const height = await scroller(page).evaluate((el) => el.scrollHeight);
+      await scroller(page).getByRole("button", { name: "Load older" }).click();
+      await expect
+        .poll(() => scroller(page).evaluate((el) => el.scrollHeight))
+        .toBeGreaterThan(height + 3000);
+    }
+    await scroller(page).evaluate((el) => {
+      el.scrollTop = 600;
+    });
+    await page.waitForTimeout(800);
+    const before = (await topRow(page))!;
+    expect(ids.indexOf(before.id)).toBeLessThan(ROWS - 150);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(
+        async () => {
+          const row = page.locator(`[data-chat-entry-id="${before.id}"]`);
+          if ((await row.count()) === 0) return null;
+          return scroller(page).evaluate(
+            (el, id) =>
+              Math.round(
+                el
+                  .querySelector(`[data-chat-entry-id="${id}"]`)!
+                  .getBoundingClientRect().top - el.getBoundingClientRect().top
+              ),
+            before.id
+          );
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(before.offset);
+  });
 });
