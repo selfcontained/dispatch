@@ -79,13 +79,14 @@ function build(
     failFor?: readonly string[];
     deps?: Partial<StreamServiceDeps>;
     withDelivery?: boolean;
+    commands?: readonly string[];
   } = {}
 ) {
   const events: unknown[] = [];
   const injected: Injected[] = [];
   /** What each inject said the prompt is, in step with `injected`. */
   const injectedOpts: Array<
-    { blockId?: string; source?: PromptSource } | undefined
+    { blockId?: string; source?: PromptSource; alone?: boolean } | undefined
   > = [];
   const cancelled: string[] = [];
   const svc = new StreamService({
@@ -107,6 +108,7 @@ function build(
               }
             },
             held: () => opts.held ?? false,
+            commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
             },
@@ -1465,6 +1467,24 @@ describe("StreamService.update", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.sendUserPost", () => {
+  it("sends an advertised slash command as its own raw ACP turn", async () => {
+    const { svc, injected, injectedOpts } = build({
+      commands: ["skills", "review"],
+    });
+    const result = await svc.sendUserPost(A, { text: "/skills list" });
+    await settled(svc, result.block.id);
+    expect(result.block.text).toBe("/skills list");
+    expect(injected).toEqual([{ agentId: A, text: "/skills list" }]);
+    expect(injectedOpts[0]).toMatchObject({
+      blockId: result.block.id,
+      alone: true,
+    });
+
+    const unknown = await svc.sendUserPost(A, { text: "/unknown list" });
+    await settled(svc, unknown.block.id);
+    expect(injected[1]?.text).toContain("--- DISPATCH POST");
+  });
+
   it("persists pending, returns held, then settles delivered", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {
@@ -3168,6 +3188,31 @@ describe("StreamService review threads", () => {
     ).toEqual([quiet.id, told.id, toChild.block.id]);
   });
 
+  it("sends a command typed to a child raw, including after a failed delivery", async () => {
+    const { svc: failing, injected: first } = build({
+      fail: true,
+      commands: ["skills"],
+    });
+    const posted = await failing.sendUserPost(A, {
+      to: B,
+      text: "/skills list",
+    });
+    const failed = await settled(failing, posted.block.id);
+    expect(failed).toMatchObject({
+      delivered: false,
+      threadId: launchBlockId(B),
+      replyTo: launchBlockId(B),
+      data: { acpCommand: true },
+    });
+    expect(first).toEqual([{ agentId: B, text: "/skills list" }]);
+
+    const { svc, injected, injectedOpts } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected).toEqual([{ agentId: B, text: "/skills list" }]);
+    expect(injectedOpts[0]).toMatchObject({ blockId: failed.id, alone: true });
+  });
+
   it("routes a reply on the launch card between the parent and the child", async () => {
     const { svc, injected } = build();
     const card = await launchChild(svc);
@@ -4099,6 +4144,27 @@ describe("StreamService delivery that is never taken", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.retryDelivery", () => {
+  it("retries a failed ACP command as the same raw, isolated prompt", async () => {
+    const { svc: failing, injected: first } = build({
+      fail: true,
+      commands: ["compact"],
+    });
+    const posted = await failing.sendUserPost(A, { text: "/compact" });
+    const failed = await settled(failing, posted.block.id);
+    expect(failed.delivered).toBe(false);
+    expect(first).toEqual([{ agentId: A, text: "/compact" }]);
+
+    // A restarted runtime may not have rediscovered commands yet.
+    const { svc, injected, injectedOpts } = build();
+    await svc.retryDelivery(A, failed.id);
+    await settled(svc, failed.id);
+    expect(injected).toEqual([{ agentId: A, text: "/compact" }]);
+    expect(injectedOpts[0]).toMatchObject({
+      blockId: failed.id,
+      alone: true,
+    });
+  });
+
   /** A post whose delivery failed: the row the Retry button acts on. */
   async function undelivered(text: string, to?: string) {
     const { svc } = build({ fail: true });

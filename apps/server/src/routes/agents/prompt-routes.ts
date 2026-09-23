@@ -18,6 +18,19 @@ export async function registerAgentPromptRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  app.get("/api/v1/agents/:id/commands", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+    return {
+      commands: (deps.agentManager.getCommands(id) ?? []).map((command) => ({
+        name: command.name,
+        description: command.description,
+        ...(command.input?.hint ? { inputHint: command.input.hint } : {}),
+      })),
+    };
+  });
+
   // A quick phrase, rendered with its args. `submit: false` only renders:
   // the client puts the text in the composer for the user to edit.
   app.post("/api/v1/agents/:id/prompts/phrase", async (request, reply) => {

@@ -237,6 +237,7 @@ async function main(): Promise<void> {
           running,
           turn: openTurn,
           journalSeq: journal.lastSeq,
+          commands: driver.getCommands(agentId) ?? [],
         });
         for (const entry of journal.after(message.fromSeq)) {
           send(socket, { type: "event", ...entry });
@@ -378,6 +379,7 @@ async function main(): Promise<void> {
       running,
       turn: null,
       journalSeq: journal.lastSeq,
+      commands: driver.getCommands(agentId) ?? [],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

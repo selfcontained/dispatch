@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
+import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
 import { createAcpRuntime } from "./acp/runtime.js";
 
@@ -50,6 +51,8 @@ export type AgentRuntime = {
   /** Reconnect to a host that outlived the server; false when it is gone. */
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;
+  /** Commands the live ACP session advertises; null without a live host. */
+  getCommands(agentId: string): AvailableCommand[] | null;
   /**
    * Queue one turn. `accepted` resolves when the engine has the prompt
    * (after any turn already running); `settled` when the turn ends.
@@ -113,6 +116,9 @@ export function createInertRuntime(): AgentRuntime {
     },
     async isAlive() {
       return true;
+    },
+    getCommands() {
+      return null;
     },
     prompt() {
       return { accepted: Promise.resolve(), settled: Promise.resolve() };

@@ -2,6 +2,7 @@ import type { PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
 import type { DriverEvent } from "./driver.js";
+import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
 
 /**
@@ -69,6 +70,8 @@ export type HostMessage =
       turn: { seq: number; startedAt: string } | null;
       /** The newest journal seq; replay follows up to here. */
       journalSeq: number;
+      /** Current ACP commands, including skills; refreshed on each reconnect. */
+      commands: AvailableCommand[];
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }

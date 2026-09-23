@@ -210,6 +210,8 @@ export type BlockTaskStatus = "todo" | "now" | "done";
 export type BlockTasksState = { items: Record<string, BlockTaskStatus> };
 
 export type BlockTextData = {
+  /** A user post first delivered as a raw ACP slash command. */
+  acpCommand?: true;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
   /**

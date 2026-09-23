@@ -111,6 +111,11 @@ describe("agent host", () => {
     expect(await first.runtime.isAlive(agentId)).toBe(true);
     expect(await first.runtime.hostPid(agentId)).toBeGreaterThan(0);
     expect(await first.runtime.listHosted()).toEqual([agentId]);
+    await until(() => first.runtime.getCommands(agentId)?.length === 2);
+    expect(first.runtime.getCommands(agentId)?.map((c) => c.name)).toEqual([
+      "review",
+      "compact",
+    ]);
 
     const turn = first.runtime.prompt(agentId, "hello there");
     await turn.accepted;
@@ -146,6 +151,10 @@ describe("agent host", () => {
     // missed (nothing yet), then runs a turn of its own.
     const second = runtimeWith(stateRoot, () => lastSeq);
     expect(await second.runtime.attach(agentId)).toBe(true);
+    expect(second.runtime.getCommands(agentId)?.map((c) => c.name)).toEqual([
+      "review",
+      "compact",
+    ]);
     expect(second.seen).toEqual([]);
     const again = second.runtime.prompt(agentId, "still here?");
     await again.settled;

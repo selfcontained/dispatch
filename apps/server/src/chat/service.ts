@@ -154,6 +154,8 @@ export type StreamDeliveryAdapter = {
   held: (agentId: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
+  /** Names of commands this agent's ACP session currently accepts. */
+  commands?: (agentId: string) => readonly string[];
 };
 
 export type StreamAgent = Pick<
@@ -825,6 +827,22 @@ export class StreamService {
           ? sides
           : [input.to ?? streamId];
     const toAgentId = recipients[0]!;
+    // ACP commands must be the entire prompt's first token. A normal post's
+    // DISPATCH POST envelope would hide the slash from the adapter, so an
+    // advertised command goes alone and reaches it as raw text. Keep the
+    // stored block: the command and its result still belong to one turn.
+    const commandName = /^\/([^\s/]+)(?:\s|$)/.exec(text)?.[1];
+    const rawCommand =
+      !!commandName &&
+      !review &&
+      // Only an explicit reply is a conversation. A child's default home
+      // is its launch-card thread, but a command typed in its composer is
+      // still a standalone ACP prompt.
+      !thread &&
+      attachments.length === 0 &&
+      mentioned.length === 0 &&
+      recipients.length === 1 &&
+      (this.delivery().commands?.(toAgentId) ?? []).includes(commandName);
     // A message for one child, written anywhere but a thread, goes to the
     // child's own thread: its card is where its conversation is.
     if (!thread && recipients.length === 1) {
@@ -855,6 +873,7 @@ export class StreamService {
     const liveRecipients = recipients.filter((id) => liveFor.get(id));
     const live = liveRecipients.length === recipients.length;
     const textData = {
+      ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
       ...(mentioned.length === 0 && recipients.length > 1
         ? { recipients }
@@ -902,6 +921,7 @@ export class StreamService {
       recipients,
       { kind: "user" },
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: text, alone: true } : {}),
         attachmentLines: linesFor.get(agentId) ?? [],
         mention:
           mentioned.length > 0
@@ -2355,6 +2375,8 @@ export class StreamService {
       mention?: { alsoTo: string[] } | null;
       /** Sent to cut in: its own turn, never combined with other posts. */
       alone?: boolean;
+      /** ACP slash command, sent without the Dispatch envelope. */
+      rawPrompt?: string;
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
@@ -2371,22 +2393,24 @@ export class StreamService {
       const own = perRecipient(agentId);
       const result = this.injectDetached({
         agentId,
-        envelope: buildPostEnvelope({
-          blockId: block.id,
-          from,
-          text: envelopeText(block),
-          attachmentLines: own.attachmentLines ?? [],
-          threadId: block.threadId,
-          finding: finding
-            ? {
-                id: finding.id,
-                title: finding.title,
-                opened: finding.authorAgentId === agentId,
-              }
-            : null,
-          answers: own.answers ?? null,
-          mention: own.mention ?? null,
-        }),
+        envelope:
+          own.rawPrompt ??
+          buildPostEnvelope({
+            blockId: block.id,
+            from,
+            text: envelopeText(block),
+            attachmentLines: own.attachmentLines ?? [],
+            threadId: block.threadId,
+            finding: finding
+              ? {
+                  id: finding.id,
+                  title: finding.title,
+                  opened: finding.authorAgentId === agentId,
+                }
+              : null,
+            answers: own.answers ?? null,
+            mention: own.mention ?? null,
+          }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
@@ -2634,6 +2658,17 @@ export class StreamService {
       .filter((entry) => entry.state === "failed")
       .map((entry) => entry.agentId);
     const recipients = missed.length > 0 ? missed : named;
+    // The first send persisted this intent. Retrying must not reclassify it
+    // against the host's current command list: it may be unavailable while
+    // the host reconnects, and wrapping the prompt would change its meaning.
+    const rawCommand =
+      block.kind === "text" &&
+      block.author.kind === "user" &&
+      block.data?.acpCommand === true &&
+      block.attachments.length === 0 &&
+      !mentioned?.length &&
+      named.length === 1 &&
+      recipients.length === 1;
     const agents = await Promise.all(named.map((id) => this.requireAgent(id)));
     // An agent that cannot take a prompt gets the reason now rather than a
     // second spinner: a retry is for a message that missed, not a way to
@@ -2675,6 +2710,7 @@ export class StreamService {
       recipients,
       from,
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: block.text, alone: true } : {}),
         attachmentLines: lines.get(agentId) ?? [],
         answers,
         // "also to" names everyone the post was addressed to, not just the
