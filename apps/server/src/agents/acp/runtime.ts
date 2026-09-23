@@ -131,11 +131,18 @@ const ENV_DENY_EXACT = new Set([
   "TLS_CA",
 ]);
 
-function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/** The fake ACP adapter test seam must reach the detached host process. */
+const ENV_ALLOW_DISPATCH = new Set(["DISPATCH_ACP_ADAPTER_COMMAND"]);
+
+export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined) continue;
-    if (ENV_DENY_EXACT.has(key) || key.startsWith("DISPATCH_")) continue;
+    if (
+      ENV_DENY_EXACT.has(key) ||
+      (key.startsWith("DISPATCH_") && !ENV_ALLOW_DISPATCH.has(key))
+    )
+      continue;
     env[key] = value;
   }
   return env;
