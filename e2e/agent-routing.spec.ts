@@ -36,9 +36,7 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("chat-empty")).toContainText(
-      "No messages yet"
-    );
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
   });
 
   test("browser back returns to the same agent session after visiting settings", async ({
@@ -51,9 +49,7 @@ test.describe("Agent routing", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page, agent.name);
-    await expect(page.getByTestId("chat-empty")).toContainText(
-      "No messages yet"
-    );
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
 
     await page.getByTestId("settings-button").click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -63,9 +59,7 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("current-session-name")).toContainText(
       agent.name
     );
-    await expect(page.getByTestId("chat-empty")).toContainText(
-      "No messages yet"
-    );
+    await expect(page.getByTestId("chat-composer-input")).toBeVisible();
   });
 
   test("legacy feedback and review routes normalize back to the agent route", async ({

@@ -643,15 +643,14 @@ describe("ChatPane", () => {
     expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
   });
 
-  it("shows the empty state while the feed has no blocks", () => {
+  it("shows no empty prompt while an agent's feed has no blocks", () => {
     H.entries = [];
     renderPane();
-    const empty = screen.getByTestId("chat-empty");
-    expect(empty.textContent).toContain("Send the first one below");
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
     expect(screen.queryByTestId("chat-message")).toBeNull();
   });
 
-  it("reads as empty while the stream holds only a launch card with no briefing", () => {
+  it("shows no empty prompt under a launch card with no briefing", () => {
     H.entries = [
       blockEntry(
         launchBlock({
@@ -673,7 +672,7 @@ describe("ChatPane", () => {
       ),
     ];
     renderPane();
-    expect(screen.getByTestId("chat-empty")).toBeTruthy();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
   it("counts a launch card with a briefing as the start of the conversation", () => {
