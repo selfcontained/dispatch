@@ -198,7 +198,6 @@ type Live = {
   /** Prompts not yet sent, oldest first. */
   waiting: Waiting[];
   pending: number;
-  pendingPosts: Set<string>;
   turnOpen: boolean;
   /** Event handling is serialized per agent so rows land in seq order. */
   events: Promise<void>;
@@ -394,7 +393,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       queue: Promise.resolve(),
       waiting: [],
       pending: 0,
-      pendingPosts: new Set(),
       turnOpen: false,
       events: Promise.resolve(),
       lastSeq: cursor.seq,
@@ -619,8 +617,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       };
       entry.waiting.push(own);
       entry.pending += 1;
-      const blockId = source?.source === "chat" ? source.chatMessageId : null;
-      if (blockId) entry.pendingPosts.add(blockId);
       const settled = entry.queue
         .catch(() => {})
         .then(async () => {
@@ -640,7 +636,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         })
         .finally(() => {
           entry.pending -= 1;
-          if (blockId) entry.pendingPosts.delete(blockId);
         });
       entry.queue = settled.catch(() => {});
       settled.catch((err: Error) => rejectAccepted(err));
@@ -648,14 +643,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       return { accepted, settled };
     },
 
-    isBusy(agentId, exceptBlockId) {
+    isBusy(agentId) {
       const entry = live.get(agentId);
-      return entry
-        ? entry.turnOpen ||
-            entry.pending -
-              (exceptBlockId && entry.pendingPosts.has(exceptBlockId) ? 1 : 0) >
-              0
-        : false;
+      return entry ? entry.turnOpen || entry.pending > 0 : false;
+    },
+
+    hasOpenTurn(agentId) {
+      return live.get(agentId)?.turnOpen ?? false;
     },
 
     async cancel(agentId) {

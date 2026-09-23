@@ -549,8 +549,12 @@ export class AgentManager {
   }
 
   /** A turn is running or prompts are waiting behind one. */
-  isPromptHeld(id: string, exceptBlockId?: string): boolean {
-    return this.runtime.isBusy(id, exceptBlockId);
+  isPromptHeld(id: string): boolean {
+    return this.runtime.isBusy(id);
+  }
+
+  hasOpenTurn(id: string): boolean {
+    return this.runtime.hasOpenTurn(id);
   }
 
   /** The live session's ACP slash commands, including advertised skills. */

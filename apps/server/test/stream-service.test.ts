@@ -118,8 +118,8 @@ function build(
                 queued.delete(key);
               }
             },
-            held: (_agentId, exceptBlockId) =>
-              opts.held ?? [...queued].some((key) => key !== exceptBlockId),
+            held: () => opts.held ?? queued.size > 0,
+            activeTurn: () => opts.held ?? false,
             commands: () => opts.commands ?? [],
             cancel: async (agentId) => {
               cancelled.push(agentId);
@@ -4219,6 +4219,31 @@ describe("StreamService delivery that is never taken", () => {
       row = await svc.store.getById(res.block.id);
     }
     expect(row).toMatchObject({ delivered: false });
+  });
+
+  it("gives up on multiple unaccepted prompts without treating their queue as active work", async () => {
+    vi.useFakeTimers();
+    const { svc } = build({ gate: never });
+    const first = await svc.sendUserPost(A, { text: "first" });
+    const second = await svc.sendUserPost(A, { text: "second" });
+    expect(first.held).toBe(true);
+    expect(second.held).toBe(true);
+    await vi.advanceTimersByTimeAsync(95_000);
+    vi.useRealTimers();
+    for (let i = 0; i < 50; i += 1) {
+      const rows = await Promise.all([
+        svc.store.getById(first.block.id),
+        svc.store.getById(second.block.id),
+      ]);
+      if (rows.every((row) => row?.delivered === false)) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(await svc.store.getById(first.block.id)).toMatchObject({
+      delivered: false,
+    });
+    expect(await svc.store.getById(second.block.id)).toMatchObject({
+      delivered: false,
+    });
   });
 
   it("keeps waiting while the agent is busy, however long that takes", async () => {

@@ -73,7 +73,9 @@ export type AgentRuntime = {
     opts?: { alone?: boolean }
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** A turn is running or prompts are waiting behind one. */
-  isBusy(agentId: string, exceptBlockId?: string): boolean;
+  isBusy(agentId: string): boolean;
+  /** A turn is actually running, excluding prompts waiting in the queue. */
+  hasOpenTurn(agentId: string): boolean;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;
@@ -124,6 +126,7 @@ export function createInertRuntime(): AgentRuntime {
       return { accepted: Promise.resolve(), settled: Promise.resolve() };
     },
     isBusy: () => false,
+    hasOpenTurn: () => false,
     async cancel() {},
     async stop() {},
     async listHosted() {

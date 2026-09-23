@@ -1227,6 +1227,7 @@ describe("stream routes with a deliverable engine", () => {
           if (opts.sendCommand) await opts.sendCommand(prompt);
         },
         held: () => opts.held ?? false,
+        activeTurn: () => opts.held ?? false,
       },
     });
     const app = Fastify();
