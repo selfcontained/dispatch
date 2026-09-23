@@ -34,6 +34,41 @@ describe("createAgentLifecycleRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("publishes the next reconnect check time and never overlaps slow passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
+    let release!: () => void;
+    const slowPass = new Promise<never[]>((resolve) => {
+      release = () => resolve([]);
+    });
+    const setNextReconcileAt = vi.fn().mockResolvedValue(undefined);
+    const reconcileAgentStatuses = vi
+      .fn()
+      .mockReturnValueOnce(slowPass)
+      .mockResolvedValue([]);
+    const deps = makeDeps({
+      agentManager: { setNextReconcileAt, reconcileAgentStatuses },
+    });
+    const rt = createAgentLifecycleRuntime(deps as never);
+
+    rt.startReconcileLoop();
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(
+      "2026-09-23T00:01:00.000Z"
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(reconcileAgentStatuses).toHaveBeenCalledTimes(1);
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(
+      "2026-09-23T00:03:00.000Z"
+    );
+
+    release();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(reconcileAgentStatuses).toHaveBeenCalledTimes(2);
+    rt.stopReconcileLoop();
+    expect(setNextReconcileAt).toHaveBeenLastCalledWith(null);
+  });
+
   describe("beginBackgroundArchive", () => {
     it("claims the archive and returns without awaiting teardown", async () => {
       const deps = makeDeps();

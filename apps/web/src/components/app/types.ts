@@ -26,7 +26,6 @@ type LenientAgentField =
   | "archiveCleanupMode"
   | "simulatorUdid"
   | "lastError"
-  | "latestEvent"
   | "activity"
   | "currentTurn"
   | "gitContext"

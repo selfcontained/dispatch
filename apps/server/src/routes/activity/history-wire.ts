@@ -6,30 +6,14 @@
  * apps/web/src/hooks/use-agent-history.ts.
  */
 
-export type HistoryLatestEvent = {
-  type: string;
-  message: string;
-  updatedAt: string;
-  metadata: Record<string, unknown> | null;
-};
-
 export type HistoryChildAgent = {
   id: string;
   name: string;
   persona: string | null;
   status: string;
-  latestEvent: HistoryLatestEvent | null;
   totalTokens: number;
   createdAt: string;
   updatedAt: string;
-};
-
-export type HistoryEvent = {
-  id: number;
-  event_type: string;
-  message: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
 };
 
 export type HistoryTokenTotals = {

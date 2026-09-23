@@ -248,7 +248,6 @@ describe("AgentManager", () => {
       expect(agent.cliSessionId).toBe("sess_1");
       expect(agent.filesDir).toBeTruthy();
       expect(agent.createdAt).toBeTruthy();
-      expect(agent.latestEvent?.message).toBe("Claude Code session started.");
       expect(runtime.launch).toHaveBeenCalledTimes(1);
     });
 
@@ -346,10 +345,6 @@ describe("AgentManager", () => {
       expect(failed!.status).toBe("error");
       expect(failed!.lastError).toBe("adapter not found");
       expect(failed!.setupPhase).toBeNull();
-      expect(failed!.latestEvent).toMatchObject({
-        type: "blocked",
-        message: "Failed to create agent: adapter not found",
-      });
     });
 
     it("should reject engines the ACP runtime cannot drive without launching", async () => {
@@ -400,7 +395,6 @@ describe("AgentManager", () => {
       const [failed] = await manager.listAgents();
       expect(failed!.status).toBe("stopped");
       expect(failed!.lastError).toContain("Worktree creation failed");
-      expect(failed!.latestEvent?.type).toBe("blocked");
     });
 
     it("should use a custom name when provided", async () => {
@@ -1336,19 +1330,12 @@ describe("AgentManager", () => {
         },
         1
       );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "working",
-        message: "Fix the login bug",
-      });
 
       await runtime.emit(
         agent.id,
         { type: "turn", agentId: agent.id, state: "settled" },
         2
       );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "idle",
-      });
 
       const store = new BlockStore(pool);
       await store.insert({
@@ -1359,7 +1346,6 @@ describe("AgentManager", () => {
         data: { options: [{ label: "Yes" }] },
         state: {},
       });
-      // A stream prompt names its block by id; the status reads the text back.
       const userMessage = await store.insert({
         streamId: agent.id,
         author: { kind: "user" },
@@ -1377,19 +1363,12 @@ describe("AgentManager", () => {
         },
         3
       );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "working",
-        message: "Please also update the docs",
-      });
+
       await runtime.emit(
         agent.id,
         { type: "turn", agentId: agent.id, state: "settled" },
         4
       );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "waiting_user",
-        message: "Ship it?",
-      });
 
       await runtime.emit(
         agent.id,
@@ -1406,10 +1385,6 @@ describe("AgentManager", () => {
         },
         6
       );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "blocked",
-        message: "rate limited",
-      });
     });
 
     it("marks the agent waiting as soon as it posts a question", async () => {
@@ -1418,59 +1393,6 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       await manager.noteQuestionPosted(agent.id, "Which branch?\nmain or dev");
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "waiting_user",
-        message: "Which branch?",
-      });
-    });
-
-    it("stops treating a canceled question as waiting", async () => {
-      const { BlockStore } = await import("../../src/chat/store.js");
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-      const store = new BlockStore(pool);
-      const q = await store.insert({
-        streamId: agent.id,
-        author: { kind: "agent", agentId: agent.id },
-        kind: "question",
-        text: "Ship it?",
-        data: { options: [{ label: "Yes" }] },
-        state: {},
-      });
-      await runtime.emit(
-        agent.id,
-        { type: "turn", agentId: agent.id, state: "started", text: "x" },
-        1
-      );
-      await runtime.emit(
-        agent.id,
-        { type: "turn", agentId: agent.id, state: "settled" },
-        2
-      );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "waiting_user",
-        message: "Ship it?",
-      });
-
-      await store.recordCancellation(q.id, {
-        by: { kind: "agent", agentId: agent.id },
-        at: new Date().toISOString(),
-      });
-      await runtime.emit(
-        agent.id,
-        { type: "turn", agentId: agent.id, state: "started", text: "y" },
-        3
-      );
-      await runtime.emit(
-        agent.id,
-        { type: "turn", agentId: agent.id, state: "settled" },
-        4
-      );
-      expect((await manager.getAgent(agent.id))!.latestEvent).toMatchObject({
-        type: "idle",
-      });
     });
 
     it("tells its listeners once when an engine's model list changes the catalog", async () => {
@@ -1513,7 +1435,7 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       const upserts: string[] = [];
-      manager.onLatestEvent((record) => upserts.push(record.status));
+      manager.onAgentUpdated((record) => upserts.push(record.status));
 
       await runtime.emit(
         agent.id,
@@ -1533,7 +1455,6 @@ describe("AgentManager", () => {
       expect(fetched!.lastError).toBe(
         "The agent exited with code 1: panic: boom"
       );
-      expect(fetched!.latestEvent).toMatchObject({ type: "blocked" });
       expect(upserts).toContain("error");
     });
 
@@ -1615,11 +1536,27 @@ describe("AgentManager", () => {
         return one;
       }
 
-      it("names the open turn's block only while the agent is working", async () => {
+      it("names the open turn's block only while ACP has a live turn", async () => {
         const agent = await running();
         const block = await openTurn(agent.id);
         expect(await currentTurnOf(agent.id)).toBeNull();
         runtime.isBusy.mockImplementation((id) => id === agent.id);
+        expect(await currentTurnOf(agent.id)).toEqual({
+          blockId: block.id,
+          threadId: null,
+        });
+      });
+
+      it("does not gate the ACP turn on derived activity", async () => {
+        const agent = await running();
+        const block = await openTurn(agent.id);
+        await pool.query(
+          `UPDATE agents SET setup_phase = 'session' WHERE id = $1`,
+          [agent.id]
+        );
+        runtime.isBusy.mockImplementation((id) => id === agent.id);
+
+        expect(await activityOf(agent.id)).toBe("starting");
         expect(await currentTurnOf(agent.id)).toEqual({
           blockId: block.id,
           threadId: null,
@@ -1678,21 +1615,18 @@ describe("AgentManager", () => {
       expect(await activityOf(agent.id)).toBe("idle");
     });
 
-    it("reads stopped for a stopped agent whose last event still says working", async () => {
+    it("reads stopped when a turn was interrupted by a stop", async () => {
       const agent = await running();
       await runtime.emit(
         agent.id,
         { type: "turn", agentId: agent.id, state: "started", text: "go" },
         1
       );
-      // Stopped behind the event's back (a host lost at boot, a reconcile):
-      // the last status event written is still "working".
       await pool.query(`UPDATE agents SET status = 'stopped' WHERE id = $1`, [
         agent.id,
       ]);
       const fetched = (await manager.getAgent(agent.id))!;
       expect(fetched.status).toBe("stopped");
-      expect(fetched.latestEvent?.type).toBe("working");
       // Even if the runtime still counts the turn, a stopped agent is stopped.
       runtime.isBusy.mockImplementation(() => true);
       expect(await activityOf(agent.id)).toBe("stopped");
@@ -1779,87 +1713,6 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("upsertLatestEvent", () => {
-    it("should persist an event on an agent", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const updated = await manager.upsertLatestEvent(agent.id, {
-        type: "working",
-        message: "Doing stuff",
-      });
-
-      expect(updated.latestEvent).not.toBeNull();
-      expect(updated.latestEvent!.type).toBe("working");
-      expect(updated.latestEvent!.message).toBe("Doing stuff");
-      expect(updated.latestEvent!.updatedAt).toBeTruthy();
-    });
-
-    it("should overwrite a previous event", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertLatestEvent(agent.id, {
-        type: "working",
-        message: "Step 1",
-      });
-
-      const updated = await manager.upsertLatestEvent(agent.id, {
-        type: "done",
-        message: "Step 2",
-      });
-
-      expect(updated.latestEvent!.type).toBe("done");
-      expect(updated.latestEvent!.message).toBe("Step 2");
-    });
-
-    it("should store metadata", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      const updated = await manager.upsertLatestEvent(agent.id, {
-        type: "blocked",
-        message: "Waiting on build",
-        metadata: { source: "ci", buildId: "123" },
-      });
-
-      expect(updated.latestEvent!.metadata).toEqual({
-        source: "ci",
-        buildId: "123",
-      });
-    });
-
-    it("should reject empty message", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await expect(
-        manager.upsertLatestEvent(agent.id, { type: "working", message: "  " })
-      ).rejects.toThrow("non-empty");
-    });
-
-    it("should return 404 for non-existent agent", async () => {
-      try {
-        await manager.upsertLatestEvent("agt_nonexistent", {
-          type: "working",
-          message: "hello",
-        });
-        expect.unreachable("should have thrown");
-      } catch (err) {
-        expect(err).toBeInstanceOf(AgentError);
-        expect((err as InstanceType<typeof AgentError>).statusCode).toBe(404);
-      }
-    });
-  });
-
   describe("archiveAgent", () => {
     /** Helper: run the full beginArchive + executeArchive flow and wait for completion. */
     async function archiveAgent(
@@ -1936,11 +1789,6 @@ describe("AgentManager", () => {
       });
       // The teardown's own error is not a status line, and not "blocked".
       expect(rows.rows.filter((r) => r.kind === "status")).toHaveLength(0);
-      const latest = await pool.query<{ latest_event_type: string | null }>(
-        "SELECT latest_event_type FROM agents WHERE id = $1",
-        [agent.id]
-      );
-      expect(latest.rows[0]!.latest_event_type).not.toBe("blocked");
     });
 
     it("settles the turn an agent was in when stopped as stopped", async () => {
@@ -2075,7 +1923,6 @@ describe("AgentManager", () => {
       const stopped = await manager.stopAgent(agent.id, { force: true });
 
       expect(stopped.status).toBe("stopped");
-      expect(stopped.latestEvent?.message).toBe("Session stopped.");
       expect(runtime.stop).toHaveBeenCalledWith(agent.id, true);
       const turns = await pool.query<{
         payload: { state: string; error?: string };
@@ -2124,7 +1971,6 @@ describe("AgentManager", () => {
       const failed = await manager.getAgent(agent.id);
       expect(failed!.status).toBe("error");
       expect(failed!.lastError).toBe("socket hung");
-      expect(failed!.latestEvent?.type).toBe("blocked");
     });
   });
 
@@ -2152,9 +1998,6 @@ describe("AgentManager", () => {
       expect(runtime.attach).toHaveBeenCalledWith(agent.id);
       expect(runtime.launch).not.toHaveBeenCalled();
       expect(started.status).toBe("running");
-      expect(started.latestEvent?.message).toBe(
-        "Reattached to the running agent."
-      );
     });
 
     it("should relaunch resuming the stored ACP session", async () => {
@@ -2170,7 +2013,6 @@ describe("AgentManager", () => {
       expect(started.status).toBe("running");
       expect(started.cliSessionId).toBe("sess_1");
       expect(started.lastError).toBeNull();
-      expect(started.latestEvent?.message).toBe("Session resumed.");
     });
 
     it("should record the fresh session when the engine could not resume", async () => {
@@ -2183,7 +2025,6 @@ describe("AgentManager", () => {
       const started = await manager.startAgent(agent.id);
 
       expect(started.cliSessionId).toBe("sess_fresh");
-      expect(started.latestEvent?.message).toBe("Session started.");
     });
 
     it("should launch fresh when the agent has no session to resume", async () => {
@@ -2197,7 +2038,6 @@ describe("AgentManager", () => {
 
       expect(lastLaunch().resumeSessionId).toBeNull();
       expect(started.cliSessionId).toMatch(/^sess_/);
-      expect(started.latestEvent?.message).toBe("Session started.");
     });
 
     it("should transition through creating state during launch", async () => {
@@ -2224,8 +2064,6 @@ describe("AgentManager", () => {
       const failed = await manager.getAgent(agent.id);
       expect(failed!.status).toBe("error");
       expect(failed!.lastError).toBe("host exited");
-      expect(failed!.latestEvent?.type).toBe("blocked");
-      expect(failed!.latestEvent?.message).toContain("Failed to start agent");
     });
 
     it("should skip personality for persona agents even when one is active", async () => {
@@ -2300,9 +2138,6 @@ describe("AgentManager", () => {
       const lost = await manager.getAgent(gone.id);
       expect(lost!.status).toBe("stopped");
       expect(lost!.lastError).toContain("not running when Dispatch restarted");
-      expect(lost!.latestEvent?.message).toBe(
-        "Session ended while Dispatch was down."
-      );
     });
 
     it("does not lose, or let boot cleanup kill, a host that is alive but missed its first attach — and recovers once a later attach succeeds", async () => {
@@ -2355,9 +2190,6 @@ describe("AgentManager", () => {
       const reconciled = await manager.getAgent(agent.id);
       expect(reconciled!.status).toBe("stopped");
       expect(reconciled!.lastError).toBe("adapter crashed");
-      expect(reconciled!.latestEvent?.message).toContain(
-        "The agent is no longer running."
-      );
     });
 
     it("should leave agents with a live host alone", async () => {
@@ -2502,68 +2334,6 @@ describe("AgentManager", () => {
 
       const fetched = await manager.getAgent(agent.id);
       expect(fetched!.setupPhase).toBe("deps");
-    });
-  });
-
-  describe("upsertLatestEventIfCurrent", () => {
-    it("should update when expectedUpdatedAt matches", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertLatestEvent(agent.id, {
-        type: "working",
-        message: "first",
-      });
-
-      // The SQL comparison uses `latest_event_updated_at::text`, so we
-      // must read the timestamp in the same format the real caller
-      // (activity-monitor) uses.
-      const { rows } = await pool.query(
-        `SELECT latest_event_updated_at::text AS "ts" FROM agents WHERE id = $1`,
-        [agent.id]
-      );
-      const ts = rows[0].ts as string;
-
-      const result = await manager.upsertLatestEventIfCurrent(agent.id, ts, {
-        type: "done",
-        message: "second",
-      });
-
-      expect(result).not.toBeNull();
-      expect(result!.latestEvent!.type).toBe("done");
-      expect(result!.latestEvent!.message).toBe("second");
-    });
-
-    it("should return null when expectedUpdatedAt does not match", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-
-      await manager.upsertLatestEvent(agent.id, {
-        type: "working",
-        message: "first",
-      });
-
-      const result = await manager.upsertLatestEventIfCurrent(
-        agent.id,
-        "1970-01-01 00:00:00",
-        { type: "done", message: "stale" }
-      );
-
-      expect(result).toBeNull();
-    });
-
-    it("should return null for a non-existent agent", async () => {
-      const result = await manager.upsertLatestEventIfCurrent(
-        "agt_missing",
-        "1970-01-01 00:00:00",
-        { type: "done", message: "ghost" }
-      );
-
-      expect(result).toBeNull();
     });
   });
 

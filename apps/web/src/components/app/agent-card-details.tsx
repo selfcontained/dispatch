@@ -98,11 +98,7 @@ export function AgentCardDetails({
   return (
     <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
       <div className="absolute right-3 top-3">
-        <DiffStatBadge
-          diffStats={diffStats}
-          latestEventAt={agent.latestEvent?.updatedAt ?? null}
-          onRefresh={refreshDiffStats}
-        />
+        <DiffStatBadge diffStats={diffStats} onRefresh={refreshDiffStats} />
       </div>
       {agent.gitContext?.isWorktree ? (
         <div className="flex items-start justify-between gap-3">

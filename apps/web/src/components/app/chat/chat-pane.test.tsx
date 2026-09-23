@@ -168,12 +168,6 @@ const agent: Agent = {
   filesDir: null,
   createdAt: "2026-09-02T09:00:00.000Z",
   updatedAt: "2026-09-02T10:00:00.000Z",
-  latestEvent: {
-    type: "working",
-    message: "Running tests",
-    updatedAt: "2026-09-02T10:00:00.000Z",
-    metadata: null,
-  },
 };
 
 function Wrapper({ children }: { children: ReactNode }) {

@@ -103,7 +103,13 @@ function makeChild(overrides: Partial<Agent> = {}): Agent {
 }
 
 /** A `stream.entry` for one of this agent's turns that ran one command. */
-function turnEntry({ settled }: { settled: boolean }): StreamEntry {
+function turnEntry({
+  settled,
+  running = false,
+}: {
+  settled: boolean;
+  running?: boolean;
+}): StreamEntry {
   const at = "2026-07-15T12:00:00.000Z";
   return {
     type: "block",
@@ -135,7 +141,7 @@ function turnEntry({ settled }: { settled: boolean }): StreamEntry {
               id: "s1",
               kind: "execute",
               label: "Bash",
-              status: "done",
+              status: running ? "running" : "ok",
               startedAt: at,
               detail: { input: { command: "pnpm test" } },
             },
@@ -385,6 +391,30 @@ describe("AgentCardHeader wiring", () => {
 
     rerender({
       agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: {
+          phase: "waiting",
+          nextRetryAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      }),
+    });
+    expect(screen.queryByText("Attention")).toBeNull();
+    expect(screen.getByText("Reconnecting")).toBeTruthy();
+    expect(screen.getByText(/Next try in \d+s/)).toBeTruthy();
+    expect(screen.queryByText("Last error")).toBeNull();
+
+    rerender({
+      agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: { phase: "trying", nextRetryAt: null },
+      }),
+    });
+    expect(screen.getByText("Trying now")).toBeTruthy();
+
+    rerender({
+      agent: makeAgent({
         name: "job-nightly",
         jobRun: {
           continuationEnabled: false,
@@ -440,11 +470,12 @@ describe("AgentCardStatus wiring", () => {
     return screen.queryByTestId(`agent-activity-${AGENT_ID}`);
   }
 
-  it("says Starting… while setting up and shows the archive phase while archiving", () => {
+  it("shows lifecycle progress while setting up and archiving", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ status: "creating", setupPhase: "deps" }),
     });
-    expect(activity()?.textContent).toBe("Starting…");
+    expect(screen.getByText("Starting…")).toBeTruthy();
+    expect(activity()).toBeNull();
     // The phase detail lives in the stream's workspace block, not here.
     expect(screen.queryByText("Installing dependencies…")).toBeNull();
 
@@ -464,71 +495,81 @@ describe("AgentCardStatus wiring", () => {
     expect(screen.queryByText("Archiving…")).toBeNull();
   });
 
-  it("shows the server's activity, not the last status event", () => {
-    const stale = {
-      type: "working" as const,
-      message: "Fixing the login bug",
-      updatedAt: new Date().toISOString(),
-      metadata: {},
-    };
+  it("shows no turn step when no active turn is reported", () => {
     const { rerender } = renderCard({
-      agent: makeAgent({
-        status: "stopped",
-        activity: "stopped",
-        latestEvent: stale,
-      }),
-    });
-    expect(activity()?.getAttribute("data-activity")).toBe("stopped");
-    expect(activity()?.textContent).toBe("Stopped");
-    expect(screen.queryByText("Working")).toBeNull();
-
-    rerender({
-      agent: makeAgent({ activity: "waiting", latestEvent: stale }),
-      expandedAgentId: AGENT_ID,
-    });
-    expect(activity()?.textContent).toBe("Waiting");
-    expect(screen.queryByText("Fixing the login bug")).toBeNull();
-
-    rerender({ agent: makeAgent({ activity: "blocked" }) });
-    expect(activity()?.textContent).toBe("Blocked");
-  });
-
-  it("says nothing while idle", () => {
-    renderCard({
-      agent: makeAgent({
-        activity: "idle",
-        latestEvent: {
-          type: "idle",
-          message: "Ready.",
-          updatedAt: new Date().toISOString(),
-          metadata: {},
-        },
-      }),
-      expandedAgentId: AGENT_ID,
+      agent: makeAgent({ status: "stopped", activity: "stopped" }),
     });
     expect(activity()).toBeNull();
-    expect(screen.queryByText("Idle")).toBeNull();
-    expect(screen.queryByText("Ready.")).toBeNull();
+
+    rerender({ agent: makeAgent({ activity: "waiting" }) });
+    expect(activity()).toBeNull();
+
+    rerender({ agent: makeAgent({ activity: "blocked" }) });
+    expect(activity()).toBeNull();
+
+    rerender({ agent: makeAgent({ activity: "idle" }) });
+    expect(activity()).toBeNull();
   });
 
   it("shows what a running turn is doing, from its stream entry", async () => {
     const client = new QueryClient();
-    const agent = makeAgent({ activity: "working" });
-    render(wrap(client, <AgentCard {...baseProps(agent)} />));
-    expect(activity()?.textContent).toBe("Working");
+    const agent = makeAgent({
+      activity: "working",
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    expect(activity()).toBeNull();
 
     // React Query batches its notifications on a timer.
     act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(
+      activity()?.querySelector('[data-testid="harness-turn-live"]')
+    ).toBeTruthy();
+
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...baseProps({ ...agent, activity: "waiting" })} />
+      )
+    );
+    expect(activity()?.textContent).toMatch(/bash$/);
+
+    rerender(
+      wrap(
+        client,
+        <AgentCard {...baseProps({ ...agent, currentTurn: null })} />
+      )
+    );
+    expect(activity()).toBeNull();
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "another_turn", threadId: null },
+          })}
+        />
+      )
+    );
+    expect(activity()).toBeNull();
+    rerender(wrap(client, <AgentCard {...baseProps(agent)} />));
+    expect(activity()?.textContent).toMatch(/bash$/);
+
+    act(() => {
       recordTurnLabel(client, turnEntry({ settled: false }));
     });
-    await waitFor(() =>
-      expect(activity()?.textContent).toBe("Workingran pnpm test")
-    );
+    await waitFor(() => expect(activity()).toBeNull());
 
     act(() => {
       recordTurnLabel(client, turnEntry({ settled: true }));
     });
-    await waitFor(() => expect(activity()?.textContent).toBe("Working"));
+    await waitFor(() => expect(activity()).toBeNull());
   });
 });
 
@@ -728,7 +769,10 @@ describe("AgentCardActions and child agents", () => {
 
   it("surfaces the last error inside the expanded card", () => {
     renderCard({
-      agent: makeAgent({ lastError: "worktree checkout failed" }),
+      agent: makeAgent({
+        status: "error",
+        lastError: "worktree checkout failed",
+      }),
       expandedAgentId: AGENT_ID,
     });
 

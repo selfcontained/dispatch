@@ -37,7 +37,6 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query("DELETE FROM blocks");
-  await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM settings WHERE key = $1", [
     ARCHIVED_AGENT_RETENTION_SETTING,
   ]);
@@ -54,10 +53,6 @@ async function seedAgent(
              CASE WHEN $2::int IS NULL THEN NULL ELSE now() - ($2::int * interval '1 day') END,
              $3)`,
     [id, opts.archivedDaysAgo ?? null, opts.parent ?? null]
-  );
-  await pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message) VALUES ($1, 'done', 'x')`,
-    [id]
   );
   await pool.query(
     `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
@@ -97,7 +92,7 @@ async function count(table: string, column: string, id: string) {
 }
 
 describe("purgeExpiredArchivedAgents", () => {
-  it("removes an agent archived past the window with its stream, history and files", async () => {
+  it("removes an agent archived past the window with its stream and files", async () => {
     await seedAgent("old", { archivedDaysAgo: 40 });
     await seedAgent("child", { archivedDaysAgo: 40, parent: "old" });
     await seedBlock("old", "old");
@@ -115,7 +110,6 @@ describe("purgeExpiredArchivedAgents", () => {
 
     for (const id of ["old", "child"]) {
       expect(await count("agents", "id", id)).toBe(0);
-      expect(await count("agent_events", "agent_id", id)).toBe(0);
       expect(await count("agent_stream_events", "agent_id", id)).toBe(0);
       expect(await count("files", "agent_id", id)).toBe(0);
       await expect(stat(path.join(filesRoot, id))).rejects.toThrow();
@@ -125,7 +119,6 @@ describe("purgeExpiredArchivedAgents", () => {
 
     for (const id of ["recent", "live"]) {
       expect(await count("agents", "id", id)).toBe(1);
-      expect(await count("agent_events", "agent_id", id)).toBe(1);
       await expect(stat(path.join(filesRoot, id))).resolves.toBeTruthy();
     }
     expect(await count("blocks", "stream_id", "live")).toBe(1);

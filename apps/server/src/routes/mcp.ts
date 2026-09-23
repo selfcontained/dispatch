@@ -65,7 +65,6 @@ type McpRouteDeps = {
     agentId: string
   ) => boolean;
   mcpSendNotify: unknown;
-  mcpUpsertEvent: unknown;
   mcpRenameSession: unknown;
   mcpShareFile: unknown;
   mcpListFiles: unknown;
@@ -192,8 +191,6 @@ export async function registerMcpRoutes(
               cwd: a.cwd,
             }));
           },
-          getActivitySummary: (params: Record<string, unknown>) =>
-            telemetry.getActivitySummary(deps.pool, params as never),
           getFeedbackSummary: (params: Record<string, unknown>) =>
             telemetry.getFeedbackSummary(deps.pool, params as never),
         }
@@ -217,7 +214,6 @@ export async function registerMcpRoutes(
       repoRoot,
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
-      upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
       shareFile: deps.mcpShareFile,
       listFiles: deps.mcpListFiles,
@@ -232,10 +228,6 @@ export async function registerMcpRoutes(
       launchAgent: deps.mcpLaunchAgent,
       archiveAgent: deps.mcpArchiveAgent,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
-      getActivitySummary: (params: Record<string, unknown>) =>
-        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
@@ -300,7 +292,6 @@ export async function registerMcpRoutes(
       repoRoot,
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
-      upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
       shareFile: deps.mcpShareFile,
       listFiles: deps.mcpListFiles,
@@ -316,10 +307,6 @@ export async function registerMcpRoutes(
       archiveAgent: deps.mcpArchiveAgent,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       issueLoginLink: () => deps.loginLinkStore.issue(),
-      getActivitySummary: (params: Record<string, unknown>) =>
-        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>

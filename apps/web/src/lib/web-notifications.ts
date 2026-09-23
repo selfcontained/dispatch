@@ -2,6 +2,7 @@ const EVENT_LABELS: Record<string, string> = {
   done: "finished",
   waiting_user: "needs your input",
   blocked: "is blocked",
+  notice: "sent a message",
 };
 
 /**

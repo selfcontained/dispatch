@@ -443,14 +443,12 @@ describe("browser extension scoped API", () => {
   it("lists only sanitized running agents and rejects the master token", async () => {
     await ctx.pool.query(
       `INSERT INTO agents
-         (id, name, type, role, status, cwd, worktree_branch, latest_event_type,
-          latest_event_message, latest_event_updated_at)
+         (id, name, type, role, status, cwd, worktree_branch)
        VALUES
          ('agt_running', 'Running agent', 'codex', 'standard', 'running',
-          '/secret/repo', 'feature/browser', 'working', 'Building extension',
-          now()),
+          '/secret/repo', 'feature/browser'),
          ('agt_stopped', 'Stopped agent', 'codex', 'standard', 'stopped',
-          '/other/repo', null, null, null, null)`
+          '/other/repo', null)`
     );
     const { token } = await approveAndExchange();
 
@@ -479,7 +477,6 @@ describe("browser extension scoped API", () => {
       name: "Running agent",
       status: "running",
       branch: "feature/browser",
-      latestEvent: { type: "working", message: "Building extension" },
     });
     expect(body.agents[0]).not.toHaveProperty("cwd");
     expect(body.agents[0]).not.toHaveProperty("tmuxSession");

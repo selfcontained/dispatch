@@ -9,7 +9,6 @@ import {
 import type { DiffStats } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
-const STALE_AFTER_MS = 30_000;
 const FLASH_DURATION_MS = 600;
 const slotCounterProps = {
   animateUnchanged: false,
@@ -26,12 +25,6 @@ const slotCounterProps = {
 
 export type DiffStatBadgeProps = {
   diffStats: DiffStats | null | undefined;
-  /**
-   * Latest agent event timestamp (ISO). Used together with `computedAt`
-   * to detect when the agent has reported activity since the last
-   * compute — a hint that the cached value may be stale.
-   */
-  latestEventAt: string | null | undefined;
   onRefresh: () => void;
 };
 
@@ -53,7 +46,6 @@ function usePrefersReducedMotion(): boolean {
 
 export function DiffStatBadge({
   diffStats,
-  latestEventAt,
   onRefresh,
 }: DiffStatBadgeProps): JSX.Element | null {
   const [flash, setFlash] = useState(false);
@@ -100,12 +92,6 @@ export function DiffStatBadge({
   if (!diffStats) return null;
   if (diffStats.added === 0 && diffStats.deleted === 0) return null;
 
-  const eventAtMs = latestEventAt ? Date.parse(latestEventAt) : NaN;
-  const stale =
-    Number.isFinite(eventAtMs) &&
-    eventAtMs > diffStats.computedAt &&
-    Date.now() - diffStats.computedAt > STALE_AFTER_MS;
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -121,7 +107,6 @@ export function DiffStatBadge({
           className={cn(
             "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-none transition-colors",
             "border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-            stale && "opacity-60",
             flash && "border-status-working/60 bg-status-working/15"
           )}
           aria-label="Refresh diff stats"
@@ -159,11 +144,9 @@ export function DiffStatBadge({
         <div className="text-muted-foreground">
           +{diffStats.added} −{diffStats.deleted}
         </div>
-        {stale ? (
-          <div className="mt-1 text-[10px] text-muted-foreground/80">
-            Tap to refresh
-          </div>
-        ) : null}
+        <div className="mt-1 text-[10px] text-muted-foreground/80">
+          Tap to refresh
+        </div>
       </TooltipContent>
     </Tooltip>
   );

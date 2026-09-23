@@ -47,7 +47,7 @@ function buildAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     archivePhase: null,
     archiveCleanupMode: null,
     lastError: null,
-    latestEvent: null,
+
     gitContext: null,
     gitContextStale: false,
     gitContextUpdatedAt: null,

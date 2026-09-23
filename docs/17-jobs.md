@@ -200,7 +200,7 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_needs_input` | Pause the run and ask a human a question.   |
 | `job_log`         | Append a progress log to a named task.      |
 
-Job agents may also call analytics tools (`get_activity_summary`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (`post` with `notify: true` for Slack). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
+Job agents may also call analytics tools (`get_feedback_summary`), lister tools (`list_agents`, `list_personas`), `launch_agent` (with `persona` for a reviewer), `rename_session`, and the stream tools `post` / `update` / `react` (`post` with `notify: true` for browser and Slack notifications). Pull requests go through the `gh` CLI and are posted as a `pr` attachment.
 
 ## UI
 

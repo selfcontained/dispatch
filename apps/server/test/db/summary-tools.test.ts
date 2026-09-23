@@ -63,7 +63,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await pool.query("DELETE FROM agent_token_usage");
   await pool.query("DELETE FROM blocks");
-  await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM files_seen");
   await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
@@ -79,7 +78,6 @@ async function insertAgent(
     cwd?: string;
     persona?: string | null;
     parentAgentId?: string | null;
-    latestEventType?: string | null;
     createdAt?: Date;
     gitContext?: object | null;
   } = {}
@@ -87,8 +85,8 @@ async function insertAgent(
   const now = opts.createdAt ?? new Date();
   await pool.query(
     `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id,
-      latest_event_type, latest_event_message, created_at, updated_at, git_context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)`,
+      created_at, updated_at, git_context)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)`,
     [
       id,
       opts.name ?? id,
@@ -97,29 +95,8 @@ async function insertAgent(
       opts.cwd ?? "/projects/test",
       opts.persona ?? null,
       opts.parentAgentId ?? null,
-      opts.latestEventType ?? "done",
-      opts.latestEventType ? `Agent ${opts.latestEventType}` : null,
       now,
       opts.gitContext ? JSON.stringify(opts.gitContext) : null,
-    ]
-  );
-}
-
-async function insertEvent(
-  agentId: string,
-  eventType: string,
-  createdAt: Date,
-  opts: { projectDir?: string } = {}
-): Promise<void> {
-  await pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message, created_at, project_dir)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [
-      agentId,
-      eventType,
-      `Agent ${eventType}`,
-      createdAt,
-      opts.projectDir ?? "/projects/test",
     ]
   );
 }
@@ -249,169 +226,6 @@ function daysAgo(days: number): Date {
 function hoursAgo(hours: number): Date {
   return new Date(Date.now() - hours * 3_600_000);
 }
-
-// ── getActivitySummary ──────────────────────────────────────────────
-
-describe("getActivitySummary", () => {
-  it("returns empty results when no data exists", async () => {
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.projects).toHaveLength(0);
-    expect(result.totals.totalWorkingMs).toBe(0);
-    expect(result.totals.agentCount).toBe(0);
-    expect(result.totals.sessionCount).toBe(0);
-    expect(result.topAgents).toHaveLength(0);
-  });
-
-  it("computes working time from event pairs", async () => {
-    await insertAgent("a1", { cwd: "/projects/test" });
-
-    // working for 1 hour, then done
-    const start = hoursAgo(3);
-    const afterOneHour = new Date(start.getTime() + 3_600_000);
-    await insertEvent("a1", "working", start);
-    await insertEvent("a1", "done", afterOneHour);
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(1),
-      end: new Date(),
-    });
-
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].directory).toBe("/projects/test");
-    // Working time should be ~1 hour (3600000ms)
-    expect(result.projects[0].totalWorkingMs).toBeGreaterThanOrEqual(3_500_000);
-    expect(result.projects[0].totalWorkingMs).toBeLessThanOrEqual(3_700_000);
-    expect(result.projects[0].agentCount).toBe(1);
-  });
-
-  it("groups by project and counts sessions/outcomes", async () => {
-    const gitA = { repoRoot: "/projects/alpha" };
-    const gitB = { repoRoot: "/projects/beta" };
-
-    const created = hoursAgo(2);
-    await insertAgent("a1", {
-      gitContext: gitA,
-      latestEventType: "done",
-      createdAt: created,
-    });
-    await insertAgent("a2", {
-      gitContext: gitA,
-      latestEventType: "done",
-      createdAt: created,
-    });
-    await insertAgent("a3", {
-      gitContext: gitB,
-      latestEventType: "blocked",
-      createdAt: created,
-    });
-    // error agent with no latest event — insert directly to avoid default
-    await pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at, git_context)
-       VALUES ('a4', 'a4', 'claude', 'error', '/projects/test', $1, $1, $2)`,
-      [created, JSON.stringify(gitA)]
-    );
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.projects.length).toBeGreaterThanOrEqual(2);
-
-    const alpha = result.projects.find(
-      (p) => p.directory === "/projects/alpha"
-    );
-    const beta = result.projects.find((p) => p.directory === "/projects/beta");
-
-    expect(alpha).toBeDefined();
-    expect(alpha!.sessionCount).toBe(3);
-    expect(alpha!.outcomes.done).toBe(2);
-    expect(alpha!.outcomes.error).toBe(1);
-
-    expect(beta).toBeDefined();
-    expect(beta!.sessionCount).toBe(1);
-    expect(beta!.outcomes.blocked).toBe(1);
-  });
-
-  it("filters by project", async () => {
-    const gitA = { repoRoot: "/projects/alpha" };
-    const gitB = { repoRoot: "/projects/beta" };
-
-    await insertAgent("a1", { gitContext: gitA, latestEventType: "done" });
-    await insertAgent("a2", { gitContext: gitB, latestEventType: "done" });
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-      project: "/projects/alpha",
-    });
-
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].directory).toBe("/projects/alpha");
-    expect(result.totals.sessionCount).toBe(1);
-  });
-
-  it("includes archived parent agents in session counts", async () => {
-    await insertAgent("a1", { latestEventType: "done" });
-    await insertAgent("a2", { latestEventType: "done" });
-    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(7),
-      end: new Date(),
-    });
-
-    expect(result.totals.sessionCount).toBe(2);
-  });
-
-  it("returns top agents sorted by working time", async () => {
-    await insertAgent("a1", { name: "Short worker" });
-    await insertAgent("a2", { name: "Long worker" });
-
-    // a1 works 1 hour
-    await insertEvent("a1", "working", hoursAgo(5));
-    await insertEvent("a1", "done", hoursAgo(4));
-
-    // a2 works 3 hours
-    await insertEvent("a2", "working", hoursAgo(6));
-    await insertEvent("a2", "done", hoursAgo(3));
-
-    const result = await telemetry.getActivitySummary(pool, {
-      start: daysAgo(1),
-      end: new Date(),
-    });
-
-    expect(result.topAgents.length).toBeGreaterThanOrEqual(2);
-    expect(result.topAgents[0].name).toBe("Long worker");
-    expect(result.topAgents[1].name).toBe("Short worker");
-    expect(result.topAgents[0].totalWorkingMs).toBeGreaterThan(
-      result.topAgents[1].totalWorkingMs
-    );
-  });
-
-  it("handles boundary events for working time across range start", async () => {
-    await insertAgent("a1");
-
-    // Agent started working before the range, finishes inside the range
-    await insertEvent("a1", "working", hoursAgo(10));
-    await insertEvent("a1", "done", hoursAgo(8));
-
-    // Query a 9-hour window — the working event is before range start
-    const result = await telemetry.getActivitySummary(pool, {
-      start: hoursAgo(9),
-      end: new Date(),
-    });
-
-    // Should count ~1 hour of working time (from range start to done event)
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].totalWorkingMs).toBeGreaterThanOrEqual(3_400_000);
-    expect(result.projects[0].totalWorkingMs).toBeLessThanOrEqual(3_700_000);
-  });
-});
 
 // ── getFeedbackSummary ──────────────────────────────────────────────
 

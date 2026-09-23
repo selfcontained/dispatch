@@ -2,8 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import type {
   HistoryChildAgent,
-  HistoryEvent,
-  HistoryLatestEvent,
   HistoryFile,
   HistoryTokenUsage,
 } from "../../../server/src/routes/activity/history-wire";
@@ -17,7 +15,7 @@ const HISTORY_QUERY_OPTIONS = {
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type { HistoryChildAgent, HistoryEvent, HistoryFile, HistoryTokenUsage };
+export type { HistoryChildAgent, HistoryFile, HistoryTokenUsage };
 
 export type HistoryAgent = {
   id: string;
@@ -27,7 +25,6 @@ export type HistoryAgent = {
   cwd: string;
   worktreePath: string | null;
   worktreeBranch: string | null;
-  latestEvent: HistoryLatestEvent | null;
   gitContext: {
     repoRoot: string;
     branch: string;
@@ -52,10 +49,8 @@ export type HistoryAgentsResponse = {
 
 export type HistoryAgentDetail = {
   agent: Omit<HistoryAgent, "durationMs" | "totalTokens">;
-  events: HistoryEvent[];
   tokenUsage: HistoryTokenUsage;
   files: HistoryFile[];
-  stateDurations: Record<string, number>;
 };
 
 // ── Filters ────────────────────────────────────────────────────────

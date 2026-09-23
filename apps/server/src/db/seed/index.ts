@@ -5,7 +5,6 @@ import type { Pool, PoolClient } from "pg";
 
 import { SEED_TAG } from "./constants.js";
 import { seedAgents } from "./agents.js";
-import { seedActivityEvents } from "./activity.js";
 import { seedTokenUsage } from "./token-usage.js";
 import { seedFiles } from "./files.js";
 import { seedJobs } from "./jobs.js";
@@ -53,13 +52,6 @@ async function clearSeeded(client: PoolClient): Promise<void> {
     SEED_TAG,
   ]);
   await client.query(`DELETE FROM jobs WHERE id LIKE 'seed-job-%'`);
-  await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
-    SEED_TAG,
-  ]);
-  // Legacy e2e fixture tag — clear alongside so dev DBs don't accumulate stale rows.
-  await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
-    "activity-demo",
-  ]);
   // Deleting agents cascades to files, token usage and stream events.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
@@ -76,7 +68,6 @@ export async function seedDevData(
     await client.query("BEGIN");
     await clearSeeded(client);
     await seedAgents(client);
-    await seedActivityEvents(client);
     await seedTokenUsage(client);
     await seedFiles(client);
     await seedJobs(client);

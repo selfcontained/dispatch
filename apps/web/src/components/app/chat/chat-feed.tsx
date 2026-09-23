@@ -84,7 +84,7 @@ export function entryGrowthKey(entry: StreamEntry): string {
  * plus posts edited in place — never what was there at mount, and never a
  * page of older entries. An unseen id is an arrival when it is at least as
  * new as the newest entry seen so far, or when it sits below an entry that
- * was already here (a late status event lands by time under the newest
+ * was already here (a late block can land by time under the newest
  * post); a page from "Load older" is the one thing that only ever lands
  * above everything seen. The value is the version the animation belongs
  * to, so an edit of an entry that already faded in fades it in again.

@@ -19,8 +19,8 @@ export function SoundCuesSection(): JSX.Element {
         Sound Cues
       </h3>
       <p className="mb-3 text-sm text-muted-foreground">
-        Soft tones for agent status changes and mobile toolbar taps. This device
-        only.
+        Soft tones when an agent needs input or a turn fails, plus mobile
+        toolbar taps. This device only.
       </p>
       <div className="max-w-lg space-y-3">
         <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">

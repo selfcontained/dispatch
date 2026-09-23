@@ -4,10 +4,6 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
-import {
-  AGENT_LATEST_EVENT_TYPES,
-  isAgentLatestEventType,
-} from "../../agents/latest-event.js";
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
@@ -72,51 +68,6 @@ export async function registerAgentLifecycleRoutes(
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
-  });
-
-  app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as {
-      type?: unknown;
-      message?: unknown;
-      metadata?: unknown;
-    };
-    const id = params.id ?? "";
-
-    if (!isAgentLatestEventType(body?.type)) {
-      return reply.code(400).send({
-        error: `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`,
-      });
-    }
-
-    if (typeof body.message !== "string" || !body.message.trim()) {
-      return reply
-        .code(400)
-        .send({ error: "message must be a non-empty string." });
-    }
-
-    if (
-      body.metadata !== undefined &&
-      (body.metadata === null ||
-        typeof body.metadata !== "object" ||
-        Array.isArray(body.metadata))
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "metadata must be an object when provided." });
-    }
-
-    const agent = await deps.agentManager.upsertLatestEvent(id, {
-      type: body.type,
-      message: body.message.trim(),
-      metadata: body.metadata as Record<string, unknown> | undefined,
-    });
-
-    deps.publishUiEvent({
-      type: "agent.upsert",
-      agent: deps.withStreamFlag(agent),
-    });
-    return { agent };
   });
 
   app.post("/api/v1/agents/:id/setup/phase", async (request, reply) => {

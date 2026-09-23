@@ -118,17 +118,12 @@ function createMockDeps() {
         status: "running",
         type: "claude",
         fullAccess: false,
-        latestEvent: null,
+
         worktreePath: null,
         worktreeBranch: null,
         baseBranch: null,
         reviewAgentType: null,
         filesDir: null,
-      })),
-      upsertLatestEvent: vi.fn(async (_id: string, ev: any) => ({
-        id: _id,
-        name: "test-agent",
-        latestEvent: ev,
       })),
       listAgents: vi.fn(async () => []),
       createAgent: vi.fn(async (opts: any) => ({
@@ -225,68 +220,6 @@ describe("createMcpHandlers", () => {
     handlers = createMcpHandlers(
       deps as unknown as Parameters<typeof createMcpHandlers>[0]
     );
-  });
-
-  describe("upsertEvent", () => {
-    it("accepts valid event types", async () => {
-      for (const type of [
-        "working",
-        "blocked",
-        "waiting_user",
-        "done",
-        "idle",
-      ]) {
-        await handlers.upsertEvent("agt_test1", {
-          type,
-          message: "test message",
-        });
-      }
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledTimes(5);
-    });
-
-    it("rejects invalid event type", async () => {
-      await expect(
-        handlers.upsertEvent("agt_test1", {
-          type: "invalid",
-          message: "test",
-        })
-      ).rejects.toThrow("type must be one of:");
-    });
-
-    it("trims the event message", async () => {
-      await handlers.upsertEvent("agt_test1", {
-        type: "working",
-        message: "  test  ",
-      });
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledWith(
-        "agt_test1",
-        expect.objectContaining({ message: "test" })
-      );
-    });
-
-    it("passes metadata through", async () => {
-      const metadata = { key: "value" };
-      await handlers.upsertEvent("agt_test1", {
-        type: "done",
-        message: "msg",
-        metadata,
-      });
-      expect(deps.agentManager.upsertLatestEvent).toHaveBeenCalledWith(
-        "agt_test1",
-        expect.objectContaining({ metadata })
-      );
-    });
-
-    it("publishes agent.upsert UI event with stream flag", async () => {
-      await handlers.upsertEvent("agt_test1", {
-        type: "working",
-        message: "msg",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agent.upsert" })
-      );
-      expect(deps.withStreamFlag).toHaveBeenCalled();
-    });
   });
 
   describe("sendNotify", () => {
@@ -1737,21 +1670,18 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: { type: "working", message: "busy" },
         },
         {
           id: "agt_peer",
           name: "peer",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
         },
         {
           id: "agt_other",
           name: "other",
           cwd: "/other-repo",
           status: "running",
-          latestEvent: null,
         },
       ]);
       vi.mocked(resolveRepoRoot).mockImplementation(
@@ -1764,7 +1694,6 @@ describe("createMcpHandlers", () => {
         id: "agt_peer",
         name: "peer",
         status: "running",
-        latestEvent: null,
         parentAgentId: null,
         parentName: null,
         relation: "unrelated",
@@ -1778,14 +1707,12 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
         },
         {
           id: "agt_other",
           name: "other",
           cwd: "/other-repo",
           status: "running",
-          latestEvent: null,
         },
       ]);
       vi.mocked(resolveRepoRoot).mockImplementation(
@@ -1802,7 +1729,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1810,7 +1737,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
         {
@@ -1818,7 +1745,7 @@ describe("createMcpHandlers", () => {
           name: "unrelated",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
       ]);
@@ -1837,7 +1764,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1845,7 +1772,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -1864,7 +1791,7 @@ describe("createMcpHandlers", () => {
           name: "grandparent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1872,7 +1799,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_grandparent",
         },
         {
@@ -1880,7 +1807,7 @@ describe("createMcpHandlers", () => {
           name: "grandchild",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -1903,7 +1830,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/not-a-repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1911,7 +1838,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);
@@ -1930,7 +1857,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1938,7 +1865,7 @@ describe("createMcpHandlers", () => {
           name: "planner",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
         {
@@ -1946,7 +1873,7 @@ describe("createMcpHandlers", () => {
           name: "researcher",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_planner",
         },
         {
@@ -1954,7 +1881,7 @@ describe("createMcpHandlers", () => {
           name: "stranger",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
       ]);
@@ -1979,7 +1906,7 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1987,7 +1914,7 @@ describe("createMcpHandlers", () => {
           name: "hidden-parent",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -1995,7 +1922,7 @@ describe("createMcpHandlers", () => {
           name: "peer",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_hidden",
         },
       ]);
@@ -2018,7 +1945,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2026,7 +1953,7 @@ describe("createMcpHandlers", () => {
           name: "planner",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
         {
@@ -2036,7 +1963,7 @@ describe("createMcpHandlers", () => {
           name: "subplanner",
           cwd: "/repo-b",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_planner",
         },
         {
@@ -2044,7 +1971,7 @@ describe("createMcpHandlers", () => {
           name: "researcher",
           cwd: "/repo-a",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_subplanner",
         },
       ]);
@@ -2070,7 +1997,7 @@ describe("createMcpHandlers", () => {
           name: "orchestrator",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2078,7 +2005,7 @@ describe("createMcpHandlers", () => {
           name: "child",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_self",
         },
       ]);
@@ -2100,7 +2027,7 @@ describe("createMcpHandlers", () => {
           name: "parent",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: null,
         },
         {
@@ -2108,7 +2035,7 @@ describe("createMcpHandlers", () => {
           name: "self",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
         {
@@ -2116,7 +2043,7 @@ describe("createMcpHandlers", () => {
           name: "sibling",
           cwd: "/repo",
           status: "running",
-          latestEvent: null,
+
           parentAgentId: "agt_parent",
         },
       ]);

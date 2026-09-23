@@ -119,7 +119,7 @@ function postedId(result: Record<string, unknown>): string {
 
 test.describe("Review loop", () => {
   test.afterEach(async ({ request }) => {
-    await cleanupE2EAgents(request, "all");
+    await cleanupE2EAgents(request);
   });
 
   test("findings sit in the diff and the drawer; fixes, dismissals, reopens and comments reach the right sides", async ({

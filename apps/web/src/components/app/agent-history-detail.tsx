@@ -1,6 +1,5 @@
 import { ArrowLeft, Search } from "lucide-react";
 
-import { cn } from "@/lib/utils";
 import {
   formatDuration,
   formatTokenCount,
@@ -9,12 +8,7 @@ import {
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { useHistoryAgentDetail } from "@/hooks/use-agent-history";
-import {
-  EVENT_TYPE_COLORS,
-  EVENT_TYPE_LABELS,
-} from "@/components/app/agent-history-event-types";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
-import { DurationBar } from "@/components/app/agent-history-duration-bar";
 
 function shortModelName(model: string): string {
   return model.replace(/-\d{8}$/, "").replace("claude-", "");
@@ -68,7 +62,7 @@ export function AgentHistoryDetail({
     );
   }
 
-  const { agent, events, tokenUsage, files, stateDurations } = data;
+  const { agent, tokenUsage, files } = data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -147,18 +141,6 @@ export function AgentHistoryDetail({
       {/* Stats */}
       <div className="flex flex-wrap gap-2 sm:gap-3">
         <StatCard label="Total duration" value={formatDuration(durationMs)} />
-        <StatCard
-          label="Working"
-          value={formatDuration(stateDurations.working ?? 0)}
-        />
-        <StatCard
-          label="Blocked"
-          value={formatDuration(stateDurations.blocked ?? 0)}
-        />
-        <StatCard
-          label="Waiting"
-          value={formatDuration(stateDurations.waiting_user ?? 0)}
-        />
         {totalTokens > 0 && (
           <StatCard
             label="Tokens"
@@ -177,35 +159,7 @@ export function AgentHistoryDetail({
         )}
       </div>
 
-      {/* Duration bar */}
-      {Object.values(stateDurations).some((v) => v > 0) && (
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-foreground">
-            Duration breakdown
-          </h3>
-          <DurationBar durations={stateDurations} />
-          <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-            {["working", "blocked", "waiting_user"].map(
-              (key) =>
-                (stateDurations[key] ?? 0) > 0 && (
-                  <span key={key} className="flex items-center gap-1">
-                    <span
-                      className={cn(
-                        "inline-block h-2 w-2 rounded-full",
-                        EVENT_TYPE_COLORS[key]
-                      )}
-                    />
-                    {EVENT_TYPE_LABELS[key]}:{" "}
-                    {formatDuration(stateDurations[key])}
-                  </span>
-                )
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tabbed: Events / Files */}
-      <DetailTabs events={events} files={files} agentId={agentId} />
+      <DetailTabs files={files} agentId={agentId} />
     </div>
   );
 }

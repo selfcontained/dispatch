@@ -26,7 +26,7 @@ const makeAgent = (
     archivePhase: null,
     archiveCleanupMode: null,
     lastError: null,
-    latestEvent: null,
+
     gitContext: null,
     gitContextStale: false,
     gitContextUpdatedAt: null,

@@ -31,16 +31,16 @@ const apiMock = vi.mocked(api);
 const getPermissionMock = vi.mocked(getNotificationPermission);
 const requestPermissionMock = vi.mocked(requestNotificationPermission);
 
-const ALL_EVENTS: NotifyEventType[] = ["done", "waiting_user", "blocked"];
+const ALL_EVENTS: NotifyEventType[] = ["waiting_user", "blocked"];
 
 function settings(
   overrides: Partial<NotificationSettingsResponse> = {}
 ): NotificationSettingsResponse {
   return {
     webhookUrl: "https://hooks.slack.com/services/T/B/X",
-    notifyEvents: ["done", "blocked"],
+    notifyEvents: ["waiting_user", "blocked"],
     webNotifyEnabled: false,
-    webNotifyEvents: ["done"],
+    webNotifyEvents: ["waiting_user"],
     ...overrides,
   };
 }
@@ -91,9 +91,9 @@ describe("useNotificationSettings — initial load", () => {
     expect(result.current.webhookUrl).toBe(
       "https://hooks.slack.com/services/T/B/X"
     );
-    expect(result.current.notifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.notifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.webNotifyEnabled).toBe(false);
-    expect(result.current.webNotifyEvents).toEqual(["done"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
     // Loaded values match the saved baseline, so nothing looks dirty.
     expect(result.current.hasChanges).toBe(false);
   });
@@ -128,16 +128,16 @@ describe("useNotificationSettings — hasChanges", () => {
 
   it("ignores Slack event ordering but not membership", async () => {
     const { result } = await renderLoaded(
-      settings({ notifyEvents: ["done", "blocked"] })
+      settings({ notifyEvents: ["waiting_user", "blocked"] })
     );
 
     // Remove then re-add: the set matches again even though the order differs.
-    act(() => result.current.toggleEvent("done"));
+    act(() => result.current.toggleEvent("waiting_user"));
     expect(result.current.notifyEvents).toEqual(["blocked"]);
     expect(result.current.hasChanges).toBe(true);
 
-    act(() => result.current.toggleEvent("done"));
-    expect(result.current.notifyEvents).toEqual(["blocked", "done"]);
+    act(() => result.current.toggleEvent("waiting_user"));
+    expect(result.current.notifyEvents).toEqual(["blocked", "waiting_user"]);
     expect(result.current.hasChanges).toBe(false);
 
     act(() => result.current.toggleEvent("waiting_user"));
@@ -182,7 +182,7 @@ describe("useNotificationSettings — hasChanges", () => {
     apiMock.mockReturnValueOnce(addEvent.promise);
     let adding!: Promise<void>;
     act(() => {
-      adding = result.current.toggleWebEvent("done");
+      adding = result.current.toggleWebEvent("waiting_user");
     });
     expect(result.current.hasChanges).toBe(true);
 
@@ -192,7 +192,7 @@ describe("useNotificationSettings — hasChanges", () => {
           webhookUrl: "",
           notifyEvents: [],
           webNotifyEnabled: true,
-          webNotifyEvents: ["done"],
+          webNotifyEvents: ["waiting_user"],
         })
       );
       await adding;
@@ -218,9 +218,9 @@ describe("useNotificationSettings — handleSave", () => {
 
     expect(postBody(1)).toEqual({
       webhookUrl: "https://example.test/x",
-      notifyEvents: ["done", "blocked"],
+      notifyEvents: ["waiting_user", "blocked"],
       webNotifyEnabled: false,
-      webNotifyEvents: ["done"],
+      webNotifyEvents: ["waiting_user"],
     });
     // The server's normalized value wins over what the user typed.
     expect(result.current.webhookUrl).toBe("https://example.test/normalized");
@@ -317,7 +317,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
     const { result } = await renderLoaded();
 
     apiMock.mockResolvedValueOnce(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] })
     );
     await act(async () => {
       await result.current.toggleWebNotifyEnabled(true);
@@ -325,7 +325,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(postBody(1)).toEqual({
       webNotifyEnabled: true,
-      webNotifyEvents: ["done"],
+      webNotifyEvents: ["waiting_user"],
     });
     expect(result.current.webNotifyEnabled).toBe(true);
     expect(result.current.webMessage).toBe(
@@ -338,7 +338,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
   it("rolls the enable toggle back to the saved value when the save fails", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
     );
 
     const pending = deferred<NotificationSettingsResponse>();
@@ -362,7 +362,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
     });
 
     expect(result.current.webNotifyEnabled).toBe(false);
-    expect(result.current.webNotifyEvents).toEqual(["done"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
     expect(result.current.webError).toBe("disk full");
     expect(result.current.webMessage).toBe("");
     expect(result.current.saving).toBe(false);
@@ -371,11 +371,14 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
   it("persists an event toggle without changing the enabled flag", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] })
     );
 
     apiMock.mockResolvedValueOnce(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done", "blocked"] })
+      settings({
+        webNotifyEnabled: true,
+        webNotifyEvents: ["waiting_user", "blocked"],
+      })
     );
     await act(async () => {
       await result.current.toggleWebEvent("blocked");
@@ -383,15 +386,15 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(postBody(1)).toEqual({
       webNotifyEnabled: true,
-      webNotifyEvents: ["done", "blocked"],
+      webNotifyEvents: ["waiting_user", "blocked"],
     });
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.webNotifyEnabled).toBe(true);
   });
 
   it("rolls an event toggle back to the saved set when the save fails", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: true, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: true, webNotifyEvents: ["waiting_user"] })
     );
 
     const pending = deferred<NotificationSettingsResponse>();
@@ -399,7 +402,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     let call!: Promise<void>;
     act(() => {
-      call = result.current.toggleWebEvent("done");
+      call = result.current.toggleWebEvent("waiting_user");
     });
     // Optimistic removal is visible, and webNotifyEventsRef has been synced to
     // it, so restoring savedWebEventsRef is distinguishable from a no-op.
@@ -410,7 +413,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
       await call;
     });
 
-    expect(result.current.webNotifyEvents).toEqual(["done"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
     expect(result.current.webNotifyEnabled).toBe(true);
     expect(result.current.webError).toBe("nope");
     expect(result.current.saving).toBe(false);
@@ -447,18 +450,18 @@ describe("useNotificationSettings — browser notification toggles", () => {
     // builds on the older one's optimistic state rather than reverting it.
     expect(postBody(1)).toEqual({
       webNotifyEnabled: true,
-      webNotifyEvents: ["done"],
+      webNotifyEvents: ["waiting_user"],
     });
     expect(postBody(2)).toEqual({
       webNotifyEnabled: true,
-      webNotifyEvents: ["done", "blocked"],
+      webNotifyEvents: ["waiting_user", "blocked"],
     });
     return { first, second };
   }
 
   const WON: NotificationSettingsResponse = settings({
     webNotifyEnabled: true,
-    webNotifyEvents: ["done", "blocked"],
+    webNotifyEvents: ["waiting_user", "blocked"],
   });
   const SUPERSEDED: NotificationSettingsResponse = settings({
     webNotifyEnabled: false,
@@ -467,7 +470,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
   it("keeps saving true when a superseded response lands while a newer save is in flight", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
     );
 
     const older = deferred<NotificationSettingsResponse>();
@@ -482,7 +485,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
     });
     expect(result.current.saving).toBe(true);
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.webMessage).toBe("");
 
     await act(async () => {
@@ -490,12 +493,12 @@ describe("useNotificationSettings — browser notification toggles", () => {
       await second;
     });
     expect(result.current.saving).toBe(false);
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
   });
 
   it("ignores a slow response that lands after a newer save already won", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
     );
 
     const older = deferred<NotificationSettingsResponse>();
@@ -507,7 +510,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
       newer.resolve(WON);
       await second;
     });
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.saving).toBe(false);
 
     // The stale response must not clobber it, or re-enter the saving state.
@@ -516,13 +519,13 @@ describe("useNotificationSettings — browser notification toggles", () => {
       await first;
     });
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.saving).toBe(false);
   });
 
   it("does not roll back when a stale save rejects after a newer one won", async () => {
     const { result } = await renderLoaded(
-      settings({ webNotifyEnabled: false, webNotifyEvents: ["done"] })
+      settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] })
     );
 
     const older = deferred<NotificationSettingsResponse>();
@@ -541,7 +544,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(result.current.webError).toBe("");
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webNotifyEvents).toEqual(["done", "blocked"]);
+    expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
   });
 });
 

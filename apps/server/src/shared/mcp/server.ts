@@ -77,7 +77,6 @@ const AGENT_TOOLS = new Set([
   "post",
   "update",
   "react",
-  "get_activity_summary",
   "get_feedback_summary",
   "brain_get_object",
   "brain_store_object",
@@ -124,7 +123,6 @@ const JOB_TOOLS = new Set([
   "persona_templates",
   "persona_upsert",
   "persona_validate",
-  "get_activity_summary",
   "get_feedback_summary",
   "brain_get_object",
   "brain_store_object",
@@ -196,10 +194,6 @@ export type McpRequestContext = {
   >;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
-  upsertEvent?: (
-    agentId: string,
-    event: { type: string; message: string; metadata?: Record<string, unknown> }
-  ) => Promise<void>;
   renameSession?: (
     agentId: string,
     name: string
@@ -288,11 +282,6 @@ export type McpRequestContext = {
     agentId: string,
     senderRepoRoot: string | null
   ) => Promise<AgentListing[]>;
-  getActivitySummary?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }) => Promise<Record<string, unknown>>;
   getFeedbackSummary?: (params: {
     start: Date;
     end: Date;
@@ -389,7 +378,6 @@ export async function createDispatchMcpServer(
   if (context.agent) {
     registerAgentLifecycleTools(server, allowed, {
       agentId: context.agent.id,
-      upsertEvent: context.upsertEvent,
       renameSession: context.renameSession,
       sendNotify: context.sendNotify,
       listFiles: context.listFiles,
@@ -470,8 +458,6 @@ export async function createDispatchMcpServer(
 
   // ── Summary / analytics tools (available to both agents and jobs) ──
   registerAnalyticsTools(server, allowed, {
-    getActivitySummary:
-      context.getActivitySummary ?? context.jobTools?.getActivitySummary,
     getFeedbackSummary:
       context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary,
   });

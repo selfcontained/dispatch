@@ -199,7 +199,7 @@ function AgentCardImpl({
                   />
                 </div>
 
-                {agent.lastError ? (
+                {agent.lastError && agent.status !== "running" ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
                 {agent.persona ? (

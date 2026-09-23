@@ -37,7 +37,6 @@ async function connect(context: Partial<McpRequestContext>) {
     agent: AGENT,
     repoRoot: null,
     worktreeRoot: null,
-    upsertEvent: vi.fn(async () => {}),
     renameSession: vi.fn(async (_id, name) => ({ id: AGENT.id, name })),
     ...context,
   });

@@ -8,13 +8,11 @@
  * keep resolving unchanged.
  */
 
-import type { AgentLatestEventType, AgentRecord } from "@dispatch/shared";
+import type { AgentRecord } from "@dispatch/shared";
 
 export type {
   AgentActivity,
   AgentGitContext,
-  AgentLatestEvent,
-  AgentLatestEventType,
   AgentRecord,
   AgentRole,
   AgentStatus,
@@ -35,11 +33,5 @@ export type { WorktreeStatus } from "../shared/git/worktree-status.js";
 export type AgentTerminalAccess =
   | { mode: "live" }
   | { mode: "inert"; message: string };
-
-export type AgentLatestEventInput = {
-  type: AgentLatestEventType;
-  message: string;
-  metadata?: Record<string, unknown>;
-};
 
 export type AgentEventListener = (agent: AgentRecord) => void;

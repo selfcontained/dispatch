@@ -11,7 +11,6 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useHealth } from "@/hooks/use-health";
 import { useLayout } from "@/hooks/use-layout";
 import { useSSE } from "@/hooks/use-sse";
-import { useAgentSoundCues } from "@/hooks/use-agent-sound-cues";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
@@ -89,7 +88,6 @@ export function DashboardLayout(): JSX.Element {
   // route, not just /agents. The hooks only write to the React Query cache,
   // so they don't depend on any view-local state.
   useSSE("authenticated");
-  useAgentSoundCues();
 
   useEffect(() => {
     let cancelled = false;

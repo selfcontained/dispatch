@@ -4,11 +4,7 @@ import type { Pool } from "pg";
 import type { DiagnosticsRecorder } from "../diagnostics.js";
 
 import type { AgentRuntime } from "./runtime.js";
-import type {
-  AgentLatestEventInput,
-  AgentRecord,
-  AgentStatus,
-} from "./types.js";
+import type { AgentRecord, AgentStatus } from "./types.js";
 
 /**
  * How long an agent can sit in `stopping` before the reconciler
@@ -30,6 +26,8 @@ const STUCK_ARCHIVING_TIMEOUT_S = 30;
  * install, which can legitimately take minutes.
  */
 const CREATING_GRACE_S = 15 * 60;
+export const RECONNECT_WARNING =
+  "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.";
 
 export type ReconcilerDeps = {
   pool: Pool;
@@ -42,9 +40,10 @@ export type ReconcilerDeps = {
     status: AgentStatus,
     lastError: string | null
   ) => Promise<void>;
-  setSystemLatestEvent: (
+  notifyBlocked: (id: string, message: string) => Promise<void>;
+  setReconnectProgress: (
     id: string,
-    input: AgentLatestEventInput
+    phase: "trying" | "waiting" | null
   ) => Promise<void>;
   /** Settle stream rows a dead host left open. */
   settleStream: (id: string, reason: string) => Promise<number>;
@@ -83,8 +82,9 @@ async function reconcileAgentStatuses(
     id: string;
     status: string;
     updatedAt: string;
+    lastError: string | null;
   }>(
-    `SELECT id, status, updated_at AS "updatedAt" FROM agents
+    `SELECT id, status, updated_at AS "updatedAt", last_error AS "lastError" FROM agents
       WHERE deleted_at IS NULL
         AND status IN ('running', 'stopping', 'creating', 'archiving')`
   );
@@ -108,6 +108,9 @@ async function reconcileAgentStatuses(
             )
         )
         .map(async (row) => {
+          if (row.status === "running" && row.lastError === RECONNECT_WARNING) {
+            await deps.setReconnectProgress(row.id, "trying");
+          }
           const attached = await runtime.attach(row.id);
           return [
             row.id,
@@ -166,30 +169,27 @@ async function reconcileAgentStatuses(
         : "The agent is no longer running.";
       await deps.settleStream(row.id, "the agent stopped");
       await deps.setAgentStatus(row.id, nextStatus, logTail || null);
-      await deps.setSystemLatestEvent(row.id, {
-        type: launchFailed ? "blocked" : "idle",
-        message: logTail ? `${baseMessage}\n${logTail}` : baseMessage,
-        metadata: { source: "system", launchFailed },
-      });
+      await deps.setReconnectProgress(row.id, null);
+      if (launchFailed) {
+        await deps.notifyBlocked(
+          row.id,
+          logTail ? `${baseMessage}\n${logTail}` : baseMessage
+        );
+      }
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
     } else if (row.status === "running" && probe) {
-      const agent = await deps.getAgent(row.id);
-      const pending = agent?.latestEvent?.metadata?.reconnectPending === true;
-      if (!probe.attached && !pending) {
-        await deps.setSystemLatestEvent(row.id, {
-          type: "blocked",
-          message:
-            "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.",
-          metadata: { source: "system", reconnectPending: true },
-        });
-      } else if (probe.attached && pending) {
-        await deps.setSystemLatestEvent(row.id, {
-          type: "working",
-          message: "Agent host connection restored.",
-          metadata: { source: "system" },
-        });
+      // Keep a reconnect warning visible without treating a live host as
+      // stopped. Only write when it changes, so periodic probes stay quiet.
+      if (!probe.attached && row.lastError !== RECONNECT_WARNING) {
+        await deps.setAgentStatus(row.id, "running", RECONNECT_WARNING);
+      } else if (probe.attached && row.lastError === RECONNECT_WARNING) {
+        await deps.setAgentStatus(row.id, "running", null);
       }
+      await deps.setReconnectProgress(
+        row.id,
+        probe.attached ? null : "waiting"
+      );
     } else if (
       row.status === "stopping" &&
       stuckSeconds > STUCK_STOPPING_TIMEOUT_S
@@ -199,11 +199,6 @@ async function reconcileAgentStatuses(
         "Agent stuck in stopping state, reverting to running"
       );
       await deps.setAgentStatus(row.id, "running", null);
-      await deps.setSystemLatestEvent(row.id, {
-        type: "working",
-        message: "Stop timed out — agent reverted to running. Try force stop.",
-        metadata: { source: "system" },
-      });
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
     }

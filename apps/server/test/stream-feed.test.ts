@@ -40,7 +40,6 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query("DELETE FROM blocks");
-  await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agent_stream_events");
   await pool.query("DELETE FROM files");
 });
@@ -60,14 +59,6 @@ const blockEntries = (feed: { entries: unknown[] }) =>
   );
 
 async function seedAll() {
-  // t=2 block(agent), t=3 block(agent), t=5 block(user). Status marks are
-  // not the stream's: the feed is blocks only.
-  await pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message, created_at)
-     VALUES ($1, 'working', 'reading', $2), ($1, 'done', 'finished', $3),
-            ($4, 'working', 'other agent', $2)`,
-    [A, at(1), at(7), OTHER]
-  );
   const m1 = await store.insert({ streamId: A, author: agent(A), text: "hi" });
   await stamp(m1.id, at(2));
   const m3 = await store.insert({

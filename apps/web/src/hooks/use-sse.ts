@@ -30,12 +30,16 @@ import {
   upsertThreadReply,
 } from "@/hooks/use-stream";
 import { recordTurnLabel } from "@/hooks/use-agent-turn-label";
+import { isTurnEntry } from "@/components/app/chat/turn/trace";
+import { isOpenInput } from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
+import { playCueForIntent } from "@/lib/sound-cues";
+import { soundCuesEnabledAtom } from "@/lib/store";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
   type ReleaseInfoSnapshot,
@@ -275,6 +279,7 @@ export function useSSE(authState: AuthState): void {
     let connectionAliveSince = 0;
     /** Turn blocks whose arrival has already refetched the unread badges. */
     const countedTurns = new Set<string>();
+    const soundedEvents = new Set<string>();
 
     const handleSSEMessage = (event: MessageEvent) => {
       try {
@@ -311,7 +316,6 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
-          // Status events reach the feed as `stream.entry` rows of their own.
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
@@ -327,6 +331,25 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "stream.entry") {
           applyStreamEntry(queryClient, payload.agentId, payload.entry);
           recordTurnLabel(queryClient, payload.entry);
+          if (jotaiStore.get(soundCuesEnabledAtom)) {
+            const entry = payload.entry;
+            const cue =
+              isTurnEntry(entry) &&
+              entry.block.turn.settled &&
+              entry.block.turn.error &&
+              !entry.block.turn.interrupted
+                ? { key: `error:${entry.block.id}`, intent: "blocked" as const }
+                : entry.type === "block" && isOpenInput(entry.block)
+                  ? {
+                      key: `input:${entry.block.id}`,
+                      intent: "waiting_user" as const,
+                    }
+                  : null;
+            if (cue && !soundedEvents.has(cue.key)) {
+              soundedEvents.add(cue.key);
+              playCueForIntent(cue.intent);
+            }
+          }
           // Only an agent's post for people can move the sidebar's unread
           // badges. A turn's block is republished on every step, but only
           // its first appearance adds to the count.

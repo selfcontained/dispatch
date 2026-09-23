@@ -80,7 +80,7 @@ const makeAgent = (
   archivePhase: null,
   archiveCleanupMode: null,
   lastError: null,
-  latestEvent: null,
+
   gitContext: null,
   gitContextStale: false,
   gitContextUpdatedAt: null,
@@ -964,9 +964,6 @@ describe("executeArchive", () => {
           return params?.[0] === "parent"
             ? { rows: [{ id: "bad-child" }], rowCount: 1 }
             : { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO agent_events")) {
-          return { rows: [], rowCount: 0 };
         }
         return defaultQueryImpl(sql);
       });

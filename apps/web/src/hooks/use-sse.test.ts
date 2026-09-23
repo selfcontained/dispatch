@@ -1005,21 +1005,14 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
   });
 
-  it("no longer refetches the chat feed for a status-only agent upsert", () => {
+  it("does not refetch the chat feed for an agent name update", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const before = {
-      ...agent("agt_1"),
-      latestEvent: { type: "working", message: "a", updatedAt: "1" },
-      pins: [],
-    } as unknown as Agent;
+    const before = agent("agt_1") as Agent;
     queryClient.setQueryData<Agent[]>(["agents"], [before]);
 
     emit({
       type: "agent.upsert",
-      agent: {
-        ...before,
-        latestEvent: { type: "working", message: "b", updatedAt: "2" },
-      },
+      agent: { ...before, name: "Renamed agent" },
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
   });

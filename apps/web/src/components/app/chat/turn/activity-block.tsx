@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, burstIndex } from "./motion";
-import { stepLabel } from "./registry";
+import { activeStepLabel } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
@@ -323,10 +323,7 @@ function SummaryRow({
   useStreamTicker(!done);
   const summary = turnSummary(trace, label);
   const { steps, ms, thinking } = summary;
-  const running = done
-    ? undefined
-    : trace.steps.find((step) => step.status === "running");
-  const verb = running ? stepLabel(running) : summary.verb;
+  const verb = (!done && activeStepLabel(trace.steps)) || summary.verb;
   const slot = !done || summary.failed || summary.interrupted;
   return (
     <button

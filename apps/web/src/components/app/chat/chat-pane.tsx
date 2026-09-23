@@ -174,13 +174,7 @@ export type ChatScrollAnchor = {
 export type ChatScrollPosition = {
   /** At the bottom on the way out: reopen following the feed. */
   following: boolean;
-  /**
-   * The rows on screen, top first. More than one because a row's id is not
-   * guaranteed to survive: a run of consecutive `working` events renders as
-   * a single status row carrying the newest event's id (see collapseFeed),
-   * so a reader parked on a live agent's status line comes back to an id
-   * that no longer exists. Whichever of these is still here wins.
-   */
+  /** Visible rows, top first, for restoring the scroll position. */
   anchors: ChatScrollAnchor[];
 };
 
@@ -595,7 +589,7 @@ export function ChatPane({
         : null,
     ].filter((key): key is string => key !== null);
     const lastKey = growth.length > 0 ? growth.join("|") : null;
-    // A live row is not always the last one: a status event can arrive
+    // A live row is not always the last one: a block can arrive
     // late and land by time below the newest row. Any unseen row sitting
     // under a seen one is an arrival; only "Load older" adds rows above.
     const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
@@ -720,7 +714,7 @@ export function ChatPane({
   // The composer keeps its draft until this resolves; failures surface in
   // the composer itself, so nothing is set here on error. The mutate
   // functions are stable, unlike the mutation result objects, so these
-  // callbacks survive the re-renders every status event causes.
+  // callbacks survive the re-renders live stream updates cause.
   const { mutateAsync: answerAsync, mutate: answerNow } = answer;
   const { mutateAsync: sendAsync } = send;
   // While a free-text question is open, what gets typed answers it —

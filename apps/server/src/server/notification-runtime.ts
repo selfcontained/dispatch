@@ -5,6 +5,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { JobService } from "../jobs/service.js";
 import type { SlackNotifier } from "../notifications/slack.js";
+import type { NotifyInput } from "../shared/mcp/server.js";
 import type { UiEvent, UiEventBroker } from "./ui-events.js";
 
 type CreateNotificationRuntimeDeps = {
@@ -30,21 +31,22 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
 
   const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
 
-  agentManager.onLatestEvent((agent) => {
+  agentManager.onAttention(({ agent, type, message }) => {
+    const event = { type, message };
     const sendSlackNotification = async () => {
       if (!agent.name?.startsWith("job-")) {
-        await slackNotifier.onAgentEvent(agent);
+        await slackNotifier.onAttention(agent, event);
         return;
       }
       const run = await jobService.getLatestRunForAgent(agent.id);
       if (!run) {
-        await slackNotifier.onAgentEvent(agent);
+        await slackNotifier.onAttention(agent, event);
       }
     };
 
     void (async () => {
       try {
-        const webPayload = await slackNotifier.shouldWebNotify(agent);
+        const webPayload = await slackNotifier.shouldWebNotify(agent, event);
         if (webPayload && uiEventBroker.hasConnectedClient()) {
           const notificationId = randomUUID();
           uiEventBroker.publish({
@@ -73,6 +75,21 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
   });
 
   return {
+    async sendExplicitNotification(agentId: string, input: NotifyInput) {
+      const agent = await agentManager.getAgent(agentId);
+      if (!agent) return;
+      if (await slackNotifier.getWebNotifyEnabled()) {
+        uiEventBroker.publish({
+          type: "notification",
+          notificationId: randomUUID(),
+          agentId,
+          agentName: agent.name || agent.id.slice(0, 8),
+          eventType: "notice",
+          message: input.message,
+        });
+      }
+      await slackNotifier.sendNotification(agent, input);
+    },
     ackWebNotification(notificationId: string): boolean {
       const timer = pendingWebNotifications.get(notificationId);
       if (!timer) return false;
