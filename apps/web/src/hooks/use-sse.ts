@@ -29,7 +29,10 @@ import {
   upsertFeedEntry,
   upsertThreadReply,
 } from "@/hooks/use-stream";
-import { recordTurnLabel } from "@/hooks/use-agent-turn-label";
+import {
+  recordTurnLabel,
+  refreshTurnLabels,
+} from "@/hooks/use-agent-turn-label";
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 import { isOpenInput } from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
@@ -313,9 +316,7 @@ export function useSSE(authState: AuthState): void {
           // down. Prefix match: one key per agent.
           void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
           // The sidebar's running-step labels missed the same steps.
-          void queryClient.invalidateQueries({
-            queryKey: ["agent-turn-label"],
-          });
+          refreshTurnLabels(queryClient);
           return;
         }
 

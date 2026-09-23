@@ -18,7 +18,10 @@ import type { StreamEntry } from "@dispatch/shared";
 import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { recordTurnLabel } from "@/hooks/use-agent-turn-label";
+import {
+  recordTurnLabel,
+  refreshTurnLabels,
+} from "@/hooks/use-agent-turn-label";
 
 import { AgentCard, type AgentCardProps } from "./agent-card";
 
@@ -599,6 +602,121 @@ describe("AgentCardStatus wiring", () => {
       await vi.advanceTimersByTimeAsync(50);
     });
     expect(activity()?.textContent).toMatch(/bash$/);
+  });
+
+  it("leaves a new turn to its stream entry once the stream has reported the agent", async () => {
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_old", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: true, blockId: "blk_old" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    const turnReads = () =>
+      apiMock.mock.calls.filter(([url]) => String(url).endsWith("/turn"))
+        .length;
+    const before = turnReads();
+
+    // The upsert for a new turn lands before the turn's first entry.
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "blk_turn", threadId: null },
+          })}
+        />
+      )
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(turnReads()).toBe(before);
+  });
+
+  it("reads a reported agent's turn again after the stream reconnects", async () => {
+    const client = new QueryClient();
+    render(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps(
+            makeAgent({ currentTurn: { blockId: "blk_turn", threadId: null } })
+          )}
+        />
+      )
+    );
+    act(() => {
+      recordTurnLabel(client, turnEntry({ settled: false, running: true }));
+    });
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+
+    // Steps ran while the stream was down; the read brings the turn up to date.
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return { entry: turnEntry({ settled: false }) };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    act(() => refreshTurnLabels(client));
+    await waitFor(() =>
+      expect(activity()?.textContent).toMatch(/ran pnpm test$/)
+    );
+  });
+
+  it("keeps a newer turn it read for when the card catches up", async () => {
+    apiMock.mockImplementation(async (url: string) => {
+      if (url === `/api/v1/agents/${AGENT_ID}/turn`)
+        return {
+          entry: turnEntry({
+            settled: false,
+            running: true,
+            blockId: "blk_new",
+          }),
+        };
+      if (url.startsWith("/api/v1/personas")) return { personas: [] };
+      if (url.includes("/diff-stats")) return { diffStats: null };
+      return {};
+    });
+    const client = new QueryClient();
+    const agent = makeAgent({
+      currentTurn: { blockId: "blk_turn", threadId: null },
+    });
+    const { rerender } = render(
+      wrap(client, <AgentCard {...baseProps(agent)} />)
+    );
+    await waitFor(() =>
+      expect(
+        client.getQueryData(["agent-turn-label", AGENT_ID, "blk_new"])
+      ).toBe("bash")
+    );
+    const turnReads = apiMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/turn")
+    ).length;
+    rerender(
+      wrap(
+        client,
+        <AgentCard
+          {...baseProps({
+            ...agent,
+            currentTurn: { blockId: "blk_new", threadId: null },
+          })}
+        />
+      )
+    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/bash$/));
+    expect(
+      apiMock.mock.calls.filter(([url]) => String(url).endsWith("/turn")).length
+    ).toBe(turnReads);
   });
 
   it("reads a turn already running when the card mounts", async () => {
