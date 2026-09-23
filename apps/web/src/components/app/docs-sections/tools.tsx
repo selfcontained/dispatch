@@ -214,12 +214,13 @@ export function ToolsContent() {
             <Code>review</Code> —{" "}
             <Code>
               {
-                "{ verdict, summary, findings: [{ id, severity, title, body, path?, line? }] }"
+                "{ summary, findings: [{ severity, title, body, path?, line? }] }"
               }
             </Code>
-            ; each finding is <Code>open</Code> until it is resolved as{" "}
-            <Code>fixed</Code> or <Code>dismissed</Code> (with a note) in the
-            block&apos;s state, and can be reopened (see Reviewers).
+            ; each finding becomes a <Code>finding</Code> block with its own
+            thread, <Code>open</Code> until it is resolved as <Code>fixed</Code>{" "}
+            or <Code>dismissed</Code> (with a note), and can be reopened; the
+            review stands where its findings do (see Reviewers).
           </li>
           <li>
             <Code>tasks</Code> — <Code>{"{ items: [{ id, text }] }"}</Code>, a

@@ -2,7 +2,7 @@ Assess the effectiveness of persona-driven code reviews and tune the persona set
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (verdict, summary, findings) to the agent that launched it, and each finding is open, fixed or dismissed (with a note) in that block's state, and can be reopened. The primary codebase conventions are documented in `CLAUDE.md`.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona is a launch profile for a reviewer agent: it posts one `review` block (summary, findings) to the agent that launched it; each finding is a block of its own, open, fixed or dismissed (with a note) by the reviewer, and can be reopened. The primary codebase conventions are documented in `CLAUDE.md`.
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 

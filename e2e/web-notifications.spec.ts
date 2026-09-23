@@ -90,6 +90,15 @@ async function postQuestion(
   request: import("@playwright/test").APIRequestContext,
   agentId: string
 ) {
+  await expect
+    .poll(async () => {
+      const res = await request.get(`/api/v1/agents/${agentId}`, {
+        headers: authHeader,
+      });
+      const body = (await res.json()) as { agent: { status: string } };
+      return body.agent.status;
+    })
+    .toBe("running");
   await callMcpToolViaAPI(request, agentId, "post", {
     text: "Which option should I use?",
     question: { options: [{ label: "First" }, { label: "Second" }] },

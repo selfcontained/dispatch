@@ -1,8 +1,4 @@
-import type {
-  BlockKind,
-  BlockReviewData,
-  BlockReviewState,
-} from "@dispatch/shared";
+import type { Block, BlockKind } from "@dispatch/shared";
 
 /**
  * The envelope's own markers, line-anchored exactly as they are emitted:
@@ -60,45 +56,42 @@ function senderLabel(from: EnvelopeSender): string {
 }
 
 /**
- * A review as its recipient reads it: the verdict, the summary, then every
- * finding with its severity, location and body, and what to do about each.
- * The block carries this as data, not text, so without these lines the
- * agent would be told "a review was posted" and nothing else.
+ * A review as its recipient reads it: the summary, then every finding with
+ * its id, severity, location and body, and what to do about each. The
+ * findings are blocks the review shows, so without these lines the agent
+ * would be told "a review was posted" and nothing else.
  */
 export function describeReview(
-  blockId: string,
-  data: BlockReviewData,
-  state: BlockReviewState | null
+  review: Pick<Block, "id" | "data" | "kind">,
+  findings: ReadonlyArray<Extract<Block, { kind: "finding" }>>
 ): string {
-  const verdict =
-    data.verdict === "approve"
-      ? "Approved"
-      : data.verdict === "request_changes"
-        ? "Changes requested"
-        : "Comments";
-  const lines: string[] = [`Review: ${verdict}.`];
-  if (data.summary.trim()) lines.push(data.summary.trim());
-  if (data.findings.length > 0) {
-    lines.push("", `Findings (${data.findings.length}):`);
-    data.findings.forEach((finding, index) => {
-      const record = state?.findings[finding.id];
+  const summary =
+    (review.data as { summary?: string } | null)?.summary?.trim() ?? "";
+  const open = findings.filter((f) => f.state.status === "open").length;
+  const lines: string[] = [
+    `Review (id: ${review.id}): ${findings.length === 0 ? "no findings" : `${open} of ${findings.length} findings open`}.`,
+  ];
+  if (summary) lines.push(summary);
+  if (findings.length > 0) {
+    lines.push("", "Findings:");
+    findings.forEach((finding, index) => {
       const status =
-        record?.status === "resolved" ? (record.resolution ?? "fixed") : "open";
-      const where = finding.path
-        ? ` — ${finding.path}${finding.line !== undefined ? `:${finding.line}` : ""}`
+        finding.state.status === "resolved"
+          ? (finding.state.resolution ?? "fixed")
+          : "open";
+      const { data } = finding;
+      const where = data.path
+        ? ` — ${data.path}${data.line !== undefined ? `:${data.line}` : ""}`
         : "";
       lines.push(
-        `${index + 1}. [${finding.severity}] ${finding.title} (id: ${finding.id}, ${status})${where}`,
-        `   ${finding.body.trim().replace(/\n/g, "\n   ")}`
+        `${index + 1}. [${data.severity}] ${data.title} (id: ${finding.id}, ${status})${where}`,
+        `   ${data.body.trim().replace(/\n/g, "\n   ")}`
       );
     });
-    const open = data.findings.filter(
-      (finding) => (state?.findings[finding.id]?.status ?? "open") === "open"
-    ).length;
     if (open > 0) {
       lines.push(
         "",
-        `What to do: address each open finding, then mark it fixed on this block: update({ id: "${blockId}", state: { findings: { "<finding id>": "fixed" } } }), and say what changed under that finding: post({ replyTo: "${blockId}", finding: "<finding id>", text: "…" }). Set one aside instead with { "<finding id>": { status: "resolved", resolution: "dismissed", note: "why" } }. The reviewer can reopen either. You are done when no finding is open.`
+        'What to do: address each open finding, then say under it what you changed, or why you disagree: post({ replyTo: "<finding id>", text: "…" }). Each finding is its own thread. The reviewer reads your reply and resolves the finding or reopens it; leave its status to them.'
       );
     }
   }
@@ -125,8 +118,11 @@ export function buildPostEnvelope(input: {
   threadId?: string | null;
   /** A block of the agent's this post answers (a question or form). */
   answers?: { blockId: string; kind: BlockKind } | null;
-  /** The review finding this thread reply is about. */
-  finding?: { id: string; title: string } | null;
+  /**
+   * The review finding this thread reply is about; `opened` when the
+   * recipient is the reviewer who raised it.
+   */
+  finding?: { id: string; title: string; opened: boolean } | null;
   /** A person named the agent with `@`; `alsoTo` names the others it went to. */
   mention?: { alsoTo: string[] } | null;
 }): string {
@@ -156,12 +152,13 @@ export function buildPostEnvelope(input: {
   }
   if (input.finding) {
     context.push(
-      `About finding "${input.finding.id}" (${input.finding.title}).`
+      `About the finding "${input.finding.title}".`,
+      input.finding.opened
+        ? `You raised it: once the reply settles it, resolve it with update({ id: "${input.finding.id}", state: { status: "fixed" } }) (or "dismissed", with a note) instead of replying; if it falls short, say here what is still missing.`
+        : "Its reviewer resolves it; reply here with what you changed or why you disagree. Once it is settled, no reply is needed."
     );
   }
-  const replyArgs = input.threadId
-    ? `replyTo: "${input.threadId}"${input.finding ? `, finding: "${input.finding.id}"` : ""}`
-    : "";
+  const replyArgs = input.threadId ? `replyTo: "${input.threadId}"` : "";
   // A person's post: the agent's own answer lands where the post was, in
   // the thread when it came from one, so plain text is the whole reply.
   // Another agent's post: only post reaches it, in its thread when it has one.
@@ -215,7 +212,9 @@ const KIND_NOUN: Record<BlockKind, string> = {
   file: "file",
   link: "link",
   review: "review",
+  finding: "finding",
   tasks: "task list",
+  launch: "launch briefing",
 };
 
 /**

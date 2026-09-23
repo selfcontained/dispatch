@@ -221,17 +221,17 @@ describe("POST /api/v1/agents (create)", () => {
     // background launch the create route detaches.
     await ctx.awaitLaunched(child.id);
     const posts = await ctx.pool.query(
-      `SELECT author_kind, text, origin, launched_by_agent_id
-         FROM blocks WHERE to_agent_id = $1 AND origin = 'launch'`,
+      `SELECT author_kind, text, kind, launched_by_agent_id
+         FROM blocks WHERE to_agent_id = $1 AND kind = 'launch'`,
       [child.id]
     );
-    // The post is the user's own; only the agent-authenticated launch paths
+    // The card is the user's own; only the agent-authenticated launch paths
     // (which set launchedByAgentId) may attribute it to an agent.
     expect(posts.rows).toEqual([
       {
         author_kind: "user",
         text: "Look like the parent wrote this",
-        origin: "launch",
+        kind: "launch",
         launched_by_agent_id: null,
       },
     ]);

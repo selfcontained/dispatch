@@ -84,6 +84,35 @@ async function reconcileAgentStatuses(
 
   const reconciled: AgentRecord[] = [];
 
+  // Reattach attempts can each wait for a hello timeout. Probe eligible
+  // hosts together so several busy hosts do not stall the whole pass in
+  // sequence (including cleanup of genuinely orphaned hosts afterward).
+  const attachResults = new Map(
+    await Promise.all(
+      result.rows
+        .filter(
+          (row) =>
+            runtime.tracksProcesses() &&
+            (row.status === "running" || row.status === "creating") &&
+            !(
+              row.status === "creating" &&
+              (Date.now() - new Date(row.updatedAt).getTime()) / 1000 <
+                CREATING_GRACE_S
+            )
+        )
+        .map(async (row) => {
+          const attached = await runtime.attach(row.id);
+          return [
+            row.id,
+            {
+              attached,
+              alive: attached || (await runtime.isAlive(row.id)),
+            },
+          ] as const;
+        })
+    )
+  );
+
   for (const row of result.rows) {
     const stuckSeconds =
       (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
@@ -110,7 +139,17 @@ async function reconcileAgentStatuses(
       continue;
     }
 
-    const alive = await runtime.isAlive(row.id);
+    // A running/creating row gets a reconnect attempt, not just a pid
+    // check: a host that is alive but didn't answer `hello` in time (busy
+    // journal replay, boot contention) must not read as gone. Falling back
+    // to isAlive keeps a merely-unreachable host "running" so the next
+    // reconcile pass can retry attach — it never mistakes "not attached
+    // yet" for "not there".
+    const probe = attachResults.get(row.id);
+    const alive =
+      row.status === "running" || row.status === "creating"
+        ? (probe?.alive ?? false)
+        : await runtime.isAlive(row.id);
     if (!alive) {
       const logTail = await runtime.readLogTail(row.id);
       const launchFailed = row.status === "creating";

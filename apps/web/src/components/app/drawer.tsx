@@ -289,19 +289,21 @@ function useViewportWidth(): number {
  * the frame being dragged and is written to the preference on release, so a
  * drag is one storage write, not one per pointer move.
  */
-function useDrawerWidth(reserve: number) {
+function useDrawerWidth() {
   const [storedWidth, setStoredWidth] = useAtom(drawerWidthAtom);
   const viewportWidth = useViewportWidth();
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const clamp = useCallback(
-    (width: number) => clampDrawerWidth(width, viewportWidth, reserve),
-    [viewportWidth, reserve]
+    (width: number) =>
+      clampDrawerWidth(width, viewportWidth, DRAWER_EDGE_GUTTER_PX),
+    [viewportWidth]
   );
   const width = clamp(dragWidth ?? storedWidth ?? DRAWER_WIDTH_PX);
   return {
     width,
     min: DRAWER_MIN_WIDTH_PX,
-    max: drawerMaxWidth(viewportWidth, reserve),
+    max: drawerMaxWidth(viewportWidth, DRAWER_EDGE_GUTTER_PX),
+    viewportWidth,
     dragging: dragWidth !== null,
     clamp,
     setDragWidth,
@@ -445,11 +447,12 @@ function useClosing(open: boolean) {
 
 /**
  * The slot at the right edge, in the sidebar's mode: pinned, it takes
- * layout width (0 when closed) and shrinks the centre; unpinned, it floats
- * over the centre and slides in from the edge. The sidebar and the thread
- * drawer each sit in one, so a thread takes the sidebar's place while it
- * is open and gives it back on close. Its left edge resizes it, and the
- * width is one preference for the client, shared by every frame.
+ * layout width (0 when closed) and shrinks the centre; after the centre
+ * reaches its usable reserve, further widening overlaps it. Unpinned, the
+ * drawer floats over the centre and slides in from the edge. The sidebar
+ * and the thread drawer each sit in one, so a thread takes the sidebar's
+ * place while it is open and gives it back on close. Its left edge resizes
+ * it, and the width is one preference for the client, shared by every frame.
  *
  * Closing slides the same way opening does, and the content is told
  * (`useDrawerClosing`) until the slide ends, so it can keep rendering
@@ -465,17 +468,19 @@ export function DrawerFrame({
   open: boolean;
   pinned: boolean;
   /**
-   * What a pinned drawer leaves the rest of the row at its widest. A
-   * floating one only keeps the edge gutter.
+   * What a pinned drawer leaves the rest of the row before an intentional
+   * wider resize starts overlapping it.
    */
   pinnedReserve?: number;
   children: ReactNode;
   testId?: string;
 }): JSX.Element {
-  const drawerWidth = useDrawerWidth(
-    pinned ? pinnedReserve : DRAWER_EDGE_GUTTER_PX
+  const drawerWidth = useDrawerWidth();
+  const { width, viewportWidth, dragging } = drawerWidth;
+  const pinnedOverlap = Math.max(
+    0,
+    width - drawerMaxWidth(viewportWidth, pinnedReserve)
   );
-  const { width, dragging } = drawerWidth;
   const { closing, settle } = useClosing(open);
   // Pinned, a resize changes the same `width` an open or close animates, so
   // a keyboard step (which animates) ends in a `transitionend` too. This
@@ -517,8 +522,12 @@ export function DrawerFrame({
         data-pinned="true"
         data-closing={closing ? "true" : undefined}
         data-resizing={dragging ? "true" : undefined}
-        className="relative h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
-        style={{ width: open ? width : 0, transitionDuration }}
+        className="relative h-full min-w-0 flex-none overflow-hidden transition-[width,margin-left] ease-out"
+        style={{
+          width: open ? width : 0,
+          marginLeft: open ? -pinnedOverlap : 0,
+          transitionDuration,
+        }}
         onTransitionEnd={(event) => onTransitionEnd(event, "width")}
       >
         {handle}

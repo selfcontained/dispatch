@@ -44,6 +44,7 @@ import {
 import { prepareWorkspace } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
 import type { PromptSource } from "./acp/prompt-source.js";
@@ -200,7 +201,6 @@ export type DiffStatsRefresherHandle = {
  * it. Null means the launch carries no context and nothing is recorded.
  */
 export type LaunchContextInput = {
-  id: string;
   agentId: string;
   text?: string;
   files?: Array<{ fileId: number }>;
@@ -210,6 +210,8 @@ export type LaunchContextInput = {
 
 export type LaunchContextRecorder = {
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
+    /** The launch card the briefing is written onto; the first turn names it. */
+    id: string;
     /**
      * Every startup file and link, described the way the pane lists
      * them. Not capped: the post may show fewer, but the CLI's first turn
@@ -540,6 +542,11 @@ export class AgentManager {
     return this.runtime.isBusy(id);
   }
 
+  /** The live session's ACP slash commands, including advertised skills. */
+  getCommands(id: string): AvailableCommand[] | null {
+    return this.runtime.getCommands(id);
+  }
+
   /** The agent host's pid when it is alive (resource sampling). */
   hostPid(id: string): Promise<number | null> {
     return this.runtime.hostPid(id);
@@ -563,7 +570,12 @@ export class AgentManager {
   /**
    * At boot: reconnect to every host that outlived the last server process.
    * An agent whose host is gone is marked stopped rather than left "running"
-   * with nothing behind it.
+   * with nothing behind it. A host that is alive but didn't answer this
+   * one attach attempt (busy journal replay, boot contention) is left
+   * "running" rather than declared lost: `reconcileAgents()` runs right
+   * after this and would otherwise hand a still-live, possibly mid-turn
+   * host to `cleanupOrphanedHosts` for force-stopping. The periodic
+   * reconciler keeps retrying the reconnect for it.
    */
   async restoreRunningAgents(): Promise<{
     attached: string[];
@@ -571,6 +583,7 @@ export class AgentManager {
   }> {
     const attached: string[] = [];
     const lost: string[] = [];
+    const pending: string[] = [];
     const result = await this.pool.query<{ id: string; cwd: string }>(
       `SELECT id, cwd FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
@@ -580,6 +593,10 @@ export class AgentManager {
       this.streamRecorder.setCwd(row.id, row.cwd);
       if (await this.runtime.attach(row.id)) {
         attached.push(row.id);
+        continue;
+      }
+      if (await this.runtime.isAlive(row.id)) {
+        pending.push(row.id);
         continue;
       }
       lost.push(row.id);
@@ -593,8 +610,8 @@ export class AgentManager {
         "The agent host was not running when Dispatch restarted."
       );
     }
-    if (attached.length || lost.length) {
-      this.logger.info({ attached, lost }, "Restored running agents");
+    if (attached.length || lost.length || pending.length) {
+      this.logger.info({ attached, lost, pending }, "Restored running agents");
     }
     return { attached, lost };
   }
@@ -827,9 +844,8 @@ export class AgentManager {
     // quiet; their prompt goes as the first turn as-is.
     const recorder = this.launchContextRecorder;
     const wantsEnvelope = recorder !== null && !input.jobRunId;
-    const launchPostId = randomUUID();
     const launchContextInput = recorder
-      ? this.launchContextInput(p, input, initialFiles, launchPostId)
+      ? this.launchContextInput(p, input, initialFiles)
       : null;
     let launchContextWrite: Promise<void> = Promise.resolve();
     const resolveLaunchPost = async (): Promise<ChatLaunchPost | null> => {
@@ -838,7 +854,6 @@ export class AgentManager {
         return this.resolveDurableLaunchPost(
           recorder,
           p.id,
-          launchPostId,
           launchContextInput
         );
       }
@@ -892,11 +907,9 @@ export class AgentManager {
   private launchContextInput(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    initialFiles: Array<{ fileId: number }>,
-    launchPostId: string
+    initialFiles: Array<{ fileId: number }>
   ): LaunchContextInput {
     return {
-      id: launchPostId,
       agentId: p.id,
       text: input.launchContext?.prompt,
       files: initialFiles.map((file) => ({ fileId: file.fileId })),
@@ -920,7 +933,6 @@ export class AgentManager {
   private async resolveDurableLaunchPost(
     recorder: LaunchContextRecorder,
     agentId: string,
-    launchPostId: string,
     context: LaunchContextInput
   ): Promise<ChatLaunchPost | null> {
     const resolve = recorder
@@ -966,7 +978,7 @@ export class AgentManager {
     }
     if (!written) return null;
     return {
-      messageId: launchPostId,
+      messageId: prepared.id,
       attachmentLines: prepared.attachmentLines,
     };
   }

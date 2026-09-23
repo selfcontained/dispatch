@@ -415,6 +415,8 @@ const streamService = new StreamService({
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     cancel: (agentId) => agentManager.cancelTurn(agentId),
+    commands: (agentId) =>
+      (agentManager.getCommands(agentId) ?? []).map((command) => command.name),
   },
   log: app.log,
 });

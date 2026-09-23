@@ -166,7 +166,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
 
   /**
    * Launch a child that runs as a persona, in the parent's worktree, in the
-   * parent's stream. What the child does with its findings is the persona's
+   * parent's stream, on its launch card. What the child does with its findings is the persona's
    * business: a reviewer posts a `review` block to the parent.
    */
   async function launchPersonaAgent(

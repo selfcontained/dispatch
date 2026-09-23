@@ -16,7 +16,7 @@ type PersonaRouteDeps = {
    * The request reaches the agent as a post in its stream: the agent
    * launches the persona itself, with its own briefing of the work.
    */
-  streams: Pick<StreamService, "sendUserPost" | "streamOf">;
+  streams: Pick<StreamService, "promptAgent">;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
 
@@ -46,7 +46,7 @@ export function personaLaunchRequest(input: {
       ? `Please launch the ${input.personas[0]} persona on your current work:`
       : `Please launch these personas on your current work:`,
     ...lines,
-    "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review block back to you; address every finding.",
+    "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
     ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
   ].join("\n");
 }
@@ -215,25 +215,14 @@ export async function registerPersonaRoutes(
           : {}),
         ...(typeof body.note === "string" ? { note: body.note } : {}),
       });
-      const posted = await deps.streams.sendUserPost(
-        await deps.streams.streamOf(agentId),
-        {
-          to: agentId,
-          text,
-          allowInert: false,
-          // The row says who asked and for what; the instruction itself
-          // stays folded, because nobody types `launch_agent({…})`.
-          reviewRequest: {
-            personas,
-            agentType: body.agentType as string,
-            ...(model !== undefined ? { model } : {}),
-            ...(typeof body.note === "string" && body.note.trim()
-              ? { note: body.note.trim() }
-              : {}),
-          },
-        }
-      );
-      return { ok: true, block: posted.block };
+      // A prompt, not a post: the instructions are the agent's to follow,
+      // and the stream shows what it does with them. Its turn carries one
+      // line saying what was asked for.
+      const { held } = await deps.streams.promptAgent(agentId, {
+        text,
+        notice: `Review requested: ${personas.join(", ")}`,
+      });
+      return { ok: true, held };
     } catch (error) {
       if (error instanceof StreamServiceError) {
         return reply.code(error.statusCode).send({ error: error.message });

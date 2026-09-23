@@ -16,7 +16,7 @@
 import { afterAll, beforeAll, expect } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
-import { workspaceBlockId } from "../../src/chat/service.js";
+import { launchBlockId } from "../../src/chat/service.js";
 
 import {
   setupTestDb,
@@ -74,12 +74,12 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
                 EXISTS (
                   SELECT 1 FROM blocks b
                    WHERE b.id = $2
-                     AND b.origin = 'workspace'
-                     AND (b.data->'startup'->>'readyAt' IS NOT NULL
-                       OR b.data->'startup'->>'failed' IS NOT NULL)
+                     AND b.kind = 'launch'
+                     AND (b.state->'startup'->>'readyAt' IS NOT NULL
+                       OR b.state->'startup'->>'failed' IS NOT NULL)
                 ) AS done
            FROM agents a WHERE a.id = $1`,
-        [agentId, workspaceBlockId(agentId)]
+        [agentId, launchBlockId(agentId)]
       );
       const row = res.rows[0];
       if (!row || row.status === "error" || row.status === "stopped") return;

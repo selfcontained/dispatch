@@ -119,52 +119,51 @@ issues caused or worsened by this diff.`}</CodeBlock>
           <Code>review</Code> block to the agent that launched it:{" "}
           <Code>
             {
-              "post({ to, review: { verdict, summary, findings: [{ id, severity, title, body, path?, line? }] } })"
+              "post({ to, review: { summary, findings: [{ severity, title, body, path?, line? }] } })"
             }
           </Code>
-          . The verdict is <Code>approve</Code>, <Code>request_changes</Code>,
-          or <Code>comment</Code>; each finding has a severity of{" "}
-          <Code>blocker</Code>, <Code>major</Code>, <Code>minor</Code>, or{" "}
-          <Code>nit</Code>, a concrete comment, and optionally a file path and
-          line. A reviewer that finds no issues posts <Code>approve</Code> with
-          an empty findings list; the summary then carries the assessment.
+          . Each finding has a severity of <Code>blocker</Code>,{" "}
+          <Code>major</Code>, <Code>minor</Code>, or <Code>nit</Code>, a
+          concrete comment, and optionally a file path and line, and becomes a
+          block of its own with its own thread. A reviewer that finds no issues
+          posts a review with no findings; the summary then carries the
+          assessment.
         </P>
         <P>
-          In the stream the block reads as one line — verdict, summary,{" "}
-          <em>n findings · m open</em> — that opens into finding rows. Each
-          finding is a thread: click its title to open the thread in the side
-          panel, click its path to jump to that line in the Changes tab, and use{" "}
-          <strong>Resolve</strong>, <strong>Dispute</strong>, and{" "}
-          <strong>Reopen</strong> on the row to set its status.
+          The reviewer is a child agent, so the review lands on its launch card
+          — the one entry for the reviewer in the stream, which also holds its
+          briefing, startup and instructions. The card shows the review as one
+          line — its status, summary, <em>n findings · m open</em> — and opens
+          into its thread, where the finding rows are. The status comes from the
+          findings alone: <strong>Changes requested</strong> while any is open,{" "}
+          <strong>Approved</strong> once every one is fixed or dismissed. Click
+          a finding to open its own thread, or its path to jump to that line in
+          the Changes tab.
         </P>
       </Section>
 
       <Section>
         <H3>Review lifecycle</H3>
         <P>
-          The agent that received the review works the findings the same way you
-          do: it changes a finding&apos;s status with <Code>update</Code> on the
-          block (<Code>{'{ id, state: { findings: { <id>: "fixed" } } }'}</Code>
-          , or dismissed with a note:{" "}
-          <Code>
-            {'{ <id>: { status: "resolved", resolution: "dismissed", note } }'}
-          </Code>
-          ), and it comments on a finding with <Code>post</Code>,{" "}
-          <Code>replyTo</Code> set to the review block and <Code>finding</Code>{" "}
-          to the finding&apos;s id. Each comment goes to one side of the review,
-          reviewer or builder, as a new prompt, so a fix can be re-inspected
-          without polling; the reviewer answers in the same thread and can
-          reopen a finding. The review is open until a finding is resolved,
-          partially resolved while some are, and resolved once every one is.
-          Only the block&apos;s author and the agent it is addressed to may
-          change its state.
+          The agent that received the review answers each finding in the
+          finding&apos;s thread (<Code>post</Code> with <Code>replyTo</Code> set
+          to the finding&apos;s id): what it changed, or why it disagrees. Each
+          comment reaches the other side as a prompt, and a comment you write
+          reaches both. The reviewer checks the answer and settles the finding
+          with <Code>update</Code> on it (
+          <Code>{'{ id: <finding id>, state: { status: "fixed" } }'}</Code>, or{" "}
+          <Code>{'{ status: "dismissed", note }'}</Code>), or says under it what
+          is still missing and reopens it (
+          <Code>{'{ status: "open", note }'}</Code>), which tells the agent
+          whose work it is. You can resolve, dismiss or reopen a finding from
+          its thread too.
         </P>
         <P>
           You can also leave a review by hand from the Changes tab:{" "}
           <strong>Leave a review</strong> enters review mode, where each line
           comment you add becomes a draft finding; <strong>Post review</strong>{" "}
-          asks for a verdict and summary and posts the same kind of{" "}
-          <Code>review</Code> block, addressed to the agent.
+          asks for a summary and posts the same kind of <Code>review</Code>{" "}
+          block, addressed to the agent.
         </P>
       </Section>
     </>

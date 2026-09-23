@@ -1,5 +1,11 @@
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,6 +15,33 @@ const BIN = path.join(REPO_ROOT, "bin", "dispatch-dev");
 const SUFFIX = `test-${process.pid}-${Date.now()}`;
 const STATE_FILE = `/tmp/dispatch-dev-${SUFFIX}.env`;
 const LOG_DIR = `/tmp/dispatch-dev-${SUFFIX}`;
+const HOST_WRAPPER = `/tmp/dispatch-dev-host-${SUFFIX}.sh`;
+
+function stateValue(name: string): string {
+  const line = readFileSync(STATE_FILE, "utf8")
+    .split("\n")
+    .find((candidate) => candidate.startsWith(`${name}=`));
+  if (!line) throw new Error(`${name} missing from ${STATE_FILE}`);
+  return line.slice(name.length + 1);
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(check: () => boolean | Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("condition did not become true within 20s");
+}
 
 function run(
   args: string,
@@ -143,6 +176,151 @@ describe("dispatch-dev", () => {
       run("down");
     }
   }, 60_000);
+
+  it.each([
+    { preserveHosts: false, upArgs: "up --live" },
+    {
+      preserveHosts: true,
+      upArgs: "up --live --preserve-agent-hosts",
+    },
+  ])(
+    "$upArgs handles an in-flight detached agent host across restart",
+    async ({ preserveHosts, upArgs }) => {
+      const fakeAgent = path.join(
+        REPO_ROOT,
+        "e2e",
+        "fixtures",
+        "fake-acp-agent.mjs"
+      );
+      const mainTs = path.join(REPO_ROOT, "apps", "server", "src", "main.ts");
+      writeFileSync(
+        HOST_WRAPPER,
+        [
+          "#!/usr/bin/env bash",
+          `export DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'`,
+          `exec bun ${JSON.stringify(mainTs)} agent-host "$@"`,
+          "",
+        ].join("\n")
+      );
+      chmodSync(HOST_WRAPPER, 0o700);
+
+      let hostPid = 0;
+      try {
+        run(upArgs, {
+          env: {
+            DISPATCH_AGENT_HOST_COMMAND: JSON.stringify([HOST_WRAPPER]),
+            DISPATCH_HOST: "127.0.0.1",
+          },
+        });
+        const port = Number(stateValue("DEV_API_PORT"));
+        const api = `http://127.0.0.1:${port}/api/v1`;
+        const created = await fetch(`${api}/agents`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "dispatch-dev-restart-host",
+            type: "claude",
+            cwd: "/tmp",
+            useWorktree: false,
+          }),
+        });
+        expect(created.status).toBe(201);
+        const agentId = ((await created.json()) as { agent: { id: string } })
+          .agent.id;
+        await until(async () => {
+          const response = await fetch(`${api}/agents/${agentId}`);
+          const body = (await response.json()) as { agent: { status: string } };
+          return body.agent.status === "running";
+        });
+
+        const agentDir = path.join(LOG_DIR, "agents", agentId);
+        hostPid = Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"));
+        expect(processAlive(hostPid)).toBe(true);
+
+        const prompted = await fetch(`${api}/streams/${agentId}/blocks`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "sleep:10000" }),
+        });
+        expect(prompted.ok).toBe(true);
+        const journal = path.join(agentDir, "journal.jsonl");
+        await until(() =>
+          readFileSync(journal, "utf8").includes('"state":"started"')
+        );
+
+        expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
+          preserveHosts ? "1" : "0"
+        );
+        const restart = run("restart");
+        expect(restart).toContain("Stopped API server");
+        expect(restart).toContain("Dev environment ready");
+        expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe(
+          preserveHosts ? "1" : "0"
+        );
+
+        if (preserveHosts) {
+          expect(
+            Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"))
+          ).toBe(hostPid);
+          expect(processAlive(hostPid)).toBe(true);
+
+          await until(() => {
+            const events = readFileSync(journal, "utf8")
+              .trim()
+              .split("\n")
+              .map(
+                (line) =>
+                  JSON.parse(line) as { event?: Record<string, unknown> }
+              );
+            return events.some(
+              ({ event }) =>
+                event?.type === "turn" &&
+                event.state === "settled" &&
+                event.error === undefined
+            );
+          });
+          let turn:
+            | {
+                settled: boolean;
+                error?: string;
+                result?: { text: string } | null;
+              }
+            | undefined;
+          await until(async () => {
+            const feed = (await (
+              await fetch(`${api}/streams/${agentId}/blocks`)
+            ).json()) as {
+              entries: Array<{ block?: { turn?: typeof turn } }>;
+            };
+            turn = feed.entries.find((entry) => entry.block?.turn)?.block?.turn;
+            return (
+              turn?.settled === true &&
+              turn.error === undefined &&
+              turn.result?.text.includes("sleep:10000") === true
+            );
+          });
+          expect(turn?.settled).toBe(true);
+          expect(turn?.error).toBeUndefined();
+          expect(turn?.result?.text).toContain("sleep:10000");
+        } else {
+          await until(() => !processAlive(hostPid));
+        }
+
+        run("down");
+        if (preserveHosts) {
+          await until(() => !processAlive(hostPid));
+        }
+      } finally {
+        try {
+          run("down");
+        } catch {
+          // already down
+        }
+        rmSync(HOST_WRAPPER, { force: true });
+      }
+    },
+    120_000
+  );
 
   it("cleans stale state on up", () => {
     // Create a fake state file with a dead PID

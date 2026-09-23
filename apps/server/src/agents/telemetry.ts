@@ -88,26 +88,25 @@ export async function getFeedbackSummary(
       projectRoot: string;
     }>(
       `SELECT COALESCE(ra.persona, ra.name, 'you') AS persona,
-                CASE fd->>'severity'
+                CASE b.data->>'severity'
                   WHEN 'blocker' THEN 'critical'
                   WHEN 'major' THEN 'high'
                   WHEN 'minor' THEN 'medium'
                   WHEN 'nit' THEN 'low'
                   ELSE 'info'
                 END AS severity,
-                COALESCE(fd->>'title', '') AS description,
-                fd->>'path' AS "filePath",
+                COALESCE(b.data->>'title', '') AS description,
+                b.data->>'path' AS "filePath",
                 CASE
-                  WHEN b.state->'findings'->(fd->>'id')->>'status' = 'resolved'
-                  THEN COALESCE(b.state->'findings'->(fd->>'id')->>'resolution', 'fixed')
+                  WHEN b.state->>'status' = 'resolved'
+                  THEN COALESCE(b.state->>'resolution', 'fixed')
                   ELSE 'open'
                 END AS status,
                 COALESCE(pa.git_context->>'repoRoot', pa.cwd) AS "projectRoot"
          FROM blocks b
-         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(b.data->'findings', '[]'::jsonb)) AS fd
          JOIN agents pa ON pa.id = b.stream_id
          LEFT JOIN agents ra ON ra.id = b.author_agent_id
-         WHERE b.kind = 'review' AND ${feedbackConditions.join(" AND ")}
+         WHERE b.kind = 'finding' AND ${feedbackConditions.join(" AND ")}
          ORDER BY b.created_at ASC`,
       feedbackParams
     ),
@@ -119,9 +118,18 @@ export async function getFeedbackSummary(
     }>(
       `SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE b.data->>'verdict' = 'approve')::int AS approved,
-          COUNT(*) FILTER (WHERE b.data->>'verdict' = 'request_changes')::int AS "changesRequested"
+          -- A review stands where its findings do: approved once none is
+          -- open, changes requested while any is.
+          COUNT(*) FILTER (WHERE NOT st.any_open)::int AS approved,
+          COUNT(*) FILTER (WHERE st.any_open)::int AS "changesRequested"
          FROM blocks b
+         CROSS JOIN LATERAL (
+           SELECT EXISTS (
+             SELECT 1 FROM blocks f
+              WHERE f.kind = 'finding' AND f.thread_id = b.id
+                AND COALESCE(f.state->>'status', 'open') = 'open'
+           ) AS any_open
+         ) st
          JOIN agents pa ON pa.id = b.stream_id
          WHERE b.kind = 'review' AND ${verdictConditions.join(" AND ")}`,
       verdictParams

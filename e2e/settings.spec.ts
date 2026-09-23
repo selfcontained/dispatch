@@ -17,12 +17,6 @@ test.describe("Settings pane", () => {
         webNotifyEvents: ["done", "waiting_user", "blocked"],
       },
     });
-    await request.post("/api/v1/app/settings/cross-repo-messaging", {
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
-      },
-      data: { enabled: false },
-    });
     await request.post("/api/v1/system/resources/settings", {
       headers: {
         Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,

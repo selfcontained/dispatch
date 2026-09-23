@@ -4,11 +4,14 @@
  * replies, and a composer whose posts reply under the root. Replies never
  * render in the main stream; this is the only place they appear.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import type { Block, BlockOption } from "@dispatch/shared";
 import { ArrowLeft, X } from "lucide-react";
 
-import { FindingDetail, findingIdOf } from "@/components/app/chat/block-bodies";
+import {
+  FindingChangeEntry,
+  findingChange,
+} from "@/components/app/chat/block-bodies";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -50,6 +53,7 @@ function plainLine(markdown: string): string {
 function threadSubject(root: Block): string {
   const text = plainLine(root.text);
   if (text) return text.length > 70 ? `${text.slice(0, 69).trimEnd()}…` : text;
+  if (root.kind === "finding") return root.data.title;
   if (root.kind === "review" && root.data && "summary" in root.data) {
     const summary = plainLine(String(root.data.summary ?? ""));
     return summary.length > 70 ? `${summary.slice(0, 69).trimEnd()}…` : summary;
@@ -62,7 +66,9 @@ function threadSubject(root: Block): string {
       file: "a file",
       link: "a link",
       review: "a review",
+      finding: "a finding",
       tasks: "a task list",
+      launch: "",
     }[root.kind] ?? ""
   );
 }
@@ -97,8 +103,19 @@ export function threadTitle(
 ): { title: string; subtitle: string } {
   if (!root) return { title: finding ? "Finding" : "Thread", subtitle: "" };
   const by = root.author.kind === "agent" ? nameOf(root.author.agentId) : "you";
-  if (finding) return { title: "Finding", subtitle: `in the review by ${by}` };
+  if (root.kind === "finding") {
+    return { title: "Finding", subtitle: `in the review by ${by}` };
+  }
   if (root.kind === "review") return { title: "Review", subtitle: `by ${by}` };
+  if (root.kind === "launch") {
+    const launcher = root.launchedByAgentId
+      ? nameOf(root.launchedByAgentId)
+      : "you";
+    return {
+      title: root.toAgentId ? nameOf(root.toAgentId) : "Thread",
+      subtitle: `launched by ${launcher}`,
+    };
+  }
   const subject = threadSubject(root);
   return { title: "Thread", subtitle: subject ? `${by}: ${subject}` : by };
 }
@@ -109,7 +126,10 @@ export type ThreadPanelProps = {
   /** The root of its lineage: the stream the thread lives in. */
   rootId: string;
   blockId: string;
-  /** A finding to highlight on a review root, from `?finding=`. */
+  /**
+   * A block shown in this thread whose own thread is open over it (a
+   * finding on its review), from `?finding=`: the panel is that thread.
+   */
   findingId?: string | null;
   ctx: FeedContext;
   /** Why nothing can be posted right now, or null. */
@@ -159,28 +179,33 @@ export function ThreadPanel({
   chrome = true,
   error = null,
 }: ThreadPanelProps): JSX.Element {
-  const thread = useThread(rootId, blockId);
+  // With a finding open over it, the panel is the finding's own thread:
+  // the finding in full, its status controls, and its discussion.
+  const threadBlockId = findingId ?? blockId;
+  const thread = useThread(rootId, threadBlockId);
   const ctx = useMemo(
     () => withThreadNames(feedCtx, thread.agentNames),
     [feedCtx, thread.agentNames]
   );
   const post = usePostBlock(rootId);
   const { mutateAsync: postAsync } = post;
-
-  // On a review, a finding id turns the panel into that finding's own:
-  // the finding in full, its status controls, and only its discussion.
-  const finding =
-    findingId && thread.root?.kind === "review"
-      ? (thread.root.data.findings.find((f) => f.id === findingId) ?? null)
-      : null;
-  const replies = useMemo(
-    () =>
-      finding
-        ? thread.replies.filter((reply) => findingIdOf(reply) === finding.id)
-        : thread.replies,
-    [finding, thread.replies]
-  );
+  const finding = thread.root?.kind === "finding";
+  const replies = thread.replies;
   const grouped = useMemo(() => groupReplies(replies, ctx), [ctx, replies]);
+  // A finding's latest change is part of its discussion: who settled or
+  // reopened it, and when, among the comments at the time it happened.
+  const change = thread.root ? findingChange(thread.root) : null;
+  const changeAt = change
+    ? replies.filter((reply) => reply.createdAt <= change.at).length
+    : -1;
+  const changeEntry = change ? (
+    <FindingChangeEntry
+      record={change.record}
+      authorName={(by) =>
+        by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
+      }
+    />
+  ) : null;
   const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const groupedById = useMemo(
     () => new Map(replies.map((reply, index) => [reply.id, grouped[index]])),
@@ -188,31 +213,25 @@ export function ThreadPanel({
   );
 
   // Seeing the discussion is reading it: agent comments in view lose their
-  // unread mark, on the finding's own panel only that finding's.
+  // unread mark.
   const markRead = useMarkThreadRead(rootId);
   const { mutate: markReadNow, isPending: marking } = markRead;
   const unseen = replies.some(
     (reply) => reply.author.kind === "agent" && reply.readAt === null
   );
-  const findingKey = finding?.id ?? null;
   useEffect(() => {
     if (!unseen || marking) return;
-    markReadNow({ blockId, finding: findingKey });
-  }, [unseen, marking, blockId, findingKey, markReadNow]);
+    markReadNow({ blockId: threadBlockId });
+  }, [unseen, marking, threadBlockId, markReadNow]);
 
   const onSend = useCallback(
     async (
       text: string,
       attachments: ChatUserAttachmentInput[]
     ): Promise<void> => {
-      await postAsync({
-        text,
-        attachments,
-        replyTo: blockId,
-        ...(finding ? { finding: finding.id } : {}),
-      });
+      await postAsync({ text, attachments, replyTo: threadBlockId });
     },
-    [blockId, finding, postAsync]
+    [threadBlockId, postAsync]
   );
 
   const uploadFile = useCallback(
@@ -230,15 +249,19 @@ export function ThreadPanel({
   const seenRepliesRef = useRef<{ blockId: string; count: number } | null>(
     null
   );
+  const loadedRootId = thread.root?.id ?? null;
   useEffect(() => {
+    // The page's first load is where it opens, not replies arriving: the
+    // count to follow from is taken once the thread is here.
+    if (loadedRootId !== threadBlockId) return;
     const el = scrollRef.current;
     const seen = seenRepliesRef.current;
     // A jump to a reply (see useBlockJump) that just landed with this
     // update keeps the reader on it; later replies scroll in as usual.
     const jump = jumpedRef.current;
     const jumped = jump !== null && Date.now() - jump.at < JUMP_HOLD_MS;
-    if (!seen || seen.blockId !== blockId) {
-      seenRepliesRef.current = { blockId, count: replyCount };
+    if (!seen || seen.blockId !== threadBlockId) {
+      seenRepliesRef.current = { blockId: threadBlockId, count: replyCount };
       if (el && !jumped) el.scrollTop = 0;
       return;
     }
@@ -246,7 +269,7 @@ export function ThreadPanel({
       el.scrollTop = el.scrollHeight;
     }
     seen.count = replyCount;
-  }, [replyCount, blockId, jumpedRef]);
+  }, [replyCount, threadBlockId, loadedRootId, jumpedRef]);
 
   // Escape closes the panel, as it would a sheet.
   useEffect(() => {
@@ -271,7 +294,7 @@ export function ThreadPanel({
       aria-label={finding ? "Finding" : "Thread"}
       data-testid="chat-thread-panel"
       data-block-id={blockId}
-      data-finding-id={finding?.id ?? undefined}
+      data-finding-id={findingId ?? undefined}
       data-mobile={isMobile ? "true" : undefined}
     >
       {chrome ? (
@@ -333,7 +356,7 @@ export function ThreadPanel({
       ) : null}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
+        className="stream-surfaces-flat min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
         data-testid="chat-thread-scroll"
       >
         {thread.error ? (
@@ -364,24 +387,7 @@ export function ThreadPanel({
             Loading the thread…
           </div>
         ) : null}
-        {thread.root && finding && thread.root.kind === "review" ? (
-          <div className="px-3 pb-2 pt-1">
-            <FindingDetail
-              block={thread.root}
-              finding={finding}
-              disabled={disabledReason !== null || !ctx.onSetBlockState}
-              onSetState={
-                ctx.onSetBlockState
-                  ? (patch) => ctx.onSetBlockState?.(blockId, patch)
-                  : undefined
-              }
-              onOpenPath={ctx.onOpenPath}
-              authorName={(by) =>
-                by.kind === "user" ? "you" : agentDisplayName(by.agentId, ctx)
-              }
-            />
-          </div>
-        ) : thread.root ? (
+        {thread.root ? (
           <BlockView
             block={thread.root}
             grouped={false}
@@ -391,6 +397,7 @@ export function ThreadPanel({
             answersDisabled={disabledReason !== null}
             onAnswer={onAnswer}
             inThread
+            threadRoot={blockId}
             highlightFindingId={findingId}
           />
         ) : null}
@@ -412,25 +419,33 @@ export function ThreadPanel({
               </div>
             ) : null}
             <div data-testid="chat-thread-replies">
-              {replies.map((reply) => (
-                <div
-                  key={reply.id}
-                  data-chat-entry-id={reply.id}
-                  data-testid={reply.turn ? "chat-thread-turn" : undefined}
-                  data-turn-id={reply.turn ? reply.id : undefined}
-                >
-                  <BlockView
-                    block={reply}
-                    grouped={groupedById.get(reply.id) ?? false}
-                    ctx={ctx}
-                    answering={answeringBlockId === reply.id}
-                    submitting={submittingBlockId === reply.id}
-                    answersDisabled={disabledReason !== null}
-                    onAnswer={onAnswer}
-                    inThread
-                  />
-                </div>
+              {replies.map((reply, index) => (
+                <Fragment key={reply.id}>
+                  {change && changeAt === index ? changeEntry : null}
+                  <div
+                    data-chat-entry-id={reply.id}
+                    data-testid={reply.turn ? "chat-thread-turn" : undefined}
+                    data-turn-id={reply.turn ? reply.id : undefined}
+                  >
+                    <BlockView
+                      block={reply}
+                      grouped={
+                        // The change entry above breaks the run of posts.
+                        index === changeAt
+                          ? false
+                          : (groupedById.get(reply.id) ?? false)
+                      }
+                      ctx={ctx}
+                      answering={answeringBlockId === reply.id}
+                      submitting={submittingBlockId === reply.id}
+                      answersDisabled={disabledReason !== null}
+                      onAnswer={onAnswer}
+                      inThread
+                    />
+                  </div>
+                </Fragment>
               ))}
+              {change && changeAt === replies.length ? changeEntry : null}
             </div>
           </>
         ) : null}

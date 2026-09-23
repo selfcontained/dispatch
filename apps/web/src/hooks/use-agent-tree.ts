@@ -106,3 +106,22 @@ export function useDescendantAgentIds(
   });
   return data ?? NO_DESCENDANTS;
 }
+
+/**
+ * One agent as the live agents list has it, or null (not loaded yet, or
+ * archived). A card that stands for an agent reads it here, so its name,
+ * model and status follow the agent rather than what was true at launch.
+ */
+export function useAgentRecord(agentId: string | null): Agent | null {
+  const select = useCallback(
+    (agents: Agent[]) => agents.find((agent) => agent.id === agentId) ?? null,
+    [agentId]
+  );
+  const { data } = useQuery<Agent[], Error, Agent | null>({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+    select,
+    enabled: agentId !== null,
+  });
+  return data ?? null;
+}

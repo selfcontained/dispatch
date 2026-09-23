@@ -31,11 +31,11 @@ function createMockDeps() {
       })),
     },
     streams: {
-      streamOf: vi.fn(async (id: string) => `root:${id}`),
-      sendUserPost: vi.fn(async (_root: string, input: { text: string }) => ({
-        block: { id: "blk_1", text: input.text },
-        delivered: null,
-      })),
+      promptAgent: vi.fn(
+        async (_agentId: string, _input: { text: string; notice: string }) => ({
+          held: false,
+        })
+      ),
     },
     handleAgentError: vi.fn((reply: FastifyReply, error: unknown) =>
       reply.code(500).send({ error: String(error) })
@@ -111,7 +111,7 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       });
       expect(response.statusCode).toBe(400);
     }
-    expect(deps.streams.sendUserPost).not.toHaveBeenCalled();
+    expect(deps.streams.promptAgent).not.toHaveBeenCalled();
   });
 
   it("404s an unknown parent", async () => {
@@ -136,21 +136,13 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ ok: true, block: { id: "blk_1" } });
-    expect(deps.streams.streamOf).toHaveBeenCalledWith("agt_parent");
-    expect(deps.streams.sendUserPost).toHaveBeenCalledTimes(1);
-    const [root, input] = deps.streams.sendUserPost.mock.calls[0]!;
-    expect(root).toBe("root:agt_parent");
-    expect(input).toMatchObject({
-      to: "agt_parent",
-      allowInert: false,
-      // The row says who asked and for what; the instruction folds away.
-      reviewRequest: {
-        personas: ["security-review", "ux-review"],
-        agentType: "codex",
-        note: "Focus on the auth changes.",
-      },
-    });
+    // A prompt, not a post: nothing is written into the stream, and the
+    // turn it opens carries one line saying what was asked for.
+    expect(response.json()).toEqual({ ok: true, held: false });
+    expect(deps.streams.promptAgent).toHaveBeenCalledTimes(1);
+    const [agentId, input] = deps.streams.promptAgent.mock.calls[0]!;
+    expect(agentId).toBe("agt_parent");
+    expect(input.notice).toBe("Review requested: security-review, ux-review");
     // The agent writes the briefing; the request names the personas, the
     // runtime, and carries the user's note.
     expect(input.text).toContain('persona: "security-review"');
@@ -162,13 +154,28 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(input.text).toContain("includeDiff: false");
     expect(input.text).toContain("prompt: <your briefing>");
     expect(input.text).toContain("From the user: Focus on the auth changes.");
+    expect(input.text).toContain("its reviewer resolves it");
+  });
+
+  it("reports a prompt held behind the agent's running turn", async () => {
+    deps.streams.promptAgent.mockResolvedValueOnce({ held: true });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: { persona: "security-review", agentType: "codex" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true, held: true });
+    expect(deps.streams.promptAgent.mock.calls[0]![1].notice).toBe(
+      "Review requested: security-review"
+    );
   });
 
   it("reports the agent as not running when the post cannot be delivered", async () => {
     class StoppedError extends StreamServiceError {
       readonly statusCode = 409;
     }
-    deps.streams.sendUserPost.mockRejectedValueOnce(
+    deps.streams.promptAgent.mockRejectedValueOnce(
       new StoppedError("Agent is stopped.")
     );
     const response = await app.inject({

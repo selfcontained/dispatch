@@ -113,7 +113,6 @@ describe("registerStreamTools", () => {
       "to",
       "text",
       "replyTo",
-      "finding",
       "question",
       "form",
       "link",
@@ -151,7 +150,6 @@ describe("registerStreamTools", () => {
       to: null,
       text: "done",
       replyTo: null,
-      finding: null,
       question: null,
       form: null,
       link: null,
@@ -315,19 +313,30 @@ describe("registerStreamTools", () => {
         .success
     ).toBe(false);
     const review = input.review as Schema;
-    expect(
-      review.safeParse({ verdict: "lgtm", summary: "s", findings: [] }).success
-    ).toBe(false);
+    // A review is its summary and its findings: no verdict, and a finding
+    // is given no id by its author (it becomes a block with one).
+    expect(review.safeParse({ findings: [] }).success).toBe(false);
+    expect(review.safeParse({ summary: "", findings: [] }).success).toBe(false);
     expect(
       review.safeParse({
-        verdict: "approve",
         summary: "s",
-        findings: [{ id: "f", severity: "huge", title: "t", body: "b" }],
+        findings: [{ severity: "huge", title: "t", body: "b" }],
       }).success
     ).toBe(false);
     expect(
-      review.safeParse({ verdict: "approve", summary: "s", findings: [] })
-        .success
+      review.safeParse({
+        summary: "s",
+        findings: [{ severity: "minor", title: "", body: "b" }],
+      }).success
+    ).toBe(false);
+    expect(review.safeParse({ summary: "s", findings: [] }).success).toBe(true);
+    expect(
+      review.safeParse({
+        summary: "s",
+        findings: [
+          { severity: "major", title: "t", body: "b", path: "a.ts", line: 3 },
+        ],
+      }).success
     ).toBe(true);
     const tasks = input.tasks as Schema;
     expect(tasks.safeParse({ items: [] }).success).toBe(false);
@@ -361,7 +370,46 @@ describe("registerStreamTools", () => {
     });
     expect(tool("update").config.description).toContain("addressed to you");
     expect(tool("update").config.description).toContain(
-      '{ state: { findings: { <id>: "fixed" } } }'
+      'resolve a finding you raised, by its id: { state: { status: "fixed" } }'
+    );
+    expect(tool("update").config.description).not.toContain("findings:");
+  });
+
+  it("returns a review's finding ids with the post", async () => {
+    const F1 = "11111111-2222-4333-8444-555555555555";
+    const F2 = "22222222-2222-4333-8444-555555555555";
+    post.mockResolvedValueOnce({
+      id: BLOCK,
+      kind: "review",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      blocks: [
+        { id: F1, kind: "finding", data: { title: "One" } },
+        { id: F2, kind: "finding", data: { title: "Two" } },
+      ],
+    });
+    const review = {
+      summary: "Two things.",
+      findings: [
+        { severity: "major", title: "One", body: "b" },
+        { severity: "nit", title: "Two", body: "b" },
+      ],
+    };
+    const result = await tool("post").handler({ to: "agt_builder", review });
+    expect(result.structuredContent).toEqual({
+      id: BLOCK,
+      kind: "review",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      findings: [
+        { id: F1, title: "One" },
+        { id: F2, title: "Two" },
+      ],
+    });
+    expect(post).toHaveBeenCalledWith(
+      AGENT_ID,
+      expect.objectContaining({ to: "agt_builder", review })
+    );
+    expect(tool("update").config.description).toContain(
+      "{ state: { cancellation: true } }"
     );
   });
 

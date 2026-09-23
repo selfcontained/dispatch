@@ -26,6 +26,7 @@ export type ChatFeedContextInput = {
   onOpenThread?: FeedContext["onOpenThread"];
   onSubmitForm?: FeedContext["onSubmitForm"];
   onSetBlockState?: FeedContext["onSetBlockState"];
+  settingBlockStateId?: FeedContext["settingBlockStateId"];
   onRetryDelivery?: FeedContext["onRetryDelivery"];
   onRetryTurn?: FeedContext["onRetryTurn"];
   /** Must keep its identity while nothing retries: the rows memo on it. */
@@ -64,6 +65,7 @@ export function useChatFeedContext({
   onOpenThread,
   onSubmitForm,
   onSetBlockState,
+  settingBlockStateId,
   onRetryDelivery,
   onRetryTurn,
   retrying,
@@ -124,6 +126,7 @@ export function useChatFeedContext({
       onOpenThread,
       onSubmitForm,
       onSetBlockState,
+      settingBlockStateId,
       onRetryDelivery,
       onRetryTurn,
       retrying,
@@ -141,6 +144,7 @@ export function useChatFeedContext({
       onOpenThread,
       onSubmitForm,
       onSetBlockState,
+      settingBlockStateId,
       onRetryDelivery,
       onRetryTurn,
       retrying,

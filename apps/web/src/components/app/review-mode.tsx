@@ -1,9 +1,8 @@
 import { memo, useCallback, useState } from "react";
 import type {
-  BlockReviewData,
-  BlockReviewFinding,
+  BlockReviewInput,
+  BlockFindingData,
   BlockReviewSeverity,
-  BlockReviewVerdict,
 } from "@dispatch/shared";
 import {
   CheckCircle2,
@@ -35,12 +34,6 @@ import type { PersistedDraftComment } from "@/lib/store";
 
 export type DraftComment = PersistedDraftComment;
 
-const VERDICT_OPTIONS: { value: BlockReviewVerdict; label: string }[] = [
-  { value: "comment", label: "Comment" },
-  { value: "approve", label: "Approve" },
-  { value: "request_changes", label: "Request changes" },
-];
-
 export const SEVERITY_OPTIONS: {
   value: BlockReviewSeverity;
   label: string;
@@ -54,7 +47,7 @@ export const SEVERITY_OPTIONS: {
 const TITLE_MAX = 120;
 
 /** A draft comment as one finding: its first line is the title. */
-export function draftToFinding(draft: DraftComment): BlockReviewFinding {
+export function draftToFinding(draft: DraftComment): BlockFindingData {
   const firstLine =
     draft.comment
       .split("\n")
@@ -65,7 +58,6 @@ export function draftToFinding(draft: DraftComment): BlockReviewFinding {
       ? `${firstLine.slice(0, TITLE_MAX - 1)}…`
       : firstLine || "Comment";
   return {
-    id: draft.id,
     severity: draft.severity ?? "minor",
     title,
     body: draft.comment,
@@ -76,11 +68,10 @@ export function draftToFinding(draft: DraftComment): BlockReviewFinding {
 
 /** The review block a hand-written review becomes. */
 export function draftsToReview(
-  verdict: BlockReviewVerdict,
   summary: string,
   drafts: readonly DraftComment[]
-): BlockReviewData {
-  return { verdict, summary, findings: drafts.map(draftToFinding) };
+): BlockReviewInput {
+  return { summary, findings: drafts.map(draftToFinding) };
 }
 
 type ReviewModeBarProps = {
@@ -208,14 +199,13 @@ function SubmitReviewDialog({
   onReviewPosted: (blockId: string) => void;
 }): JSX.Element {
   const [summary, setSummary] = useState("");
-  const [verdict, setVerdict] = useState<BlockReviewVerdict>("comment");
   const post = usePostBlock(rootId);
   const { mutateAsync: postAsync, isPending, isError, error, reset } = post;
   const canSubmit = summary.trim().length > 0 && !isPending;
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
-    const review = draftsToReview(verdict, summary.trim(), drafts);
+    const review = draftsToReview(summary.trim(), drafts);
     try {
       const result = await postAsync({
         to: agentId,
@@ -224,7 +214,6 @@ function SubmitReviewDialog({
       });
       onClearDrafts();
       setSummary("");
-      setVerdict("comment");
       onOpenChange(false);
       onReviewPosted(result.block.id);
     } catch {
@@ -239,7 +228,6 @@ function SubmitReviewDialog({
     onReviewPosted,
     postAsync,
     summary,
-    verdict,
   ]);
 
   const handleKeyDown = useCallback(
@@ -265,38 +253,11 @@ function SubmitReviewDialog({
           <DialogTitle className="text-sm">Post review</DialogTitle>
           <DialogDescription>
             Posts a review block into the agent&apos;s stream. Each comment
-            becomes a finding the agent can mark fixed or dismiss, with a thread
-            behind it.
+            becomes a finding with its own thread; the agent answers under it
+            and you resolve it.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="review-verdict"
-              className="text-xs text-muted-foreground"
-            >
-              Verdict
-            </label>
-            <Select
-              value={verdict}
-              onValueChange={(value) => setVerdict(value as BlockReviewVerdict)}
-            >
-              <SelectTrigger
-                id="review-verdict"
-                className="h-8 w-[12rem] text-xs"
-                data-testid="review-verdict"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {VERDICT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <Textarea
             className="w-full resize-none text-xs"
             placeholder="Summary — what you looked at and what you think overall…"
@@ -365,8 +326,7 @@ function SubmitReviewDialog({
             </ol>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No line comments. The review posts with the verdict and summary
-              alone.
+              No line comments. The review posts with the summary alone.
             </p>
           )}
           {isError ? (

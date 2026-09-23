@@ -19,6 +19,7 @@ import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import {
   applyStreamRead,
   bumpReplyCount,
+  syncAcrossStream,
   type FeedCache,
   LIVE_HEAD_ROWS,
   replaceThreadRoot,
@@ -149,12 +150,46 @@ function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
 }
 
 /**
+ * Promises already given a follow-up invalidate once they settle: a dedupe
+ * so a burst of entries arriving during the same in-flight first fetch does
+ * not each attach their own continuation to it.
+ */
+const firstFetchFollowUps = new WeakSet<Promise<unknown>>();
+
+/**
+ * A feed's very first fetch (no cached data yet) is in flight when an entry
+ * arrives. `invalidateQueries` cannot rescue this one the way it rescues a
+ * refetch: react-query's `Query#fetch` only cancels-and-restarts an
+ * in-flight request when `state.data !== undefined` (see `query.js`,
+ * `cancelRefetch` branch) — with no data yet, it just hands back the same
+ * in-flight promise, so invalidating merely flags the query stale for
+ * whenever it is next *observed* (a remount, a window focus), which may not
+ * happen while the tab stays put on this agent. Wait for that promise to
+ * settle instead — data will be defined by then, so an ordinary invalidate
+ * can actually cancel-and-refetch — and invalidate once it does.
+ */
+function invalidateOnceFirstFetchSettles(
+  queryClient: QueryClient,
+  agentId: string,
+  key: ReturnType<typeof streamFeedQueryKey>
+): void {
+  const promise = queryClient
+    .getQueryCache()
+    .find<FeedCache>({ queryKey: key, exact: true })?.promise;
+  if (!promise || firstFetchFollowUps.has(promise)) return;
+  firstFetchFollowUps.add(promise);
+  const onSettled = () => invalidateStreamFeed(queryClient, agentId);
+  promise.then(onSettled, onSettled);
+}
+
+/**
  * A `stream.entry` event: one feed row, put straight into the cached pages.
  * Falls back to the refetch when there is no place for it — the entry is
- * older than the loaded head — or when a fetch is already in flight, whose
- * result would otherwise overwrite the patch with a snapshot that may or
- * may not include the row. A feed that was never fetched has nothing to
- * patch; its first fetch will carry the row.
+ * older than the loaded head — or when a fetch is already in flight
+ * (including the feed's very first load), whose result would otherwise
+ * overwrite the patch with a snapshot that may or may not include the row.
+ * A feed with no query mounted at all has nothing to patch or invalidate;
+ * whenever it is next fetched, that fetch will carry the row.
  *
  * A reply (a block with `threadId`) never goes into the feed: it lands in
  * its thread when that is loaded, and the root's reply line counts it.
@@ -171,8 +206,14 @@ export function applyStreamEntry(
       threadQueryKey(agentId, reply.threadId),
       (old) => upsertThreadReply(old, reply)
     );
+    // A block that opens a thread of its own (a finding, a review on a
+    // card) is also that thread's root.
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey(agentId, reply.id),
+      (old) => replaceThreadRoot(old, reply)
+    );
     queryClient.setQueryData<FeedCache>(key, (old) =>
-      bumpReplyCount(old, reply)
+      syncAcrossStream(bumpReplyCount(old, reply), reply)
     );
     return;
   }
@@ -184,12 +225,26 @@ export function applyStreamEntry(
     );
   }
   const state = queryClient.getQueryState<FeedCache>(key);
-  if (!state?.data) return;
+  if (!state) return;
+  // A fetch in flight (the feed's first load, or a refetch) may already have
+  // read the row's earlier version from the DB, or may resolve before this
+  // event's write is visible there — either way its response won't reflect
+  // this entry. Checked before `state.data`: the very first fetch has no
+  // data yet, and previously fell through the guard below with nothing to
+  // invalidate it later.
   if (state.fetchStatus === "fetching") {
-    invalidateStreamFeed(queryClient, agentId);
+    if (state.data === undefined) {
+      invalidateOnceFirstFetchSettles(queryClient, agentId, key);
+    } else {
+      invalidateStreamFeed(queryClient, agentId);
+    }
     return;
   }
-  const result = upsertFeedEntry(state.data, entry);
+  if (!state.data) return;
+  const result = upsertFeedEntry(
+    syncAcrossStream(state.data, entry.block)!,
+    entry
+  );
   if (!result.placed) {
     invalidateStreamFeed(queryClient, agentId);
     return;
@@ -300,6 +355,15 @@ export function useSSE(authState: AuthState): void {
           // its first appearance adds to the count.
           const block =
             payload.entry.type === "block" ? payload.entry.block : null;
+          // Closing an ask changes the agent's derived Waiting activity.
+          // The stream row updates the card, but the sidebar agent cache
+          // needs a fresh agent projection to clear that status immediately.
+          if (
+            (block?.kind === "question" || block?.kind === "form") &&
+            block.state?.cancellation !== undefined
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ["agents"] });
+          }
           if (
             block !== null &&
             block.author.kind === "agent" &&

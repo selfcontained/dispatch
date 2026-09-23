@@ -61,6 +61,7 @@ export type {
 } from "./chat-types.js";
 export {
   BLOCK_ATTACHMENTS_MAX,
+  BLOCK_CANCEL_REASON_MAX_CHARS,
   BLOCK_FORM_FIELDS_MAX,
   BLOCK_KINDS,
   BLOCK_OPTION_LABEL_MAX_CHARS,
@@ -69,6 +70,7 @@ export {
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
   BLOCK_TEXT_MAX_CHARS,
+  reviewFindings,
   reviewStatus,
 } from "./block-types.js";
 export type {
@@ -78,10 +80,14 @@ export type {
   BlockAuthorKind,
   BlockDelivery,
   BlockDeliveryState,
-  BlockReviewRequest,
+  BlockFindingData,
+  BlockLaunchState,
+  BlockReviewInput,
+  BlockShows,
   BlockStartup,
   BlockStartupStep,
   BlockBody,
+  BlockCancellation,
   BlockFindingPatch,
   BlockFindingResolution,
   BlockFindingState,
@@ -98,11 +104,9 @@ export type {
   BlockQuestionState,
   BlockReaction,
   BlockReviewData,
-  BlockReviewFinding,
   BlockReviewSeverity,
   BlockReviewState,
   BlockReviewStatus,
-  BlockReviewVerdict,
   BlockTaskStatus,
   BlockTasksData,
   BlockTextData,
@@ -121,7 +125,6 @@ export type {
   StreamReadEvent,
   StreamStateRequest,
   StreamSubmitRequest,
-  StreamThreadReadRequest,
   StreamThreadReadResponse,
   StreamThreadResponse,
 } from "./block-types.js";

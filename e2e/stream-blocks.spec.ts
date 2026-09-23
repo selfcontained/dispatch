@@ -7,25 +7,20 @@ import {
   createAgentViaAPI,
 } from "./helpers";
 
-/** The stored state of one block, read back through the feed. */
+/** The stored state of one block, read back as the root of its own thread. */
 async function blockState(
   request: Parameters<typeof callMcpToolViaAPI>[0],
   streamId: string,
   blockId: string
 ): Promise<Record<string, unknown> | null> {
-  const res = await request.get(`/api/v1/streams/${streamId}/blocks`, {
-    headers: authHeaders(),
-  });
-  const body = (await res.json()) as {
-    entries: Array<{
-      type: string;
-      block?: { id: string; state: Record<string, unknown> | null };
-    }>;
-  };
-  const entry = body.entries.find(
-    (candidate) => candidate.type === "block" && candidate.block?.id === blockId
+  const res = await request.get(
+    `/api/v1/streams/${streamId}/blocks/${blockId}/thread`,
+    { headers: authHeaders() }
   );
-  return entry?.block?.state ?? null;
+  const body = (await res.json()) as {
+    root?: { state: Record<string, unknown> | null };
+  };
+  return body.root?.state ?? null;
 }
 
 test.describe("Stream blocks", () => {
@@ -45,11 +40,9 @@ test.describe("Stream blocks", () => {
     const posted = (await callMcpToolViaAPI(request, agent.id, "post", {
       text: "",
       review: {
-        verdict: "request_changes",
         summary: "Two things to fix before this ships. The rest reads well.",
         findings: [
           {
-            id: "f1",
             severity: "major",
             title: "Retry spinner never settles",
             body: "After a timeout the spinner keeps going.",
@@ -57,7 +50,6 @@ test.describe("Stream blocks", () => {
             line: 56,
           },
           {
-            id: "f2",
             severity: "nit",
             title: "Stray console.log",
             body: "Left over from debugging.",
@@ -67,19 +59,25 @@ test.describe("Stream blocks", () => {
         ],
       },
     })) as { result?: { content?: Array<{ text?: string }> } };
-    const reviewId = (
-      JSON.parse(posted.result?.content?.[0]?.text ?? "{}") as { id?: string }
-    ).id;
+    const result = JSON.parse(posted.result?.content?.[0]?.text ?? "{}") as {
+      id?: string;
+      findings?: Array<{ id: string }>;
+    };
+    const reviewId = result.id;
     expect(reviewId).toBeTruthy();
+    // Each finding is a block of its own; the post names them.
+    const [f1, f2] = (result.findings ?? []).map((f) => f.id);
+    expect(f1 && f2).toBeTruthy();
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     const pane = page.getByTestId("chat-pane");
     const card = pane.getByTestId("chat-review-block");
     await expect(card).toBeVisible();
 
-    // In the stream the review is a summary line: verdict, counts, the
-    // summary's first sentence. Clicking it opens the review in the drawer.
-    await expect(card.getByTestId("chat-review-verdict")).toHaveText(
+    // In the stream the review is a summary line: where its findings
+    // stand, the counts, the summary's first sentence. Clicking it opens the
+    // review in the drawer.
+    await expect(card.getByTestId("chat-review-status")).toHaveText(
       "Changes requested"
     );
     await expect(card.getByTestId("chat-review-counts")).toHaveText(
@@ -106,7 +104,7 @@ test.describe("Stream blocks", () => {
     );
     const findings = review.getByTestId("chat-review-finding");
     await expect(findings).toHaveCount(2);
-    await expect(findings.nth(0)).toHaveAttribute("data-finding-id", "f1");
+    await expect(findings.nth(0)).toHaveAttribute("data-finding-id", f1!);
     await expect(findings.nth(0)).toContainText("Retry spinner never settles");
     await expect(findings.nth(0)).toContainText("LoadingState.tsx:56");
     await expect(
@@ -118,11 +116,11 @@ test.describe("Stream blocks", () => {
     );
     await expect(review.getByTestId("chat-review-resolve")).toHaveCount(0);
 
-    // A row opens the finding's own panel, where Resolve lives; the change
-    // goes through PATCH …/state and the row follows.
+    // A row opens the finding's own thread, where Resolve lives; the change
+    // goes through PATCH …/state on the finding and the row follows.
     await findings.nth(0).getByTestId("chat-review-finding-link").click();
     await page.waitForURL(
-      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f1$`)
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=${f1}$`)
     );
     // The finding's page sits on top of the review's in the drawer; only
     // the top page is live.
@@ -143,10 +141,8 @@ test.describe("Stream blocks", () => {
       "2 findings · 1 open"
     );
     await expect
-      .poll(() => blockState(request, agent.id, reviewId!))
-      .toMatchObject({
-        findings: { f1: { status: "resolved", resolution: "fixed" } },
-      });
+      .poll(() => blockState(request, agent.id, f1!))
+      .toMatchObject({ status: "resolved", resolution: "fixed" });
 
     // Dismissing wants a reason and records it; Reopen takes it back. The
     // review page is under the finding's: back first, then the next row.
@@ -156,7 +152,7 @@ test.describe("Stream blocks", () => {
     );
     await findings.nth(1).getByTestId("chat-review-finding-link").click();
     await page.waitForURL(
-      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=f2$`)
+      new RegExp(`/agents/${agent.id}\\?thread=${reviewId}&finding=${f2}$`)
     );
     await expect(detail).toContainText("Left over from debugging.");
     await detail.getByTestId("chat-review-dismiss").click();
@@ -169,24 +165,20 @@ test.describe("Stream blocks", () => {
       "Debug logging stays until the beta."
     );
     await expect
-      .poll(() => blockState(request, agent.id, reviewId!))
+      .poll(() => blockState(request, agent.id, f2!))
       .toMatchObject({
-        findings: {
-          f2: {
-            status: "resolved",
-            resolution: "dismissed",
-            note: "Debug logging stays until the beta.",
-          },
-        },
+        status: "resolved",
+        resolution: "dismissed",
+        note: "Debug logging stays until the beta.",
       });
     await detail.getByTestId("chat-review-reopen").click();
     await page.getByTestId("chat-review-reopen-confirm").click();
     await expect(findings.nth(1)).toHaveAttribute("data-status", "open");
     await expect
-      .poll(() => blockState(request, agent.id, reviewId!))
-      .toMatchObject({ findings: { f2: { status: "open" } } });
+      .poll(() => blockState(request, agent.id, f2!))
+      .toMatchObject({ status: "open" });
 
-    // A comment on the finding lands in its discussion, tagged to it.
+    // A comment on the finding lands in the finding's own thread.
     await thread
       .getByTestId("chat-composer-input")
       .fill("Fixing this one now.");
@@ -273,6 +265,83 @@ test.describe("Stream blocks", () => {
     await expect(answered).toContainText("SQLite");
   });
 
+  test("a person can cancel open questions and forms without removing their threads", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-cancel-input-${Date.now()}`,
+    });
+    const questionPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Do we still need a decision?",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    const formPost = await callMcpToolViaAPI(request, agent.id, "post", {
+      text: "Details we may no longer need",
+      form: {
+        title: "Release details",
+        fields: [{ id: "note", label: "Note", type: "text", required: true }],
+      },
+    });
+    const postedId = (post: Record<string, unknown>) =>
+      (
+        JSON.parse(
+          (post.result as { content?: Array<{ text?: string }> })?.content?.[0]
+            ?.text ?? "{}"
+        ) as { id?: string }
+      ).id;
+    const questionId = postedId(questionPost);
+    const formId = postedId(formPost);
+    expect(questionId).toBeTruthy();
+    expect(formId).toBeTruthy();
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const pane = page.getByTestId("chat-pane");
+    const question = pane.locator(`[data-chat-entry-id="${questionId}"]`);
+    await question.getByTestId("chat-ask-cancel").click();
+    await expect(question.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(
+      question.getByTestId("chat-question-option").first()
+    ).toBeDisabled();
+    await expect
+      .poll(
+        async () =>
+          (await blockState(request, agent.id, questionId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+    const questionThread = question.getByTestId("chat-thread-line");
+    await expect(questionThread).toHaveAttribute("data-reply-count", "1");
+    await questionThread.click();
+    await expect(page.getByTestId("chat-thread-panel")).toContainText(
+      "Canceled."
+    );
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("toggle-drawer").click();
+    const sidebar = page.getByTestId("drawer");
+    await sidebar.getByTestId("sidebar-tab-inbox").click();
+    const inbox = sidebar.getByTestId("inbox");
+    await expect(inbox).toHaveAttribute("data-open-inputs", "1");
+    await inbox.getByTestId("chat-ask-cancel").click();
+    await expect(inbox).toHaveAttribute("data-open-inputs", "0");
+    await expect(page.getByTestId(`agent-activity-${agent.id}`)).toHaveCount(0);
+    const form = page
+      .getByTestId("chat-pane")
+      .locator(`[data-chat-entry-id="${formId}"]`);
+    await expect(form.getByTestId("chat-ask-canceled")).toBeVisible();
+    await expect(form.getByTestId("chat-form-submit")).toHaveCount(0);
+    await expect
+      .poll(
+        async () => (await blockState(request, agent.id, formId!))?.cancellation
+      )
+      .toMatchObject({ by: { kind: "user" } });
+
+    await page.screenshot({
+      path: test.info().outputPath("canceled-question-and-form.png"),
+      fullPage: true,
+    });
+  });
+
   test("the Changes tab posts a hand-written review as a review block", async ({
     page,
     request,
@@ -297,8 +366,6 @@ test.describe("Stream blocks", () => {
     const post = dialog.getByTestId("review-post");
     await expect(post).toBeDisabled();
     await dialog.getByTestId("review-summary").fill("Looks good to me.");
-    await dialog.getByTestId("review-verdict").click();
-    await page.getByRole("option", { name: "Approve" }).click();
     await post.click();
 
     // The review lands in the stream and opens in the drawer, over the
@@ -306,7 +373,8 @@ test.describe("Stream blocks", () => {
     await page.waitForURL(new RegExp(`/agents/${agent.id}/changes\\?thread=`));
     const thread = page.getByTestId("chat-thread-panel");
     await expect(page.getByTestId("drawer-title")).toHaveText("Review");
-    await expect(thread.getByTestId("chat-review-verdict")).toHaveText(
+    // A review with no findings has nothing open: it reads as approved.
+    await expect(thread.getByTestId("chat-review-status")).toHaveText(
       "Approved"
     );
     await expect(thread.getByTestId("chat-review-counts")).toHaveText(

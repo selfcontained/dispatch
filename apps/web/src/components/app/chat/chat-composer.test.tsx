@@ -222,7 +222,9 @@ describe("ChatComposer @mentions", () => {
     { id: "agt_3", name: "builder", seat: 3 },
   ];
   const type = (input: HTMLTextAreaElement, value: string) => {
-    fireEvent.change(input, { target: { value, selectionStart: value.length } });
+    fireEvent.change(input, {
+      target: { value, selectionStart: value.length },
+    });
   };
 
   it("opens the picker on @, filters as you type, and Enter inserts the name instead of sending", async () => {
@@ -248,7 +250,9 @@ describe("ChatComposer @mentions", () => {
     const { input } = renderComposer({ mentionables });
     type(input, "@3");
     expect(screen.getAllByTestId("mention-option")).toHaveLength(1);
-    expect(screen.getByTestId("mention-option").textContent).toContain("builder");
+    expect(screen.getByTestId("mention-option").textContent).toContain(
+      "builder"
+    );
     type(input, "@");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     const options = screen.getAllByTestId("mention-option");
@@ -261,5 +265,120 @@ describe("ChatComposer @mentions", () => {
     const { input } = renderComposer();
     type(input, "@rev");
     expect(screen.queryByTestId("mention-picker")).toBeNull();
+  });
+});
+
+describe("ChatComposer slash commands", () => {
+  const slashCommands = [
+    { name: "skills", description: "List skills", source: "agent" as const },
+    { name: "review", description: "Review changes", source: "agent" as const },
+    { name: "model", description: "Choose model", source: "dispatch" as const },
+  ];
+
+  it("filters advertised commands and inserts the selected command before sending", async () => {
+    const { input, onSend } = renderComposer({ slashCommands });
+    fireEvent.change(input, { target: { value: "/ski", selectionStart: 4 } });
+    expect(screen.getAllByTestId("slash-option")).toHaveLength(1);
+    expect(screen.getByTestId("slash-option").textContent).toContain("/skills");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("/skills ");
+    fireEvent.change(input, {
+      target: { value: "/skills list", selectionStart: 12 },
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith("/skills list", [])
+    );
+  });
+
+  it("can consume a Dispatch command locally and dismiss the menu", () => {
+    const onDispatchCommand = vi.fn(() => true);
+    const { input, onSend } = renderComposer({
+      slashCommands,
+      onDispatchCommand,
+    });
+    fireEvent.change(input, { target: { value: "/mo", selectionStart: 3 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onDispatchCommand).toHaveBeenCalledWith("model");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: "/re", selectionStart: 3 } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("slash-picker")).toBeNull();
+  });
+
+  it("opens again after Escape when the draft is deleted and retyped", () => {
+    const { input } = renderComposer({ slashCommands });
+    fireEvent.change(input, { target: { value: "/", selectionStart: 1 } });
+    expect(screen.getByTestId("slash-picker")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("slash-picker")).toBeNull();
+    fireEvent.change(input, { target: { value: "", selectionStart: 0 } });
+    fireEvent.change(input, { target: { value: "/", selectionStart: 1 } });
+    expect(screen.getByTestId("slash-picker")).toBeTruthy();
+  });
+
+  it("connects the focused field to the active suggestion", () => {
+    const { input } = renderComposer({ slashCommands });
+    fireEvent.change(input, { target: { value: "/", selectionStart: 1 } });
+    const list = screen.getByTestId("slash-picker");
+    const options = screen.getAllByTestId("slash-option");
+    expect(input.getAttribute("role")).toBe("combobox");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-autocomplete")).toBe("list");
+    expect(input.getAttribute("aria-controls")).toBe(list.id);
+    expect(input.getAttribute("aria-activedescendant")).toBe(options[0]!.id);
+    expect(options[0]!.tabIndex).toBe(-1);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(options[1]!.id);
+  });
+
+  it("does not offer or send an agent command with an attachment or mention", () => {
+    const { input, onSend } = renderComposer({
+      slashCommands,
+      mentionables: [{ id: "agt_1", name: "builder", seat: 1 }],
+    });
+    const fileInput = screen.getByTestId("chat-composer-file-input");
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["hello"], "notes.txt", { type: "text/plain" })],
+      },
+    });
+    fireEvent.change(input, { target: { value: "/", selectionStart: 1 } });
+    expect(screen.queryByTestId("slash-picker")).toBeNull();
+    fireEvent.change(input, {
+      target: { value: "/skills", selectionStart: 7 },
+    });
+    expect(screen.queryByTestId("slash-picker")).toBeNull();
+    expect(
+      screen.getByTestId("chat-composer-slash-hint").textContent
+    ).toContain("Remove attachments");
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    fireEvent.change(input, {
+      target: { value: "/skills @builder", selectionStart: 16 },
+    });
+    expect(
+      screen.getByTestId("chat-composer-slash-hint").textContent
+    ).toContain("Remove agent mentions");
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  it("leaves Shift+Enter and Shift+Tab to normal textarea behavior", () => {
+    const { input, onSend } = renderComposer({ slashCommands });
+    fireEvent.change(input, { target: { value: "/ski", selectionStart: 4 } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(input.value).toBe("/ski");
+    expect(screen.getByTestId("slash-picker")).toBeTruthy();
+    expect(onSend).not.toHaveBeenCalled();
   });
 });

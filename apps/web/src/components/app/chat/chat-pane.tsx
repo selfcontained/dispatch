@@ -36,6 +36,7 @@ import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context"
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useDescendantAgentIds, useRootAgentId } from "@/hooks/use-agent-tree";
+import { useAgentCommands } from "@/hooks/use-agent-commands";
 import {
   useAnswerQuestion,
   useMarkStreamRead,
@@ -98,6 +99,17 @@ export function entryOwner(
   const { agentId, rootId, descendants } = view;
   const isRoot = agentId === rootId;
   const { author, toAgentId } = entry.block;
+  // A child's launch card is the one entry for it in its parent's stream,
+  // and the parent's record of starting it: it stays in the parent's view
+  // whether or not child activity is shown. The child's work is inside it.
+  if (
+    entry.block.kind === "launch" &&
+    toAgentId !== null &&
+    toAgentId !== agentId &&
+    descendants.has(toAgentId)
+  ) {
+    return "own";
+  }
   if (author.kind === "agent") {
     if (author.agentId === agentId) return "own";
     if (descendants.has(author.agentId)) return "child";
@@ -348,6 +360,7 @@ export function ChatPane({
   // The stream is the root's: a child agent's page reads its root's feed
   // and filters it down to the child (see `entryOwner`).
   const rootId = useRootAgentId(agentId);
+  const slashCommands = useAgentCommands(agentId, active);
   const descendants = useDescendantAgentIds(agentId);
   const feed = useStreamFeed(rootId);
   const send = usePostBlock(rootId);
@@ -389,13 +402,11 @@ export function ChatPane({
         : entries,
     [entries, view]
   );
-  // The startup records — what the agent was told, and its workspace
-  // coming up — are not a conversation: a stream holding only those still
-  // reads as empty, which is what a fresh agent should look like.
+  // A launch card with no briefing is a startup record, not a
+  // conversation: a stream holding only that still reads as empty, which
+  // is what a fresh agent should look like.
   const hasConversation = visibleEntries.some(
-    (entry) =>
-      entry.block.origin !== "system_prompt" &&
-      entry.block.origin !== "workspace"
+    (entry) => entry.block.kind !== "launch" || entry.block.text.trim() !== ""
   );
   const hasHiddenChildActivity = useMemo(
     () =>
@@ -850,6 +861,10 @@ export function ChatPane({
     [toggleReactionNow]
   );
 
+  const settingBlockStateId = setBlockState.isPending
+    ? (setBlockState.variables?.blockId ?? null)
+    : null;
+
   const { ctx } = useChatFeedContext({
     agentId,
     rootId,
@@ -860,6 +875,7 @@ export function ChatPane({
     onOpenThread,
     onSubmitForm,
     onSetBlockState,
+    settingBlockStateId,
     onRetryDelivery,
     onRetryTurn,
     retrying,
@@ -901,7 +917,7 @@ export function ChatPane({
               onLoadCapture={() => {
                 if (following) scrollToBottom();
               }}
-              className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
+              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
             >
               <div ref={contentRef} className="min-w-0 max-w-full">
                 {feed.hasOlder ? (
@@ -1055,6 +1071,7 @@ export function ChatPane({
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
               mentionables={mentionables}
+              slashCommands={slashCommands}
               canInterrupt={Boolean(agentId) && turnRunning}
               action={
                 agentId && turnRunning ? (

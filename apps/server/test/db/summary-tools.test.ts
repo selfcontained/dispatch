@@ -101,13 +101,36 @@ async function insertAgent(
   );
 }
 
-/**
- * A finding on the reviewer's `review` block, which is created on first use
- * (one review per reviewer, addressed to its parent, asking for changes).
- * Statuses use the summary's vocabulary: open, fixed, dismissed/ignored.
- */
-async function insertFeedback(
+/** A `review` block by the reviewer, addressed to its parent; its findings are shown blocks. */
+async function insertReviewBlock(
   reviewerAgentId: string,
+  opts: { summary?: string; createdAt?: Date } = {}
+): Promise<string> {
+  const block = await pool.query<{ id: string }>(
+    `INSERT INTO blocks (
+       id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
+       data, state, delivered, created_at, updated_at
+     )
+     SELECT gen_random_uuid(), parent_agent_id, 'agent', id, parent_agent_id,
+            'review', $2::jsonb, '{"blocks":[]}'::jsonb, true, $3, $3
+     FROM agents
+     WHERE id = $1
+     RETURNING id`,
+    [
+      reviewerAgentId,
+      JSON.stringify({ summary: opts.summary ?? "Needs work" }),
+      opts.createdAt ?? new Date(),
+    ]
+  );
+  return block.rows[0]!.id;
+}
+
+/**
+ * A `finding` block in a review's thread, which the review shows. Statuses
+ * use the summary's vocabulary: open, fixed, dismissed/ignored.
+ */
+async function insertFinding(
+  reviewId: string,
   opts: {
     severity?: "blocker" | "major" | "minor" | "nit";
     filePath?: string | null;
@@ -116,30 +139,7 @@ async function insertFeedback(
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  let block = await pool.query<{ id: string }>(
-    `SELECT id FROM blocks
-     WHERE kind = 'review' AND author_kind = 'agent' AND author_agent_id = $1`,
-    [reviewerAgentId]
-  );
-  if (!block.rows[0]) {
-    block = await pool.query<{ id: string }>(
-      `INSERT INTO blocks (
-         id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
-         data, state, created_at, updated_at
-       )
-       SELECT gen_random_uuid(), parent_agent_id, 'agent', id, parent_agent_id,
-              'review',
-              '{"verdict":"request_changes","summary":"Needs work","findings":[]}'::jsonb,
-              '{"findings":{}}'::jsonb, $2, $2
-       FROM agents
-       WHERE id = $1
-       RETURNING id`,
-      [reviewerAgentId, opts.createdAt ?? new Date()]
-    );
-  }
-  const findingId = randomUUID().slice(0, 8);
   const finding = {
-    id: findingId,
     severity: opts.severity ?? "minor",
     title: opts.description ?? "Test finding",
     body: opts.description ?? "Test finding",
@@ -151,62 +151,72 @@ async function insertFeedback(
       : opts.status === "dismissed" || opts.status === "ignored"
         ? { status: "resolved", resolution: "dismissed" }
         : { status: "open" };
-  await pool.query(
-    `UPDATE blocks
-        SET data = jsonb_set(data, '{findings}', data->'findings' || $2::jsonb),
-            state = jsonb_set(state, ARRAY['findings', $3], $4::jsonb)
-      WHERE id = $1`,
-    [
-      block.rows[0]!.id,
-      JSON.stringify([finding]),
-      findingId,
-      JSON.stringify({ ...record, by: "user", at: new Date().toISOString() }),
-    ]
-  );
-}
-
-/** A reviewer's `review` block with a verdict; request_changes carries one finding. */
-async function insertReview(
-  agentId: string,
-  parentAgentId: string,
-  _persona: string,
-  opts: {
-    verdict?: string | null;
-    summary?: string | null;
-    createdAt?: Date;
-  } = {}
-): Promise<void> {
-  const changes = opts.verdict === "request_changes";
+  const id = randomUUID();
   await pool.query(
     `INSERT INTO blocks (
        id, stream_id, author_kind, author_agent_id, to_agent_id, kind,
-       data, state, created_at, updated_at
-     ) VALUES (gen_random_uuid(), $1, 'agent', $2, $1, 'review', $3, $4, $5, $5)`,
+       thread_id, reply_to, data, state, delivered, created_at, updated_at
+     )
+     SELECT $1, r.stream_id, r.author_kind, r.author_agent_id, r.to_agent_id,
+            'finding', r.id, r.id, $3::jsonb, $4::jsonb, true, $5, $5
+       FROM blocks r WHERE r.id = $2`,
     [
-      parentAgentId,
-      agentId,
+      id,
+      reviewId,
+      JSON.stringify(finding),
       JSON.stringify({
-        verdict: opts.verdict ?? "approve",
-        summary: opts.summary ?? "Looks good",
-        findings: changes
-          ? [
-              {
-                id: "f1",
-                severity: "major",
-                title: "Fix this",
-                body: "Fix this",
-              },
-            ]
-          : [],
-      }),
-      JSON.stringify({
-        findings: changes
-          ? { f1: { status: "open", by: "user", at: new Date().toISOString() } }
-          : {},
+        ...record,
+        by: { kind: "user" },
+        at: new Date().toISOString(),
       }),
       opts.createdAt ?? new Date(),
     ]
   );
+  await pool.query(
+    `UPDATE blocks
+        SET state = jsonb_set(state, '{blocks}', state->'blocks' || to_jsonb($2::text))
+      WHERE id = $1`,
+    [reviewId, id]
+  );
+}
+
+/**
+ * A finding on the reviewer's review, which is created on first use (one
+ * review per reviewer, addressed to its parent).
+ */
+async function insertFeedback(
+  reviewerAgentId: string,
+  opts: Parameters<typeof insertFinding>[1] = {}
+): Promise<void> {
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM blocks
+     WHERE kind = 'review' AND author_kind = 'agent' AND author_agent_id = $1`,
+    [reviewerAgentId]
+  );
+  const reviewId =
+    existing.rows[0]?.id ??
+    (await insertReviewBlock(reviewerAgentId, { createdAt: opts.createdAt }));
+  await insertFinding(reviewId, opts);
+}
+
+/**
+ * A reviewer's review with findings in the given states: where it stands
+ * (approved, changes requested) comes from them alone.
+ */
+async function insertReview(
+  agentId: string,
+  _persona: string,
+  opts: { findings?: string[]; summary?: string; createdAt?: Date } = {}
+): Promise<void> {
+  const reviewId = await insertReviewBlock(agentId, opts);
+  for (const status of opts.findings ?? []) {
+    await insertFinding(reviewId, {
+      severity: "major",
+      description: "Fix this",
+      status,
+      createdAt: opts.createdAt,
+    });
+  }
 }
 
 function daysAgo(days: number): Date {
@@ -388,9 +398,11 @@ describe("getFeedbackSummary", () => {
     await insertAgent("r2", { persona: "sec", parentAgentId: "p2" });
     await insertAgent("r3", { persona: "ux", parentAgentId: "p1" });
 
-    await insertReview("r1", "p1", "sec", { verdict: "approve" });
-    await insertReview("r2", "p2", "sec", { verdict: "request_changes" });
-    await insertReview("r3", "p1", "ux", { verdict: "approve" });
+    // No verdict is stored: a clean pass, and a review whose findings are
+    // all resolved, read as approved; one with an open finding does not.
+    await insertReview("r1", "sec");
+    await insertReview("r2", "sec", { findings: ["open", "fixed"] });
+    await insertReview("r3", "ux", { findings: ["fixed", "dismissed"] });
 
     const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),

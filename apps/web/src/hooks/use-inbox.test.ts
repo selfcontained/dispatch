@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
-import type { StreamEntry } from "@dispatch/shared";
+import type { Block, StreamEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,9 +12,12 @@ import {
   block,
   blockEntry,
   formBody,
+  findingBlock,
+  findingRecord,
+  launchBlock,
   turnEntry,
   questionBody,
-  reviewBody,
+  reviewBlock,
 } from "@/test-utils/blocks";
 
 import { deriveInbox, isOpenInput, useInbox } from "./use-inbox";
@@ -47,52 +50,61 @@ function link(id: string, by: string, when: string, url: string) {
   );
 }
 
+/** A review with two findings, both open unless `resolved`. */
+function reviewOf(
+  id: string,
+  by: string,
+  to: string | null,
+  when: string,
+  resolved = false,
+  extra: { threadId?: string } = {}
+) {
+  const finding = (fid: string) =>
+    findingBlock(
+      `${id}-${fid}`,
+      { severity: "major", title: fid, body: "" },
+      {
+        author: { kind: "agent", agentId: by },
+        reviewId: id,
+        record: findingRecord(resolved ? "fixed" : "open"),
+      }
+    );
+  return reviewBlock({
+    id,
+    author: { kind: "agent", agentId: by },
+    toAgentId: to,
+    summary: "s",
+    findings: [finding("f1"), finding("f2")],
+    createdAt: when,
+    ...(extra.threadId
+      ? { threadId: extra.threadId, replyTo: extra.threadId }
+      : {}),
+  });
+}
+
 function review(
   id: string,
   by: string,
   to: string | null,
   when: string,
-  state: Parameters<typeof reviewBody>[3] = { findings: {} }
+  resolved = false
 ) {
+  return blockEntry(reviewOf(id, by, to, when, resolved));
+}
+
+/** A child's launch card in the parent's stream, showing what it posted there. */
+function card(id: string, child: string, when: string, shown: Block[]) {
   return blockEntry(
-    block({
-      id,
-      author: { kind: "agent", agentId: by },
-      toAgentId: to,
-      body: reviewBody(
-        "request_changes",
-        "s",
-        [
-          { id: "f1", severity: "major", title: "a", body: "b" },
-          { id: "f2", severity: "nit", title: "c", body: "d" },
-        ],
-        state
-      ),
-      createdAt: when,
-    })
+    launchBlock({ id, toAgentId: child, createdAt: when, blocks: shown })
   );
 }
 
 describe("deriveInbox reviews", () => {
   it("lists reviews of the page's agent newest first, open ones before resolved", () => {
-    const resolved = {
-      findings: {
-        f1: {
-          status: "resolved" as const,
-          by: { kind: "user" as const },
-          at: "t",
-        },
-        f2: {
-          status: "resolved" as const,
-          by: { kind: "user" as const },
-          at: "t",
-        },
-      },
-    };
     const inbox = deriveInbox(
       [
         review("r-old", CHILD, ROOT, at("09:00")),
-        review("r-done", CHILD, ROOT, at("09:30"), resolved),
+        review("r-done", CHILD, ROOT, at("09:30"), true),
         review("r-new", CHILD, ROOT, at("10:00")),
         // A review of someone else's work, on a child's page.
         review("r-other", "agt_x", "agt_y", at("10:30")),
@@ -119,6 +131,49 @@ describe("deriveInbox reviews", () => {
     );
     expect(childInbox.reviews.map((r) => r.id)).toEqual(["r-for-me", "r-mine"]);
   });
+
+  it("picks up a review a reviewer posted on its launch card", () => {
+    const REVIEWER = "agt_reviewer";
+    const onCard = reviewOf("r-card", REVIEWER, CHILD, at("09:10"), false, {
+      threadId: "card-1",
+    });
+    const settled = reviewOf(
+      "r-card-done",
+      REVIEWER,
+      CHILD,
+      at("09:20"),
+      true,
+      {
+        threadId: "card-2",
+      }
+    );
+    const entries = [
+      card("card-1", REVIEWER, at("09:00"), [onCard]),
+      card("card-2", REVIEWER, at("09:15"), [settled]),
+      review("r-top", CHILD, ROOT, at("09:30")),
+    ];
+    const inbox = deriveInbox(entries, ROOT, ROOT);
+    // Open before resolved, newest first within each.
+    expect(inbox.reviews.map((r) => r.id)).toEqual([
+      "r-top",
+      "r-card",
+      "r-card-done",
+    ]);
+    // Its findings come along, so its standing can be read.
+    expect(inbox.reviews[1]!.blocks?.map((b) => b.id)).toEqual([
+      "r-card-f1",
+      "r-card-f2",
+    ]);
+    // The reviewed child sees the reviews addressed to it; the launch card
+    // itself is no input or link.
+    const childInbox = deriveInbox(entries, CHILD, ROOT);
+    expect(childInbox.reviews.map((r) => r.id)).toEqual([
+      "r-top",
+      "r-card",
+      "r-card-done",
+    ]);
+    expect(childInbox.inputs).toEqual([]);
+  });
 });
 
 describe("isOpenInput", () => {
@@ -127,6 +182,14 @@ describe("isOpenInput", () => {
     expect(isOpenInput(question("q", ROOT, at("10:00"), true).block)).toBe(
       false
     );
+    const canceled = question("q-canceled", ROOT, at("10:00")).block;
+    canceled.state = {
+      cancellation: {
+        by: { kind: "user" },
+        at: "2026-09-22T12:00:00.000Z",
+      },
+    } as never;
+    expect(isOpenInput(canceled)).toBe(false);
     expect(
       isOpenInput(
         block({
@@ -177,6 +240,64 @@ describe("deriveInbox", () => {
       "https://github.com/o/r/pull/7",
     ]);
     expect(inbox.links[0]?.pr).toBe(true);
+  });
+
+  it("adds open asks made in threads from the first page's list, deduped and in order", () => {
+    const inThread = (id: string, by: string, when: string, done = false) => ({
+      ...question(id, by, when, done).block,
+      threadId: "card",
+      replyTo: "card",
+    });
+    const openInputs = [
+      // Also a row of the feed: listed once.
+      question("q1", ROOT, at("10:00")).block,
+      inThread("t1", CHILD, at("09:59")),
+      inThread("t2", CHILD, at("10:01")),
+      // Answered since the page loaded: not open.
+      inThread("t3", CHILD, at("10:02"), true),
+    ];
+    const inbox = deriveInbox(entries, ROOT, ROOT, openInputs);
+    expect(inbox.inputs.map((b) => b.id)).toEqual(["t1", "q1", "q2", "t2"]);
+    // On the child's page, only its own asks.
+    expect(
+      deriveInbox(entries, CHILD, ROOT, openInputs).inputs.map((b) => b.id)
+    ).toEqual(["t1", "q2", "t2"]);
+    // Another child's ask is not this child's.
+    expect(deriveInbox(entries, "agt_other", ROOT, openInputs).inputs).toEqual(
+      []
+    );
+  });
+
+  it("adds links a child posted in its own thread, from the first page's list, in time order", () => {
+    const threadLinks = [
+      {
+        ...link("t9", CHILD, at("10:07"), "https://example.com/child").block,
+        threadId: "card",
+        replyTo: "card",
+      },
+      {
+        ...link("t8", CHILD, at("10:02"), "https://github.com/o/r/pull/9")
+          .block,
+        threadId: "card",
+        replyTo: "card",
+      },
+    ];
+    const inbox = deriveInbox(entries, ROOT, ROOT, [], threadLinks);
+    expect(inbox.links.map((l) => l.url)).toEqual([
+      "https://example.com/child",
+      "https://github.com/o/r/pull/8",
+      "https://example.com/a",
+      "https://github.com/o/r/pull/7",
+      "https://github.com/o/r/pull/9",
+    ]);
+    // On the child's page, its own links: the thread's and the feed's.
+    expect(
+      deriveInbox(entries, CHILD, ROOT, [], threadLinks).links.map((l) => l.url)
+    ).toEqual([
+      "https://example.com/child",
+      "https://github.com/o/r/pull/7",
+      "https://github.com/o/r/pull/9",
+    ]);
   });
 
   it("lists links newest first, once per url, marking pull requests", () => {
@@ -252,5 +373,40 @@ describe("useInbox", () => {
       question("q2", ROOT, at("10:11")),
     ]);
     expect(result.current.inputs.map((b) => b.id)).toEqual(["q1", "q2"]);
+  });
+
+  it("reads the open asks the first page lists", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<Agent[]>(
+      ["agents"],
+      [{ id: ROOT, parentAgentId: null } as Agent]
+    );
+    const asked = {
+      ...question("t1", CHILD, at("09:00")).block,
+      threadId: "card",
+      replyTo: "card",
+    };
+    queryClient.setQueryData(["stream", ROOT], {
+      pageParams: [undefined, "c1"],
+      pages: [
+        {
+          entries: [question("q1", ROOT, at("10:00"))],
+          hasMore: true,
+          nextCursor: "c1",
+          unreadCount: 0,
+          openInputs: [asked],
+        },
+        { entries: [], hasMore: false, nextCursor: null, unreadCount: 0 },
+      ],
+    });
+    const { result } = renderHook(() => useInbox(ROOT), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+    expect(result.current.inputs.map((b) => b.id)).toEqual(["t1", "q1"]);
   });
 });

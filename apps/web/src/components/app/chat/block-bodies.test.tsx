@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   block,
   formBody,
+  findingBlock,
+  findingRecord,
   linkBody,
-  reviewBody,
+  questionBody,
+  reviewBlock,
   tasksBody,
 } from "@/test-utils/blocks";
 
@@ -17,6 +20,7 @@ import {
   LinkBlockBody,
   FindingDetail,
   ReviewBlockBody,
+  QuestionOptions,
   summarySentence,
   TasksBlockBody,
 } from "./block-bodies";
@@ -37,6 +41,64 @@ class ResizeObserverStub {
   ResizeObserverStub;
 
 afterEach(cleanup);
+
+describe("QuestionOptions", () => {
+  const question = (canceled = false) =>
+    block({
+      id: "q1",
+      body: questionBody([{ label: "Yes" }, { label: "No" }]),
+      ...(canceled
+        ? {
+            body: {
+              ...questionBody([{ label: "Yes" }, { label: "No" }]),
+              state: {
+                cancellation: {
+                  by: { kind: "user" },
+                  at: "2026-09-22T12:00:00.000Z",
+                  reason: "No longer needed",
+                },
+              },
+            } as never,
+          }
+        : {}),
+    }) as Extract<Block, { kind: "question" }>;
+
+  it("offers a modest cancel action while the user-addressed ask is open", () => {
+    const onCancel = vi.fn();
+    render(
+      <QuestionOptions
+        block={question()}
+        answering={false}
+        answersDisabled={false}
+        onAnswer={vi.fn()}
+        onCancel={onCancel}
+      />
+    );
+    fireEvent.click(screen.getByTestId("chat-ask-cancel"));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a canceled question visible with every choice disabled", () => {
+    render(
+      <QuestionOptions
+        block={question(true)}
+        answering={false}
+        answersDisabled={false}
+        onAnswer={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("chat-ask-canceled").textContent).toContain(
+      "Canceled · No longer needed"
+    );
+    expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
+    expect(
+      screen
+        .getAllByTestId("chat-question-option")
+        .every((option) => (option as HTMLButtonElement).disabled)
+    ).toBe(true);
+  });
+});
 
 describe("FormBlockBody", () => {
   const form = () =>
@@ -123,46 +185,85 @@ describe("FormBlockBody", () => {
       (screen.getByTestId("chat-form-submit") as HTMLButtonElement).disabled
     ).toBe(true);
   });
+
+  it("keeps a canceled form visible and read-only", () => {
+    const onSubmit = vi.fn();
+    const canceled = {
+      ...form(),
+      state: {
+        cancellation: {
+          by: { kind: "user" },
+          at: "2026-09-22T12:00:00.000Z",
+        },
+      },
+    } as unknown as Extract<Block, { kind: "form" }>;
+    const { rerender } = render(
+      <FormBlockBody
+        block={form()}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/Name/), {
+      target: { value: "unsent value" },
+    });
+    rerender(
+      <FormBlockBody
+        block={canceled}
+        submitting={false}
+        disabled={false}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("chat-ask-canceled").textContent).toContain(
+      "Canceled · no response is needed"
+    );
+    expect(screen.getAllByTestId("chat-form-field")).toHaveLength(3);
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).disabled).toBe(
+      true
+    );
+    expect((screen.getByLabelText(/Name/) as HTMLInputElement).value).toBe(
+      "unsent value"
+    );
+    expect(screen.queryByTestId("chat-form-submit")).toBeNull();
+    expect(screen.queryByTestId("chat-ask-cancel")).toBeNull();
+    fireEvent.submit(screen.getByTestId("chat-form"));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
 });
 
 describe("ReviewBlockBody", () => {
-  const review = () =>
-    block({
+  const nullDeref = () =>
+    findingBlock("f1", {
+      severity: "blocker",
+      title: "Null deref",
+      body: "Guard the lookup.",
+      path: "src/a.ts",
+      line: 12,
+    });
+  const typo = (overrides: Parameters<typeof findingBlock>[2] = {}) =>
+    findingBlock(
+      "f2",
+      { severity: "nit", title: "Typo", body: "" },
+      {
+        record: findingRecord("dismissed", { note: "Not worth a change." }),
+        ...overrides,
+      }
+    );
+  const review = (findings: Block[] = [nullDeref(), typo()]) =>
+    reviewBlock({
       id: "rv1",
-      body: reviewBody(
-        "request_changes",
-        "Two things need work. The rest is fine.",
-        [
-          {
-            id: "f1",
-            severity: "blocker",
-            title: "Null deref",
-            body: "Guard the lookup.",
-            path: "src/a.ts",
-            line: 12,
-          },
-          { id: "f2", severity: "nit", title: "Typo", body: "" },
-        ],
-        {
-          findings: {
-            f2: {
-              status: "resolved",
-              resolution: "dismissed",
-              note: "Not worth a change.",
-              by: { kind: "user" },
-              at: "2026-09-02T10:00:30.000Z",
-            },
-          },
-        }
-      ),
-    }) as Extract<Block, { kind: "review" }>;
+      summary: "Two things need work. The rest is fine.",
+      findings,
+    });
 
   it("collapses to one header line and opens into finding rows", () => {
-    render(
-      <ReviewBlockBody block={review()} disabled={false} onSetState={vi.fn()} />
-    );
+    render(<ReviewBlockBody block={review()} />);
     const header = screen.getByTestId("chat-review-header");
-    expect(screen.getByTestId("chat-review-verdict").textContent).toBe(
+    expect(screen.getByTestId("chat-review-status").textContent).toBe(
       "Changes requested"
     );
     expect(screen.getByTestId("chat-review-counts").textContent).toBe(
@@ -182,6 +283,10 @@ describe("ReviewBlockBody", () => {
     );
     const rows = screen.getAllByTestId("chat-review-finding");
     expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.getAttribute("data-finding-id"))).toEqual([
+      "f1",
+      "f2",
+    ]);
     expect(rows[0]!.getAttribute("data-status")).toBe("open");
     expect(rows[0]!.textContent).toContain("Open");
     expect(rows[0]!.textContent).toContain("blocker");
@@ -194,23 +299,70 @@ describe("ReviewBlockBody", () => {
     expect(screen.queryByTestId("chat-review-resolve")).toBeNull();
   });
 
+  it("derives its status from the findings it shows: any open requests changes, all resolved approves", () => {
+    const status = () => screen.getByTestId("chat-review-status");
+    // Every finding open.
+    render(
+      <ReviewBlockBody
+        block={review([nullDeref(), typo({ record: findingRecord("open") })])}
+      />
+    );
+    expect(status().textContent).toBe("Changes requested");
+    expect(status().getAttribute("data-status")).toBe("open");
+    cleanup();
+
+    // One of two resolved: still changes requested.
+    render(<ReviewBlockBody block={review()} />);
+    expect(status().textContent).toBe("Changes requested");
+    expect(status().getAttribute("data-status")).toBe("partially_resolved");
+    cleanup();
+
+    // Every finding resolved, fixed or dismissed: approved.
+    render(
+      <ReviewBlockBody
+        block={review([
+          findingBlock(
+            "f1",
+            { severity: "blocker", title: "Null deref", body: "" },
+            { record: findingRecord("fixed") }
+          ),
+          typo(),
+        ])}
+        defaultExpanded
+      />
+    );
+    expect(status().textContent).toBe("Approved");
+    expect(status().getAttribute("data-status")).toBe("resolved");
+    expect(screen.getByTestId("chat-review-details").textContent).toContain(
+      "Every finding is resolved."
+    );
+    cleanup();
+
+    // A review with no findings has nothing to fix.
+    render(<ReviewBlockBody block={review([])} />);
+    expect(status().textContent).toBe("Approved");
+    expect(screen.getByTestId("chat-review-counts").textContent).toBe(
+      "No findings"
+    );
+  });
+
   it("marks a finding fixed, dismisses it with a reason, and reopens it with a note", () => {
     const onSetState = vi.fn();
-    const r = review();
     render(
       <FindingDetail
-        block={r}
-        finding={r.data.findings[0]!}
+        block={nullDeref()}
         disabled={false}
         onSetState={onSetState}
       />
     );
     const detail = screen.getByTestId("chat-finding-detail");
+    expect(detail.textContent).toContain("Null deref");
     expect(detail.textContent).toContain("Guard the lookup.");
-    // Never touched: no record line.
+    expect(detail.textContent).toContain("src/a.ts:12");
+    // Only the reviewer's initial stamp: no record line.
     expect(screen.queryByTestId("chat-review-finding-record")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-review-resolve"));
-    expect(onSetState).toHaveBeenCalledWith({ findings: { f1: "fixed" } });
+    expect(onSetState).toHaveBeenCalledWith({ status: "fixed" });
 
     // Dismiss asks why, and will not go without an answer.
     fireEvent.click(screen.getByTestId("chat-review-dismiss"));
@@ -221,20 +373,14 @@ describe("ReviewBlockBody", () => {
     });
     fireEvent.click(confirm);
     expect(onSetState).toHaveBeenLastCalledWith({
-      findings: {
-        f1: {
-          status: "resolved",
-          resolution: "dismissed",
-          note: "Out of scope here.",
-        },
-      },
+      status: "dismissed",
+      note: "Out of scope here.",
     });
     cleanup();
 
     render(
       <FindingDetail
-        block={r}
-        finding={r.data.findings[1]!}
+        block={typo()}
         disabled={false}
         onSetState={onSetState}
         authorName={() => "Brad"}
@@ -248,15 +394,26 @@ describe("ReviewBlockBody", () => {
     );
     fireEvent.click(screen.getByTestId("chat-review-reopen"));
     fireEvent.click(screen.getByTestId("chat-review-reopen-confirm"));
-    expect(onSetState).toHaveBeenLastCalledWith({ findings: { f2: "open" } });
+    expect(onSetState).toHaveBeenLastCalledWith({ status: "open" });
     fireEvent.click(screen.getByTestId("chat-review-reopen"));
     fireEvent.change(screen.getByTestId("chat-review-reopen-note"), {
       target: { value: "Still wrong on mobile." },
     });
     fireEvent.click(screen.getByTestId("chat-review-reopen-confirm"));
     expect(onSetState).toHaveBeenLastCalledWith({
-      findings: { f2: { status: "open", note: "Still wrong on mobile." } },
+      status: "open",
+      note: "Still wrong on mobile.",
     });
+  });
+
+  it("offers no controls on a finding nobody can change, and locks them while disabled", () => {
+    render(<FindingDetail block={nullDeref()} disabled={false} />);
+    expect(screen.queryByTestId("chat-review-finding-actions")).toBeNull();
+    cleanup();
+    render(<FindingDetail block={nullDeref()} disabled onSetState={vi.fn()} />);
+    expect(
+      (screen.getByTestId("chat-review-resolve") as HTMLButtonElement).disabled
+    ).toBe(true);
   });
 
   it("in the stream is a summary line that opens the review", () => {
@@ -264,7 +421,6 @@ describe("ReviewBlockBody", () => {
     render(
       <ReviewBlockBody
         block={review()}
-        disabled={false}
         compact
         onOpen={onOpen}
         defaultExpanded
@@ -284,11 +440,11 @@ describe("ReviewBlockBody", () => {
   it("marks findings with unseen agent comments and counts them on the header", () => {
     render(
       <ReviewBlockBody
-        block={review()}
-        disabled={false}
+        block={review([
+          { ...nullDeref(), replyCount: 2, unreadReplies: 2 },
+          { ...typo(), replyCount: 1, unreadReplies: 0 },
+        ])}
         defaultExpanded
-        commentCounts={{ f1: 2, f2: 1 }}
-        unreadCounts={{ f1: 2 }}
       />
     );
     expect(screen.getByTestId("chat-review-unread").textContent).toBe("2");
@@ -305,11 +461,9 @@ describe("ReviewBlockBody", () => {
     const onOpenFinding = vi.fn();
     render(
       <ReviewBlockBody
-        block={review()}
-        disabled={false}
+        block={review([{ ...nullDeref(), replyCount: 2 }, typo()])}
         onOpenFinding={onOpenFinding}
         defaultExpanded
-        commentCounts={{ f1: 2 }}
         highlightFindingId="f1"
       />
     );
@@ -324,12 +478,14 @@ describe("ReviewBlockBody", () => {
 
   it("summarises findings and summaries", () => {
     expect(findingsSummary(review())).toBe("2 findings · 1 open");
+    expect(findingsSummary(review([]))).toBe("No findings");
+    // Only finding blocks count: anything else a review showed is skipped.
     expect(
       findingsSummary({
         ...review(),
-        data: { ...review().data, findings: [] },
+        blocks: [nullDeref(), block({ id: "t1" })],
       })
-    ).toBe("No findings");
+    ).toBe("1 finding · 1 open");
     expect(summarySentence("# Heading\n\nFirst one. Second one.")).toBe(
       "First one."
     );

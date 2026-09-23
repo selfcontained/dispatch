@@ -299,7 +299,14 @@ export function latestOpenFreeformQuestion(
     const block = entry.block;
     if (block.author.kind !== "agent" || block.kind !== "question") continue;
     if (block.toAgentId !== null) continue;
-    if (block.state?.answer !== undefined || answeredByTurn.has(block.id)) {
+    const cancellation = (
+      block.state as { cancellation?: unknown } | null | undefined
+    )?.cancellation;
+    if (
+      block.state?.answer !== undefined ||
+      cancellation !== undefined ||
+      answeredByTurn.has(block.id)
+    ) {
       continue;
     }
     return block.data.allowFreeform ? block : null;

@@ -1,13 +1,28 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
+import type { StreamFeedResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const apiMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", () => ({ api: apiMock }));
+
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
-import { LIVE_HEAD_ROWS } from "@/hooks/use-stream";
+import type {
+  Block,
+  StreamEntry,
+  StreamThreadResponse,
+} from "@dispatch/shared";
+import {
+  type FeedCache,
+  LIVE_HEAD_ROWS,
+  streamFeedQueryKey,
+  threadQueryKey,
+  useStreamFeed,
+} from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -18,9 +33,36 @@ import {
   type FileItem,
 } from "@/components/app/types";
 
-import { turnEntry } from "@/test-utils/blocks";
+import {
+  answered,
+  block,
+  blockEntry,
+  findingBlock,
+  findingRecord,
+  launchBlock,
+  questionBody,
+  reviewBlock,
+  turnEntry,
+} from "@/test-utils/blocks";
 
-import { applyDiffStateChanged, useSSE } from "./use-sse";
+/**
+ * A person's post as a feed row: a row that moves no unread badge. The
+ * feed is blocks only.
+ */
+function personRow(id: string, at: string, text = "x") {
+  return blockEntry(
+    block({
+      id,
+      authorKind: "user",
+      text,
+      delivered: true,
+      createdAt: at,
+      updatedAt: at,
+    })
+  );
+}
+
+import { applyDiffStateChanged, applyStreamEntry, useSSE } from "./use-sse";
 
 vi.mock("@/lib/web-notifications", () => ({
   showWebNotification: vi.fn(() => false),
@@ -64,6 +106,98 @@ describe("applyDiffStateChanged", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: agentDiffQueryKey("agent-1"),
     });
+  });
+});
+
+describe("applyStreamEntry", () => {
+  const page = (
+    entries: StreamFeedResponse["entries"],
+    extra: Partial<StreamFeedResponse> = {}
+  ): StreamFeedResponse => ({
+    entries,
+    hasMore: false,
+    unreadCount: 0,
+    nextCursor: null,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    apiMock.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /**
+   * Behavioral, not just a spy on `invalidateQueries`: react-query's own
+   * `Query#fetch` only cancels-and-restarts an in-flight request when
+   * `state.data !== undefined` (see the comment on
+   * `invalidateOnceFirstFetchSettles` in use-sse.ts) — with no data yet, an
+   * `invalidateQueries` call during the fetch is a no-op for that fetch, it
+   * only flags the query stale for whenever it is next *observed*. A test
+   * that stops at "was invalidateQueries called" cannot see that gap; this
+   * one drives a real, actively-observed `useStreamFeed` through a deferred
+   * first fetch and checks the row actually lands in the rendered feed
+   * without any remount, refocus, or other externally triggered refetch.
+   */
+  it("recovers an entry that arrives during the feed's first fetch, once that fetch settles", async () => {
+    let resolveFirstFetch: (value: StreamFeedResponse) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<StreamFeedResponse>((resolve) => {
+        resolveFirstFetch = resolve;
+      })
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    // A real, actively-observed query: only an active observer makes
+    // `invalidateQueries`'s default `refetchType: "active"` attempt a
+    // refetch at all, which is what the follow-up in use-sse.ts relies on.
+    const { result } = renderHook(() => useStreamFeed("agent-1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    expect(result.current.isLoading).toBe(true);
+
+    const late = blockEntry(
+      block({ id: "late", streamId: "agent-1", authorKind: "agent" })
+    );
+    // The event lands mid-flight; the in-flight fetch already read the DB
+    // without it (or will resolve before the write is visible there).
+    applyStreamEntry(queryClient, "agent-1", late);
+
+    // Queued before the first fetch settles: the follow-up refetch can fire
+    // as soon as the first one resolves, in the same microtask flush, so
+    // this has to be in place before `resolveFirstFetch` runs, not after.
+    apiMock.mockResolvedValueOnce(page([late]));
+
+    // The first fetch settles with a snapshot that does not have `late` —
+    // exactly the race: its own read missed the row the live event carried.
+    resolveFirstFetch!(page([]));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // The follow-up must have queued a second fetch once the first settled,
+    // not left the query merely flagged stale with no request in flight.
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.entries.map((e) => e.id)).toEqual(["late"])
+    );
+  });
+
+  it("does nothing for an agent with no mounted feed query", () => {
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    applyStreamEntry(
+      queryClient,
+      "agent-1",
+      blockEntry(block({ streamId: "agent-1", authorKind: "agent" }))
+    );
+
+    expect(invalidateQueries).not.toHaveBeenCalled();
   });
 });
 
@@ -618,13 +752,7 @@ describe("useSSE message handling", () => {
 
   it("puts a chat.entry straight into the cached feed without a refetch", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const older = {
-      type: "status",
-      id: "event:1",
-      eventType: "working",
-      message: "Reading",
-      at: "2026-09-02T10:00:01.000Z",
-    };
+    const older = personRow("event:1", "2026-09-02T10:00:01.000Z", "Reading");
     queryClient.setQueryData(["stream", "agt_1"], {
       pageParams: [undefined],
       pages: [
@@ -669,7 +797,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_1",
-      entry: { ...older, id: "event:2", at: "2026-09-02T10:00:03.000Z" },
+      entry: personRow("event:2", "2026-09-02T10:00:03.000Z", "Reading"),
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
     expect(
@@ -678,6 +806,38 @@ describe("useSSE message handling", () => {
         "agt_1",
       ])?.pages[0]?.entries
     ).toHaveLength(3);
+  });
+
+  it("refreshes sidebar activity when an ask is canceled in the stream", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    const cancellation = {
+      by: { kind: "user" as const },
+      at: "2026-09-02T10:00:03.000Z",
+    };
+    const question = block({
+      id: "q1",
+      body: questionBody([{ label: "Yes" }], {
+        state: { cancellation },
+      }),
+    });
+    emit({
+      type: "stream.entry",
+      agentId: "agt_1",
+      entry: blockEntry(question),
+    });
+    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
+
+    invalidateQueries.mockClear();
+    const form = block({
+      id: "f1",
+      body: {
+        kind: "form",
+        data: { fields: [{ id: "note", label: "Note", type: "text" }] },
+        state: { cancellation },
+      },
+    });
+    emit({ type: "stream.entry", agentId: "agt_1", entry: blockEntry(form) });
+    expectInvalidatedSet(invalidateQueries, [["agents"], ["chat-unread"]]);
   });
 
   it("moves the unread badges once per turn, not on every step it republishes", () => {
@@ -723,13 +883,11 @@ describe("useSSE message handling", () => {
 
   it("rebases the feed once live rows outgrow the newest page", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const row = (i: number) => ({
-      type: "status",
-      id: `event:${i}`,
-      eventType: "working",
-      message: "x",
-      at: `2026-09-02T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`,
-    });
+    const row = (i: number) =>
+      personRow(
+        `event:${i}`,
+        `2026-09-02T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`
+      );
     queryClient.setQueryData(["stream", "agt_1"], {
       pageParams: [undefined],
       pages: [
@@ -764,15 +922,7 @@ describe("useSSE message handling", () => {
       pageParams: [undefined],
       pages: [
         {
-          entries: [
-            {
-              type: "status",
-              id: "event:5",
-              eventType: "working",
-              message: "later",
-              at: "2026-09-02T10:00:05.000Z",
-            },
-          ],
+          entries: [personRow("event:5", "2026-09-02T10:00:05.000Z", "later")],
           hasMore: true,
           nextCursor: "c1",
           unreadCount: 0,
@@ -784,13 +934,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_1",
-      entry: {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "earlier",
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      entry: personRow("event:1", "2026-09-02T10:00:01.000Z", "earlier"),
     });
     expectInvalidatedSet(invalidateQueries, [["stream", "agt_1"]]);
 
@@ -799,13 +943,7 @@ describe("useSSE message handling", () => {
     emit({
       type: "stream.entry",
       agentId: "agt_never",
-      entry: {
-        type: "status",
-        id: "event:1",
-        eventType: "working",
-        message: "x",
-        at: "2026-09-02T10:00:01.000Z",
-      },
+      entry: personRow("event:1", "2026-09-02T10:00:01.000Z"),
     });
     expect(invalidateQueries).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["stream", "agt_never"])).toBeUndefined();
@@ -1006,5 +1144,98 @@ describe("useSSE message handling", () => {
       queryClient.getQueryData<Agent[]>(["agents"])?.map((a) => a.id)
     ).toEqual(["keep"]);
     expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStreamEntry and blocks shown in threads", () => {
+  const feedKey = streamFeedQueryKey("agt_1");
+  const seed = (queryClient: QueryClient, entries: StreamEntry[]) =>
+    queryClient.setQueryData<FeedCache>(feedKey, {
+      pageParams: [undefined],
+      pages: [{ entries, hasMore: false, nextCursor: null, unreadCount: 0 }],
+    });
+  const finding = (record = findingRecord()) =>
+    findingBlock(
+      "f1",
+      { severity: "minor", title: "Naming", body: "" },
+      { record, updatedAt: "2026-09-02T10:05:00.000Z" }
+    );
+
+  it("files a finding's change into the review that shows it and the finding's own page", () => {
+    const queryClient = new QueryClient();
+    const review = reviewBlock({ id: "rv1", findings: [finding()] });
+    seed(queryClient, [blockEntry(review)]);
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "rv1"),
+      { root: review, replies: [] }
+    );
+    queryClient.setQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "f1"),
+      { root: finding(), replies: [] }
+    );
+    const fixed = finding(findingRecord("fixed"));
+    applyStreamEntry(queryClient, "agt_1", blockEntry(fixed));
+
+    const reviewPage = queryClient.getQueryData<StreamThreadResponse>(
+      threadQueryKey("agt_1", "rv1")
+    )!;
+    // Drawn by the review, not listed as a reply under it.
+    expect(reviewPage.replies).toEqual([]);
+    expect(reviewPage.root.blocks![0]!.state).toEqual(findingRecord("fixed"));
+    // The finding's own page is rooted at it.
+    expect(
+      queryClient.getQueryData<StreamThreadResponse>(
+        threadQueryKey("agt_1", "f1")
+      )!.root
+    ).toEqual(fixed);
+    // The feed's review counts no reply for it.
+    const row =
+      queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!.entries[0]!;
+    expect(row.block.replyCount).toBeUndefined();
+  });
+
+  it("keeps the first page's open asks in step with a question asked in a thread", () => {
+    const queryClient = new QueryClient();
+    const card = launchBlock({ id: "card", toAgentId: "agt_2" });
+    seed(queryClient, [blockEntry(card)]);
+    const ask = block({
+      id: "q1",
+      author: { kind: "agent", agentId: "agt_2" },
+      threadId: "card",
+      replyTo: "card",
+      createdAt: "2026-09-02T10:06:00.000Z",
+      body: questionBody([{ label: "Yes" }]),
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
+    let first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.openInputs?.map((b) => b.id)).toEqual(["q1"]);
+    // Not a row of the channel: it is in the card's thread.
+    expect(first.entries.map((e) => e.id)).toEqual(["card"]);
+
+    applyStreamEntry(
+      queryClient,
+      "agt_1",
+      blockEntry({
+        ...ask,
+        state: answered("Yes"),
+        updatedAt: "2026-09-02T10:07:00.000Z",
+      } as Block)
+    );
+    first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.openInputs).toEqual([]);
+  });
+
+  it("adds a top-level ask to the open list as well as the feed", () => {
+    const queryClient = new QueryClient();
+    seed(queryClient, []);
+    const ask = block({
+      id: "q2",
+      createdAt: "2026-09-02T10:06:00.000Z",
+      body: questionBody([{ label: "Yes" }]),
+    });
+    applyStreamEntry(queryClient, "agt_1", blockEntry(ask));
+    const first = queryClient.getQueryData<FeedCache>(feedKey)!.pages[0]!;
+    expect(first.entries.map((e) => e.id)).toEqual(["q2"]);
+    expect(first.openInputs?.map((b) => b.id)).toEqual(["q2"]);
   });
 });

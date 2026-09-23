@@ -158,7 +158,7 @@ describe("DrawerFrame resize", () => {
     expect(frameWidth()).toBe(1552);
   });
 
-  it("pinned, leaves the centre 320 and the left sidebar when it is open", async () => {
+  it("pinned, overlaps after leaving the centre 320 and the open left sidebar", async () => {
     expect(DRAWER_PINNED_CENTRE_MIN_PX).toBe(320);
     expect(drawerPinnedReserve(true)).toBe(640);
     expect(drawerPinnedReserve(false)).toBe(320);
@@ -171,21 +171,29 @@ describe("DrawerFrame resize", () => {
     const view = render(frame(drawerPinnedReserve(true)));
     const handle = screen.getByTestId("drawer-resize-handle");
     drag(handle, 1200, -2000);
-    expect(frameWidth()).toBe(960);
+    expect(frameWidth()).toBe(1552);
+    expect(frameWidth() / window.innerWidth).toBeGreaterThan(0.9);
+    expect(screen.getByTestId("drawer-wrapper").style.marginLeft).toBe(
+      "-592px"
+    );
     release(handle, -2000);
-    expect(handle.getAttribute("aria-valuemax")).toBe("960");
+    expect(handle.getAttribute("aria-valuemax")).toBe("1552");
 
-    // Left sidebar collapsed: the centre alone keeps its 320.
+    // Left sidebar collapsed: the same persisted width overlaps less because
+    // the pinned layout can use the sidebar's former 320px before overlaying.
     view.rerender(frame(drawerPinnedReserve(false)));
-    fireEvent.keyDown(handle, { key: "End" });
-    expect(frameWidth()).toBe(1280);
-    // Opening it again clamps the same stored width back, on read.
+    expect(frameWidth()).toBe(1552);
+    expect(screen.getByTestId("drawer-wrapper").style.marginLeft).toBe(
+      "-272px"
+    );
+    // Opening the left sidebar again keeps the full stored width and restores
+    // the larger overlap instead of clamping the drawer around half-screen.
     view.rerender(frame(drawerPinnedReserve(true)));
-    expect(frameWidth()).toBe(960);
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("1280");
+    expect(frameWidth()).toBe(1552);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("1552");
   });
 
-  it("clamps a stored width wider than this viewport allows, without losing it", async () => {
+  it("clamps a stored width to the viewport and keeps it through pin transitions", async () => {
     window.localStorage.setItem(STORAGE_KEY, "5000");
     setViewportWidth(1000);
     const DrawerFrame = await loadFrame();
@@ -196,16 +204,16 @@ describe("DrawerFrame resize", () => {
     );
     const view = render(frame(false));
     expect(frameWidth()).toBe(1000 - DRAWER_EDGE_GUTTER_PX);
-    // Pinned, 1000 - 640 is under the default, so the default is the ceiling.
+    // Pinned uses the same viewport maximum and overlaps the reserved layout.
     view.rerender(frame(true));
-    expect(frameWidth()).toBe(400);
+    expect(frameWidth()).toBe(1000 - DRAWER_EDGE_GUTTER_PX);
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe("5000");
 
     act(() => {
       setViewportWidth(1600);
       window.dispatchEvent(new Event("resize"));
     });
-    expect(frameWidth()).toBe(960);
+    expect(frameWidth()).toBe(1552);
     view.rerender(frame(false));
     expect(frameWidth()).toBe(1552);
   });
@@ -249,9 +257,9 @@ describe("DrawerFrame resize", () => {
     fireEvent.keyDown(handle, { key: "Home" });
     expect(frameWidth()).toBe(320);
     fireEvent.keyDown(handle, { key: "End" });
-    expect(frameWidth()).toBe(960);
-    expect(handle.getAttribute("aria-valuenow")).toBe("960");
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("960");
+    expect(frameWidth()).toBe(1552);
+    expect(handle.getAttribute("aria-valuenow")).toBe("1552");
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("1552");
   });
 
   it("has no handle while closed", async () => {

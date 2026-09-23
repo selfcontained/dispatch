@@ -30,7 +30,7 @@ function createTestRepo(suffix: string): string {
 
   // Create a bare repo to act as "origin"
   mkdirSync(barePath, { recursive: true });
-  execSync("git init --bare", { cwd: barePath, stdio: "ignore" });
+  execSync("git init --bare -b main", { cwd: barePath, stdio: "ignore" });
 
   // Clone it as the working repo
   execSync(`git clone "${barePath}" "${repoPath}"`, { stdio: "ignore" });

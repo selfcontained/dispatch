@@ -4,9 +4,9 @@
  * Everything here is derived from the stream (see use-inbox.ts); the
  * agent has no tool to write to it directly.
  */
-import { useMemo, useState } from "react";
-import type { BlockOption, BlockReviewStatus } from "@dispatch/shared";
-import { reviewStatus } from "@dispatch/shared";
+import { useState } from "react";
+import type { BlockOption } from "@dispatch/shared";
+import { reviewFindings, reviewStatus } from "@dispatch/shared";
 import {
   ChevronRight,
   ExternalLink,
@@ -18,20 +18,18 @@ import {
   findingsSummary,
   FormBlockBody,
   QuestionOptions,
-  VERDICT,
+  REVIEW_STATUS,
 } from "@/components/app/chat/block-bodies";
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
-import { unreadCommentsOf } from "@/components/app/chat/chat-entries";
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
 import {
   useAnswerQuestion,
+  useSetBlockState,
   useSubmitForm,
-  useThread,
 } from "@/hooks/use-stream";
 import type { InboxInput, InboxReview, Inbox } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 export type InboxPanelProps = {
   inbox: Inbox;
@@ -69,16 +67,21 @@ function InboxInputCard({
   authorName,
   rootId,
   disabledReason,
+  cancelError,
+  onCancelError,
   onOpenBlock,
 }: {
   block: InboxInput;
   authorName: string | null;
   rootId: string;
   disabledReason: string | null;
+  cancelError: string | null;
+  onCancelError: (message: string | null) => void;
   onOpenBlock?: (blockId: string) => void;
 }): JSX.Element {
   const answer = useAnswerQuestion(rootId);
   const submit = useSubmitForm(rootId);
+  const setState = useSetBlockState(rootId);
   const [error, setError] = useState<string | null>(null);
   const onAnswer = (option: BlockOption) => {
     setError(null);
@@ -98,6 +101,16 @@ function InboxInputCard({
       { onError: (err) => setError(err.message) }
     );
   };
+  const onCancel = () => {
+    setError(null);
+    onCancelError(null);
+    setState.mutate(
+      { blockId: block.id, state: { cancellation: true } },
+      { onError: (err) => onCancelError(err.message) }
+    );
+  };
+  const actionPending =
+    answer.isPending || submit.isPending || setState.isPending;
   return (
     <div
       className="mx-3 mb-2 rounded-md border border-border/60 bg-card/40 px-3 py-2"
@@ -111,7 +124,8 @@ function InboxInputCard({
           type="button"
           className="shrink-0 underline-offset-2 hover:underline"
           title={formatRelativeTime(block.createdAt)}
-          onClick={() => onOpenBlock?.(block.id)}
+          // An ask made in a thread opens that thread, where it was asked.
+          onClick={() => onOpenBlock?.(block.threadId ?? block.id)}
           data-testid="inbox-input-open"
         >
           {formatRelativeTime(block.createdAt)}
@@ -126,8 +140,10 @@ function InboxInputCard({
         <QuestionOptions
           block={block}
           answering={answer.isPending && answer.variables?.blockId === block.id}
-          answersDisabled={disabledReason !== null}
+          answersDisabled={disabledReason !== null || actionPending}
+          canceling={setState.isPending}
           onAnswer={onAnswer}
+          onCancel={onCancel}
         />
       ) : (
         <FormBlockBody
@@ -135,8 +151,10 @@ function InboxInputCard({
           submitting={
             submit.isPending && submit.variables?.blockId === block.id
           }
-          disabled={disabledReason !== null}
+          disabled={disabledReason !== null || actionPending}
+          canceling={setState.isPending}
           onSubmit={onSubmit}
+          onCancel={onCancel}
         />
       )}
       {disabledReason ? (
@@ -144,61 +162,40 @@ function InboxInputCard({
           {disabledReason}
         </div>
       ) : null}
-      {error ? (
+      {error || cancelError ? (
         <div
           role="alert"
           className="mt-1.5 text-[11px] text-destructive"
           data-testid="inbox-input-error"
         >
-          {error}
+          {error ?? cancelError}
         </div>
       ) : null}
     </div>
   );
 }
 
-const REVIEW_STATUS_LABEL: Record<BlockReviewStatus, string> = {
-  open: "Open",
-  partially_resolved: "In progress",
-  resolved: "Resolved",
-};
-
-const REVIEW_STATUS_CLASS: Record<BlockReviewStatus, string> = {
-  open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
-  partially_resolved:
-    "border-status-working/50 bg-status-working/10 text-status-working",
-  resolved: "border-status-done/40 bg-status-done/10 text-status-done",
-};
-
 /**
- * One review in the Inbox: who left it, the verdict, where it stands, and
- * how many of its comments the person has not seen. Opens the review page.
+ * One review in the Inbox: who left it, where it stands, and how many of
+ * its findings' comments the person has not seen. Opens the review: on
+ * the launch card that shows it, when it is on one.
  */
 function InboxReviewCard({
   review,
   authorName,
-  rootId,
   onOpenBlock,
 }: {
   review: InboxReview;
   authorName: string;
-  rootId: string;
   onOpenBlock?: (blockId: string) => void;
 }): JSX.Element {
-  const thread = useThread(
-    rootId,
-    (review.replyCount ?? 0) > 0 ? review.id : null
+  const findings = reviewFindings(review);
+  const unread = findings.reduce(
+    (sum, finding) => sum + (finding.unreadReplies ?? 0),
+    0
   );
-  const unread = useMemo(
-    () =>
-      Object.values(unreadCommentsOf(thread.replies)).reduce(
-        (sum: number, n: number) => sum + n,
-        0
-      ),
-    [thread.replies]
-  );
-  const status = reviewStatus(review.data, review.state);
-  const verdict = VERDICT[review.data.verdict] ?? VERDICT.comment;
+  const status = reviewStatus(findings);
+  const standing = REVIEW_STATUS[status];
   return (
     <button
       type="button"
@@ -206,7 +203,7 @@ function InboxReviewCard({
       data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
-      onClick={() => onOpenBlock?.(review.id)}
+      onClick={() => onOpenBlock?.(review.threadId ?? review.id)}
     >
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span className="min-w-0 truncate">{authorName}</span>
@@ -225,18 +222,9 @@ function InboxReviewCard({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge variant={verdict.variant} data-testid="inbox-review-verdict">
-          {verdict.label}
+        <Badge variant={standing.variant} data-testid="inbox-review-status">
+          {standing.label}
         </Badge>
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide",
-            REVIEW_STATUS_CLASS[status]
-          )}
-          data-testid="inbox-review-status"
-        >
-          {REVIEW_STATUS_LABEL[status]}
-        </span>
         <span className="ml-auto text-[11px] text-muted-foreground">
           {findingsSummary(review)}
         </span>
@@ -253,6 +241,10 @@ export function InboxPanel({
   onOpenBlock,
 }: InboxPanelProps): JSX.Element {
   const { rootId, inputs, links, reviews } = inbox;
+  const [cancelError, setCancelError] = useState<{
+    blockId: string;
+    message: string;
+  } | null>(null);
   const empty =
     inputs.length === 0 && links.length === 0 && reviews.length === 0;
   return (
@@ -292,6 +284,18 @@ export function InboxPanel({
               }
               rootId={rootId}
               disabledReason={disabledReason}
+              cancelError={
+                cancelError?.blockId === block.id ? cancelError.message : null
+              }
+              onCancelError={(message) =>
+                setCancelError((previous) =>
+                  message
+                    ? { blockId: block.id, message }
+                    : previous?.blockId === block.id
+                      ? null
+                      : previous
+                )
+              }
               onOpenBlock={onOpenBlock}
             />
           ))}
@@ -302,8 +306,7 @@ export function InboxPanel({
           <InboxSectionTitle
             count={
               reviews.filter(
-                (review) =>
-                  reviewStatus(review.data, review.state) !== "resolved"
+                (review) => reviewStatus(reviewFindings(review)) !== "resolved"
               ).length
             }
           >
@@ -318,7 +321,6 @@ export function InboxPanel({
                   ? (agentNameById?.(review.author.agentId) ?? "Agent")
                   : "You"
               }
-              rootId={rootId}
               onOpenBlock={onOpenBlock}
             />
           ))}

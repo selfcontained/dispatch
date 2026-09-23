@@ -10,8 +10,8 @@ Two habits Dispatch adds to the usual wrap-up:
 1. **Post the PR into the stream.** Open it with the `gh` CLI, then `post` it
    as a `pr` attachment so the user can reach it from the stream and the Inbox.
 2. **Get reviewed by launching a persona**, not by re-reading your own diff.
-   A reviewer persona posts one `review` block back to you: a verdict, a
-   summary, and findings that each carry their own thread.
+   A reviewer persona posts one `review` block back to you: a summary, and
+   findings that are each a block with its own thread.
 
 ## Opening the PR
 
@@ -66,38 +66,36 @@ itself, since it is already in the worktree.
 
 ## Working the review
 
-The review arrives as a DISPATCH POST carrying a `review` block: `verdict`
-(`approve`, `request_changes`, `comment`), `summary`, and `findings`, each with
-an `id`, `severity`, `title`, `body`, and often a `path` and `line`. Each
-finding is a thread under that block.
+The review arrives as a DISPATCH POST carrying a `review` block: its
+`summary`, and its findings, each with its own `id`, `severity`, `title`,
+`body`, and often a `path` and `line`. Each finding is a block of its own, and
+its thread is where it is discussed.
 
 ```
-post    replyTo: <review block id>, finding: <findingId>, text
-        — discuss a finding in its own thread
-update  id: <review block id>,
-        state: { findings: { <findingId>: "fixed" } }
-        state: { findings: { <findingId>: { status: "resolved",
-                 resolution: "dismissed", note: "why" } } }
-        state: { findings: { <findingId>: "open" } }   — reopen
+post    replyTo: <finding id>, text   — answer a finding in its thread
 ```
 
-A review is open until a finding is resolved, partially resolved while some
-are, and resolved once every one is fixed or dismissed.
+Where a review stands comes from its findings: open until one is resolved,
+partially resolved while some are, and resolved once every one is fixed or
+dismissed. **The reviewer resolves them, not you**: it checks your answer and
+settles the finding, or tells you under it what is still missing and reopens
+it.
 
-**Keep the discussion in the thread.** A reply with `replyTo` reaches the
+**Keep the discussion in the finding's thread.** A reply there reaches the
 reviewer as a prompt and keeps the finding, the fix, and the verification
-attached to each other; a loose post does neither.
+attached to each other; a loose post does neither. Don't narrate in the review's
+own thread.
 
-**After fixing a finding, say what you changed in the thread, then mark it
-`fixed`.** The reviewer can reopen it (`"open"`, with a note) if the fix falls
-short, so a resolution is a claim it will check, not the end of the conversation.
+**After fixing a finding, say what you changed under it.** That is the claim the
+reviewer checks, so say enough for it to verify: the file, the behavior, the
+test. Once the reviewer resolves it, there is nothing to answer.
 
-**Not every finding has to be accepted.** When you disagree, dismiss it with a
-note saying why, and give the evidence in the thread — what the system actually
-does, what the API or database will actually accept. A reviewer given a real
-rebuttal will concede, and that exchange is worth more than silently complying
-with a wrong finding. When a finding asserts a failure mode rather than pointing
-at visible broken behavior, measure the real system to settle it.
+**Not every finding has to be accepted.** When you disagree, say why under the
+finding and give the evidence — what the system actually does, what the API or
+database will actually accept. A reviewer given a real rebuttal will dismiss it,
+and that exchange is worth more than silently complying with a wrong finding.
+When a finding asserts a failure mode rather than pointing at visible broken
+behavior, measure the real system to settle it.
 
 Verify each fix the same way you verified the original work. Collapsing two
 constraints that merely looked alike, or hoisting an invariant into a shared
@@ -108,11 +106,11 @@ helper, is exactly how a review fix introduces a regression of its own.
 When Autonomous Review is enabled for a session, its launch guidance spells out
 the loop: commit and push, open a draft PR and post it, launch the reviewers,
 then let the turn end — each review arrives as a prompt when the reviewer posts
-it, so there is nothing to poll. A clean `approve` with no findings needs no
-action; otherwise work the findings above. Don't report the task complete while
-a finding is still open.
+it, so there is nothing to poll. A review with no findings needs no action;
+otherwise work the findings above. Don't report the task complete while a
+finding is still open.
 
 ## Cleaning up
 
-Once a reviewer's block is in your stream, `archive_agent` retires the
-reviewer. See the `subagents` skill.
+The reviewer is the one who resolves its findings, so keep it running until its
+review is resolved; then `archive_agent` retires it. See the `subagents` skill.

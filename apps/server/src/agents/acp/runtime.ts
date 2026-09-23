@@ -11,6 +11,7 @@ import {
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
+import type { AvailableCommand } from "@agentclientprotocol/sdk";
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
@@ -184,6 +185,7 @@ type Waiting = {
 
 type Live = {
   client: HostClient;
+  commands: AvailableCommand[];
   /** Prompts run one at a time, in order. */
   queue: Promise<void>;
   /** Prompts not yet sent, oldest first. */
@@ -316,6 +318,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         for (const resolve of waiters) resolve();
       }
     }
+    if (
+      event.type === "update" &&
+      event.update.sessionUpdate === "available_commands_update"
+    ) {
+      entry.commands = event.update.availableCommands ?? [];
+    }
     if (event.type === "exit") {
       entry.turnOpen = false;
       const waiters = entry.settleWaiters;
@@ -345,6 +353,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const lastSeq = await deps.hostSeq(agentId);
     const entry: Live = {
       client: null as unknown as HostClient,
+      commands: [],
       queue: Promise.resolve(),
       waiting: [],
       pending: 0,
@@ -361,6 +370,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       onEvent: (journal) => dispatchEntry(agentId, entry, journal),
       onWelcome: (welcome) => {
         entry.turnOpen = welcome.turn !== null;
+        entry.commands = welcome.commands;
       },
       onGone: (reason) => {
         logger.warn({ agentId, reason }, "agent host is gone");
@@ -409,6 +419,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   runtime = {
     tracksProcesses: () => true,
+    getCommands(agentId) {
+      const entry = live.get(agentId);
+      return entry?.client.welcome?.running ? entry.commands : null;
+    },
 
     async launch(input) {
       const dir = stateDir(input.agentId);

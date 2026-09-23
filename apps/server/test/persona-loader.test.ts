@@ -274,15 +274,28 @@ describe("assemblePersonaPrompt", () => {
     });
     expect(result).toContain("post exactly one `review` block");
     expect(result).toContain('to: "agt_parent"');
-    expect(result).toContain("empty findings list for a clean approval");
+    expect(result).toContain(
+      "review: { summary, findings: [{ severity, title, body, path, line }] }"
+    );
+    expect(result).toContain("A clean pass is a review with no findings");
+    expect(result).toContain("The post returns each finding's id.");
+    expect(result).not.toContain("verdict");
     expect(result).not.toContain("review_submit");
   });
 
   it("keeps review discussion in the finding's thread", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("answer in the thread");
-    expect(result).toContain("replyTo");
-    expect(result).toContain("never as a loose message");
+    expect(result).toContain("Each finding is a block with its own thread.");
+    expect(result).toContain("post({ replyTo: <finding id>, text })");
+    // The reviewer settles its own findings, by the finding's id.
+    expect(result).toContain(
+      'update({ id: <finding id>, state: { status: "fixed" } })'
+    );
+    expect(result).toContain('{ status: "open", note }');
+    expect(result).toContain(
+      "Keep each finding's discussion in its own thread."
+    );
+    expect(result).not.toContain("state: { findings:");
     expect(result).not.toContain("review_add_message");
   });
 
@@ -363,7 +376,7 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain(
       "include a concrete suggestion for what to change"
     );
-    expect(result).toContain("empty findings list for a clean approval");
+    expect(result).toContain("A clean pass is a review with no findings");
     expect(result).toContain(
       "actionable concerns or clarifying questions that need a tracked response"
     );

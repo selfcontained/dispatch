@@ -19,6 +19,7 @@ import {
   block,
   blockEntry,
   FILE_BODY,
+  launchBlock,
   questionBody,
   turnEntry as turnRow,
 } from "@/test-utils/blocks";
@@ -73,6 +74,8 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/hooks/use-agent-tree", () => ({
   useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
   useDescendantAgentIds: () => H.descendants,
+  useAgentRecord: (agentId: string | null) =>
+    (H.agents as Agent[]).find((a) => a.id === agentId) ?? null,
 }));
 
 vi.mock("@/hooks/use-stream", () => ({
@@ -327,12 +330,12 @@ describe("entryOwner / filterStreamView", () => {
     agentPost("from-child", "agt_child", "agt_1", "to root"),
     agentPost("to-child", "agt_1", "agt_child", "to child"),
     agentPost("to-grandchild", "agt_child", "agt_grandchild", "launch"),
+    blockEntry(launchBlock({ id: "child-launch", toAgentId: "agt_child" })),
     blockEntry(
-      block({
-        id: "child-launch",
-        authorKind: "user",
-        toAgentId: "agt_child",
-        origin: "launch",
+      launchBlock({
+        id: "grandchild-launch",
+        toAgentId: "agt_grandchild",
+        launchedByAgentId: "agt_child",
       })
     ),
   ];
@@ -342,12 +345,16 @@ describe("entryOwner / filterStreamView", () => {
     expect(ids(filterStreamView(entries, rootView, true))).toEqual(
       ids(entries)
     );
+    // A descendant's launch card is the parent's record of starting it: it
+    // stays with child activity hidden.
     expect(ids(filterStreamView(entries, rootView, false))).toEqual([
       "root-turn",
       "sibling-turn",
       "human-chat",
       "root-reply",
       "to-child",
+      "child-launch",
+      "grandchild-launch",
     ]);
   });
 
@@ -359,6 +366,7 @@ describe("entryOwner / filterStreamView", () => {
       "to-child",
       "to-grandchild",
       "child-launch",
+      "grandchild-launch",
     ]);
     // Its own children fold in below it, as on the root's page.
     expect(ids(filterStreamView(entries, childView, true))).toEqual([
@@ -369,7 +377,20 @@ describe("entryOwner / filterStreamView", () => {
       "to-child",
       "to-grandchild",
       "child-launch",
+      "grandchild-launch",
     ]);
+  });
+
+  it("keeps a launch card with the agent it launched or a parent of it", () => {
+    const cardFor = (to: string) =>
+      blockEntry(launchBlock({ id: `card-${to}`, toAgentId: to }));
+    // The page's own card.
+    expect(entryOwner(cardFor("agt_child"), childView)).toBe("own");
+    // A descendant's card, on an ancestor's page.
+    expect(entryOwner(cardFor("agt_grandchild"), rootView)).toBe("own");
+    expect(entryOwner(cardFor("agt_grandchild"), childView)).toBe("own");
+    // A sibling's card is not the child's.
+    expect(entryOwner(cardFor("agt_sibling"), childView)).toBe("other");
   });
 
   it("names whose a row is", () => {
@@ -495,6 +516,8 @@ describe("ChatPane", () => {
       { wrapper: Wrapper }
     );
     const scroll = screen.getByTestId("chat-scroll");
+    // The feed scrolls through repeated controls: no backdrop blur in here.
+    expect(scroll.classList.contains("stream-surfaces-flat")).toBe(true);
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, value: 1_000 },
       clientHeight: { configurable: true, value: 200 },
@@ -626,6 +649,41 @@ describe("ChatPane", () => {
     const empty = screen.getByTestId("chat-empty");
     expect(empty.textContent).toContain("Send the first one below");
     expect(screen.queryByTestId("chat-message")).toBeNull();
+  });
+
+  it("reads as empty while the stream holds only a launch card with no briefing", () => {
+    H.entries = [
+      blockEntry(
+        launchBlock({
+          id: "l1",
+          toAgentId: "agt_1",
+          launchState: {
+            startup: {
+              steps: [
+                {
+                  phase: "worktree",
+                  label: "Creating git worktree",
+                  startedAt: "2026-09-02T10:00:00.000Z",
+                  status: "running",
+                },
+              ],
+            },
+          },
+        })
+      ),
+    ];
+    renderPane();
+    expect(screen.getByTestId("chat-empty")).toBeTruthy();
+  });
+
+  it("counts a launch card with a briefing as the start of the conversation", () => {
+    H.entries = [
+      blockEntry(
+        launchBlock({ id: "l1", toAgentId: "agt_1", text: "Build the widget" })
+      ),
+    ];
+    renderPane();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
   it("hides the empty state once a chat message exists", () => {

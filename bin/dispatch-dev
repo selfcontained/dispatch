@@ -47,6 +47,9 @@ Options:
   --live            Run agents for real (the ACP runtime); default is inert.
                     Also disables the default dev-data seed.
   --no-seed         Skip seeding demo data (seed is on by default for non-live)
+  --preserve-agent-hosts
+                    Keep live agent hosts running across restart. This opt-in
+                    is saved for the stack and reused by later restarts.
   --wipe            down only: also delete the database and the stack's
                     logs. Agents, streams and files are gone for good.
   -f, --follow      Follow log output (used with logs command)
@@ -138,6 +141,7 @@ DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
 DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
 DEV_NO_SEED=${OPT_NO_SEED:-0}
+DEV_PRESERVE_AGENT_HOSTS=${OPT_PRESERVE_AGENT_HOSTS:-0}
 DEV_DISPLAY_HOST=${DEV_DISPLAY_HOST:-127.0.0.1}
 DEV_LAN_HOST=${DEV_LAN_HOST:-}
 DEV_RELEASE_CACHE_DIR=${DEV_RELEASE_CACHE_DIR:-}
@@ -159,17 +163,39 @@ pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }
 
+# Return success when a PID is one of this stack's detached agent hosts.
+# Hosts stay parented to the API's wrapper tree even though they lead their
+# own process group, so a recursive PPID walk must explicitly preserve them
+# during a soft restart.
+is_agent_host_pid() {
+  local target="${1:-}"
+  [ -n "$target" ] || return 1
+  local pidfile host_pid
+  for pidfile in "$(log_dir)"/agents/*/host.pid; do
+    [ -f "$pidfile" ] || continue
+    host_pid="$(cat "$pidfile" 2>/dev/null || true)"
+    [ "$host_pid" = "$target" ] && return 0
+  done
+  return 1
+}
+
 # Recursively kill a process and all its descendants (depth-first).
 # This ensures child processes spawned by npm/tsx are cleaned up even
-# when signals don't propagate through the wrapper chain.
+# when signals don't propagate through the wrapper chain. An opted-in soft
+# restart preserves registered agent-host roots (and therefore their process
+# groups); default restart and explicit down stop those groups separately.
 kill_tree() {
   local pid="${1:-}"
   local sig="${2:-TERM}"
+  local preserve_agent_hosts="${3:-0}"
   [ -z "$pid" ] && return 0
+  if [ "$preserve_agent_hosts" = "1" ] && is_agent_host_pid "$pid"; then
+    return 0
+  fi
   local children
   children=$(pgrep -P "$pid" 2>/dev/null) || true
   for child in $children; do
-    kill_tree "$child" "$sig"
+    kill_tree "$child" "$sig" "$preserve_agent_hosts"
   done
   kill -"$sig" "$pid" 2>/dev/null || true
 }
@@ -178,17 +204,18 @@ kill_tree() {
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
+  local preserve_agent_hosts="${3:-0}"
   if ! pid_alive "$pid"; then
     return 0
   fi
-  kill_tree "$pid"
+  kill_tree "$pid" TERM "$preserve_agent_hosts"
   local i=0
   while [ $i -lt 10 ] && pid_alive "$pid"; do
     sleep 0.5
     i=$((i + 1))
   done
   if pid_alive "$pid"; then
-    kill_tree "$pid" 9
+    kill_tree "$pid" 9 "$preserve_agent_hosts"
   fi
   echo "Stopped ${name} (PID ${pid})"
 }
@@ -483,9 +510,8 @@ cmd_down() {
   stop_service "${DEV_VITE_PID:-}" "Vite server"
 
   # The container goes; its data stays on the stack's named volume and is
-  # mounted again by the next `up`. Stopping a stack to pull a change is
-  # the common case, and it should not cost the agents on it. `--wipe` is
-  # the way to actually start over.
+  # mounted again by the next `up`. Agent hosts always stop with the stack;
+  # `--wipe` additionally removes the persisted database data.
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
     local compose
     compose="$(detect_compose)"
@@ -529,6 +555,12 @@ cmd_restart() {
     cmd_up
     return
   fi
+
+  # Restore the persisted host policy before any restart path can tear down
+  # the current stack. Later callers (including the repo dev restart tool)
+  # inherit the long-lived stack's original opt-in from state.
+  [ "$OPT_PRESERVE_AGENT_HOSTS" = "0" ] && [ "${DEV_PRESERVE_AGENT_HOSTS:-0}" = "1" ] && OPT_PRESERVE_AGENT_HOSTS="1"
+
   if [ "${DEV_NO_DB:-0}" != "1" ] && ! db_container_running; then
     echo "DB container is gone — starting it again; its data is on the volume."
     cmd_down 2>/dev/null || true
@@ -539,9 +571,14 @@ cmd_restart() {
     return
   fi
 
-  # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  # Stop the app processes only — DB stays up. Hosts get their own process
+  # groups, so stop them explicitly unless this stack opted into preserving
+  # them; kill_tree's exclusion then protects the preserved host subtree.
+  if [ "$OPT_PRESERVE_AGENT_HOSTS" != "1" ]; then
+    stop_agent_hosts
+  fi
+  stop_service "${DEV_API_PID:-}" "API server" "$OPT_PRESERVE_AGENT_HOSTS"
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "$OPT_PRESERVE_AGENT_HOSTS"
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
@@ -689,6 +726,7 @@ OPT_CWD=""
 OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_NO_SEED="0"
+OPT_PRESERVE_AGENT_HOSTS="0"
 OPT_SUFFIX=""
 OPT_WIPE="0"
 OPT_LOG_DB="0"
@@ -710,6 +748,8 @@ while [ $# -gt 0 ]; do
       OPT_LIVE="1"; shift ;;
     --no-seed)
       OPT_NO_SEED="1"; shift ;;
+    --preserve-agent-hosts)
+      OPT_PRESERVE_AGENT_HOSTS="1"; shift ;;
     --wipe)
       OPT_WIPE="1"; shift ;;
     --suffix)

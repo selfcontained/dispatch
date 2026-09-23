@@ -138,14 +138,8 @@ export type BlockRow = {
   updated_at: Date;
 };
 
-/**
- * "An agent said this to the person": what unread means. The system-prompt
- * record is authored by the agent and addressed to nobody, but it is a
- * record of what Dispatch told it, not a message, so it never counts as
- * unread and mark-read never stamps it.
- */
-const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL
-          AND (origin IS NULL OR origin NOT IN ('system_prompt', 'workspace'))`;
+/** "An agent said this to the person": what unread means. */
+const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL`;
 
 /**
  * Where each recipient's copy of a post got to, in the order the post
@@ -158,10 +152,17 @@ const SAID_TO_PERSON_SQL = `author_kind = 'agent' AND to_agent_id IS NULL
  */
 function deliveryOf(row: BlockRow): BlockDelivery[] {
   if (!row.to_agent_id) return [];
-  const data = row.data as { mentions?: string[] } | null;
-  const mentions = row.kind === "text" ? data?.mentions : undefined;
-  const recipients =
-    mentions && mentions.length > 0 ? mentions : [row.to_agent_id];
+  const data = row.data as {
+    mentions?: string[];
+    recipients?: string[];
+  } | null;
+  const named =
+    row.kind !== "text"
+      ? undefined
+      : data?.mentions?.length
+        ? data.mentions
+        : data?.recipients;
+  const recipients = named && named.length > 0 ? named : [row.to_agent_id];
   const outcomes = row.deliveries ?? null;
   return recipients.map((agentId) => {
     // A recipient with no outcome of its own shares the block's: either it
@@ -180,6 +181,14 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
             : ("pending" as const),
     };
   });
+}
+
+/** The ids a block shows (`state.blocks`), for a query that leaves them out. */
+export function shownIdsOf(block: Pick<Block, "state">): string[] {
+  const state = block.state as { blocks?: unknown } | null;
+  return Array.isArray(state?.blocks)
+    ? state.blocks.filter((id): id is string => isBlockId(id))
+    : [];
 }
 
 export function toBlock(row: BlockRow): Block {
@@ -394,7 +403,7 @@ export class BlockStore {
           SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('answer', $2::jsonb),
               updated_at = now()
         WHERE id = $1 AND kind = 'question'
-          AND (state IS NULL OR state->'answer' IS NULL)
+          AND (state IS NULL OR (state->'answer' IS NULL AND state->'cancellation' IS NULL))
         RETURNING *`,
       [questionId, JSON.stringify(answer)]
     );
@@ -415,9 +424,36 @@ export class BlockStore {
           SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('submission', $2::jsonb),
               updated_at = now()
         WHERE id = $1 AND kind = 'form'
-          AND (state IS NULL OR state->'submission' IS NULL)
+          AND (state IS NULL OR (state->'submission' IS NULL AND state->'cancellation' IS NULL))
         RETURNING *`,
       [formId, JSON.stringify(submission)]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
+  }
+
+  /**
+   * Set the cancellation on a question or form that has neither an answer
+   * (or submission) nor a cancellation yet — atomic and symmetric with
+   * `recordAnswer`/`recordSubmission`, so an answer/submit racing a cancel
+   * can only ever have one winner.
+   */
+  async recordCancellation(
+    blockId: string,
+    cancellation: BlockActor & { reason?: string }
+  ): Promise<Block | null> {
+    if (!isBlockId(blockId)) return null;
+    const result = await this.db.query<BlockRow>(
+      `UPDATE blocks
+          SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object('cancellation', $2::jsonb),
+              updated_at = now()
+        WHERE id = $1 AND kind IN ('question', 'form')
+          AND (state IS NULL OR (
+            state->'answer' IS NULL
+            AND state->'submission' IS NULL
+            AND state->'cancellation' IS NULL
+          ))
+        RETURNING *`,
+      [blockId, JSON.stringify(cancellation)]
     );
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
@@ -428,7 +464,10 @@ export class BlockStore {
    * an agent that already took the post is not shown as waiting for it a
    * second time. Returns false when the row is gone.
    */
-  async markDelivering(id: string, agentIds: readonly string[]): Promise<boolean> {
+  async markDelivering(
+    id: string,
+    agentIds: readonly string[]
+  ): Promise<boolean> {
     if (!isBlockId(id)) return false;
     const result = await this.db.query(
       `UPDATE blocks
@@ -613,11 +652,6 @@ export class BlockStore {
           AND later.author_kind = b.author_kind
           AND later.author_agent_id IS NOT DISTINCT FROM b.author_agent_id
           AND later.thread_id IS NULL
-          -- What an agent was told and its workspace coming up are records
-          -- of the launch, not things it posted; counting them would put a
-          -- fresh agent's first post already in the past.
-          AND (later.origin IS NULL
-               OR later.origin NOT IN ('system_prompt', 'workspace'))
           AND (later.created_at, later.id) > (b.created_at, b.id)
         WHERE b.id = $1`,
       [blockId]
@@ -643,13 +677,18 @@ export class BlockStore {
     return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
-  /** A thread: its root and every reply, oldest first. */
+  /**
+   * A thread: the block it opens on and every reply, oldest first. The
+   * blocks the root shows are left out — the root carries them — and so is
+   * anything that is not a reply to it.
+   */
   async listThread(
     rootId: string
   ): Promise<{ root: Block; replies: Block[] } | null> {
     if (!isBlockId(rootId)) return null;
     const root = await this.getById(rootId);
-    if (!root || root.threadId !== null) return null;
+    if (!root) return null;
+    const shown = shownIdsOf(root);
     const result = await this.db.query<BlockRow>(
       `SELECT b.*, rx.reactions
          FROM blocks b
@@ -662,11 +701,99 @@ export class BlockStore {
                     ORDER BY r.created_at, r.id) AS reactions
              FROM block_reactions r WHERE r.block_id = b.id
          ) rx ON true
-        WHERE b.thread_id = $1
+        WHERE b.thread_id = $1 AND NOT (b.id = ANY($2::uuid[]))
         ORDER BY b.created_at, b.id`,
-      [rootId]
+      [rootId, shown]
     );
     return { root, replies: result.rows.map(toBlock) };
+  }
+
+  /**
+   * Add a block to the ones a host shows, at the end. One statement, so
+   * two landing at once both stay.
+   */
+  async appendShown(hostId: string, blockId: string): Promise<void> {
+    if (!isBlockId(hostId) || !isBlockId(blockId)) return;
+    await this.db.query(
+      `UPDATE blocks
+          SET state = jsonb_set(
+                COALESCE(state, '{}'::jsonb), '{blocks}',
+                COALESCE(state->'blocks', '[]'::jsonb) || to_jsonb($2::text)),
+              updated_at = now()
+        WHERE id = $1
+          AND NOT (COALESCE(state->'blocks', '[]'::jsonb) ? $2::text)`,
+      [hostId, blockId]
+    );
+  }
+
+  /**
+   * Set one key of a block's state, leaving the others: a launch card's
+   * startup and its instructions are written by different steps of a
+   * launch, and neither may undo the other.
+   */
+  async setStateKey(
+    id: string,
+    key: string,
+    value: unknown
+  ): Promise<Block | null> {
+    if (!isBlockId(id)) return null;
+    const result = await this.db.query<BlockRow>(
+      `UPDATE blocks
+          SET state = COALESCE(state, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb),
+              updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [id, key, JSON.stringify(value)]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
+  }
+
+  /** Record who launched the agent a card stands for. */
+  async setLaunchedBy(id: string, agentId: string): Promise<Block | null> {
+    if (!isBlockId(id)) return null;
+    const result = await this.db.query<BlockRow>(
+      `UPDATE blocks SET launched_by_agent_id = $2, updated_at = now()
+        WHERE id = $1 RETURNING *`,
+      [id, agentId]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
+  }
+
+  /**
+   * The briefing on an agent's launch card: its text and startup
+   * attachments, written onto the card whether the card is there yet or
+   * not (its startup may have written it first).
+   */
+  async writeLaunchBriefing(input: {
+    id: string;
+    streamId: string;
+    agentId: string;
+    text: string;
+    attachments: ChatAttachment[];
+    launchedByAgentId: string | null;
+  }): Promise<Block> {
+    const result = await this.db.query<BlockRow>(
+      `INSERT INTO blocks
+         (id, stream_id, author_kind, to_agent_id, kind, text, state,
+          attachments, delivered, launched_by_agent_id)
+       VALUES ($1, $2, 'user', $3, 'launch', $4, '{}'::jsonb, $5::jsonb, true, $6)
+       ON CONFLICT (id) DO UPDATE
+         SET text = EXCLUDED.text,
+             attachments = EXCLUDED.attachments,
+             launched_by_agent_id = COALESCE(EXCLUDED.launched_by_agent_id,
+                                             blocks.launched_by_agent_id),
+             updated_at = now()
+       RETURNING *`,
+      [
+        input.id,
+        input.streamId,
+        input.agentId,
+        input.text,
+        JSON.stringify(input.attachments),
+        input.launchedByAgentId,
+      ]
+    );
+    return toBlock(result.rows[0]!);
   }
 
   /**
@@ -700,14 +827,13 @@ export class BlockStore {
   }
 
   /**
-   * The block that records what an agent was launched with: the anchor of
-   * the thread its parent and it talk in. Null for an agent launched with
-   * no context, or before the block is written.
+   * An agent's launch card: the one entry for it in the stream, and the
+   * thread its work goes to. Null before it is written.
    */
   async findLaunchBlock(agentId: string): Promise<Block | null> {
     const result = await this.db.query<BlockRow>(
       `SELECT * FROM blocks
-        WHERE to_agent_id = $1 AND origin = 'launch' AND thread_id IS NULL
+        WHERE to_agent_id = $1 AND kind = 'launch' AND thread_id IS NULL
         ORDER BY created_at ASC
         LIMIT 1`,
       [agentId]
@@ -738,7 +864,6 @@ export class BlockStore {
            WHERE bound.id = $2 AND bound.stream_id = $1
              AND b.stream_id = $1 AND b.read_at IS NULL
              AND b.author_kind = 'agent' AND b.to_agent_id IS NULL
-             AND (b.origin IS NULL OR b.origin NOT IN ('system_prompt', 'workspace'))
              AND b.created_at <= bound.created_at
            RETURNING b.read_at, bound.created_at AS up_to_at`,
           [streamId, upTo]
@@ -760,24 +885,21 @@ export class BlockStore {
   }
 
   /**
-   * A person read a thread: every agent reply in it (or only those about
-   * one finding) is marked read. Replies between agents carry a
-   * `to_agent_id` and never count toward the stream's own unread total;
-   * this mark is what the thread and its findings show as seen.
+   * A person read a thread: every agent reply in it is marked read. Replies
+   * between agents carry a `to_agent_id` and never count toward the
+   * stream's own unread total; this mark is what the thread shows as seen.
    */
   async markThreadRead(
     streamId: string,
-    threadId: string,
-    findingId?: string | null
+    threadId: string
   ): Promise<{ ids: string[]; readAt: string | null }> {
     if (!isBlockId(threadId)) return { ids: [], readAt: null };
     const result = await this.db.query<{ id: string; read_at: Date }>(
       `UPDATE blocks SET read_at = now()
         WHERE stream_id = $1 AND thread_id = $2
           AND author_kind = 'agent' AND read_at IS NULL
-          AND ($3::text IS NULL OR data->>'findingId' = $3::text)
         RETURNING id, read_at`,
-      [streamId, threadId, findingId ?? null]
+      [streamId, threadId]
     );
     return {
       ids: result.rows.map((row) => row.id),
@@ -811,7 +933,6 @@ export class BlockStore {
          FROM blocks b
          JOIN agents a ON a.id = b.stream_id AND a.deleted_at IS NULL
         WHERE b.author_kind = 'agent' AND b.to_agent_id IS NULL
-          AND (b.origin IS NULL OR b.origin NOT IN ('system_prompt', 'workspace'))
           AND (b.read_at IS NULL OR ${OPEN_INPUT_SQL})
         GROUP BY b.stream_id`
     );
@@ -842,6 +963,13 @@ export class BlockStore {
   }
 }
 
-/** A question with no answer or a form with no submission (alias `b`). */
+/**
+ * A question with no answer or a form with no submission, and not
+ * canceled either (alias `b`).
+ */
 export const OPEN_INPUT_SQL = `(b.kind IN ('question', 'form')
-          AND (b.state IS NULL OR (b.state->'answer' IS NULL AND b.state->'submission' IS NULL)))`;
+          AND (b.state IS NULL OR (
+            b.state->'answer' IS NULL
+            AND b.state->'submission' IS NULL
+            AND b.state->'cancellation' IS NULL
+          )))`;

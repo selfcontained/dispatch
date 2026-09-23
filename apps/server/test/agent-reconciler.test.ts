@@ -80,6 +80,11 @@ const makeAgent = (
 const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...createInertRuntime(),
   tracksProcesses: () => true,
+  // Unlike InertRuntime's always-true stub, the default here has no live
+  // connection to reconnect to — tests that want a successful reconnect
+  // override this explicitly, so the isAlive fallback stays what most
+  // reconciler tests actually exercise.
+  attach: vi.fn().mockResolvedValue(false),
   isAlive: vi.fn().mockResolvedValue(true),
   listHosted: vi.fn().mockResolvedValue([]),
   stop: vi.fn().mockResolvedValue(undefined),
@@ -213,6 +218,29 @@ describe("reconcileAgentStatuses — non-tracking runtime (inert mode)", () => {
   });
 });
 
+describe("reconcileAgentStatuses — reconnect latency", () => {
+  it("starts reattach attempts for multiple hosts concurrently", async () => {
+    let release!: (value: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    const attach = vi.fn().mockImplementation(() => gate);
+    const { reconciler } = setup({
+      activeRows: [
+        { id: "agt_first", status: "running", updatedAt: minutesAgo(2) },
+        { id: "agt_second", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime: makeRuntime({ attach }),
+    });
+
+    const pass = reconciler.reconcileAgentStatuses();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attach).toHaveBeenCalledTimes(2);
+    release(true);
+    await pass;
+  });
+});
+
 describe("reconcileAgentStatuses — missing-host detection", () => {
   it("running agent whose host is gone → settles the stream and flips to stopped", async () => {
     const runtime = makeRuntime({ isAlive: vi.fn().mockResolvedValue(false) });
@@ -231,6 +259,37 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
     expect(setAgentStatus).toHaveBeenCalledWith("agt_died", "stopped", null);
     expect(notifyBlocked).not.toHaveBeenCalled();
     expect(reconciled.map((a) => a.id)).toEqual(["agt_died"]);
+  });
+
+  it("running agent whose host is alive but missed this attach → stays running, not settled", async () => {
+    // The host didn't answer `hello` inside the attach window (busy
+    // journal replay, boot contention), but its pid is still there. This
+    // must not read the same as "gone" — that flip is what let boot
+    // cleanup kill a still-live, possibly mid-turn host.
+    const runtime = makeRuntime({
+      attach: vi.fn().mockResolvedValue(false),
+      isAlive: vi.fn().mockResolvedValue(true),
+    });
+    const { reconciler, setAgentStatus, settleStream } = setup({
+      activeRows: [
+        { id: "agt_slow", status: "running", updatedAt: minutesAgo(2) },
+      ],
+      runtime,
+    });
+
+    const reconciled = await reconciler.reconcileAgentStatuses();
+
+    expect(runtime.attach).toHaveBeenCalledWith("agt_slow");
+    expect(runtime.isAlive).toHaveBeenCalledWith("agt_slow");
+    expect(settleStream).not.toHaveBeenCalled();
+    expect(setAgentStatus).not.toHaveBeenCalled();
+    expect(reconciled).toEqual([]);
+
+    // A later pass (the periodic tick) is where the retry actually lands.
+    runtime.attach = vi.fn().mockResolvedValue(true);
+    const second = await reconciler.reconcileAgentStatuses();
+    expect(second).toEqual([]);
+    expect(setAgentStatus).not.toHaveBeenCalled();
   });
 
   it("creating agent past the launch grace with no host → flips to error", async () => {
@@ -336,6 +395,7 @@ describe("reconcileAgentStatuses — happy path", () => {
       activeRows: [
         { id: "agt_running", status: "running", updatedAt: minutesAgo(5) },
       ],
+      runtime: makeRuntime({ attach: vi.fn().mockResolvedValue(true) }),
     });
 
     const reconciled = await reconciler.reconcileAgentStatuses();

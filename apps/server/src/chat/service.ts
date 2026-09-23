@@ -6,6 +6,7 @@ import type {
   Block,
   BlockAuthor,
   BlockStartup,
+  BlockFindingData,
   BlockFindingResolution,
   BlockFindingState,
   BlockFindingStatus,
@@ -13,9 +14,7 @@ import type {
   BlockKind,
   BlockLinkData,
   BlockQuestionData,
-  BlockReviewData,
-  BlockReviewRequest,
-  BlockReviewState,
+  BlockReviewInput,
   BlockTasksData,
   ChatAttachment,
   ChatUserAttachmentInput,
@@ -30,6 +29,7 @@ import type {
 } from "@dispatch/shared";
 import {
   BLOCK_ATTACHMENTS_MAX,
+  BLOCK_CANCEL_REASON_MAX_CHARS,
   BLOCK_FORM_FIELDS_MAX,
   BLOCK_OPTION_LABEL_MAX_CHARS,
   BLOCK_OPTIONS_MAX,
@@ -37,7 +37,7 @@ import {
   BLOCK_REVIEW_FINDINGS_MAX,
   BLOCK_TASKS_MAX,
   BLOCK_TEXT_MAX_CHARS,
-  reviewStatus,
+  reviewFindings,
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
@@ -73,6 +73,7 @@ import {
   BlockStore,
   isBlockId,
   sameAuthor,
+  shownIdsOf,
   type UpdateBlockInput,
 } from "./store.js";
 import { chatUrlSchema, normalizeReactionEmoji } from "./validation.js";
@@ -101,12 +102,10 @@ export type PostInput = {
   kind?: BlockKind;
   text?: string;
   replyTo?: string | null;
-  /** With `replyTo` naming a review (or a reply in its thread): the finding this is about. */
-  finding?: string | null;
   question?: BlockQuestionData | null;
   form?: BlockFormData | null;
   link?: BlockLinkData | null;
-  review?: BlockReviewData | null;
+  review?: BlockReviewInput | null;
   tasks?: BlockTasksData | null;
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
@@ -155,6 +154,8 @@ export type StreamDeliveryAdapter = {
   held: (agentId: string) => boolean;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
+  /** Names of commands this agent's ACP session currently accepts. */
+  commands?: (agentId: string) => readonly string[];
 };
 
 export type StreamAgent = Pick<
@@ -229,11 +230,6 @@ export class StreamForbiddenError extends StreamServiceError {
  * seeded file rows; links are the raw startup URLs.
  */
 export type LaunchContextInput = {
-  /**
-   * The block's id, when the caller needs it before the write — the launch
-   * path fixes it so the engine's first turn can carry it in its envelope.
-   */
-  id?: string;
   agentId: string;
   /** The initial prompt as the person (or launching agent) wrote it. */
   text?: string;
@@ -244,17 +240,14 @@ export type LaunchContextInput = {
 };
 
 /**
- * The system-prompt block's id: derived from the agent's, so every launch
- * addresses the same row instead of appending one per restart. A v5-shaped
- * UUID over the agent id, which the column requires.
+ * The id a new agent's launch card is written with: derived from the
+ * agent's, so the steps of its startup, the instructions it runs with and
+ * its briefing all land on the one row whichever is written first. A
+ * v5-shaped UUID over the agent id, which the column requires. (Cards that
+ * predate this have ids of their own; they are found by agent, not by id.)
  */
-export function systemPromptBlockId(agentId: string): string {
-  return derivedBlockId(`system-prompt:${agentId}`);
-}
-
-/** The workspace block's id; one row per agent, updated as it starts. */
-export function workspaceBlockId(agentId: string): string {
-  return derivedBlockId(`workspace:${agentId}`);
+export function launchBlockId(agentId: string): string {
+  return derivedBlockId(`launch:${agentId}`);
 }
 
 function derivedBlockId(seed: string): string {
@@ -267,17 +260,6 @@ function derivedBlockId(seed: string): string {
       h.slice(17, 20),
     h.slice(20, 32),
   ].join("-");
-}
-
-/**
- * The workspace block's text: what the row says to anything that reads
- * blocks as text rather than drawing the steps.
- */
-function startupText(startup: BlockStartup): string {
-  if (startup.failed) return `Workspace setup failed: ${startup.failed}`;
-  if (startup.readyAt) return "Workspace ready";
-  const running = startup.steps.find((step) => step.status === "running");
-  return running ? running.label : "Starting the workspace";
 }
 
 /** A launch block resolved but not yet written; see `prepareLaunchContext`. */
@@ -356,6 +338,36 @@ function requireText(text: string | undefined): string {
     );
   }
   return value;
+}
+
+/**
+ * `state.cancellation` as given to `update`/`PATCH …/state`: `true` (no
+ * reason), a reason string, or `{ reason }`. Anything else is malformed.
+ */
+function parseCancelReason(raw: unknown): string | undefined {
+  if (raw === true) return undefined;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed
+      ? trimmed.slice(0, BLOCK_CANCEL_REASON_MAX_CHARS)
+      : undefined;
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const reason = (raw as { reason?: unknown }).reason;
+    if (reason === undefined) return undefined;
+    if (typeof reason !== "string") {
+      throw new StreamValidationError(
+        "state.cancellation.reason must be a string."
+      );
+    }
+    const trimmed = reason.trim();
+    return trimmed
+      ? trimmed.slice(0, BLOCK_CANCEL_REASON_MAX_CHARS)
+      : undefined;
+  }
+  throw new StreamValidationError(
+    "state.cancellation must be true, a reason string, or { reason }."
+  );
 }
 
 function uniqueIds(items: Array<{ id: string }>, what: string): void {
@@ -466,31 +478,27 @@ export function resolveKindAndData(input: PostInput): {
     }
     case "review": {
       const r = input.review;
-      if (!r || !Array.isArray(r.findings)) {
-        throw new StreamValidationError(
-          "review needs verdict, summary and findings."
-        );
-      }
-      if (!["approve", "request_changes", "comment"].includes(r.verdict)) {
-        throw new StreamValidationError(
-          "review.verdict must be approve, request_changes or comment."
-        );
+      if (!r || typeof r.summary !== "string" || !Array.isArray(r.findings)) {
+        throw new StreamValidationError("review needs summary and findings.");
       }
       if (r.findings.length > BLOCK_REVIEW_FINDINGS_MAX) {
         throw new StreamValidationError(
           `review.findings must have ${BLOCK_REVIEW_FINDINGS_MAX} entries or fewer.`
         );
       }
-      uniqueIds(r.findings, "finding");
-      for (const finding of r.findings) {
-        if (!["blocker", "major", "minor", "nit"].includes(finding.severity)) {
-          throw new StreamValidationError(
-            `finding "${finding.id}" has an unknown severity.`
-          );
-        }
-      }
-      return { kind, data: r };
+      const review: BlockReviewInput = {
+        summary: requireText(r.summary),
+        findings: r.findings.map((finding, index) =>
+          validateFinding(finding, `finding ${index + 1}`)
+        ),
+      };
+      return { kind, data: review };
     }
+    case "finding":
+    case "launch":
+      throw new StreamValidationError(
+        `A ${kind} block is written by Dispatch, not posted: post a review to raise findings.`
+      );
     case "tasks": {
       const t = input.tasks;
       if (!t || !Array.isArray(t.items) || t.items.length === 0) {
@@ -507,23 +515,72 @@ export function resolveKindAndData(input: PostInput): {
   }
 }
 
+/** A finding as a reviewer states it, checked and trimmed to what is stored. */
+function validateFinding(value: unknown, label: string): BlockFindingData {
+  const f = (value ?? {}) as Partial<BlockFindingData>;
+  if (!["blocker", "major", "minor", "nit"].includes(f.severity as string)) {
+    throw new StreamValidationError(`${label} has an unknown severity.`);
+  }
+  const title = typeof f.title === "string" ? f.title.trim() : "";
+  if (!title || title.length > 300) {
+    throw new StreamValidationError(
+      `${label} needs a title of 1–300 characters.`
+    );
+  }
+  if (typeof f.body !== "string" || !f.body.trim()) {
+    throw new StreamValidationError(`${label} needs a body.`);
+  }
+  return {
+    severity: f.severity as BlockFindingData["severity"],
+    title,
+    body: requireText(f.body),
+    ...(typeof f.path === "string" && f.path.trim()
+      ? { path: f.path.trim() }
+      : {}),
+    ...(typeof f.line === "number" && Number.isInteger(f.line) && f.line > 0
+      ? { line: f.line }
+      : {}),
+  };
+}
+
+/** New `data` for a block its author is editing, checked against its kind. */
+function validUpdateData(block: Block, value: unknown): unknown {
+  switch (block.kind) {
+    case "review": {
+      const summary = (value as { summary?: unknown } | null)?.summary;
+      if (typeof summary !== "string") {
+        throw new StreamValidationError(
+          "A review's data is { summary }; its findings are blocks of their own."
+        );
+      }
+      return { summary: requireText(summary) };
+    }
+    case "finding":
+      return validateFinding(value, "finding");
+    case "launch":
+      throw new StreamValidationError("A launch card is written by Dispatch.");
+    default:
+      return resolveKindAndData({
+        kind: block.kind,
+        ...(block.kind === "question"
+          ? { question: value as BlockQuestionData }
+          : {}),
+        ...(block.kind === "form" ? { form: value as BlockFormData } : {}),
+        ...(block.kind === "link" ? { link: value as BlockLinkData } : {}),
+        ...(block.kind === "tasks" ? { tasks: value as BlockTasksData } : {}),
+        attachments: block.attachments.map((a) =>
+          a.type === "file" ? { type: "file" as const, fileId: a.fileId } : a
+        ),
+      }).data;
+  }
+}
+
 /** The initial state a kind starts with. */
 function initialState(kind: BlockKind, data: unknown): unknown {
   switch (kind) {
     case "question":
     case "form":
       return {};
-    case "review": {
-      const findings: Record<string, unknown> = {};
-      for (const f of (data as BlockReviewData).findings) {
-        findings[f.id] = {
-          status: "open",
-          by: USER,
-          at: new Date().toISOString(),
-        };
-      }
-      return { findings };
-    }
     case "tasks": {
       const items: Record<string, string> = {};
       for (const item of (data as BlockTasksData).items)
@@ -548,12 +605,8 @@ type TurnPublish = { done: Promise<void>; again: boolean };
  * options are not spelled out: the recipient of a question is a person.
  */
 function envelopeText(block: Block): string {
-  if (block.kind === "review" && block.data) {
-    const review = describeReview(
-      block.id,
-      block.data as BlockReviewData,
-      (block.state as BlockReviewState | null) ?? null
-    );
+  if (block.kind === "review") {
+    const review = describeReview(block, reviewFindings(block));
     return block.text.trim() ? `${block.text.trim()}\n\n${review}` : review;
   }
   return block.text;
@@ -561,12 +614,24 @@ function envelopeText(block: Block): string {
 
 /**
  * Who a post is addressed to, in the order it named them: the agents it
- * mentioned, or its single recipient. Empty for a block meant for people.
+ * mentioned or was sent to, or its single recipient. Empty for a block
+ * meant for people.
  */
 export function addressedTo(block: Block): string[] {
-  const mentions = block.kind === "text" ? block.data?.mentions : undefined;
-  if (mentions && mentions.length > 0) return mentions;
+  const data = block.kind === "text" ? block.data : undefined;
+  const named = data?.mentions?.length ? data.mentions : data?.recipients;
+  if (named && named.length > 0) return named;
   return block.toAgentId ? [block.toAgentId] : [];
+}
+
+/** The agents on the two sides of a block: who wrote or launched it, and whom it is for. */
+function sidesOf(block: Block): string[] {
+  const sides = [
+    block.author.kind === "agent" ? block.author.agentId : null,
+    block.launchedByAgentId ?? null,
+    block.toAgentId,
+  ].filter((id): id is string => !!id);
+  return [...new Set(sides)];
 }
 
 export class StreamService {
@@ -591,64 +656,101 @@ export class StreamService {
   }
 
   /**
-   * The agent a reply in a thread is for when the writer named none: the
-   * agent on the other side of the thread's root (its author, or the agent
-   * it was addressed to). Null when the thread has no agent on it.
-   */
-  /**
-   * Who a reply in a thread is for. A thread has two sides: the root's
-   * author and whoever it was addressed to (on a review: the reviewer and
-   * the agent whose work it is). Each reply goes to exactly one of them,
-   * never to everyone in the thread:
+   * Who a reply in a thread is for, when the writer named nobody. A thread
+   * has two sides: its host's author (or the agent that launched it) and
+   * whoever the host is for — on a finding the reviewer and the agent whose
+   * work it is; on a launch card the parent and its child.
    *
    * - answering a particular comment goes to that comment's author;
    * - one side writing goes to the other side;
-   * - a person writing goes to whoever's move it is: on an open finding
-   *   (or an open review) the agent that has to act on it, on a resolved
-   *   one the reviewer who checks it.
+   * - a person writing goes to both sides, so neither hears of it second
+   *   hand.
    *
-   * Falls back to any other agent in the thread, then null.
+   * Falls back to any other agent in the thread; empty when there is none.
    */
-  private async threadCounterpart(
+  private async threadRecipients(
     thread: { threadId: string; replyTo: string },
-    author: BlockAuthor,
-    finding: { id: string } | null
-  ): Promise<string | null> {
-    const root = await this.store.getById(thread.threadId);
-    if (!root) return null;
-    const agentOf = (candidate: BlockAuthor | null | undefined) =>
-      candidate?.kind === "agent" && !sameAuthor(candidate, author)
-        ? candidate.agentId
-        : null;
+    author: BlockAuthor
+  ): Promise<string[]> {
+    const host = await this.store.getById(thread.threadId);
+    if (!host) return [];
+    const self = author.kind === "agent" ? author.agentId : null;
     if (thread.replyTo !== thread.threadId) {
       const target = await this.store.getById(thread.replyTo);
-      const direct = agentOf(target?.author);
-      if (direct) return direct;
+      if (target?.author.kind === "agent" && target.author.agentId !== self) {
+        return [target.author.agentId];
+      }
     }
-    const reviewer = agentOf(root.author);
-    const requester =
-      root.toAgentId &&
-      !(author.kind === "agent" && author.agentId === root.toAgentId)
-        ? root.toAgentId
-        : null;
-    if (author.kind === "agent") {
-      if (sameAuthor(root.author, author)) return requester;
-      if (author.agentId === root.toAgentId) return reviewer;
-    } else if (root.kind === "review" && reviewer && requester) {
-      const data = root.data as BlockReviewData;
-      const state = root.state as BlockReviewState | null;
-      const open = finding
-        ? (state?.findings?.[finding.id]?.status ?? "open") === "open"
-        : reviewStatus(data, state) !== "resolved";
-      return open ? requester : reviewer;
-    }
-    if (requester) return requester;
-    if (reviewer) return reviewer;
+    const sides = sidesOf(host).filter((id) => id !== self);
+    if (sides.length > 0) return sides;
     const others = await this.store.threadParticipants(thread.threadId, author);
     const agent = others.find(
       (p): p is { kind: "agent"; agentId: string } => p.kind === "agent"
     );
-    return agent?.agentId ?? null;
+    return agent ? [agent.agentId] : [];
+  }
+
+  /**
+   * An agent's launch card, written if it is not there yet: the one block
+   * its startup steps, its instructions and its briefing all land on,
+   * whichever comes first.
+   */
+  async ensureLaunchBlock(agentId: string): Promise<Block> {
+    const existing = await this.store.findLaunchBlock(agentId);
+    if (existing) return existing;
+    const streamId = await this.streamOf(agentId);
+    const id = launchBlockId(agentId);
+    const written = await this.store.insertIfAbsent({
+      id,
+      streamId,
+      author: USER,
+      toAgentId: agentId,
+      kind: "launch",
+      state: {},
+      delivered: true,
+      // Who launched it is the launch's to say (see `prepareLaunchContext`),
+      // never read off the agent row, which a create request can fill in.
+    });
+    if (written) {
+      await this.publishEntry(streamId, id);
+      return written;
+    }
+    const raced = await this.store.getById(id);
+    if (!raced) throw new StreamNotFoundError("Launch card not found.");
+    return raced;
+  }
+
+  /**
+   * Where an agent's own posts and turns go when nothing points them
+   * elsewhere. A child's is its launch card's thread: the one entry for it
+   * in its parent's stream holds its work, and the stream stays about the
+   * parent's. An agent with a stream of its own posts in the stream.
+   */
+  private async homeOf(
+    agentId: string
+  ): Promise<{ threadId: string; replyTo: string } | null> {
+    const streamId = await this.streamOf(agentId);
+    if (streamId === agentId) return null;
+    const card = await this.ensureLaunchBlock(agentId);
+    return { threadId: card.id, replyTo: card.id };
+  }
+
+  /**
+   * The block a reply to `block` lands under: `block` itself when it opens
+   * a thread — it is top-level, or another block shows it (a finding in a
+   * review) — and otherwise the thread `block` is already in.
+   */
+  private async threadHostFor(block: Block): Promise<string> {
+    if (!block.threadId) return block.id;
+    const container = await this.store.getById(block.threadId);
+    return container && shownIdsOf(container).includes(block.id)
+      ? block.id
+      : block.threadId;
+  }
+
+  /** Whether another block shows `block`, rather than listing it as a reply. */
+  private async isShown(block: Block): Promise<boolean> {
+    return (await this.threadHostFor(block)) === block.id && !!block.threadId;
   }
 
   // -------------------------------------------------------------------------
@@ -667,27 +769,18 @@ export class StreamService {
       to?: string | null;
       text: string;
       replyTo?: string | null;
-      /** With `replyTo` on a review: the finding this reply is about. */
-      finding?: string | null;
       attachments?: ChatUserAttachmentInput[];
       /** A review left by hand: the block is a `review` with these findings. */
-      review?: BlockReviewData | null;
+      review?: BlockReviewInput | null;
       allowInert?: boolean;
       /** Cut the recipient's running turn so this lands next, not after it. */
       interrupt?: boolean;
-      /**
-       * A request for reviews, made by pressing a button rather than
-       * typed: the block records who asked and for what, and the stream
-       * shows it as the request it is instead of words in the person's
-       * mouth. `text` is still the whole instruction the agent receives.
-       */
-      reviewRequest?: BlockReviewRequest;
     }
   ): Promise<StreamPostResponse> {
     const attachments = input.attachments ?? [];
     const text = requireText(input.text);
     const review = input.review
-      ? (resolveKindAndData({ review: input.review }).data as BlockReviewData)
+      ? (resolveKindAndData({ review: input.review }).data as BlockReviewInput)
       : null;
     if (!text.trim() && attachments.length === 0 && !review) {
       throw new StreamValidationError("text is required.");
@@ -697,27 +790,64 @@ export class StreamService {
         `attachments must have ${BLOCK_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    const thread = review
-      ? null
-      : await this.resolveThread(streamId, input.replyTo ?? null);
-    const finding = await this.resolveFinding(thread, input.finding ?? null);
+    if (review) {
+      const toAgentId = input.to ?? streamId;
+      await this.requireAgent(toAgentId);
+      const created = await this.createReview({
+        ...(input.id ? { id: input.id } : {}),
+        streamId,
+        author: USER,
+        toAgentId,
+        text,
+        review,
+        host: null,
+        live: await this.canDeliver(toAgentId, input.allowInert ?? true),
+      });
+      const held =
+        created.delivered === null
+          ? (await this.deliverBlock(created, { kind: "user" })).held
+          : false;
+      return { block: created, delivered: created.delivered, held };
+    }
+    let thread = await this.resolveThread(streamId, input.replyTo ?? null);
     // `@name` in the text names the recipients, in the stream's tree; it
     // wins over the page's default. Otherwise a reply in a thread goes to
-    // the agent on the other side of it, and a top-level post to the
-    // stream's agent unless addressed elsewhere.
-    const tree = review ? [] : await this.treeAgents(streamId);
+    // the agents on its sides, and a top-level post to the stream's agent
+    // unless addressed elsewhere.
+    const tree = await this.treeAgents(streamId);
     const mentioned = findMentions(text, tree);
+    const sides =
+      mentioned.length === 0 && !input.to && thread
+        ? await this.threadRecipients(thread, USER)
+        : [];
     const recipients =
       mentioned.length > 0
         ? mentioned
-        : [
-            input.to ??
-              (thread
-                ? await this.threadCounterpart(thread, USER, finding)
-                : null) ??
-              streamId,
-          ];
+        : sides.length > 0
+          ? sides
+          : [input.to ?? streamId];
     const toAgentId = recipients[0]!;
+    // ACP commands must be the entire prompt's first token. A normal post's
+    // DISPATCH POST envelope would hide the slash from the adapter, so an
+    // advertised command goes alone and reaches it as raw text. Keep the
+    // stored block: the command and its result still belong to one turn.
+    const commandName = /^\/([^\s/]+)(?:\s|$)/.exec(text)?.[1];
+    const rawCommand =
+      !!commandName &&
+      !review &&
+      // Only an explicit reply is a conversation. A child's default home
+      // is its launch-card thread, but a command typed in its composer is
+      // still a standalone ACP prompt.
+      !thread &&
+      attachments.length === 0 &&
+      mentioned.length === 0 &&
+      recipients.length === 1 &&
+      (this.delivery().commands?.(toAgentId) ?? []).includes(commandName);
+    // A message for one child, written anywhere but a thread, goes to the
+    // child's own thread: its card is where its conversation is.
+    if (!thread && recipients.length === 1) {
+      thread = await this.homeOf(toAgentId);
+    }
     const recipientAgents = await Promise.all(
       recipients.map((id) => this.requireAgent(id))
     );
@@ -743,24 +873,21 @@ export class StreamService {
     const liveRecipients = recipients.filter((id) => liveFor.get(id));
     const live = liveRecipients.length === recipients.length;
     const textData = {
-      ...(finding ? { findingId: finding.id } : {}),
+      ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
-      ...(input.reviewRequest ? { reviewRequest: input.reviewRequest } : {}),
+      ...(mentioned.length === 0 && recipients.length > 1
+        ? { recipients }
+        : {}),
     };
     const row = {
       streamId,
       author: USER,
       toAgentId,
-      kind: review ? ("review" as const) : ("text" as const),
+      kind: "text" as const,
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
       text,
-      ...(input.reviewRequest ? { origin: "review_request" as const } : {}),
-      ...(review
-        ? { data: review, state: initialState("review", review) }
-        : Object.keys(textData).length > 0
-          ? { data: textData }
-          : {}),
+      ...(Object.keys(textData).length > 0 ? { data: textData } : {}),
       attachments: resolved,
       delivered: live ? null : false,
     };
@@ -771,7 +898,6 @@ export class StreamService {
       throw new StreamConflictError("A block with that id already exists.");
     }
     await this.publishEntry(streamId, block.id);
-    if (thread) await this.publishEntry(streamId, thread.threadId);
     if (!live) return { block, delivered: false, held: false };
     // Cut each recipient's turn first, so the prompt this sends is what the
     // agent reads next instead of queueing behind work the user is trying
@@ -795,6 +921,7 @@ export class StreamService {
       recipients,
       { kind: "user" },
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: text, alone: true } : {}),
         attachmentLines: linesFor.get(agentId) ?? [],
         mention:
           mentioned.length > 0
@@ -808,6 +935,101 @@ export class StreamService {
       })
     );
     return { block, delivered: null, held };
+  }
+
+  /**
+   * Give an agent a prompt of Dispatch's own — a review asked for with a
+   * button, say — without writing it into the stream. The instructions are
+   * for the agent; the stream shows what the agent does with them. `notice`
+   * is the line its turn carries to say what set it off.
+   */
+  async promptAgent(
+    agentId: string,
+    input: { text: string; notice: string }
+  ): Promise<{ held: boolean }> {
+    await this.requireAgent(agentId);
+    await this.canDeliver(agentId, false);
+    return this.injectDetached({
+      agentId,
+      envelope: input.text,
+      record: async () => undefined,
+      logContext: { agentId, reason: "dispatch-prompt" },
+      source: { source: "system", text: input.notice },
+    });
+  }
+
+  /**
+   * A review and its findings, written together: the review, then a
+   * finding block for each item in the review's thread, which the review
+   * shows. `host` is the card the review goes on — a child's review lands
+   * on its launch card, which shows it in turn — or null for a review in
+   * the stream. The review comes back with its findings attached, ready to
+   * deliver.
+   */
+  private async createReview(input: {
+    /** Client-minted, for a person's review; the store mints one otherwise. */
+    id?: string;
+    streamId: string;
+    author: BlockAuthor;
+    toAgentId: string | null;
+    text: string;
+    review: BlockReviewInput;
+    host: { threadId: string; replyTo: string } | null;
+    live: boolean;
+    attachments?: ChatAttachment[];
+  }): Promise<Block> {
+    const client = await this.deps.pool.connect();
+    let review: Block;
+    const findings: Block[] = [];
+    try {
+      await client.query("BEGIN");
+      const tx = this.store.withClient(client);
+      review = await tx.insert({
+        ...(input.id ? { id: input.id } : {}),
+        streamId: input.streamId,
+        author: input.author,
+        toAgentId: input.toAgentId,
+        kind: "review",
+        threadId: input.host?.threadId ?? null,
+        replyTo: input.host?.replyTo ?? null,
+        text: input.text,
+        data: { summary: input.review.summary },
+        state: { blocks: [] },
+        attachments: input.attachments ?? [],
+        delivered: input.toAgentId ? (input.live ? null : false) : null,
+      });
+      const at = new Date().toISOString();
+      for (const finding of input.review.findings) {
+        findings.push(
+          await tx.insert({
+            streamId: input.streamId,
+            author: input.author,
+            // The finding is for the same agent the review is: it is that
+            // agent's to answer, and the review's delivery carries it.
+            toAgentId: input.toAgentId,
+            kind: "finding",
+            threadId: review.id,
+            replyTo: review.id,
+            data: finding,
+            state: { status: "open", by: input.author, at },
+            delivered: input.toAgentId ? true : null,
+          })
+        );
+      }
+      review =
+        (await tx.update(review.id, {
+          state: { blocks: findings.map((f) => f.id) },
+        })) ?? review;
+      if (input.host) await tx.appendShown(input.host.threadId, review.id);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    await this.publishEntry(input.streamId, review.id);
+    return { ...review, blocks: findings };
   }
 
   /**
@@ -844,6 +1066,9 @@ export class StreamService {
     }
     if (question.state?.answer) {
       throw new StreamConflictError("Question already answered.");
+    }
+    if (question.state?.cancellation) {
+      throw new StreamConflictError("Question was canceled.");
     }
     const { value } = input;
     const options = question.data.options;
@@ -941,6 +1166,9 @@ export class StreamService {
     if (form.state?.submission) {
       throw new StreamConflictError("Form already submitted.");
     }
+    if (form.state?.cancellation) {
+      throw new StreamConflictError("Form was canceled.");
+    }
     const values: Record<string, string | number | boolean> = {};
     for (const field of form.data.fields) {
       const value = input.values[field.id];
@@ -1008,9 +1236,135 @@ export class StreamService {
   }
 
   /**
+   * Pull back an open question or form: the author withdrawing its own
+   * ask, or the user withdrawing one addressed to them. Distinct from
+   * `answerQuestion`/`submitForm`/`closeOwnQuestion` — this settles the ask
+   * with no answer, and leaves one thread note recording who did it and
+   * why. Atomic with that note (one transaction), so a retry never leaves
+   * a second note; atomic with the state write itself, so a cancel racing
+   * an answer or submission (see `recordAnswer`/`recordSubmission`) leaves
+   * exactly one winner.
+   */
+  private async cancelAsk(
+    block: Block,
+    rawCancellation: unknown,
+    by: BlockAuthor
+  ): Promise<Block> {
+    if (block.kind !== "question" && block.kind !== "form") {
+      throw new StreamValidationError(
+        `A ${block.kind} block has nothing to cancel.`
+      );
+    }
+    // question/form blocks are only ever agent-authored (see `post`), but
+    // spelled out explicitly rather than leaned on: a user can never be
+    // "the author" here.
+    const isOwner = by.kind === "agent" && sameAuthor(block.author, by);
+    const isAddresseeUser = by.kind === "user" && block.toAgentId === null;
+    if (!isOwner && !isAddresseeUser) {
+      throw new StreamForbiddenError(
+        "Only the agent that posted this ask, or the user it was addressed to, may cancel it."
+      );
+    }
+    const reason = parseCancelReason(rawCancellation);
+    const already = block.state as {
+      answer?: unknown;
+      submission?: unknown;
+      cancellation?: unknown;
+    } | null;
+    if (already?.cancellation) return block;
+    if (already?.answer || already?.submission) {
+      throw new StreamConflictError(
+        block.kind === "question"
+          ? "Question already answered."
+          : "Form already submitted."
+      );
+    }
+
+    // Whichever side isn't the one canceling hears about it, if it's an
+    // agent: the asking agent when the user cancels, the addressee when
+    // the author cancels its own ask of another agent. A question the
+    // author closes toward the user needs no notification — the user just
+    // reads the stream.
+    let notifyAgentId: string | null = null;
+    if (by.kind === "user") {
+      if (block.author.kind === "agent") notifyAgentId = block.author.agentId;
+    } else if (block.toAgentId && block.toAgentId !== by.agentId) {
+      notifyAgentId = block.toAgentId;
+    }
+    // A recipient going offline must not prevent the authorized state change.
+    const live = notifyAgentId
+      ? await this.canDeliver(notifyAgentId, true).catch((error: unknown) => {
+          this.log.warn(
+            { err: error, agentId: notifyAgentId },
+            "stream: cancellation recipient unavailable"
+          );
+          return false;
+        })
+      : false;
+
+    const client = await this.deps.pool.connect();
+    let canceled: Block | null;
+    let note: Block | null = null;
+    try {
+      await client.query("BEGIN");
+      const tx = this.store.withClient(client);
+      canceled = await tx.recordCancellation(block.id, {
+        by,
+        at: new Date().toISOString(),
+        ...(reason ? { reason } : {}),
+      });
+      if (canceled) {
+        note = await tx.insert({
+          streamId: block.streamId,
+          author: by,
+          toAgentId: notifyAgentId,
+          kind: "text",
+          threadId: block.threadId ?? block.id,
+          replyTo: block.id,
+          text: reason ? `Canceled: ${reason}` : "Canceled.",
+          delivered: notifyAgentId ? (live ? null : false) : null,
+        });
+      }
+      await client.query(canceled ? "COMMIT" : "ROLLBACK");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    if (!canceled) {
+      // Lost a race between the precheck above and the atomic write: an
+      // answer, submission or another cancel landed first. Resolve it the
+      // same way the precheck would have.
+      const fresh = await this.store.getById(block.id);
+      if (!fresh) throw new StreamNotFoundError("Block not found.");
+      const state = fresh.state as {
+        answer?: unknown;
+        submission?: unknown;
+        cancellation?: unknown;
+      } | null;
+      if (state?.cancellation) return fresh;
+      throw new StreamConflictError(
+        fresh.kind === "question"
+          ? "Question already answered."
+          : "Form already submitted."
+      );
+    }
+    await this.publishEntry(canceled.streamId, canceled.id);
+    if (note) await this.publishEntry(canceled.streamId, note.id);
+    if (notifyAgentId && live && note) {
+      const from = await this.senderOf(by);
+      await this.deliverBlock(note, from, [], {
+        answers: { blockId: canceled.id, kind: canceled.kind },
+      });
+    }
+    return canceled;
+  }
+
+  /**
    * Change a block's state: a finding resolved, a task ticked. The author
-   * and the recipient may; people always may. The author is told when
-   * someone else changed it.
+   * and the recipient may; people always may. The other side is told when
+   * someone changed it.
    */
   async setState(
     streamId: string,
@@ -1022,6 +1376,17 @@ export class StreamService {
     if (!block || block.streamId !== streamId) {
       throw new StreamNotFoundError("Block not found.");
     }
+    // A question/form's `cancellation` follows its own authorization (the
+    // author, or the user it was addressed to) and its own atomic path —
+    // narrower than, and distinct from, the review/tasks state below.
+    if (
+      (block.kind === "question" || block.kind === "form") &&
+      patch &&
+      typeof patch === "object" &&
+      "cancellation" in patch
+    ) {
+      return this.cancelAsk(block, patch.cancellation, by);
+    }
     if (
       by.kind === "agent" &&
       !sameAuthor(block.author, by) &&
@@ -1031,51 +1396,68 @@ export class StreamService {
         "Only the block's author or the agent it is addressed to may change its state."
       );
     }
-    if (block.kind !== "review" && block.kind !== "tasks") {
+    if (block.kind !== "finding" && block.kind !== "tasks") {
       throw new StreamValidationError(
         `A ${block.kind} block has no state to change this way.`
       );
     }
     const kind = block.kind;
     const stamped = stampState(kind, patch, by);
-    const updated = await this.store.mergeState(block.id, stamped);
+    const updated =
+      kind === "finding"
+        ? await this.store.update(block.id, { state: stamped })
+        : await this.store.mergeState(block.id, stamped);
     if (!updated) throw new StreamNotFoundError("Block not found.");
     await this.publishEntry(streamId, updated.id);
     // The two sides of the block hear about a change the other made: the
-    // author (a reviewer) when the recipient or a person resolves a
-    // finding, the recipient (the one whose work it is) when the author or
-    // a person reopens or dismisses one.
-    const sides = new Set<string>();
-    if (updated.author.kind === "agent") sides.add(updated.author.agentId);
-    if (updated.toAgentId) sides.add(updated.toAgentId);
+    // author (a reviewer) when a person resolves or reopens a finding, the
+    // recipient (the one whose work it is) when the author does.
+    const sides = new Set(sidesOf(updated));
     if (by.kind === "agent") sides.delete(by.agentId);
-    const summary = describeStateChange(kind, stamped);
+    // A finding settled by its reviewer asks nothing of the agent whose
+    // work it is: only a reopen gives that agent something to do.
+    if (
+      updated.kind === "finding" &&
+      updated.state.status === "resolved" &&
+      updated.toAgentId &&
+      sameAuthor(updated.author, by)
+    ) {
+      sides.delete(updated.toAgentId);
+    }
+    const summary = describeStateChange(updated, stamped);
     const from = await this.senderOf(by);
     for (const agentId of sides) {
       if (!(await this.canDeliver(agentId, true))) continue;
-      // Whose move it is: a reopened finding is the builder's to fix and
-      // the reviewer's to wait on; a resolved one is the reviewer's to
-      // check. Said outright, so neither side takes the other's turn.
-      const role =
-        kind === "review"
-          ? reviewMoveHint(
-              stamped,
+      const hint =
+        updated.kind === "finding"
+          ? findingMoveHint(
+              updated,
               updated.author.kind === "agent" &&
                 updated.author.agentId === agentId
-                ? "reviewer"
-                : "builder"
+                ? "author"
+                : "addressee"
             )
           : null;
+      // The change is about the block, so the answer belongs in its thread
+      // when it opens one (a finding), and in the thread it is in otherwise.
+      const answerIn = (await this.isShown(updated))
+        ? updated.id
+        : (updated.threadId ?? null);
       this.injectDetached({
         agentId,
         envelope: buildPostEnvelope({
           blockId: updated.id,
           from,
-          text: role ? `${summary}\n${role}` : summary,
-          threadId: updated.threadId,
+          text: hint ? `${summary}\n${hint}` : summary,
+          threadId: answerIn,
         }),
         record: async () => undefined,
         logContext: { blockId: updated.id, side: agentId },
+        source: {
+          source: "chat",
+          chatMessageId: updated.id,
+          ...(answerIn ? { answerIn } : {}),
+        },
       });
     }
     return updated;
@@ -1219,7 +1601,7 @@ export class StreamService {
     const streamId = await this.streamOf(agentId);
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
-    let data = resolved.data;
+    const data = resolved.data;
     const text = requireText(input.text);
     const attachmentInputs = input.attachments ?? [];
     if (attachmentInputs.length > BLOCK_ATTACHMENTS_MAX) {
@@ -1238,25 +1620,52 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    // A review is a thread of its own (its findings are discussed under
-    // it), so it is never a reply: a reviewer answering its briefing in
-    // the launch thread still posts the review top-level.
-    const thread =
-      kind === "review" ? null : await this.resolveThread(streamId, replyTo);
-    const finding = await this.resolveFinding(thread, input.finding ?? null);
-    if (finding && kind === "text") data = { findingId: finding.id };
-    if (finding && kind === "question") {
-      data = { ...(data as BlockQuestionData), findingId: finding.id };
-    }
-    if (toAgentId === null && thread) {
-      toAgentId = await this.threadCounterpart(thread, author, finding);
-    }
+    const home = await this.homeOf(agentId);
     const attachments = await this.resolveAgentAttachments(
       agent,
       attachmentInputs
     );
-    const live = toAgentId ? await this.canDeliver(toAgentId, true) : false;
-    const block = await this.store.insert({
+    const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
+    const attachmentLines = this.describeAttachments(agent, attachments);
+    if (kind === "review") {
+      // A review is its own record, not a reply: a child's goes on its
+      // launch card, which shows it; anyone else's goes in the stream.
+      const review = await this.createReview({
+        streamId,
+        author,
+        toAgentId,
+        text,
+        review: data as BlockReviewInput,
+        host: home,
+        live: toAgentId ? await this.canDeliver(toAgentId, true) : false,
+        attachments,
+      });
+      if (toAgentId && review.delivered === null) {
+        await this.deliverBlock(review, from, attachmentLines);
+      }
+      return review;
+    }
+    // Named with replyTo, the post goes in that thread; otherwise in the
+    // agent's own place — a child's launch thread, the stream for anyone
+    // else. Only a reply named on purpose is routed to the thread's other
+    // side: a post in the agent's own place is for whoever it names.
+    const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
+    const sides =
+      toAgentId === null && replyTo && thread
+        ? await this.threadRecipients(thread, author)
+        : [];
+    if (toAgentId === null && sides.length > 0) toAgentId = sides[0]!;
+    const recipients =
+      kind === "text" && input.to == null && sides.length > 1
+        ? sides
+        : toAgentId
+          ? [toAgentId]
+          : [];
+    const liveAll = await Promise.all(
+      recipients.map((id) => this.canDeliver(id, true))
+    );
+    const live = recipients.length > 0 && liveAll.every(Boolean);
+    const insert: Parameters<BlockStore["insert"]>[0] = {
       streamId,
       author,
       toAgentId,
@@ -1264,31 +1673,68 @@ export class StreamService {
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
       text,
-      data,
+      data:
+        recipients.length > 1
+          ? { ...((data as object) ?? {}), recipients }
+          : data,
       state: initialState(kind, data),
       attachments,
       delivered: toAgentId ? (live ? null : false) : null,
-    });
-    await this.publishEntry(streamId, block.id);
-    if (thread) await this.publishEntry(streamId, thread.threadId);
-    // An agent's reply to a question asked of it is the answer: the
-    // question closes with the reply's text (an option's label when the
-    // reply is one), the way a person's click would close it.
-    const answered =
-      kind === "text" && thread && text.trim()
-        ? await this.answerByReply(agentId, thread.replyTo, block)
+    };
+    // A reply to an open question addressed to this agent closes that
+    // question. The reply and answer must commit together: a cancellation
+    // that wins the race must not leave a visible or delivered answer reply.
+    const target =
+      kind === "text" && replyTo && thread && text.trim()
+        ? await this.store.getById(thread.replyTo)
         : null;
-    // File paths in the envelope are the author's: that is where the file
-    // is, and every agent on this machine can read it.
-    const attachmentLines = this.describeAttachments(agent, attachments);
-    const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
-    if (toAgentId && live) {
-      await this.deliverBlock(
-        block,
-        from,
+    const answering =
+      target?.kind === "question" &&
+      target.toAgentId === agentId &&
+      !target.state?.answer &&
+      !target.state?.cancellation;
+    let block: Block;
+    let answered: Block | null = null;
+    if (answering && target) {
+      const client = await this.deps.pool.connect();
+      try {
+        await client.query("BEGIN");
+        const tx = this.store.withClient(client);
+        block = await tx.insert(insert);
+        const option = target.data.options.find(
+          (o) =>
+            o.label.trim() === text.trim() ||
+            (o.value ?? o.label) === text.trim()
+        );
+        answered = await tx.recordAnswer(target.id, {
+          value: option ? (option.value ?? option.label) : text.trim(),
+          ...(option ? { label: option.label } : {}),
+          by: author,
+          blockId: block.id,
+          at: new Date().toISOString(),
+        });
+        if (!answered) {
+          throw new StreamConflictError(
+            "Question was already answered or canceled."
+          );
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } else {
+      block = await this.store.insert(insert);
+    }
+    await this.publishEntry(streamId, block.id);
+    if (answered) await this.publishEntry(answered.streamId, answered.id);
+    if (live) {
+      await this.deliverBlockTo(block, recipients, from, () => ({
         attachmentLines,
-        answered ? { answers: { blockId: answered.id, kind: "question" } } : {}
-      );
+        answers: answered ? { blockId: answered.id, kind: "question" } : null,
+      }));
     }
     if (
       toAgentId === null &&
@@ -1345,27 +1791,27 @@ export class StreamService {
       if (!input.state) throw new StreamValidationError("state is required.");
       return this.setState(block.streamId, block.id, input.state, author);
     }
+    if (
+      (block.kind === "question" || block.kind === "form") &&
+      input.state &&
+      "cancellation" in input.state
+    ) {
+      if (
+        input.text !== undefined ||
+        input.data !== undefined ||
+        input.attachments !== undefined ||
+        Object.keys(input.state).length !== 1
+      ) {
+        throw new StreamValidationError(
+          "state.cancellation must be updated on its own."
+        );
+      }
+      return this.cancelAsk(block, input.state.cancellation, author);
+    }
     const patch: UpdateBlockInput = {};
     if (input.text !== undefined) patch.text = requireText(input.text);
-    if (input.data !== undefined) {
-      patch.data = resolveKindAndData({
-        kind: block.kind,
-        ...(block.kind === "question"
-          ? { question: input.data as BlockQuestionData }
-          : {}),
-        ...(block.kind === "form" ? { form: input.data as BlockFormData } : {}),
-        ...(block.kind === "link" ? { link: input.data as BlockLinkData } : {}),
-        ...(block.kind === "review"
-          ? { review: input.data as BlockReviewData }
-          : {}),
-        ...(block.kind === "tasks"
-          ? { tasks: input.data as BlockTasksData }
-          : {}),
-        attachments: block.attachments.map((a) =>
-          a.type === "file" ? { type: "file" as const, fileId: a.fileId } : a
-        ),
-      }).data;
-    }
+    if (input.data !== undefined)
+      patch.data = validUpdateData(block, input.data);
     if (input.attachments !== undefined) {
       const agent = await this.requireAgent(agentId);
       patch.attachments = await this.resolveAgentAttachments(
@@ -1376,7 +1822,7 @@ export class StreamService {
     let updated = await this.store.update(block.id, patch);
     if (!updated) throw new StreamNotFoundError("Block not found.");
     if (input.state) {
-      if (block.kind === "review" || block.kind === "tasks") {
+      if (block.kind === "finding" || block.kind === "tasks") {
         updated = await this.setState(
           block.streamId,
           block.id,
@@ -1390,6 +1836,12 @@ export class StreamService {
           block,
           input.state.answer,
           author
+        );
+      } else if (block.kind === "review" || block.kind === "launch") {
+        throw new StreamValidationError(
+          block.kind === "review"
+            ? "A review's state is its findings: update each finding by its own id."
+            : "A launch card's state is written by Dispatch."
         );
       } else {
         updated =
@@ -1408,6 +1860,9 @@ export class StreamService {
     if (block.kind !== "question") return block;
     if (block.state?.answer) {
       throw new StreamConflictError("Question already answered.");
+    }
+    if (block.state?.cancellation) {
+      throw new StreamConflictError("Question was canceled.");
     }
     const raw =
       typeof answer === "string"
@@ -1450,6 +1905,16 @@ export class StreamService {
     const links = (input.links ?? []).filter((url) => url.trim().length > 0);
     const files = input.files ?? [];
     if (!text.trim() && files.length === 0 && links.length === 0) {
+      // Nothing to brief with, but the card still says who launched it:
+      // its launcher is the other side of its thread.
+      if (input.launchedByAgentId) {
+        const card = await this.ensureLaunchBlock(input.agentId);
+        const marked = await this.store.setLaunchedBy(
+          card.id,
+          input.launchedByAgentId
+        );
+        if (marked) await this.publishEntry(marked.streamId, marked.id);
+      }
       return null;
     }
     const inputs: ChatUserAttachmentInput[] = [
@@ -1474,30 +1939,22 @@ export class StreamService {
       text,
       attachments.length - stored.length
     );
-    const id = input.id ?? randomUUID();
     const streamId = await this.streamOf(input.agentId);
+    const existing = await this.store.findLaunchBlock(input.agentId);
+    const id = existing?.id ?? launchBlockId(input.agentId);
     return {
       id,
       attachmentLines,
       postText,
       record: async () => {
-        const block = await this.store.insertIfAbsent({
+        const block = await this.store.writeLaunchBriefing({
           id,
           streamId,
-          author: USER,
-          toAgentId: input.agentId,
-          kind: "text",
+          agentId: input.agentId,
           text: postText,
           attachments: stored,
-          delivered: true,
-          origin: "launch",
           launchedByAgentId: input.launchedByAgentId ?? null,
         });
-        if (!block) {
-          throw new StreamConflictError(
-            `A block with id ${id} already exists; the launch post was not written.`
-          );
-        }
         await this.publishEntry(streamId, block.id);
         return block;
       },
@@ -1505,11 +1962,10 @@ export class StreamService {
   }
 
   /**
-   * The system prompt the agent was started with, as the first block in its
-   * stream. One per agent (the id is derived from the agent's, so a restart
-   * rewrites rather than appends) and rewritten when the guidance changes,
-   * so what the agent was told is always readable and always current. Never
-   * delivered: the engine already has it as its system prompt.
+   * The system prompt the agent was started with, kept on its launch card
+   * so what it was told is always readable and always current: a restart
+   * rewrites it rather than adding another. Never delivered: the engine
+   * already has it as its system prompt.
    */
   async recordSystemPrompt(input: {
     agentId: string;
@@ -1517,35 +1973,20 @@ export class StreamService {
   }): Promise<Block | null> {
     const text = input.prompt.trim();
     if (!text) return null;
-    const streamId = await this.streamOf(input.agentId);
-    const id = systemPromptBlockId(input.agentId);
-    const existing = await this.store.getById(id);
-    if (existing) {
-      if (existing.text === text) return existing;
-      const updated = await this.store.update(id, { text });
-      if (updated) await this.publishEntry(streamId, id);
-      return updated;
+    const card = await this.ensureLaunchBlock(input.agentId);
+    if (card.kind === "launch" && card.state?.instructions === text) {
+      return card;
     }
-    const block = await this.store.insertIfAbsent({
-      id,
-      streamId,
-      author: { kind: "agent", agentId: input.agentId },
-      kind: "text",
-      origin: "system_prompt",
-      text,
-    });
-    if (block) await this.publishEntry(streamId, id);
-    return block;
+    const updated = await this.store.setStateKey(card.id, "instructions", text);
+    if (updated) await this.publishEntry(updated.streamId, updated.id);
+    return updated;
   }
 
   /**
-   * The workspace coming up, as the first block of the agent's stream: one
-   * row per agent that is rewritten as each phase runs, so the person
-   * watches the worktree, the config, the dependencies and the engine
-   * happen rather than waiting at an empty stream.
-   *
-   * These were status marks before the stream became blocks only, which
-   * left them with nowhere to go but the sidebar.
+   * The workspace coming up, on the agent's launch card: rewritten as each
+   * phase runs, so the person watches the worktree, the config, the
+   * dependencies and the engine happen rather than waiting at an empty
+   * stream.
    */
   async recordStartupStep(input: {
     agentId: string;
@@ -1577,7 +2018,7 @@ export class StreamService {
     });
   }
 
-  /** The workspace is up, or it failed: the block stops at its last step. */
+  /** The workspace is up, or it failed: the card's startup stops at its last step. */
   async recordStartupDone(input: {
     agentId: string;
     error?: string;
@@ -1606,41 +2047,24 @@ export class StreamService {
   }
 
   /**
-   * Read the agent's workspace block, apply a change to its record, and
-   * write it back. The whole record is rewritten each time, which is safe
-   * because one launch owns it and its phases run one after another.
+   * Read the card's startup record, apply a change, and write it back. The
+   * whole record is rewritten each time, which is safe because one launch
+   * owns it and its phases run one after another.
    */
   private async updateStartup(
     agentId: string,
     change: (startup: BlockStartup) => BlockStartup | null
   ): Promise<Block | null> {
-    const streamId = await this.streamOf(agentId);
-    const id = workspaceBlockId(agentId);
-    const existing = await this.store.getById(id);
+    const card = await this.ensureLaunchBlock(agentId);
     const current: BlockStartup =
-      existing?.kind === "text" && existing.data?.startup
-        ? existing.data.startup
+      card.kind === "launch" && card.state?.startup
+        ? card.state.startup
         : { steps: [] };
     const next = change(current);
-    if (!next) return existing;
-    const data = { startup: next };
-    const text = startupText(next);
-    if (existing) {
-      const updated = await this.store.update(id, { data, text });
-      if (updated) await this.publishEntry(streamId, id);
-      return updated;
-    }
-    const block = await this.store.insertIfAbsent({
-      id,
-      streamId,
-      author: { kind: "agent", agentId },
-      kind: "text",
-      origin: "workspace",
-      data,
-      text,
-    });
-    if (block) await this.publishEntry(streamId, id);
-    return block;
+    if (!next) return card;
+    const updated = await this.store.setStateKey(card.id, "startup", next);
+    if (updated) await this.publishEntry(updated.streamId, updated.id);
+    return updated;
   }
 
   async recordLaunchContext(input: LaunchContextInput): Promise<Block | null> {
@@ -1749,8 +2173,10 @@ export class StreamService {
 
   /**
    * A turn opened: its block, by the agent, empty until the turn settles.
-   * A turn that a reply in a thread opened answers in that thread. The
-   * block's id goes back onto the turn row so later events find it.
+   * A turn that a reply in a thread opened answers in that thread; any
+   * other turn answers in the agent's own place (a child's launch thread,
+   * the stream for anyone else). The block's id goes back onto the turn row
+   * so later events find it.
    */
   async recordTurnStarted(input: {
     agentId: string;
@@ -1759,37 +2185,32 @@ export class StreamService {
   }): Promise<string | null> {
     const streamId = await this.streamOf(input.agentId);
     let thread: { threadId: string; replyTo: string } | null = null;
-    let findingId: string | null = null;
-    if (input.prompt.source === "chat") {
+    if (input.prompt.source === "chat" && input.prompt.answerIn) {
+      // The prompt said where its answer goes.
+      const host = await this.store.getById(input.prompt.answerIn);
+      if (host && host.streamId === streamId) {
+        thread = { threadId: host.id, replyTo: host.id };
+      }
+    } else if (input.prompt.source === "chat") {
       // Posts delivered together each say where their answer belongs. The
       // turn answers in a thread only when every one of them points into
-      // that same thread (and at the same finding); any disagreement puts
-      // it in the channel, where an answer to a post in a thread is still
-      // seen and one about a channel post is not buried in a thread.
+      // that same thread; any disagreement puts it in the agent's own
+      // place, where an answer to a post in a thread is still seen and one
+      // about a channel post is not buried in a thread.
       const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
       const places = await Promise.all(ids.map((id) => this.turnPlaceFor(id)));
       const [first] = places;
-      const agree =
-        !!first &&
-        places.every(
-          (p) =>
-            p?.threadId === first.threadId && p?.findingId === first.findingId
-        );
-      if (agree) {
-        const last = places[places.length - 1]!;
-        thread = { threadId: first.threadId, replyTo: last.replyTo };
-        findingId = first.findingId;
+      if (first && places.every((p) => p?.threadId === first.threadId)) {
+        thread = places[places.length - 1]!;
       }
     }
+    thread ??= await this.homeOf(input.agentId);
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
       kind: "text",
       origin: "turn",
-      data: {
-        turnEventId: input.turnRow.id,
-        ...(findingId ? { findingId } : {}),
-      },
+      data: { turnEventId: input.turnRow.id },
       text: "",
       threadId: thread?.threadId ?? null,
       replyTo: thread?.replyTo ?? null,
@@ -1799,12 +2220,13 @@ export class StreamService {
 
   /**
    * Where a turn a post opened belongs: that post's thread, or null for the
-   * channel. Where a turn's answer lands depends on what set it off.
-   * Answering a question or a form settles that ask and nothing more, so the
-   * work it leads to belongs back in the channel where it can be seen; the
-   * answer itself stays threaded under the question. A reply to anything
-   * else — a finding, an ordinary post — is a discussion, and its turns
-   * belong in that thread.
+   * agent's own place. Answering a question or a form settles that ask and
+   * nothing more, so the work it leads to belongs back in the agent's own
+   * place where it can be seen; the answer itself stays threaded under the
+   * question. A reply to anything else — a comment on a finding, an
+   * ordinary post — is a discussion, and its turns belong in that thread.
+   * A post that is not a reply (a review delivered to the agent whose work
+   * it is) opens work, not a discussion.
    *
    * The test is what the reply answers, not what the thread is rooted at:
    * an agent's question is usually itself a reply inside some other thread,
@@ -1813,24 +2235,20 @@ export class StreamService {
   private async turnPlaceFor(blockId: string): Promise<{
     threadId: string;
     replyTo: string;
-    findingId: string | null;
   } | null> {
     if (!isBlockId(blockId)) return null;
     const opener = await this.store.getById(blockId);
-    if (!opener?.threadId) return null;
+    // A block another shows (a review delivered to the agent whose work it
+    // is) opens work, which belongs in the agent's own place. A prompt
+    // about such a block that belongs under it says so (`answerIn`).
+    if (!opener?.threadId || (await this.isShown(opener))) return null;
     const answered = opener.replyTo
       ? await this.store.getById(opener.replyTo)
       : null;
     if (answered?.kind === "question" || answered?.kind === "form") {
       return null;
     }
-    // A comment on a finding is answered on that finding's page.
-    const about = opener.kind === "text" ? opener.data?.findingId : undefined;
-    return {
-      threadId: opener.threadId,
-      replyTo: opener.id,
-      findingId: typeof about === "string" ? about : null,
-    };
+    return { threadId: opener.threadId, replyTo: opener.id };
   }
 
   /** A turn settled or was cut: its block takes the answer as its text. */
@@ -1957,6 +2375,8 @@ export class StreamService {
       mention?: { alsoTo: string[] } | null;
       /** Sent to cut in: its own turn, never combined with other posts. */
       alone?: boolean;
+      /** ACP slash command, sent without the Dispatch envelope. */
+      rawPrompt?: string;
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
@@ -1973,16 +2393,24 @@ export class StreamService {
       const own = perRecipient(agentId);
       const result = this.injectDetached({
         agentId,
-        envelope: buildPostEnvelope({
-          blockId: block.id,
-          from,
-          text: envelopeText(block),
-          attachmentLines: own.attachmentLines ?? [],
-          threadId: block.threadId,
-          finding,
-          answers: own.answers ?? null,
-          mention: own.mention ?? null,
-        }),
+        envelope:
+          own.rawPrompt ??
+          buildPostEnvelope({
+            blockId: block.id,
+            from,
+            text: envelopeText(block),
+            attachmentLines: own.attachmentLines ?? [],
+            threadId: block.threadId,
+            finding: finding
+              ? {
+                  id: finding.id,
+                  title: finding.title,
+                  opened: finding.authorAgentId === agentId,
+                }
+              : null,
+            answers: own.answers ?? null,
+            mention: own.mention ?? null,
+          }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
           if (perAgent) {
@@ -2168,9 +2596,9 @@ export class StreamService {
   // -------------------------------------------------------------------------
 
   /**
-   * Where a reply lands: `replyTo` may name a top-level block (the thread's
-   * root) or a reply inside one (then the root is that reply's thread).
-   * Must be on this stream.
+   * Where a reply lands: `replyTo` may name a block that opens a thread (a
+   * top-level block, or one another block shows) or a reply inside one
+   * (then the thread is that reply's). Must be on this stream.
    */
   private async resolveThread(
     streamId: string,
@@ -2188,15 +2616,9 @@ export class StreamService {
         "replyTo must name a block on this stream."
       );
     }
-    return { threadId: target.threadId ?? target.id, replyTo: target.id };
+    return { threadId: await this.threadHostFor(target), replyTo: target.id };
   }
 
-  /**
-   * The finding a thread reply is about: named by id, it has to exist on
-   * the review the thread is under. Returns its id and title, or null when
-   * no finding was named.
-   */
-  /** The finding a reply names (its id and title), for the envelope. */
   /**
    * Send a post that never arrived to its agent again. The same block, not
    * a new one: the words keep their place in the stream and the row's
@@ -2236,6 +2658,17 @@ export class StreamService {
       .filter((entry) => entry.state === "failed")
       .map((entry) => entry.agentId);
     const recipients = missed.length > 0 ? missed : named;
+    // The first send persisted this intent. Retrying must not reclassify it
+    // against the host's current command list: it may be unavailable while
+    // the host reconnects, and wrapping the prompt would change its meaning.
+    const rawCommand =
+      block.kind === "text" &&
+      block.author.kind === "user" &&
+      block.data?.acpCommand === true &&
+      block.attachments.length === 0 &&
+      !mentioned?.length &&
+      named.length === 1 &&
+      recipients.length === 1;
     const agents = await Promise.all(named.map((id) => this.requireAgent(id)));
     // An agent that cannot take a prompt gets the reason now rather than a
     // second spinner: a retry is for a message that missed, not a way to
@@ -2277,6 +2710,7 @@ export class StreamService {
       recipients,
       from,
       (agentId) => ({
+        ...(rawCommand ? { rawPrompt: block.text, alone: true } : {}),
         attachmentLines: lines.get(agentId) ?? [],
         answers,
         // "also to" names everyone the post was addressed to, not just the
@@ -2339,89 +2773,23 @@ export class StreamService {
     });
   }
 
-  private async findingOf(
-    block: Block
-  ): Promise<{ id: string; title: string } | null> {
-    const findingId =
-      (block.kind === "text" || block.kind === "question") &&
-      block.data &&
-      "findingId" in block.data
-        ? (block.data as { findingId?: string }).findingId
-        : undefined;
-    if (!findingId || !block.threadId) return null;
-    const root = await this.store.getById(block.threadId);
-    if (!root || root.kind !== "review") return null;
-    const match = (root.data as BlockReviewData).findings.find(
-      (candidate) => candidate.id === findingId
-    );
-    return match ? { id: match.id, title: match.title } : null;
-  }
-
   /**
-   * Close a question with the reply the agent it was asked of just made.
-   * Returns the answered question, or null when the reply answers nothing
-   * (not a question, not asked of this agent, or already answered).
+   * The finding a post is about, for its envelope: the one whose thread it
+   * is in. Null for a post anywhere else.
    */
-  private async answerByReply(
-    agentId: string,
-    replyTo: string,
-    reply: Block
-  ): Promise<Block | null> {
-    const target = await this.store.getById(replyTo);
-    if (
-      !target ||
-      target.kind !== "question" ||
-      target.toAgentId !== agentId ||
-      target.state?.answer
-    ) {
-      return null;
-    }
-    const text = reply.text.trim();
-    const option = target.data.options.find(
-      (o) => o.label.trim() === text || (o.value ?? o.label) === text
-    );
-    const answered = await this.store.recordAnswer(target.id, {
-      value: option ? (option.value ?? option.label) : text,
-      ...(option ? { label: option.label } : {}),
-      by: { kind: "agent", agentId },
-      blockId: reply.id,
-      at: new Date().toISOString(),
-    });
-    if (answered) await this.publishEntry(answered.streamId, answered.id);
-    return answered;
-  }
-
-  private async resolveFinding(
-    thread: { threadId: string; replyTo: string } | null,
-    finding: string | null
-  ): Promise<{ id: string; title: string } | null> {
-    if (finding === null || finding.trim() === "") {
-      // Unnamed, a reply to a comment about a finding is about that
-      // finding too: the discussion stays under the item it started on.
-      if (!thread || thread.replyTo === thread.threadId) return null;
-      const parent = await this.store.getById(thread.replyTo);
-      return parent ? this.findingOf(parent) : null;
-    }
-    if (!thread) {
-      throw new StreamValidationError(
-        "finding needs replyTo: the review the finding is on."
-      );
-    }
-    const root = await this.store.getById(thread.threadId);
-    if (!root || root.kind !== "review") {
-      throw new StreamValidationError(
-        "finding only applies to a reply in a review's thread."
-      );
-    }
-    const match = (root.data as BlockReviewData).findings.find(
-      (candidate) => candidate.id === finding
-    );
-    if (!match) {
-      throw new StreamValidationError(
-        `finding "${finding}" is not on that review.`
-      );
-    }
-    return { id: match.id, title: match.title };
+  private async findingOf(block: Block): Promise<{
+    id: string;
+    title: string;
+    authorAgentId: string | null;
+  } | null> {
+    if (!block.threadId) return null;
+    const host = await this.store.getById(block.threadId);
+    if (host?.kind !== "finding") return null;
+    return {
+      id: host.id,
+      title: host.data.title,
+      authorAgentId: host.author.kind === "agent" ? host.author.agentId : null,
+    };
   }
 
   private async requireAgent(agentId: string): Promise<StreamAgent> {
@@ -2572,21 +2940,19 @@ export class StreamService {
 }
 
 /**
- * One finding's change, as the wire carries it: a word or a record. Both
- * end up as the stored record: `open`, or `resolved` with a resolution
- * (`fixed` unless it says `dismissed`) and an optional note.
+ * A finding's change, as the wire carries it: `{ status }` with a word
+ * (`open`, `fixed`, `dismissed`; `resolved` means fixed unless the
+ * resolution says otherwise) and an optional note, or the word alone. It
+ * ends up as the stored record: `open`, or `resolved` with a resolution.
  */
-function parseFindingPatch(
-  id: string,
-  value: unknown
-): {
+function parseFindingPatch(value: unknown): {
   status: BlockFindingStatus;
   resolution?: BlockFindingResolution;
   note?: string;
 } {
   const bad = () =>
     new StreamValidationError(
-      `finding "${id}" must be open, fixed or dismissed (or { status, resolution?, note? }).`
+      'A finding\'s state is { status: "open" | "fixed" | "dismissed", note? }.'
     );
   const word =
     typeof value === "string"
@@ -2620,7 +2986,7 @@ function parseFindingPatch(
   const trimmed = typeof note === "string" ? note.trim() : "";
   if (trimmed.length > BLOCK_TEXT_MAX_CHARS) {
     throw new StreamValidationError(
-      `finding "${id}" note must be ${BLOCK_TEXT_MAX_CHARS} characters or fewer.`
+      `A finding's note must be ${BLOCK_TEXT_MAX_CHARS} characters or fewer.`
     );
   }
   return {
@@ -2630,27 +2996,16 @@ function parseFindingPatch(
   };
 }
 
-/** A state patch with `by`/`at` stamped onto each item it touches. */
+/** A state patch with `by`/`at` stamped onto what it touches. */
 function stampState(
-  kind: "review" | "tasks",
+  kind: "finding" | "tasks",
   patch: Record<string, unknown>,
   by: BlockAuthor
 ): Record<string, unknown> {
   const at = new Date().toISOString();
-  if (kind === "review") {
-    const findings = patch.findings;
-    if (!findings || typeof findings !== "object") {
-      throw new StreamValidationError(
-        "state.findings is required for a review."
-      );
-    }
-    const stamped: Record<string, BlockFindingState> = {};
-    for (const [id, value] of Object.entries(
-      findings as Record<string, unknown>
-    )) {
-      stamped[id] = { ...parseFindingPatch(id, value), by, at };
-    }
-    return { findings: stamped };
+  if (kind === "finding") {
+    const stamped: BlockFindingState = { ...parseFindingPatch(patch), by, at };
+    return stamped;
   }
   const items = patch.items;
   if (!items || typeof items !== "object") {
@@ -2668,52 +3023,53 @@ function stampState(
   return { items: stamped };
 }
 
-/** "Finding f1 fixed: note" / "Finding f2 dismissed" / "Finding f3 reopened". */
-function describeFindingChange(id: string, state: BlockFindingState): string {
+/** "Finding "title" fixed: note" / "… dismissed" / "… reopened". */
+function describeFindingChange(
+  title: string,
+  state: BlockFindingState
+): string {
   const what =
     state.status === "open"
       ? "reopened"
       : state.resolution === "dismissed"
         ? "dismissed"
         : "fixed";
-  return `Finding ${id} ${what}${state.note ? `: ${state.note}` : "."}`;
+  return `Finding "${title}" ${what}${state.note ? `: ${state.note}` : "."}`;
 }
 
 /**
  * The line under a finding change that says whose move it is. `side` is
- * who reads it: the review's author (reviewer) or the agent it is
- * addressed to (builder).
+ * who reads it: the finding's author (the reviewer) or the agent it is for
+ * (whose work it is). The reviewer decides when a finding is settled.
  */
-function reviewMoveHint(
-  patch: Record<string, unknown>,
-  side: "reviewer" | "builder"
+function findingMoveHint(
+  finding: Extract<Block, { kind: "finding" }>,
+  side: "author" | "addressee"
 ): string {
-  const findings = Object.values(
-    patch.findings as Record<string, BlockFindingState>
-  );
-  const reopened = findings.some((f) => f.status === "open");
-  if (side === "builder") {
+  const reopened = finding.state.status === "open";
+  if (side === "addressee") {
     return reopened
-      ? "A reopened finding is yours to address: make the change, say what changed under the finding, then mark it fixed on this block."
-      : "Nothing to do on your side unless a finding is reopened.";
+      ? `It is yours to address again: make the change and say what you changed under it, post({ replyTo: "${finding.id}", text }). Its reviewer resolves it.`
+      : "Nothing to do on your side unless it is reopened.";
   }
   return reopened
-    ? "The agent whose work this is will address it; you will hear when it is marked fixed. Do not make the change yourself."
-    : "Verify the resolution when you can; reopen the finding with a note if it falls short.";
+    ? "The agent whose work it is will answer under it."
+    : "Nothing to do unless you disagree; reopen it with a note if so.";
 }
 
 function describeStateChange(
-  kind: "review" | "tasks",
+  block: Block,
   patch: Record<string, unknown>
 ): string {
-  if (kind === "review") {
-    return Object.entries(patch.findings as Record<string, BlockFindingState>)
-      .map(([id, v]) => describeFindingChange(id, v))
+  if (block.kind === "finding") {
+    return describeFindingChange(block.data.title, block.state);
+  }
+  if (block.kind === "tasks") {
+    return Object.entries(patch.items as Record<string, string>)
+      .map(([id, v]) => `Task ${id} is now ${v}.`)
       .join("\n");
   }
-  return Object.entries(patch.items as Record<string, string>)
-    .map(([id, v]) => `Task ${id} is now ${v}.`)
-    .join("\n");
+  return "";
 }
 
 function describeInput(block: Block): string {

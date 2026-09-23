@@ -100,7 +100,7 @@ function promptFor(
       };
     }
     return {
-      source: block?.origin === "launch" ? "launch" : "chat",
+      source: block?.kind === "launch" ? "launch" : "chat",
       text: combinedText ?? block?.text ?? "",
       chatMessageId: source.chatMessageId,
       ...(block?.threadId ? { threadId: block.threadId } : {}),
