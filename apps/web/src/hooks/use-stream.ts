@@ -5,7 +5,7 @@
  * change, a reaction, a mark-read. Every write patches the react-query cache
  * optimistically and lets the stored row arrive as a `stream.entry`.
  */
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import type {
   Block,
   BlockOption,
@@ -1639,6 +1639,9 @@ export function useMarkThreadRead(rootId: string | null) {
   });
 }
 
+/** How long a failed mark-read waits before the same mark may go again. */
+export const MARK_READ_RETRY_MS = 5_000;
+
 /**
  * Marks the agent's blocks read up to `upTo` (or all of them). The returned
  * callback is a no-op while nothing is unread, so callers can fire it from
@@ -1670,9 +1673,36 @@ export function useMarkStreamRead(
     },
   });
 
+  // The same mark at the same count would change nothing: the rows still
+  // unread are ones `upTo` does not reach (a turn answering in a thread,
+  // newer than the stream's last top-level post). Sending it anyway re-armed
+  // every caller's effect on success, and the pane marked read in a loop,
+  // dozens of times a second, each one a `stream.read` to every tab. A mark
+  // that failed may go again, but not before a pause, or a server that keeps
+  // failing would be asked just as often.
+  const lastMark = useRef<{ key: string; failedAt: number | null } | null>(
+    null
+  );
+
   return useCallback(
     (upTo?: string) => {
-      if (rootId && unreadCount > 0 && !isPending) mutate(upTo);
+      if (!rootId || unreadCount === 0 || isPending) return;
+      const key = `${rootId}\n${upTo ?? ""}\n${unreadCount}`;
+      const last = lastMark.current;
+      if (
+        last?.key === key &&
+        (last.failedAt === null ||
+          Date.now() - last.failedAt < MARK_READ_RETRY_MS)
+      ) {
+        return;
+      }
+      const mark = { key, failedAt: null as number | null };
+      lastMark.current = mark;
+      mutate(upTo, {
+        onError: () => {
+          mark.failedAt = Date.now();
+        },
+      });
     },
     [rootId, unreadCount, isPending, mutate]
   );
