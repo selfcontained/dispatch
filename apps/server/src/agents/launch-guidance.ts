@@ -226,7 +226,7 @@ export function buildLaunchGuidance(
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before you finish: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). Each reviewer posts a review block to you; answer each finding under it (what you changed, or why not) and its reviewer resolves it. Don't finish until every finding is resolved."
+        "Autonomous Review is enabled. Before reporting the task complete: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). End the launch turn after any independent work; do not poll or wait for reviews. Dispatch sends each review as a new prompt. Answer each finding under it (what you changed, or why not) and its reviewer resolves it. Report the task complete only after every finding is resolved."
       );
     }
   }

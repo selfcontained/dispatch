@@ -65,7 +65,8 @@ export function registerAgentLaunchTools(
         "A child's files are readable here via ownerAgentId on list_files, " +
         "and it can read yours the same way — neither side needs to relay file paths. " +
         "Pass persona (a slug from list_personas) to launch it as that persona — a reviewer, a QA tester, whatever the persona defines — " +
-        "with prompt as its briefing; a reviewer persona posts one review block back to you when done.",
+        "with prompt as its briefing; a reviewer persona posts one review block back to you when done. " +
+        "Dispatch delivers that review as a new prompt, so do not poll list_agents or keep this turn open just to wait for it.",
       inputSchema: {
         persona: z
           .string()
@@ -190,11 +191,14 @@ export function registerAgentLaunchTools(
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;
+        const reviewHandoff = args.persona
+          ? " Dispatch will send you a new prompt when this persona posts its result. After launching any other intended reviewers and finishing independent work, end this turn; do not poll list_agents, sleep, or wait here for the result. Work through any review findings when that prompt arrives."
+          : "";
         return {
           content: [
             {
               type: "text",
-              text: result.note ? `${text} ${result.note}` : text,
+              text: `${text}${reviewHandoff}${result.note ? ` ${result.note}` : ""}`,
             },
           ],
           structuredContent: result,

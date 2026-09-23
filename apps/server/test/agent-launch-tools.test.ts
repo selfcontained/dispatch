@@ -131,12 +131,16 @@ describe("registerAgentLaunchTools", () => {
       registerAgentLaunchTools(server as never, new Set(["launch_agent"]), ctx);
 
       const tool = server.tools.find((t) => t.name === "launch_agent")!;
-      await tool.handler({
+      const result = (await tool.handler({
         name: "reviewer",
         prompt: "Review the diff",
         persona: "code-review",
         includeDiff: false,
-      });
+      })) as { content: Array<{ text: string }> };
+      expect(result.content[0]?.text).toContain(
+        "Dispatch will send you a new prompt"
+      );
+      expect(result.content[0]?.text).toContain("do not poll list_agents");
       expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
         name: "reviewer",
         prompt: "Review the diff",
