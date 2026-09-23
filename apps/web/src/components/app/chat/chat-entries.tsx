@@ -42,7 +42,6 @@ import { type Mentionable, mentionSpans } from "@/lib/mentions";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
-import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1307,18 +1306,6 @@ function LaunchCardBody({
   );
 }
 
-/** A launched agent's current step follows the card's briefing, review, and files. */
-function LaunchLiveActivity({ agentId }: { agentId: string }): JSX.Element {
-  const agent = useAgentRecord(agentId);
-  return (
-    <div className="mt-2 empty:hidden" data-testid="chat-launch-live-activity">
-      {agent ? (
-        <AgentActivityLabel agent={agent} className="min-w-0 text-[11px]" />
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * One block as a post: the author header, the text, the kind's own body,
  * the blocks it shows, the attachments, and then the delivery state (a
@@ -1545,9 +1532,6 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {body}
       <AttachmentList block={block} ctx={ctx} />
-      {block.kind === "launch" && block.toAgentId ? (
-        <LaunchLiveActivity agentId={block.toAgentId} />
-      ) : null}
       {block.kind === "launch" ? null : (
         <DeliveryMeta block={block} ctx={ctx} />
       )}
