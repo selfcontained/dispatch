@@ -26,6 +26,8 @@ const STUCK_ARCHIVING_TIMEOUT_S = 30;
  * install, which can legitimately take minutes.
  */
 const CREATING_GRACE_S = 15 * 60;
+const RECONNECT_WARNING =
+  "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.";
 
 export type ReconcilerDeps = {
   pool: Pool;
@@ -76,8 +78,9 @@ async function reconcileAgentStatuses(
     id: string;
     status: string;
     updatedAt: string;
+    lastError: string | null;
   }>(
-    `SELECT id, status, updated_at AS "updatedAt" FROM agents
+    `SELECT id, status, updated_at AS "updatedAt", last_error AS "lastError" FROM agents
       WHERE deleted_at IS NULL
         AND status IN ('running', 'stopping', 'creating', 'archiving')`
   );
@@ -167,6 +170,14 @@ async function reconcileAgentStatuses(
       }
       const agent = await deps.getAgent(row.id);
       if (agent) reconciled.push(agent);
+    } else if (row.status === "running" && probe) {
+      // Keep a reconnect warning visible without treating a live host as
+      // stopped. Only write when it changes, so periodic probes stay quiet.
+      if (!probe.attached && row.lastError !== RECONNECT_WARNING) {
+        await deps.setAgentStatus(row.id, "running", RECONNECT_WARNING);
+      } else if (probe.attached && row.lastError === RECONNECT_WARNING) {
+        await deps.setAgentStatus(row.id, "running", null);
+      }
     } else if (
       row.status === "stopping" &&
       stuckSeconds > STUCK_STOPPING_TIMEOUT_S

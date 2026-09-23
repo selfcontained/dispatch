@@ -391,6 +391,16 @@ describe("AgentCardHeader wiring", () => {
 
     rerender({
       agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+      }),
+    });
+    expect(screen.getByText("Attention").getAttribute("title")).toContain(
+      "cannot reconnect"
+    );
+
+    rerender({
+      agent: makeAgent({
         name: "job-nightly",
         jobRun: {
           continuationEnabled: false,

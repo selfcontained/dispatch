@@ -60,7 +60,9 @@ export function AgentCardHeader({
   toggleAgentDetails,
 }: AgentCardHeaderProps): JSX.Element {
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
-  const needsAttention = agent.status === "error";
+  const needsAttention =
+    agent.status === "error" ||
+    (agent.status === "running" && Boolean(agent.lastError));
   const isJobAgent = Boolean(agent.jobRun);
   const loopIteration = agent.jobRun?.iteration ?? 1;
   const isLoopJob = isJobAgent && agent.jobRun?.continuationEnabled;

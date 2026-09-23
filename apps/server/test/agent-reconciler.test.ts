@@ -34,6 +34,7 @@ type ActiveRow = {
   id: string;
   status: string;
   updatedAt: string;
+  lastError?: string | null;
 };
 
 const minutesAgo = (minutes: number): string =>
@@ -270,10 +271,14 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       attach: vi.fn().mockResolvedValue(false),
       isAlive: vi.fn().mockResolvedValue(true),
     });
+    const row: ActiveRow = {
+      id: "agt_slow",
+      status: "running",
+      updatedAt: minutesAgo(2),
+      lastError: null,
+    };
     const { reconciler, setAgentStatus, settleStream } = setup({
-      activeRows: [
-        { id: "agt_slow", status: "running", updatedAt: minutesAgo(2) },
-      ],
+      activeRows: [row],
       runtime,
     });
 
@@ -282,14 +287,27 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
     expect(runtime.attach).toHaveBeenCalledWith("agt_slow");
     expect(runtime.isAlive).toHaveBeenCalledWith("agt_slow");
     expect(settleStream).not.toHaveBeenCalled();
-    expect(setAgentStatus).not.toHaveBeenCalled();
+    expect(setAgentStatus).toHaveBeenCalledWith(
+      "agt_slow",
+      "running",
+      "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically."
+    );
     expect(reconciled).toEqual([]);
+
+    row.lastError =
+      "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.";
+    await reconciler.reconcileAgentStatuses();
+    expect(setAgentStatus).toHaveBeenCalledTimes(1);
 
     // A later pass (the periodic tick) is where the retry actually lands.
     runtime.attach = vi.fn().mockResolvedValue(true);
     const second = await reconciler.reconcileAgentStatuses();
     expect(second).toEqual([]);
-    expect(setAgentStatus).not.toHaveBeenCalled();
+    expect(setAgentStatus).toHaveBeenLastCalledWith(
+      "agt_slow",
+      "running",
+      null
+    );
   });
 
   it("creating agent past the launch grace with no host → flips to error", async () => {
