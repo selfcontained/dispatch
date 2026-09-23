@@ -1255,9 +1255,6 @@ function LaunchCardBody({
             {agent.persona}
           </span>
         ) : null}
-        {agent ? (
-          <AgentActivityLabel agent={agent} className="min-w-0 text-[11px]" />
-        ) : null}
       </div>
       {block.text ? (
         <LaunchSection
@@ -1305,6 +1302,18 @@ function LaunchCardBody({
             {state.instructions}
           </pre>
         </LaunchSection>
+      ) : null}
+    </div>
+  );
+}
+
+/** A launched agent's current step follows the card's briefing, review, and files. */
+function LaunchLiveActivity({ agentId }: { agentId: string }): JSX.Element {
+  const agent = useAgentRecord(agentId);
+  return (
+    <div className="mt-2 empty:hidden" data-testid="chat-launch-live-activity">
+      {agent ? (
+        <AgentActivityLabel agent={agent} className="min-w-0 text-[11px]" />
       ) : null}
     </div>
   );
@@ -1536,6 +1545,9 @@ export const BlockView = memo(function BlockView({
       ) : null}
       {body}
       <AttachmentList block={block} ctx={ctx} />
+      {block.kind === "launch" && block.toAgentId ? (
+        <LaunchLiveActivity agentId={block.toAgentId} />
+      ) : null}
       {block.kind === "launch" ? null : (
         <DeliveryMeta block={block} ctx={ctx} />
       )}
