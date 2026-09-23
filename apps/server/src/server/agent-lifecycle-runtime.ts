@@ -34,6 +34,16 @@ export function createAgentLifecycleRuntime(
   const activeArchives = new Set<Promise<void>>();
   const archivingAgentIds = new Set<string>();
   let reconcileTimer: NodeJS.Timeout | null = null;
+  let reconcileInFlight = false;
+
+  function announceNextReconcile(): void {
+    const updated = agentManager.setNextReconcileAt?.(
+      new Date(Date.now() + reconcileIntervalMs).toISOString()
+    );
+    void updated?.catch((err) =>
+      appLog.warn({ err }, "Could not publish next reconnect attempt")
+    );
+  }
 
   function trackArchive(agentId: string, archivePromise: Promise<void>): void {
     archivingAgentIds.add(agentId);
@@ -125,10 +135,18 @@ export function createAgentLifecycleRuntime(
       if (reconcileTimer) {
         return;
       }
+      announceNextReconcile();
       reconcileTimer = setInterval(() => {
-        void this.runAgentStatusReconciliation().catch((err) => {
-          appLog.warn({ err }, "Agent status reconciliation failed");
-        });
+        announceNextReconcile();
+        if (reconcileInFlight) return;
+        reconcileInFlight = true;
+        void this.runAgentStatusReconciliation()
+          .catch((err) => {
+            appLog.warn({ err }, "Agent status reconciliation failed");
+          })
+          .finally(() => {
+            reconcileInFlight = false;
+          });
       }, reconcileIntervalMs);
     },
 
@@ -138,6 +156,10 @@ export function createAgentLifecycleRuntime(
       }
       clearInterval(reconcileTimer);
       reconcileTimer = null;
+      const cleared = agentManager.setNextReconcileAt?.(null);
+      void cleared?.catch((err) =>
+        appLog.warn({ err }, "Could not clear reconnect attempt time")
+      );
     },
 
     async runAgentStatusReconciliation(): Promise<void> {

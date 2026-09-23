@@ -393,12 +393,25 @@ describe("AgentCardHeader wiring", () => {
       agent: makeAgent({
         status: "running",
         lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: {
+          phase: "waiting",
+          nextRetryAt: new Date(Date.now() + 30_000).toISOString(),
+        },
       }),
     });
     expect(screen.queryByText("Attention")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Reconnecting" }));
-    expect(screen.getByText("Reconnecting to agent")).toBeTruthy();
+    expect(screen.getByText("Reconnecting")).toBeTruthy();
+    expect(screen.getByText(/Next try in \d+s/)).toBeTruthy();
     expect(screen.queryByText("Last error")).toBeNull();
+
+    rerender({
+      agent: makeAgent({
+        status: "running",
+        lastError: "Agent host is alive, but Dispatch cannot reconnect yet.",
+        reconnect: { phase: "trying", nextRetryAt: null },
+      }),
+    });
+    expect(screen.getByText("Trying now")).toBeTruthy();
 
     rerender({
       agent: makeAgent({

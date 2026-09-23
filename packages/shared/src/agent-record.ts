@@ -76,6 +76,11 @@ export type AgentRecord = {
   archivePhase: ArchivePhase;
   archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
+  /** Live host reattachment progress; absent for agents with a healthy connection. */
+  reconnect?: {
+    phase: "trying" | "waiting";
+    nextRetryAt: string | null;
+  } | null;
   activity: AgentActivity;
   /**
    * The turn the agent is running right now, while `activity` is

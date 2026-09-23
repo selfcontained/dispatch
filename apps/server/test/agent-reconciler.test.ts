@@ -117,6 +117,7 @@ const setup = (args: {
     (id: string, status: AgentStatus, lastError: string | null) => Promise<void>
   >(async () => {});
   const notifyBlocked = vi.fn().mockResolvedValue(undefined);
+  const setReconnectProgress = vi.fn().mockResolvedValue(undefined);
   const settleStream = vi.fn().mockResolvedValue(0);
   const getAgent = vi.fn(async (id: string) => args.agentsById?.[id] ?? null);
 
@@ -144,6 +145,7 @@ const setup = (args: {
     getAgent,
     setAgentStatus,
     notifyBlocked,
+    setReconnectProgress,
     settleStream,
   });
 
@@ -154,6 +156,7 @@ const setup = (args: {
     diagnostics,
     setAgentStatus,
     notifyBlocked,
+    setReconnectProgress,
     settleStream,
     getAgent,
   };
@@ -277,10 +280,11 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       updatedAt: minutesAgo(2),
       lastError: null,
     };
-    const { reconciler, setAgentStatus, settleStream } = setup({
-      activeRows: [row],
-      runtime,
-    });
+    const { reconciler, setAgentStatus, setReconnectProgress, settleStream } =
+      setup({
+        activeRows: [row],
+        runtime,
+      });
 
     const reconciled = await reconciler.reconcileAgentStatuses();
 
@@ -293,11 +297,20 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically."
     );
     expect(reconciled).toEqual([]);
+    expect(setReconnectProgress).toHaveBeenLastCalledWith(
+      "agt_slow",
+      "waiting"
+    );
 
     row.lastError =
       "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.";
     await reconciler.reconcileAgentStatuses();
     expect(setAgentStatus).toHaveBeenCalledTimes(1);
+    expect(setReconnectProgress).toHaveBeenNthCalledWith(
+      2,
+      "agt_slow",
+      "trying"
+    );
 
     // A later pass (the periodic tick) is where the retry actually lands.
     runtime.attach = vi.fn().mockResolvedValue(true);
@@ -308,6 +321,7 @@ describe("reconcileAgentStatuses — missing-host detection", () => {
       "running",
       null
     );
+    expect(setReconnectProgress).toHaveBeenLastCalledWith("agt_slow", null);
   });
 
   it("creating agent past the launch grace with no host → flips to error", async () => {

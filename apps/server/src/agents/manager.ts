@@ -34,7 +34,11 @@ import { AgentError } from "./errors.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { type SeededFile, seedInitialFiles } from "./file-seed.js";
-import { type Reconciler, createReconciler } from "./reconciler.js";
+import {
+  RECONNECT_WARNING,
+  type Reconciler,
+  createReconciler,
+} from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
   buildStartupTurn,
@@ -301,6 +305,11 @@ export class AgentManager {
       }
     }
   });
+  private readonly reconnectProgress = new Map<
+    string,
+    NonNullable<AgentRecord["reconnect"]>
+  >();
+  private nextReconcileAt: string | null = null;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
@@ -354,6 +363,7 @@ export class AgentManager {
         this.setAgentStatus(id, status, lastError),
       notifyBlocked: (id, message) =>
         this.emitAttention(id, "blocked", message),
+      setReconnectProgress: (id, phase) => this.setReconnectProgress(id, phase),
       settleStream: async (id, reason) =>
         (await this.streamStore.settleInterrupted(id, reason)).length,
     });
@@ -621,6 +631,39 @@ export class AgentManager {
     this.attentionListeners.push(listener);
   }
 
+  /** The lifecycle timer's next probe time, shared with reconnecting cards. */
+  async setNextReconcileAt(at: string | null): Promise<void> {
+    this.nextReconcileAt = at;
+    await Promise.all(
+      [...this.reconnectProgress]
+        .filter(([, progress]) => progress.phase === "waiting")
+        .map(([id]) => this.setReconnectProgress(id, "waiting"))
+    );
+  }
+
+  private async setReconnectProgress(
+    id: string,
+    phase: "trying" | "waiting" | null
+  ): Promise<void> {
+    const next = phase
+      ? {
+          phase,
+          nextRetryAt: phase === "waiting" ? this.nextReconcileAt : null,
+        }
+      : null;
+    const current = this.reconnectProgress.get(id);
+    if (
+      current?.phase === next?.phase &&
+      current?.nextRetryAt === next?.nextRetryAt
+    ) {
+      return;
+    }
+    if (next) this.reconnectProgress.set(id, next);
+    else this.reconnectProgress.delete(id);
+    const agent = await this.getAgent(id);
+    if (agent) this.eventBus.publish(agent);
+  }
+
   private async emitAttention(
     agentId: string,
     type: "waiting_user" | "blocked",
@@ -694,7 +737,14 @@ export class AgentManager {
    * right now only the runtime knows, and it outranks what the rows say.
    */
   private withLiveActivity(agent: AgentRecord): AgentRecord {
-    const live = this.liveActivity(agent);
+    const reconnect =
+      agent.status === "running" && agent.lastError === RECONNECT_WARNING
+        ? (this.reconnectProgress.get(agent.id) ?? {
+            phase: "waiting" as const,
+            nextRetryAt: this.nextReconcileAt,
+          })
+        : null;
+    const live = this.liveActivity({ ...agent, reconnect });
     // The open turn comes from the stream; only ACP's live turn state decides
     // whether it is still current. Derived activity is a separate UI summary.
     if (agent.status === "running" && this.runtime.isBusy(agent.id))

@@ -93,7 +93,7 @@ export function AgentCardActivity({
   return (
     <div className="mt-1 flex min-h-4 min-w-0 items-center text-xs text-muted-foreground">
       <AgentActivityLabel agent={agent} linkToTurn onNavigate={onNavigate} />
-      {repoName ? (
+      {repoName && !agent.reconnect ? (
         <RepoLabel
           agentId={agent.id}
           repoIconPath={agent.gitContext?.repoIconPath}

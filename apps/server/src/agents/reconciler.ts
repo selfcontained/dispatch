@@ -26,7 +26,7 @@ const STUCK_ARCHIVING_TIMEOUT_S = 30;
  * install, which can legitimately take minutes.
  */
 const CREATING_GRACE_S = 15 * 60;
-const RECONNECT_WARNING =
+export const RECONNECT_WARNING =
   "Agent host is alive, but Dispatch cannot reconnect yet. Retrying automatically.";
 
 export type ReconcilerDeps = {
@@ -41,6 +41,10 @@ export type ReconcilerDeps = {
     lastError: string | null
   ) => Promise<void>;
   notifyBlocked: (id: string, message: string) => Promise<void>;
+  setReconnectProgress: (
+    id: string,
+    phase: "trying" | "waiting" | null
+  ) => Promise<void>;
   /** Settle stream rows a dead host left open. */
   settleStream: (id: string, reason: string) => Promise<number>;
 };
@@ -104,6 +108,9 @@ async function reconcileAgentStatuses(
             )
         )
         .map(async (row) => {
+          if (row.status === "running" && row.lastError === RECONNECT_WARNING) {
+            await deps.setReconnectProgress(row.id, "trying");
+          }
           const attached = await runtime.attach(row.id);
           return [
             row.id,
@@ -162,6 +169,7 @@ async function reconcileAgentStatuses(
         : "The agent is no longer running.";
       await deps.settleStream(row.id, "the agent stopped");
       await deps.setAgentStatus(row.id, nextStatus, logTail || null);
+      await deps.setReconnectProgress(row.id, null);
       if (launchFailed) {
         await deps.notifyBlocked(
           row.id,
@@ -178,6 +186,10 @@ async function reconcileAgentStatuses(
       } else if (probe.attached && row.lastError === RECONNECT_WARNING) {
         await deps.setAgentStatus(row.id, "running", null);
       }
+      await deps.setReconnectProgress(
+        row.id,
+        probe.attached ? null : "waiting"
+      );
     } else if (
       row.status === "stopping" &&
       stuckSeconds > STUCK_STOPPING_TIMEOUT_S
