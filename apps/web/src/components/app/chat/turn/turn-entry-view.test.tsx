@@ -158,6 +158,20 @@ describe("TurnEntryView", () => {
     expect(muted(final)).toBe(false);
   });
 
+  it("mutes a lead's table headers and dims its links", () => {
+    const lead = "See [the docs](https://x.test).\n\n| a |\n| - |\n| 1 |";
+    const text = `${lead}\n\nDone.`;
+    renderTurn(
+      turn({ settled: true, result: { text, streaming: false, lead } }, text)
+    );
+    const classes = screen.getByTestId("harness-result-lead").firstElementChild!
+      .classList;
+    expect(classes.contains("prose-th:text-muted-foreground")).toBe(true);
+    expect(classes.contains("prose-th:text-foreground")).toBe(false);
+    expect(classes.contains("prose-a:text-primary/70")).toBe(true);
+    expect(classes.contains("prose-a:text-primary")).toBe(false);
+  });
+
   it("names the block and its settled state on the wrapper", () => {
     renderTurn(turn());
     const wrapper = screen.getByTestId("chat-turn");
