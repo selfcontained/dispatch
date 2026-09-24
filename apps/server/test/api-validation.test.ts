@@ -79,23 +79,6 @@ describe("POST /api/v1/agents", () => {
     });
   });
 
-  it("rejects non-boolean autoReview", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/agents",
-      payload: {
-        name: `unit-${Date.now()}`,
-        cwd: "/tmp",
-        useWorktree: false,
-        autoReview: "true",
-      },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({
-      error: "autoReview must be a boolean when provided.",
-    });
-  });
-
   it("rejects oversized initialPrompt", async () => {
     const res = await ctx.app.inject({
       method: "POST",

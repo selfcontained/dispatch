@@ -20,7 +20,6 @@ export type CreateAgentBody = {
   persona?: unknown;
   parentAgentId?: unknown;
   personaContext?: unknown;
-  autoReview?: unknown;
   initialPrompt?: unknown;
   startupLinks?: unknown;
 };

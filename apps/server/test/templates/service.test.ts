@@ -58,7 +58,6 @@ function buildAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
     review: null,
     baseBranch: null,
     templateId: "tmpl_123",
-    autoReview: false,
     cliSessionId: null,
     createdAt: timestamp,
     updatedAt: timestamp,

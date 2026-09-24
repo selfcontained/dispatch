@@ -138,12 +138,6 @@ export function buildStartupPrompt(
  * into chat, so it's the one tool-routing rule with a demonstrated failure
  * history — the toggle tests the PR line, not this.
  *
- * The Autonomous Review rule is short for *everyone*, toggle or not, and
- * that has nothing to do with the plugin: the reactive part ("after a
- * review arrives, do X") reaches the agent with the review itself, as the
- * envelope of the review block. What remains is the part nothing can
- * deliver later: the gate the agent must already know before it decides it
- * is done.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -151,17 +145,10 @@ export function buildLaunchGuidance(
     agentType?: AgentType;
     jobRunId?: string;
     suggestSessionRename?: boolean;
-    autoReview?: boolean;
     trimmedGuidance?: boolean;
   }
 ): string {
-  const {
-    agentType,
-    jobRunId,
-    suggestSessionRename,
-    autoReview,
-    trimmedGuidance,
-  } = opts;
+  const { agentType, jobRunId, suggestSessionRename, trimmedGuidance } = opts;
   const trimmed =
     trimmedGuidance === true &&
     agentType !== undefined &&
@@ -222,11 +209,6 @@ export function buildLaunchGuidance(
     if (!trimmed) {
       rules.push(
         "For pull requests, use the gh CLI (gh pr create) and post the PR as a pr attachment."
-      );
-    }
-    if (autoReview) {
-      rules.push(
-        "Autonomous Review is enabled. Before reporting the task complete: commit and push your branch, open a draft PR (gh pr create --draft) and post it as a pr attachment, call list_personas, then launch relevant reviewers with launch_agent (persona: <slug>, prompt: your briefing). End the launch turn after any independent work; do not poll or wait for reviews. Dispatch sends each review as a new prompt. Answer each finding under it (what you changed, or why not) and its reviewer resolves it. Report the task complete only after every finding is resolved."
       );
     }
   }

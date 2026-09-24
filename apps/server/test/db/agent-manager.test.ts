@@ -891,23 +891,6 @@ describe("AgentManager", () => {
       expect(agent.agentArgs).toContain("--dangerously-skip-permissions");
     });
 
-    it("should persist autoReview", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        autoReview: true,
-        useWorktree: false,
-      });
-      expect(agent.autoReview).toBe(true);
-    });
-
-    it("should default autoReview to false", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        useWorktree: false,
-      });
-      expect(agent.autoReview).toBe(false);
-    });
-
     it("should persist baseBranch when provided", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -966,53 +949,6 @@ describe("AgentManager", () => {
           });
           expect(lastLaunch().systemPrompt).not.toContain(RENAME);
         }
-      });
-
-      it("includes autonomous review guidance only for non-persona, non-job autoReview agents", async () => {
-        await manager.createAgent({
-          cwd: "/tmp",
-          type: "claude",
-          autoReview: true,
-          useWorktree: false,
-        });
-        expect(lastLaunch().systemPrompt).toContain(
-          "Autonomous Review is enabled"
-        );
-
-        await manager.createAgent({
-          cwd: "/tmp",
-          type: "claude",
-          autoReview: false,
-          useWorktree: false,
-        });
-        expect(lastLaunch().systemPrompt).not.toContain(
-          "Autonomous Review is enabled"
-        );
-
-        await manager.createAgent({
-          cwd: "/tmp",
-          type: "claude",
-          autoReview: true,
-          persona: "security-review",
-          useWorktree: false,
-        });
-        expect(lastLaunch().systemPrompt).not.toContain(
-          "Autonomous Review is enabled"
-        );
-
-        await manager.createAgent({
-          cwd: "/tmp",
-          type: "claude",
-          autoReview: true,
-          jobRunId: "run_abc123",
-          useWorktree: false,
-        });
-        expect(lastLaunch().systemPrompt).not.toContain(
-          "Autonomous Review is enabled"
-        );
-        expect(lastLaunch().systemPrompt).toContain(
-          "Dispatch job startup rules"
-        );
       });
 
       it("folds an appended system prompt in, ahead of the active personality", async () => {
@@ -1087,40 +1023,6 @@ describe("AgentManager", () => {
       expect(fetched).not.toBeNull();
       expect(fetched!.id).toBe(created.id);
       expect(fetched!.name).toBe("fetch-me");
-    });
-
-    it("should round-trip autoReview through getAgent", async () => {
-      const created = await manager.createAgent({
-        cwd: "/tmp",
-        autoReview: true,
-        useWorktree: false,
-      });
-      const fetched = await manager.getAgent(created.id);
-
-      expect(fetched).not.toBeNull();
-      expect(fetched!.autoReview).toBe(true);
-    });
-
-    it("should include autoReview in listAgents results", async () => {
-      await manager.createAgent({
-        name: "review-on",
-        cwd: "/tmp",
-        autoReview: true,
-        useWorktree: false,
-      });
-      await manager.createAgent({
-        name: "review-off",
-        cwd: "/tmp",
-        autoReview: false,
-        useWorktree: false,
-      });
-
-      const agents = await manager.listAgents();
-      const reviewOn = agents.find((a) => a.name === "review-on");
-      const reviewOff = agents.find((a) => a.name === "review-off");
-
-      expect(reviewOn!.autoReview).toBe(true);
-      expect(reviewOff!.autoReview).toBe(false);
     });
 
     it("should rename an agent", async () => {

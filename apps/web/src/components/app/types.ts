@@ -39,7 +39,6 @@ type LenientAgentField =
   | "reviewAgentType"
   | "baseBranch"
   | "templateId"
-  | "autoReview"
   | "cliSessionId";
 
 /**

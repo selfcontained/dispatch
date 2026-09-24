@@ -52,17 +52,12 @@ export function AgentsContent() {
             in its most permissive execution mode, so the agent can run commands
             and edit files without confirmation prompts.
           </li>
-          <li>
-            <strong>Autonomous Review</strong> (CLI types only) — when enabled,
-            the agent automatically launches one reviewer persona on completion
-            and works its review block&apos;s findings before finishing.
-          </li>
         </ul>
         <P>
           The form reopens with the choices you last made in that working
-          directory: full access, Autonomous Review, the starting branch, and
-          the new-branch checkbox are remembered per directory, and the model
-          per directory and agent type.
+          directory: full access, managed worktree, the starting branch, and the
+          new-branch checkbox are remembered per directory, and the model per
+          directory and agent type.
         </P>
         <P>
           Click <strong>Create</strong> to start the agent immediately.{" "}

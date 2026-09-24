@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -26,6 +29,7 @@ async function createAgent(
   overrides: {
     name?: string;
     cwd?: string;
+    requestCwd?: string;
     deletedAt?: string | null;
     parentAgentId?: string | null;
     gitContext?: Record<string, unknown> | null;
@@ -33,7 +37,7 @@ async function createAgent(
 ): Promise<string> {
   const res = await authedInject("POST", "/api/v1/agents", {
     payload: {
-      cwd: "/tmp",
+      cwd: overrides.requestCwd ?? "/tmp",
       useWorktree: false,
       name: overrides.name ?? "test-agent",
     },
@@ -49,6 +53,8 @@ async function createAgent(
   if (overrides.cwd) {
     params.push(overrides.cwd);
     updates.push(`cwd = $${paramIdx++}`);
+    params.push(overrides.cwd);
+    updates.push(`launch_cwd = $${paramIdx++}`);
   }
   if (overrides.deletedAt !== undefined) {
     params.push(overrides.deletedAt);
@@ -330,7 +336,7 @@ describe("GET /api/v1/history/projects", () => {
     expect(res.json().projects.length).toBeLessThanOrEqual(50);
   });
 
-  it("uses gitContext.repoRoot for project grouping", async () => {
+  it("keeps distinct selected directories even when gitContext shares a repo root", async () => {
     await createAgent({
       cwd: "/home/user/worktree1",
       gitContext: { repoRoot: "/home/user/repo" },
@@ -342,32 +348,78 @@ describe("GET /api/v1/history/projects", () => {
 
     const res = await authedInject("GET", "/api/v1/history/projects");
     expect(res.statusCode).toBe(200);
-    const proj = res
-      .json()
-      .projectOptions.find(
-        (p: { path: string }) => p.path === "/home/user/repo"
-      );
-    expect(proj).toBeTruthy();
-    expect(proj.usageCount).toBe(2);
+    expect(res.json().projects).toEqual([
+      "/home/user/worktree2",
+      "/home/user/worktree1",
+    ]);
   });
 
-  it("returns iconUrl when gitContext has repoIconPath", async () => {
-    const agentId = await createAgent({
-      cwd: "/home/user/icon-proj",
-      gitContext: {
-        repoRoot: "/home/user/icon-proj",
-        repoIconPath: "/icon.png",
-      },
-    });
-
-    const res = await authedInject("GET", "/api/v1/history/projects");
-    expect(res.statusCode).toBe(200);
-    const proj = res
-      .json()
-      .projectOptions.find(
-        (p: { path: string }) => p.path === "/home/user/icon-proj"
+  it("finds a project icon even when saved git context has no icon", async () => {
+    const project = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-icon-test-")
+    );
+    try {
+      await writeFile(
+        path.join(project, "logo.svg"),
+        "<svg xmlns='http://www.w3.org/2000/svg'/>"
       );
-    expect(proj.iconUrl).toContain(agentId);
+      const agentId = await createAgent({
+        requestCwd: project,
+        gitContext: { repoRoot: project },
+      });
+      const res = await authedInject("GET", "/api/v1/history/projects");
+      expect(res.statusCode).toBe(200);
+      const proj = res
+        .json()
+        .projectOptions.find((p: { path: string }) => p.path === project);
+      expect(proj.iconUrl).toContain(agentId);
+      const icon = await authedInject("GET", proj.iconUrl);
+      expect(icon.statusCode).toBe(200);
+      const cached = await ctx.pool.query<{ icon_path: string }>(
+        "SELECT icon_path FROM directory_icons WHERE cwd = $1",
+        [project]
+      );
+      expect(cached.rows[0]?.icon_path).toBe("logo.svg");
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the selected directory's icon after cwd moves to a worktree", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-icon-root-"));
+    const checkout = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-icon-checkout-")
+    );
+    try {
+      await writeFile(
+        path.join(root, "logo.svg"),
+        "<svg xmlns='http://www.w3.org/2000/svg'><title>selected</title></svg>"
+      );
+      const agentId = await createAgent({
+        requestCwd: root,
+        gitContext: {
+          repoRoot: root,
+          worktreePath: checkout,
+        },
+      });
+      await ctx.pool.query("UPDATE agents SET cwd = $2 WHERE id = $1", [
+        agentId,
+        checkout,
+      ]);
+      const history = await authedInject("GET", "/api/v1/history/projects");
+      const project = history
+        .json()
+        .projectOptions.find(
+          (option: { path: string }) => option.path === root
+        );
+      expect(project.iconUrl).toContain(agentId);
+      const icon = await authedInject("GET", project.iconUrl);
+      expect(icon.statusCode).toBe(200);
+      expect(icon.body).toContain("selected");
+    } finally {
+      await rm(checkout, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -684,7 +736,7 @@ describe("GET /api/v1/history/agents", () => {
     expect(res.json().agents[0].name).toBe("recent-agent");
   });
 
-  it("uses gitContext.repoRoot for project filter", async () => {
+  it("uses the selected working directory for project filter", async () => {
     await createAgent({
       cwd: "/home/user/worktree",
       gitContext: { repoRoot: "/home/user/real-repo" },
@@ -696,14 +748,14 @@ describe("GET /api/v1/history/agents", () => {
       "/api/v1/history/agents?project=/home/user/real-repo"
     );
     expect(resByRepo.statusCode).toBe(200);
-    expect(resByRepo.json().total).toBe(1);
+    expect(resByRepo.json().total).toBe(0);
 
     const resByCwd = await authedInject(
       "GET",
       "/api/v1/history/agents?project=/home/user/worktree"
     );
     expect(resByCwd.statusCode).toBe(200);
-    expect(resByCwd.json().total).toBe(0);
+    expect(resByCwd.json().total).toBe(1);
   });
 
   it("includes children and groupTotalTokens", async () => {

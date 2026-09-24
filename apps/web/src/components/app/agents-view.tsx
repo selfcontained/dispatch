@@ -350,6 +350,10 @@ export function AgentsView({
   const resolveCreateDefaultCwd = useCallback((): string => {
     const activeCwd = agentProjectRoot(selectedAgent);
     if (activeCwd) return activeCwd;
+    const lastUsedCwd = window.localStorage
+      .getItem("dispatch:lastUsedAgentCwd")
+      ?.trim();
+    if (lastUsedCwd) return lastUsedCwd;
     const latestAgentCwd = agentProjectRoot(agents[0]);
     if (latestAgentCwd) return latestAgentCwd;
     return "";

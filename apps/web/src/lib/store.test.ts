@@ -511,6 +511,17 @@ describe("atomWithLocalStorage", () => {
     });
     expect(createStore().get(testAtom)).toBe(7);
   });
+
+  it("preserves legacy raw strings that also parse as JSON", () => {
+    for (const branch of ["123", "null", "true"]) {
+      const key = `dispatch:test:legacy:${branch}`;
+      window.localStorage.setItem(key, branch);
+      const testAtom = atomWithLocalStorage(key, "main", {
+        legacyRawString: true,
+      });
+      expect(createStore().get(testAtom)).toBe(branch);
+    }
+  });
 });
 
 describe("chatShowChildAgentsAtom", () => {

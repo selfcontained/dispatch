@@ -27,6 +27,7 @@ import {
   type AgentRouteDeps,
 } from "./shared.js";
 import { validateAgentModel } from "../../shared/agent-models.js";
+import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -82,7 +83,8 @@ export async function registerAgentCrudRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const iconRelPath = agent.gitContext?.repoIconPath;
+    const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
+    const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir);
     if (!iconRelPath) {
       return reply.code(404).send({ error: "No repo icon." });
     }
@@ -92,8 +94,6 @@ export async function registerAgentCrudRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const baseDir =
-      agent.gitContext?.worktreePath ?? agent.worktreePath ?? agent.cwd;
     const iconAbsPath = path.join(baseDir, iconRelPath);
 
     let realIconPath: string;
@@ -162,7 +162,6 @@ export async function registerAgentCrudRoutes(
     let fullAccess: boolean | undefined;
     let useWorktree: boolean | undefined;
     let createNewBranch: boolean | undefined;
-    let autoReview: boolean | undefined;
 
     try {
       parsedAgentArgs = parseOptionalStringArrayField(
@@ -188,11 +187,6 @@ export async function registerAgentCrudRoutes(
       createNewBranch = parseOptionalBooleanField(
         body.createNewBranch,
         "createNewBranch",
-        parsedRequest.isMultipart
-      );
-      autoReview = parseOptionalBooleanField(
-        body.autoReview,
-        "autoReview",
         parsedRequest.isMultipart
       );
     } catch (error) {
@@ -327,7 +321,6 @@ export async function registerAgentCrudRoutes(
             typeof body.personaContext === "string"
               ? body.personaContext
               : undefined,
-          autoReview: autoReview === true,
           initialPrompt:
             typeof body.initialPrompt === "string"
               ? body.initialPrompt.trim() || undefined

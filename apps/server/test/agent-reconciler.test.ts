@@ -71,7 +71,6 @@ const makeAgent = (
   personaContext: null,
   reviewAgentType: null,
   baseBranch: null,
-  autoReview: false,
   cliSessionId: null,
   createdAt: "2026-04-29T00:00:00Z",
   updatedAt: "2026-04-29T00:00:00Z",

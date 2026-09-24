@@ -18,6 +18,7 @@ import {
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
 import { resolveFilesDir } from "../shared/files.js";
+import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
 import {
   buildGitContextForWorktree,
   probeGitContext,
@@ -143,7 +144,6 @@ type CreateAgentInput = {
   launchedByAgentId?: string;
   personaContext?: string;
   reviewAgentType?: AgentType | null;
-  autoReview?: boolean;
   cliSessionId?: string;
   jobRunId?: string;
   initialPrompt?: string;
@@ -1092,6 +1092,9 @@ export class AgentManager {
     input: CreateAgentInput
   ): Promise<PreparedCreateInputs> {
     const originalCwd = await this.validateWorkingDirectory(input.cwd);
+    // Remember the icon of the directory the user chose, before a managed
+    // worktree can change the agent's effective cwd.
+    await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     const role: AgentRole = input.role ?? "standard";
@@ -1198,14 +1201,15 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
       `,
       [
         p.id,
         p.name,
         p.type,
         p.role,
+        p.originalCwd,
         p.originalCwd,
         p.filesDir,
         JSON.stringify(p.agentArgs),
@@ -1218,7 +1222,6 @@ export class AgentManager {
         input.personaContext ?? null,
         input.reviewAgentType ?? null,
         p.cliSessionId,
-        input.autoReview ?? false,
         p.normalizedBaseBranch ?? null,
         input.templateId ?? null,
       ]
@@ -1746,6 +1749,7 @@ export class AgentManager {
         role,
         status,
         cwd,
+        launch_cwd AS "launchCwd",
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
         simulator_udid AS "simulatorUdid",
@@ -1769,7 +1773,6 @@ export class AgentManager {
         review_agent_type AS "reviewAgentType",
         base_branch AS "baseBranch",
         template_id AS "templateId",
-        auto_review AS "autoReview",
         (
           SELECT json_build_object(
             'continuationEnabled',
