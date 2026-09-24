@@ -91,7 +91,6 @@ const makeAgent = (
   reviewAgentType: null,
   baseBranch: null,
   templateId: null,
-  autoReview: false,
   cliSessionId: null,
   createdAt: "2026-05-01T00:00:00Z",
   updatedAt: "2026-05-01T00:00:00Z",

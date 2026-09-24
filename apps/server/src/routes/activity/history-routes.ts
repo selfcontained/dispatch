@@ -23,13 +23,13 @@ async function handleHistoryProjects(
   const params: unknown[] = [];
   const where = [
     "parent_agent_id IS NULL",
-    "COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL",
+    "COALESCE(launch_cwd, git_context->>'repoRoot', cwd) IS NOT NULL",
   ];
 
   if (search) {
     params.push(`%${search}%`);
     where.push(
-      `(LOWER(COALESCE(git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
+      `(LOWER(COALESCE(launch_cwd, git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(launch_cwd, git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
     );
   }
   params.push(limit);
@@ -39,18 +39,15 @@ async function handleHistoryProjects(
     usage_count: number;
     latest_created_at: Date;
     agent_id: string;
-    icon_agent_id: string | null;
   }>(
     `SELECT project,
               COUNT(*)::int AS usage_count,
               MAX(created_at) AS latest_created_at,
-              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id,
-              (ARRAY_AGG(id ORDER BY created_at DESC) FILTER (WHERE repo_icon_path IS NOT NULL))[1] AS icon_agent_id
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id
        FROM (
          SELECT id,
                 created_at,
-                COALESCE(git_context->>'repoRoot', cwd) AS project,
-                git_context->>'repoIconPath' AS repo_icon_path
+                COALESCE(launch_cwd, git_context->>'repoRoot', cwd) AS project
          FROM agents
          WHERE ${where.join(" AND ")}
        ) project_agents
@@ -60,13 +57,13 @@ async function handleHistoryProjects(
     params
   );
 
+  // The picker loads icons as images, independently of the history response.
+  // Keep this search endpoint responsive even when a project has a large tree.
   const projectOptions = result.rows.map((row) => ({
     path: row.project,
     usageCount: row.usage_count,
     latestCreatedAt: row.latest_created_at.toISOString(),
-    iconUrl: row.icon_agent_id
-      ? `/api/v1/agents/${encodeURIComponent(row.icon_agent_id)}/repo-icon`
-      : undefined,
+    iconUrl: `/api/v1/agents/${encodeURIComponent(row.agent_id)}/repo-icon`,
   }));
 
   return {
@@ -113,7 +110,7 @@ async function handleHistoryAgents(
   if (project) {
     params.push(project);
     conditions.push(
-      `COALESCE(a.git_context->>'repoRoot', a.cwd) = $${params.length}`
+      `COALESCE(a.launch_cwd, a.git_context->>'repoRoot', a.cwd) = $${params.length}`
     );
   }
 

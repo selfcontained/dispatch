@@ -13,6 +13,8 @@ import { type IdeType } from "./ide-types";
 export { type CenterTab } from "./center-tabs";
 
 type AtomWithLocalStorageOptions<T> = {
+  /** Accept a plain string written by an older preference implementation. */
+  legacyRawString?: boolean;
   /**
    * Shape check for what comes back from storage (user-editable, and maybe
    * written by another build). A value that fails it reads as
@@ -34,7 +36,15 @@ export function atomWithLocalStorage<T>(
   options: AtomWithLocalStorageOptions<T> = {}
 ) {
   const parse = (raw: string): T => {
-    const value: unknown = JSON.parse(raw);
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      // Older string preferences were stored without JSON quoting.
+      if (!options.legacyRawString || typeof initialValue !== "string")
+        throw new Error("Invalid stored value");
+      value = raw;
+    }
     if (options.validate && !options.validate(value)) return initialValue;
     return value as T;
   };
@@ -142,6 +152,17 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
 // atom backed by localStorage; the family caches them by trimmed cwd.
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
+);
+export const createUseWorktreePrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:useWorktree:${cwd}`, true)
+);
+export const createFullAccessPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:fullAccess:${cwd}`, true)
+);
+export const createBaseBranchPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<string>(`dispatch:baseBranch:${cwd}`, "main", {
+    legacyRawString: true,
+  })
 );
 
 // Per-project, per-runtime model preference for the Create Agent dialog.

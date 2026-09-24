@@ -703,6 +703,22 @@ describe("AgentsView dialogs", () => {
     ).toBe("");
   });
 
+  it("prefers the last created directory over the newest agent when no agent is selected", () => {
+    window.localStorage.setItem(
+      "dispatch:lastUsedAgentCwd",
+      "/repos/last-used"
+    );
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a3", cwd: "/repos/newest" })],
+      validatedSelectedAgentId: null,
+      selectedAgent: null,
+    });
+    mount({ path: "/agents" });
+    expect(
+      (propsOf("AgentsViewDialogs").resolveCreateDefaultCwd as () => string)()
+    ).toBe("/repos/last-used");
+  });
+
   it("clears a requested agent type when the create dialog closes", () => {
     Object.assign(H.state, { agents: [], validatedSelectedAgentId: null });
     mount({ path: "/agents" });

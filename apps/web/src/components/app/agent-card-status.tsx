@@ -2,26 +2,19 @@ import React from "react";
 
 import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { type Agent } from "@/components/app/types";
+import { agentProjectRoot } from "@/components/app/agents-view-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 
-function RepoLabel({
-  agentId,
-  repoIconPath,
-  name,
-}: {
-  agentId: string;
-  repoIconPath?: string | null;
-  name: string;
-}) {
+function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
-  const showIcon = !!repoIconPath && !iconError;
 
   return (
     <span className="ml-auto flex min-w-0 items-center gap-1 pl-2">
-      {showIcon ? (
+      {!iconError ? (
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
           alt=""
+          loading="lazy"
           className="h-5 w-5 shrink-0 rounded-sm object-contain"
           onError={() => setIconError(true)}
         />
@@ -86,19 +79,13 @@ export function AgentCardActivity({
   onNavigate?: () => void;
 }): JSX.Element | null {
   if (agent.status === "archiving") return null;
-  const repoName = agent.gitContext
-    ? (agent.gitContext.repoRoot.split("/").pop() ?? null)
-    : (agent.cwd.split("/").pop() ?? null);
+  const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
 
   return (
     <div className="mt-1 flex min-h-4 min-w-0 items-center text-xs text-muted-foreground">
       <AgentActivityLabel agent={agent} linkToTurn onNavigate={onNavigate} />
       {repoName && !agent.reconnect ? (
-        <RepoLabel
-          agentId={agent.id}
-          repoIconPath={agent.gitContext?.repoIconPath}
-          name={repoName}
-        />
+        <RepoLabel agentId={agent.id} name={repoName} />
       ) : null}
     </div>
   );

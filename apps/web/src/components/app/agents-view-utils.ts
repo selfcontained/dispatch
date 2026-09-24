@@ -10,7 +10,12 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export function agentProjectRoot(
   agent: Agent | undefined | null
 ): string | undefined {
-  return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
+  return (
+    agent?.launchCwd?.trim() ||
+    agent?.gitContext?.repoRoot?.trim() ||
+    agent?.cwd?.trim() ||
+    undefined
+  );
 }
 
 export function readLastUsedAgentType(): AgentType | null {

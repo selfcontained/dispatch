@@ -67,7 +67,6 @@ export function useCreateAgentForm({
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
-  const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [validatedCwd, setValidatedCwd] = useState<ValidatedCwd | null>(null);
   const validatedCwdRef = useRef<ValidatedCwd | null>(null);
@@ -96,8 +95,8 @@ export function useCreateAgentForm({
   const {
     fullAccess: createFullAccess,
     setFullAccess: setCreateFullAccess,
-    autoReview: createAutoReview,
-    setAutoReview: setCreateAutoReview,
+    useWorktree: createUseWorktree,
+    setUseWorktree: setCreateUseWorktree,
     baseBranch: createBaseBranch,
     setBaseBranch: setCreateBaseBranch,
     createNewBranch,
@@ -231,7 +230,6 @@ export function useCreateAgentForm({
             ? createModel
             : undefined,
           fullAccess: createFullAccess,
-          autoReview: createAutoReview,
           useWorktree: submitUseWorktree,
           createNewBranch: submitUseWorktree
             ? submitCreateNewBranch
@@ -288,7 +286,6 @@ export function useCreateAgentForm({
       }
     },
     [
-      createAutoReview,
       createBaseBranch,
       createCwd,
       createFullAccess,
@@ -333,8 +330,6 @@ export function useCreateAgentForm({
     creating,
     createFullAccess,
     setCreateFullAccess,
-    createAutoReview,
-    setCreateAutoReview,
     createModel,
     setCreateModel,
     modelOptions,

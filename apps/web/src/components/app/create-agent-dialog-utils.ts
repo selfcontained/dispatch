@@ -1,19 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 
 import { type AgentType, isAgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
-import { createAgentModelPrefAtom, createNewBranchPrefAtom } from "@/lib/store";
+import {
+  createAgentModelPrefAtom,
+  createBaseBranchPrefAtom,
+  createFullAccessPrefAtom,
+  createNewBranchPrefAtom,
+  createUseWorktreePrefAtom,
+} from "@/lib/store";
 
 export const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
 export const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
 export const CWD_HISTORY_KEY = "dispatch:cwdHistory";
 export const CWD_HISTORY_USAGE_KEY = "dispatch:cwdHistoryUsage";
 export const CWD_HISTORY_MAX = 20;
-export const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
-export const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
-export const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
 export const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
 
 type ProjectHistoryOption = {
@@ -26,13 +29,6 @@ type ProjectHistoryOption = {
 export function readStoredString(key: string): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem(key)?.trim() ?? "";
-}
-
-export function readStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const value = window.localStorage.getItem(key);
-  if (value === null) return fallback;
-  return value === "true";
 }
 
 export function readLastUsedCwd(): string {
@@ -201,9 +197,15 @@ export function useCwdHistory() {
 
 export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
   const trimmedCwd = cwd.trim();
-  const [fullAccess, setFullAccess] = useState(false);
-  const [autoReview, setAutoReview] = useState(false);
-  const [baseBranch, setBaseBranch] = useState("main");
+  const [fullAccess, setFullAccess] = useAtom(
+    useMemo(() => createFullAccessPrefAtom(trimmedCwd), [trimmedCwd])
+  );
+  const [baseBranch, setBaseBranch] = useAtom(
+    useMemo(() => createBaseBranchPrefAtom(trimmedCwd), [trimmedCwd])
+  );
+  const [useWorktree, setUseWorktree] = useAtom(
+    useMemo(() => createUseWorktreePrefAtom(trimmedCwd), [trimmedCwd])
+  );
 
   const createNewBranchAtom = useMemo(
     () => createNewBranchPrefAtom(trimmedCwd),
@@ -216,55 +218,13 @@ export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
   );
   const [model, setModel] = useAtom(modelAtom);
 
-  useEffect(() => {
-    if (!trimmedCwd) {
-      setFullAccess(false);
-      setAutoReview(false);
-      setBaseBranch("main");
-      return;
-    }
-    setFullAccess(
-      readStoredBoolean(`${FULL_ACCESS_PREFIX}${trimmedCwd}`, false)
-    );
-    setAutoReview(
-      readStoredBoolean(`${AUTO_REVIEW_PREFIX}${trimmedCwd}`, false)
-    );
-    setBaseBranch(
-      readStoredString(`${BASE_BRANCH_PREFIX}${trimmedCwd}`) || "main"
-    );
-  }, [trimmedCwd]);
-
-  useEffect(() => {
-    if (!trimmedCwd || typeof window === "undefined") return;
-    window.localStorage.setItem(
-      `${FULL_ACCESS_PREFIX}${trimmedCwd}`,
-      String(fullAccess)
-    );
-  }, [fullAccess, trimmedCwd]);
-
-  useEffect(() => {
-    if (!trimmedCwd || typeof window === "undefined") return;
-    window.localStorage.setItem(
-      `${AUTO_REVIEW_PREFIX}${trimmedCwd}`,
-      String(autoReview)
-    );
-  }, [autoReview, trimmedCwd]);
-
-  useEffect(() => {
-    if (!trimmedCwd || typeof window === "undefined") return;
-    window.localStorage.setItem(
-      `${BASE_BRANCH_PREFIX}${trimmedCwd}`,
-      baseBranch
-    );
-  }, [baseBranch, trimmedCwd]);
-
   return {
     fullAccess,
     setFullAccess,
-    autoReview,
-    setAutoReview,
     baseBranch,
     setBaseBranch,
+    useWorktree,
+    setUseWorktree,
     createNewBranch,
     setCreateNewBranch,
     model,

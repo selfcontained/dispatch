@@ -33,10 +33,7 @@ export function extractAppendedSystemPrompt(
  * prompt, which wins over the personality as it did for CLI launches).
  */
 export function buildSystemPrompt(input: {
-  agent: Pick<
-    AgentRecord,
-    "id" | "type" | "agentArgs" | "persona" | "autoReview"
-  >;
+  agent: Pick<AgentRecord, "id" | "type" | "agentArgs" | "persona">;
   personalityPrompt: string | null;
   trimmedGuidance: boolean;
   suggestSessionRename: boolean;
@@ -48,7 +45,6 @@ export function buildSystemPrompt(input: {
     agentType: agent.type,
     ...(input.jobRunId ? { jobRunId: input.jobRunId } : {}),
     suggestSessionRename: input.suggestSessionRename,
-    autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,
   });
   const appended = extractAppendedSystemPrompt(agent.agentArgs ?? []);

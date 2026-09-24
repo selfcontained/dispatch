@@ -13,7 +13,13 @@ import {
 } from "@/components/app/create-agent-dialog-utils";
 import type { Agent } from "@/components/app/types";
 import type { AgentType } from "@/lib/agent-types";
-import { createAgentModelPrefAtom, createNewBranchPrefAtom } from "@/lib/store";
+import {
+  createAgentModelPrefAtom,
+  createBaseBranchPrefAtom,
+  createFullAccessPrefAtom,
+  createNewBranchPrefAtom,
+  createUseWorktreePrefAtom,
+} from "@/lib/store";
 
 import { useCreateAgentForm } from "./use-create-agent-form";
 
@@ -170,6 +176,14 @@ afterEach(() => {
   // read happens against that test's localStorage state.
   createNewBranchPrefAtom.setShouldRemove(() => true);
   createNewBranchPrefAtom.setShouldRemove(null);
+  for (const family of [
+    createBaseBranchPrefAtom,
+    createFullAccessPrefAtom,
+    createUseWorktreePrefAtom,
+  ]) {
+    family.setShouldRemove(() => true);
+    family.setShouldRemove(null);
+  }
 });
 
 describe("agent type seeding", () => {
@@ -378,8 +392,7 @@ describe("handleSubmit", () => {
       name: "my agent",
       cwd: "/repo/app",
       type: "claude",
-      fullAccess: false,
-      autoReview: false,
+      fullAccess: true,
       useWorktree: true,
       createNewBranch: true,
     });
@@ -455,10 +468,9 @@ describe("handleSubmit", () => {
     expect(call![1].method).toBe("POST");
     const body = call![1].body as FormData;
     expect(body).toBeInstanceOf(FormData);
-    // Empty name is skipped; false booleans are stringified, not dropped.
+    // Empty name is skipped; booleans are stringified.
     expect(body.get("name")).toBeNull();
-    expect(body.get("fullAccess")).toBe("false");
-    expect(body.get("autoReview")).toBe("false");
+    expect(body.get("fullAccess")).toBe("true");
     expect(body.get("useWorktree")).toBe("true");
     expect(body.get("createNewBranch")).toBe("true");
     expect(body.get("worktreeBranch")).toBeNull();
@@ -537,6 +549,30 @@ describe("handleSubmit", () => {
 });
 
 describe("worktree checkbox state vs. cwd repo-ness", () => {
+  it("recalls each directory's settings without overwriting them on a switch", async () => {
+    window.localStorage.setItem("dispatch:fullAccess:/repo/app", "true");
+    window.localStorage.setItem("dispatch:baseBranch:/repo/app", "develop");
+    window.localStorage.setItem("dispatch:useWorktree:/repo/app", "false");
+    window.localStorage.setItem("dispatch:fullAccess:/repo/other", "false");
+    window.localStorage.setItem("dispatch:baseBranch:/repo/other", "release");
+    const { result } = await setup();
+    expect(result.current.createFullAccess).toBe(true);
+    expect(result.current.createBaseBranch).toBe("develop");
+    expect(result.current.createUseWorktree).toBe(false);
+
+    act(() => result.current.setCreateCwd("/repo/other"));
+    expect(result.current.createFullAccess).toBe(false);
+    expect(result.current.createBaseBranch).toBe("release");
+    expect(result.current.createUseWorktree).toBe(true);
+    expect(window.localStorage.getItem("dispatch:baseBranch:/repo/app")).toBe(
+      "develop"
+    );
+
+    act(() => result.current.setCreateCwd("/repo/app"));
+    expect(result.current.createFullAccess).toBe(true);
+    expect(result.current.createBaseBranch).toBe("develop");
+    expect(result.current.createUseWorktree).toBe(false);
+  });
   it("keeps saved option state untouched while repo availability is unknown", async () => {
     const { result } = await setup();
 

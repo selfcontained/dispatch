@@ -65,6 +65,8 @@ export type AgentRecord = {
   role: AgentRole;
   status: AgentStatus;
   cwd: string;
+  /** Directory requested at creation, before any managed worktree changed cwd. */
+  launchCwd?: string | null;
   worktreePath: string | null;
   worktreeBranch: string | null;
   simulatorUdid: string | null;
@@ -102,7 +104,6 @@ export type AgentRecord = {
   reviewAgentType: AgentType | null;
   baseBranch: string | null;
   templateId: string | null;
-  autoReview: boolean;
   /** Present when this agent was spawned for a job run. */
   jobRun?: {
     continuationEnabled: boolean;

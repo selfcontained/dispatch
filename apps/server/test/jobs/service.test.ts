@@ -301,7 +301,6 @@ describe("JobService", () => {
           setupPhase: null,
           parentAgentId: null,
           persona: null,
-          autoReview: false,
           baseBranch: null,
         } as Awaited<ReturnType<AgentManager["createAgent"]>>;
       });
@@ -549,7 +548,6 @@ describe("JobService", () => {
           setupPhase: null,
           parentAgentId: null,
           persona: null,
-          autoReview: false,
           baseBranch: null,
         } as Awaited<ReturnType<AgentManager["createAgent"]>>;
       });

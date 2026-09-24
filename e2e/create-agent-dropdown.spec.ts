@@ -2,6 +2,25 @@ import { test, expect } from "@playwright/test";
 import { loadApp } from "./helpers";
 
 test.describe("Create agent dialog", () => {
+  test("full access defaults on and remembers an explicit off choice", async ({
+    page,
+  }) => {
+    await loadApp(page);
+    await page.getByTestId("create-agent-button").click();
+    const fullAccess = page.getByRole("checkbox", {
+      name: /Start in full access mode/,
+    });
+    await expect(fullAccess).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("create-agent-cwd").fill("/tmp");
+    await expect(fullAccess).toHaveAttribute("aria-checked", "true");
+    await fullAccess.click();
+    await expect(fullAccess).toHaveAttribute("aria-checked", "false");
+    await page.getByTestId("create-agent-cancel").click();
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-cwd").fill("/tmp");
+    await expect(fullAccess).toHaveAttribute("aria-checked", "false");
+  });
+
   test("defaults the working directory to a non-empty value", async ({
     page,
   }) => {
@@ -89,5 +108,30 @@ test.describe("Create agent dialog", () => {
     await expect(
       recentOptions.filter({ hasText: "/tmp/existing-project" })
     ).toBeVisible();
+  });
+
+  test("selecting a directory closes the picker at mobile width", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "dispatch:cwdHistory",
+        JSON.stringify(["/tmp/mobile-project"])
+      );
+    });
+    await loadApp(page);
+    await page.getByTestId("create-agent-button").click();
+    const input = page.getByTestId("create-agent-cwd");
+    await input.click();
+    const option = page
+      .getByTestId("create-agent-cwd-history-option")
+      .filter({ hasText: "/tmp/mobile-project" });
+    await expect(option).toBeVisible();
+    await option.click();
+    await expect(input).toHaveValue("/tmp/mobile-project");
+    await expect(
+      page.getByTestId("create-agent-cwd-history-option")
+    ).toHaveCount(0);
   });
 });
