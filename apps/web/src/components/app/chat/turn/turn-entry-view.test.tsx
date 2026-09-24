@@ -136,6 +136,28 @@ describe("TurnEntryView", () => {
     ).not.toBeNull();
   });
 
+  it("mutes what the agent said along the way and leaves the final reply bright", () => {
+    const text = "Reading the readme.\n\nIt documents the CLI.";
+    renderTurn(
+      turn(
+        {
+          settled: true,
+          result: { text, streaming: false, lead: "Reading the readme." },
+        },
+        text
+      )
+    );
+    const lead = screen.getByTestId("harness-result-lead");
+    expect(lead.textContent).toBe("Reading the readme.");
+    const muted = (el: Element) =>
+      el.firstElementChild!.classList.contains("text-muted-foreground");
+    expect(muted(lead)).toBe(true);
+    const result = screen.getByTestId("harness-result");
+    const final = result.lastElementChild!;
+    expect(final.textContent).toBe("It documents the CLI.");
+    expect(muted(final)).toBe(false);
+  });
+
   it("names the block and its settled state on the wrapper", () => {
     renderTurn(turn());
     const wrapper = screen.getByTestId("chat-turn");

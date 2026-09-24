@@ -40,6 +40,8 @@ export interface Turn {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** The start of `content` said along the way, before the final reply. */
+  lead?: string;
   trace?: Trace;
   error?: TurnError;
   timestamp: number;

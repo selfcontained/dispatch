@@ -344,7 +344,17 @@ export type ChatTurnEntry = {
     finalResult?: "ok" | "error" | "interrupted";
     steps: ChatTurnStep[];
   };
-  result: { text: string; streaming: boolean; truncated?: boolean } | null;
+  result: {
+    text: string;
+    streaming: boolean;
+    truncated?: boolean;
+    /**
+     * The start of `text` written before the turn's last tool call: what the
+     * agent said while it worked. The rest of `text` is its final reply.
+     * Absent when there is no such split (no tool call, or none followed by text).
+     */
+    lead?: string;
+  } | null;
   /** False while the turn is open: the step list is live and the result may grow. */
   settled: boolean;
   /** Cut rather than finished: Stop, Ctrl+C, Send now, or a service restart. */

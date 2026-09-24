@@ -29,10 +29,14 @@ export function resultTurnModel(
   turn: ChatTurnEntry,
   trace: Trace
 ): Turn {
+  const content = turn.settled ? block.text : (turn.result?.text ?? "");
+  const lead = turn.result?.lead;
   return {
     id: `${block.id}:result`,
     role: "assistant",
-    content: turn.settled ? block.text : (turn.result?.text ?? ""),
+    content,
+    // Only a lead the answer still opens with splits it.
+    ...(lead && content.startsWith(lead) ? { lead } : {}),
     timestamp: Date.parse(turn.trace.endedAt ?? block.createdAt),
     trace,
     ...(turn.error

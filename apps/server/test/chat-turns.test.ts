@@ -105,6 +105,7 @@ describe("assembleTurns", () => {
     expect(first.result).toEqual({
       text: "Let me look.\n\nDone: two files.",
       streaming: false,
+      lead: "Let me look.",
     });
     expect(second.prompt).toEqual({
       source: "system",
@@ -519,6 +520,7 @@ describe("assembleTurns answer text", () => {
     expect(live[0].result).toEqual({
       text: "TypeScript.\n\nAnswer above stands",
       streaming: true,
+      lead: "TypeScript.",
     });
     expect(live[0].trace.steps.map((s) => [s.kind, s.status])).toEqual([
       ["execute", "ok"],
@@ -551,7 +553,60 @@ describe("assembleTurns answer text", () => {
     expect(settled[0].result).toEqual({
       text: "TypeScript.\n\nAnswer above stands.",
       streaming: false,
+      lead: "TypeScript.",
     });
+  });
+
+  it("leads with everything said before the last tool call, and splits nothing without a reply after it", () => {
+    const tool = (n: number) =>
+      row(
+        "tool_call",
+        { toolKind: "execute", title: "Bash", status: "completed" },
+        n,
+        n
+      );
+    const turn = row(
+      "turn",
+      { state: "settled", prompt: { source: "system", text: "go" } },
+      0,
+      9
+    );
+    const said = (text: string, n: number) =>
+      row("assistant", { text, streaming: false }, n);
+
+    seq = 0;
+    const twoTools = assembleTurns(
+      [
+        turn,
+        said("Looking.", 1),
+        tool(2),
+        said("Found it.", 3),
+        tool(4),
+        said("Done.", 5),
+      ],
+      new Map()
+    );
+    expect(twoTools[0].result).toMatchObject({
+      text: "Looking.\n\nFound it.\n\nDone.",
+      lead: "Looking.\n\nFound it.",
+    });
+
+    seq = 0;
+    const endsOnTool = assembleTurns(
+      [turn, said("Looking.", 1), tool(2)],
+      new Map()
+    );
+    expect(endsOnTool[0].result).toEqual({
+      text: "Looking.",
+      streaming: false,
+    });
+
+    seq = 0;
+    const toolFirst = assembleTurns(
+      [turn, tool(1), said("Done.", 2)],
+      new Map()
+    );
+    expect(toolFirst[0].result).toEqual({ text: "Done.", streaming: false });
   });
 
   it("streams a tool-free turn's text as the answer from the start", () => {

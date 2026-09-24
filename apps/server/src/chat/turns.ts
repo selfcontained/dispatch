@@ -56,7 +56,7 @@ export type AssembledTurn = {
     finalResult?: "ok" | "error" | "interrupted";
     steps: ChatTurnStep[];
   };
-  result: { text: string; streaming: boolean; truncated?: boolean } | null;
+  result: ChatTurnEntry["result"];
   error?: string;
   /** Questions the agent asked during this turn, oldest first. */
   questions?: AssembledQuestion[];
@@ -334,6 +334,9 @@ export function assembleTurns(
     // step list once a tool call followed made it vanish mid-read, and the
     // closing text ("as above") then referred to something no longer shown.
     const spoken: string[] = [];
+    // How many of `spoken` came before the newest tool call: the text after
+    // it is the final reply, the text before it what was said along the way.
+    let spokenBeforeTool = 0;
     let truncated = false;
     const flat: {
       step: ChatTurnStep;
@@ -343,6 +346,7 @@ export function assembleTurns(
     let plan: ChatTurnPlanEntry[] | undefined;
     for (const row of group.rows) {
       if (row.kind === "tool_call") {
+        spokenBeforeTool = spoken.length;
         const step = toolStep(row);
         if (step) {
           flat.push({
@@ -371,6 +375,12 @@ export function assembleTurns(
       } else if (row.kind === "plan") {
         plan = planEntriesOf(row);
       }
+    }
+    if (result && spokenBeforeTool > 0 && spokenBeforeTool < spoken.length) {
+      result = {
+        ...result,
+        lead: spoken.slice(0, spokenBeforeTool).join("\n\n"),
+      };
     }
     const steps = nestSteps(flat);
     const error = turnPayload?.error;
