@@ -279,6 +279,21 @@ export function AgentsView({
     drawerRoute;
   const threadDrawerOpen = drawerRoute.depth > 0 && hasActiveAgent;
   const pinnedReserve = drawerPinnedReserve(leftOpen);
+  // On a phone with no agent selected the center pane is an empty prompt,
+  // so the sidebar opens in its place. Only on entering that state, so
+  // closing the sidebar by hand still sticks; and a sheet opened this way
+  // closes again once a route (Forward, a link) selects an agent.
+  const noAgentOnMobile = isMobile && agentsLoaded && !hasActiveAgent;
+  const sidebarAutoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (noAgentOnMobile) {
+      sidebarAutoOpenedRef.current = true;
+      setMobileLeftOpen(true);
+    } else if (sidebarAutoOpenedRef.current) {
+      sidebarAutoOpenedRef.current = false;
+      setMobileLeftOpen(false);
+    }
+  }, [noAgentOnMobile, setMobileLeftOpen]);
   // On a phone the two are sheets over the same edge: a thread opening
   // takes the sidebar's sheet down.
   useEffect(() => {
@@ -378,12 +393,22 @@ export function AgentsView({
     [isMobile, setMobileLeftOpen]
   );
 
-  const handleCreateOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      setRequestedCreateType(null);
-    }
-    setCreateOpen(open);
-  }, []);
+  const handleCreateOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        setRequestedCreateType(null);
+        // Create closes the mobile sheet on the way in; cancelling it with
+        // no agent selected would leave the empty pane, so the sheet
+        // comes back.
+        if (noAgentOnMobile) {
+          sidebarAutoOpenedRef.current = true;
+          setMobileLeftOpen(true);
+        }
+      }
+      setCreateOpen(open);
+    },
+    [noAgentOnMobile, setMobileLeftOpen]
+  );
 
   const changesElement = changesVisible ? (
     <ChangesTab
