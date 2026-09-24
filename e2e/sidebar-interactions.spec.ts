@@ -65,7 +65,7 @@ test.describe("Sidebar interactions", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await loadApp(page);
 
-    await page.getByTitle("Open sidebar").click();
+    // With no agent selected, the sidebar opens on its own.
     await expectMobileSidebarOpen(page);
     await page.getByTestId("automations-button").click();
     await expect(page).toHaveURL(/\/automations$/);

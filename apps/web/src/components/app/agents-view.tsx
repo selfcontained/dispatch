@@ -281,6 +281,13 @@ export function AgentsView({
   const pinnedReserve = drawerPinnedReserve(leftOpen);
   // On a phone the two are sheets over the same edge: a thread opening
   // takes the sidebar's sheet down.
+  // On a phone with no agent selected the center pane is an empty prompt,
+  // so the sidebar opens in its place. Only on entering that state, so
+  // closing the sidebar by hand still sticks.
+  const noAgentOnMobile = isMobile && agentsLoaded && !hasActiveAgent;
+  useEffect(() => {
+    if (noAgentOnMobile) setMobileLeftOpen(true);
+  }, [noAgentOnMobile, setMobileLeftOpen]);
   useEffect(() => {
     if (isMobile && threadDrawerOpen && mobileDrawerOpen) {
       setMobileDrawerOpen(false);
