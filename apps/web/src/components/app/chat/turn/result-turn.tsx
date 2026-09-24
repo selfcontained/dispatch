@@ -6,6 +6,14 @@ import { Markdown } from "@/components/ui/markdown";
 
 import type { Turn } from "./contracts";
 
+/**
+ * Markdown sets foreground on headings, bold, list items, code and table
+ * headers; mute them all. Links keep their accent, dimmed, so they still
+ * read as links; highlighted code blocks keep their colors, dimmed.
+ */
+const MUTED_MARKDOWN =
+  "text-muted-foreground prose-headings:text-muted-foreground prose-strong:text-muted-foreground prose-li:text-muted-foreground prose-code:text-muted-foreground prose-th:text-muted-foreground prose-a:text-primary/70 prose-pre:opacity-70";
+
 /** Where a failed turn's retry stands; see `ChatTurnEntry.retry`. */
 export type ResultRetry = {
   state: "open" | "retried";
@@ -35,9 +43,7 @@ function ResultTurnImpl({
     // the retry's own turn, below, carries the conversation on.
     return (
       <div className="space-y-2" data-testid="harness-result">
-        {turn.content && !echoesError ? (
-          <ResultText content={turn.content} />
-        ) : null}
+        {turn.content && !echoesError ? <ResultBody turn={turn} /> : null}
         <p
           className="flex min-w-0 items-center gap-[9px] text-[11.5px] text-muted-foreground"
           title={error.message}
@@ -64,7 +70,7 @@ function ResultTurnImpl({
       className="space-y-2 animate-message-in motion-reduce:animate-none"
       data-testid="harness-result"
     >
-      {showContent ? <ResultText content={turn.content} /> : null}
+      {showContent ? <ResultBody turn={turn} /> : null}
       {error && !echoesError ? (
         <ResultText content={error.message} error />
       ) : null}
@@ -108,20 +114,42 @@ function ResultTurnImpl({
 
 export const ResultTurn = memo(ResultTurnImpl);
 
+/**
+ * The answer's text. What the agent said while it worked reads muted, so
+ * the final reply under it stands out and a reader can skip to it.
+ */
+function ResultBody({ turn }: { turn: Turn }): JSX.Element {
+  const final = turn.lead ? turn.content.slice(turn.lead.length).trim() : "";
+  if (!turn.lead || !final) return <ResultText content={turn.content} />;
+  return (
+    <>
+      <ResultText content={turn.lead} muted />
+      <ResultText content={final} />
+    </>
+  );
+}
+
 function ResultText({
   content,
   error,
+  muted,
 }: {
   content: string;
   error?: boolean;
+  muted?: boolean;
 }): JSX.Element {
   return error ? (
     <p className="min-w-0 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
       {content}
     </p>
   ) : (
-    <div className="min-w-0 text-[12.5px] leading-[1.6]">
-      <Markdown>{content}</Markdown>
+    <div
+      className="min-w-0 text-[12.5px] leading-[1.6]"
+      data-testid={muted ? "harness-result-lead" : undefined}
+    >
+      <Markdown className={muted ? MUTED_MARKDOWN : undefined}>
+        {content}
+      </Markdown>
     </div>
   );
 }
