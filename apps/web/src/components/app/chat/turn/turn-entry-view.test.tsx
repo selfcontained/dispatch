@@ -158,7 +158,7 @@ describe("TurnEntryView", () => {
     expect(muted(final)).toBe(false);
   });
 
-  it("mutes a lead's table headers and dims its links", () => {
+  it("mutes a lead's table headers and dims its links and code blocks", () => {
     const lead = "See [the docs](https://x.test).\n\n| a |\n| - |\n| 1 |";
     const text = `${lead}\n\nDone.`;
     renderTurn(
@@ -170,6 +170,7 @@ describe("TurnEntryView", () => {
     expect(classes.contains("prose-th:text-foreground")).toBe(false);
     expect(classes.contains("prose-a:text-primary/70")).toBe(true);
     expect(classes.contains("prose-a:text-primary")).toBe(false);
+    expect(classes.contains("prose-pre:opacity-70")).toBe(true);
   });
 
   it("names the block and its settled state on the wrapper", () => {

@@ -9,10 +9,10 @@ import type { Turn } from "./contracts";
 /**
  * Markdown sets foreground on headings, bold, list items, code and table
  * headers; mute them all. Links keep their accent, dimmed, so they still
- * read as links.
+ * read as links; highlighted code blocks keep their colors, dimmed.
  */
 const MUTED_MARKDOWN =
-  "text-muted-foreground prose-headings:text-muted-foreground prose-strong:text-muted-foreground prose-li:text-muted-foreground prose-code:text-muted-foreground prose-th:text-muted-foreground prose-a:text-primary/70";
+  "text-muted-foreground prose-headings:text-muted-foreground prose-strong:text-muted-foreground prose-li:text-muted-foreground prose-code:text-muted-foreground prose-th:text-muted-foreground prose-a:text-primary/70 prose-pre:opacity-70";
 
 /** Where a failed turn's retry stands; see `ChatTurnEntry.retry`. */
 export type ResultRetry = {
