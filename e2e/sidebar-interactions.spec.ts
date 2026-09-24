@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  clickAgentRow,
+  createAgentViaAPI,
+  loadApp,
+} from "./helpers";
 
 async function expectMobileSidebarOpen(
   page: import("@playwright/test").Page
@@ -11,6 +16,17 @@ async function expectMobileSidebarOpen(
       dialog.evaluate((el) => Math.round(el.getBoundingClientRect().left))
     )
     .toBe(0);
+}
+
+async function expectMobileSidebarClosed(
+  page: import("@playwright/test").Page
+): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Navigation sidebar" });
+  await expect
+    .poll(async () =>
+      dialog.evaluate((el) => Math.round(el.getBoundingClientRect().left))
+    )
+    .toBeLessThan(0);
 }
 
 test.describe("Sidebar interactions", () => {
@@ -77,5 +93,33 @@ test.describe("Sidebar interactions", () => {
     await page.getByTestId("agents-button").click();
     await expect(page).toHaveURL(/\/agents$/);
     await expectMobileSidebarOpen(page);
+  });
+});
+
+test.describe("Mobile sidebar with no agent selected", () => {
+  test.afterEach(async ({ request }) => {
+    await cleanupE2EAgents(request);
+  });
+
+  test("auto-opened sidebar closes when Forward selects an agent", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadApp(page);
+    await expectMobileSidebarOpen(page);
+
+    await clickAgentRow(page, agent.id);
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}`));
+    await expectMobileSidebarClosed(page);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/agents$/);
+    await expectMobileSidebarOpen(page);
+
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}`));
+    await expectMobileSidebarClosed(page);
   });
 });
