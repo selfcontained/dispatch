@@ -39,6 +39,15 @@ export function atomWithLocalStorage<T>(
     let value: unknown;
     try {
       value = JSON.parse(raw);
+      // An older unquoted string can itself be valid JSON (for example a
+      // branch named "123" or "null"). Keep it as a string in that case.
+      if (
+        options.legacyRawString &&
+        typeof initialValue === "string" &&
+        typeof value !== "string"
+      ) {
+        value = raw;
+      }
     } catch {
       // Older string preferences were stored without JSON quoting.
       if (!options.legacyRawString || typeof initialValue !== "string")
