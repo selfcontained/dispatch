@@ -204,6 +204,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ThreadDrawer", () => {
+  it("retries an undelivered thread reply and surfaces a refused retry", async () => {
+    const failed = block({
+      id: "feedback",
+      author: { kind: "user" },
+      text: "Browser feedback",
+      threadId: "rv",
+      delivered: false,
+    });
+    const data = { root: review, replies: [failed] };
+    client.setQueryData(threadQueryKey("agt_1", "rv"), data);
+    apiMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/feedback/retry")) throw new Error("Agent is stopped");
+      if (url.endsWith("/thread")) return data;
+      return { ids: [], readAt: null };
+    });
+    renderThreadDrawer("?thread=rv&block=feedback");
+    fireEvent.click(await screen.findByRole("button", { name: "Send again" }));
+    await waitFor(() => {
+      expect(apiMock).toHaveBeenCalledWith(
+        expect.stringContaining("/blocks/feedback/retry"),
+        { method: "POST" }
+      );
+      expect(
+        screen.getByText("Couldn't send that message again: Agent is stopped")
+      ).toBeTruthy();
+    });
+  });
+
   it("is nothing when the URL names no thread", () => {
     renderThreadDrawer("");
     expect(screen.queryByTestId("thread-drawer")).toBeNull();
