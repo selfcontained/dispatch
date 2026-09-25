@@ -342,6 +342,8 @@ export type ChatTurnEntry = {
     startedAt: string;
     endedAt?: string;
     finalResult?: "ok" | "error" | "interrupted";
+    /** The feed omits large settled edit diffs; open the activity to load them. */
+    detailsOmitted?: boolean;
     steps: ChatTurnStep[];
   };
   result: {

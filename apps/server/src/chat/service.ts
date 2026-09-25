@@ -54,6 +54,7 @@ import {
 } from "./envelope.js";
 import {
   type ComposeFeedOptions,
+  compactFeedTurnDetails,
   composeStreamFeed,
   loadBlockEntry,
 } from "./feed.js";
@@ -2117,7 +2118,14 @@ export class StreamService {
     const blockId = await loadNewestTurnBlockId(this.store.db, agentId);
     if (!blockId) return null;
     const streamId = await this.streamOf(agentId);
-    return loadBlockEntry(this.store.db, streamId, blockId, this.heldCheck());
+    const entry = await loadBlockEntry(
+      this.store.db,
+      streamId,
+      blockId,
+      this.heldCheck()
+    );
+    if (entry) compactFeedTurnDetails([entry.block]);
+    return entry;
   }
 
   private async composeTurnEntry(agentId: string): Promise<void> {
@@ -2178,6 +2186,7 @@ export class StreamService {
       this.heldCheck()
     );
     if (!entry) return;
+    compactFeedTurnDetails([entry.block]);
     this.deps.publishUiEvent({
       type: "stream.entry",
       agentId: streamId,
@@ -2314,6 +2323,7 @@ export class StreamService {
       this.publishChanged(streamId);
       return;
     }
+    compactFeedTurnDetails([entry.block]);
     this.deps.publishUiEvent({
       type: "stream.entry",
       agentId: streamId,

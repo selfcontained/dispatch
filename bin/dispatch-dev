@@ -339,6 +339,7 @@ cmd_up() {
 
     # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
+    export DISPATCH_DEV_STACK=1
     # Bind to all interfaces so the dev stack is reachable from other devices
     # (phone, another laptop) on the LAN or tailnet, not just this machine.
     export DISPATCH_HOST="${DISPATCH_HOST:-0.0.0.0}"

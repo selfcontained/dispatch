@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +155,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("ChatFiltersButton", () => {
@@ -211,12 +219,22 @@ describe("AgentPane", () => {
   });
 
   it("remounts the chat pane per agent", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(0), 16)
+    );
+    vi.stubGlobal("cancelAnimationFrame", window.clearTimeout);
     const { rerender, props } = renderPane();
     const first = screen.getByTestId("chat-pane");
     rerender(
       <AgentPane {...props} agentId="agt_b" agent={agentNamed("agt_b")} />
     );
+    expect(screen.getByText("agent agt_b")).toBeTruthy();
+    expect(screen.getByTestId("agent-chat-opening")).toBeTruthy();
+    expect(screen.queryByTestId("chat-pane")).toBeNull();
+    act(() => vi.advanceTimersByTime(17));
     expect(screen.getByTestId("chat-pane")).not.toBe(first);
+    expect(screen.queryByTestId("agent-chat-opening")).toBeNull();
   });
 
   it("does not take focus while the pane is inactive", () => {

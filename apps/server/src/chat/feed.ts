@@ -1,5 +1,6 @@
 import type {
   Block,
+  ChatTurnStep,
   StreamBlockEntry,
   StreamEntry,
   StreamFeedResponse,
@@ -35,6 +36,8 @@ export type ComposeFeedOptions = {
   limit?: number;
   /** Whether an agent is mid-turn, for the `held` delivery state. */
   isHeld?: (agentId: string) => boolean;
+  /** Development comparison only: retain full settled step details. */
+  compactTurns?: boolean;
 };
 
 /**
@@ -232,6 +235,55 @@ export async function loadBlockEntry(
 const SHOWN_MAX_DEPTH = 4;
 
 /**
+ * A settled turn's edit diffs and tool output can dwarf the rest of a feed
+ * page even though its activity is closed. Keep paths for the folded turn
+ * label; the detail route returns the full turn when the reader opens it.
+ */
+export function compactFeedTurnDetails(blocks: readonly Block[]): void {
+  const omitStep = (step: ChatTurnStep): boolean => {
+    let omitted = false;
+    const diff = step.detail.diff;
+    if (diff) {
+      if (!step.detail.locations?.length) {
+        step.detail.locations = [{ path: diff.path }];
+      }
+      delete step.detail.diff;
+      omitted = true;
+    }
+    if ((step.detail.terminalOutput?.length ?? 0) > 1024) {
+      delete step.detail.terminalOutput;
+      omitted = true;
+    }
+    if ((step.detail.text?.length ?? 0) > 1024) {
+      delete step.detail.text;
+      omitted = true;
+    }
+    if (
+      step.detail.input !== undefined &&
+      JSON.stringify(step.detail.input).length > 4096
+    ) {
+      delete step.detail.input;
+      omitted = true;
+    }
+    for (const child of step.children ?? []) {
+      if (omitStep(child)) omitted = true;
+    }
+    return omitted;
+  };
+  for (const block of blocks) {
+    const turn = block.turn;
+    if (turn?.settled) {
+      let omitted = false;
+      for (const step of turn.trace.steps) {
+        if (omitStep(step)) omitted = true;
+      }
+      if (omitted) turn.trace.detailsOmitted = true;
+    }
+    if (block.blocks?.length) compactFeedTurnDetails(block.blocks);
+  }
+}
+
+/**
  * Put the blocks each block shows onto it as `blocks`, read the way the
  * feed reads any row (reactions, thread counts), and theirs onto them in
  * turn. A host is drawn with what it shows, so it has to arrive with it.
@@ -290,6 +342,7 @@ export async function composeStreamFeed(
     attachTurns(db, blocks),
     attachShown(db, streamId, blocks, opts.isHeld),
   ]);
+  if (opts.compactTurns !== false) compactFeedTurnDetails(blocks);
   // Names last: the blocks the page shows, and the asks and links it
   // carries, name agents of their own.
   const agentNames = await agentNamesFor(db, [

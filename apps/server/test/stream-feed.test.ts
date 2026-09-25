@@ -4,6 +4,7 @@ import type { BlockAuthor, StreamBlockEntry } from "@dispatch/shared";
 
 import {
   clampFeedLimit,
+  compactFeedTurnDetails,
   composeStreamFeed,
   decodeFeedCursor,
   encodeFeedCursor,
@@ -347,7 +348,25 @@ describe("composeStreamFeed", () => {
     const eventId = Number(turnRow.rows[0]!.id);
     await pool.query(
       `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at, updated_at)
-       VALUES ($1, 2, 'assistant', $2::jsonb, $3, $3)`,
+       VALUES ($1, 2, 'tool_call', $2::jsonb, $3, $3)`,
+      [
+        A,
+        JSON.stringify({
+          toolKind: "edit",
+          title: "edit src/example.ts",
+          status: "completed",
+          diff: {
+            path: "src/example.ts",
+            oldText: "before",
+            newText: "after",
+          },
+        }),
+        at(3),
+      ]
+    );
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at, updated_at)
+       VALUES ($1, 3, 'assistant', $2::jsonb, $3, $3)`,
       [A, JSON.stringify({ text: "Fixed it.", streaming: false }), at(3)]
     );
     const answer = await store.insert({
@@ -378,10 +397,28 @@ describe("composeStreamFeed", () => {
         trace: { finalResult: "ok" },
       },
     });
-    // One block read back carries its turn too, and the prompt is a row.
-    expect(
-      (await loadBlockEntry(pool, A, answer.id))?.block.turn
-    ).toMatchObject({ settled: true });
+    const listedTurn = feed.entries[1]!.block.turn!;
+    expect(listedTurn.trace.detailsOmitted).toBe(true);
+    expect(listedTurn.trace.steps[0]!.detail).toMatchObject({
+      locations: [{ path: "src/example.ts" }],
+    });
+    expect(listedTurn.trace.steps[0]!.detail.diff).toBeUndefined();
+    // The detail route still has the whole diff for an opened activity.
+    const fullEntry = await loadBlockEntry(pool, A, answer.id);
+    expect(fullEntry?.block.turn).toMatchObject({
+      settled: true,
+      trace: {
+        steps: [{ detail: { diff: { oldText: "before", newText: "after" } } }],
+      },
+    });
+    // Live turns retain their current step detail even in a closed fold.
+    const runningBlock = structuredClone(fullEntry!.block);
+    runningBlock.turn!.settled = false;
+    compactFeedTurnDetails([runningBlock]);
+    expect(runningBlock.turn!.trace.steps[0]!.detail.diff).toMatchObject({
+      oldText: "before",
+      newText: "after",
+    });
     expect(await loadBlockEntry(pool, A, prompt.id)).not.toBeNull();
     // A block that names no turn row of the agent's has no turn.
     const stray = await store.insert({

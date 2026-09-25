@@ -8,6 +8,39 @@ import { useCopyText } from "@/hooks/use-copy";
 import { MermaidBlock } from "@/components/ui/markdown-mermaid";
 import { useMermaidTheme } from "@/components/ui/markdown-mermaid-theme";
 import { cn } from "@/lib/utils";
+import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
+
+// Highlight.js runs synchronously. Keep colors for long code blocks, but do
+// not highlight the same cached chat message again on every agent switch.
+const MAX_HIGHLIGHT_CACHE_CHARS = 8_000_000;
+const highlightCache = new Map<string, string>();
+let highlightCacheChars = 0;
+
+function highlightMarkdownCode(code: string, language?: string): string | null {
+  // The validation mode must reproduce the original uncached behavior.
+  if (agentSwitchValidationMode === "before") {
+    return highlightCodeLanguage(code, language);
+  }
+
+  const key = `${language ?? ""}\0${code}`;
+  const cached = highlightCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const html = highlightCodeLanguage(code, language);
+  if (html === null) return null;
+  const size = key.length + html.length;
+  if (size <= MAX_HIGHLIGHT_CACHE_CHARS) {
+    while (highlightCacheChars + size > MAX_HIGHLIGHT_CACHE_CHARS) {
+      const oldest = highlightCache.keys().next().value;
+      if (oldest === undefined) break;
+      highlightCacheChars -= oldest.length + highlightCache.get(oldest)!.length;
+      highlightCache.delete(oldest);
+    }
+    highlightCache.set(key, html);
+    highlightCacheChars += size;
+  }
+  return html;
+}
 
 /**
  * A fenced code block with a copy button in its corner, like a post's own
@@ -249,7 +282,7 @@ function MarkdownDefault({
               return <MermaidBlock code={block.code} theme={mermaidTheme} />;
             }
             const highlightedHtml = block
-              ? highlightCodeLanguage(block.code, block.className)
+              ? highlightMarkdownCode(block.code, block.className)
               : null;
             if (block && highlightedHtml) {
               return (

@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { Hash, ListFilter } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
+import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -116,6 +118,24 @@ export function AgentPane({
   onOpenPath,
   isMobile,
 }: AgentPaneProps): JSX.Element {
+  const [mountedAgentId, setMountedAgentId] = useState(agentId);
+
+  // Route changes should paint the newly selected agent before mounting its
+  // cached feed. Rendering a large cached stream in the navigation commit
+  // otherwise leaves the previous agent selected until that work finishes.
+  useEffect(() => {
+    if (agentSwitchValidationMode === "before") return;
+    if (mountedAgentId === agentId) return;
+    let timer: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(() => setMountedAgentId(agentId), 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [agentId, mountedAgentId]);
+
   return (
     <div
       className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden"
@@ -127,6 +147,14 @@ export function AgentPane({
             <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{agent?.name ?? "Agent"}</span>
           </span>
+          {agentSwitchValidationMode ? (
+            <span
+              className="text-[10px] text-muted-foreground"
+              data-testid="agent-switch-validation-mode"
+            >
+              Validation: {agentSwitchValidationMode} fix
+            </span>
+          ) : null}
           <ChatFiltersButton
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}
@@ -139,17 +167,27 @@ export function AgentPane({
          * scroll position are agent-local, and a direct /agents/a →
          * /agents/b transition must not carry them across.
          */}
-        <ChatPane
-          key={agentId ?? "none"}
-          agentId={agentId}
-          agent={agent}
-          active={active}
-          showChildAgents={showChildAgents}
-          onShowChildAgentsChange={onShowChildAgentsChange}
-          openLightbox={openLightbox}
-          onOpenPath={onOpenPath}
-          isMobile={isMobile}
-        />
+        {agentSwitchValidationMode === "before" ||
+        mountedAgentId === agentId ? (
+          <ChatPane
+            key={agentId ?? "none"}
+            agentId={agentId}
+            agent={agent}
+            active={active}
+            showChildAgents={showChildAgents}
+            onShowChildAgentsChange={onShowChildAgentsChange}
+            openLightbox={openLightbox}
+            onOpenPath={onOpenPath}
+            isMobile={isMobile}
+          />
+        ) : (
+          <div
+            className="flex h-full items-center justify-center text-sm text-muted-foreground"
+            data-testid="agent-chat-opening"
+          >
+            Opening chat…
+          </div>
+        )}
       </div>
     </div>
   );
