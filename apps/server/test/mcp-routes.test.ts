@@ -34,6 +34,10 @@ vi.mock("../src/agents/telemetry.js", () => ({
 function createMockDeps() {
   return {
     config: { authToken: "test-auth-token" },
+    providerPlans: vi.fn(async () => ({
+      checkedAt: "2026-09-24T12:00:00Z",
+      providers: [],
+    })),
     // Only the chat-surface flag reads it from these routes.
     pool: { query: vi.fn(async () => ({ rows: [] })) } as never,
     agentManager: {
@@ -291,4 +295,16 @@ describe("POST /api/mcp/:agentId", () => {
     expect(deps.validateAgentMcpToken).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(404);
   });
+});
+
+describe("usage callback wiring", () => {
+  it.each(["/api/mcp/agt_test1", "/api/mcp/jobs/run_1/agt_test1"])(
+    "provides the shared reporter to %s",
+    async (url) => {
+      const res = await app.inject({ method: "POST", url, payload: {} });
+      expect(res.statusCode).toBe(200);
+      const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
+      expect(context?.providerPlans).toBe(deps.providerPlans);
+    }
+  );
 });

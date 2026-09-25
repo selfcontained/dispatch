@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
+import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { AgentManager } from "../agents/manager.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
@@ -38,6 +39,7 @@ function onceResponseFinished(res: {
 }
 
 type McpRouteDeps = {
+  providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   config: {
     authToken: string;
   };
@@ -133,6 +135,9 @@ export async function registerMcpRoutes(
   app: FastifyInstance,
   deps: McpRouteDeps
 ): Promise<void> {
+  const providerPlans =
+    deps.providerPlans ?? createProviderPlansReporter({ log: app.log });
+
   app.post("/api/mcp", async (request, reply) => {
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body);
@@ -201,6 +206,7 @@ export async function registerMcpRoutes(
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      providerPlans,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
@@ -279,6 +285,7 @@ export async function registerMcpRoutes(
     // the calling session can wait for its own response to be delivered.
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      providerPlans,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
