@@ -105,7 +105,7 @@ export function DiffStatBadge({
             onRefresh();
           }}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 pb-px pt-[3px] font-mono text-[10px] leading-none transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-none transition-colors",
             "border-border bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground",
             flash && "border-status-working/60 bg-status-working/15"
           )}
