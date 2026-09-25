@@ -35,7 +35,6 @@ export function extractAppendedSystemPrompt(
 export function buildSystemPrompt(input: {
   agent: Pick<AgentRecord, "id" | "type" | "agentArgs" | "persona">;
   personalityPrompt: string | null;
-  trimmedGuidance: boolean;
   suggestSessionRename: boolean;
   /** A job run: the guidance names the job tools (job_complete, …). */
   jobRunId?: string | null;
@@ -44,10 +43,8 @@ export function buildSystemPrompt(input: {
 }): string {
   const { agent } = input;
   const guidance = buildLaunchGuidance(agent.id, {
-    agentType: agent.type,
     ...(input.jobRunId ? { jobRunId: input.jobRunId } : {}),
     suggestSessionRename: input.suggestSessionRename,
-    trimmedGuidance: input.trimmedGuidance,
   });
   const appended = input.previousJobFinished
     ? null

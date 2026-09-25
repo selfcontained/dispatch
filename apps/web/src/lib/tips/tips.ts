@@ -237,14 +237,6 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
-    id: "launch-guidance-trim",
-    title: "Shorter Startup Rules",
-    body: "Running the Dispatch plugin? Settings → Agents → Launch guidance lets new Claude Code and Codex agents skip the rules the plugin's skills already cover, leaving more room for your prompt.",
-    docsSection: "plugin#plugin-launch-guidance",
-    since: "0.34.2",
-    surfaces: ["ambient"],
-  },
-  {
     id: "sub-agents",
     title: "Sub Agents",
     body: "Agents launched by another agent now live in that agent's card — expand it to find the Sub Agents list, where each row has its own terminal, pause, settings, and archive actions.",

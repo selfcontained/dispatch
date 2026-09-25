@@ -280,7 +280,7 @@ test.describe("Stream windowing", () => {
     expect(moved).toBe(300);
   });
 
-  test("find-in-page and the full-history setting put every loaded row in the page", async ({
+  test("browser find and retired full-history preferences cannot disable windowing", async ({
     page,
     request,
   }) => {
@@ -293,38 +293,25 @@ test.describe("Stream windowing", () => {
       page.locator(`[data-chat-entry-id="${ids[ROWS - 1]}"]`)
     ).toBeInViewport();
     await expect.poll(() => mountedRows(page)).toBeLessThan(60);
-    await scroller(page).evaluate((el) => {
-      el.scrollTop = el.scrollHeight / 2;
-    });
-    await page.waitForTimeout(500);
-    const before = (await topRow(page))!;
 
-    // Reaching for find: the first page (100 posts plus the launch post)
-    // is all there, and the reader has not moved.
     await page.keyboard.press("ControlOrMeta+f");
-    await expect.poll(() => mountedRows(page)).toBeGreaterThanOrEqual(100);
-    await expect(page.getByTestId("window-gap")).toHaveCount(0);
-    await expect
-      .poll(async () =>
-        scroller(page).evaluate(
-          (el, id) =>
-            Math.round(
-              el
-                .querySelector(`[data-chat-entry-id="${id}"]`)!
-                .getBoundingClientRect().top - el.getBoundingClientRect().top
-            ),
-          before.id
-        )
-      )
-      .toBe(before.offset);
+    await expect(page.getByTestId("window-gap").first()).toBeAttached();
+    await expect.poll(() => mountedRows(page)).toBeLessThan(60);
+    await page.keyboard.press("Escape");
 
-    // The setting keeps it that way from the first render.
+    // An existing browser's saved opt-in must no longer bypass windowing.
     await page.evaluate(() =>
       window.localStorage.setItem("dispatch:stream-full-history", "true")
     );
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect.poll(() => mountedRows(page)).toBeGreaterThanOrEqual(100);
-    await expect(page.getByTestId("window-gap")).toHaveCount(0);
+    await expect(
+      page.locator(`[data-chat-entry-id="${ids[ROWS - 1]}"]`)
+    ).toBeInViewport();
+    await expect(page.getByTestId("window-gap").first()).toBeAttached();
+    await expect.poll(() => mountedRows(page)).toBeLessThan(60);
+    await page.screenshot({
+      path: test.info().outputPath("windowed-history.png"),
+    });
   });
 
   test("a reload puts the reader back on the row they were reading", async ({
@@ -360,7 +347,7 @@ test.describe("Stream windowing", () => {
       .toBe(before.offset);
   });
 
-  test("full history after older rows landed above still mounts every row", async ({
+  test("browser find keeps older loaded pages windowed", async ({
     page,
     request,
   }) => {
@@ -381,8 +368,8 @@ test.describe("Stream windowing", () => {
     await page.waitForTimeout(500);
 
     await page.keyboard.press("ControlOrMeta+f");
-    await expect.poll(() => mountedRows(page)).toBeGreaterThanOrEqual(200);
-    await expect(page.getByTestId("window-gap")).toHaveCount(0);
+    await expect.poll(() => mountedRows(page)).toBeLessThan(60);
+    await expect(page.getByTestId("window-gap").first()).toBeAttached();
   });
 
   test("a reload puts the reader back on a row from an older page", async ({

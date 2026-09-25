@@ -90,7 +90,7 @@ export function WorktreesContent() {
         <P>
           By default, worktrees are created next to the repo as siblings (e.g.{" "}
           <Code>../repo-branch-name</Code>). You can change this in{" "}
-          <strong>Settings → Agents</strong> to place them inside the repo at{" "}
+          <strong>Settings → Workspace</strong> to place them inside the repo at{" "}
           <Code>.dispatch/worktrees/</Code> instead. Sibling worktrees avoid
           nesting issues with tools that recurse into the repo; nested worktrees
           keep everything under one directory.

@@ -710,7 +710,7 @@ test.describe("Worktree location setting", () => {
     await page.getByTestId("settings-button").click();
     await page
       .getByRole("navigation")
-      .getByText("Agents", { exact: true })
+      .getByText("Workspace", { exact: true })
       .click();
 
     await expect(page.getByText("Worktree location")).toBeVisible({

@@ -36,6 +36,10 @@ test.describe("Settings pane", () => {
     await expect(sidebar.getByText("Settings").first()).toBeVisible({
       timeout: 3_000,
     });
+    await expect(page.getByTestId("stream-full-history")).toHaveCount(0);
+    await expect(
+      page.getByText("Always keep the whole history in the page")
+    ).toHaveCount(0);
     const generalNav = sidebar.getByText("General");
     await expect(generalNav).toBeVisible();
 
@@ -44,6 +48,30 @@ test.describe("Settings pane", () => {
 
     // Settings nav should no longer be visible (back to agents view)
     await expect(generalNav).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  test("groups workspace and security controls separately from agent behavior", async ({
+    page,
+  }) => {
+    await loadApp(page);
+    await page.getByTestId("settings-button").click();
+    const nav = page.getByTestId("sidebar-shell").getByRole("navigation");
+    await nav.getByRole("button", { name: "Agents", exact: true }).click();
+    await expect(page.getByTestId("agent-type-toggle-claude")).toBeVisible();
+    await expect(page.getByTestId("launch-guidance-trim-toggle")).toHaveCount(
+      0
+    );
+    await expect(page.getByText("Worktree location")).toHaveCount(0);
+    await nav.getByRole("button", { name: "Workspace", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/workspace$/);
+    await expect(page.getByText("Worktree location")).toBeVisible();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Worktree location")).toBeVisible();
+    await nav.getByRole("button", { name: "Security", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/security$/);
+    await expect(
+      page.getByRole("button", { name: "Set password", exact: true })
+    ).toBeVisible();
   });
 
   test("shows version metadata in the Updates section", async ({ page }) => {
@@ -313,4 +341,214 @@ test.describe("Settings pane", () => {
       agentCard.getByTestId("launch-reviewer-type-dropdown")
     ).toHaveCount(0);
   });
+});
+
+test("personal avatar persists, uploads, handles errors and resets", async ({
+  page,
+}) => {
+  await loadApp(page);
+  await page.getByTestId("settings-button").click();
+  const cat = page.getByRole("button", { name: "Use Cat avatar" });
+  await cat.click();
+  await expect(cat).toHaveAttribute("aria-pressed", "true");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(cat).toHaveAttribute("aria-pressed", "true");
+  const upload = page.getByTestId("user-avatar-upload");
+  await upload.setInputFiles({
+    name: "avatar.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=",
+      "base64"
+    ),
+  });
+  await page.getByRole("button", { name: "Save photo", exact: true }).click();
+  const photo = page.getByTestId("user-avatar-preview").locator("img");
+  await expect(photo).toBeVisible();
+  await expect(photo).toHaveAttribute("src", /^data:image\/webp;base64,/);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(photo).toBeVisible();
+  await upload.setInputFiles({
+    name: "bad.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from("<svg/>"),
+  });
+  await expect(page.getByRole("alert")).toContainText(
+    "Choose a PNG, JPEG, WebP, HEIC or HEIF"
+  );
+  await expect(photo).toBeVisible();
+  await page.getByRole("button", { name: "Reset avatar" }).click();
+  await expect(
+    page.getByRole("button", { name: "Use Person avatar" })
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.route("**/api/v1/app/settings/user-avatar", async (route) => {
+    if (route.request().method() === "PUT")
+      await route.fulfill({ status: 500, json: { error: "Save failed" } });
+    else await route.continue();
+  });
+  await cat.click();
+  await expect(page.getByRole("alert")).toContainText("Save failed");
+  await expect(
+    page.getByRole("button", { name: "Use Person avatar" })
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("avatar accepts large phone photos and HEIC, saves only a cropped thumbnail", async ({
+  page,
+}) => {
+  await loadApp(page);
+  await page.getByTestId("settings-button").click();
+  const jpeg = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 8000;
+    canvas.height = 6000;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, 8000, 6000);
+    ctx.fillStyle = "#00ff00";
+    ctx.fillRect(1000, 0, 6000, 6000);
+    return canvas.toDataURL("image/jpeg", 0.9).split(",")[1]!;
+  });
+  // Trailing bytes make a valid JPEG larger than the previous 5 MB cap.
+  const buffer = Buffer.concat([
+    Buffer.from(jpeg, "base64"),
+    Buffer.alloc(6 * 1024 * 1024),
+  ]);
+  const upload = page.getByTestId("user-avatar-upload");
+  await upload.setInputFiles({
+    name: "phone-photo.jpg",
+    mimeType: "application/octet-stream",
+    buffer,
+  });
+  await page.getByRole("button", { name: "Save photo", exact: true }).click();
+  const photo = page.getByTestId("user-avatar-preview").locator("img");
+  await expect(photo).toBeVisible();
+  const result = await photo.evaluate(async (img: HTMLImageElement) => {
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 256;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    return {
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      size: (img.src.length * 3) / 4,
+      edge: Array.from(ctx.getImageData(0, 128, 1, 1).data),
+    };
+  });
+  expect(result.width).toBe(256);
+  expect(result.height).toBe(256);
+  expect(result.size).toBeLessThan(100_000);
+  expect(result.edge[1]).toBeGreaterThan(240);
+  expect(result.edge[0]).toBeLessThan(15);
+  const previousSrc = await photo.getAttribute("src");
+  await upload.setInputFiles("e2e/fixtures/avatar.heic");
+  await page.getByRole("button", { name: "Save photo", exact: true }).click();
+  await expect(photo).not.toHaveAttribute("src", previousSrc!, {
+    timeout: 30_000,
+  });
+  await expect(
+    page.getByRole("status").filter({ hasText: "Avatar saved" })
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(photo).toBeVisible();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(photo).toBeVisible();
+  await page.getByRole("button", { name: "Reset avatar" }).click();
+  await expect(
+    page.getByRole("button", { name: "Use Person avatar" })
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("photo framing supports zoom, positioning, cancel and retry", async ({
+  page,
+}) => {
+  await loadApp(page);
+  await page.getByTestId("settings-button").click();
+  const upload = page.getByTestId("user-avatar-upload");
+  await upload.setInputFiles("e2e/fixtures/avatar.heic");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Frame your photo")).toBeVisible();
+  // The portal mounts after the parent: paint on canvas attachment, before interaction.
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("avatar-crop-preview")
+        .evaluate(
+          (canvas: HTMLCanvasElement) =>
+            canvas.getContext("2d")!.getImageData(128, 128, 1, 1).data[3]
+        )
+    )
+    .toBe(255);
+  const zoom = dialog.getByRole("slider", { name: "Photo zoom" });
+  await zoom.focus();
+  await zoom.press("End");
+  await expect(zoom).toHaveAttribute("aria-valuenow", "3");
+  const crop = page.getByTestId("avatar-crop-preview");
+  const before = await crop.evaluate((canvas: HTMLCanvasElement) =>
+    canvas.toDataURL()
+  );
+  await crop.focus();
+  await crop.press("ArrowLeft");
+  await expect
+    .poll(() =>
+      crop.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())
+    )
+    .not.toBe(before);
+  await dialog.getByRole("button", { name: "Reset crop" }).click();
+  await expect(zoom).toHaveAttribute("aria-valuenow", "1");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Upload photo", exact: true })
+  ).toBeFocused();
+  await upload.setInputFiles("e2e/fixtures/avatar.heic");
+  await dialog.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Upload photo", exact: true })
+  ).toBeFocused();
+  await upload.setInputFiles("e2e/fixtures/avatar.heic");
+  await page.route("**/api/v1/app/settings/user-avatar", async (route) => {
+    if (route.request().method() === "PUT")
+      await route.fulfill({
+        status: 500,
+        json: { error: "Temporary failure" },
+      });
+    else await route.continue();
+  });
+  await dialog.getByRole("button", { name: "Save photo", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Could not save");
+  await expect(crop).toBeVisible();
+  await page.unroute("**/api/v1/app/settings/user-avatar");
+  await dialog.getByRole("button", { name: "Save photo", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Upload photo", exact: true })
+  ).toBeFocused();
+  await expect(
+    page.getByTestId("user-avatar-preview").locator("img")
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Reset avatar" }).click();
+});
+
+test("crop actions fit a 320px screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await loadApp(page);
+  await page.goto("/settings/general", { waitUntil: "domcontentloaded" });
+  await page
+    .getByTestId("user-avatar-upload")
+    .setInputFiles("e2e/fixtures/avatar.heic");
+  const dialog = page.getByRole("dialog", { name: "Frame your photo" });
+  await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  for (const name of ["Reset crop", "Cancel", "Save photo"]) {
+    const button = dialog.getByRole("button", { name, exact: true });
+    const box = await button.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(bounds!.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
+  }
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true
+  );
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 });

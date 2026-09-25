@@ -514,15 +514,6 @@ export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }
 
-/**
- * Keep every loaded row of a stream in the page instead of only those near
- * the view: for screen readers, at the cost of memory on long streams.
- */
-export const streamFullHistoryAtom = atomWithLocalStorage<boolean>(
-  "dispatch:stream-full-history",
-  false
-);
-
 /** One row the Chat feed can be put back against: which row, and where it sat. */
 export type ChatScrollAnchor = {
   entryId: string;

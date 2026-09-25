@@ -736,3 +736,53 @@ describe("POST /api/v1/energy-report", () => {
     expect(res.statusCode).toBe(204);
   });
 });
+
+describe("user avatar settings", () => {
+  const url = "/api/v1/app/settings/user-avatar";
+  it("persists presets, rejects invalid updates and allows resetting", async () => {
+    const headers = { cookie: sessionCookie };
+    const avatar = { kind: "builtin", id: "cat" };
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PUT",
+          url,
+          headers,
+          payload: { avatar },
+        })
+      ).statusCode
+    ).toBe(200);
+    expect(
+      (await ctx.app.inject({ method: "GET", url, headers })).json()
+    ).toEqual({ avatar });
+    for (const invalid of [
+      { kind: "builtin", id: "unknown" },
+      { kind: "image", dataUrl: "https://example.com/photo.png" },
+      null,
+    ]) {
+      expect(
+        (
+          await ctx.app.inject({
+            method: "PUT",
+            url,
+            headers,
+            payload: { avatar: invalid },
+          })
+        ).statusCode
+      ).toBe(400);
+    }
+    expect(
+      (await ctx.app.inject({ method: "GET", url, headers })).json()
+    ).toEqual({ avatar });
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PUT",
+          url,
+          headers,
+          payload: { avatar: { kind: "builtin", id: "person" } },
+        })
+      ).statusCode
+    ).toBe(200);
+  });
+});

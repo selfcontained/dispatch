@@ -8,6 +8,8 @@ import {
   Gauge,
   Settings,
   Users,
+  FolderGit2,
+  Shield,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -15,6 +17,8 @@ import { api } from "@/lib/api";
 export type SettingsSection =
   | "general"
   | "agents"
+  | "workspace"
+  | "security"
   | "connections"
   | "notifications"
   | "updates"
@@ -29,6 +33,8 @@ const BASE_SECTIONS: Array<{
 }> = [
   { id: "general", label: "General", icon: Settings },
   { id: "agents", label: "Agents", icon: Users },
+  { id: "workspace", label: "Workspace", icon: FolderGit2 },
+  { id: "security", label: "Security", icon: Shield },
   { id: "connections", label: "Connections", icon: Cable },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "resources", label: "Resources", icon: Gauge },
@@ -49,6 +55,8 @@ const HELP_SECTION = {
 const ALL_VALID_SECTIONS: SettingsSection[] = [
   "general",
   "agents",
+  "workspace",
+  "security",
   "connections",
   "notifications",
   "updates",
@@ -84,9 +92,18 @@ export function useSettingsState(open: boolean, initialSection?: string) {
     };
   }, [open]);
 
-  const sections = isAdmin
-    ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION]
-    : [...BASE_SECTIONS, HELP_SECTION];
+  const sections = (
+    isAdmin
+      ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION]
+      : [...BASE_SECTIONS, HELP_SECTION]
+  ).sort((a, b) => {
+    if (a.id === b.id) return 0;
+    if (a.id === "general") return -1;
+    if (b.id === "general") return 1;
+    if (a.id === "releases") return 1;
+    if (b.id === "releases") return -1;
+    return a.label.localeCompare(b.label);
+  });
 
   useEffect(() => {
     if (open && isValidSection(initialSection)) {

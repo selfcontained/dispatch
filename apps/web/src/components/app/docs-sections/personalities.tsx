@@ -16,9 +16,9 @@ export function PersonalitiesContent() {
       <Section>
         <H3>Managing personalities</H3>
         <P>
-          Open <strong>Settings → Agents</strong>. The Personalities list is at
-          the top of the pane. Click <strong>New personality</strong> to add
-          one. Each entry has:
+          Open <strong>Settings → Agents</strong>. The Personalities list is
+          below Agent types. Click <strong>New personality</strong> to add one.
+          Each entry has:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>

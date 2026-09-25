@@ -199,6 +199,9 @@ importers:
       framer-motion:
         specifier: ^12.35.2
         version: 12.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      heic-to:
+        specifier: 1.5.2
+        version: 1.5.2
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -4899,6 +4902,9 @@ packages:
 
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
+
+  heic-to@1.5.2:
+    resolution: {integrity: sha512-8Fns+lZHAWmz5U5IUxDeXKwIf3foBoKNPLxxFY4B0MkLjNuomEIHCoDbDE+x/llFK3NCEO1cu4+n3iUKY+Svmw==}
 
   highlight.js@11.11.1:
     resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
@@ -12484,6 +12490,8 @@ snapshots:
       hast-util-parse-selector: 4.0.0
       property-information: 7.1.0
       space-separated-tokens: 2.0.2
+
+  heic-to@1.5.2: {}
 
   highlight.js@11.11.1: {}
 

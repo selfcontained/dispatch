@@ -31,7 +31,7 @@ import { uploadAgentFile } from "@/lib/file-upload";
 import { cn } from "@/lib/utils";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
-import { useFullHistory, useWindowedRows, WindowGap } from "./windowed-rows";
+import { useWindowedRows, WindowGap } from "./windowed-rows";
 
 /** How long a jump outranks the panel's own open-at-the-top and follow. */
 const JUMP_HOLD_MS = 1000;
@@ -272,10 +272,8 @@ export function ThreadPanel({
     if (change) keys.splice(changeAt, 0, CHANGE_ROW_KEY);
     return keys;
   }, [replies, change, changeAt]);
-  const fullHistory = useFullHistory();
   const windowed = useWindowedRows({
     scrollRef,
-    enabled: !fullHistory,
     keys: rowKeys,
     align: "start",
     pinned: pinnedIds,

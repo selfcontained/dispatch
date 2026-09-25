@@ -1529,3 +1529,17 @@ html[data-hidden] .animate-sidebar-nav-pulse {
     background-color: hsl(var(--primary) / 0.1);
   }
 }
+
+/* User messages use a neutral wash; the avatar carries their identity. */
+.chat-user-wash {
+  background-color: rgb(255 255 255 / 6.5%);
+}
+.chat-user-wash:hover {
+  background-color: rgb(255 255 255 / 9%);
+}
+[data-theme-mode="light"] .chat-user-wash {
+  background-color: rgb(0 0 0 / 4.5%);
+}
+[data-theme-mode="light"] .chat-user-wash:hover {
+  background-color: rgb(0 0 0 / 6.5%);
+}
