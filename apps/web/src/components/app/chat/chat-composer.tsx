@@ -14,7 +14,16 @@ import {
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import { CornerDownRight, Paperclip, SendHorizontal, X } from "lucide-react";
+import {
+  AtSign,
+  ChevronDown,
+  CornerDownRight,
+  ListPlus,
+  Plus,
+  SquareSlash,
+  SendHorizontal,
+  X,
+} from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -44,6 +53,12 @@ import {
   type SlashCommand,
 } from "@/components/app/chat/slash-commands";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   insertMention,
@@ -192,7 +207,7 @@ const SUPPORTED_FILE_HINT =
  * is left alone: the Enter that commits a CJK candidate must not send.
  *
  * Attachments ride along as chips above the field: files from the
- * paperclip, a drop or a paste; links from a pasted URL. Files upload when
+ * attachment button, a drop or a paste; links from a pasted URL. Files upload when
  * the message is sent, so an unsent draft leaves nothing behind on the
  * server.
  *
@@ -251,6 +266,13 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const caretFrameRef = useRef<number | null>(null);
+  const cancelCaretFocus = useCallback(() => {
+    if (caretFrameRef.current !== null)
+      cancelAnimationFrame(caretFrameRef.current);
+    caretFrameRef.current = null;
+  }, []);
+  useEffect(() => cancelCaretFocus, [cancelCaretFocus]);
 
   // ---- @mentions: the token under the caret opens the picker ---------------
   const [caret, setCaret] = useState(0);
@@ -279,13 +301,19 @@ export function ChatComposer({
           ? "Remove agent mentions to run this agent command."
           : null
     : null;
+  const slashUnavailableReason =
+    disabledReason ??
+    (replyContext
+      ? "Dismiss the reply to use commands."
+      : hasSlashAttachments
+        ? "Remove attachments to use commands."
+        : hasSlashMention
+          ? "Remove agent mentions to use commands."
+          : !slashCommands?.length
+            ? "No commands are available for this agent."
+            : null);
   const slashQuery =
-    !disabledReason &&
-    !replyContext &&
-    !hasSlashAttachments &&
-    !hasSlashMention &&
-    slashCommands?.length &&
-    slashDismissedFor !== text
+    !slashUnavailableReason && slashDismissedFor !== text
       ? slashQueryAt(text, caret)
       : null;
   const slashCandidates = useMemo(
@@ -337,8 +365,12 @@ export function ChatComposer({
     (command: SlashCommand) => {
       let nextCaret = 0;
       if (command.source === "dispatch" && onDispatchCommand?.(command.name)) {
-        setText("");
+        // A toolbar command can precede an existing draft. Consuming the
+        // command locally must not consume that draft as well.
+        const remaining = text.slice(caret).replace(/^\s*/, "");
+        setText(remaining);
         setCaret(0);
+        setSlashDismissedFor(remaining);
       } else {
         const next = `/${command.name} ${text.slice(caret).replace(/^\s*/, "")}`;
         nextCaret = command.name.length + 2;
@@ -355,6 +387,60 @@ export function ChatComposer({
     },
     [caret, onDispatchCommand, setText, text]
   );
+  const focusCaret = (position: number) => {
+    cancelCaretFocus();
+    setCaret(position);
+    caretFrameRef.current = requestAnimationFrame(() => {
+      caretFrameRef.current = null;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(position, position);
+    });
+  };
+
+  const openMentions = () => {
+    const input = textareaRef.current;
+    if (!input || disabledReason || !mentionables?.length) return;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    // Reopen a query already under the caret rather than inserting another @.
+    const existing = start === end ? mentionQueryAt(text, start) : null;
+    if (
+      existing &&
+      !/\s$/.test(existing.query) &&
+      matchMentionables(existing.query, mentionables).length > 0
+    ) {
+      setDismissedFor(null);
+      setSlashDismissedFor(text);
+      setMentionIndex(0);
+      focusCaret(start);
+      return;
+    }
+    const prefix = text.slice(0, start);
+    const trigger =
+      start === 0 || /[\s([{"']/.test(text[start - 1]!) ? "@" : " @";
+    const next = prefix + trigger + text.slice(end);
+    if (next.length > CHAT_MESSAGE_MAX_CHARS) return;
+    setText(next);
+    setDismissedFor(null);
+    setSlashDismissedFor(next);
+    setMentionIndex(0);
+    focusCaret(start + trigger.length);
+  };
+
+  const openCommands = () => {
+    if (slashUnavailableReason) return;
+    // Keep the draft after a separating space so the cursor can type a
+    // command query at the start, using the same picker as a typed slash.
+    const prefix = /^\/[^\s/]*(?=\s|$)/.exec(text);
+    const next = prefix ? text : "/" + (text ? " " + text : "");
+    if (next.length > CHAT_MESSAGE_MAX_CHARS) return;
+    setText(next);
+    setSlashDismissedFor(null);
+    setSlashIndex(0);
+    setDismissedFor(next);
+    focusCaret(prefix ? prefix[0].length : 1);
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
@@ -658,12 +744,26 @@ export function ChatComposer({
     placeholders.length === 0 &&
     (trimmed.length > 0 || attachmentCount > 0);
 
-  // Grow with the content up to the CSS max-height, then scroll inside.
+  // The text owns its rectangle; the toolbar never overlaps its last line.
   useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const input = textareaRef.current;
+    if (!input) return;
+    const resize = () => {
+      input.style.height = "auto";
+      input.style.height = String(input.scrollHeight) + "px";
+    };
+    resize();
+    let width = input.clientWidth;
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            if (input.clientWidth === width) return;
+            width = input.clientWidth;
+            resize();
+          });
+    observer?.observe(input);
+    return () => observer?.disconnect();
   }, [text]);
 
   useEffect(() => {
@@ -770,6 +870,16 @@ export function ChatComposer({
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
+      if (
+        event.key === "Enter" &&
+        event.shiftKey &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        submit(canInterrupt ? { interrupt: true } : undefined);
+        return;
+      }
       if (slashOpen) {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
@@ -824,6 +934,7 @@ export function ChatComposer({
     [
       activeMention,
       activeSlash,
+      canInterrupt,
       mentionCandidates,
       mentionOpen,
       pickMention,
@@ -845,6 +956,11 @@ export function ChatComposer({
     (view) => fileStatus[view.key] === "uploading"
   )?.entry.name;
   const hasAttachments = attachmentCount > 0;
+  const sendNowShortcut =
+    typeof navigator !== "undefined" &&
+    /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+      ? "⌘⇧Enter"
+      : "Ctrl+Shift+Enter";
 
   return (
     <form
@@ -861,7 +977,7 @@ export function ChatComposer({
     >
       <div
         className={cn(
-          "rounded-lg border bg-card/70 transition-colors",
+          "rounded-2xl border bg-card/70 transition-colors",
           disabled
             ? "border-border opacity-70"
             : draggingFiles
@@ -937,31 +1053,7 @@ export function ChatComposer({
             ))}
           </div>
         ) : null}
-        <div className="relative flex items-end">
-          <div className="flex shrink-0 items-center gap-0.5 pb-1.5 pl-1.5 pointer-coarse:pb-0 pointer-coarse:pl-0">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={STARTUP_FILE_ACCEPT}
-              className="hidden"
-              onChange={onFileChange}
-              data-testid="chat-composer-file-input"
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              disabled={disabled || attachmentsFull}
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach a file"
-              aria-label="Attach a file"
-              data-testid="chat-composer-attach-button"
-              className="h-7 w-7 shrink-0 text-muted-foreground pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="relative">
           {mentionOpen ? (
             <MentionPicker
               candidates={mentionCandidates}
@@ -985,6 +1077,7 @@ export function ChatComposer({
             ref={textareaRef}
             value={text}
             onChange={(event) => {
+              cancelCaretFocus();
               if (event.target.value !== text) setSlashDismissedFor(null);
               setText(event.target.value);
               setCaret(event.target.selectionStart ?? 0);
@@ -1013,50 +1106,170 @@ export function ChatComposer({
               slashOpen ? `${slashListId}-option-${activeSlash}` : undefined
             }
             // The box around it is the border; the field itself is bare.
-            className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
+            className="max-h-48 min-h-14 w-full resize-none rounded-t-2xl border-0 bg-transparent px-4 pb-2 pt-4 text-sm shadow-none backdrop-blur-none focus-visible:ring-0 pointer-coarse:text-base"
             data-testid="chat-composer-input"
           />
-          {action}
-          {canInterrupt && canSend ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost-warning"
-              onClick={() => submit({ interrupt: true })}
-              title="Stop the running turn and send this now"
-              data-testid="chat-composer-send-now"
-              className="my-2 h-7 shrink-0 px-2 text-[11px]"
-            >
-              Send now
-            </Button>
-          ) : null}
-          <Button
-            type="submit"
-            size="icon"
-            variant={canSend ? "success" : "ghost"}
-            disabled={!canSend}
-            title="Send (Enter)"
-            aria-label="Send message"
-            data-testid="chat-composer-send"
-            // Keep a 44px touch target without stretching the visible disc to
-            // the full height of a one-line composer.
-            className={cn(
-              "group m-2 h-7 w-7 shrink-0 rounded-full pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11",
-              canSend &&
-                "pointer-coarse:border-transparent pointer-coarse:bg-transparent pointer-coarse:shadow-none pointer-coarse:hover:bg-transparent"
-            )}
+
+          <div
+            className="flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
+            data-testid="chat-composer-controls"
           >
-            <span
-              className={cn(
-                "flex h-full w-full items-center justify-center rounded-full pointer-coarse:h-7 pointer-coarse:w-7",
-                canSend &&
-                  "pointer-coarse:border pointer-coarse:border-status-working/40 pointer-coarse:bg-status-working/80 pointer-coarse:text-background pointer-coarse:shadow-sm pointer-coarse:group-hover:bg-status-working/90"
-              )}
-              data-testid="chat-composer-send-disc"
-            >
-              <SendHorizontal className="h-4 w-4" />
-            </span>
-          </Button>
+            <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={STARTUP_FILE_ACCEPT}
+                className="hidden"
+                onChange={onFileChange}
+                data-testid="chat-composer-file-input"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={disabled || attachmentsFull}
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach a file"
+                aria-label="Attach a file"
+                data-testid="chat-composer-attach-button"
+                className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={disabled || !mentionables?.length}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openMentions}
+                title={
+                  mentionables?.length
+                    ? "Mention an agent (@)"
+                    : "No agents available to mention"
+                }
+                aria-label="Mention an agent"
+                aria-haspopup="listbox"
+                aria-expanded={mentionOpen}
+                data-testid="chat-composer-mention-button"
+                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+              >
+                <AtSign className="h-[18px] w-[18px]" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={Boolean(slashUnavailableReason)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openCommands}
+                title={slashUnavailableReason ?? "Slash commands (/)"}
+                aria-label="Slash commands"
+                aria-haspopup="listbox"
+                aria-expanded={slashOpen}
+                aria-controls={slashOpen ? slashListId : undefined}
+                data-testid="chat-composer-command-button"
+                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+              >
+                <SquareSlash className="h-[18px] w-[18px]" />
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-1 pointer-coarse:gap-0">
+              {action ? (
+                <>
+                  {action}
+                  <span
+                    className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
+                    aria-hidden="true"
+                  />
+                </>
+              ) : null}
+              <div
+                className="inline-flex items-center"
+                role="group"
+                aria-label="Send message actions"
+              >
+                <Button
+                  type="submit"
+                  size="icon"
+                  variant={canSend ? "success" : "ghost"}
+                  disabled={!canSend}
+                  title={
+                    canInterrupt
+                      ? "Queue message until the turn ends (Enter)"
+                      : "Send (Enter)"
+                  }
+                  aria-label={canInterrupt ? "Queue message" : "Send message"}
+                  data-testid="chat-composer-send"
+                  className={cn(
+                    "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+                    canInterrupt && "rounded-r-none"
+                  )}
+                >
+                  {canInterrupt ? (
+                    <ListPlus className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </Button>
+                {canInterrupt ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={canSend ? "success" : "ghost"}
+                        disabled={!canSend}
+                        aria-label="Send options"
+                        title="Send options"
+                        data-testid="chat-composer-send-options"
+                        className="h-9 w-7 rounded-l-none border-l border-l-background/20 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      side="top"
+                      align="end"
+                      className="w-72"
+                    >
+                      <DropdownMenuItem
+                        disabled={!canSend}
+                        onSelect={() => submit()}
+                        className="text-foreground"
+                      >
+                        <span className="flex justify-between gap-3">
+                          Queue message{" "}
+                          <span className="text-muted-foreground">Enter</span>
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Send when the current turn ends
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!canSend}
+                        onSelect={() => submit({ interrupt: true })}
+                        data-testid="chat-composer-send-now"
+                        className="text-foreground"
+                      >
+                        <span className="flex justify-between gap-3">
+                          Send now{" "}
+                          <span className="text-muted-foreground">
+                            {sendNowShortcut}
+                          </span>
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Stop the current turn and send this message
+                        </span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div className="px-1 text-[10px] text-muted-foreground">
@@ -1093,7 +1306,11 @@ export function ChatComposer({
           <span>Drop files to attach them</span>
         ) : (
           <span>
-            Enter to send · Shift+Enter for a new line · paste or drop files
+            {canInterrupt ? "Enter to queue" : "Enter to send"} · Shift+Enter
+            for a new line
+            {canInterrupt
+              ? ` · ${sendNowShortcut} to send now`
+              : " · paste or drop files"}
           </span>
         )}
       </div>

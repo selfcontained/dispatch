@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Square } from "lucide-react";
+import { Loader2, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -27,21 +27,18 @@ export function StopTurnButton({
       type="button"
       size="icon"
       variant="ghost"
-      // The stop control other agent UIs use: a filled disc with a small
-      // square in it, in the text color rather than a status color.
-      className="group m-2 h-7 w-7 shrink-0 rounded-full pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
+      className="h-9 w-9 shrink-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       onClick={() => cancel.mutate()}
       disabled={cancel.isPending}
       data-testid="chat-stop-turn"
       title={cancel.isPending ? "Stopping…" : "Stop the running turn"}
       aria-label="Stop the running turn"
     >
-      <span
-        className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background group-hover:bg-foreground/85"
-        aria-hidden="true"
-      >
-        <Square className="h-2.5 w-2.5 fill-current" strokeWidth={0} />
-      </span>
+      {cancel.isPending ? (
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <Square className="h-3 w-3 fill-current" aria-hidden="true" />
+      )}
     </Button>
   );
 }
