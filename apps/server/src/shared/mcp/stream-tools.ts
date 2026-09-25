@@ -166,7 +166,7 @@ const attachmentsSchema = z
   .array(attachmentSchema)
   .max(BLOCK_ATTACHMENTS_MAX)
   .describe(
-    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code. Several images go in one post; the stream lays them out together.`
+    `Up to ${BLOCK_ATTACHMENTS_MAX}. file (path to upload, or fileName/fileId of one already shared), link, pr, or code. Several images go in one post; the stream lays them out together. Posted on your own stream during a turn, they show inside that turn's message, with any text as a short caption.`
   );
 
 const textSchema = z

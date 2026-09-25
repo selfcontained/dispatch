@@ -407,7 +407,13 @@ export function resolveKindAndData(input: PostInput): {
       `A post carries one of question, form, link, review or tasks, not ${given.join(" and ")}.`
     );
   }
-  const kind = input.kind ?? given[0] ?? "text";
+  // A post that carries nothing but text and files is a file post.
+  const kind =
+    input.kind ??
+    given[0] ??
+    ((input.attachments ?? []).some((a) => a.type === "file")
+      ? "file"
+      : "text");
   if (given[0] && given[0] !== kind) {
     throw new StreamValidationError(
       `kind "${kind}" does not match the ${given[0]} data given.`

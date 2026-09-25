@@ -117,6 +117,23 @@ describe("foldAttachments", () => {
     expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["md1", "am1"]);
   });
 
+  it("folds a plain post with attachments, and leaves a plain post without them", () => {
+    const withPr = blockEntry(
+      block({
+        id: "pr",
+        text: "Opened the PR",
+        attachments: [{ type: "pr", url: "https://github.com/o/r/pull/1" }],
+        createdAt: at("10:02"),
+      })
+    );
+    const plain = blockEntry(
+      block({ id: "note", text: "Heads up", createdAt: at("10:03") })
+    );
+    const out = foldAttachments([turn(), withPr, plain], AGENT_ID);
+    expect(out.entries.map((e) => e.id)).toEqual(["turn:1", "note"]);
+    expect(out.folded.get("turn:1")?.map((e) => e.id)).toEqual(["pr"]);
+  });
+
   it("leaves another agent's post to this one, and anything after the turn ended, in the feed", () => {
     const incoming = sent("am2", at("10:02"), "agt_2", AGENT_ID);
     const out = foldAttachments(
