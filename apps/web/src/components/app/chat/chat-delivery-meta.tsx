@@ -265,7 +265,8 @@ export function DeliveryDetails({
       <PopoverContent
         aria-label="Message delivery"
         align="end"
-        className="max-w-[calc(100vw-24px)] space-y-3 text-xs [overflow-wrap:anywhere]"
+        collisionPadding={12}
+        className="max-h-[var(--radix-popover-content-available-height,calc(100dvh-24px))] max-w-[calc(100vw-24px)] space-y-3 overflow-y-auto overscroll-contain text-xs [overflow-wrap:anywhere]"
       >
         <p className="font-medium">Message delivery</p>
         <p className="text-muted-foreground">

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,12 +7,10 @@ import { api } from "@/lib/api";
 export function QueuedMessageActions({
   agentId,
   messageId,
-  status,
   canSendNow = true,
 }: {
   agentId: string;
   messageId: string;
-  status?: ReactNode;
   canSendNow?: boolean;
 }) {
   const client = useQueryClient();
@@ -27,8 +24,7 @@ export function QueuedMessageActions({
       client.invalidateQueries({ queryKey: streamFeedQueryKey(agentId) }),
   });
   return (
-    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
-      <div className="min-w-0 [&>div]:mt-0">{status}</div>
+    <>
       <div className="flex shrink-0 items-center gap-1.5">
         {canSendNow ? (
           <Button
@@ -59,6 +55,6 @@ export function QueuedMessageActions({
           {action.error.message}
         </span>
       ) : null}
-    </div>
+    </>
   );
 }

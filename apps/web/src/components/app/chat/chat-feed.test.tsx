@@ -8,6 +8,7 @@ import type {
 import { fileMedia } from "@dispatch/shared";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   renderHook,
@@ -66,6 +67,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   Reflect.deleteProperty(navigator, "clipboard");
 });
 
@@ -2567,6 +2569,97 @@ describe("@mentions in a person's post", () => {
 });
 
 describe("delivery receipts in the feed", () => {
+  it("shows a receipt when a queued post becomes delivered and received in one update", () => {
+    const queued = block({
+      id: "live-receipt",
+      authorKind: "user",
+      delivered: null,
+      delivery: [{ agentId: AGENT_ID, state: "held" }],
+    });
+    const { rerenderWith } = renderFeed([blockEntry(queued)]);
+    expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          {
+            agentId: AGENT_ID,
+            state: "delivered",
+            receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByTestId("chat-receipt-received").textContent).toBe(
+      "Received"
+    );
+  });
+
+  it("preserves a live flash and its deadline when the last pending recipient settles", () => {
+    vi.useFakeTimers();
+    const queued = block({
+      id: "mixed-receipt",
+      authorKind: "user",
+      delivered: null,
+      delivery: [
+        { agentId: "agt_2", state: "held" },
+        { agentId: "agt_3", state: "held" },
+      ],
+    });
+    const { rerenderWith } = renderFeed(
+      [blockEntry(queued)],
+      {},
+      {
+        peers: {
+          agt_2: { name: "reviewer", agentType: "claude", relation: "child" },
+          agt_3: { name: "scout", agentType: "codex", relation: "child" },
+        },
+      }
+    );
+    const pickedUp = {
+      agentId: "agt_2",
+      state: "delivered" as const,
+      receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
+    };
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivery: [pickedUp, { agentId: "agt_3", state: "held" }],
+      }),
+    ]);
+    expect(screen.getByTestId("chat-receipt-received").textContent).toContain(
+      "reviewer"
+    );
+    act(() => vi.advanceTimersByTime(600));
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          pickedUp,
+          {
+            agentId: "agt_3",
+            state: "delivered",
+            receipt: { pickedUpAt: null },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.getByTestId("chat-receipt-received").textContent).toContain(
+      "reviewer"
+    );
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+    expect(screen.getByTestId("chat-receipt-waiting").textContent).toContain(
+      "scout"
+    );
+  });
+
   it("keeps completed history quiet and distinguishes waiting recipients", () => {
     renderFeed(
       [

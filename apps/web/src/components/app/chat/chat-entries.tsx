@@ -1318,6 +1318,7 @@ export const BlockView = memo(function BlockView({
   // A launch card reads as the agent it launched (see `blockAuthor`), so
   // it takes the agent layout below, whoever wrote the briefing.
   if (block.author.kind === "user" && block.kind !== "launch") {
+    const queued = block.delivered === null && block.toAgentId && !block.origin;
     return (
       <Post
         author={author}
@@ -1345,28 +1346,31 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
-        {block.delivered === null && block.toAgentId && !block.origin ? (
-          <QueuedMessageActions
-            agentId={block.streamId}
-            messageId={block.id}
-            canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
-            status={
-              <DeliveryMeta
-                block={block}
-                recipientName={(id) => agentDisplayName(id, ctx)}
-                retrying={ctx.retrying?.has(block.id)}
-                onRetryDelivery={ctx.onRetryDelivery}
-              />
-            }
-          />
-        ) : (
-          <DeliveryMeta
-            block={block}
-            recipientName={(id) => agentDisplayName(id, ctx)}
-            retrying={ctx.retrying?.has(block.id)}
-            onRetryDelivery={ctx.onRetryDelivery}
-          />
-        )}
+        {/* Keep receipt observation mounted as queued controls disappear. A
+            delivery update can include pickup in the same render. */}
+        <div
+          className={cn(
+            "min-w-0",
+            queued &&
+              "mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1"
+          )}
+        >
+          <div className={cn("min-w-0", queued && "[&>div]:mt-0")}>
+            <DeliveryMeta
+              block={block}
+              recipientName={(id) => agentDisplayName(id, ctx)}
+              retrying={ctx.retrying?.has(block.id)}
+              onRetryDelivery={ctx.onRetryDelivery}
+            />
+          </div>
+          {queued ? (
+            <QueuedMessageActions
+              agentId={block.streamId}
+              messageId={block.id}
+              canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
+            />
+          ) : null}
+        </div>
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}
