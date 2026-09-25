@@ -368,6 +368,30 @@ describe("ChatComposer attachments", () => {
     ]);
   });
 
+  it("retains queued delivery when retrying an attachment upload with Enter", async () => {
+    const uploadFile = vi
+      .fn<(file: File) => Promise<{ id: number }>>()
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValue({ id: 42 });
+    const { onSend, input } = renderComposer({ uploadFile, canQueue: true });
+    pasteFiles(input, [new File(["note"], "note.txt", { type: "text/plain" })]);
+    fireEvent.change(input, { target: { value: "later" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toContain("press Enter to queue again");
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(
+        "later",
+        [{ type: "file", fileId: 42 }],
+        { delivery: "queue" }
+      )
+    );
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
   it("tells the user to remove a file the server refused, not to retry it", async () => {
     const uploadFile = vi
       .fn<(file: File) => Promise<{ id: number }>>()

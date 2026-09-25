@@ -80,6 +80,81 @@ test.describe("Live agent", () => {
     await cleanupE2EAgents(request, "all");
   });
 
+  test("Send steers the active turn and Queue waits without interrupting it", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-steering-${Date.now()}`,
+      type: "codex",
+    });
+    await loadApp(page);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:10000 original work");
+    const turns = page.getByTestId("chat-turn");
+    await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await expect(turns.first()).not.toHaveAttribute("data-settled", "true");
+    await sendChat(page, "incorporate this correction");
+    await expect(turns.first()).toContainText("Steered:", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(turns).toHaveCount(1);
+    await expect(turns.first()).not.toHaveAttribute("data-settled", "true");
+    const input = page.getByTestId("chat-composer-input");
+    await input.fill("a separate task for later");
+    await page.getByTestId("chat-composer-send-options").click();
+    await page.getByTestId("chat-composer-queue").click();
+    await expect(input).toHaveValue("");
+    await expect(page.getByTestId("chat-held-hint")).toBeVisible();
+    await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+    await expect(turns.last()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(turns.last()).toContainText("a separate task for later");
+    await expect(page.getByTestId("harness-interrupted")).toHaveCount(0);
+    await expect(page.getByTestId("chat-held-hint")).toHaveCount(0);
+  });
+
+  test("a queued ACP command cannot be promoted to steering and runs in its own turn", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-command-queue-${Date.now()}`,
+      type: "codex",
+    });
+    await loadApp(page);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:10000 original work");
+    const turns = page.getByTestId("chat-turn");
+    await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await sendChat(page, "/compact");
+    const command = page
+      .getByTestId("chat-message")
+      .filter({ hasText: "/compact" });
+    await expect(command.getByTestId("chat-held-hint")).toBeVisible();
+    await expect(
+      command.getByRole("button", { name: "Send now", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      command.getByRole("button", { name: "Delete", exact: true })
+    ).toBeVisible();
+    const blockId = await command.getAttribute("data-block-id");
+    const promoted = await request.post(
+      `/api/v1/streams/${agent.id}/blocks/${blockId}/send-now`,
+      { headers: authHeaders() }
+    );
+    expect(promoted.status()).toBe(400);
+    await expect(turns.first()).not.toContainText("Steered:");
+    await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+    await expect(turns.last()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(turns.last()).toContainText("/compact");
+    await expect(turns.last()).not.toContainText("DISPATCH POST");
+  });
+
   test("a reply in a thread opens a turn drawn in that thread, not the main column", async ({
     page,
     request,
@@ -111,7 +186,7 @@ test.describe("Live agent", () => {
       return ((await res.json()) as { block: { id: string } }).block.id;
     };
     const rootId = await post({ text: "root post" });
-    await post({ text: "in the thread", replyTo: rootId });
+    await post({ text: "in the thread", replyTo: rootId, delivery: "queue" });
 
     await page.goto(`/agents/${agent.id}?thread=${rootId}`, {
       waitUntil: "domcontentloaded",
@@ -128,6 +203,15 @@ test.describe("Live agent", () => {
     await expect(threadTurn.getByTestId("harness-result")).toContainText(
       "in the thread"
     );
+    const threadInput = threadPage.getByTestId("chat-composer-input");
+    await threadInput.fill("draft reply");
+    await threadPage.getByTestId("chat-composer-send-options").click();
+    await expect(page.getByTestId("chat-composer-queue")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("chat-composer-queue")).toHaveCount(0);
+    await expect(threadPage).toBeVisible();
+    await expect(threadInput).toHaveValue("draft reply");
+    await threadInput.fill("");
     // The main column keeps only the turn the root post opened.
     const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");
     await expect(mainTurns).toHaveCount(1);

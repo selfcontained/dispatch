@@ -189,7 +189,9 @@ type Waiting = {
   /** Not to be combined with others: an interrupting post, a job's nudge. */
   alone: boolean;
   /** The turn that took it, once one has; later jobs for it just wait on it. */
-  taken: Promise<void> | null;
+  taken: boolean;
+  delivery: "auto" | "queue";
+  resolveSettled: () => void;
   resolveAccepted: () => void;
   rejectAccepted: (error: Error) => void;
   cancelled: boolean;
@@ -199,8 +201,8 @@ type Live = {
   client: HostClient;
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
-  /** Prompts run one at a time, in order. */
-  queue: Promise<void>;
+  /** Serializes submission/acceptance, not the lifetime of a turn. */
+  pumping: boolean;
   /** Prompts not yet sent, oldest first. */
   waiting: Waiting[];
   pending: number;
@@ -265,35 +267,6 @@ function combine(batch: Waiting[]): { text: string; source?: PromptSource } {
   };
 }
 
-/** Send one turn's prompt; resolves when that turn settles. */
-async function runTurn(entry: Live, batch: Waiting[]): Promise<void> {
-  const { text, source } = combine(batch);
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  let settledEarly = false;
-  let resolveSettle!: () => void;
-  const settle = new Promise<void>((resolve) => {
-    resolveSettle = () => {
-      settledEarly = true;
-      resolve();
-    };
-  });
-  entry.settleWaiters.push(resolveSettle);
-  try {
-    await entry.client.prompt(id, text, source);
-  } catch (err) {
-    entry.settleWaiters = entry.settleWaiters.filter(
-      (w) => w !== resolveSettle
-    );
-    throw err;
-  }
-  // A turn that fails at once can settle in the same chunk as its ack,
-  // before this continuation runs; marking it open then would hold every
-  // later prompt behind a turn that is already over.
-  if (!settledEarly) entry.turnOpen = true;
-  for (const w of batch) w.resolveAccepted();
-  await settle;
-}
-
 export type AcpRuntimeDeps = {
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
@@ -350,6 +323,84 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
+  function failWaiting(entry: Live, error: Error) {
+    for (const w of entry.waiting.splice(0)) {
+      w.rejectAccepted(error);
+      w.resolveSettled();
+    }
+  }
+
+  /** Submit input one request at a time while allowing steering during a turn. */
+  async function pump(agentId: string, entry: Live): Promise<void> {
+    if (entry.pumping || live.get(agentId) !== entry) return;
+    entry.pumping = true;
+    try {
+      while (entry.waiting.length && live.get(agentId) === entry) {
+        const steering = entry.turnOpen;
+        let batch: Waiting[];
+        if (steering) {
+          if (!entry.client.welcome?.steeringSupported) break;
+          const index = entry.waiting.findIndex((w) => w.delivery === "auto");
+          if (index < 0) break;
+          batch = entry.waiting.splice(index, 1);
+        } else {
+          batch = takeBatch(entry.waiting);
+        }
+        for (const w of batch) w.taken = true;
+        const { text, source } = combine(batch);
+        const id = crypto.randomUUID();
+        let ended = false;
+        let accepted = false;
+        const onSettle = () => {
+          ended = true;
+          if (accepted) for (const w of batch) w.resolveSettled();
+        };
+        entry.settleWaiters.push(onSettle);
+        try {
+          if (steering) {
+            const outcome = await entry.client.steer(id, text, source);
+            if (outcome === "promptRequired") {
+              // The engine won the idle race. The message was not consumed;
+              // wait for its terminal event, then start an ordinary tracked turn.
+              entry.settleWaiters = entry.settleWaiters.filter(
+                (w) => w !== onSettle
+              );
+              for (const w of batch) {
+                w.taken = false;
+                w.delivery = "queue";
+              }
+              entry.waiting.unshift(...batch);
+              continue;
+            }
+          } else {
+            // Set this before submitting: ack and settle can arrive together.
+            entry.turnOpen = true;
+            await entry.client.prompt(id, text, source);
+          }
+          accepted = true;
+          for (const w of batch) {
+            w.resolveAccepted();
+            if (ended) w.resolveSettled();
+          }
+        } catch (error) {
+          entry.settleWaiters = entry.settleWaiters.filter(
+            (w) => w !== onSettle
+          );
+          if (!steering) entry.turnOpen = false;
+          for (const w of batch) {
+            w.rejectAccepted(
+              error instanceof Error ? error : new Error(String(error))
+            );
+            w.resolveSettled();
+          }
+          // A failed request may have reached the engine. Never resend it here.
+        }
+      }
+    } finally {
+      entry.pumping = false;
+    }
+  }
+
   /** Seq 0 marks an event the server made up (a host that vanished). */
   function emit(agentId: string, entry: Live, event: DriverEvent, seq: number) {
     if (event.type === "turn") {
@@ -358,6 +409,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         const waiters = entry.settleWaiters;
         entry.settleWaiters = [];
         for (const resolve of waiters) resolve();
+        void pump(agentId, entry);
       }
     }
     if (
@@ -369,6 +421,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (event.type === "config") entry.configOptions = event.options;
     if (event.type === "exit") {
       entry.turnOpen = false;
+      failWaiting(entry, new Error("The agent exited before delivery."));
       const waiters = entry.settleWaiters;
       entry.settleWaiters = [];
       for (const resolve of waiters) resolve();
@@ -398,7 +451,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       client: null as unknown as HostClient,
       commands: [],
       configOptions: [],
-      queue: Promise.resolve(),
+      pumping: false,
       waiting: [],
       pending: 0,
       turnOpen: false,
@@ -645,49 +698,27 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         resolveAccepted = resolve;
         rejectAccepted = reject;
       });
+      let resolveSettled!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        resolveSettled = resolve;
+      }).finally(() => {
+        entry.pending -= 1;
+      });
       const own: Waiting = {
         text,
         ...(source ? { source } : {}),
-        // Only posts are combined: each carries its own envelope, so the
-        // agent can tell them apart and answer each. Anything else is a
-        // turn of its own, as is a post sent to cut in.
         alone: opts?.alone === true || source?.source !== "chat",
-        taken: null,
+        delivery: opts?.delivery ?? "queue",
+        taken: false,
         resolveAccepted,
         rejectAccepted,
+        resolveSettled,
         cancelled: false,
       };
       entry.waiting.push(own);
       entry.pending += 1;
-      const settled = entry.queue
-        .catch(() => {})
-        .then(async () => {
-          // Wait out a turn the engine started before this prompt was queued
-          // (a reconnect mid-turn), then run ours and wait for its settle.
-          while (!own.taken && !own.cancelled) {
-            while (entry.turnOpen && !own.taken && !own.cancelled) {
-              await new Promise<void>((resolve) =>
-                entry.settleWaiters.push(resolve)
-              );
-            }
-            // An earlier prompt's turn took this one along with it.
-            if (own.cancelled) return;
-            if (own.taken) return own.taken;
-            const batch = takeBatch(entry.waiting);
-            const turn = runTurn(entry, batch);
-            for (const w of batch) w.taken = turn;
-            await turn.catch((error: Error) => {
-              for (const w of batch) w.rejectAccepted(error);
-            });
-          }
-          if (own.taken) await own.taken;
-        })
-        .finally(() => {
-          entry.pending -= 1;
-        });
-      entry.queue = settled.catch(() => {});
-      settled.catch((err: Error) => rejectAccepted(err));
       accepted.catch(() => {});
+      void pump(agentId, entry);
       return { accepted, settled };
     },
 
@@ -714,12 +745,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           const error = new Error("Queued message deleted.");
           error.name = "QueuedPromptDeletedError";
           prompt.rejectAccepted(error);
+          prompt.resolveSettled();
         } else {
           prompt.alone = true;
           entry.waiting.unshift(prompt);
-          entry.client.cancel();
+          prompt.delivery = "auto";
         }
       }
+      for (let i = 0; i < targets.length; i++)
+        void pump(agentIds[i]!, targets[i]!.entry);
       return true;
     },
 
@@ -744,6 +778,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const pid = await readPid(dir);
       if (entry) {
         live.delete(agentId);
+        failWaiting(entry, new Error("The agent stopped before delivery."));
         try {
           entry.client.shutdown(force);
         } catch {

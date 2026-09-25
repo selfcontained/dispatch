@@ -9,10 +9,12 @@ export function QueuedMessageActions({
   agentId,
   messageId,
   status,
+  canSendNow = true,
 }: {
   agentId: string;
   messageId: string;
   status?: ReactNode;
+  canSendNow?: boolean;
 }) {
   const client = useQueryClient();
   const action = useMutation({
@@ -28,16 +30,18 @@ export function QueuedMessageActions({
     <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
       <div className="min-w-0 [&>div]:mt-0">{status}</div>
       <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          variant="ghost-warning"
-          size="sm"
-          className="h-6 border border-transparent px-2 text-[11px] hover:border-status-waiting/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-          disabled={action.isPending || action.isSuccess}
-          title="Interrupt the agent and send this message now"
-          onClick={() => action.mutate("send-now")}
-        >
-          Send now
-        </Button>
+        {canSendNow ? (
+          <Button
+            variant="ghost-warning"
+            size="sm"
+            className="h-6 border border-transparent px-2 text-[11px] hover:border-status-waiting/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+            disabled={action.isPending || action.isSuccess}
+            title="Deliver during the current turn when supported"
+            onClick={() => action.mutate("send-now")}
+          >
+            Send now
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"

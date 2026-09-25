@@ -120,6 +120,7 @@ describe("registerStreamTools", () => {
       "tasks",
       "attachments",
       "notify",
+      "delivery",
     ]);
     expect(Object.keys(tool("update").config.inputSchema)).toEqual([
       "id",

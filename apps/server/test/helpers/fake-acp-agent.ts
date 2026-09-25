@@ -22,6 +22,9 @@ export type FakeTurn = (
 export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
+    steer?: (
+      params: Record<string, unknown>
+    ) => Promise<Record<string, unknown>>;
     resumeFails?: boolean;
     sessionError?: Error;
     /** Commands advertised right after a session opens. */
@@ -71,6 +74,7 @@ export function createFakeAcpAgent(
     setMode: [] as acp.SetSessionModeRequest[],
     setConfig: [] as acp.SetSessionConfigOptionRequest[],
     prompts: [] as string[],
+    steers: [] as Record<string, unknown>[],
     cancels: 0,
     closes: 0,
   };
@@ -104,7 +108,14 @@ export function createFakeAcpAgent(
           sessionCapabilities: { close: {}, resume: {} },
         },
         authMethods: [],
+        ...(opts.steer ? { _meta: { steering: { supported: true } } } : {}),
       };
+    },
+    async extMethod(method, params) {
+      if (method !== "_session/steering" || !opts.steer)
+        throw new Error("unsupported");
+      seen.steers.push(params);
+      return opts.steer(params);
     },
     async authenticate() {
       return {};

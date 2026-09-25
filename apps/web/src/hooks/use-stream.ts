@@ -934,10 +934,10 @@ export function usePostBlock(rootId: string | null) {
       replyTo,
       attachments,
       review,
-      interrupt,
+      delivery,
     }) => {
       const body: StreamPostRequest = { id, text };
-      if (interrupt) body.interrupt = true;
+      if (delivery) body.delivery = delivery;
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
       if (attachments && attachments.length > 0) body.attachments = attachments;

@@ -73,6 +73,7 @@ const postBodySchema = z.object({
     .max(BLOCK_ATTACHMENTS_MAX)
     .optional(),
   interrupt: z.boolean().optional(),
+  delivery: z.enum(["auto", "queue"]).optional(),
 }) satisfies z.ZodType<StreamPostRequest, unknown>;
 
 const answerBodySchema = z.object({
@@ -234,7 +235,7 @@ export async function registerStreamRoutes(
         replyTo: parsed.data.replyTo ?? null,
         attachments: parsed.data.attachments ?? [],
         ...(parsed.data.review ? { review: parsed.data.review } : {}),
-        ...(parsed.data.interrupt ? { interrupt: true } : {}),
+        ...(parsed.data.delivery ? { delivery: parsed.data.delivery } : {}),
         allowInert: true,
       });
     } catch (error) {

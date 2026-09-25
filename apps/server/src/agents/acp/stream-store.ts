@@ -42,6 +42,8 @@ export type PlanPayload = {
 export type TurnRetryState = "open" | "retried" | "closed";
 
 export type TurnPayload = {
+  /** Additional input accepted during this turn; original routing stays intact. */
+  steering?: Array<{ source: PromptSource; at: string }>;
   state: "started" | "settled";
   prompt: PromptSource;
   /** The model the turn ran on, as the engine published it at the start. */

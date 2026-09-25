@@ -111,6 +111,7 @@ export type PostInput = {
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
   notify?: boolean;
+  delivery?: "auto" | "queue";
 };
 
 export type UpdateInput = {
@@ -149,7 +150,12 @@ export type StreamDeliveryAdapter = {
   inject: (
     agentId: string,
     text: string,
-    opts?: { blockId?: string; source?: PromptSource; alone?: boolean }
+    opts?: {
+      blockId?: string;
+      source?: PromptSource;
+      alone?: boolean;
+      delivery?: "auto" | "queue";
+    }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
@@ -787,7 +793,8 @@ export class StreamService {
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewInput | null;
       allowInert?: boolean;
-      /** Cut the recipient's running turn so this lands next, not after it. */
+      delivery?: "auto" | "queue";
+      /** Legacy clients: sending no longer cancels the running turn. */
       interrupt?: boolean;
     }
   ): Promise<StreamPostResponse> {
@@ -814,12 +821,17 @@ export class StreamService {
         toAgentId,
         text,
         review,
+        delivery: input.delivery,
         host: null,
         live: await this.canDeliver(toAgentId, input.allowInert ?? true),
       });
       const held =
         created.delivered === null
-          ? (await this.deliverBlock(created, { kind: "user" })).held
+          ? (
+              await this.deliverBlock(created, { kind: "user" }, [], {
+                delivery: input.delivery,
+              })
+            ).held
           : false;
       return { block: created, delivered: created.delivered, held };
     }
@@ -887,6 +899,7 @@ export class StreamService {
     const liveRecipients = recipients.filter((id) => liveFor.get(id));
     const live = liveRecipients.length === recipients.length;
     const textData = {
+      ...(input.delivery ? { delivery: input.delivery } : {}),
       ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
       ...(mentioned.length === 0 && recipients.length > 1
@@ -913,22 +926,6 @@ export class StreamService {
     }
     await this.publishEntry(streamId, block.id);
     if (!live) return { block, delivered: false, held: false };
-    // Cut each recipient's turn first, so the prompt this sends is what the
-    // agent reads next instead of queueing behind work the user is trying
-    // to redirect. The turn settles as `interrupted`.
-    if (input.interrupt) {
-      const delivery = this.delivery();
-      await Promise.all(
-        recipients.map((id) =>
-          delivery.cancel(id).catch((error: unknown) => {
-            this.log.warn(
-              { err: error, agentId: id, blockId: block.id },
-              "stream: could not cut the turn for an interrupting post"
-            );
-          })
-        )
-      );
-    }
     const nameOf = new Map(recipientAgents.map((a) => [a.id, a.name]));
     const { held } = await this.deliverBlockTo(
       block,
@@ -945,7 +942,7 @@ export class StreamService {
                   .map((id) => nameOf.get(id) ?? id),
               }
             : null,
-        ...(input.interrupt ? { alone: true } : {}),
+        delivery: rawCommand ? "queue" : (input.delivery ?? "auto"),
       })
     );
     return { block, delivered: null, held };
@@ -987,6 +984,7 @@ export class StreamService {
     toAgentId: string | null;
     text: string;
     review: BlockReviewInput;
+    delivery?: "auto" | "queue";
     host: { threadId: string; replyTo: string } | null;
     live: boolean;
     attachments?: ChatAttachment[];
@@ -1006,7 +1004,10 @@ export class StreamService {
         threadId: input.host?.threadId ?? null,
         replyTo: input.host?.replyTo ?? null,
         text: input.text,
-        data: { summary: input.review.summary },
+        data: {
+          summary: input.review.summary,
+          ...(input.delivery ? { delivery: input.delivery } : {}),
+        },
         state: { blocks: [] },
         attachments: input.attachments ?? [],
         delivered: input.toAgentId ? (input.live ? null : false) : null,
@@ -1649,12 +1650,15 @@ export class StreamService {
         toAgentId,
         text,
         review: data as BlockReviewInput,
+        delivery: input.delivery,
         host: home,
         live: toAgentId ? await this.canDeliver(toAgentId, true) : false,
         attachments,
       });
       if (toAgentId && review.delivered === null) {
-        await this.deliverBlock(review, from, attachmentLines);
+        await this.deliverBlock(review, from, attachmentLines, {
+          delivery: input.delivery,
+        });
       }
       return review;
     }
@@ -1687,8 +1691,12 @@ export class StreamService {
       replyTo: thread?.replyTo ?? null,
       text,
       data:
-        recipients.length > 1
-          ? { ...((data as object) ?? {}), recipients }
+        recipients.length > 1 || input.delivery
+          ? {
+              ...((data as object) ?? {}),
+              ...(recipients.length > 1 ? { recipients } : {}),
+              ...(input.delivery ? { delivery: input.delivery } : {}),
+            }
           : data,
       state: initialState(kind, data),
       attachments,
@@ -1747,6 +1755,7 @@ export class StreamService {
       await this.deliverBlockTo(block, recipients, from, () => ({
         attachmentLines,
         answers: answered ? { blockId: answered.id, kind: "question" } : null,
+        delivery: input.delivery,
       }));
     }
     if (
@@ -1823,8 +1832,12 @@ export class StreamService {
     }
     const patch: UpdateBlockInput = {};
     if (input.text !== undefined) patch.text = requireText(input.text);
-    if (input.data !== undefined)
-      patch.data = validUpdateData(block, input.data);
+    if (input.data !== undefined) {
+      const data = validUpdateData(block, input.data);
+      patch.data = block.data?.delivery
+        ? { ...((data as object) ?? {}), delivery: block.data.delivery }
+        : data;
+    }
     if (input.attachments !== undefined) {
       const agent = await this.requireAgent(agentId);
       patch.attachments = await this.resolveAgentAttachments(
@@ -2380,13 +2393,17 @@ export class StreamService {
     block: Block,
     from: EnvelopeSender,
     attachmentLines: string[] = [],
-    extra: { answers?: { blockId: string; kind: BlockKind } | null } = {}
+    extra: {
+      answers?: { blockId: string; kind: BlockKind } | null;
+      delivery?: "auto" | "queue";
+    } = {}
   ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
     if (!toAgentId) return { held: false };
     return this.deliverBlockTo(block, [toAgentId], from, () => ({
       attachmentLines,
       answers: extra.answers ?? null,
+      delivery: extra.delivery,
     }));
   }
 
@@ -2403,7 +2420,8 @@ export class StreamService {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
-      /** Sent to cut in: its own turn, never combined with other posts. */
+      delivery?: "auto" | "queue";
+      /** Never combined with other posts. */
       alone?: boolean;
       /** ACP slash command, sent without the Dispatch envelope. */
       rawPrompt?: string;
@@ -2468,6 +2486,9 @@ export class StreamService {
         },
         logContext: { blockId: block.id },
         ...(own.alone ? { alone: true } : {}),
+        delivery: own.rawPrompt
+          ? "queue"
+          : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
       held = held || result.held;
     }
@@ -2492,6 +2513,7 @@ export class StreamService {
     /** What the prompt is, for a prompt that is not a block being delivered. */
     source?: PromptSource;
     alone?: boolean;
+    delivery?: "auto" | "queue";
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
@@ -2502,6 +2524,7 @@ export class StreamService {
           ? { source: input.source }
           : { blockId: input.logContext.blockId }),
         ...(input.alone ? { alone: true } : {}),
+        ...(input.delivery ? { delivery: input.delivery } : {}),
       })
       .then(
         () => true,
@@ -2679,6 +2702,15 @@ export class StreamService {
       block.origin
     ) {
       throw new StreamValidationError("Queued user message not found.");
+    }
+    if (
+      action === "send-now" &&
+      block.kind === "text" &&
+      block.data?.acpCommand
+    ) {
+      throw new StreamValidationError(
+        "ACP commands must wait for the current turn to finish."
+      );
     }
     if (
       block.delivered !== null ||

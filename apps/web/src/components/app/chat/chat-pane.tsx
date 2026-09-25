@@ -857,7 +857,7 @@ export function ChatPane({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { interrupt?: boolean }
+      options?: { delivery?: "auto" | "queue" }
     ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
@@ -873,7 +873,7 @@ export function ChatPane({
         text,
         attachments,
         ...(postTo ? { to: postTo } : {}),
-        ...(options?.interrupt ? { interrupt: true } : {}),
+        ...(options?.delivery ? { delivery: options.delivery } : {}),
       });
     },
     [answerAsync, postTo, replyTarget, sendAsync]
@@ -1214,7 +1214,7 @@ export function ChatPane({
               replyContext={replyContext}
               mentionables={mentionables}
               slashCommands={slashCommands}
-              canInterrupt={Boolean(agentId) && turnRunning}
+              canQueue={Boolean(agentId) && !replyTarget}
               action={
                 agentId && turnRunning ? (
                   <StopTurnButton agentId={agentId} onError={setSendError} />

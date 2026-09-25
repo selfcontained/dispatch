@@ -241,17 +241,48 @@ export type BlockLaunchState = BlockShows & {
   instructions?: string;
 };
 
+/** Stored with the post so failed-delivery retries keep its scheduling intent. */
+export type BlockDeliveryIntent = { delivery?: "auto" | "queue" };
+
 /** `kind` with its `data` and `state`, so a switch on kind types both. */
 export type BlockBody =
-  | { kind: "text"; data: BlockTextData | null; state: null }
-  | { kind: "file"; data: null; state: null }
-  | { kind: "link"; data: BlockLinkData; state: null }
-  | { kind: "question"; data: BlockQuestionData; state: BlockQuestionState }
-  | { kind: "form"; data: BlockFormData; state: BlockFormState }
-  | { kind: "review"; data: BlockReviewData; state: BlockReviewState }
-  | { kind: "finding"; data: BlockFindingData; state: BlockFindingState }
-  | { kind: "tasks"; data: BlockTasksData; state: BlockTasksState }
-  | { kind: "launch"; data: null; state: BlockLaunchState | null };
+  | {
+      kind: "text";
+      data: (BlockTextData & BlockDeliveryIntent) | null;
+      state: null;
+    }
+  | { kind: "file"; data: BlockDeliveryIntent | null; state: null }
+  | { kind: "link"; data: BlockLinkData & BlockDeliveryIntent; state: null }
+  | {
+      kind: "question";
+      data: BlockQuestionData & BlockDeliveryIntent;
+      state: BlockQuestionState;
+    }
+  | {
+      kind: "form";
+      data: BlockFormData & BlockDeliveryIntent;
+      state: BlockFormState;
+    }
+  | {
+      kind: "review";
+      data: BlockReviewData & BlockDeliveryIntent;
+      state: BlockReviewState;
+    }
+  | {
+      kind: "finding";
+      data: BlockFindingData & BlockDeliveryIntent;
+      state: BlockFindingState;
+    }
+  | {
+      kind: "tasks";
+      data: BlockTasksData & BlockDeliveryIntent;
+      state: BlockTasksState;
+    }
+  | {
+      kind: "launch";
+      data: BlockDeliveryIntent | null;
+      state: BlockLaunchState | null;
+    };
 
 /**
  * `turn`: the agent's answer for one turn, written empty when the turn
@@ -468,10 +499,11 @@ export type StreamPostRequest = {
   replyTo?: string;
   attachments?: ChatUserAttachmentInput[];
   /**
-   * Cut the agent's running turn so this message is what it reads next.
-   * Without it a message sent mid-turn waits for the turn to finish.
+   * Legacy compatibility only. Sending never cancels a running turn.
    */
   interrupt?: boolean;
+  /** Default: steer a running turn, or start one when idle. */
+  delivery?: "auto" | "queue";
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
   review?: BlockReviewInput;
 };

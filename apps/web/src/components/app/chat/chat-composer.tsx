@@ -18,7 +18,6 @@ import {
   AtSign,
   ChevronDown,
   CornerDownRight,
-  ListPlus,
   Plus,
   SquareSlash,
   SendHorizontal,
@@ -98,14 +97,10 @@ export type ChatComposerProps = {
   onSend: (
     text: string,
     attachments: ChatUserAttachmentInput[],
-    options?: { interrupt?: boolean }
+    options?: { delivery?: "auto" | "queue" }
   ) => Promise<void>;
-  /**
-   * A turn is running, so a plain send would queue behind it. Offers "Send
-   * now", which cuts the turn and makes this message what the agent reads
-   * next.
-   */
-  canInterrupt?: boolean;
+  /** Offer an explicit alternative to delivery during the current turn. */
+  canQueue?: boolean;
   /**
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
@@ -191,7 +186,11 @@ type DraftFileView = {
  * something; an upload or send failure leaves a sendable draft behind, so
  * that one gets the retry hint.
  */
-type ComposerError = { text: string; retryable: boolean };
+type ComposerError = {
+  text: string;
+  retryable: boolean;
+  retryDelivery?: "auto" | "queue";
+};
 
 /**
  * An upload the server refused (a 4xx): the same bytes would be refused
@@ -234,7 +233,7 @@ export function ChatComposer({
   mentionables,
   slashCommands,
   onDispatchCommand,
-  canInterrupt = false,
+  canQueue = false,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -792,7 +791,7 @@ export function ChatComposer({
   }, [autoFocus]);
 
   const submit = useCallback(
-    (options?: { interrupt?: boolean }) => {
+    (options?: { delivery?: "auto" | "queue" }) => {
       if (!canSend) return;
       setError(null);
       setInFlight(true);
@@ -869,6 +868,7 @@ export function ChatComposer({
           setError({
             text: err instanceof Error ? err.message : "Message not sent.",
             retryable: !(err instanceof UploadRefused),
+            retryDelivery: options?.delivery,
           });
         })
         .finally(() => {
@@ -898,7 +898,7 @@ export function ChatComposer({
         !event.altKey
       ) {
         event.preventDefault();
-        submit(canInterrupt ? { interrupt: true } : undefined);
+        submit(canQueue ? { delivery: "queue" } : undefined);
         return;
       }
       if (slashOpen) {
@@ -950,12 +950,19 @@ export function ChatComposer({
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       event.preventDefault();
-      submit();
+      // Enter is the advertised retry; retain an explicit queue choice.
+      // The Send button/menu still lets the user choose immediate delivery.
+      submit(
+        error?.retryable && error.retryDelivery === "queue"
+          ? { delivery: "queue" }
+          : undefined
+      );
     },
     [
       activeMention,
       activeSlash,
-      canInterrupt,
+      canQueue,
+      error,
       mentionCandidates,
       mentionOpen,
       pickMention,
@@ -977,7 +984,7 @@ export function ChatComposer({
     (view) => fileStatus[view.key] === "uploading"
   )?.entry.name;
   const hasAttachments = attachmentCount > 0;
-  const sendNowShortcut =
+  const queueShortcut =
     typeof navigator !== "undefined" &&
     /Mac|iPod|iPhone|iPad/.test(navigator.platform)
       ? "⌘⇧Enter"
@@ -1218,25 +1225,17 @@ export function ChatComposer({
                   size="icon"
                   variant={canSend ? "success" : "ghost"}
                   disabled={!canSend}
-                  title={
-                    canInterrupt
-                      ? "Queue message until the turn ends (Enter)"
-                      : "Send (Enter)"
-                  }
-                  aria-label={canInterrupt ? "Queue message" : "Send message"}
+                  title="Send (Enter)"
+                  aria-label="Send message"
                   data-testid="chat-composer-send"
                   className={cn(
                     "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
-                    canInterrupt && "rounded-r-none"
+                    canQueue && "rounded-r-none"
                   )}
                 >
-                  {canInterrupt ? (
-                    <ListPlus className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
-                  )}
+                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                 </Button>
-                {canInterrupt ? (
+                {canQueue ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -1256,6 +1255,7 @@ export function ChatComposer({
                       side="top"
                       align="end"
                       className="w-72"
+                      onEscapeKeyDown={(event) => event.stopPropagation()}
                     >
                       <DropdownMenuItem
                         disabled={!canSend}
@@ -1263,27 +1263,27 @@ export function ChatComposer({
                         className="text-foreground"
                       >
                         <span className="flex justify-between gap-3">
-                          Queue message{" "}
+                          Send{" "}
                           <span className="text-muted-foreground">Enter</span>
                         </span>
                         <span className="block text-xs text-muted-foreground">
-                          Send when the current turn ends
+                          Deliver while the agent works
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={!canSend}
-                        onSelect={() => submit({ interrupt: true })}
-                        data-testid="chat-composer-send-now"
+                        onSelect={() => submit({ delivery: "queue" })}
+                        data-testid="chat-composer-queue"
                         className="text-foreground"
                       >
                         <span className="flex justify-between gap-3">
-                          Send now{" "}
+                          Queue for next turn{" "}
                           <span className="text-muted-foreground">
-                            {sendNowShortcut}
+                            {queueShortcut}
                           </span>
                         </span>
                         <span className="block text-xs text-muted-foreground">
-                          Stop the current turn and send this message
+                          Send after the current turn finishes
                         </span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1311,7 +1311,7 @@ export function ChatComposer({
             data-retryable={error.retryable ? "true" : undefined}
           >
             {error.retryable
-              ? `${error.text} — your message is still here; press Enter to try again.`
+              ? `${error.text} — your message is still here; press Enter to ${error.retryDelivery === "queue" ? "queue again" : "try again"}.`
               : error.text}
           </span>
         ) : placeholders.length > 0 ? (
@@ -1328,10 +1328,9 @@ export function ChatComposer({
           <span>Drop files to attach them</span>
         ) : (
           <span>
-            {canInterrupt ? "Enter to queue" : "Enter to send"} · Shift+Enter
-            for a new line
-            {canInterrupt
-              ? ` · ${sendNowShortcut} to send now`
+            Enter to send · Shift+Enter for a new line
+            {canQueue
+              ? ` · ${queueShortcut} to queue`
               : " · paste or drop files"}
           </span>
         )}

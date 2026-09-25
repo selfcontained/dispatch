@@ -65,6 +65,7 @@ export type JournalEntry = {
 export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
   | { type: "prompt"; id: string; text: string; source?: PromptSource }
+  | { type: "steer"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
   | {
       type: "answer_permission";
@@ -87,6 +88,8 @@ export type HostMessage =
       resumed: boolean;
       /** Whether the engine child is alive. */
       running: boolean;
+      /** Absent on older hosts: keep queuing when they cannot steer. */
+      steeringSupported?: boolean;
       /** The open turn, if one is running. */
       turn: { seq: number; startedAt: string } | null;
       /** The newest journal seq; replay follows up to here. */
@@ -101,6 +104,7 @@ export type HostMessage =
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }
+  | { type: "steer_result"; id: string; outcome: "injected" | "promptRequired" }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
   | { type: "error"; id?: string; message: string }

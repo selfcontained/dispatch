@@ -222,6 +222,12 @@ export function registerStreamTools(
           tasks: tasksSchema.optional(),
           attachments: attachmentsSchema.optional(),
           notify: z.boolean().optional(),
+          delivery: z
+            .enum(["auto", "queue"])
+            .optional()
+            .describe(
+              "Default auto: deliver during the running turn, or start a turn if idle. Choose queue to wait for the current turn to finish."
+            ),
         },
       },
       async (args) => {
@@ -237,6 +243,7 @@ export function registerStreamTools(
             tasks: args.tasks ?? null,
             attachments: args.attachments ?? [],
             notify: args.notify,
+            delivery: args.delivery,
           });
           const findings = (block.blocks ?? []).flatMap((shown) =>
             shown.kind === "finding"
