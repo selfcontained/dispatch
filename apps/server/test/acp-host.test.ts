@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
+import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -116,6 +117,62 @@ describe("agent host", () => {
     delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("delivers the full Codex launch bundle through the host, not just the recorded system prompt", async () => {
+    const id = "agt_host_guidance";
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    const guidance = buildSystemPrompt({
+      agent: {
+        id,
+        type: "codex",
+        persona: "reviewer",
+        agentArgs: [
+          "--append-system-prompt",
+          "Review only the parent's diff and report findings.",
+        ],
+      },
+      personalityPrompt: null,
+      trimmedGuidance: false,
+      suggestSessionRename: false,
+    });
+    await runtime.launch({
+      ...launchFor(id, cwd),
+      engine: "codex",
+      systemPrompt: guidance,
+    });
+    try {
+      expect(seen.some(({ event }) => event.type === "turn")).toBe(false);
+      await runtime.prompt(id, "Begin the requested review.").settled;
+      await until(() =>
+        seen.some(
+          ({ event }) => event.type === "turn" && event.state === "settled"
+        )
+      );
+      const answer = seen
+        .flatMap(({ event }) =>
+          event.type === "update" &&
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text"
+            ? [event.update.content.text]
+            : []
+        )
+        .join("");
+      expect(answer).toContain(guidance);
+      expect(answer).toContain("Review only the parent's diff");
+      expect(answer).toContain("Your replies stream live");
+      expect(answer).toContain("DISPATCH_FILES_DIR");
+      expect(answer).toContain("Begin the requested review.");
+      const starts = seen.filter(
+        ({ event }) => event.type === "turn" && event.state === "started"
+      );
+      expect(starts).toHaveLength(1);
+      expect(starts[0].event).toMatchObject({
+        text: "Begin the requested review.",
+      });
+    } finally {
+      await runtime.stop(id);
+    }
   });
 
   it("launches, runs a turn, survives its client, replays, and stops", async () => {

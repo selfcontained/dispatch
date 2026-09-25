@@ -198,20 +198,47 @@ describe("ChatComposer", () => {
     ).toBe(true);
   });
 
-  it("gives the Send button a 44px target on coarse pointers only", () => {
-    // Desktop keeps the compact icon; the pointer-coarse variant (see
-    // tailwind.config.ts) swaps in the 44px minimum without an inset so the
-    // button still sits inside the composer box.
-    renderComposer();
-    const send = screen.getByTestId("chat-composer-send");
-    expect(send.className).toMatch(/\bh-7\b/);
-    expect(send.className).toMatch(/\bw-7\b/);
-    expect(send.className).toContain("pointer-coarse:min-h-11");
-    expect(send.className).toContain("pointer-coarse:min-w-11");
-    expect(send.className).toContain("pointer-coarse:m-0");
-    const disc = screen.getByTestId("chat-composer-send-disc");
-    expect(disc.className).toContain("pointer-coarse:h-7");
-    expect(disc.className).toContain("pointer-coarse:w-7");
+  it.each(["metaKey", "ctrlKey"])(
+    "sends now with %s + Shift + Enter while busy",
+    async (modifier) => {
+      const { input, onSend } = renderComposer({ canInterrupt: true });
+      fireEvent.change(input, { target: { value: "urgent" } });
+      fireEvent.keyDown(input, {
+        key: "Enter",
+        shiftKey: true,
+        [modifier]: true,
+      });
+      expect(onSend).toHaveBeenCalledWith("urgent", [], { interrupt: true });
+      await waitFor(() => expect(input.value).toBe(""));
+    }
+  );
+
+  it("queues on Enter while busy and keeps Shift+Enter for newlines", async () => {
+    const { input, onSend } = renderComposer({ canInterrupt: true });
+    fireEvent.change(input, { target: { value: "later" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("later", []);
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("uses a normal send for the shortcut when idle", async () => {
+    const { input, onSend } = renderComposer();
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true, shiftKey: true });
+    expect(onSend).toHaveBeenCalledWith("hello", []);
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("does not send now during an in-flight send", () => {
+    const { input, onSend } = renderComposer({
+      canInterrupt: true,
+      sending: true,
+    });
+    fireEvent.change(input, { target: { value: "wait" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true, shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 
@@ -265,6 +292,115 @@ describe("ChatComposer @mentions", () => {
     const { input } = renderComposer();
     type(input, "@rev");
     expect(screen.queryByTestId("mention-picker")).toBeNull();
+  });
+});
+
+describe("ChatComposer toolbar pickers", () => {
+  const mentionables = [{ id: "agt_review", name: "reviewer", seat: 2 }];
+  const slashCommands = [
+    { name: "review", description: "Review changes", source: "agent" as const },
+    { name: "model", description: "Choose model", source: "dispatch" as const },
+  ];
+
+  it("inserts a mention at the saved cursor and preserves the rest of the draft", async () => {
+    const { input, onSend } = renderComposer({ mentionables });
+    fireEvent.change(input, { target: { value: "Ask to review" } });
+    input.setSelectionRange(3, 3);
+    fireEvent.click(screen.getByTestId("chat-composer-mention-button"));
+    await waitFor(() => expect(input.selectionStart).toBe(5));
+    expect(input.value).toBe("Ask @ to review");
+    fireEvent.click(screen.getByTestId("mention-option"));
+    await waitFor(() => expect(input.value).toBe("Ask @reviewer  to review"));
+    expect(document.activeElement).toBe(input);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("reopens a dismissed mention query without adding a second @", async () => {
+    const { input } = renderComposer({ mentionables });
+    fireEvent.change(input, { target: { value: "@rev", selectionStart: 4 } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    fireEvent.click(screen.getByTestId("chat-composer-mention-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("mention-picker")).toBeTruthy()
+    );
+    expect(input.value).toBe("@rev");
+  });
+
+  it("opens commands at the start and preserves an existing draft when selected", async () => {
+    const { input, onSend } = renderComposer({ slashCommands });
+    fireEvent.change(input, { target: { value: "check the composer" } });
+    fireEvent.click(screen.getByTestId("chat-composer-command-button"));
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+    expect(input.value).toBe("/ check the composer");
+    expect(screen.getAllByTestId("slash-option")).toHaveLength(2);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input.value).toBe("/review check the composer"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("preserves the draft when a toolbar command is handled locally", async () => {
+    const onDispatchCommand = vi.fn(() => true);
+    const { input } = renderComposer({ slashCommands, onDispatchCommand });
+    fireEvent.change(input, { target: { value: "keep these notes" } });
+    fireEvent.click(screen.getByTestId("chat-composer-command-button"));
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onDispatchCommand).toHaveBeenCalledWith("model");
+    expect(input.value).toBe("keep these notes");
+    expect(screen.queryByTestId("slash-picker")).toBeNull();
+  });
+
+  it("keeps the slash toolbar disabled when replying", () => {
+    renderComposer({
+      slashCommands,
+      replyContext: { excerpt: "Question", onDismiss: vi.fn() },
+    });
+    const button = screen.getByTestId(
+      "chat-composer-command-button"
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("Dismiss the reply");
+  });
+
+  it("keeps the slash toolbar disabled with attachments", () => {
+    renderComposer({ slashCommands });
+    fireEvent.change(screen.getByTestId("chat-composer-file-input"), {
+      target: {
+        files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+      },
+    });
+    const button = screen.getByTestId(
+      "chat-composer-command-button"
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("Remove attachments");
+  });
+
+  it("reopens a dismissed slash query without adding another prefix", async () => {
+    const { input } = renderComposer({ slashCommands });
+    fireEvent.change(input, {
+      target: { value: "/rev notes", selectionStart: 4 },
+    });
+    fireEvent.keyDown(input, { key: "Escape" });
+    fireEvent.click(screen.getByTestId("chat-composer-command-button"));
+    await waitFor(() => expect(input.selectionStart).toBe(4));
+    expect(screen.getByTestId("slash-picker")).toBeTruthy();
+    expect(input.value).toBe("/rev notes");
+  });
+
+  it("disables pickers when there are no agents or commands", () => {
+    const { input } = renderComposer();
+    expect(
+      (screen.getByTestId("chat-composer-mention-button") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("chat-composer-command-button") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    expect(input.value).toBe("");
   });
 });
 

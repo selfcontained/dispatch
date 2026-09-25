@@ -47,6 +47,8 @@ const {
 const { StreamService, launchBlockId } =
   await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
+const { JobService } = await import("../../src/jobs/service.js");
+const { JobStore } = await import("../../src/jobs/store.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { forgetLearnedAgentModels } =
   await import("../../src/shared/agent-models.js");
@@ -297,6 +299,28 @@ describe("AgentManager", () => {
       );
     });
 
+    it.each(["claude", "codex"] as const)(
+      "starts a %s job whose task is supplied through appended instructions",
+      async (type) => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          type,
+          jobRunId: "run_startup",
+          agentArgs: [
+            "--append-system-prompt",
+            "Audit the nightly build and call job_complete with the report.",
+          ],
+        });
+        expect(lastLaunch().systemPrompt).toContain("Audit the nightly build");
+        expect(lastLaunch().systemPrompt).toContain("job_needs_input");
+        expect(lastLaunch().systemPrompt).not.toContain("No task, no work");
+        expect(promptsFor(agent.id)).toEqual([
+          "Run the Dispatch job described in your instructions. Follow its lifecycle requirements and report the outcome with a job terminal tool.",
+        ]);
+      }
+    );
+
     it("should hand the first prompt to runtime.prompt after the agent is running", async () => {
       let statusAtPrompt: string | undefined;
       runtime.prompt.mockImplementation((id) => {
@@ -318,6 +342,67 @@ describe("AgentManager", () => {
 
     it("should not prompt when there is nothing to say", async () => {
       await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      expect(runtime.prompt).not.toHaveBeenCalled();
+    });
+
+    it("links a job before tool discovery and lets its first turn immediately complete it", async () => {
+      await pool.query(`INSERT INTO jobs (id, directory, name, prompt, enabled, agent_type, use_worktree, full_access, timeout_ms, needs_input_timeout_ms, auto_archive)
+        VALUES ('job_order', '/tmp', 'Launch ordering', 'Report success immediately.', false, 'codex', false, false, 1800000, 1800000, false)`);
+      const service = new JobService(pool, manager, noopLogger, testConfig);
+      const store = new JobStore(pool);
+      let completion:
+        | ReturnType<InstanceType<typeof JobService>["completeRunForAgent"]>
+        | undefined;
+      runtime.launch.mockImplementationOnce(async (input) => {
+        expect(await store.getActiveRunForAgent(input.agentId)).toMatchObject({
+          jobId: "job_order",
+          status: "running",
+        });
+        return { sessionId: "sess_order", resumed: false };
+      });
+      runtime.prompt.mockImplementation((id) => {
+        completion = service.completeRunForAgent(id, {
+          status: "completed",
+          summary: "Immediate success",
+          tasks: [],
+        });
+        return {
+          accepted: Promise.resolve(),
+          settled: completion.then(() => {}),
+        };
+      });
+      try {
+        const result = await service.runJob({
+          name: "Launch ordering",
+          directory: "/tmp",
+          wait: false,
+        });
+        expect(completion).toBeDefined();
+        await expect(completion).resolves.toMatchObject({
+          status: "completed",
+        });
+        expect(await store.getRun(result.runId)).toMatchObject({
+          status: "completed",
+          agentId: result.agentId,
+        });
+        expect(runtime.prompt).toHaveBeenCalledTimes(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    it("does not launch or prompt if owner attachment fails", async () => {
+      await expect(
+        manager.createAgent(
+          { cwd: "/tmp", useWorktree: false, jobRunId: "run_not_attached" },
+          {
+            beforeLaunch: async () => {
+              throw new Error("attachment failed");
+            },
+          }
+        )
+      ).rejects.toThrow("attachment failed");
+      expect(runtime.launch).not.toHaveBeenCalled();
       expect(runtime.prompt).not.toHaveBeenCalled();
     });
 
@@ -1918,6 +2003,74 @@ describe("AgentManager", () => {
       expect(started.cliSessionId).toBe("sess_1");
       expect(started.lastError).toBeNull();
     });
+
+    it("preserves a resumed job's run-scoped guidance and MCP credentials", async () => {
+      const agent = await createStoppedAgent({ type: "codex" });
+      await pool.query(`INSERT INTO jobs (id, directory, name, enabled, agent_type, use_worktree, full_access, timeout_ms, needs_input_timeout_ms, auto_archive)
+        VALUES ('job_resume', '/tmp', 'Resume job', false, 'codex', false, false, 1800000, 1800000, false)`);
+      await pool.query(
+        `INSERT INTO job_runs (id, job_id, status, started_at, status_updated_at, agent_id)
+        VALUES ('run_resume', 'job_resume', 'running', NOW(), NOW(), $1)`,
+        [agent.id]
+      );
+      runtime.prompt.mockClear();
+      await manager.startAgent(agent.id);
+      expect(lastLaunch().mcp.url).toBe(
+        `http://127.0.0.1:6767/api/mcp/jobs/run_resume/${agent.id}`
+      );
+      expect(lastLaunch().mcp.token).not.toBe(
+        createAgentMcpToken("test-token", agent.id)
+      );
+      expect(lastLaunch().systemPrompt).toContain(
+        "Dispatch job run (run_resume)"
+      );
+      expect(lastLaunch().systemPrompt).toContain("job_complete");
+      expect(lastLaunch().systemPrompt).not.toContain("No task, no work");
+      // Resume restores context; it must not silently repeat the job task.
+      expect(runtime.prompt).not.toHaveBeenCalled();
+    });
+
+    it.each(["completed", "failed", "timed_out", "crashed"])(
+      "resumes a %s job as an ordinary conversation without replaying its task",
+      async (status) => {
+        const agent = await createStoppedAgent({ type: "codex" });
+        const jobId = `job_resume_${status}`;
+        await pool.query(
+          `INSERT INTO jobs (id, directory, name, enabled, agent_type, use_worktree, full_access, timeout_ms, needs_input_timeout_ms, auto_archive)
+        VALUES ($1, '/tmp', $1, false, 'codex', false, false, 1800000, 1800000, false)`,
+          [jobId]
+        );
+        await pool.query(
+          `INSERT INTO job_runs (id, job_id, status, started_at, status_updated_at, agent_id)
+        VALUES ($1, $1, $2, NOW(), NOW(), $3)`,
+          [jobId, status, agent.id]
+        );
+        await pool.query(
+          "UPDATE agents SET agent_args = $2::jsonb WHERE id = $1",
+          [
+            agent.id,
+            JSON.stringify([
+              "--append-system-prompt",
+              "Repeat the old job and call job_complete.",
+            ]),
+          ]
+        );
+        runtime.prompt.mockClear();
+        await manager.startAgent(agent.id);
+        expect(lastLaunch().mcp.url).toBe(
+          `http://127.0.0.1:6767/api/mcp/${agent.id}`
+        );
+        expect(lastLaunch().mcp.token).toBe(
+          createAgentMcpToken("test-token", agent.id)
+        );
+        expect(lastLaunch().systemPrompt).not.toContain("job_complete");
+        expect(lastLaunch().systemPrompt).not.toContain("Repeat the old job");
+        expect(lastLaunch().systemPrompt).toContain(
+          "previous Dispatch job run has ended"
+        );
+        expect(runtime.prompt).not.toHaveBeenCalled();
+      }
+    );
 
     it("should record the fresh session when the engine could not resume", async () => {
       const agent = await createStoppedAgent();
