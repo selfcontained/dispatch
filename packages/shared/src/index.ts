@@ -165,3 +165,8 @@ export {
   USER_AVATAR_SIZE,
 } from "./user-avatar.js";
 export type { UserAvatar, UserAvatarPreset } from "./user-avatar.js";
+
+export type {
+  AgentPermissionRequest,
+  AgentPermissionsResponse,
+} from "./permission-types.js";

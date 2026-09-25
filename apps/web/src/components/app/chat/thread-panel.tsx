@@ -15,6 +15,7 @@ import {
 } from "@/components/app/chat/block-bodies";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { PermissionRequests } from "./permission-requests";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import {
   BlockView,
@@ -532,6 +533,7 @@ export function ThreadPanel({
             {error}
           </div>
         ) : null}
+        <PermissionRequests agentId={agentId} active />
         <ChatComposer
           // No persisted draft: a thread's half-typed reply is not worth
           // keeping across reloads, and sharing the agent's key would

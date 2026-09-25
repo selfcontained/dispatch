@@ -46,6 +46,7 @@ export async function createAgentViaAPI(
     type?: string;
     cwd?: string;
     useWorktree?: boolean;
+    fullAccess?: boolean;
     worktreeBranch?: string;
     /** Launch as a child of this agent (renders as a sub agent row). */
     parentAgentId?: string;
@@ -58,6 +59,9 @@ export async function createAgentViaAPI(
       type: overrides.type ?? "codex",
       cwd: overrides.cwd ?? "/tmp",
       useWorktree: overrides.useWorktree ?? false,
+      ...(overrides.fullAccess !== undefined
+        ? { fullAccess: overrides.fullAccess }
+        : {}),
       worktreeBranch: overrides.worktreeBranch,
       parentAgentId: overrides.parentAgentId,
     },

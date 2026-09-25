@@ -1,3 +1,4 @@
+import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
@@ -18,6 +19,8 @@ export type HostLaunch = {
   agentId: string;
   cwd: string;
   engine: AcpEngineId;
+  /** Missing only in launch files written before permission support (full access). */
+  fullAccess?: boolean;
   bins: EngineBins;
   /** The model to select through the engine's model config option; null keeps its default. */
   model: string | null;
@@ -63,6 +66,12 @@ export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
   | { type: "prompt"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
+  | {
+      type: "answer_permission";
+      id: string;
+      requestId: string;
+      optionId: string | null;
+    }
   /** Set one of the session's config options (model, effort, mode). */
   | { type: "set_config"; id: string; configId: string; value: string }
   | { type: "shutdown"; force?: boolean }
@@ -88,12 +97,15 @@ export type HostMessage =
       commands: AvailableCommand[];
       /** The session's config options as they stand; absent from older hosts. */
       configOptions?: SessionConfigOption[];
+      permissions?: AgentPermissionRequest[];
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
   | { type: "error"; id?: string; message: string }
+  | { type: "permissions"; requests: AgentPermissionRequest[] }
+  | { type: "permission_answered"; id: string }
   | { type: "pong" };
 
 /**

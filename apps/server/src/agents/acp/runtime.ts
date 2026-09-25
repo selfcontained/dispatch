@@ -414,6 +414,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       fromSeq: () => entry.lastSeq,
       journalId: () => entry.journalId,
       onEvent: (journal) => dispatchEntry(agentId, entry, journal),
+      onPermissions: (requests) =>
+        emit(agentId, entry, { type: "permissions", agentId, requests }, 0),
       onWelcome: (welcome) => {
         const changed = Boolean(
           welcome.journalId &&
@@ -508,6 +510,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const entry = live.get(agentId);
       return entry?.client.welcome?.running ? entry.configOptions : null;
     },
+    getPermissions(agentId) {
+      return (
+        live.get(agentId)?.client.getPermissions() ?? {
+          connected: false,
+          requests: [],
+        }
+      );
+    },
+    async answerPermission(agentId, requestId, optionId) {
+      const client = live.get(agentId)?.client;
+      if (!client?.getPermissions().connected)
+        throw new Error("The agent host is not connected.");
+      await client.answerPermission(crypto.randomUUID(), requestId, optionId);
+    },
     async setConfigOption(agentId, configId, value) {
       const entry = live.get(agentId);
       if (!entry?.client.welcome?.running) {
@@ -528,6 +544,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         engine: input.engine,
         bins: input.bins,
         model: input.model,
+        fullAccess: input.fullAccess ?? true,
         systemPrompt: input.systemPrompt,
         mcp: input.mcp,
         env: input.env,

@@ -95,6 +95,8 @@ function response(
         agentCpuPercent: null,
         agentRssBytes: null,
         hostLoad1: 1,
+        hostFreeMemoryBytes: 1024,
+        hostTotalMemoryBytes: 4096,
         subsystems: {},
       },
     ],

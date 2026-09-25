@@ -617,3 +617,44 @@ describe("POST /api/v1/agents/:id/prompt-rename", () => {
     expect(res.json().error).toContain("running");
   });
 });
+
+describe("agent permissions API", () => {
+  it("reports an unattached engine and rejects stale decisions", async () => {
+    const agent = await createAgent({ fullAccess: false });
+    const url = `/api/v1/agents/${agent.id}/permissions`;
+    const res = await authedInject("GET", url);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ connected: false, requests: [] });
+    for (const body of [{}, { optionId: true }, { optionId: "" }]) {
+      expect(
+        (await authedInject("POST", `${url}/request`, body)).statusCode
+      ).toBe(400);
+    }
+    expect(
+      (await authedInject("POST", `${url}/request`, { optionId: "allow" }))
+        .statusCode
+    ).toBe(409);
+    expect(
+      (await authedInject("GET", "/api/v1/agents/missing/permissions"))
+        .statusCode
+    ).toBe(404);
+  });
+
+  it("requires user authentication; an agent cannot approve itself with its MCP token", async () => {
+    const agent = await createAgent({ fullAccess: false });
+    const url = `/api/v1/agents/${agent.id}/permissions/request`;
+    const token = ctx.auth.createAgentMcpToken(
+      await ctx.auth.getOrCreateAuthToken(ctx.pool),
+      String(agent.id)
+    );
+    for (const headers of [{}, { authorization: `Bearer ${token}` }]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers,
+        payload: { optionId: "allow" },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+  });
+});

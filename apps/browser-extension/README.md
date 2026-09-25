@@ -26,6 +26,24 @@ Click the extension toolbar icon to open its side panel. Enter the URL of your
 Dispatch instance, approve the pairing request in Dispatch, return to the page
 you want to inspect, and select a running agent.
 
+## Delivery and retries
+
+Feedback appears as a user post in the selected agent's Dispatch stream, with
+page context attached as a JSON file and an optional screenshot. Page text and
+`@mentions` inside feedback never change the selected recipient.
+
+A busy agent queues feedback behind its current turn. The panel shows queued,
+delivered, or unconfirmed delivery without holding the submission request open.
+It remembers the latest submission lookup and checks its status when reopened;
+the stream keeps all submissions. "Delivered" means the runtime accepted the
+prompt, not that the agent has finished the requested work.
+
+If a server restart interrupts delivery, open the feedback in Dispatch to
+review it and use the post's resend control. This retries the same post and
+reuses its evidence files. Unconfirmed delivery is not automatically replayed:
+the agent may have received it just before the connection was lost. Use
+**Check delivery** in the panel after retrying in Dispatch.
+
 ## Permissions and privacy
 
 The configured Dispatch origin is only the feedback destination. The extension

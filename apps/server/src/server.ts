@@ -319,6 +319,8 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
 const serviceResources = new ServiceResources({
   pool,
   probePool: serviceResourcesProbePool,
+  artifactProbePool: createServiceResourcesProbePool(config),
+  artifactRoots: [config.filesRoot, config.agentStateRoot],
   listAgentProcesses: async () => {
     const agents = await agentManager.listAgents();
     const running = agents.filter((agent) =>
@@ -610,8 +612,7 @@ async function registerRoutes() {
   await registerBrowserExtensionRoutes(app, {
     pool,
     agentManager,
-    sendAgentPrompt: (agentId, prompt) =>
-      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
+    streamService,
     filesRoot: config.filesRoot,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });

@@ -32,7 +32,12 @@ import {
 } from "./thread-panel";
 
 const apiMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ api: apiMock }));
+vi.mock("@/lib/api", () => ({
+  api: (url: string, ...args: unknown[]) =>
+    url.endsWith("/permissions")
+      ? Promise.resolve({ connected: false, requests: [] })
+      : apiMock(url, ...args),
+}));
 vi.mock("@/components/ui/markdown", () => ({
   Markdown: ({ children }: { children: string }) => (
     <div data-testid="markdown-mock">{children}</div>

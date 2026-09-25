@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -54,6 +55,35 @@ describe("ServiceResources", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("retains host-wide memory changes even when there are no agent processes", async () => {
+    const free = vi.spyOn(os, "freemem").mockReturnValue(8 * 1024 ** 3);
+    vi.spyOn(os, "totalmem").mockReturnValue(32 * 1024 ** 3);
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      listAgentProcesses: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    free.mockReturnValue(2 * 1024 ** 3);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const snapshot = resources.getSnapshot();
+    expect(snapshot.series.map((sample) => sample.hostFreeMemoryBytes)).toEqual(
+      [8 * 1024 ** 3, 2 * 1024 ** 3]
+    );
+    expect(
+      snapshot.series.every(
+        (sample) => sample.hostTotalMemoryBytes === 32 * 1024 ** 3
+      )
+    ).toBe(true);
+    expect(snapshot.current.host.freeMemoryBytes).toBe(2 * 1024 ** 3);
+    resources.stop();
   });
 
   it("serializes slow samples and prevents commits after stop", async () => {
@@ -262,6 +292,133 @@ describe("ServiceResources", () => {
       },
     });
     resources.stop();
+  });
+
+  it("includes detached child hosts and counts overlapping descendants once", async () => {
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: true,
+      listAgentProcesses: async () => [
+        { hostPid: 101 },
+        { hostPid: 201 },
+        { hostPid: 102 },
+      ],
+      runProcessCommand: vi.fn(async () => ({
+        stdout:
+          "103 102 1 10\n102 101 1 10\n101 1 1 10\n201 1 1 10\n202 201 1 10",
+        stderr: "",
+        exitCode: 0,
+      })),
+    });
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resources.getSnapshot().current.agents).toMatchObject({
+      processCount: 5,
+      rssBytes: 50 * 1024,
+      cpuPercent: 5,
+    });
+    resources.stop();
+  });
+
+  it("clears process values after a successful probe followed by failure", async () => {
+    const runProcessCommand = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "101 1 1 10", stderr: "", exitCode: 0 })
+      .mockRejectedValue(new Error("failed"));
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: true,
+      listAgentProcesses: async () => [{ hostPid: 101 }],
+      runProcessCommand,
+    });
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resources.getSnapshot().current.agents.rssBytes).toBe(10 * 1024);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(resources.getSnapshot().current.agents).toMatchObject({
+      rssBytes: null,
+      cpuPercent: null,
+      processCount: null,
+      error: "Process sampling failed",
+    });
+    resources.stop();
+  });
+
+  it("times out artifact root queries, retries on cadence, and cancels before measurement on opt-out", async () => {
+    const query = vi.fn(() => new Promise(() => {}));
+    const release = vi.fn();
+    const end = vi.fn(async () => undefined);
+    const artifactProbePool = {
+      connect: vi.fn(async () => ({ query, release })),
+      end,
+    } as unknown as Pool;
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      artifactProbePool,
+      artifactRoots: [],
+      listAgentProcesses: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+    resources.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(release).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+    expect(resources.getSnapshot().current.artifacts?.error).toBe(
+      "Artifact storage sampling failed"
+    );
+    await vi.advanceTimersByTimeAsync(297_000);
+    expect(query).toHaveBeenCalledTimes(2);
+    resources.setCollectionEnabled(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toHaveBeenCalledTimes(2);
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(query).toHaveBeenCalledTimes(3);
+    await resources.shutdown();
+    expect(release).toHaveBeenCalledTimes(3);
+    expect(end).toHaveBeenCalledOnce();
+    expect(resources.getSnapshot().current.artifacts?.sizeBytes).toBeNull();
+  });
+
+  it("samples artifact storage only with opt-in, throttles failures, and retains last success", async () => {
+    const sampleArtifactStorage = vi
+      .fn()
+      .mockResolvedValueOnce(4096)
+      .mockRejectedValue(new Error("denied"));
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+      listAgentProcesses: async () => [],
+      sampleArtifactStorage,
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sampleArtifactStorage).not.toHaveBeenCalled();
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const first = resources.getSnapshot().current.artifacts;
+    expect(first).toMatchObject({ sizeBytes: 4096, error: null });
+    await vi.advanceTimersByTimeAsync(295_000);
+    expect(sampleArtifactStorage).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(resources.getSnapshot().current.artifacts).toMatchObject({
+      sizeBytes: 4096,
+      sampledAt: first?.sampledAt,
+      error: "Artifact storage sampling failed",
+    });
+    resources.setCollectionEnabled(false);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(sampleArtifactStorage).toHaveBeenCalledTimes(2);
   });
 
   it("skips ps entirely when no agent has a live host", async () => {

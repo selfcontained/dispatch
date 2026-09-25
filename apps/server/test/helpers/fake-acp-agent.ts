@@ -23,6 +23,7 @@ export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
     resumeFails?: boolean;
+    sessionError?: Error;
     /** Commands advertised right after a session opens. */
     commands?: acp.AvailableCommand[];
     /** Config options returned with the session. */
@@ -109,6 +110,7 @@ export function createFakeAcpAgent(
       return {};
     },
     async newSession(params) {
+      if (opts.sessionError) throw opts.sessionError;
       seen.newSession.push(params);
       const sessionId = `sess_${++sessionCounter}`;
       announce(sessionId);

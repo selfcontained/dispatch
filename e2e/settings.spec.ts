@@ -231,7 +231,7 @@ test.describe("Settings pane", () => {
     ).toBeVisible({ timeout: 10_000 });
     await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
     const agentProcessesCard = dashboard.getByTestId(
-      "resource-card-agent-processes"
+      "resource-card-agent-process-memory"
     );
     await expect(agentProcessesCard).toBeVisible();
     await expect(
@@ -239,10 +239,12 @@ test.describe("Settings pane", () => {
     ).toHaveCount(0);
     await expect(dashboard.getByText(/load \/ \d+ CPUs/)).toBeVisible();
     await expect(dashboard.getByText("Connected browsers")).toBeVisible();
-    await expect(dashboard.getByText("Running agents")).toBeVisible();
+    await expect(
+      dashboard.getByText("Active sessions (including children)")
+    ).toBeVisible();
     await expect(dashboard.getByText("Git refreshes active")).toBeVisible();
     await expect(
-      dashboard.getByText(/host load uses the right load axis/i)
+      dashboard.getByText(/Host load uses the right axis/i)
     ).toBeVisible();
     await expect(
       dashboard.getByText(/History resets when Dispatch restarts/i)
@@ -254,6 +256,17 @@ test.describe("Settings pane", () => {
       dashboard.getByText("Browser streams", { exact: true })
     ).toHaveCount(0);
 
+    await expect(dashboard.getByTestId("artifact-storage")).toContainText(
+      "Retained artifacts on disk"
+    );
+    const hostMemory = dashboard.getByTestId("host-memory-history");
+    await expect(hostMemory).toContainText("% free");
+    await expect(hostMemory.getByText("Free RAM", { exact: true })).toBeVisible(
+      { timeout: 25_000 }
+    );
+    await expect(
+      hostMemory.getByText("Total RAM", { exact: true })
+    ).toBeVisible();
     const databaseRow = dashboard.getByTestId("subsystem-database");
     await expect(databaseRow.getByText("Active")).toBeVisible({
       timeout: 20_000,

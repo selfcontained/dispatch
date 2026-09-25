@@ -1266,6 +1266,51 @@ describe("AgentManager", () => {
   });
 
   describe("runtime events", () => {
+    it("only notifies for newly pending permissions across reconnect snapshots", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const attention = vi.fn();
+      const updated = vi.fn();
+      manager.onAttention(attention);
+      manager.onAgentUpdated(updated);
+      const request = (id: string) => ({
+        id,
+        toolCallId: id,
+        title: `Operation ${id}`,
+        details: "",
+        createdAt: new Date().toISOString(),
+        options: [],
+      });
+      const a = request("a");
+      const b = request("b");
+      const snapshot = (requests: (typeof a)[]) =>
+        runtime.emit(
+          agent.id,
+          { type: "permissions", agentId: agent.id, requests },
+          0
+        );
+      await snapshot([a]);
+      await snapshot([a]); // host reconnect
+      await snapshot([a, b]);
+      await snapshot([a]); // answering B must not re-alert A
+      await snapshot([]);
+      expect(attention.mock.calls.map(([event]) => event.message)).toEqual([
+        "Approval needed: Operation a",
+        "Approval needed: Operation b",
+      ]);
+      expect(updated).toHaveBeenCalledTimes(5);
+      await snapshot([request("c")]);
+      expect(attention).toHaveBeenCalledTimes(3);
+      expect(attention).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "waiting_user",
+          message: "Approval needed: Operation c",
+        })
+      );
+    });
+
     it("should advance host_seq and fold turns into stream rows", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

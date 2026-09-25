@@ -1,3 +1,5 @@
+import { PermissionRequests } from "./permissions.js";
+import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptSource } from "./prompt-source.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
@@ -25,6 +27,8 @@ export type DriverLaunch = {
 };
 
 export type DriverEvent =
+  /** Live host snapshot, emitted by the runtime with seq 0; never replayed from the journal. */
+  | { type: "permissions"; agentId: string; requests: AgentPermissionRequest[] }
   | { type: "update"; agentId: string; update: DriverUpdate }
   /**
    * The engine's session config options, whole: once the session opens and
@@ -96,6 +100,7 @@ export type SpawnFn = (
 type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
+  engine: EngineSpec["id"];
   firstPromptAppend: string | null;
   child: ChildProcessLike;
   conn: acp.ClientSideConnection;
@@ -103,6 +108,7 @@ type Live = {
   startedAt: string;
   exited: Promise<ExitInfo>;
   stopping: boolean;
+  cancelling: boolean;
   config: { options: acp.SessionConfigOption[] };
   commands: { list: acp.AvailableCommand[] };
 };
@@ -124,11 +130,22 @@ const HANDSHAKE_TIMEOUT_MS = 30_000;
  * words for a reader: it comes back on its own and stays out of the text,
  * and a message that has one drops the generic "Internal error" label.
  */
-function describeRpcError(err: unknown): {
+function describeRpcError(
+  err: unknown,
+  engine: EngineSpec["id"]
+): {
   message: string;
   errorKind?: string;
 } {
   if (!(err instanceof Error)) return { message: String(err) };
+  if ((err as { code?: number }).code === -32000) {
+    const command = engine === "claude" ? "claude auth login" : "codex login";
+    const name = engine === "claude" ? "Claude" : "Codex";
+    return {
+      message: `${name} sign-in required. Run \`${command}\` in a terminal on the machine running Dispatch, using the same OS account as the Dispatch server. Then restart this agent and resend your message.`,
+      errorKind: "authentication_required",
+    };
+  }
   const raw = (err as { data?: unknown }).data;
   let data = raw;
   let errorKind: string | undefined;
@@ -237,6 +254,7 @@ function describeExit(exit: ExitInfo): string {
 }
 
 export class AcpDriver {
+  private readonly permissions: PermissionRequests;
   private readonly live = new Map<string, Live>();
   private readonly listeners = new Set<DriverListener>();
   private readonly spawnFn: SpawnFn;
@@ -248,11 +266,18 @@ export class AcpDriver {
   constructor(
     private readonly opts: {
       spawn?: SpawnFn;
+      onPermissions?: (
+        agentId: string,
+        requests: AgentPermissionRequest[]
+      ) => void;
       /** Injectable for tests that spawn a fake; defaults to a PATH lookup. */
       resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
       logger: DriverLogger;
     }
   ) {
+    this.permissions = new PermissionRequests((agentId) => {
+      this.opts.onPermissions?.(agentId, this.permissions.list(agentId));
+    });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.resolveBinary = opts.resolveBinary ?? resolveExecutable;
   }
@@ -297,6 +322,7 @@ export class AcpDriver {
     });
     void exited.then((exit) => {
       settledExit = exit;
+      this.permissions.cancel(launch.agentId);
     });
     // Bounded by lines and by bytes: the tail lands in a status row the feed
     // reads back on every page, and one line can be a whole JSON dump.
@@ -342,10 +368,16 @@ export class AcpDriver {
           update: params.update,
         });
       },
-      // An engine that asks per call (OpenCode) gets the allow option; the
-      // others never ask under the full access their spec grants. With no
-      // allow option, end the call cleanly rather than pick at random.
+      // Full access preserves automatic approval; restricted sessions wait for the user.
       requestPermission: async (params) => {
+        if (
+          settledExit ||
+          this.live.get(launch.agentId)?.stopping ||
+          this.live.get(launch.agentId)?.cancelling
+        )
+          return { outcome: { outcome: "cancelled" } };
+        if (engine.fullAccess.kind === "approval")
+          return this.permissions.ask(launch.agentId, params);
         const allow = params.options.find(
           (o) => o.kind === "allow_once" || o.kind === "allow_always"
         );
@@ -372,9 +404,17 @@ export class AcpDriver {
     );
     const conn = new acp.ClientSideConnection(() => client, stream);
 
-    const sessionMeta = launch.systemPromptAppend
-      ? { _meta: { systemPrompt: { append: launch.systemPromptAppend } } }
-      : {};
+    const meta = {
+      ...(launch.systemPromptAppend
+        ? { systemPrompt: { append: launch.systemPromptAppend } }
+        : {}),
+      ...(engine.id === "claude" && engine.fullAccess.kind === "approval"
+        ? {
+            claudeCode: { options: { allowDangerouslySkipPermissions: false } },
+          }
+        : {}),
+    };
+    const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
     const handshake = (async () => {
       await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -427,6 +467,14 @@ export class AcpDriver {
         config.options = res.configOptions ?? config.options;
         session = { sessionId: res.sessionId, resumed: false };
       }
+      if (engine.fullAccess.kind === "approval") {
+        // Override saved/user default modes before accepting any prompt, including on resume.
+        // Failure must fail startup, never silently run with broader permissions.
+        await conn.setSessionMode({
+          sessionId: session.sessionId,
+          modeId: engine.id === "claude" ? "default" : "read-only",
+        });
+      }
       return session;
     })();
 
@@ -436,7 +484,10 @@ export class AcpDriver {
     const outcome = await Promise.race<Outcome>([
       handshake.then(
         (session) => ({ ok: true, session }),
-        (err) => ({ ok: false, reason: describeRpcError(err).message })
+        (err) => ({
+          ok: false,
+          reason: describeRpcError(err, engine.id).message,
+        })
       ),
       exited.then((exit) => ({
         ok: false,
@@ -466,6 +517,7 @@ export class AcpDriver {
     }
 
     const entry: Live = {
+      engine: engine.id,
       child,
       conn,
       sessionId: outcome.session.sessionId,
@@ -473,6 +525,7 @@ export class AcpDriver {
       firstPromptAppend: launch.firstPromptAppend ?? null,
       exited,
       stopping: false,
+      cancelling: false,
       config,
       commands,
     };
@@ -518,6 +571,18 @@ export class AcpDriver {
     return this.live.get(agentId)?.commands.list ?? null;
   }
 
+  getPermissions(agentId: string): AgentPermissionRequest[] {
+    return this.permissions.list(agentId);
+  }
+
+  answerPermission(
+    agentId: string,
+    requestId: string,
+    optionId: string | null
+  ): void {
+    this.permissions.answer(agentId, requestId, optionId);
+  }
+
   async setConfigOption(
     agentId: string,
     configId: string,
@@ -534,7 +599,9 @@ export class AcpDriver {
       this.emit({ type: "config", agentId, options: entry.config.options });
       return entry.config.options;
     } catch (err) {
-      throw new Error(describeRpcError(err).message, { cause: err });
+      throw new Error(describeRpcError(err, entry.engine).message, {
+        cause: err,
+      });
     }
   }
 
@@ -553,6 +620,7 @@ export class AcpDriver {
     source?: PromptSource
   ): Promise<void> {
     const entry = this.require(agentId);
+    entry.cancelling = false;
     // The model this turn runs on, as the engine publishes it now: a model
     // switched mid-session must not relabel the turns before it.
     const modelOption = entry.config.options.find(
@@ -604,7 +672,7 @@ export class AcpDriver {
         ...(res.usage ? { usage: res.usage } : {}),
       });
     } catch (err) {
-      const { message, errorKind } = describeRpcError(err);
+      const { message, errorKind } = describeRpcError(err, entry.engine);
       // The exit event already settled the turn row; a second settle would
       // only add a duplicate status line.
       if (!exited) {
@@ -617,11 +685,15 @@ export class AcpDriver {
         });
       }
       throw new Error(message, { cause: err });
+    } finally {
+      this.permissions.cancel(agentId);
     }
   }
 
   async cancel(agentId: string): Promise<void> {
     const entry = this.require(agentId);
+    entry.cancelling = true;
+    this.permissions.cancel(agentId);
     await entry.conn.cancel({ sessionId: entry.sessionId });
   }
 
@@ -630,6 +702,7 @@ export class AcpDriver {
     const entry = this.live.get(agentId);
     if (!entry) return;
     entry.stopping = true;
+    this.permissions.cancel(agentId);
     try {
       await Promise.race([
         entry.conn.closeSession({ sessionId: entry.sessionId }),
@@ -666,6 +739,7 @@ export class AcpDriver {
   killAll(): string[] {
     const killed: string[] = [];
     for (const [agentId, entry] of this.live) {
+      this.permissions.cancel(agentId);
       try {
         signalChild(entry.child, "SIGKILL");
         killed.push(agentId);
