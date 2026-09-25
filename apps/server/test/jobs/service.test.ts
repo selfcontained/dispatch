@@ -275,35 +275,38 @@ describe("JobService", () => {
         directory: "/tmp/test-rename",
       });
 
-      vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
-        const createdAt = new Date().toISOString();
-        await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
+      vi.mocked(mockAgentManager.createAgent).mockImplementation(
+        async (_input, options) => {
+          const createdAt = new Date().toISOString();
+          await pool.query(
+            `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
-        );
-        return {
-          id: "agt_job_rename",
-          name: "job-Rename_Test-placeholder",
-          type: "claude",
-          status: "running",
-          cwd: "/tmp/test-rename",
-          createdAt,
-          updatedAt: createdAt,
-          metadata: null,
-          codexArgs: [],
-          claudeArgs: [],
-          opencodeArgs: [],
+          );
+          await options?.beforeLaunch?.("agt_job_rename");
+          return {
+            id: "agt_job_rename",
+            name: "job-Rename_Test-placeholder",
+            type: "claude",
+            status: "running",
+            cwd: "/tmp/test-rename",
+            createdAt,
+            updatedAt: createdAt,
+            metadata: null,
+            codexArgs: [],
+            claudeArgs: [],
+            opencodeArgs: [],
 
-          fullAccess: false,
-          useWorktree: false,
-          worktreePath: null,
-          worktreeBranch: null,
-          setupPhase: null,
-          parentAgentId: null,
-          persona: null,
-          baseBranch: null,
-        } as Awaited<ReturnType<AgentManager["createAgent"]>>;
-      });
+            fullAccess: false,
+            useWorktree: false,
+            worktreePath: null,
+            worktreeBranch: null,
+            setupPhase: null,
+            parentAgentId: null,
+            persona: null,
+            baseBranch: null,
+          } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+        }
+      );
 
       const result = await service.runJob({
         name: "Rename Test",
@@ -320,7 +323,8 @@ describe("JobService", () => {
           launchContext: {
             prompt: "Test prompt",
           },
-        })
+        }),
+        expect.objectContaining({ beforeLaunch: expect.any(Function) })
       );
 
       await service.completeRunForAgent("agt_job_rename", {
@@ -521,36 +525,39 @@ describe("JobService", () => {
       });
 
       const agentId = `agt_wh_${Date.now()}`;
-      vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
-        const createdAt = new Date().toISOString();
-        await pool.query(
-          `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
+      vi.mocked(mockAgentManager.createAgent).mockImplementation(
+        async (_input, options) => {
+          const createdAt = new Date().toISOString();
+          await pool.query(
+            `INSERT INTO agents (id, name, type, status, cwd, agent_args, full_access)
            VALUES ($1, 'wh-test-agent', 'claude', 'running', '/tmp/test-wh-run', '[]'::jsonb, false)`,
-          [agentId]
-        );
-        return {
-          id: agentId,
-          name: "wh-test-agent",
-          type: "claude",
-          status: "running",
-          cwd: "/tmp/test-wh-run",
-          createdAt,
-          updatedAt: createdAt,
-          metadata: null,
-          codexArgs: [],
-          claudeArgs: [],
-          opencodeArgs: [],
+            [agentId]
+          );
+          await options?.beforeLaunch?.(agentId);
+          return {
+            id: agentId,
+            name: "wh-test-agent",
+            type: "claude",
+            status: "running",
+            cwd: "/tmp/test-wh-run",
+            createdAt,
+            updatedAt: createdAt,
+            metadata: null,
+            codexArgs: [],
+            claudeArgs: [],
+            opencodeArgs: [],
 
-          fullAccess: false,
-          useWorktree: false,
-          worktreePath: null,
-          worktreeBranch: null,
-          setupPhase: null,
-          parentAgentId: null,
-          persona: null,
-          baseBranch: null,
-        } as Awaited<ReturnType<AgentManager["createAgent"]>>;
-      });
+            fullAccess: false,
+            useWorktree: false,
+            worktreePath: null,
+            worktreeBranch: null,
+            setupPhase: null,
+            parentAgentId: null,
+            persona: null,
+            baseBranch: null,
+          } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+        }
+      );
 
       const result = await service.runJobByWebhook(job.webhookSecret!);
 

@@ -907,7 +907,11 @@ export class AgentManager {
    */
   async createAgent(
     input: CreateAgentInput,
-    options: { detachLaunch?: boolean } = {}
+    options: {
+      detachLaunch?: boolean;
+      /** Commit owner state before the engine can discover tools or run a turn. */
+      beforeLaunch?: (agentId: string) => Promise<void>;
+    } = {}
   ): Promise<AgentRecord> {
     const p = await this.prepareCreateInputs(input);
     await this.insertAgentRecord(p, input);
@@ -991,6 +995,7 @@ export class AgentManager {
       resolveLaunchPost,
       launchGuidanceFlags,
       jobRunId: input.jobRunId,
+      beforeLaunch: options.beforeLaunch,
     });
 
     if (options.detachLaunch) {
@@ -1296,6 +1301,7 @@ export class AgentManager {
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
     launchGuidanceFlags: { trimmedGuidance: boolean };
     jobRunId: string | undefined;
+    beforeLaunch?: (agentId: string) => Promise<void>;
   }): Promise<void> {
     const { id } = opts;
     try {
@@ -1326,6 +1332,7 @@ export class AgentManager {
       );
       const agent = await this.getRequiredAgent(id);
       const chatLaunchPost = await opts.resolveLaunchPost();
+      await opts.beforeLaunch?.(id);
       const { sessionId } = await this.startHost(agent, {
         resumeSessionId: null,
         jobRunId: opts.jobRunId,
@@ -1419,6 +1426,7 @@ export class AgentManager {
       resumeSessionId: string | null;
       jobRunId: string | undefined;
       trimmedGuidance?: boolean;
+      previousJobFinished?: boolean;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (!isAcpEngine(agent.type)) {
@@ -1448,6 +1456,7 @@ export class AgentManager {
         jobRunId: opts.jobRunId,
       }),
       jobRunId: opts.jobRunId ?? null,
+      previousJobFinished: opts.previousJobFinished,
     });
     // What the agent was told, at the head of its stream. Best effort in
     // full: a launch must not fail because this record could not be
@@ -1586,9 +1595,16 @@ export class AgentManager {
 
     await this.setAgentStatus(id, "creating", null);
     try {
+      // A stopped job still needs its run-scoped tools and launch rules when
+      // its host is recreated. Reattaching above keeps the existing context.
+      const jobRun = await this.pool.query<{ id: string }>(
+        "SELECT id FROM job_runs WHERE agent_id = $1 AND status IN ('started', 'running', 'needs_input') ORDER BY started_at DESC LIMIT 1",
+        [id]
+      );
       const { sessionId } = await this.startHost(agent, {
         resumeSessionId: agent.cliSessionId ?? null,
-        jobRunId: undefined,
+        jobRunId: jobRun.rows[0]?.id,
+        previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
       });
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, updated_at = NOW() WHERE id = $1`,

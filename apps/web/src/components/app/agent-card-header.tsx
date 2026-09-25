@@ -78,7 +78,7 @@ export function AgentCardHeader({
       await api(`/api/v1/agents/${agent.id}/prompt-rename`, {
         method: "POST",
       });
-      toast.success("Asked the agent to set a session name.");
+      toast.success("Name request queued. Follow its delivery in the stream.");
     } catch (err) {
       toast.error("Couldn't reach the agent — try again in a moment.", {
         description: err instanceof Error ? err.message : undefined,
@@ -152,7 +152,7 @@ export function AgentCardHeader({
               Ask agent to name session
               <br />
               <span className="text-muted-foreground">
-                Sends a prompt asking the agent to rename itself
+                Queues a name request in the agent's stream
               </span>
             </TooltipContent>
           </Tooltip>

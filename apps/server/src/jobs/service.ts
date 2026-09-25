@@ -187,21 +187,29 @@ export class JobService {
     const prompt = buildJobPrompt(jobLikeForPrompt, run);
 
     try {
-      const agent = await this.agentManager.createAgent({
-        name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-        type: agentType,
-        model: agentConfig.model ?? undefined,
-        cwd: job.directory,
-        agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
-        // The CLI receives generated job-run scaffolding through agentArgs;
-        // Chat shows only the user-authored job prompt.
-        launchContext: { prompt: resolvedPrompt },
-        fullAccess: agentConfig.fullAccess,
-        ...templateWorktreeConfig(agentConfig),
-        jobRunId: run.id,
-      });
-      run = await this.store.attachAgent(run.id, agent.id);
-      this.emitRunStateChange(run);
+      const agent = await this.agentManager.createAgent(
+        {
+          name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
+          type: agentType,
+          model: agentConfig.model ?? undefined,
+          cwd: job.directory,
+          agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
+          // The CLI receives generated job-run scaffolding through agentArgs;
+          // Chat shows only the user-authored job prompt.
+          launchContext: { prompt: resolvedPrompt },
+          fullAccess: agentConfig.fullAccess,
+          ...templateWorktreeConfig(agentConfig),
+          jobRunId: run.id,
+        },
+        {
+          beforeLaunch: async (agentId) => {
+            run = await this.store.attachAgent(run.id, agentId);
+            this.emitRunStateChange(run);
+          },
+        }
+      );
+      // A fast first turn can already have completed the run.
+      run = (await this.store.getRun(run.id))!;
       this.startMonitor(run.id);
       if (input.wait !== false) {
         run = await this.waitForTerminal(run.id);
@@ -454,23 +462,30 @@ export class JobService {
       },
       run
     );
-    const agent = await this.agentManager.createAgent({
-      name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-      type: agentConfig.agentType as JobAgentType,
-      model: agentConfig.model ?? undefined,
-      cwd: job.directory,
-      agentArgs: buildAgentArgs(
-        agentConfig.agentType as JobAgentType,
-        prompt,
-        agentConfig.fullAccess
-      ),
-      launchContext: { prompt: resolvedPrompt },
-      fullAccess: agentConfig.fullAccess,
-      ...templateWorktreeConfig(agentConfig),
-      jobRunId: run.id,
-    });
-    const attached = await this.store.attachAgent(run.id, agent.id);
-    this.emitRunStateChange(attached);
+    const agent = await this.agentManager.createAgent(
+      {
+        name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
+        type: agentConfig.agentType as JobAgentType,
+        model: agentConfig.model ?? undefined,
+        cwd: job.directory,
+        agentArgs: buildAgentArgs(
+          agentConfig.agentType as JobAgentType,
+          prompt,
+          agentConfig.fullAccess
+        ),
+        launchContext: { prompt: resolvedPrompt },
+        fullAccess: agentConfig.fullAccess,
+        ...templateWorktreeConfig(agentConfig),
+        jobRunId: run.id,
+      },
+      {
+        beforeLaunch: async (agentId) => {
+          const attached = await this.store.attachAgent(run.id, agentId);
+          this.emitRunStateChange(attached);
+        },
+      }
+    );
+    const attached = (await this.store.getRun(run.id))!;
     this.startMonitor(attached.id);
     const terminal = wait ? await this.waitForTerminal(attached.id) : attached;
     return {
