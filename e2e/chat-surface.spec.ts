@@ -16,6 +16,61 @@ test.describe("Chat surface", () => {
     await cleanupE2EAgents(request);
   });
 
+  test("composer shortcut focuses only a visible composer", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    await callMcpTool(request, agent.id, "post", {
+      text: "A message to reply to",
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    const mod = await page.evaluate(() =>
+      /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control"
+    );
+    const shortcut = `${mod}+Shift+Space`;
+    const composer = page
+      .getByTestId("chat-pane")
+      .getByTestId("chat-composer-input");
+    await composer.fill("Keep this draft");
+    await page.getByTestId("center-tab-agent").click();
+    await page.keyboard.press(shortcut);
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveValue("Keep this draft");
+
+    await page
+      .getByTestId("chat-message")
+      .filter({ hasText: "A message to reply to" })
+      .getByTestId("chat-reply-in-thread")
+      .click();
+    const thread = page.getByTestId("chat-thread-panel");
+    const reply = thread.getByTestId("chat-composer-input");
+    await page.getByRole("button", { name: "Close", exact: true }).focus();
+    await page.keyboard.press(shortcut);
+    await expect(reply).toBeFocused();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(thread).toHaveCount(0);
+    await page.keyboard.press(shortcut);
+    await expect(composer).toBeFocused();
+
+    const changes = page.getByTestId("center-tab-changes");
+    await changes.click();
+    await expect(composer).not.toBeVisible();
+    await page.keyboard.press(shortcut);
+    await expect(composer).not.toBeFocused();
+    await expect(changes).toHaveAttribute("aria-selected", "true");
+
+    await page.getByTestId("center-tab-agent").click();
+    await expect(composer).toBeVisible();
+    await page.keyboard.press(`${mod}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await page.keyboard.press(shortcut);
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await expect(composer).not.toBeFocused();
+  });
+
   test("composer keeps full-width text above its toolbar at desktop and mobile widths", async ({
     page,
     request,

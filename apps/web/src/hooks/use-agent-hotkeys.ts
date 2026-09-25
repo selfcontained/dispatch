@@ -54,6 +54,24 @@ export function useAgentHotkeys({
   const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const { data: templates = [] } = useTemplates();
 
+  useHotkey("focus-composer", () => {
+    const composers = Array.from(
+      document.querySelectorAll<HTMLTextAreaElement>(
+        "textarea[data-chat-composer]:not(:disabled)"
+      )
+    ).filter(
+      (element) =>
+        element.checkVisibility({ visibilityProperty: true }) &&
+        !element.closest('[inert], [aria-hidden="true"]')
+    );
+    // Keep the current draft focused; otherwise prefer the open thread,
+    // which renders after the main stream composer.
+    const target =
+      composers.find((element) => element === document.activeElement) ??
+      composers.at(-1);
+    target?.focus({ preventScroll: true });
+  });
+
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
   useHotkey("toggle-drawer", () => {

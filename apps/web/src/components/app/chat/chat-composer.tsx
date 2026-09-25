@@ -1128,6 +1128,7 @@ export function ChatComposer({
             }
             // The box around it is the border; the field itself is bare.
             className="max-h-48 min-h-14 w-full resize-none rounded-t-2xl border-0 bg-transparent px-4 pb-2 pt-4 text-sm shadow-none backdrop-blur-none focus-visible:ring-0 pointer-coarse:text-base"
+            data-chat-composer
             data-testid="chat-composer-input"
           />
 

@@ -19,6 +19,9 @@ export function ShortcutsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
+            <Code>Mod+Shift+Space</Code> — Focus the visible message composer.
+          </li>
+          <li>
             <Code>Mod+K</Code> — Open the command palette.
           </li>
           <li>
