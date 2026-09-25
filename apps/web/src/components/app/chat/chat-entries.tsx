@@ -1,22 +1,18 @@
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
+import { DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
   Block,
   BlockAuthor,
-  BlockDeliveryState,
   BlockStartup,
   BlockOption,
 } from "@dispatch/shared";
 import {
-  AlertTriangle,
   Bot,
   Check,
-  CheckCheck,
   ChevronRight,
   Copy,
-  Hourglass,
-  Loader2,
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
@@ -728,175 +724,6 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // Blocks
 // ---------------------------------------------------------------------------
 
-/** The recipients of a post in one of the states worth reporting. */
-function inState(block: Block, state: BlockDeliveryState): readonly string[] {
-  return (block.delivery ?? [])
-    .filter((entry) => entry.state === state)
-    .map((entry) => entry.agentId);
-}
-
-/** "builder", "builder and reviewer", "builder, reviewer and scout". */
-function nameList(agentIds: readonly string[], ctx: FeedContext): string {
-  const names = agentIds.map((id) => agentDisplayName(id, ctx));
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/**
- * Where a post addressed to agents has got to. Steering also distinguishes
- * runtime acceptance from confirmed pickup. A queued message is
- * the part a reader has to be able to see: waiting behind a turn is a
- * normal state a message sits in, not a failure, and it says so in as many
- * words. Recipients are named only when a post went to more than one, so
- * an ordinary message keeps its quiet single line.
- */
-type DeliveryMetaProps = {
-  block: Block;
-  ctx: FeedContext;
-  /** Layout for where it sits: a folded row puts it inline, not below. */
-  className?: string;
-};
-
-export function DeliveryMeta(props: DeliveryMetaProps): JSX.Element | null {
-  return (
-    <>
-      <DeliveryStatus {...props} />
-      <SteeringReceipts {...props} />
-    </>
-  );
-}
-
-function DeliveryStatus({
-  block,
-  ctx,
-  className,
-}: DeliveryMetaProps): JSX.Element | null {
-  if (block.toAgentId === null || !block.delivery?.length) return null;
-  const several = block.delivery.length > 1;
-  const failed = inState(block, "failed");
-  const held = inState(block, "held");
-  const pending = inState(block, "pending");
-  const retrying = ctx.retrying?.has(block.id) ?? false;
-
-  if (failed.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive",
-          className
-        )}
-        title="The message was not taken: the agent had no session, or its engine stopped responding."
-        data-testid="chat-delivery-failed"
-      >
-        <AlertTriangle className="h-3 w-3" />
-        {several
-          ? `Not delivered to ${nameList(failed, ctx)}`
-          : "Not delivered"}
-        {/* The same post, sent again, and only to whoever missed it:
-            nothing new lands in the stream and nobody reads it twice. Not
-            "Retry", which on a failed turn runs the agent again. */}
-        {ctx.onRetryDelivery ? (
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
-            disabled={retrying}
-            onClick={() => ctx.onRetryDelivery?.(block.id)}
-            data-testid="chat-delivery-retry"
-          >
-            {retrying ? "Sending…" : "Send again"}
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-  if (held.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
-          className
-        )}
-        title={
-          block.kind === "text" && block.data?.acpCommand
-            ? "This command will run after the current turn."
-            : "Your message will be delivered after the current turn. Send now delivers during the turn when supported."
-        }
-        data-testid="chat-held-hint"
-      >
-        <Hourglass className="h-3 w-3" />
-        {several
-          ? `Queued for ${nameList(held, ctx)}, until the turn ends`
-          : "Queued until the turn ends"}
-      </div>
-    );
-  }
-  if (pending.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
-          className
-        )}
-        title="On its way to the agent."
-        data-testid="chat-delivery-pending"
-      >
-        <Loader2 className="h-3 w-3 animate-spin" />
-        {several ? `Sending to ${nameList(pending, ctx)}` : "Sending"}
-      </div>
-    );
-  }
-  return null;
-}
-
-function SteeringReceipts({
-  block,
-  ctx,
-  className,
-}: DeliveryMetaProps): JSX.Element | null {
-  if (block.toAgentId === null || !block.delivery?.length) return null;
-  const several = block.delivery.length > 1;
-  const receipts = block.delivery.filter(
-    (entry) => entry.state === "delivered" && entry.steering
-  );
-  if (!receipts.length) return null;
-  const pickedUp = receipts
-    .filter((entry) => entry.steering?.pickedUpAt)
-    .map((entry) => entry.agentId);
-  const accepted = receipts
-    .filter((entry) => !entry.steering?.pickedUpAt)
-    .map((entry) => entry.agentId);
-  return (
-    <div
-      className={cn(
-        "mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground",
-        className
-      )}
-      data-testid="chat-steering-receipt"
-    >
-      {pickedUp.length > 0 ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title="The agent runtime confirmed it picked up this message for processing."
-          data-testid="chat-steering-picked-up"
-        >
-          <CheckCheck className="h-3 w-3" aria-hidden="true" />
-          {several ? `Picked up by ${nameList(pickedUp, ctx)}` : "Picked up"}
-        </span>
-      ) : null}
-      {accepted.length > 0 ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title="The agent accepted this message. Pickup has not been confirmed."
-          data-testid="chat-steering-delivered"
-        >
-          <Check className="h-3 w-3" aria-hidden="true" />
-          {several ? `Delivered to ${nameList(accepted, ctx)}` : "Delivered"}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 /** "3 replies · last 2m ago", the line that opens a block's thread. */
 export function replyLine(block: Block): string | null {
   const count = block.replyCount ?? 0;
@@ -1519,10 +1346,22 @@ export const BlockView = memo(function BlockView({
             agentId={block.streamId}
             messageId={block.id}
             canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
-            status={<DeliveryMeta block={block} ctx={ctx} />}
+            status={
+              <DeliveryMeta
+                block={block}
+                recipientName={(id) => agentDisplayName(id, ctx)}
+                retrying={ctx.retrying?.has(block.id)}
+                onRetryDelivery={ctx.onRetryDelivery}
+              />
+            }
           />
         ) : (
-          <DeliveryMeta block={block} ctx={ctx} />
+          <DeliveryMeta
+            block={block}
+            recipientName={(id) => agentDisplayName(id, ctx)}
+            retrying={ctx.retrying?.has(block.id)}
+            onRetryDelivery={ctx.onRetryDelivery}
+          />
         )}
         <ReactionBar
           reactions={reactions}
@@ -1606,7 +1445,12 @@ export const BlockView = memo(function BlockView({
       {body}
       <AttachmentList block={block} ctx={ctx} />
       {block.kind === "launch" ? null : (
-        <DeliveryMeta block={block} ctx={ctx} />
+        <DeliveryMeta
+          block={block}
+          recipientName={(id) => agentDisplayName(id, ctx)}
+          retrying={ctx.retrying?.has(block.id)}
+          onRetryDelivery={ctx.onRetryDelivery}
+        />
       )}
       <ReactionBar
         reactions={reactions}
