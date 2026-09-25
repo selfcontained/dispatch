@@ -19,6 +19,7 @@ const acp = require("@agentclientprotocol/sdk");
 
 function inferEngine(argv) {
   if (process.env.FAKE_ACP_ENGINE) return process.env.FAKE_ACP_ENGINE;
+  if (process.env.CLAUDE_CODE_EXECUTABLE) return "claude";
   if (argv.includes("--dangerously-skip-permissions")) return "claude";
   if (argv.includes("--experimental-acp")) return "gemini";
   if (argv.includes("acp")) return "opencode";
@@ -179,16 +180,36 @@ const agent = {
         ],
       });
     }
-    if (PROFILE.ask) {
-      await conn.requestPermission({
+    if (PROFILE.ask || text.includes("permission-test")) {
+      const permission = await conn.requestPermission({
         sessionId: params.sessionId,
-        toolCall: { toolCallId: "c1", title: "Read README.md" },
+        toolCall: {
+          toolCallId: "c1",
+          title: "Run workspace validation",
+          rawInput: {
+            command: "pnpm run check",
+            cwd: cwdBySession.get(params.sessionId),
+          },
+        },
         options: [
           { optionId: "once", name: "Allow once", kind: "allow_once" },
           { optionId: "always", name: "Always", kind: "allow_always" },
           { optionId: "no", name: "Reject", kind: "reject_once" },
         ],
       });
+      if (text.includes("permission-test")) {
+        const result =
+          permission.outcome.outcome === "selected"
+            ? permission.outcome.optionId
+            : "cancelled";
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: `Permission result: ${result}` },
+        });
+        return {
+          stopReason: result === "cancelled" ? "cancelled" : "end_turn",
+        };
+      }
     }
     await emit({
       sessionUpdate: "tool_call",

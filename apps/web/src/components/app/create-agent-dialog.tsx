@@ -211,8 +211,9 @@ function CreateAgentDialogContent({
                       Start in full access mode
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      Starts the selected agent with its most permissive
-                      supported execution mode.
+                      Skip permission prompts. Turn off to use restricted access
+                      and answer approval requests in chat. Codex uses a
+                      workspace sandbox; Claude uses its permission checks.
                     </span>
                   </span>
                 </label>

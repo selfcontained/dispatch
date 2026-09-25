@@ -218,7 +218,14 @@ export function AgentCardDetails({
             <AlertTriangle className="h-3 w-3" />
             <span>Full access</span>
           </div>
-        ) : null}
+        ) : (
+          <span
+            className="text-[10px] text-muted-foreground"
+            title="Uses engine permission checks; approval requests appear in chat."
+          >
+            Restricted access
+          </span>
+        )}
       </div>
     </div>
   );

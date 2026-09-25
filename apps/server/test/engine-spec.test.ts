@@ -5,6 +5,18 @@ import { engineSpecFor } from "../src/agents/acp/engine-spec.js";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("engineSpecFor", () => {
+  it("launches restricted engines without permission bypass", () => {
+    const bins = { claudeBin: "/x/claude", codexBin: "/x/codex" };
+    const claude = engineSpecFor("claude", bins, false);
+    expect(claude.args).not.toContain("--dangerously-skip-permissions");
+    expect(claude.fullAccess.kind).toBe("approval");
+    expect(engineSpecFor("codex", bins, false).env.INITIAL_AGENT_MODE).toBe(
+      "read-only"
+    );
+    expect(engineSpecFor("codex", bins, true).env.INITIAL_AGENT_MODE).toBe(
+      "agent-full-access"
+    );
+  });
   it("always hands the adapter the launched engine's CLI as an absolute path", () => {
     vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     const bins = {

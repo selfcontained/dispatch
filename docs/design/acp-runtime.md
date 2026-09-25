@@ -170,8 +170,40 @@ launch guidance plus the active personality through ACP
 (Codex). The agent's text _is_ its reply; `post` is for what plain text
 cannot do — a question with options, a form, a file, a link.
 
+## Access and permission requests
+
+The Create dialog's **Start in full access mode** choice is carried from
+`agents.full_access` into `launch.json`. Full access keeps the existing launch
+behavior and automatically allows engine permission requests. With it off,
+Claude runs in its `default` permission mode with bypass unavailable; Codex
+uses the adapter's `read-only` preset (named **Ask for approval**, implemented
+as a workspace-write sandbox with network access disabled and user-reviewed
+escalations). Claude permission checks are not a promise of OS sandboxing.
+Provider allowlists and previously granted permissions still apply.
+
+Restricted mode is explicitly applied before the first prompt, also when
+resuming a session. If the engine cannot apply it, startup fails. Live mode
+changes through the config endpoint are not supported. Hosts already running
+at upgrade retain their mode until stopped and started; old launch files with
+no access field preserve their historical full-access behavior.
+
+The host holds each pending `session/request_permission` promise with a fresh
+request ID. `welcome.permissions` and live `permissions` snapshots carry the
+current set separately from journal replay. A server reconnect cannot replay
+an old request as actionable, and disconnecting never grants consent. The user
+API lists requests at `GET /api/v1/agents/:id/permissions` and answers at
+`POST /api/v1/agents/:id/permissions/:requestId` with an offered `optionId`, or
+null to cancel. Scoped agent MCP tokens cannot call this API. Responses are
+validated by the host; stale, duplicate, foreign-agent and unknown choices are
+rejected. Stop, cancel, turn settlement and engine exit cancel unanswered
+requests. A dead host has no recoverable pending promise.
+
+Chat shows the engine's choices and a bounded operation preview above the
+composer; pending requests make the agent's activity `waiting`. The view reads
+host state through React Query and recovers on page reload. While disconnected,
+choices are disabled. The engine owns the scope of any “always” option.
+
 ## Out of scope for the first milestone
 
 Usage budgets, background processes, config options beyond model and effort
-(mode, fast), switching engines mid-session, path picker, sandboxed
-permission mode, remote hosts.
+(mode, fast), switching engines mid-session, path picker, remote hosts.

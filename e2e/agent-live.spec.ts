@@ -27,6 +27,55 @@ async function sendChat(page: Page, text: string): Promise<void> {
 }
 
 test.describe("Live agent", () => {
+  test("restricted approvals survive reload, allow and deny reach the engine, and stop cancels", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-permissions-${Date.now()}`,
+      type: "claude",
+      fullAccess: false,
+    });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "permission-test");
+    const approvals = page.getByTestId("permission-requests");
+    await expect(approvals).toContainText("Run workspace validation", {
+      timeout: TURN_TIMEOUT,
+    });
+    const state = await request.get(`/api/v1/agents/${agent.id}`, {
+      headers: authHeaders(),
+    });
+    expect((await state.json()).agent.activity).toBe("waiting");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(approvals).toContainText("pnpm run check");
+    await approvals
+      .getByRole("button", { name: "Allow once", exact: true })
+      .click();
+    await expect(approvals).toHaveCount(0);
+    await expect(page.getByTestId("harness-result").last()).toContainText(
+      "Permission result: once"
+    );
+    await sendChat(page, "permission-test deny");
+    await expect(approvals).toBeVisible();
+    await approvals
+      .getByRole("button", { name: "Reject", exact: true })
+      .click();
+    await expect(page.getByTestId("harness-result").last()).toContainText(
+      "Permission result: no"
+    );
+    await sendChat(page, "permission-test stop");
+    await expect(approvals).toBeVisible();
+    await page
+      .getByRole("button", { name: "Stop the running turn", exact: true })
+      .click();
+    await expect(approvals).toHaveCount(0);
+    const res = await request.get(`/api/v1/agents/${agent.id}/permissions`, {
+      headers: authHeaders(),
+    });
+    expect((await res.json()).requests).toEqual([]);
+  });
+
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
   });
