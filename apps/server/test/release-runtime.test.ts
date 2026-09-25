@@ -15,7 +15,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createReleaseRuntime } from "../src/server/release-runtime.js";
+import {
+  assertHostSurvivalOnRestart,
+  createReleaseRuntime,
+} from "../src/server/release-runtime.js";
 import { verifyAndStageRuntime } from "../src/server/release-artifact.js";
 
 const tempDirs: string[] = [];
@@ -78,6 +81,45 @@ function tarRunCommand(command: string, args: string[]) {
   });
 }
 
+describe("agent host survival gate", () => {
+  it("requires the loaded Linux user service to use KillMode=process", async () => {
+    const runCommand = vi.fn().mockResolvedValue({
+      stdout: "KillMode=process\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).resolves.toBeUndefined();
+    expect(runCommand).toHaveBeenCalledWith("systemctl", [
+      "--user",
+      "show",
+      "dispatch.service",
+      "-p",
+      "KillMode",
+    ]);
+
+    runCommand.mockResolvedValueOnce({
+      stdout: "KillMode=control-group\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).rejects.toThrow(/unsafe for running agents/);
+    runCommand.mockRejectedValueOnce(new Error("systemctl unavailable"));
+    await expect(
+      assertHostSurvivalOnRestart("linux", runCommand)
+    ).rejects.toThrow(/Cannot verify/);
+  });
+
+  it("leaves macOS launchd restarts to their detached process groups", async () => {
+    const runCommand = vi.fn();
+    await assertHostSurvivalOnRestart("darwin", runCommand);
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+});
+
 describe("release runtime stream targeting", () => {
   it("sends targeted release events only to the matching stream client", () => {
     const runtime = createReleaseRuntime({
@@ -123,6 +165,50 @@ describe("release runtime stream targeting", () => {
 });
 
 describe("artifact activation", () => {
+  it("refuses an unsafe service restart before staging the executable", async () => {
+    const tag = "v9.9.9";
+    const ensureCachedTarball = vi.fn();
+    const restartService = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            tag_name: tag,
+            published_at: "2026-01-01T00:00:00Z",
+            html_url: "https://example.test/releases/9.9.9",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const runtime = createReleaseRuntime({
+      pool: { query: vi.fn() } as never,
+      config: { tls: false, port: 6767 } as never,
+      serverDir: "/tmp/dispatch",
+      runCommand: vi.fn(),
+      readReleaseStore: vi.fn(),
+      writeReleaseStore: vi.fn(),
+      readAssistedUpdateState: vi.fn(),
+      isTerminalPhase: vi.fn(),
+      ensureCachedTarball,
+      pruneCacheExcept: vi.fn(),
+      unlinkCachedTarball: vi.fn(),
+      createReleaseLogStreamProcessor: vi.fn(),
+      restartService,
+      checkHostSurvival: vi
+        .fn()
+        .mockRejectedValue(new Error("unsafe for running agents")),
+    });
+    const job = updateJob(tag);
+    runtime.setActiveUpdateJob(job);
+    await runtime.runUpdateJob(job);
+    expect(job.phase).toBe("failed");
+    expect(job.error).toContain("unsafe for running agents");
+    expect(ensureCachedTarball).not.toHaveBeenCalled();
+    expect(restartService).not.toHaveBeenCalled();
+  });
+
   it("verifies and atomically activates a release artifact directly", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "dispatch-artifact-"));
     tempDirs.push(root);
@@ -184,6 +270,7 @@ describe("artifact activation", () => {
       unlinkCachedTarball: vi.fn(),
       createReleaseLogStreamProcessor: vi.fn(),
       restartService,
+      checkHostSurvival: vi.fn(),
       writeReleaseCandidate: writeCandidate,
     });
     const job = updateJob(tag);
@@ -238,6 +325,7 @@ describe("artifact activation", () => {
       unlinkCachedTarball,
       createReleaseLogStreamProcessor: vi.fn(),
       restartService: vi.fn(),
+      checkHostSurvival: vi.fn(),
       writeReleaseCandidate: vi.fn(),
     });
     const job = updateJob(tag);
@@ -300,6 +388,7 @@ describe("artifact activation", () => {
         unlinkCachedTarball: vi.fn(),
         createReleaseLogStreamProcessor: vi.fn(),
         restartService,
+        checkHostSurvival: vi.fn(),
         writeReleaseCandidate: vi.fn(),
       });
       const job = updateJob(tag);

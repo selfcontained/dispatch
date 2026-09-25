@@ -302,6 +302,50 @@ describe("dispatch-dev", () => {
           expect(turn?.settled).toBe(true);
           expect(turn?.error).toBeUndefined();
           expect(turn?.result?.text).toContain("sleep:10000");
+
+          // A missing DB container used to send this path through cmd_down,
+          // which killed a still-working host despite the preserve opt-in.
+          const secondPrompt = await fetch(`${api}/streams/${agentId}/blocks`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: "sleep:15000" }),
+          });
+          expect(secondPrompt.ok).toBe(true);
+          await until(() =>
+            readFileSync(journal, "utf8").includes("sleep:15000")
+          );
+          execSync(`docker stop dispatch-postgres-${SUFFIX}`, {
+            encoding: "utf8",
+            timeout: 20_000,
+          });
+          const recovered = run("restart");
+          expect(recovered).toContain(
+            "recreating it without stopping agent hosts"
+          );
+          expect(stateValue("DEV_PRESERVE_AGENT_HOSTS")).toBe("1");
+          expect(
+            Number(readFileSync(path.join(agentDir, "host.pid"), "utf8"))
+          ).toBe(hostPid);
+          expect(processAlive(hostPid)).toBe(true);
+          await until(async () => {
+            try {
+              const response = await fetch(`${api}/streams/${agentId}/blocks`);
+              if (!response.ok) return false;
+              const feed = (await response.json()) as {
+                entries: Array<{ block?: { turn?: typeof turn } }>;
+              };
+              return feed.entries.some(
+                (entry) =>
+                  entry.block?.turn?.settled === true &&
+                  entry.block.turn.error === undefined &&
+                  entry.block.turn.result?.text.includes("sleep:15000") === true
+              );
+            } catch {
+              // The API socket may reset while the restarted server takes
+              // ownership of the preserved host's journal.
+              return false;
+            }
+          });
         } else {
           await until(() => !processAlive(hostPid));
         }

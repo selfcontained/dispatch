@@ -257,7 +257,15 @@ cmd_up() {
       echo "Run 'dispatch-dev down' first, or use a different --suffix."
       exit 1
     fi
-    # Stale state — clean it up
+    # A long-lived stack can have an API that exited while its detached
+    # agents are still working. Recover it through the same host-preserving
+    # restart path instead of treating the whole stack as disposable.
+    if [ "${DEV_PRESERVE_AGENT_HOSTS:-0}" = "1" ]; then
+      echo "Recovering stale state for '${SUFFIX}' without stopping agent hosts..."
+      cmd_restart
+      return
+    fi
+    # Ordinary dev stacks still clean up all descendants on a fresh up.
     echo "Cleaning stale state for '${SUFFIX}'..."
     cmd_down 2>/dev/null || true
   fi
@@ -557,13 +565,20 @@ cmd_restart() {
   [ "$OPT_PRESERVE_AGENT_HOSTS" = "0" ] && [ "${DEV_PRESERVE_AGENT_HOSTS:-0}" = "1" ] && OPT_PRESERVE_AGENT_HOSTS="1"
 
   if [ "${DEV_NO_DB:-0}" != "1" ] && ! db_container_running; then
-    echo "DB container is gone — starting it again; its data is on the volume."
-    cmd_down 2>/dev/null || true
-    # The volume survived the container, so the data is already there and
-    # seeding it again would collide with the rows it produced last time.
-    OPT_NO_SEED="1"
-    cmd_up
-    return
+    if [ "$OPT_PRESERVE_AGENT_HOSTS" = "1" ]; then
+      # cmd_up below recreates the DB container from its retained volume.
+      # Do not call cmd_down: it intentionally stops every agent host, even
+      # though the missing database does not require touching those processes.
+      echo "DB container is gone — recreating it without stopping agent hosts."
+    else
+      echo "DB container is gone — starting it again; its data is on the volume."
+      cmd_down 2>/dev/null || true
+      # The volume survived the container, so the data is already there and
+      # seeding it again would collide with the rows it produced last time.
+      OPT_NO_SEED="1"
+      cmd_up
+      return
+    fi
   fi
 
   # Stop the app processes only — DB stays up. Hosts get their own process
