@@ -14,6 +14,7 @@ import type { ServiceResourcesResponse } from "@/hooks/use-service-resources";
 import { ResourceChart } from "./service-resources-chart";
 import {
   cpuChartConfig,
+  hostMemoryChartConfig,
   memoryChartConfig,
 } from "./service-resources-chart-config";
 import {
@@ -28,12 +29,16 @@ function SummaryCard({
   label,
   value,
   detail,
+  description,
+  wrapDetail = false,
   scope,
 }: {
   icon: typeof Cpu;
   label: string;
   value: string;
   detail: string;
+  description?: string;
+  wrapDetail?: boolean;
   scope: "Dispatch" | "Agents" | "Dependency" | "Host";
 }) {
   return (
@@ -55,11 +60,16 @@ function SummaryCard({
           {value}
         </div>
         <div
-          className="mt-1 truncate text-xs text-muted-foreground"
+          className={`mt-1 text-xs text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
           title={detail}
         >
           {detail}
         </div>
+        {description && (
+          <p className="mt-1 break-words text-xs text-muted-foreground">
+            {description}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -76,13 +86,24 @@ export function ServiceResourcesDashboard({
     serverCpuPercent: sample.serverCpuPercent,
     agentCpuPercent: sample.agentCpuPercent,
     hostLoad1: sample.hostLoad1,
+    hostTotalGiB:
+      sample.hostTotalMemoryBytes == null
+        ? null
+        : sample.hostTotalMemoryBytes / 1024 ** 3,
+    hostFreeGiB:
+      sample.hostFreeMemoryBytes == null
+        ? null
+        : sample.hostFreeMemoryBytes / 1024 ** 3,
     serverRssMb: sample.serverRssBytes / 1024 / 1024,
     serverHeapMb: sample.serverHeapBytes / 1024 / 1024,
     agentRssMb:
       sample.agentRssBytes === null ? null : sample.agentRssBytes / 1024 / 1024,
   }));
   const workloadItems = [
-    { label: "Running agents", value: current.workloads.runningAgents },
+    {
+      label: "Active sessions (including children)",
+      value: current.workloads.runningAgents,
+    },
     { label: "Connected browsers", value: current.workloads.sseClients },
     { label: "Scheduled jobs", value: current.workloads.scheduledJobs },
     {
@@ -132,7 +153,7 @@ export function ServiceResourcesDashboard({
         />
         <SummaryCard
           icon={Users}
-          label="Agent processes"
+          label="Agent process memory"
           value={
             current.agents.rssBytes === null
               ? "Unavailable"
@@ -145,7 +166,14 @@ export function ServiceResourcesDashboard({
               ? "Process-tree sampling unavailable"
               : current.agents.processCount === 0
                 ? "No agent processes running"
-                : `${current.agents.cpuPercent.toFixed(1)}% CPU · ${current.agents.processCount ?? 0} processes`
+                : `${current.agents.cpuPercent.toFixed(1)}% CPU`
+          }
+          wrapDetail
+          description={
+            current.agents.cpuPercent !== null &&
+            current.agents.processCount !== 0
+              ? `${current.agents.processCount ?? 0} OS processes, including descendants. CPU is the ps average.`
+              : undefined
           }
           scope="Agents"
         />
@@ -175,7 +203,7 @@ export function ServiceResourcesDashboard({
       <section className="grid gap-4 lg:grid-cols-2">
         <ResourceChart
           title="CPU history"
-          description="Dispatch and agent CPU use the left percentage axis; host load uses the right load axis."
+          description="CPU uses one-core percentages (can exceed 100%). Dispatch is interval usage; agents use the OS ps average. Host load uses the right axis."
           data={chartData}
           config={cpuChartConfig}
           keys={["serverCpuPercent", "agentCpuPercent"]}
@@ -183,12 +211,27 @@ export function ServiceResourcesDashboard({
           unit="%"
         />
         <ResourceChart
-          title="Memory history"
+          title="Process memory history"
           description="Resident memory and JavaScript heap over the selected window."
           data={chartData}
           config={memoryChartConfig}
           keys={["serverRssMb", "serverHeapMb", "agentRssMb"]}
           unit=" MB"
+        />
+      </section>
+
+      <section
+        aria-label="System memory history"
+        data-testid="host-memory-history"
+      >
+        <ResourceChart
+          title="System memory history"
+          description={`${formatBytes(current.host.freeMemoryBytes)} free of ${formatBytes(current.host.totalMemoryBytes)} total${current.host.totalMemoryBytes > 0 ? ` (${((current.host.freeMemoryBytes / current.host.totalMemoryBytes) * 100).toFixed(1)}% free)` : ""}. Includes all apps, browsers, and dev servers on this host. OS-reported free RAM is not a memory-pressure or swap metric.`}
+          data={chartData}
+          config={hostMemoryChartConfig}
+          keys={["hostTotalGiB", "hostFreeGiB"]}
+          unit=" GiB"
+          primaryAxisWidth={64}
         />
       </section>
 
@@ -245,6 +288,29 @@ export function ServiceResourcesDashboard({
               <span className="font-medium">
                 {formatBytes(current.database.sizeBytes)}
               </span>
+            </div>
+            <div
+              className="border-b border-border pb-3"
+              data-testid="artifact-storage"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Retained artifacts on disk
+                </span>
+                <span className="font-medium">
+                  {formatBytes(current.artifacts?.sizeBytes ?? null)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Shared files and agent journals/logs across all sessions,
+                including archived sessions. Excludes database, worktrees, and
+                provider caches. Refreshes every 5 minutes.
+                {current.artifacts?.error
+                  ? " Latest scan failed; any displayed size is from the last successful scan."
+                  : current.artifacts?.sampledAt
+                    ? ` Last scanned ${new Date(current.artifacts.sampledAt).toLocaleTimeString()}.`
+                    : " Waiting for a scan."}
+              </p>
             </div>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <span className="text-muted-foreground">Requests (1 min)</span>

@@ -319,6 +319,8 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
 const serviceResources = new ServiceResources({
   pool,
   probePool: serviceResourcesProbePool,
+  artifactProbePool: createServiceResourcesProbePool(config),
+  artifactRoots: [config.filesRoot, config.agentStateRoot],
   listAgentProcesses: async () => {
     const agents = await agentManager.listAgents();
     const running = agents.filter((agent) =>
