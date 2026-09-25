@@ -17,7 +17,10 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
   useMermaidTheme: () => "default",
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(navigator, "clipboard");
+});
 
 const AGENT_ID = "agt_1";
 
@@ -116,6 +119,33 @@ describe("TurnEntryView", () => {
     expect(
       text.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("shows late ACP text that arrived after the settled block was saved", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderTurn(
+      turn(
+        {
+          settled: true,
+          result: {
+            text: "The plan.\n\nA clarification after settlement.",
+            streaming: false,
+          },
+        },
+        "The plan."
+      )
+    );
+    const result = screen.getByTestId("harness-result");
+    expect(result.textContent).toContain("The plan.");
+    expect(result.textContent).toContain("A clarification after settlement.");
+    fireEvent.click(screen.getByTestId("chat-copy-message"));
+    expect(writeText).toHaveBeenCalledWith(
+      "The plan.\n\nA clarification after settlement."
+    );
   });
 
   it("eases the agent post's height: the steps and the answer sit in one measured body", () => {

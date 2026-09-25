@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ActivityBlock } from "./activity-block";
+import { turnAnswerText } from "./answer-text";
 import { AutoHeight } from "./auto-height";
 import type { Trace, Turn } from "./contracts";
 import { turnLabelFromSteps } from "./registry";
@@ -21,15 +22,16 @@ const NO_FOLDED: readonly FoldedEntry[] = [];
 
 /**
  * The turn's answer as the result renderer's model. The text is the
- * block's once the turn settled (the server writes the answer there); a
- * running turn's text, when any, is what the turn has so far.
+ * turn's event rows when available. A late ACP chunk can arrive after the
+ * server snapshots the settled answer into the block's text, so that block
+ * may lag behind the turn's assembled result.
  */
 export function resultTurnModel(
   block: Block,
   turn: ChatTurnEntry,
   trace: Trace
 ): Turn {
-  const content = turn.settled ? block.text : (turn.result?.text ?? "");
+  const content = turnAnswerText(block, turn);
   const lead = turn.result?.lead;
   return {
     id: `${block.id}:result`,
