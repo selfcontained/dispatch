@@ -88,10 +88,10 @@ export function MentionText({
           <span
             key={index}
             className={cn(
-              "rounded px-1 font-medium",
+              "box-decoration-clone rounded-full border px-1.5 py-px font-medium",
               span.agent.seat !== undefined
                 ? seatClasses(span.agent.seat).face
-                : "bg-muted text-foreground"
+                : "border-border bg-muted text-foreground"
             )}
             data-testid="chat-mention"
             data-agent-id={span.agent.id}

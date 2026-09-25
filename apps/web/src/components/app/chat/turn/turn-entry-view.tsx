@@ -2,9 +2,12 @@ import { memo, type ReactNode, useMemo } from "react";
 import type { Block, ChatTurnEntry } from "@dispatch/shared";
 import {
   BlockView,
+  mentionablesOf,
   type FeedContext,
   POST_BODY_MEASURE,
 } from "@/components/app/chat/chat-entries";
+import { MentionText } from "@/components/app/chat/mention-picker";
+import { mentionSpans } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 import { ActivityBlock } from "./activity-block";
@@ -143,7 +146,13 @@ export function TurnAnswer({
           rather than jumps while it follows the bottom. */}
       <AutoHeight data-testid="chat-turn-body">
         {turn.settled ? (
-          <ResultTurn turn={result} retry={retry} />
+          <ResultTurn
+            turn={result}
+            retry={retry}
+            renderText={(text) => (
+              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+            )}
+          />
         ) : result.content ? (
           // The reply as it is being written: the agent's own words, in the
           // quiet tone of something still in progress, so a long turn reads

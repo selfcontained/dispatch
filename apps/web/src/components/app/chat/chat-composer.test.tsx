@@ -294,10 +294,26 @@ describe("ChatComposer @mentions", () => {
     expect(onSend).not.toHaveBeenCalled();
     await waitFor(() => expect(input.value).toBe("@reviewer "));
     expect(screen.queryByTestId("mention-picker")).toBeNull();
+    expect(screen.getByTestId("chat-composer-mention").textContent).toBe(
+      "@reviewer"
+    );
     type(input, "@reviewer look at this");
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend.mock.calls[0]![0]).toBe("@reviewer look at this");
+  });
+
+  it("updates badges as mentions are edited without changing the draft", () => {
+    const { input } = renderComposer({ mentionables });
+    type(input, "@reviewer and @builder, not @unknown");
+    expect(screen.getAllByTestId("chat-composer-mention")).toHaveLength(2);
+    type(input, "@reviewe and @builder, not @unknown");
+    expect(screen.getByTestId("chat-composer-mention").textContent).toBe(
+      "@builder"
+    );
+    expect(input.value).toBe("@reviewe and @builder, not @unknown");
+    type(input, "");
+    expect(screen.queryByTestId("chat-composer-mention")).toBeNull();
   });
 
   it("matches a seat number, moves with the arrows, and Escape closes it", () => {
