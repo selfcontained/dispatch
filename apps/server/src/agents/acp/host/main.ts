@@ -273,6 +273,7 @@ async function main(): Promise<void> {
           sessionId,
           resumed,
           running,
+          steeringSupported: driver.supportsSteering(agentId),
           turn: openTurn,
           journalSeq: journal.lastSeq,
           journalId: journal.id,
@@ -320,6 +321,19 @@ async function main(): Promise<void> {
           .catch((err) => {
             logger.warn({ err: String(err) }, "host: turn failed");
           });
+        return;
+      }
+      case "steer": {
+        try {
+          const outcome = await driver.steer(
+            agentId,
+            message.text,
+            message.source
+          );
+          send(socket, { type: "steer_result", id: message.id, outcome });
+        } catch (err) {
+          send(socket, { type: "error", id: message.id, message: String(err) });
+        }
         return;
       }
       case "cancel":
@@ -465,6 +479,7 @@ async function main(): Promise<void> {
       sessionId,
       resumed,
       running,
+      steeringSupported: driver.supportsSteering(agentId),
       turn: null,
       journalSeq: journal.lastSeq,
       journalId: journal.id,

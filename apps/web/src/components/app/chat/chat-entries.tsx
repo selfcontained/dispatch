@@ -804,7 +804,11 @@ export function DeliveryMeta({
           "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
           className
         )}
-        title="The agent is mid-turn. Your message is queued and reaches it when the turn ends; Send now cuts the turn short."
+        title={
+          block.kind === "text" && block.data?.acpCommand
+            ? "This command will run after the current turn."
+            : "Your message will be delivered after the current turn. Send now delivers during the turn when supported."
+        }
         data-testid="chat-held-hint"
       >
         <Hourglass className="h-3 w-3" />
@@ -1453,6 +1457,7 @@ export const BlockView = memo(function BlockView({
           <QueuedMessageActions
             agentId={block.streamId}
             messageId={block.id}
+            canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
             status={<DeliveryMeta block={block} ctx={ctx} />}
           />
         ) : (

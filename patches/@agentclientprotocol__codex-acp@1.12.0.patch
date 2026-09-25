@@ -1,0 +1,24 @@
+diff --git a/dist/index.js b/dist/index.js
+index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..785a37a11e9f2d48630077ae46398481c968db83 100755
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -33387,6 +33387,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+         return { outcome: "injected" };
+       }
+     }
++    if (params._meta?.steering?.idleBehavior === "promptRequired") {
++      return { outcome: "promptRequired", reason: "noRunningTurn" };
++    }
+     return await this.startNewTurnFromSteering(params);
+   }
+   /**
+@@ -33525,7 +33528,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+     }
+     return {
+       sessionId,
+-      prompt
++      prompt,
++      _meta: params["_meta"]
+     };
+   }
+   createSessionConfigOptions(sessionState) {

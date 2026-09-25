@@ -16,7 +16,12 @@ import {
 export type EnqueueAgentPrompt = (
   agentId: string,
   prompt: string,
-  opts?: { gate?: boolean; source?: PromptSource; alone?: boolean }
+  opts?: {
+    gate?: boolean;
+    source?: PromptSource;
+    alone?: boolean;
+    delivery?: "auto" | "queue";
+  }
 ) => Promise<{ held: boolean; delivery: Promise<void> }>;
 
 export type InjectAgentPrompt = (
@@ -47,7 +52,12 @@ export function createPromptInjector(
       agentId,
       prompt,
       opts?.source,
-      opts?.alone ? { alone: true } : undefined
+      opts?.alone || opts?.delivery
+        ? {
+            ...(opts?.alone ? { alone: true } : {}),
+            ...(opts?.delivery ? { delivery: opts.delivery } : {}),
+          }
+        : undefined
     );
     settled.catch((err: unknown) => {
       appLog.warn({ err, agentId }, "agent turn failed");

@@ -112,6 +112,33 @@ describe("ChatComposer", () => {
     expect(screen.queryByTestId("chat-composer-error")).toBeNull();
   });
 
+  it("preserves queued delivery on the advertised Enter retry, then resets after success", async () => {
+    const onSend = vi
+      .fn<Parameters<typeof ChatComposer>[0]["onSend"]>()
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({ onSend, canQueue: true });
+    fireEvent.change(input, { target: { value: "later" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toContain("press Enter to queue again");
+    expect(input.value).toBe("later");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenNthCalledWith(1, "later", [], {
+      delivery: "queue",
+    });
+    expect(onSend).toHaveBeenNthCalledWith(2, "later", [], {
+      delivery: "queue",
+    });
+    await waitFor(() => expect(input.value).toBe(""));
+
+    fireEvent.change(input, { target: { value: "new message" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenLastCalledWith("new message", []);
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
   it("does not send on Shift+Enter", () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "line one" } });
@@ -199,22 +226,22 @@ describe("ChatComposer", () => {
   });
 
   it.each(["metaKey", "ctrlKey"])(
-    "sends now with %s + Shift + Enter while busy",
+    "queues with %s + Shift + Enter while busy",
     async (modifier) => {
-      const { input, onSend } = renderComposer({ canInterrupt: true });
+      const { input, onSend } = renderComposer({ canQueue: true });
       fireEvent.change(input, { target: { value: "urgent" } });
       fireEvent.keyDown(input, {
         key: "Enter",
         shiftKey: true,
         [modifier]: true,
       });
-      expect(onSend).toHaveBeenCalledWith("urgent", [], { interrupt: true });
+      expect(onSend).toHaveBeenCalledWith("urgent", [], { delivery: "queue" });
       await waitFor(() => expect(input.value).toBe(""));
     }
   );
 
-  it("queues on Enter while busy and keeps Shift+Enter for newlines", async () => {
-    const { input, onSend } = renderComposer({ canInterrupt: true });
+  it("sends on Enter while busy and keeps Shift+Enter for newlines", async () => {
+    const { input, onSend } = renderComposer({ canQueue: true });
     fireEvent.change(input, { target: { value: "later" } });
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
@@ -231,9 +258,9 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
-  it("does not send now during an in-flight send", () => {
+  it("does not queue during an in-flight send", () => {
     const { input, onSend } = renderComposer({
-      canInterrupt: true,
+      canQueue: true,
       sending: true,
     });
     fireEvent.change(input, { target: { value: "wait" } });

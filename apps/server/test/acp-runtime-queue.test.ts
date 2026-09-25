@@ -240,7 +240,11 @@ describe("AcpRuntime legacy host replay", () => {
  * A host whose turns stay open until the test settles them, so prompts can
  * be queued behind a running turn.
  */
-async function heldTurnHost(): Promise<{
+async function heldTurnHost(
+  steering?: "injected" | "promptRequired" | "error"
+): Promise<{
+  steers: string[];
+  cancels: () => number;
   stateRoot: string;
   prompts: Array<{ text: string; source?: PromptSource }>;
   settle: () => void;
@@ -250,6 +254,8 @@ async function heldTurnHost(): Promise<{
   mkdirSync(dir, { recursive: true });
   writeFileSync(hostFile(dir, "pid"), String(process.pid));
   const prompts: Array<{ text: string; source?: PromptSource }> = [];
+  const steers: string[] = [];
+  let cancelCount = 0;
   let seq = 0;
   let live: net.Socket | null = null;
   const event = (e: unknown): HostMessage =>
@@ -273,9 +279,30 @@ async function heldTurnHost(): Promise<{
               sessionId: "sess",
               resumed: false,
               running: true,
+              steeringSupported: !!steering,
               turn: null,
               journalSeq: seq,
             } satisfies HostMessage)
+          );
+        } else if (message.type === "cancel") {
+          cancelCount++;
+        } else if (message.type === "steer") {
+          steers.push(message.text);
+          if (steering === "promptRequired") {
+            socket.write(
+              encodeMessage(event({ type: "turn", agentId, state: "settled" }))
+            );
+          }
+          socket.write(
+            encodeMessage(
+              steering === "error"
+                ? { type: "error", id: message.id, message: "unconfirmed" }
+                : {
+                    type: "steer_result",
+                    id: message.id,
+                    outcome: steering ?? "promptRequired",
+                  }
+            )
           );
         } else if (message.type === "prompt") {
           prompts.push({
@@ -311,7 +338,7 @@ async function heldTurnHost(): Promise<{
       encodeMessage(event({ type: "turn", agentId, state: "settled" }))
     );
   };
-  return { stateRoot, prompts, settle };
+  return { stateRoot, prompts, settle, steers, cancels: () => cancelCount };
 }
 
 function withinSeconds<T>(promise: Promise<T>, what: string): Promise<T> {
@@ -580,5 +607,105 @@ describe("queued post controls", () => {
       envelope(3),
       envelope(2),
     ]);
+  });
+});
+
+describe("AcpRuntime delivery during a turn", () => {
+  it("steers consecutive messages while explicit queue waits, without canceling", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const later = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "queue",
+    });
+    const sends = [2, 3].map((n) =>
+      runtime.prompt(agentId, envelope(n), post(n), { delivery: "auto" })
+    );
+    await withinSeconds(Promise.all(sends.map((p) => p.accepted)), "steering");
+    expect(host.steers).toEqual([envelope(2), envelope(3)]);
+    expect(host.prompts).toHaveLength(1);
+    expect(host.cancels()).toBe(0);
+    let finished = false;
+    void sends[0]!.settled.then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    host.settle();
+    await withinSeconds(later.accepted, "queued post");
+    host.settle();
+    await Promise.all([
+      work.settled,
+      later.settled,
+      ...sends.map((p) => p.settled),
+    ]);
+  });
+
+  it("starts exactly one tracked prompt when the engine wins the idle race", async () => {
+    const host = await heldTurnHost("promptRequired");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await withinSeconds(next.accepted, "fallback");
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.prompts.map((p) => p.text)).toEqual(["work", envelope(1)]);
+    host.settle();
+    await next.settled;
+    expect(host.cancels()).toBe(0);
+  });
+
+  it("keeps messages queued with an older host that does not advertise steering", async () => {
+    const host = await heldTurnHost();
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    expect(host.steers).toEqual([]);
+    expect(host.prompts).toHaveLength(1);
+    host.settle();
+    await withinSeconds(next.accepted, "old host fallback");
+    host.settle();
+    await next.settled;
+  });
+
+  it("promotes a queued post into the running turn without canceling", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1));
+    expect(
+      runtime.controlQueuedPrompt(
+        [agentId],
+        (post(1) as { chatMessageId: string }).chatMessageId,
+        "send-now"
+      )
+    ).toBe(true);
+    await withinSeconds(next.accepted, "promotion");
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await next.settled;
+  });
+
+  it("does not resend a steer whose delivery failed ambiguously", async () => {
+    const host = await heldTurnHost("error");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+    });
+    await expect(next.accepted).rejects.toThrow("unconfirmed");
+    host.settle();
+    await next.settled;
+    expect(host.prompts).toHaveLength(1);
+    expect(host.steers).toHaveLength(1);
   });
 });

@@ -357,7 +357,7 @@ describe("POST /api/v1/agents/:id/prompt-rename", () => {
           source: "chat",
           chatMessageId: posted.block.id,
         }),
-        undefined
+        { delivery: "auto" }
       );
       // A later failure remains visible on the persisted request for retry.
       rejectDelivery(new Error("host exited"));

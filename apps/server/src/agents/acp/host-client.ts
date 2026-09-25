@@ -44,6 +44,13 @@ export type HostClientDeps = {
  * makes the reconnect idempotent. `close()` stops reconnecting.
  */
 export class HostClient {
+  private readonly pendingSteers = new Map<
+    string,
+    {
+      resolve: (outcome: "injected" | "promptRequired") => void;
+      reject: (err: Error) => void;
+    }
+  >();
   private permissions: AgentPermissionRequest[] = [];
   private readonly pendingPermissions = new Map<
     string,
@@ -229,6 +236,12 @@ export class HostClient {
           event: message.event,
         });
         return;
+      case "steer_result": {
+        const pending = this.pendingSteers.get(message.id);
+        this.pendingSteers.delete(message.id);
+        pending?.resolve(message.outcome);
+        return;
+      }
       case "prompt_accepted": {
         const pending = this.pendingPrompts.get(message.id);
         if (pending) {
@@ -258,10 +271,12 @@ export class HostClient {
       case "error": {
         if (message.id) {
           const pending =
+            this.pendingSteers.get(message.id) ??
             this.pendingPrompts.get(message.id) ??
             this.pendingConfig.get(message.id) ??
             this.pendingPermissions.get(message.id);
           if (pending) {
+            this.pendingSteers.delete(message.id);
             this.pendingPrompts.delete(message.id);
             this.pendingConfig.delete(message.id);
             this.pendingPermissions.delete(message.id);
@@ -304,6 +319,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingSteers.values()) pending.reject(err);
+    this.pendingSteers.clear();
     for (const pending of this.pendingPermissions.values()) pending.reject(err);
     this.pendingPermissions.clear();
     for (const pending of this.pendingPrompts.values()) pending.reject(err);
@@ -317,6 +334,23 @@ export class HostClient {
       throw new Error("the agent host is not connected");
     }
     this.socket.write(encodeMessage(message));
+  }
+
+  /** Resolves once the adapter has accepted the prompt. */
+  steer(
+    id: string,
+    text: string,
+    source?: PromptSource
+  ): Promise<"injected" | "promptRequired"> {
+    return new Promise((resolve, reject) => {
+      this.pendingSteers.set(id, { resolve, reject });
+      try {
+        this.send({ type: "steer", id, text, ...(source ? { source } : {}) });
+      } catch (err) {
+        this.pendingSteers.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
   }
 
   /** Resolves once the adapter has accepted the prompt. */

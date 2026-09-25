@@ -566,3 +566,101 @@ describe("AcpDriver", () => {
     await driver.stop("agt_1");
   });
 });
+
+describe("ACP steering", () => {
+  it("journals accepted input before a racing turn settlement, without cancellation", async () => {
+    let endTurn!: () => void;
+    let acceptSteer!: () => void;
+    const turnGate = new Promise<void>((r) => {
+      endTurn = r;
+    });
+    const steerGate = new Promise<void>((r) => {
+      acceptSteer = r;
+    });
+    const fake = createFakeAcpAgent({
+      turn: async () => {
+        await turnGate;
+        return "end_turn";
+      },
+      steer: async () => {
+        await steerGate;
+        return { outcome: "injected" };
+      },
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start(launch());
+    try {
+      expect(driver.supportsSteering("agt_1")).toBe(true);
+      const turn = driver.prompt("agt_1", "work");
+      await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+      const source = {
+        source: "chat" as const,
+        chatMessageId: "message-2",
+        answerIn: "finding-1",
+      };
+      const steering = driver.steer("agt_1", "correction", source);
+      await vi.waitFor(() => expect(fake.seen.steers).toHaveLength(1));
+      expect(fake.seen.steers[0]).toMatchObject({
+        _meta: { steering: { idleBehavior: "promptRequired" } },
+      });
+      endTurn();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(
+        events.some((e) => e.type === "turn" && e.state === "settled")
+      ).toBe(false);
+      acceptSteer();
+      expect(await steering).toBe("injected");
+      await turn;
+      expect(
+        events.filter((e) => e.type === "turn" || e.type === "steered")
+      ).toEqual([
+        expect.objectContaining({ type: "turn", state: "started" }),
+        { type: "steered", agentId: "agt_1", text: "correction", source },
+        expect.objectContaining({
+          type: "turn",
+          state: "settled",
+          stopReason: "end_turn",
+        }),
+      ]);
+      expect(fake.seen.cancels).toBe(0);
+      expect(await driver.steer("agt_1", "too late")).toBe("promptRequired");
+      expect(fake.seen.steers).toHaveLength(1);
+    } finally {
+      endTurn();
+      acceptSteer();
+      await driver.stop("agt_1");
+    }
+  });
+
+  it("preserves an outstanding permission request when guidance arrives", async () => {
+    const fake = createFakeAcpAgent({
+      steer: async () => ({ outcome: "injected" }),
+      turn: async (_text, _emit, ask) => {
+        await ask({
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        });
+        return "end_turn";
+      },
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(
+      launch({ engine: engineSpecFor("claude", bins, false) })
+    );
+    try {
+      const turn = driver.prompt("agt_1", "work");
+      await vi.waitFor(() =>
+        expect(driver.getPermissions("agt_1")).toHaveLength(1)
+      );
+      const permission = driver.getPermissions("agt_1")[0]!;
+      await driver.steer("agt_1", "use the smaller change");
+      expect(driver.getPermissions("agt_1")[0]!.id).toBe(permission.id);
+      expect(fake.seen.cancels).toBe(0);
+      driver.answerPermission("agt_1", permission.id, "allow");
+      await turn;
+    } finally {
+      await driver.stop("agt_1");
+    }
+  });
+});

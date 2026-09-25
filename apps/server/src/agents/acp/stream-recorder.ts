@@ -305,6 +305,23 @@ export class StreamRecorder {
   async handle(event: DriverEvent): Promise<void> {
     await this.ensureLoaded(event.agentId);
     switch (event.type) {
+      case "steered": {
+        const open = this.openTurn.get(event.agentId);
+        if (!open) return;
+        const payload = open.payload as TurnPayload;
+        open.payload = {
+          ...payload,
+          steering: [
+            ...(payload.steering ?? []),
+            {
+              source: event.source ?? systemPromptSource(event.text),
+              at: new Date().toISOString(),
+            },
+          ],
+        };
+        await this.store.updatePayload(open.id, open.payload);
+        return;
+      }
       case "update":
         return this.handleUpdate(event.agentId, event.update);
       case "turn": {

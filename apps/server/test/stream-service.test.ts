@@ -4058,15 +4058,20 @@ describe("StreamService turn blocks", () => {
     });
   });
 
-  it("an interrupting post is delivered to go alone", async () => {
+  it("Send and legacy Send now steer without cancellation; explicit queue waits", async () => {
     const { svc, injectedOpts, cancelled } = build();
     const plain = await svc.sendUserPost(A, { text: "a note" });
     const cut = await svc.sendUserPost(A, { text: "stop", interrupt: true });
+    const queued = await svc.sendUserPost(A, {
+      text: "later",
+      delivery: "queue",
+    });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(cancelled).toEqual([A]);
+    expect(cancelled).toEqual([]);
     expect(injectedOpts).toEqual([
-      { blockId: plain.block.id },
-      { blockId: cut.block.id, alone: true },
+      { blockId: plain.block.id, delivery: "auto" },
+      { blockId: cut.block.id, delivery: "auto" },
+      { blockId: queued.block.id, delivery: "queue" },
     ]);
   });
 
@@ -4283,6 +4288,55 @@ describe("StreamService delivery that is never taken", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.retryDelivery", () => {
+  it.each([
+    "user",
+    "user-thread",
+    "user-review",
+    "agent",
+    "agent-thread",
+    "agent-review",
+    "agent-question",
+  ] as const)(
+    "preserves explicit queue intent across a failed %s post and retry during an active turn",
+    async (kind) => {
+      const { svc } = build({ fail: true });
+      const root = await svc.post(A, { text: "Thread root" });
+      const review = { summary: "Queued review", findings: [] };
+      const failed = kind.startsWith("user")
+        ? (
+            await svc.sendUserPost(A, {
+              text: "Later",
+              delivery: "queue",
+              ...(kind === "user-thread" ? { replyTo: root.id } : {}),
+              ...(kind === "user-review" ? { review } : {}),
+            })
+          ).block
+        : await svc.post(A, {
+            to: B,
+            text: "Later",
+            delivery: "queue",
+            ...(kind === "agent-thread" ? { replyTo: root.id } : {}),
+            ...(kind === "agent-review" ? { review } : {}),
+            ...(kind === "agent-question"
+              ? { question: { options: [{ label: "Yes" }] } }
+              : {}),
+          });
+      expect((await settled(svc, failed.id)).data).toMatchObject({
+        delivery: "queue",
+      });
+      if (kind === "agent-review") {
+        await svc.update(A, failed.id, { data: { summary: "Edited review" } });
+      }
+      // A new service instance must recover the choice from storage.
+      const retry = build({ held: true });
+      expect((await retry.svc.retryDelivery(A, failed.id)).held).toBe(true);
+      await settled(retry.svc, failed.id);
+      expect(retry.injectedOpts).toEqual([
+        expect.objectContaining({ blockId: failed.id, delivery: "queue" }),
+      ]);
+    }
+  );
+
   it("retries a failed ACP command as the same raw, isolated prompt", async () => {
     const { svc: failing, injected: first } = build({
       fail: true,
@@ -4944,6 +4998,26 @@ describe("StreamService.retryTurn", () => {
 });
 
 describe("StreamService queued message controls", () => {
+  it("rejects Send now for a queued ACP command while allowing deletion", async () => {
+    const control = vi.fn(() => true);
+    const { svc } = build({ controlQueuedPrompt: control });
+    const block = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      kind: "text",
+      text: "/compact",
+      data: { acpCommand: true },
+      delivered: null,
+    });
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "send-now")
+    ).rejects.toThrow("ACP commands must wait");
+    expect(control).not.toHaveBeenCalled();
+    await svc.controlQueuedMessage(A, block.id, "delete");
+    expect(control).toHaveBeenCalledWith([A], block.id, "delete");
+  });
+
   it("checks stream and delivery state before claiming a prompt", async () => {
     const control = vi.fn(() => true);
     const { svc } = build({ controlQueuedPrompt: control });

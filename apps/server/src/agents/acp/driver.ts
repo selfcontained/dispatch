@@ -27,6 +27,8 @@ export type DriverLaunch = {
 };
 
 export type DriverEvent =
+  /** Input accepted into the existing turn, journaled before its settlement. */
+  | { type: "steered"; agentId: string; text: string; source?: PromptSource }
   /** Live host snapshot, emitted by the runtime with seq 0; never replayed from the journal. */
   | { type: "permissions"; agentId: string; requests: AgentPermissionRequest[] }
   | { type: "update"; agentId: string; update: DriverUpdate }
@@ -100,6 +102,9 @@ export type SpawnFn = (
 type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
+  steeringSupported: boolean;
+  turnOpen: boolean;
+  steering: Promise<unknown>;
   engine: EngineSpec["id"];
   firstPromptAppend: string | null;
   child: ChildProcessLike;
@@ -415,8 +420,9 @@ export class AcpDriver {
         : {}),
     };
     const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
+    let steeringSupported = false;
     const handshake = (async () => {
-      await conn.initialize({
+      const initialized = await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
@@ -425,6 +431,11 @@ export class AcpDriver {
             : {}),
         },
       });
+      const steering = initialized._meta?.steering;
+      steeringSupported =
+        !!steering &&
+        typeof steering === "object" &&
+        (steering as { supported?: unknown }).supported === true;
       const mcpServers: acp.McpServer[] = [
         {
           type: "http",
@@ -517,6 +528,9 @@ export class AcpDriver {
     }
 
     const entry: Live = {
+      steeringSupported,
+      turnOpen: false,
+      steering: Promise.resolve(),
       engine: engine.id,
       child,
       conn,
@@ -575,6 +589,46 @@ export class AcpDriver {
     return this.permissions.list(agentId);
   }
 
+  supportsSteering(agentId: string): boolean {
+    return this.live.get(agentId)?.steeringSupported ?? false;
+  }
+
+  /** A declined steer consumes nothing; the host still owns the next prompt. */
+  steer(
+    agentId: string,
+    text: string,
+    source?: PromptSource
+  ): Promise<"injected" | "promptRequired"> {
+    const entry = this.require(agentId);
+    const request = entry.steering
+      .catch(() => {})
+      .then(async () => {
+        if (!entry.steeringSupported || !entry.turnOpen || entry.cancelling)
+          return "promptRequired" as const;
+        const result = await entry.conn.extMethod("_session/steering", {
+          sessionId: entry.sessionId,
+          prompt: [{ type: "text", text }],
+          _meta: { steering: { idleBehavior: "promptRequired" } },
+        });
+        if (result.outcome === "promptRequired")
+          return "promptRequired" as const;
+        if (result.outcome !== "injected") {
+          throw new Error(
+            `The agent did not confirm steering (${String(result.outcome)}).`
+          );
+        }
+        this.emit({
+          type: "steered",
+          agentId,
+          text,
+          ...(source ? { source } : {}),
+        });
+        return "injected" as const;
+      });
+    entry.steering = request;
+    return request;
+  }
+
   answerPermission(
     agentId: string,
     requestId: string,
@@ -621,6 +675,7 @@ export class AcpDriver {
   ): Promise<void> {
     const entry = this.require(agentId);
     entry.cancelling = false;
+    entry.turnOpen = true;
     // The model this turn runs on, as the engine publishes it now: a model
     // switched mid-session must not relabel the turns before it.
     const modelOption = entry.config.options.find(
@@ -664,6 +719,8 @@ export class AcpDriver {
       if (guidance) entry.firstPromptAppend = null;
       onAccepted?.();
       const res = await Promise.race([dispatched, gone]);
+      entry.turnOpen = false;
+      await entry.steering.catch(() => {});
       this.emit({
         type: "turn",
         agentId,
@@ -672,6 +729,8 @@ export class AcpDriver {
         ...(res.usage ? { usage: res.usage } : {}),
       });
     } catch (err) {
+      entry.turnOpen = false;
+      await entry.steering.catch(() => {});
       const { message, errorKind } = describeRpcError(err, entry.engine);
       // The exit event already settled the turn row; a second settle would
       // only add a duplicate status line.

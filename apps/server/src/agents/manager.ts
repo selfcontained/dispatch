@@ -571,7 +571,7 @@ export class AgentManager {
     id: string,
     text: string,
     source?: PromptSource,
-    opts?: { alone?: boolean }
+    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
   ): { accepted: Promise<void>; settled: Promise<void> } {
     return this.runtime.prompt(id, text, source, opts);
   }

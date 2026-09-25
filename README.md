@@ -89,8 +89,8 @@ Dispatch drives each CLI through its Agent Client Protocol adapter: `npm i -g @a
 git clone git@github.com:selfcontained/dispatch.git
 cd dispatch
 
-# 2. Install dependencies
-pnpm install
+# 2. Install dependencies with the package.json-pinned pnpm version
+corepack pnpm install --frozen-lockfile
 
 # 3. Copy the example env file
 cp .env.example .env
@@ -100,6 +100,13 @@ bin/dispatch-dev up --live
 ```
 
 For day-to-day backend work, the server itself runs under Bun. `pnpm` is still used at the repo root for dependency installation and workspace-level scripts.
+
+Source installs and builds use **pnpm 9.15.9**, pinned in `package.json`, because
+the ACP adapter patch's lockfile hash depends on the pnpm version. Install
+Corepack if your Node installation does not include it (`npm install -g corepack`),
+then use `corepack pnpm` for repo commands. `bin/dispatch-server build` and
+`update` select this version through Corepack; without Corepack they require
+pnpm 9.15.9 on PATH and fail before installation if another version is present.
 
 > **Important:** Docker Desktop must be running (not just installed). If you see
 > _"Error: docker compose is not available"_, open Docker.app first.

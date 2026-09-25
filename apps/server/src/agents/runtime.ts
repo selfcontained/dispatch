@@ -93,7 +93,7 @@ export type AgentRuntime = {
      * `alone`: never combine this prompt with others waiting beside it. A
      * post sent to interrupt is the point of its own turn.
      */
-    opts?: { alone?: boolean }
+    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** Atomically claim an unsent post at every recipient. */
   controlQueuedPrompt(

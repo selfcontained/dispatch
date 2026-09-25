@@ -71,6 +71,7 @@ const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
 const sleeping = new Map();
+const steeringMessages = new Map();
 
 const MODEL_OPTION = (current) => ({
   id: "model",
@@ -98,6 +99,7 @@ const agent = {
         sessionCapabilities: { close: {}, resume: {} },
       },
       authMethods: [],
+      _meta: { steering: { supported: true } },
     };
   },
   async authenticate() {
@@ -140,170 +142,198 @@ const agent = {
       modelBySession.set(params.sessionId, params.value);
     return { configOptions: configOptions(params.sessionId) };
   },
-  async prompt(params) {
+  async extMethod(method, params) {
+    if (method !== "_session/steering")
+      throw new Error("unsupported extension");
+    const messages = steeringMessages.get(params.sessionId);
+    if (!messages)
+      return { outcome: "promptRequired", reason: "noRunningTurn" };
     const text = params.prompt
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("");
-    const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
-    const emit = (update) =>
-      conn.sessionUpdate({ sessionId: params.sessionId, update });
-    const sleep = SLEEP.exec(text);
-    if (sleep) {
-      const cancelled = await new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(false), Number(sleep[1]));
-        sleeping.set(params.sessionId, () => {
-          clearTimeout(timer);
-          resolve(true);
-        });
-      });
-      sleeping.delete(params.sessionId);
-      if (cancelled) return { stopReason: "cancelled" };
-    }
-    const run = RUN.exec(text);
-    if (run) {
-      await emit({
-        sessionUpdate: "tool_call",
-        toolCallId: "run1",
-        title: "bash",
-        kind: "execute",
-        status: "in_progress",
-        rawInput: { command: `sleep ${Number(run[1]) / 1000}` },
-        content: [],
-      });
-      await new Promise((resolve) => setTimeout(resolve, Number(run[1])));
-      await emit({
-        sessionUpdate: "tool_call_update",
-        toolCallId: "run1",
-        status: "completed",
-        content: [
-          { type: "content", content: { type: "text", text: "slept well" } },
-        ],
-      });
-    }
-    if (PROFILE.ask || text.includes("permission-test")) {
-      const permission = await conn.requestPermission({
-        sessionId: params.sessionId,
-        toolCall: {
-          toolCallId: "c1",
-          title: "Run workspace validation",
-          rawInput: {
-            command: "pnpm run check",
-            cwd: cwdBySession.get(params.sessionId),
-          },
-        },
-        options: [
-          { optionId: "once", name: "Allow once", kind: "allow_once" },
-          { optionId: "always", name: "Always", kind: "allow_always" },
-          { optionId: "no", name: "Reject", kind: "reject_once" },
-        ],
-      });
-      if (text.includes("permission-test")) {
-        const result =
-          permission.outcome.outcome === "selected"
-            ? permission.outcome.optionId
-            : "cancelled";
+    messages.push(text);
+    await conn.sessionUpdate({
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: `Steered: ${text}\n` },
+      },
+    });
+    return { outcome: "injected" };
+  },
+  async prompt(params) {
+    steeringMessages.set(params.sessionId, []);
+    try {
+      const text = params.prompt
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .join("");
+      const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
+      const emit = (update) =>
+        conn.sessionUpdate({ sessionId: params.sessionId, update });
+      const sleep = SLEEP.exec(text);
+      if (sleep) {
         await emit({
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: `Permission result: ${result}` },
+          content: { type: "text", text: "Waiting for the requested delay.\n" },
         });
-        return {
-          stopReason: result === "cancelled" ? "cancelled" : "end_turn",
-        };
+        const cancelled = await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(false), Number(sleep[1]));
+          sleeping.set(params.sessionId, () => {
+            clearTimeout(timer);
+            resolve(true);
+          });
+        });
+        sleeping.delete(params.sessionId);
+        if (cancelled) return { stopReason: "cancelled" };
       }
-    }
-    await emit({
-      sessionUpdate: "tool_call",
-      toolCallId: "c1",
-      title: "Read README.md",
-      kind: "read",
-      status: "in_progress",
-      locations: [{ path: path.join(cwd, "README.md") }],
-      content: [],
-    });
-    await emit({
-      sessionUpdate: "tool_call_update",
-      toolCallId: "c1",
-      status: "completed",
-    });
-    if (PROFILE.nested && /subagent:/.test(text)) {
+      const run = RUN.exec(text);
+      if (run) {
+        await emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "run1",
+          title: "bash",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: `sleep ${Number(run[1]) / 1000}` },
+          content: [],
+        });
+        await new Promise((resolve) => setTimeout(resolve, Number(run[1])));
+        await emit({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "run1",
+          status: "completed",
+          content: [
+            { type: "content", content: { type: "text", text: "slept well" } },
+          ],
+        });
+      }
+      if (PROFILE.ask || text.includes("permission-test")) {
+        const permission = await conn.requestPermission({
+          sessionId: params.sessionId,
+          toolCall: {
+            toolCallId: "c1",
+            title: "Run workspace validation",
+            rawInput: {
+              command: "pnpm run check",
+              cwd: cwdBySession.get(params.sessionId),
+            },
+          },
+          options: [
+            { optionId: "once", name: "Allow once", kind: "allow_once" },
+            { optionId: "always", name: "Always", kind: "allow_always" },
+            { optionId: "no", name: "Reject", kind: "reject_once" },
+          ],
+        });
+        if (text.includes("permission-test")) {
+          const result =
+            permission.outcome.outcome === "selected"
+              ? permission.outcome.optionId
+              : "cancelled";
+          await emit({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Permission result: ${result}` },
+          });
+          return {
+            stopReason: result === "cancelled" ? "cancelled" : "end_turn",
+          };
+        }
+      }
       await emit({
         sessionUpdate: "tool_call",
-        toolCallId: "task1",
-        title: "Task",
-        kind: "other",
-        status: "in_progress",
-        rawInput: { description: "look around" },
-        content: [],
-      });
-      await emit({
-        sessionUpdate: "tool_call",
-        toolCallId: "child1",
-        title: "Read",
+        toolCallId: "c1",
+        title: "Read README.md",
         kind: "read",
-        status: "completed",
-        locations: [{ path: path.join(cwd, "src/index.ts") }],
+        status: "in_progress",
+        locations: [{ path: path.join(cwd, "README.md") }],
         content: [],
-        _meta: { claudeCode: { toolName: "Read", parentToolUseId: "task1" } },
       });
       await emit({
         sessionUpdate: "tool_call_update",
-        toolCallId: "task1",
+        toolCallId: "c1",
         status: "completed",
-        content: [
-          {
-            type: "content",
-            content: { type: "text", text: "child finished" },
-          },
-        ],
       });
-    }
-    if (PROFILE.plan && /tasks:/.test(text)) {
-      const entries = [
-        { content: "Read the README", status: "completed", priority: "high" },
-        {
-          content: "Echo the prompt",
+      if (PROFILE.nested && /subagent:/.test(text)) {
+        await emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "task1",
+          title: "Task",
+          kind: "other",
           status: "in_progress",
-          priority: "medium",
+          rawInput: { description: "look around" },
+          content: [],
+        });
+        await emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "child1",
+          title: "Read",
+          kind: "read",
+          status: "completed",
+          locations: [{ path: path.join(cwd, "src/index.ts") }],
+          content: [],
+          _meta: { claudeCode: { toolName: "Read", parentToolUseId: "task1" } },
+        });
+        await emit({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "task1",
+          status: "completed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "child finished" },
+            },
+          ],
+        });
+      }
+      if (PROFILE.plan && /tasks:/.test(text)) {
+        const entries = [
+          { content: "Read the README", status: "completed", priority: "high" },
+          {
+            content: "Echo the prompt",
+            status: "in_progress",
+            priority: "medium",
+          },
+          { content: "Wrap up", status: "pending", priority: "low" },
+        ];
+        await emit(
+          PROFILE.plan === "plan"
+            ? { sessionUpdate: "plan", entries }
+            : {
+                sessionUpdate: "plan_update",
+                plan: { type: "items", planId: "p1", entries },
+              }
+        );
+      }
+      if (PROFILE.usage) {
+        await emit({
+          sessionUpdate: "usage_update",
+          used: 12_000,
+          size: 200_000,
+          ...(PROFILE.cost ? { cost: { amount: 0.42, currency: "USD" } } : {}),
+        });
+      }
+      for (const piece of [
+        "You said: ",
+        text.replace(/^[\s\S]*?--- DISPATCH CHAT[^\n]*\n/, ""),
+      ]) {
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: piece },
+        });
+      }
+      return {
+        stopReason: "end_turn",
+        usage: {
+          totalTokens: 120,
+          inputTokens: 100,
+          outputTokens: 20,
+          thoughtTokens: 0,
+          cachedReadTokens: 0,
+          cachedWriteTokens: 0,
         },
-        { content: "Wrap up", status: "pending", priority: "low" },
-      ];
-      await emit(
-        PROFILE.plan === "plan"
-          ? { sessionUpdate: "plan", entries }
-          : {
-              sessionUpdate: "plan_update",
-              plan: { type: "items", planId: "p1", entries },
-            }
-      );
+      };
+    } finally {
+      steeringMessages.delete(params.sessionId);
     }
-    if (PROFILE.usage) {
-      await emit({
-        sessionUpdate: "usage_update",
-        used: 12_000,
-        size: 200_000,
-        ...(PROFILE.cost ? { cost: { amount: 0.42, currency: "USD" } } : {}),
-      });
-    }
-    for (const piece of [
-      "You said: ",
-      text.replace(/^[\s\S]*?--- DISPATCH CHAT[^\n]*\n/, ""),
-    ]) {
-      await emit({
-        sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: piece },
-      });
-    }
-    return {
-      stopReason: "end_turn",
-      usage: {
-        totalTokens: 120,
-        inputTokens: 100,
-        outputTokens: 20,
-        thoughtTokens: 0,
-        cachedReadTokens: 0,
-        cachedWriteTokens: 0,
-      },
-    };
   },
   async cancel(params) {
     sleeping.get(params.sessionId)?.();

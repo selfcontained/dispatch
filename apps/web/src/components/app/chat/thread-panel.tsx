@@ -235,9 +235,15 @@ export function ThreadPanel({
   const onSend = useCallback(
     async (
       text: string,
-      attachments: ChatUserAttachmentInput[]
+      attachments: ChatUserAttachmentInput[],
+      options?: { delivery?: "auto" | "queue" }
     ): Promise<void> => {
-      await postAsync({ text, attachments, replyTo: threadBlockId });
+      await postAsync({
+        text,
+        attachments,
+        replyTo: threadBlockId,
+        ...options,
+      });
     },
     [threadBlockId, postAsync]
   );
@@ -540,6 +546,7 @@ export function ThreadPanel({
           // swap drafts with the main composer.
           agentId={null}
           onSend={onSend}
+          canQueue
           uploadFile={uploadFile}
           disabledReason={disabledReason}
           sending={post.isPending}
