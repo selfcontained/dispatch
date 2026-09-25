@@ -99,6 +99,7 @@ import {
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
+import { createProviderPlansReporter } from "./agents/provider-plans.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
 import { registerBrowserExtensionRoutes } from "./routes/browser-extension.js";
@@ -626,7 +627,9 @@ async function registerRoutes() {
     withStreamFlag,
   });
 
+  const providerPlans = createProviderPlansReporter({ log: app.log });
   await registerMcpRoutes(app, {
+    providerPlans,
     config,
     pool,
     loginLinkStore,
@@ -754,6 +757,7 @@ async function registerRoutes() {
   });
 
   await registerAgentRoutes(app, {
+    providerPlans,
     pool,
     appLog: app.log,
     agentManager,

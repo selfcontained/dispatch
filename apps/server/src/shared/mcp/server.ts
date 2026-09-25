@@ -15,6 +15,7 @@ import {
   registerAgentLifecycleTools,
   type ListedFileItem,
 } from "./agent-lifecycle-tools.js";
+import { registerUsageTools, type UsageCallbacks } from "./usage-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
@@ -78,6 +79,7 @@ const AGENT_TOOLS = new Set([
   "update",
   "react",
   "get_feedback_summary",
+  "get_usage",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -124,6 +126,7 @@ const JOB_TOOLS = new Set([
   "persona_upsert",
   "persona_validate",
   "get_feedback_summary",
+  "get_usage",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -177,7 +180,7 @@ export type ToolInvokedEvent = {
   at: string;
 };
 
-export type McpRequestContext = {
+export type McpRequestContext = UsageCallbacks & {
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
@@ -455,6 +458,8 @@ export async function createDispatchMcpServer(
         : undefined,
     });
   }
+
+  if (context.agent) registerUsageTools(server, allowed, context);
 
   // ── Summary / analytics tools (available to both agents and jobs) ──
   registerAnalyticsTools(server, allowed, {
