@@ -52,10 +52,11 @@ export function isFoldable(
     return false;
   }
   if (isSentTo(entry, agentId)) return true;
-  return (
-    entry.block.threadId === null &&
-    (entry.block.kind === "file" || entry.block.kind === "link")
-  );
+  if (entry.block.threadId !== null) return false;
+  if (entry.block.kind === "file" || entry.block.kind === "link") return true;
+  // A plain post that carries attachments is the agent handing something
+  // over mid-turn (a screenshot, a PR, a snippet): its text is the caption.
+  return entry.block.kind === "text" && entry.block.attachments.length > 0;
 }
 
 /**
@@ -259,7 +260,7 @@ export const TurnAttachments = memo(function TurnAttachments({
   if (items.length === 0) return null;
   return (
     <div
-      className="mb-2 flex min-w-0 flex-col gap-2.5 font-sans"
+      className="mt-3 mb-2 flex min-w-0 flex-col gap-2.5 font-sans first:mt-0"
       data-testid="chat-turn-attachments"
     >
       {items.map((item) =>

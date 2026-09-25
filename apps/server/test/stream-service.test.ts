@@ -444,6 +444,24 @@ describe("resolveKindAndData", () => {
       data: null,
     });
     expect(resolveKindAndData({})).toEqual({ kind: "text", data: null });
+    // Text and files and nothing else is a file post; other attachments are not.
+    expect(
+      resolveKindAndData({
+        text: "shot",
+        attachments: [{ type: "file", fileName: "a.png" }],
+      }).kind
+    ).toBe("file");
+    expect(
+      resolveKindAndData({
+        attachments: [{ type: "pr", url: "https://x.y/pull/1" }],
+      }).kind
+    ).toBe("text");
+    expect(
+      resolveKindAndData({
+        question: { options: [{ label: "a" }] },
+        attachments: [{ type: "file", fileName: "a.png" }],
+      }).kind
+    ).toBe("question");
     expect(
       resolveKindAndData({ question: { options: [{ label: "a" }] } })
     ).toEqual({ kind: "question", data: { options: [{ label: "a" }] } });
