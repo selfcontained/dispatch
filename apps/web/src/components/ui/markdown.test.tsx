@@ -65,3 +65,23 @@ describe("Markdown code blocks", () => {
     );
   });
 });
+
+describe("Markdown prose decoration", () => {
+  it("decorates formatted prose while preserving links and literal code", () => {
+    const renderText = vi.fn((text: string) => <mark>{text}</mark>);
+    const { container } = render(
+      <Markdown renderText={renderText}>
+        {
+          "**@Agent**\n\n- *Mention*\n\n[Docs](https://example.com)\n\n`@Agent`\n\n```text\n@Agent\n```"
+        }
+      </Markdown>
+    );
+    expect(container.querySelector("strong mark")?.textContent).toBe("@Agent");
+    expect(container.querySelector("li em mark")?.textContent).toBe("Mention");
+    expect(screen.getByRole("link").getAttribute("href")).toBe(
+      "https://example.com"
+    );
+    expect(container.querySelector("code mark")).toBeNull();
+    expect(container.querySelector("pre")?.textContent).toBe("@Agent");
+  });
+});

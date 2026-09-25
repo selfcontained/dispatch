@@ -104,6 +104,8 @@ type MarkdownProps = {
   children: string;
   className?: string;
   variant?: "default" | "pin" | "caption";
+  /** Decorate prose text without altering Markdown syntax or code. */
+  renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
   // default: most `default`-variant consumers are compact cards that pass
   // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
@@ -116,6 +118,7 @@ export const Markdown = memo(function Markdown({
   children,
   className,
   variant = "default",
+  renderText,
   headingAccents = false,
 }: MarkdownProps): JSX.Element {
   if (variant === "pin") {
@@ -127,7 +130,11 @@ export const Markdown = memo(function Markdown({
   }
 
   return (
-    <MarkdownDefault className={className} headingAccents={headingAccents}>
+    <MarkdownDefault
+      className={className}
+      headingAccents={headingAccents}
+      renderText={renderText}
+    >
       {children}
     </MarkdownDefault>
   );
@@ -212,13 +219,44 @@ function MarkdownPin({
   );
 }
 
+// Wrap prose leaves after Markdown parsing so decorators never touch code or URLs.
+type ProseNode = {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: ProseNode[];
+};
+
+function wrapProseText() {
+  return (tree: ProseNode) => {
+    const walk = (node: ProseNode) => {
+      if (node.tagName === "code" || node.tagName === "pre") return;
+      node.children = node.children?.map((child) => {
+        if (child.type === "text" && child.value?.trim()) {
+          return {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: [child],
+          };
+        }
+        walk(child);
+        return child;
+      });
+    };
+    walk(tree);
+  };
+}
+
 function MarkdownDefault({
   children,
   className,
   headingAccents = false,
+  renderText,
 }: Pick<
   MarkdownProps,
-  "children" | "className" | "headingAccents"
+  "children" | "className" | "headingAccents" | "renderText"
 >): JSX.Element {
   const mermaidTheme = useMermaidTheme();
 
@@ -265,7 +303,17 @@ function MarkdownDefault({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={renderText ? [wrapProseText] : []}
         components={{
+          span({ children }) {
+            return (
+              <span>
+                {renderText && typeof children === "string"
+                  ? renderText(children)
+                  : children}
+              </span>
+            );
+          },
           table({ node: _node, ...props }) {
             return (
               <div
