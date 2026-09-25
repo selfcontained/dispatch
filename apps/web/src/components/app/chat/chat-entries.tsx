@@ -30,6 +30,7 @@ import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { Collapse } from "@/components/app/chat/collapse";
 import { StepList } from "@/components/app/chat/turn/activity-block";
+import { turnAnswerText } from "@/components/app/chat/turn/answer-text";
 import type { Trace } from "@/components/app/chat/turn/contracts";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { type FoldedEntry } from "@/components/app/chat/turn/turn-attachments";
@@ -1386,11 +1387,12 @@ export const BlockView = memo(function BlockView({
     !inThread && ctx.onOpenThread ? (
       <ReplyInThreadButton onClick={() => ctx.onOpenThread?.(block.id)} />
     ) : null;
+  const copyText = block.turn ? turnAnswerText(block, block.turn) : block.text;
   const copyAction =
-    block.text || replyAction ? (
+    copyText || replyAction ? (
       <div className="flex items-center">
         {replyAction}
-        {block.text ? <MessageCopyButton text={block.text} /> : null}
+        {copyText ? <MessageCopyButton text={copyText} /> : null}
       </div>
     ) : undefined;
   const reactions = block.reactions ?? [];
