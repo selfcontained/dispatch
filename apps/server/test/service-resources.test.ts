@@ -350,6 +350,44 @@ describe("ServiceResources", () => {
     resources.stop();
   });
 
+  it("times out artifact root queries, retries on cadence, and cancels before measurement on opt-out", async () => {
+    const query = vi.fn(() => new Promise(() => {}));
+    const release = vi.fn();
+    const end = vi.fn(async () => undefined);
+    const artifactProbePool = {
+      connect: vi.fn(async () => ({ query, release })),
+      end,
+    } as unknown as Pool;
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(),
+      artifactProbePool,
+      artifactRoots: [],
+      listAgentProcesses: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+    resources.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(release).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+    expect(resources.getSnapshot().current.artifacts?.error).toBe(
+      "Artifact storage sampling failed"
+    );
+    await vi.advanceTimersByTimeAsync(297_000);
+    expect(query).toHaveBeenCalledTimes(2);
+    resources.setCollectionEnabled(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toHaveBeenCalledTimes(2);
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(query).toHaveBeenCalledTimes(3);
+    await resources.shutdown();
+    expect(release).toHaveBeenCalledTimes(3);
+    expect(end).toHaveBeenCalledOnce();
+    expect(resources.getSnapshot().current.artifacts?.sizeBytes).toBeNull();
+  });
+
   it("samples artifact storage only with opt-in, throttles failures, and retains last success", async () => {
     const sampleArtifactStorage = vi
       .fn()

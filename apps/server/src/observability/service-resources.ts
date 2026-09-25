@@ -1,4 +1,5 @@
 import os from "node:os";
+import { sampleRetainedArtifactStorage } from "./artifact-storage.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
 import type { Pool, PoolClient } from "pg";
@@ -81,7 +82,9 @@ export type ServiceResourcesDeps = {
   /** Running agents and the pid of each one's host process, when alive. */
   listAgentProcesses: () => Promise<Array<{ hostPid: number | null }>>;
   getWorkloads: () => WorkloadSnapshot;
-  sampleArtifactStorage?: () => Promise<number>;
+  artifactProbePool?: Pool;
+  artifactRoots?: string[];
+  sampleArtifactStorage?: (signal: AbortSignal) => Promise<number>;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
   /** Override the platform process probes in focused tests. */
@@ -244,6 +247,7 @@ export class ServiceResources {
   };
   private lastArtifactAttemptAt = 0;
   private artifactProbe: Promise<void> | null = null;
+  private artifactAbort: AbortController | null = null;
   private workloads: WorkloadSnapshot;
   private previousOwnerCounters: {
     uiEventsPublished: number;
@@ -295,12 +299,17 @@ export class ServiceResources {
     this.timer = null;
     this.eventLoopDelay.disable();
     this.cancelDatabaseProbe?.();
+    this.artifactAbort?.abort();
+    this.lastArtifactAttemptAt = 0;
   }
 
   shutdown(): Promise<void> {
     if (!this.shutdownPromise) {
       this.stop();
-      this.shutdownPromise = this.deps.probePool.end().catch(() => undefined);
+      this.shutdownPromise = Promise.all([
+        this.deps.probePool.end().catch(() => undefined),
+        this.deps.artifactProbePool?.end().catch(() => undefined),
+      ]).then(() => undefined);
     }
     return this.shutdownPromise;
   }
@@ -646,15 +655,23 @@ export class ServiceResources {
 
   private sampleArtifactsIfDue(generation: number, now: number): void {
     if (
-      !this.deps.sampleArtifactStorage ||
+      (!this.deps.sampleArtifactStorage && !this.deps.artifactProbePool) ||
       this.artifactProbe ||
       (this.lastArtifactAttemptAt > 0 &&
         now - this.lastArtifactAttemptAt < DATABASE_SIZE_INTERVAL_MS)
     )
       return;
     this.lastArtifactAttemptAt = now;
-    this.artifactProbe = this.deps
-      .sampleArtifactStorage()
+    const controller = new AbortController();
+    this.artifactAbort = controller;
+    const sample = this.deps.sampleArtifactStorage
+      ? this.deps.sampleArtifactStorage(controller.signal)
+      : sampleRetainedArtifactStorage(
+          this.deps.artifactProbePool!,
+          this.deps.artifactRoots ?? [],
+          controller.signal
+        );
+    this.artifactProbe = sample
       .then((sizeBytes) => {
         if (this.isActive(generation))
           this.artifacts = { sizeBytes, sampledAt: Date.now(), error: null };
@@ -668,6 +685,7 @@ export class ServiceResources {
       })
       .finally(() => {
         this.artifactProbe = null;
+        this.artifactAbort = null;
       });
   }
 
