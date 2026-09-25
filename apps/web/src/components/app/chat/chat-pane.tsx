@@ -17,6 +17,7 @@ import { useSearchParams } from "react-router-dom";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { PermissionRequests } from "./permission-requests";
 import { ComposerMeta } from "@/components/app/chat/composer-meta";
 import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -1189,6 +1190,12 @@ export function ChatPane({
                   {sendError}
                 </span>
               </div>
+            ) : null}
+            {agentId ? (
+              <PermissionRequests
+                agentId={agentId}
+                active={active && !openThreadId}
+              />
             ) : null}
             {tasksOpen ? (
               <TasksStrip

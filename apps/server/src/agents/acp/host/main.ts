@@ -173,7 +173,11 @@ async function main(): Promise<void> {
     .filter(Boolean)
     .join(path.delimiter);
 
-  const driver = new AcpDriver({ logger });
+  const driver = new AcpDriver({
+    logger,
+    onPermissions: (_id, requests) =>
+      send(client, { type: "permissions", requests }),
+  });
   // The adapters find the host CLI through an env var that wants an absolute
   // path; a bare name from config is looked up on the child's PATH here.
   // Only the launched engine's CLI matters; one that cannot be found fails
@@ -274,6 +278,7 @@ async function main(): Promise<void> {
           journalId: journal.id,
           commands: driver.getCommands(agentId) ?? [],
           configOptions: driver.getConfigOptions(agentId) ?? [],
+          permissions: driver.getPermissions(agentId),
         });
         const fromSeq =
           (message.journalId && message.journalId !== journal.id) ||
@@ -320,6 +325,19 @@ async function main(): Promise<void> {
       case "cancel":
         if (running) await driver.cancel(agentId).catch(() => {});
         return;
+      case "answer_permission": {
+        try {
+          driver.answerPermission(agentId, message.requestId, message.optionId);
+          send(socket, { type: "permission_answered", id: message.id });
+        } catch (err) {
+          send(socket, {
+            type: "error",
+            id: message.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
       case "set_config": {
         if (!running) {
           send(socket, {
@@ -380,7 +398,7 @@ async function main(): Promise<void> {
   logger.info({ agentId, socketPath }, "host: listening");
 
   try {
-    const spec = engineSpecFor(launch.engine, bins);
+    const spec = engineSpecFor(launch.engine, bins, launch.fullAccess ?? true);
     const engineCli =
       launch.engine === "claude" ? bins.claudeBin : bins.codexBin;
     // Which CLI, and which release of it, decides the models on offer: say
@@ -450,6 +468,7 @@ async function main(): Promise<void> {
       journalId: journal.id,
       commands: driver.getCommands(agentId) ?? [],
       configOptions: driver.getConfigOptions(agentId) ?? [],
+      permissions: driver.getPermissions(agentId),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

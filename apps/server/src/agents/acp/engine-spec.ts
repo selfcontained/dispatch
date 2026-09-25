@@ -62,6 +62,7 @@ export function adapterCommand(
 }
 
 export type FullAccess =
+  | { kind: "approval" }
   /** Already in `args`. */
   | { kind: "args" }
   /** Already in `env`. */
@@ -108,7 +109,8 @@ function engineBin(engine: AcpEngineId, bins: EngineBins): string {
 
 export function engineSpecFor(
   engine: AcpEngineId,
-  bins: EngineBins
+  bins: EngineBins,
+  fullAccess = true
 ): EngineSpec {
   const bin = engineBin(engine, bins);
   switch (engine) {
@@ -118,11 +120,11 @@ export function engineSpecFor(
         bin: adapterCommand(engine, bins).bin,
         args: [
           ...adapterCommand(engine, bins).args,
-          "--dangerously-skip-permissions",
+          ...(fullAccess ? ["--dangerously-skip-permissions"] : []),
         ],
         env: { CLAUDE_CODE_EXECUTABLE: bin },
         personaDelivery: "system_prompt",
-        fullAccess: { kind: "args" },
+        fullAccess: { kind: fullAccess ? "args" : "approval" },
         subagentTranscripts: true,
       };
     case "codex":
@@ -131,12 +133,13 @@ export function engineSpecFor(
         bin: adapterCommand(engine, bins).bin,
         args: adapterCommand(engine, bins).args,
         env: {
-          INITIAL_AGENT_MODE: "agent-full-access",
+          // The adapter calls its user-reviewed workspace-write preset "read-only".
+          INITIAL_AGENT_MODE: fullAccess ? "agent-full-access" : "read-only",
           NO_BROWSER: "1",
           CODEX_PATH: bin,
         },
         personaDelivery: "first_prompt",
-        fullAccess: { kind: "env" },
+        fullAccess: { kind: fullAccess ? "env" : "approval" },
         subagentTranscripts: false,
       };
   }

@@ -158,3 +158,8 @@ export type {
   ProviderPlansResponse,
   TokenCounts,
 } from "./usage-types.js";
+
+export type {
+  AgentPermissionRequest,
+  AgentPermissionsResponse,
+} from "./permission-types.js";

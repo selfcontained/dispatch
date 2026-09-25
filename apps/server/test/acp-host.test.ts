@@ -118,6 +118,65 @@ describe("agent host", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  it("keeps approval pending across server reconnects, validates choices and cancels on stop", async () => {
+    const id = "agt_perm";
+    const first = runtimeWith(stateRoot, () => 0);
+    const second = runtimeWith(stateRoot, () => 0);
+    try {
+      await first.runtime.launch({ ...launchFor(id, cwd), fullAccess: false });
+      const turn = first.runtime.prompt(id, "permission-test");
+      await turn.accepted;
+      await until(() => first.runtime.getPermissions(id).requests.length === 1);
+      const pending = first.runtime.getPermissions(id).requests[0]!;
+      expect(first.runtime.hasOpenTurn(id)).toBe(true);
+      expect(await second.runtime.attach(id)).toBe(true);
+      expect(second.runtime.getPermissions(id).requests[0]?.id).toBe(
+        pending.id
+      );
+      await expect(
+        second.runtime.answerPermission(id, pending.id, "invented")
+      ).rejects.toThrow(/did not offer/);
+      expect(second.runtime.getPermissions(id).requests).toHaveLength(1);
+      await second.runtime.answerPermission(id, pending.id, "once");
+      await until(() => !second.runtime.hasOpenTurn(id));
+      expect(second.runtime.getPermissions(id).requests).toEqual([]);
+      await expect(
+        second.runtime.answerPermission(id, pending.id, "once")
+      ).rejects.toThrow(/no longer pending/);
+
+      const denied = second.runtime.prompt(id, "permission-test deny");
+      await until(
+        () => second.runtime.getPermissions(id).requests.length === 1
+      );
+      await second.runtime.answerPermission(
+        id,
+        second.runtime.getPermissions(id).requests[0]!.id,
+        "no"
+      );
+      await denied.settled;
+      const cancelled = second.runtime.prompt(id, "permission-test cancel");
+      await until(
+        () => second.runtime.getPermissions(id).requests.length === 1
+      );
+      await second.runtime.cancel(id);
+      await cancelled.settled;
+      expect(second.runtime.getPermissions(id).requests).toEqual([]);
+      const results = second.seen.flatMap(({ event }) =>
+        event.type === "update" &&
+        event.update.sessionUpdate === "agent_message_chunk" &&
+        event.update.content.type === "text"
+          ? [event.update.content.text]
+          : []
+      );
+      expect(results).toContain("Permission result: once");
+      expect(results).toContain("Permission result: no");
+      expect(results).toContain("Permission result: cancelled");
+    } finally {
+      await second.runtime.stop(id, true);
+      await first.runtime.stop(id, true);
+    }
+  }, 30_000);
+
   it("launches, runs a turn, survives its client, replays, and stops", async () => {
     // A first "server": launch and run one turn.
     const first = runtimeWith(stateRoot, () => 0);

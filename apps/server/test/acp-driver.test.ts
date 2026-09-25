@@ -45,6 +45,126 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("AcpDriver", () => {
+  it.each(["claude", "codex"] as const)(
+    "%s: auth failures explain CLI login during startup and turns",
+    async (engine) => {
+      const command = engine === "claude" ? "claude auth login" : "codex login";
+      const startup = driverWith(
+        createFakeAcpAgent({ sessionError: acp.RequestError.authRequired() })
+      );
+      await expect(startup.driver.start(launch({}, engine))).rejects.toThrow(
+        command
+      );
+      const { driver } = driverWith(
+        createFakeAcpAgent({
+          turn: async () => {
+            throw acp.RequestError.authRequired();
+          },
+        })
+      );
+      const events: DriverEvent[] = [];
+      driver.onEvent((event) => events.push(event));
+      await driver.start(launch({}, engine));
+      try {
+        await expect(driver.prompt("agt_1", "hello")).rejects.toThrow(command);
+        expect(events.at(-1)).toMatchObject({
+          type: "turn",
+          state: "settled",
+          errorKind: "authentication_required",
+          error: expect.stringContaining(
+            "same OS account as the Dispatch server"
+          ),
+        });
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
+  it.each(["claude", "codex"] as const)(
+    "%s: restricted mode is applied on resume and requests wait for a matching user choice",
+    async (engine) => {
+      let result: acp.RequestPermissionResponse | undefined;
+      const fake = createFakeAcpAgent({
+        turn: async (_text, _emit, ask) => {
+          result = await ask({
+            options: [
+              { optionId: "deny", name: "Deny", kind: "reject_once" },
+              { optionId: "allow", name: "Allow", kind: "allow_once" },
+            ],
+          });
+          return "end_turn";
+        },
+      });
+      const { driver } = driverWith(fake);
+      await driver.start(
+        launch(
+          { sessionId: "existing", engine: engineSpecFor(engine, bins, false) },
+          engine
+        )
+      );
+      try {
+        expect(fake.seen.setMode).toEqual([
+          {
+            sessionId: "existing",
+            modeId: engine === "claude" ? "default" : "read-only",
+          },
+        ]);
+        if (engine === "claude")
+          expect(fake.seen.resumeSession[0]?._meta).toMatchObject({
+            claudeCode: { options: { allowDangerouslySkipPermissions: false } },
+          });
+        const turn = driver.prompt("agt_1", "test");
+        await vi.waitFor(() =>
+          expect(driver.getPermissions("agt_1")).toHaveLength(1)
+        );
+        expect(result).toBeUndefined();
+        const request = driver.getPermissions("agt_1")[0]!;
+        expect(() =>
+          driver.answerPermission("another-agent", request.id, "allow")
+        ).toThrow(/no longer pending/);
+        expect(() =>
+          driver.answerPermission("agt_1", request.id, "unknown")
+        ).toThrow(/did not offer/);
+        driver.answerPermission("agt_1", request.id, "deny");
+        await turn;
+        expect(result).toEqual({
+          outcome: { outcome: "selected", optionId: "deny" },
+        });
+        expect(driver.getPermissions("agt_1")).toEqual([]);
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
+  it("cancels pending permission requests when a turn is interrupted", async () => {
+    let result: acp.RequestPermissionResponse | undefined;
+    const fake = createFakeAcpAgent({
+      turn: async (_text, _emit, ask) => {
+        result = await ask({
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        });
+        return "cancelled";
+      },
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(
+      launch({ engine: engineSpecFor("claude", bins, false) })
+    );
+    try {
+      const turn = driver.prompt("agt_1", "test");
+      await vi.waitFor(() =>
+        expect(driver.getPermissions("agt_1")).toHaveLength(1)
+      );
+      await driver.cancel("agt_1");
+      await turn;
+      expect(result).toEqual({ outcome: { outcome: "cancelled" } });
+      expect(driver.getPermissions("agt_1")).toEqual([]);
+    } finally {
+      await driver.stop("agt_1");
+    }
+  });
   it("claude: spawns the adapter with its args and env, declares subagent transcripts, sends the persona in _meta", async () => {
     const fake = createFakeAcpAgent();
     const { spawn, driver } = driverWith(fake);

@@ -320,6 +320,7 @@ export class AgentManager {
       message: string;
     }) => void | Promise<void>
   > = [];
+  private readonly pendingPermissionIds = new Map<string, Set<string>>();
   private readonly modelsLearnedListeners: Array<
     (agentType: AgentType) => void
   > = [];
@@ -400,6 +401,31 @@ export class AgentManager {
     event: DriverEvent,
     seq: number
   ): Promise<void> {
+    if (event.type === "permissions") {
+      const previous = this.pendingPermissionIds.get(agentId);
+      const added = event.requests.filter(
+        (request) => !previous?.has(request.id)
+      );
+      // Update before awaiting: overlapping snapshots must not notify twice.
+      if (event.requests.length) {
+        this.pendingPermissionIds.set(
+          agentId,
+          new Set(event.requests.map((request) => request.id))
+        );
+      } else {
+        this.pendingPermissionIds.delete(agentId);
+      }
+      for (const request of added) {
+        await this.emitAttention(
+          agentId,
+          "waiting_user",
+          "Approval needed: " + statusLine(request.title)
+        );
+      }
+      const agent = await this.getAgent(agentId);
+      if (agent) this.eventBus.publish(agent);
+      return;
+    }
     await this.streamRecorder.handle(event);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
@@ -600,8 +626,35 @@ export class AgentManager {
     if (!option) {
       throw new AgentError("The engine does not offer that setting.", 400);
     }
+    if (option.id === "mode" || option.category === "mode") {
+      throw new AgentError(
+        "Choose the access mode when creating the agent.",
+        400
+      );
+    }
     try {
       return await this.runtime.setConfigOption(id, configId, value);
+    } catch (err) {
+      throw new AgentError(
+        err instanceof Error ? err.message : String(err),
+        409
+      );
+    }
+  }
+
+  getPermissions(id: string) {
+    return this.runtime.getPermissions(id);
+  }
+
+  async answerPermission(
+    id: string,
+    requestId: string,
+    optionId: string | null
+  ): Promise<void> {
+    if (!(await this.getAgent(id)))
+      throw new AgentError("Agent not found.", 404);
+    try {
+      await this.runtime.answerPermission(id, requestId, optionId);
     } catch (err) {
       throw new AgentError(
         err instanceof Error ? err.message : String(err),
@@ -824,6 +877,11 @@ export class AgentManager {
   }
 
   private liveActivity(agent: AgentRecord): AgentRecord {
+    if (
+      agent.status === "running" &&
+      this.runtime.getPermissions(agent.id).requests.length
+    )
+      return { ...agent, activity: "waiting" };
     const resting =
       agent.activity === "idle" ||
       agent.activity === "waiting" ||
@@ -1518,6 +1576,7 @@ export class AgentManager {
       agentId: agent.id,
       cwd: agent.cwd,
       engine: agent.type,
+      fullAccess: agent.fullAccess,
       bins,
       model: agent.model ?? null,
       systemPrompt,

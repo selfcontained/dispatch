@@ -1,3 +1,7 @@
+import type {
+  AgentPermissionRequest,
+  AgentPermissionsResponse,
+} from "@dispatch/shared";
 import type { PromptSource } from "./prompt-source.js";
 import net from "node:net";
 
@@ -30,6 +34,7 @@ export type HostClientDeps = {
   onWelcome: (welcome: HostWelcome) => void;
   /** The socket closed and reconnection is not possible or was stopped. */
   onGone: (reason: string) => void;
+  onPermissions?: (requests: AgentPermissionRequest[]) => void;
 };
 
 /**
@@ -39,6 +44,11 @@ export type HostClientDeps = {
  * makes the reconnect idempotent. `close()` stops reconnecting.
  */
 export class HostClient {
+  private permissions: AgentPermissionRequest[] = [];
+  private readonly pendingPermissions = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
+  >();
   private socket: net.Socket | null = null;
   private closed = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -200,12 +210,16 @@ export class HostClient {
         }
         this.reconnectingForLegacyReplay = false;
         this.lastWelcome = message;
+        const previousPermissions = this.permissions;
+        this.permissions = message.permissions ?? [];
         if (message.running) {
           const waiters = this.welcomeWaiters;
           this.welcomeWaiters = [];
           for (const w of waiters) w.resolve(message);
         }
         this.deps.onWelcome(message);
+        if (this.permissions.length || previousPermissions.length)
+          this.deps.onPermissions?.(this.permissions);
         return;
       case "event":
         if (this.reconnectingForLegacyReplay) return;
@@ -223,6 +237,16 @@ export class HostClient {
         }
         return;
       }
+      case "permissions":
+        this.permissions = message.requests;
+        this.deps.onPermissions?.(this.permissions);
+        return;
+      case "permission_answered": {
+        const pending = this.pendingPermissions.get(message.id);
+        this.pendingPermissions.delete(message.id);
+        pending?.resolve();
+        return;
+      }
       case "config_set": {
         const pending = this.pendingConfig.get(message.id);
         if (pending) {
@@ -235,10 +259,12 @@ export class HostClient {
         if (message.id) {
           const pending =
             this.pendingPrompts.get(message.id) ??
-            this.pendingConfig.get(message.id);
+            this.pendingConfig.get(message.id) ??
+            this.pendingPermissions.get(message.id);
           if (pending) {
             this.pendingPrompts.delete(message.id);
             this.pendingConfig.delete(message.id);
+            this.pendingPermissions.delete(message.id);
             pending.reject(new Error(message.message));
           }
           return;
@@ -278,6 +304,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingPermissions.values()) pending.reject(err);
+    this.pendingPermissions.clear();
     for (const pending of this.pendingPrompts.values()) pending.reject(err);
     this.pendingPrompts.clear();
     for (const pending of this.pendingConfig.values()) pending.reject(err);
@@ -317,6 +345,48 @@ export class HostClient {
       } catch (err) {
         this.pendingConfig.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  getPermissions(): AgentPermissionsResponse {
+    return {
+      connected: this.isConnected() && !!this.lastWelcome?.running,
+      requests: this.permissions,
+    };
+  }
+
+  answerPermission(
+    id: string,
+    requestId: string,
+    optionId: string | null
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingPermissions.delete(id);
+        reject(
+          new Error(
+            "The agent host did not confirm the permission response. Refresh to check its state."
+          )
+        );
+      }, 10_000);
+      this.pendingPermissions.set(id, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      try {
+        this.send({ type: "answer_permission", id, requestId, optionId });
+      } catch (err) {
+        this.pendingPermissions
+          .get(id)
+          ?.reject(err instanceof Error ? err : new Error(String(err)));
+        this.pendingPermissions.delete(id);
       }
     });
   }

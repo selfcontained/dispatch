@@ -1,3 +1,4 @@
+import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -19,6 +20,8 @@ export type RuntimeLaunch = {
   agentId: string;
   cwd: string;
   engine: AcpEngineId;
+  /** Missing only in launch files written before permission support (full access). */
+  fullAccess?: boolean;
   bins: EngineBins;
   /** The model to select after the session opens; null keeps the engine's default. */
   model: string | null;
@@ -58,6 +61,12 @@ export type AgentRuntime = {
   getCommands(agentId: string): AvailableCommand[] | null;
   /** The live session's config options (model, effort, mode); null without a live host. */
   getConfigOptions(agentId: string): SessionConfigOption[] | null;
+  getPermissions(agentId: string): AgentPermissionsResponse;
+  answerPermission(
+    agentId: string,
+    requestId: string,
+    optionId: string | null
+  ): Promise<void>;
   /**
    * Set one config option on the live session. Resolves with the engine's
    * options once it took the value; the `config` event follows as usual.
@@ -144,6 +153,12 @@ export function createInertRuntime(): AgentRuntime {
     },
     getConfigOptions() {
       return null;
+    },
+    getPermissions() {
+      return { connected: false, requests: [] };
+    },
+    async answerPermission() {
+      throw new Error("No engine is attached in this environment.");
     },
     async setConfigOption() {
       throw new Error("No engine is attached in this environment.");
