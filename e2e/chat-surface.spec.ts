@@ -50,16 +50,9 @@ test.describe("Chat surface", () => {
     await page.keyboard.press(shortcut);
     await expect(reply).toBeFocused();
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(thread).toHaveCount(0);
     await page.keyboard.press(shortcut);
     await expect(composer).toBeFocused();
-
-    await page.keyboard.press(`${mod}+k`);
-    const palette = page.getByRole("dialog", { name: "Command palette" });
-    await expect(palette.getByRole("combobox")).toBeFocused();
-    await page.keyboard.press(shortcut);
-    await expect(composer).not.toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(palette).not.toBeVisible();
 
     const changes = page.getByTestId("center-tab-changes");
     await changes.click();
@@ -67,6 +60,15 @@ test.describe("Chat surface", () => {
     await page.keyboard.press(shortcut);
     await expect(composer).not.toBeFocused();
     await expect(changes).toHaveAttribute("aria-selected", "true");
+
+    await page.getByTestId("center-tab-agent").click();
+    await expect(composer).toBeVisible();
+    await page.keyboard.press(`${mod}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await page.keyboard.press(shortcut);
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await expect(composer).not.toBeFocused();
   });
 
   test("Agent tab renders a seeded feed", async ({ page, request }) => {
