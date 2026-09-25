@@ -206,7 +206,7 @@ function ConfigSelect({
       >
         <SelectTrigger
           id={id}
-          className="h-8 text-xs"
+          className="h-8 text-xs pointer-coarse:min-h-11"
           data-testid={`composer-config-${option.id}`}
         >
           <SelectValue />
@@ -219,7 +219,7 @@ function ConfigSelect({
                 <SelectItem
                   key={choice.value}
                   value={choice.value}
-                  className="text-xs"
+                  className="text-xs pointer-coarse:min-h-11"
                 >
                   {choice.name}
                 </SelectItem>
@@ -392,7 +392,7 @@ function PlanLimits({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-6 px-1.5 text-[11px]"
+          className="h-6 px-1.5 text-[11px] pointer-coarse:min-h-11"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
           data-testid="usage-plans-refresh"
