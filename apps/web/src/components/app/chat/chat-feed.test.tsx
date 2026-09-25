@@ -1369,7 +1369,7 @@ describe("ChatFeed", () => {
     ).toBe("Codex");
   });
 
-  it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
+  it("shows a sending hint while delivery is pending, and nothing once delivered", async () => {
     renderFeed([
       blockEntry(
         block({ id: "u1", authorKind: "user", text: "one", delivered: null })
@@ -1378,7 +1378,7 @@ describe("ChatFeed", () => {
         block({ id: "u2", authorKind: "user", text: "two", delivered: true })
       ),
     ]);
-    const pending = screen.getAllByTestId("chat-delivery-pending");
+    const pending = await screen.findAllByTestId("chat-delivery-pending");
     expect(pending).toHaveLength(1);
     expect(
       pending[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
@@ -1833,7 +1833,7 @@ describe("ChatFeed", () => {
     expect(outgoing!.textContent).toContain("Not delivered");
   });
 
-  it("sets agent-to-agent messages apart as a side conversation", () => {
+  it("sets agent-to-agent messages apart as a side conversation", async () => {
     const side = (
       id: string,
       direction: "in" | "out",
@@ -1951,10 +1951,12 @@ describe("ChatFeed", () => {
       .filter((el) => !el.hasAttribute("data-to-agent"));
     expect(ownPosts[1]!.getAttribute("data-grouped")).toBeNull();
 
-    // Delivery markers stay.
-    expect(
-      first.querySelector("[data-testid='chat-delivery-pending']")
-    ).not.toBeNull();
+    // Slow delivery markers appear after the anti-flicker delay.
+    await waitFor(() =>
+      expect(
+        first.querySelector("[data-testid='chat-delivery-pending']")
+      ).not.toBeNull()
+    );
     expect(first.textContent).toContain("Sending");
   });
 
@@ -2564,87 +2566,25 @@ describe("@mentions in a person's post", () => {
   });
 });
 
-describe("steering delivery receipts", () => {
-  it.each([null, "2026-09-25T20:00:00.000Z"])(
-    "shows acceptance separately from pickup (%s)",
-    (pickedUpAt) => {
-      renderFeed([
-        blockEntry(
-          block({
-            id: "steer",
-            authorKind: "user",
-            text: "correction",
-            delivered: true,
-            delivery: [
-              {
-                agentId: AGENT_ID,
-                state: "delivered",
-                steering: { pickedUpAt },
-              },
-            ],
-          })
-        ),
-      ]);
-      expect(
-        screen.getByTestId(
-          pickedUpAt ? "chat-steering-picked-up" : "chat-steering-delivered"
-        ).textContent
-      ).toContain(pickedUpAt ? "Picked up" : "Delivered");
-      expect(
-        screen.queryByTestId(
-          pickedUpAt ? "chat-steering-delivered" : "chat-steering-picked-up"
-        )
-      ).toBeNull();
-    }
-  );
-  it.each(["failed", "held", "pending"] as const)(
-    "preserves pickup when another recipient is %s",
-    (state) => {
-      renderFeed([
-        blockEntry(
-          block({
-            id: "partial",
-            authorKind: "user",
-            delivery: [
-              {
-                agentId: "agt_2",
-                state: "delivered",
-                steering: { pickedUpAt: "2026-09-25T20:00:00.000Z" },
-              },
-              { agentId: "agt_3", state },
-            ],
-          })
-        ),
-      ]);
-      expect(
-        screen.getByTestId("chat-steering-picked-up").textContent
-      ).toContain("Picked up by");
-      expect(
-        screen.getByTestId(
-          state === "held" ? "chat-held-hint" : `chat-delivery-${state}`
-        )
-      ).toBeTruthy();
-    }
-  );
-  it("keeps each recipient's receipt distinct", () => {
+describe("delivery receipts in the feed", () => {
+  it("keeps completed history quiet and distinguishes waiting recipients", () => {
     renderFeed(
       [
         blockEntry(
           block({
-            id: "steer",
+            id: "receipt",
             authorKind: "user",
-            text: "correction",
             delivered: true,
             delivery: [
               {
                 agentId: "agt_2",
                 state: "delivered",
-                steering: { pickedUpAt: "2026-09-25T20:00:00.000Z" },
+                receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
               },
               {
                 agentId: "agt_3",
                 state: "delivered",
-                steering: { pickedUpAt: null },
+                receipt: { pickedUpAt: null },
               },
             ],
           })
@@ -2658,11 +2598,12 @@ describe("steering delivery receipts", () => {
         },
       }
     );
-    expect(screen.getByTestId("chat-steering-picked-up").textContent).toBe(
-      "Picked up by reviewer"
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+    expect(screen.getByTestId("chat-receipt-waiting").textContent).toBe(
+      "Waiting for scout…"
     );
-    expect(screen.getByTestId("chat-steering-delivered").textContent).toBe(
-      "Delivered to scout"
-    );
+    expect(
+      screen.getByRole("button", { name: "Message delivery details" })
+    ).toBeTruthy();
   });
 });

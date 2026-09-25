@@ -43,7 +43,7 @@ test("folded steering receipts wrap and remain operable at 320px and desktop", a
           delivery: recipients.map((agentId, i) => ({
             agentId,
             state: "delivered",
-            steering: { pickedUpAt: i < 2 ? postedAt : null },
+            receipt: { pickedUpAt: i < 2 ? postedAt : null },
           })),
         })
       ),
@@ -73,16 +73,29 @@ test("folded steering receipts wrap and remain operable at 320px and desktop", a
     for (const width of [320, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(fold).toBeVisible();
-      await expect(fold.getByTestId("chat-steering-picked-up")).toContainText(
-        "Architecture reviewer and Backend security reviewer"
-      );
-      await expect(fold.getByTestId("chat-steering-delivered")).toContainText(
+      await expect(fold.getByTestId("chat-receipt-received")).toHaveCount(0);
+      await expect(fold.getByTestId("chat-receipt-waiting")).toContainText(
         "Frontend accessibility reviewer and ReleaseReadinessReviewerWithALongName"
       );
+      await fold.hover();
+      await fold
+        .getByRole("button", { name: "Message delivery details" })
+        .click();
+      const details = page.getByRole("dialog", {
+        name: "Message delivery",
+        exact: true,
+      });
+      await expect(details).toContainText("Received");
+      await expect(details).toContainText("Architecture reviewer");
+      const detailsBounds = await details.boundingBox();
+      expect(detailsBounds!.x).toBeGreaterThanOrEqual(0);
+      expect(detailsBounds!.x + detailsBounds!.width).toBeLessThanOrEqual(
+        width
+      );
+      await page.keyboard.press("Escape");
       for (const id of [
-        "chat-steering-receipt",
-        "chat-steering-picked-up",
-        "chat-steering-delivered",
+        "chat-receipt-status",
+        "chat-receipt-waiting",
         "chat-turn-sent-to-toggle",
       ]) {
         const bounds = await fold.getByTestId(id).boundingBox();

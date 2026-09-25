@@ -34,6 +34,14 @@ export type DriverEvent =
       text: string;
       source?: PromptSource;
       receiptId?: string;
+      at?: string;
+    }
+  | {
+      type: "prompt_delivered";
+      agentId: string;
+      receiptId: string;
+      source?: PromptSource;
+      at: string;
     }
   | {
       type: "steering_picked_up";
@@ -117,6 +125,7 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 type Live = {
   steeringSupported: boolean;
   pickupReceiptsSupported: boolean;
+  promptReceiptsSupported: boolean;
   steeringReceipts: Map<
     string,
     { source?: PromptSource; accepted: boolean; pickedUpAt?: string }
@@ -464,6 +473,7 @@ export class AcpDriver {
     const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
     let steeringSupported = false;
     let pickupReceiptsSupported = false;
+    let promptReceiptsSupported = false;
     const handshake = (async () => {
       const initialized = await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -480,6 +490,10 @@ export class AcpDriver {
         !!receipts &&
         typeof receipts === "object" &&
         (receipts as { pickupReceipts?: unknown }).pickupReceipts === true;
+      promptReceiptsSupported =
+        !!receipts &&
+        typeof receipts === "object" &&
+        (receipts as { promptReceipts?: unknown }).promptReceipts === true;
       steeringSupported =
         !!steering &&
         typeof steering === "object" &&
@@ -578,6 +592,7 @@ export class AcpDriver {
     const entry: Live = {
       steeringSupported,
       pickupReceiptsSupported,
+      promptReceiptsSupported,
       steeringReceipts: new Map(),
       turnOpen: false,
       steering: Promise.resolve(),
@@ -701,7 +716,7 @@ export class AcpDriver {
           agentId,
           text,
           ...(source ? { source } : {}),
-          ...(receiptId ? { receiptId } : {}),
+          ...(receiptId ? { receiptId, at: new Date().toISOString() } : {}),
         });
         if (receiptId) {
           const receipt = entry.steeringReceipts.get(receiptId);
@@ -794,14 +809,35 @@ export class AcpDriver {
       const guidance = text.trimStart().startsWith("/")
         ? null
         : entry.firstPromptAppend;
+      const receiptId =
+        entry.promptReceiptsSupported && !text.trimStart().startsWith("/")
+          ? crypto.randomUUID()
+          : undefined;
+      if (receiptId)
+        entry.steeringReceipts.set(receiptId, { source, accepted: false });
       const dispatched = entry.conn.prompt({
         sessionId: entry.sessionId,
+        ...(receiptId
+          ? { _meta: { "dispatch/steering": { id: receiptId } } }
+          : {}),
         prompt: [
           ...(guidance ? [{ type: "text" as const, text: guidance }] : []),
           { type: "text", text },
         ],
       });
       if (guidance) entry.firstPromptAppend = null;
+      if (receiptId) {
+        this.emit({
+          type: "prompt_delivered",
+          agentId,
+          receiptId,
+          source,
+          at: new Date().toISOString(),
+        });
+        const receipt = entry.steeringReceipts.get(receiptId);
+        if (receipt) receipt.accepted = true;
+        this.emitPickup(agentId, entry, receiptId);
+      }
       onAccepted?.();
       const res = await Promise.race([dispatched, gone]);
       entry.turnOpen = false;

@@ -130,7 +130,7 @@ export type BlockRow = {
   deliveries?: Record<string, boolean | null> | null;
   steering_receipts?: Record<
     string,
-    { id: string; pickedUpAt: string | null }
+    { id: string; pickedUpAt: string | null; deliveredAt?: string }
   > | null;
   read_at: Date | null;
   /** Only on rows read through the feed query. */
@@ -180,7 +180,12 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
       agentId,
       ...(row.steering_receipts?.[agentId]
         ? {
-            steering: { pickedUpAt: row.steering_receipts[agentId].pickedUpAt },
+            receipt: {
+              pickedUpAt: row.steering_receipts[agentId].pickedUpAt,
+              ...(row.steering_receipts[agentId].deliveredAt
+                ? { deliveredAt: row.steering_receipts[agentId].deliveredAt }
+                : {}),
+            },
           }
         : {}),
       state:
@@ -580,7 +585,8 @@ export class BlockStore {
     id: string,
     agentId: string,
     receiptId: string,
-    pickedUpAt?: string
+    pickedUpAt?: string,
+    deliveredAt?: string
   ): Promise<void> {
     if (!isBlockId(id)) return;
     if (pickedUpAt) {
@@ -594,9 +600,9 @@ export class BlockStore {
     } else {
       await this.db.query(
         `UPDATE blocks SET steering_receipts = jsonb_set(COALESCE(steering_receipts, '{}'::jsonb),
-           ARRAY[$2], jsonb_build_object('id', $3::text, 'pickedUpAt', NULL))
+           ARRAY[$2], jsonb_build_object('id', $3::text, 'pickedUpAt', NULL, 'deliveredAt', $4::text))
          WHERE id = $1 AND (steering_receipts->$2->>'id') IS DISTINCT FROM $3`,
-        [id, agentId, receiptId]
+        [id, agentId, receiptId, deliveredAt ?? null]
       );
     }
   }

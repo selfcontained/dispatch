@@ -101,7 +101,7 @@ const agent = {
       authMethods: [],
       _meta: {
         steering: { supported: true },
-        "dispatch/steering": { pickupReceipts: true },
+        "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
       },
     };
   },
@@ -184,6 +184,14 @@ const agent = {
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
+      const receiptId = params._meta?.["dispatch/steering"]?.id;
+      if (receiptId) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await emit({
+          sessionUpdate: "session_info_update",
+          _meta: { "dispatch/steering": { pickedUp: receiptId } },
+        });
+      }
       const sleep = SLEEP.exec(text);
       if (sleep) {
         await emit({

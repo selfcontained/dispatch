@@ -12,7 +12,10 @@ import {
   agentDisplayName,
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
-import { DeliveryMeta } from "@/components/app/chat/chat-delivery-meta";
+import {
+  DeliveryDetails,
+  DeliveryMeta,
+} from "@/components/app/chat/chat-delivery-meta";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { Collapse } from "@/components/app/chat/collapse";
 import { cn } from "@/lib/utils";
@@ -188,7 +191,7 @@ function SentTo({
   const openable = Boolean(block.text) || block.attachments.length > 0;
   return (
     <div
-      className="flex min-w-0 flex-col text-xs"
+      className="group flex min-w-0 flex-col text-xs"
       data-testid="chat-turn-sent-to"
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
@@ -232,6 +235,10 @@ function SentTo({
             />
           ) : null}
         </button>
+        <DeliveryDetails
+          block={block}
+          recipientName={(id) => agentDisplayName(id, ctx)}
+        />
       </div>
       <DeliveryMeta
         block={block}

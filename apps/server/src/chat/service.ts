@@ -2112,7 +2112,10 @@ export class StreamService {
 
   /** Host-journal receipts name the exact post and recipient, including thread replies. */
   async recordSteering(
-    event: Extract<DriverEvent, { type: "steered" | "steering_picked_up" }>
+    event: Extract<
+      DriverEvent,
+      { type: "steered" | "prompt_delivered" | "steering_picked_up" }
+    >
   ): Promise<void> {
     if (!event.receiptId || event.source?.source !== "chat") return;
     for (const id of event.source.chatMessageIds ?? [
@@ -2127,7 +2130,8 @@ export class StreamService {
         id,
         event.agentId,
         event.receiptId,
-        event.type === "steering_picked_up" ? event.at : undefined
+        event.type === "steering_picked_up" ? event.at : undefined,
+        event.type !== "steering_picked_up" ? event.at : undefined
       );
       await this.publishEntry(block.streamId, id);
     }

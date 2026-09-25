@@ -344,8 +344,8 @@ export type BlockDeliveryState = "pending" | "held" | "delivered" | "failed";
 export type BlockDelivery = {
   agentId: string;
   state: BlockDeliveryState;
-  /** Only steering with runtime receipts: null until pickup is confirmed. */
-  steering?: { pickedUpAt: string | null };
+  /** Runtime-confirmed receipt for a normal prompt or active-turn steering. */
+  receipt?: { pickedUpAt: string | null; deliveredAt?: string };
 };
 
 export type Block = {

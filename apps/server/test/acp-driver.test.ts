@@ -766,3 +766,59 @@ describe("steering pickup receipts", () => {
     }
   );
 });
+
+describe("normal prompt receipts", () => {
+  it("confirms only the matching echo, and excludes raw commands", async () => {
+    let finish!: () => void;
+    let gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fake = createFakeAcpAgent({
+      promptReceipts: true,
+      turn: async () => {
+        await gate;
+        return "end_turn";
+      },
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start(launch());
+    const source = { source: "chat" as const, chatMessageId: "initial-post" };
+    const turn = driver.prompt("agt_1", "start work", undefined, source);
+    try {
+      await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+      const delivered = events.find(
+        (e) => e.type === "prompt_delivered"
+      ) as Extract<DriverEvent, { type: "prompt_delivered" }>;
+      expect(delivered).toMatchObject({ source, at: expect.any(String) });
+      expect(fake.seen.promptRequests[0]._meta).toEqual({
+        "dispatch/steering": { id: delivered.receiptId },
+      });
+      expect(events.some((e) => e.type === "steering_picked_up")).toBe(false);
+      const update: acp.SessionUpdate = {
+        sessionUpdate: "session_info_update",
+        _meta: { "dispatch/steering": { pickedUp: delivered.receiptId } },
+      };
+      await fake.emit("wrong-session", update);
+      await fake.emit("sess_1", update);
+      await fake.emit("sess_1", update);
+      await vi.waitFor(() =>
+        expect(
+          events.filter((e) => e.type === "steering_picked_up")
+        ).toHaveLength(1)
+      );
+      finish();
+      await turn;
+      gate = Promise.resolve();
+      await driver.prompt("agt_1", "/compact", undefined, source);
+      expect(fake.seen.promptRequests[1]._meta).toBeUndefined();
+      expect(events.filter((e) => e.type === "prompt_delivered")).toHaveLength(
+        1
+      );
+    } finally {
+      finish();
+      await driver.stop("agt_1");
+    }
+  });
+});

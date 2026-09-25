@@ -23,6 +23,7 @@ export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
     pickupReceipts?: boolean;
+    promptReceipts?: boolean;
     steer?: (
       params: Record<string, unknown>
     ) => Promise<Record<string, unknown>>;
@@ -75,6 +76,7 @@ export function createFakeAcpAgent(
     setMode: [] as acp.SetSessionModeRequest[],
     setConfig: [] as acp.SetSessionConfigOptionRequest[],
     prompts: [] as string[],
+    promptRequests: [] as acp.PromptRequest[],
     steers: [] as Record<string, unknown>[],
     cancels: 0,
     closes: 0,
@@ -109,16 +111,13 @@ export function createFakeAcpAgent(
           sessionCapabilities: { close: {}, resume: {} },
         },
         authMethods: [],
-        ...(opts.steer
-          ? {
-              _meta: {
-                steering: { supported: true },
-                ...(opts.pickupReceipts
-                  ? { "dispatch/steering": { pickupReceipts: true } }
-                  : {}),
-              },
-            }
-          : {}),
+        _meta: {
+          ...(opts.steer ? { steering: { supported: true } } : {}),
+          "dispatch/steering": {
+            pickupReceipts: !!opts.pickupReceipts,
+            promptReceipts: !!opts.promptReceipts,
+          },
+        },
       };
     },
     async extMethod(method, params) {
@@ -159,6 +158,7 @@ export function createFakeAcpAgent(
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
       seen.prompts.push(text);
+      seen.promptRequests.push(params);
       const emit = (update: acp.SessionUpdate) =>
         connection.sessionUpdate({ sessionId: params.sessionId, update });
       const ask = (request: Pick<acp.RequestPermissionRequest, "options">) =>

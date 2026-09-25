@@ -1,5 +1,5 @@
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
-import { DeliveryMeta } from "./chat-delivery-meta";
+import { DeliveryDetails, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
@@ -1274,8 +1274,12 @@ export const BlockView = memo(function BlockView({
     ) : null;
   const copyText = block.turn ? turnAnswerText(block, block.turn) : block.text;
   const copyAction =
-    copyText || replyAction ? (
+    copyText || replyAction || block.delivery?.length ? (
       <div className="flex items-center">
+        <DeliveryDetails
+          block={block}
+          recipientName={(id) => agentDisplayName(id, ctx)}
+        />
         {replyAction}
         {copyText ? <MessageCopyButton text={copyText} /> : null}
       </div>

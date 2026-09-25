@@ -95,20 +95,38 @@ test.describe("Live agent", () => {
     const turns = page.getByTestId("chat-turn");
     await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
     await expect(turns.first()).not.toHaveAttribute("data-settled", "true");
+    const initial = page
+      .locator('[data-testid="chat-message"][data-author-kind="user"]')
+      .filter({ hasText: "sleep:10000 original work" });
+    await initial.hover();
+    await initial
+      .getByRole("button", { name: "Message delivery details" })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Message delivery", exact: true })
+    ).toContainText("Received");
+    await page.keyboard.press("Escape");
     await sendChat(page, "incorporate this correction");
     const correction = page
-      .getByTestId("chat-message")
+      .locator('[data-testid="chat-message"][data-author-kind="user"]')
       .filter({ hasText: "incorporate this correction" });
-    await expect(
-      correction.getByTestId("chat-steering-delivered")
-    ).toBeVisible();
-    await expect(
-      correction.getByTestId("chat-steering-picked-up")
-    ).toBeVisible();
+    await expect(correction.getByTestId("chat-receipt-waiting")).toBeVisible();
+    await expect(correction.getByTestId("chat-receipt-received")).toBeVisible();
+    await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
+      0
+    );
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
+      0
+    );
+    await correction.hover();
+    await correction
+      .getByRole("button", { name: "Message delivery details" })
+      .click();
     await expect(
-      correction.getByTestId("chat-steering-picked-up")
-    ).toBeVisible();
+      page.getByRole("dialog", { name: "Message delivery", exact: true })
+    ).toContainText("Received");
+    await page.keyboard.press("Escape");
     await expect(turns.first()).toContainText("Steered:", {
       timeout: TURN_TIMEOUT,
     });
@@ -144,7 +162,7 @@ test.describe("Live agent", () => {
     await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
     await sendChat(page, "/compact");
     const command = page
-      .getByTestId("chat-message")
+      .locator('[data-testid="chat-message"][data-author-kind="user"]')
       .filter({ hasText: "/compact" });
     await expect(command.getByTestId("chat-held-hint")).toBeVisible();
     await expect(
