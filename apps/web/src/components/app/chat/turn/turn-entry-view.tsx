@@ -157,7 +157,15 @@ export function TurnAnswer({
         <TurnAttachments items={folded} ctx={ctx} />
         {showsActivityLine(trace, result) || !turn.settled ? (
           <div className={cn(result.content && "mt-2")}>
-            <ActivityBlock trace={trace} label={foldLabel} />
+            <ActivityBlock
+              trace={trace}
+              label={foldLabel}
+              details={
+                turn.trace.detailsOmitted && ctx.rootId
+                  ? { rootId: ctx.rootId, blockId: block.id }
+                  : undefined
+              }
+            />
           </div>
         ) : null}
       </AutoHeight>

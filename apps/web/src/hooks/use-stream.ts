@@ -12,6 +12,7 @@ import type {
   BlockReaction,
   BlockReviewInput,
   ChatAttachment,
+  ChatTurnEntry,
   ChatUserAttachmentInput,
   StreamAnswerRequest,
   StreamAnswerResponse,
@@ -40,6 +41,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
 
 const PAGE_SIZE = 100;
 
@@ -84,6 +86,9 @@ function fetchFeedPage(
 ): Promise<StreamFeedResponse> {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (cursor) params.set("cursor", cursor);
+  if (agentSwitchValidationMode === "before") {
+    params.set("fullTurnDetails", "1");
+  }
   return api<StreamFeedResponse>(
     `${streamPath(rootId)}/blocks?${params.toString()}`
   );
@@ -366,6 +371,23 @@ export function useThread(
     isLoading: query.isLoading,
     error: query.error,
     refetch,
+  };
+}
+
+/** Full settled activity is fetched only while its fold is open. */
+export function useTurnDetail(rootId: string, blockId: string) {
+  const query = useQuery<{ turn: ChatTurnEntry }, Error>({
+    queryKey: [...streamFeedQueryKey(rootId), "turn-detail", blockId],
+    queryFn: () =>
+      api<{ turn: ChatTurnEntry }>(`${blockPath(rootId, blockId)}/turn`),
+    staleTime: Infinity,
+    gcTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  return {
+    turn: query.data?.turn ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
   };
 }
 

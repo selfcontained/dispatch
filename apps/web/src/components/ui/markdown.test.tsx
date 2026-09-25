@@ -38,8 +38,30 @@ describe("Markdown code blocks", () => {
     );
     const blocks = screen.getAllByTestId("markdown-code-block");
     expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.querySelector(".hljs")).not.toBeNull();
     const button = screen.getByTestId("markdown-copy-code");
     button.click();
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("pnpm test"));
+  });
+
+  it("keeps large fenced blocks highlighted and copyable", async () => {
+    const code = "const value = 1;\n".repeat(1_100);
+    const writeText = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<Markdown>{`\`\`\`ts\n${code}\`\`\``}</Markdown>);
+
+    const block = screen.getByTestId("markdown-code-block");
+    expect(block.querySelector("pre")?.textContent).toContain(
+      "const value = 1;"
+    );
+    expect(block.querySelector("pre")?.textContent?.length).toBeGreaterThan(
+      16_000
+    );
+    expect(block.querySelector(".hljs")).not.toBeNull();
+    screen.getByTestId("markdown-copy-code").click();
+    await vi.waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(code.trimEnd())
+    );
   });
 });

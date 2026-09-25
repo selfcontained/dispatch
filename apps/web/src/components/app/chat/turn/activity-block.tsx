@@ -6,12 +6,14 @@ import {
   type SetStateAction,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useTurnDetail } from "@/hooks/use-stream";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
@@ -20,6 +22,7 @@ import { runningTurnVerb } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
+import { turnTrace } from "./trace";
 
 /**
  * The step list sits on the post's own background, no fill or frame of its
@@ -73,10 +76,13 @@ const StepListRow = memo(function StepListRow({
 function ActivityBlockImpl({
   trace,
   label,
+  details,
 }: {
   trace: Trace;
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
+  /** A settled turn whose large edit diffs were omitted from the feed. */
+  details?: { rootId: string; blockId: string };
 }): JSX.Element {
   const [blockOverride, setBlockOverride] = useChatRowState<boolean | null>(
     "activity-open",
@@ -131,10 +137,19 @@ function ActivityBlockImpl({
           {/* A closed fold renders no rows: see listMounted above. The
               workspace block renders the same list on its own, always open. */}
           {listMounted ? (
-            <StepList
-              trace={trace}
-              disclosures={[stepOverrides, setStepOverrides]}
-            />
+            details ? (
+              <FullTraceStepList
+                rootId={details.rootId}
+                blockId={details.blockId}
+                compactTrace={trace}
+                disclosures={[stepOverrides, setStepOverrides]}
+              />
+            ) : (
+              <StepList
+                trace={trace}
+                disclosures={[stepOverrides, setStepOverrides]}
+              />
+            )
           ) : null}
         </motion.div>
       </div>
@@ -143,6 +158,41 @@ function ActivityBlockImpl({
 }
 
 export const ActivityBlock = memo(ActivityBlockImpl);
+
+/** Fetch one full turn only after its compact activity is opened. */
+function FullTraceStepList({
+  rootId,
+  blockId,
+  compactTrace,
+  disclosures,
+}: {
+  rootId: string;
+  blockId: string;
+  compactTrace: Trace;
+  disclosures: [
+    Record<string, boolean>,
+    Dispatch<SetStateAction<Record<string, boolean>>>,
+  ];
+}): JSX.Element {
+  const { turn: fullTurn, isLoading, error } = useTurnDetail(rootId, blockId);
+  const trace = useMemo(
+    () => (fullTurn ? turnTrace(fullTurn) : null),
+    [fullTurn]
+  );
+  if (trace) return <StepList trace={trace} disclosures={disclosures} />;
+  return (
+    <>
+      <div className="py-2 text-xs text-muted-foreground" role="status">
+        {error
+          ? "Some details could not load. Close and reopen to try again."
+          : isLoading
+            ? "Loading full activity details…"
+            : "Some activity details are unavailable."}
+      </div>
+      <StepList trace={compactTrace} disclosures={disclosures} />
+    </>
+  );
+}
 
 /**
  * The steps themselves: a 1px guide line at left:5.5px, with one row per

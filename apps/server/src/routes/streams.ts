@@ -12,7 +12,7 @@ import type {
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
 import { agentNamesFor } from "../chat/agent-names.js";
-import { attachShown, decodeFeedCursor } from "../chat/feed.js";
+import { attachShown, decodeFeedCursor, loadBlockEntry } from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
@@ -144,7 +144,11 @@ export async function registerStreamRoutes(
 
   app.get("/api/v1/streams/:rootId/blocks", async (request, reply) => {
     const rootId = (request.params as { rootId?: string }).rootId ?? "";
-    const query = request.query as { cursor?: string; limit?: string };
+    const query = request.query as {
+      cursor?: string;
+      limit?: string;
+      fullTurnDetails?: string;
+    };
     if (!(await agentExists(rootId))) {
       return reply.code(404).send({ error: "Agent not found." });
     }
@@ -157,8 +161,33 @@ export async function registerStreamRoutes(
     if (limit !== undefined && !Number.isFinite(limit)) {
       return reply.code(400).send({ error: "limit must be a number." });
     }
-    return streams.feed(rootId, { cursor, limit });
+    return streams.feed(rootId, {
+      cursor,
+      limit,
+      compactTurns:
+        process.env.DISPATCH_DEV_STACK === "1" && query.fullTurnDetails === "1"
+          ? false
+          : true,
+    });
   });
+
+  app.get(
+    "/api/v1/streams/:rootId/blocks/:blockId/turn",
+    async (request, reply) => {
+      const { rootId = "", blockId = "" } = request.params as {
+        rootId?: string;
+        blockId?: string;
+      };
+      if (!isBlockId(blockId)) {
+        return reply.code(400).send({ error: "blockId must be a UUID." });
+      }
+      const entry = await loadBlockEntry(store.db, rootId, blockId);
+      if (!entry?.block.turn) {
+        return reply.code(404).send({ error: "Turn not found." });
+      }
+      return { turn: entry.block.turn };
+    }
+  );
 
   app.get(
     "/api/v1/streams/:rootId/blocks/:blockId/thread",

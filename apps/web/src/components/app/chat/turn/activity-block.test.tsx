@@ -7,7 +7,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const useTurnDetailMock = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/use-stream", () => ({ useTurnDetail: useTurnDetailMock }));
 
 import { ActivityBlock } from "./activity-block";
 import type { Trace } from "./contracts";
@@ -28,7 +31,10 @@ const open: Trace = {
   ],
 };
 const done: Trace = { ...open, endedAt: at + 1000, finalResult: "ok" };
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  useTurnDetailMock.mockReset();
+});
 
 describe("ActivityBlock step list", () => {
   const ran: Trace = {
@@ -75,9 +81,117 @@ describe("ActivityBlock step list", () => {
     ).toBe("true");
     expect(screen.getByText("Passed")).toBeTruthy();
   });
+
+  it("loads a settled turn's omitted diff only when activity opens", () => {
+    useTurnDetailMock.mockReturnValue({
+      turn: {
+        trace: {
+          startedAt: "2026-09-07T10:00:00Z",
+          endedAt: "2026-09-07T10:00:01Z",
+          steps: [
+            {
+              id: "edit-1",
+              kind: "edit",
+              label: "edit example.ts",
+              status: "ok",
+              startedAt: "2026-09-07T10:00:00Z",
+              detail: {
+                diff: {
+                  path: "example.ts",
+                  oldText: "before",
+                  newText: "after",
+                },
+              },
+            },
+          ],
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+    render(
+      <ActivityBlock
+        trace={done}
+        details={{ rootId: "agt_1", blockId: "block-1" }}
+      />
+    );
+    expect(useTurnDetailMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    expect(useTurnDetailMock).toHaveBeenCalledWith("agt_1", "block-1");
+    fireEvent.click(
+      screen.getByRole("button", { name: /edit example.ts, completed/ })
+    );
+    expect(screen.getByText("before")).toBeTruthy();
+    expect(screen.getByText("after")).toBeTruthy();
+  });
+
+  it.each([
+    ["loading", { turn: null, isLoading: true, error: null }],
+    ["failed", { turn: null, isLoading: false, error: new Error("offline") }],
+  ])(
+    "keeps compact steps visible while full details are %s",
+    (_state, result) => {
+      useTurnDetailMock.mockReturnValue(result);
+      render(
+        <ActivityBlock
+          trace={{
+            ...done,
+            steps: [
+              {
+                id: "edit-1",
+                kind: "edit",
+                label: "edit example.ts",
+                status: "ok",
+                startedAt: at,
+                endedAt: at + 500,
+                detail: { locations: [{ path: "example.ts" }] },
+              },
+            ],
+          }}
+          details={{ rootId: "agt_1", blockId: "block-1" }}
+        />
+      );
+      fireEvent.click(screen.getByTestId("harness-activity-summary"));
+      expect(screen.getByRole("status").textContent).toMatch(/details/i);
+      expect(
+        screen.getByRole("button", { name: /edit example.ts, completed/ })
+      ).toBeTruthy();
+    }
+  );
 });
 
 describe("ActivityBlock settle", () => {
+  it("updates the closed summary as live steps arrive", () => {
+    const { rerender } = render(
+      <ActivityBlock trace={{ ...open, steps: [] }} />
+    );
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.textContent).toContain("thinking");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+
+    rerender(
+      <ActivityBlock
+        trace={{
+          ...open,
+          steps: [
+            {
+              id: "live-command",
+              kind: "execute",
+              label: "run pnpm test",
+              status: "running",
+              startedAt: at + 500,
+              detail: { input: { command: "pnpm test" } },
+            },
+          ],
+        }}
+      />
+    );
+    expect(summary.textContent).toContain("pnpm test");
+    expect(summary.textContent).toContain("1 step");
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[aria-label="activity steps"]')).toBeNull();
+  });
+
   it("keeps the turn summary between reported running steps", () => {
     render(<ActivityBlock trace={open} label="read a.ts" />);
     expect(
