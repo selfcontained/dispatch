@@ -20,6 +20,13 @@ afterAll(async () => {
 });
 
 describe("migrations", () => {
+  it("uses a unique numeric prefix for each migration", () => {
+    const prefixes = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .map((name) => name.split("_", 1)[0]);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
   it("should apply cleanly to a fresh database", async () => {
     await runTestMigrations();
 
