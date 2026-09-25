@@ -1438,11 +1438,14 @@ export const BlockView = memo(function BlockView({
         action={copyAction}
       >
         {block.text ? (
-          <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            <MentionText
-              spans={mentionSpans(block.text, mentionablesOf(ctx))}
-            />
-          </div>
+          <Markdown
+            className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
+            renderText={(text) => (
+              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+            )}
+          >
+            {block.text}
+          </Markdown>
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
