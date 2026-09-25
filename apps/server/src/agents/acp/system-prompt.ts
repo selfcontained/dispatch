@@ -39,6 +39,8 @@ export function buildSystemPrompt(input: {
   suggestSessionRename: boolean;
   /** A job run: the guidance names the job tools (job_complete, …). */
   jobRunId?: string | null;
+  /** A terminal job resumed for conversation, with ordinary session tools. */
+  previousJobFinished?: boolean;
 }): string {
   const { agent } = input;
   const guidance = buildLaunchGuidance(agent.id, {
@@ -47,8 +49,15 @@ export function buildSystemPrompt(input: {
     suggestSessionRename: input.suggestSessionRename,
     trimmedGuidance: input.trimmedGuidance,
   });
-  const appended = extractAppendedSystemPrompt(agent.agentArgs ?? []);
+  const appended = input.previousJobFinished
+    ? null
+    : extractAppendedSystemPrompt(agent.agentArgs ?? []);
   const sections = [guidance.trim(), CHAT_RULE, SLASH_RULE];
+  if (input.previousJobFinished) {
+    sections.push(
+      "The previous Dispatch job run has ended. Treat its earlier task and lifecycle instructions as historical context. Follow new user requests; do not rerun the job or report its lifecycle again."
+    );
+  }
   if (appended?.trim()) sections.push(appended.trim());
   else if (input.personalityPrompt?.trim()) {
     sections.push(input.personalityPrompt.trim());

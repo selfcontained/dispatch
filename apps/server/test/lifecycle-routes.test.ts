@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentManager } from "../src/agents/manager.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -325,6 +326,65 @@ describe("PATCH /api/v1/agents/:id/name", () => {
 // POST /api/v1/agents/:id/prompt-rename
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/prompt-rename", () => {
+  it("returns a visible queued post before the busy agent accepts it", async () => {
+    const agent = await createAgent();
+    let rejectDelivery!: (error: Error) => void;
+    const accepted = new Promise<void>((_resolve, reject) => {
+      rejectDelivery = reject;
+    });
+    const access = vi
+      .spyOn(AgentManager.prototype, "getTerminalAccess")
+      .mockResolvedValue({ mode: "live" });
+    const prompt = vi
+      .spyOn(AgentManager.prototype, "promptAgent")
+      .mockReturnValue({ accepted, settled: Promise.resolve() });
+    const held = vi
+      .spyOn(AgentManager.prototype, "isPromptHeld")
+      .mockReturnValue(true);
+    try {
+      const res = await authedInject(
+        "POST",
+        `/api/v1/agents/${agent.id}/prompt-rename`
+      );
+      expect(res.statusCode).toBe(202);
+      const posted = res.json();
+      expect(posted.held).toBe(true);
+      expect(posted.block.text).toContain("rename_session");
+      expect(prompt).toHaveBeenCalledWith(
+        agent.id,
+        expect.stringContaining("rename_session"),
+        expect.objectContaining({
+          source: "chat",
+          chatMessageId: posted.block.id,
+        }),
+        undefined
+      );
+      // A later failure remains visible on the persisted request for retry.
+      rejectDelivery(new Error("host exited"));
+      await vi.waitFor(async () => {
+        const row = await ctx.pool.query(
+          "SELECT delivered FROM blocks WHERE id = $1",
+          [posted.block.id]
+        );
+        expect(row.rows[0].delivered).toBe(false);
+      });
+    } finally {
+      access.mockRestore();
+      prompt.mockRestore();
+      held.mockRestore();
+    }
+  });
+
+  it("rejects an unavailable engine instead of reporting success", async () => {
+    const agent = await createAgent();
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/prompt-rename`
+    );
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/inert/i);
+  });
+
   it("returns 404 for unknown agent", async () => {
     const res = await authedInject(
       "POST",
