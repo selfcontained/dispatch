@@ -1,57 +1,57 @@
 import type { Pool } from "pg";
 
-import type { DriverUsage } from "./acp/driver.js";
-
 /**
- * A settled turn's token counts, added to the agent's row for its session
- * and model in `agent_token_usage` (the table the Activity token views read).
+ * Bring `agent_token_usage` (the table the Activity token views read) up to
+ * date with the agent's newest settled turn.
  *
- * The prompt response's usage is the turn's, not the session's: Claude's
- * adapter resets its tally when a turn starts, and Codex's reports the turn's
- * last model call. So each turn adds; nothing is overwritten. A model switched
- * mid-session starts its own row and the earlier model keeps what it spent.
+ * Each turn row keeps its own tokens, session and model (the recorder writes
+ * them; the adapters report per-turn usage, not session totals). The row for
+ * that turn's (agent, session, model) is recomputed as the sum over those
+ * turn rows, never incremented, so a settle event replayed after a restart
+ * changes nothing, and a model switched mid-turn does not take the turn's
+ * tokens: the turn is counted under the model it started on.
  */
-const ADD_SQL = `INSERT INTO agent_token_usage
-  (agent_id, session_id, model, input_tokens, cache_creation_tokens, cache_read_tokens,
-   output_tokens, message_count, session_start, session_end)
- VALUES ($1, $2, $3, $4, $5, $6, $7, 1, NOW(), NOW())
- ON CONFLICT (agent_id, session_id, model)
- DO UPDATE SET
-   input_tokens = agent_token_usage.input_tokens + EXCLUDED.input_tokens,
-   cache_creation_tokens = agent_token_usage.cache_creation_tokens + EXCLUDED.cache_creation_tokens,
-   cache_read_tokens = agent_token_usage.cache_read_tokens + EXCLUDED.cache_read_tokens,
-   output_tokens = agent_token_usage.output_tokens + EXCLUDED.output_tokens,
-   message_count = agent_token_usage.message_count + 1,
-   session_end = NOW(),
-   harvested_at = NOW()`;
+const SYNC_SQL = `
+  WITH newest AS (
+    SELECT payload->>'sessionId' AS session_id,
+           COALESCE(payload->>'model', 'default') AS model
+      FROM agent_stream_events
+     WHERE agent_id = $1 AND kind = 'turn'
+       AND payload ? 'tokens' AND payload ? 'sessionId'
+     ORDER BY seq DESC
+     LIMIT 1
+  )
+  INSERT INTO agent_token_usage
+    (agent_id, session_id, model, input_tokens, cache_creation_tokens,
+     cache_read_tokens, output_tokens, message_count, session_start, session_end)
+  SELECT $1, n.session_id, n.model,
+         SUM((e.payload->'tokens'->>'input')::bigint),
+         SUM((e.payload->'tokens'->>'cacheWrite')::bigint),
+         SUM((e.payload->'tokens'->>'cacheRead')::bigint),
+         SUM((e.payload->'tokens'->>'output')::bigint),
+         COUNT(*),
+         MIN(e.created_at),
+         MAX(e.updated_at)
+    FROM newest n
+    JOIN agent_stream_events e
+      ON e.agent_id = $1 AND e.kind = 'turn' AND e.payload ? 'tokens'
+     AND e.payload->>'sessionId' = n.session_id
+     AND COALESCE(e.payload->>'model', 'default') = n.model
+   GROUP BY n.session_id, n.model
+  ON CONFLICT (agent_id, session_id, model)
+  DO UPDATE SET
+    input_tokens = EXCLUDED.input_tokens,
+    cache_creation_tokens = EXCLUDED.cache_creation_tokens,
+    cache_read_tokens = EXCLUDED.cache_read_tokens,
+    output_tokens = EXCLUDED.output_tokens,
+    message_count = EXCLUDED.message_count,
+    session_start = EXCLUDED.session_start,
+    session_end = EXCLUDED.session_end,
+    harvested_at = NOW()`;
 
-const count = (value: number | null | undefined): number =>
-  typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.round(value)
-    : 0;
-
-export async function recordTurnUsage(
+export async function syncTurnUsage(
   pool: Pick<Pool, "query">,
-  input: {
-    agentId: string;
-    sessionId: string;
-    model: string;
-    usage: DriverUsage;
-  }
+  agentId: string
 ): Promise<void> {
-  const u = input.usage;
-  const tokens = [
-    count(u.inputTokens),
-    count(u.cachedWriteTokens),
-    count(u.cachedReadTokens),
-    // Reasoning tokens are part of output already (thoughtTokens is a breakdown).
-    count(u.outputTokens),
-  ];
-  if (tokens.every((t) => t === 0)) return;
-  await pool.query(ADD_SQL, [
-    input.agentId,
-    input.sessionId,
-    input.model,
-    ...tokens,
-  ]);
+  await pool.query(SYNC_SQL, [agentId]);
 }

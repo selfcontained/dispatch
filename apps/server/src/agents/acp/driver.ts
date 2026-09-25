@@ -44,6 +44,8 @@ export type DriverEvent =
       source?: PromptSource;
       /** The model the engine runs this turn on, when it publishes one. */
       model?: string;
+      /** The ACP session the turn runs in: its usage belongs to that session. */
+      sessionId?: string;
     }
   | {
       type: "turn";
@@ -563,6 +565,7 @@ export class AcpDriver {
       text,
       ...(source ? { source } : {}),
       ...(model ? { model } : {}),
+      sessionId: entry.sessionId,
     });
     // A child that exits mid-turn never answers the request; the pending
     // call would hang and hold the agent's turn slot for ever.

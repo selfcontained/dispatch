@@ -72,9 +72,9 @@ const SUMS = `COALESCE(SUM(input_tokens), 0) AS input,
   COALESCE(SUM(cache_creation_tokens), 0) AS cache_write`;
 
 /**
- * What one agent has used: the newest context report and cost from its turn
- * rows, and its token totals from `agent_token_usage` for the current
- * session and the month.
+ * What one agent has used: the current session's newest context report and
+ * cost, its per-model totals for the session from `agent_token_usage`, and
+ * the month's tokens summed turn by turn.
  */
 export async function loadAgentUsage(
   pool: Pick<Pool, "query">,
@@ -94,9 +94,10 @@ export async function loadAgentUsage(
               payload->'usage'->'cost'->>'currency' AS cost_currency
          FROM agent_stream_events
         WHERE agent_id = $1 AND kind = 'turn' AND payload ? 'usage'
+          AND payload->>'sessionId' = $2
         ORDER BY seq DESC
         LIMIT 1`,
-      [agent.id]
+      [agent.id, agent.cliSessionId ?? ""]
     ),
     pool.query<TokenRow>(
       `SELECT model, ${SUMS}
@@ -105,10 +106,16 @@ export async function loadAgentUsage(
         GROUP BY model`,
       [agent.id, agent.cliSessionId ?? ""]
     ),
+    // A session can span months, so the month is summed per turn, by
+    // when each turn started, not from the per-session rows.
     pool.query<Omit<TokenRow, "model">>(
-      `SELECT ${SUMS}
-         FROM agent_token_usage
-        WHERE agent_id = $1 AND session_end >= $2`,
+      `SELECT COALESCE(SUM((payload->'tokens'->>'input')::bigint), 0) AS input,
+              COALESCE(SUM((payload->'tokens'->>'output')::bigint), 0) AS output,
+              COALESCE(SUM((payload->'tokens'->>'cacheRead')::bigint), 0) AS cache_read,
+              COALESCE(SUM((payload->'tokens'->>'cacheWrite')::bigint), 0) AS cache_write
+         FROM agent_stream_events
+        WHERE agent_id = $1 AND kind = 'turn' AND payload ? 'tokens'
+          AND created_at >= $2`,
       [agent.id, monthStartUtc(now)]
     ),
   ]);

@@ -46,6 +46,18 @@ export type TurnPayload = {
   prompt: PromptSource;
   /** The model the turn ran on, as the engine published it at the start. */
   model?: string;
+  /** The ACP session the turn ran in. */
+  sessionId?: string;
+  /**
+   * The turn's own token counts, from the prompt response. Totals are
+   * summed from these, so a replayed event can never count a turn twice.
+   */
+  tokens?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
   stopReason?: string;
   error?: string;
   /** The adapter's category for `error`, when it gave one. */

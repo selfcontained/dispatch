@@ -54,9 +54,9 @@ import { prepareWorkspace } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
-import type { DriverEvent, DriverUsage } from "./acp/driver.js";
+import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
-import { recordTurnUsage } from "./usage-recorder.js";
+import { syncTurnUsage } from "./usage-recorder.js";
 import type { PromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
@@ -402,7 +402,7 @@ export class AgentManager {
   ): Promise<void> {
     await this.streamRecorder.handle(event);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
-      await this.recordUsage(agentId, event.usage);
+      await this.recordUsage(agentId);
     }
     if (event.type === "update" || event.type === "turn") {
       // ACP activity can change the worktree; the refresher throttles Git reads.
@@ -445,20 +445,10 @@ export class AgentManager {
     );
   }
 
-  /** A settled turn's tokens, onto the agent's session and model; never fails the event. */
-  private async recordUsage(
-    agentId: string,
-    usage: DriverUsage
-  ): Promise<void> {
+  /** Fold the turn the recorder just settled into the token totals; never fails the event. */
+  private async recordUsage(agentId: string): Promise<void> {
     try {
-      const agent = await this.getAgent(agentId);
-      if (!agent) return;
-      await recordTurnUsage(this.pool, {
-        agentId,
-        sessionId: agent.cliSessionId ?? "unknown",
-        model: agent.model ?? "default",
-        usage,
-      });
+      await syncTurnUsage(this.pool, agentId);
     } catch (err) {
       this.logger.warn({ err, agentId }, "could not record turn usage");
     }

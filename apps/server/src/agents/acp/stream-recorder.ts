@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { DriverEvent, DriverUpdate } from "./driver.js";
+import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
 import { systemPromptSource, type PromptSource } from "./prompt-source.js";
 import type {
   PlanPayload,
@@ -207,6 +207,21 @@ export type TurnBlocks = {
   settled(input: { agentId: string; turnRow: StreamEventRow }): Promise<void>;
 };
 
+/** A prompt response's usage as the turn row keeps it. */
+function turnTokens(usage: DriverUsage): NonNullable<TurnPayload["tokens"]> {
+  const count = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0
+      ? Math.round(value)
+      : 0;
+  return {
+    input: count(usage.inputTokens),
+    // Reasoning is part of output already; thoughtTokens only breaks it out.
+    output: count(usage.outputTokens),
+    cacheRead: count(usage.cachedReadTokens),
+    cacheWrite: count(usage.cachedWriteTokens),
+  };
+}
+
 export class StreamRecorder {
   private readonly open = new Map<
     string,
@@ -313,6 +328,7 @@ export class StreamRecorder {
             state: "started",
             prompt,
             ...(event.model ? { model: event.model } : {}),
+            ...(event.sessionId ? { sessionId: event.sessionId } : {}),
           } satisfies TurnPayload);
           this.openTurn.set(event.agentId, row);
           await this.openTurnBlock(event.agentId, row, prompt);
@@ -336,6 +352,7 @@ export class StreamRecorder {
             ...(error ? { error } : {}),
             ...(event.errorKind && !cut ? { errorKind: event.errorKind } : {}),
             ...(retryable ? { retry: "open" as const } : {}),
+            ...(event.usage ? { tokens: turnTokens(event.usage) } : {}),
             endedAt: new Date().toISOString(),
           } satisfies TurnPayload);
           this.openTurn.delete(event.agentId);
