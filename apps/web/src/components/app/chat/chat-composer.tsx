@@ -749,8 +749,29 @@ export function ChatComposer({
     const input = textareaRef.current;
     if (!input) return;
     const resize = () => {
-      input.style.height = "auto";
-      input.style.height = String(input.scrollHeight) + "px";
+      // Measuring the live field at height:auto can clamp the stream's
+      // scrollTop. Measure a hidden copy so typing and width changes leave
+      // the reader's place alone.
+      const measure = input.cloneNode(false) as HTMLTextAreaElement;
+      measure.removeAttribute("id");
+      measure.removeAttribute("data-testid");
+      measure.removeAttribute("autofocus");
+      measure.setAttribute("aria-hidden", "true");
+      measure.tabIndex = -1;
+      measure.value = input.value;
+      Object.assign(measure.style, {
+        position: "fixed",
+        visibility: "hidden",
+        pointerEvents: "none",
+        width: `${input.getBoundingClientRect().width}px`,
+        height: "0",
+        minHeight: "0",
+        maxHeight: "none",
+        overflow: "hidden",
+      });
+      input.parentElement!.appendChild(measure);
+      input.style.height = `${measure.scrollHeight}px`;
+      measure.remove();
     };
     resize();
     let width = input.clientWidth;

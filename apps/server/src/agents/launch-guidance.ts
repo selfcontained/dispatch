@@ -37,13 +37,14 @@ export type StartupTurnInput = {
 };
 
 /**
- * The agent's first user turn. With the chat surface on and a launch post
+ * The agent's first user turn. With a launch post
  * recorded, the prompt is wrapped in the same `--- DISPATCH CHAT ---`
  * envelope a Chat message is injected with (id = the launch post, the
  * attachments listed the same way, the trailer pointing the agent at
  * post), so an agent started from the stream knows to answer
- * there. Job runs never wrap (their prompt is a system-prompt append), and
- * with the flag off — or nothing recorded — the plain startup prompt is used.
+ * there. Job instructions live in the launch guidance, but ACP still needs
+ * a user turn to begin execution. Jobs get a kickoff when no explicit first
+ * prompt is supplied. Ordinary sessions without a task stay idle.
  */
 export function buildStartupTurn(
   startup: StartupTurnInput,
@@ -58,10 +59,16 @@ export function buildStartupTurn(
       attachmentLines: post.attachmentLines,
     });
   }
-  return buildStartupPrompt(
+  const prompt = buildStartupPrompt(
     startup.initialPrompt,
     startup.initialLinks ?? [],
     startup.initialFiles ?? []
+  );
+  return (
+    prompt ??
+    (opts.jobRunId
+      ? "Run the Dispatch job described in your instructions. Follow its lifecycle requirements and report the outcome with a job terminal tool."
+      : undefined)
   );
 }
 
@@ -169,16 +176,14 @@ export function buildLaunchGuidance(
     }
     rules.push("Log task-level progress with job_log.");
     rules.push(
-      "Call a job terminal tool when the run is complete, failed, or needs input."
+      "Finish with exactly one job terminal tool: job_complete, job_failed, or job_needs_input. Follow the job's report and continuation requirements."
     );
   } else {
     rules.push(
       "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
     );
     rules.push(
-      trimmed
-        ? "Say the plan before a long first turn. On anything beyond a small, obvious change, read enough to be sure of the approach, say what you intend to do, and stop for the user's answer before editing or running commands at length."
-        : "Say the plan before a long first turn. The user reads your stream between turns, not during one: a turn that runs for ten minutes is ten minutes they cannot steer. So on anything beyond a small, obvious change, read enough to be sure of the approach, say what you intend to do in a few lines, and stop there. Start the work once they answer. A question with options (post) is right when the approach is a real choice; plain text is right when you just need a yes. This is about the shape of the first turn, not its length — once the plan is agreed, long turns are fine."
+      "Keep the user informed. Your replies stream live: briefly explain your approach before substantial work and give concise progress updates as you work. Continue within the user's authorized scope; ask when a missing decision or permission prevents progress. Dispatch tracks turn activity automatically."
     );
     if (suggestSessionRename) {
       rules.push(
@@ -191,7 +196,7 @@ export function buildLaunchGuidance(
       // One rule: everything the user needs to read, copy or decide is a
       // block. The tool schema carries the kinds and attachment types.
       rules.push(
-        "Put anything the user needs to read, copy or click in the stream: post with link, pr, code or file attachments, and ask a decision with a question or form block rather than in prose."
+        "Use post for link, pr, code or file attachments, and question or form blocks for decisions. Ordinary replies already appear in the stream; do not post them a second time."
       );
     } else {
       rules.push(
@@ -210,8 +215,15 @@ export function buildLaunchGuidance(
       rules.push(
         "For pull requests, use the gh CLI (gh pr create) and post the PR as a pr attachment."
       );
+      rules.push(
+        "For a requested persona review, call list_personas then launch_agent with persona and a self-contained briefing. The review arrives as a new prompt: finish independent work and end the turn instead of polling or waiting. Reply to each finding with post in its thread (replyTo, and to for the reviewer); its reviewer verifies and resolves it with update."
+      );
     }
   }
+
+  rules.push(
+    "The Dispatch MCP connection is scoped to this session. Use the provided tools and repo tools where relevant. DISPATCH_AGENT_ID identifies this agent and DISPATCH_FILES_DIR is its shared-file directory. Use list_files for shared-file discovery and post with file attachments to share artifacts. Work from the assigned working directory, including its worktree when present."
+  );
 
   const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");
   const header = jobRunId

@@ -100,6 +100,66 @@ test.describe("Stream windowing", () => {
     await cleanupE2EAgents(request);
   });
 
+  for (const width of [1280, 390]) {
+    test(`typing a multiline draft preserves the idle stream at width ${width}`, async ({
+      page,
+      request,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const agent = await createAgentViaAPI(request);
+      const ids = await seedPosts(agent.id, 20);
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+      await expect(
+        page.locator(`[data-chat-entry-id="${ids[19]}"]`)
+      ).toBeInViewport();
+      const input = page.getByTestId("chat-composer-input");
+      await input.fill("one\ntwo\nthree\nfour\nfive");
+      const stream = scroller(page);
+      for (const distance of [0, 65, 250]) {
+        await stream.evaluate((el, gap) => {
+          el.scrollTop = el.scrollHeight - el.clientHeight - gap;
+        }, distance);
+        await expect
+          .poll(() =>
+            stream.evaluate((el) =>
+              Math.round(el.scrollHeight - el.clientHeight - el.scrollTop)
+            )
+          )
+          .toBe(distance);
+        // Let the scroll handler and windowed rows settle before typing.
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve())
+              );
+            })
+        );
+        const before = await stream.evaluate((el) => el.scrollTop);
+        const height = await input.evaluate((el) => el.clientHeight);
+        await input.press("End");
+        await input.pressSequentially(" typing", { delay: 30 });
+        await input.press("Backspace");
+        await expect
+          .poll(() => stream.evaluate((el) => el.scrollTop))
+          .toBe(before);
+        expect(await input.evaluate((el) => el.clientHeight)).toBe(height);
+      }
+      const multilineHeight = await input.evaluate((el) => el.clientHeight);
+      await input.fill("short");
+      expect(await input.evaluate((el) => el.clientHeight)).toBeLessThan(
+        multilineHeight
+      );
+      await input.fill(Array.from({ length: 30 }, () => "line").join("\n"));
+      expect(await input.evaluate((el) => el.clientHeight)).toBeLessThanOrEqual(
+        192
+      );
+      expect(await input.evaluate((el) => el.scrollHeight)).toBeGreaterThan(
+        192
+      );
+    });
+  }
+
   test("a long stream mounts a window of rows and keeps the reader's place", async ({
     page,
     request,
