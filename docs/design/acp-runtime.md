@@ -144,8 +144,9 @@ queue is busy.
   message (`PUT /api/v1/agents/:id/config`); the `config` event that follows
   moves `agents.model`, so a restart resumes on it. Each turn row records the
   model it started on, so earlier turns keep their label.
-- `agent_token_usage` gets one row per (agent, session, model); each settled
-  turn's usage is added to it (neither adapter reports session totals).
+- Each turn row keeps its own tokens and session id (neither adapter reports
+  session totals). `agent_token_usage` has one row per (agent, session,
+  model), recomputed as the sum over those turn rows, so replay is harmless.
   Context and cost come from the newest turn row's `usage_update`; plan limits
   (`/api/v1/usage/plans`) from Anthropic's OAuth usage endpoint and Codex's
   newest session rollout.
