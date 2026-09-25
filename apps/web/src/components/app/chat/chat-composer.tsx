@@ -662,8 +662,29 @@ export function ChatComposer({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    // Measuring the live field at height:auto briefly enlarges the adjacent
+    // stream viewport and clamps its scrollTop, even within a layout effect.
+    // Measure outside the layout so typing cannot move an otherwise idle feed.
+    const measure = el.cloneNode(false) as HTMLTextAreaElement;
+    measure.removeAttribute("id");
+    measure.removeAttribute("data-testid");
+    measure.removeAttribute("autofocus");
+    measure.setAttribute("aria-hidden", "true");
+    measure.tabIndex = -1;
+    measure.value = el.value;
+    Object.assign(measure.style, {
+      position: "fixed",
+      visibility: "hidden",
+      pointerEvents: "none",
+      width: `${el.getBoundingClientRect().width}px`,
+      height: "0",
+      minHeight: "0",
+      maxHeight: "none",
+      overflow: "hidden",
+    });
+    el.parentElement!.appendChild(measure);
+    el.style.height = `${measure.scrollHeight}px`;
+    measure.remove();
   }, [text]);
 
   useEffect(() => {
