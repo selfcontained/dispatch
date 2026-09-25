@@ -25,10 +25,12 @@ const NON_ADMIN_SECTIONS = [
   "general",
   "agents",
   "connections",
+  "help",
   "notifications",
   "resources",
+  "security",
   "updates",
-  "help",
+  "workspace",
 ];
 
 beforeEach(() => {
@@ -101,7 +103,7 @@ describe("useSettingsState", () => {
     expect(apiMock).toHaveBeenCalledWith("/api/v1/release/admin-check");
   });
 
-  it("slots Releases in ahead of Help once the check comes back admin", async () => {
+  it("keeps General first and admin-only Releases last", async () => {
     adminCheck(true);
     const { result } = renderHook(() => useSettingsState(true));
 
@@ -110,11 +112,13 @@ describe("useSettingsState", () => {
       "general",
       "agents",
       "connections",
+      "help",
       "notifications",
       "resources",
+      "security",
       "updates",
+      "workspace",
       "releases",
-      "help",
     ]);
   });
 

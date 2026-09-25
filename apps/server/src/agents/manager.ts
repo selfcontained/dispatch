@@ -24,7 +24,6 @@ import {
   probeGitContext,
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
-import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   beginArchive as beginArchiveImpl,
@@ -244,16 +243,6 @@ export type LaunchContextRecorder = {
     cwd?: string;
   }) => Promise<unknown>;
 };
-
-/** The two settings-backed switches the launch guidance is built from. */
-async function readLaunchGuidanceFlags(
-  pool: Pool
-): Promise<{ trimmedGuidance: boolean }> {
-  const [trimmedGuidance] = await Promise.all([
-    isTrimmedLaunchGuidanceEnabled(pool),
-  ]);
-  return { trimmedGuidance };
-}
 
 /** Upper bound on how long a launch waits for its Chat launch post. */
 export const LAUNCH_CONTEXT_WRITE_TIMEOUT_MS = 5_000;
@@ -1002,14 +991,6 @@ export class AgentManager {
         throw error;
       }
     }
-    // The settings read is on the create path ahead of the launch's own
-    // try/catch, so a rejecting query would otherwise leave the row stuck in
-    // `creating`. Route it through the same failure handling the launch uses.
-    const launchGuidanceFlags = input.jobRunId
-      ? { trimmedGuidance: false }
-      : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
-          this.failCreate(p.id, error)
-        );
     // The launch post is the first turn's envelope, so a launch that carries
     // a prompt waits for the post to be durable before the engine starts.
     // It is written once the workspace is ready rather than up front, so the
@@ -1051,7 +1032,6 @@ export class AgentManager {
       initialPrompt: input.initialPrompt,
       initialFiles,
       resolveLaunchPost,
-      launchGuidanceFlags,
       jobRunId: input.jobRunId,
       beforeLaunch: options.beforeLaunch,
     });
@@ -1357,7 +1337,6 @@ export class AgentManager {
     initialFiles: SeededFile[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
     resolveLaunchPost: () => Promise<ChatLaunchPost | null>;
-    launchGuidanceFlags: { trimmedGuidance: boolean };
     jobRunId: string | undefined;
     beforeLaunch?: (agentId: string) => Promise<void>;
   }): Promise<void> {
@@ -1394,7 +1373,6 @@ export class AgentManager {
       const { sessionId } = await this.startHost(agent, {
         resumeSessionId: null,
         jobRunId: opts.jobRunId,
-        trimmedGuidance: opts.launchGuidanceFlags.trimmedGuidance,
       });
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
@@ -1483,7 +1461,6 @@ export class AgentManager {
     opts: {
       resumeSessionId: string | null;
       jobRunId: string | undefined;
-      trimmedGuidance?: boolean;
       previousJobFinished?: boolean;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
@@ -1503,12 +1480,9 @@ export class AgentManager {
       agent.persona || opts.jobRunId || agent.role === "assisted_update"
         ? null
         : await getActivePersonality(this.pool);
-    const trimmedGuidance =
-      opts.trimmedGuidance ?? (await isTrimmedLaunchGuidanceEnabled(this.pool));
     const systemPrompt = buildSystemPrompt({
       agent,
       personalityPrompt: personality?.prompt ?? null,
-      trimmedGuidance,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
         jobRunId: opts.jobRunId,

@@ -191,7 +191,6 @@ describe("agent host", () => {
         ],
       },
       personalityPrompt: null,
-      trimmedGuidance: false,
       suggestSessionRename: false,
     });
     await runtime.launch({

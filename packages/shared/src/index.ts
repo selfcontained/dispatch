@@ -158,6 +158,13 @@ export type {
   ProviderPlansResponse,
   TokenCounts,
 } from "./usage-types.js";
+export {
+  USER_AVATAR_PRESETS,
+  DEFAULT_USER_AVATAR,
+  USER_AVATAR_MAX_BYTES,
+  USER_AVATAR_SIZE,
+} from "./user-avatar.js";
+export type { UserAvatar, UserAvatarPreset } from "./user-avatar.js";
 
 export type {
   AgentPermissionRequest,

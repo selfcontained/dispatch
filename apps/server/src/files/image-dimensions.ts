@@ -108,7 +108,10 @@ function pngCarriesExif(buffer: Buffer): boolean | null {
  * PNG: IHDR is required to come first, so width and height sit at fixed offsets
  * 16 and 20 as big-endian uint32s.
  */
-function pngDimensions(buffer: Buffer): ImageDimensions | null {
+function pngDimensions(
+  buffer: Buffer,
+  ignoreExifOrientation = false
+): ImageDimensions | null {
   // The whole IHDR chunk: 8 signature, 4 length, 4 type, 13 data, 4 CRC.
   if (buffer.length < 33) return null;
   // A missing IHDR means this is not a PNG we can trust the offsets for, and a
@@ -116,7 +119,8 @@ function pngDimensions(buffer: Buffer): ImageDimensions | null {
   // chunk we are about to read.
   if (buffer.toString("ascii", 12, 16) !== "IHDR") return null;
   if (buffer.readUInt32BE(8) !== 13) return null;
-  if (pngCarriesExif(buffer) !== false) return null;
+  const exif = pngCarriesExif(buffer);
+  if (exif === null || (exif && !ignoreExifOrientation)) return null;
   return valid(buffer.readUInt32BE(16), buffer.readUInt32BE(20));
 }
 
@@ -167,7 +171,10 @@ function isExifApp1(buffer: Buffer, start: number, end: number): boolean {
  * still happen to look like a SOF — scanning ahead for one is how a parser comes
  * to report confident dimensions for a file that is not a JPEG at all.
  */
-function jpegDimensions(buffer: Buffer): ImageDimensions | null {
+function jpegDimensions(
+  buffer: Buffer,
+  ignoreExifOrientation = false
+): ImageDimensions | null {
   if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
     return null;
   }
@@ -208,7 +215,11 @@ function jpegDimensions(buffer: Buffer): ImageDimensions | null {
 
     // An EXIF block may rotate the image, and this module does not work out by
     // how much. Decline rather than answer with the unrotated numbers.
-    if (marker === 0xe1 && isExifApp1(buffer, lengthAt + 2, segmentEnd)) {
+    if (
+      !ignoreExifOrientation &&
+      marker === 0xe1 &&
+      isExifApp1(buffer, lengthAt + 2, segmentEnd)
+    ) {
       return null;
     }
 
@@ -304,6 +315,9 @@ function webpDimensions(buffer: Buffer): ImageDimensions | null {
 }
 
 /**
+ * ignoreExifOrientation is only for callers validating square images: rotation
+ * cannot change their dimensions. Ordinary attachment callers must keep the default.
+ *
  * Natural dimensions of an image already in memory, or `null` when the bytes are
  * not a format we parse, the header does not hold up, or the file carries EXIF
  * that might rotate it.
@@ -312,12 +326,14 @@ function webpDimensions(buffer: Buffer): ImageDimensions | null {
  * screenshot saved as `.png` that is really a JPEG still measures correctly.
  */
 export function imageDimensionsFromBuffer(
-  buffer: Buffer
+  buffer: Buffer,
+  options: { ignoreExifOrientation?: boolean } = {}
 ): ImageDimensions | null {
   try {
-    if (isPng(buffer)) return pngDimensions(buffer);
+    if (isPng(buffer))
+      return pngDimensions(buffer, options.ignoreExifOrientation);
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8) {
-      return jpegDimensions(buffer);
+      return jpegDimensions(buffer, options.ignoreExifOrientation);
     }
     if (buffer.length >= 6 && buffer.toString("ascii", 0, 3) === "GIF") {
       return gifDimensions(buffer);

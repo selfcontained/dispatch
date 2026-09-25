@@ -28,12 +28,7 @@ export function isAgentType(value: unknown): value is AgentType {
   return typeof value === "string" && AGENT_TYPES.includes(value as AgentType);
 }
 
-// Agent types with a Dispatch plugin (skills for the CLI itself, installed
-// via `claude plugin` / `codex plugin`). Single source of truth for this —
-// keep launch-guidance trimming (agents/launch-guidance.ts) and plugin
-// update detection (shared/plugin-status.ts) both pointed at this list
-// rather than each declaring their own, so a third CLI shipping a plugin
-// only needs one line changed.
+// Agent types with a Dispatch plugin, used by plugin update detection.
 export const PLUGIN_AGENT_TYPES = ["claude", "codex"] as const;
 export type PluginAgentType = (typeof PLUGIN_AGENT_TYPES)[number];
 

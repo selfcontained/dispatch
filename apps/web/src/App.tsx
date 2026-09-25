@@ -22,6 +22,7 @@ import {
 } from "@/lib/agent-types";
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import { UserAvatarProvider } from "@/components/app/user-avatar/user-avatar-provider";
 import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
 import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
@@ -201,7 +202,9 @@ export function DashboardLayout(): JSX.Element {
   return (
     <TipQueueProvider>
       <TipsVersionInit />
-      <Outlet context={context} />
+      <UserAvatarProvider>
+        <Outlet context={context} />
+      </UserAvatarProvider>
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
       {/* Color tokens, close button, and action button styling live in

@@ -1,3 +1,4 @@
+import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
@@ -18,7 +19,6 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
-  UserRound,
 } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
@@ -405,18 +405,7 @@ export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
       </span>
     );
   }
-  if (author.kind === "user") {
-    return (
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground/[0.08] text-foreground"
-        aria-label="You"
-        title="You"
-        data-testid="chat-avatar-user"
-      >
-        <UserRound className="h-4 w-4" aria-hidden="true" />
-      </span>
-    );
-  }
+  if (author.kind === "user") return <UserAvatar />;
   // An agent in the tree wears its number in its own colour; one the list
   // no longer knows wears a plain face. The engine and model are said in
   // the chips under the name, not guessed from a logo.
@@ -492,12 +481,8 @@ export function agentTypeLabel(type: string | null | undefined): string | null {
  * reads as one block.
  */
 export const POST_TINT: Record<PostAuthor["kind"], string> = {
-  // Only the user's own posts get a fill. At 6% `primary` sat too close to the
-  // page background in several themes to notice; 10% reads everywhere.
-  //
-  // No left accent bar: a rule down the post's left edge competed with the
-  // connected-agent border the sidebar draws on the pane's left edge.
-  user: "bg-primary/[0.10] hover:bg-primary/[0.14]",
+  // A neutral wash separates the user without borrowing the theme's accent hue.
+  user: "chat-user-wash",
   // Agent-to-agent traffic is a side conversation the user is overhearing, so
   // it recedes — indent and muted body carry it, with no fill of its own.
   peer: "hover:bg-muted/30",
@@ -934,16 +919,10 @@ function ReplierFace({
   const ring = "ring-2 ring-background";
   if (who.kind === "user") {
     return (
-      <span
-        className={cn(
-          "flex h-5 w-5 items-center justify-center rounded border border-border bg-foreground/[0.08] text-foreground",
-          ring
-        )}
-        title="You"
-        data-testid="chat-thread-replier"
-      >
-        <UserRound className="h-3 w-3" aria-hidden="true" />
-      </span>
+      <UserAvatar
+        className={cn("h-5 w-5", ring)}
+        testId="chat-thread-replier"
+      />
     );
   }
   const own = who.agentId === ctx.agentId;

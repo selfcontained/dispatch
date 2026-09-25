@@ -6,10 +6,6 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
-import {
-  isTrimmedLaunchGuidanceEnabled,
-  setTrimmedLaunchGuidanceEnabled,
-} from "../launch-guidance-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -35,6 +31,12 @@ import {
   WORKTREE_LOCATION_KEY,
 } from "../worktree-location-settings.js";
 
+import {
+  getUserAvatar,
+  parseUserAvatar,
+  setUserAvatar,
+} from "../user-avatar-settings.js";
+
 const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
@@ -53,6 +55,26 @@ export async function registerSystemRoutes(
   app: FastifyInstance,
   deps: SystemRouteDeps
 ): Promise<void> {
+  app.get("/api/v1/app/settings/user-avatar", async () => ({
+    avatar: await getUserAvatar(deps.pool),
+  }));
+  app.put(
+    "/api/v1/app/settings/user-avatar",
+    { bodyLimit: 140_000 },
+    async (request, reply) => {
+      const avatar = parseUserAvatar(
+        (request.body as { avatar?: unknown } | null)?.avatar
+      );
+      if (!avatar)
+        return reply.code(400).send({
+          error:
+            "The prepared avatar could not be saved. Please try selecting the photo again.",
+        });
+      await setUserAvatar(deps.pool, avatar);
+      return { avatar };
+    }
+  );
+
   app.get("/api/v1/app/branding", async () => {
     return { iconColor: deps.getCachedIconColor() };
   });
@@ -425,22 +447,6 @@ export async function registerSystemRoutes(
 
     return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
   });
-
-  app.get("/api/v1/app/settings/launch-guidance-trim", async () => {
-    return { enabled: await isTrimmedLaunchGuidanceEnabled(deps.pool) };
-  });
-
-  app.post(
-    "/api/v1/app/settings/launch-guidance-trim",
-    async (request, reply) => {
-      const body = request.body as { enabled?: unknown } | null;
-      if (typeof body?.enabled !== "boolean") {
-        return reply.code(400).send({ error: "enabled must be a boolean." });
-      }
-      await setTrimmedLaunchGuidanceEnabled(deps.pool, body.enabled);
-      return { enabled: body.enabled };
-    }
-  );
 
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {

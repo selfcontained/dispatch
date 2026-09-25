@@ -36,10 +36,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
-import { useAtomValue } from "jotai";
-
-import { streamFullHistoryAtom } from "@/lib/store";
 
 /** Rendered beyond each edge of the view, in px. */
 const OVERSCAN_PX = 1200;
@@ -574,12 +570,7 @@ export function useWindowedRows({
     },
     []
   );
-  // Windowing switched off (the full history asked for): every row mounts
-  // at once, above the view too, so the place is put back one last time.
-  const wasWindowingRef = useRef(windowing);
   useLayoutEffect(() => {
-    if (wasWindowingRef.current && !windowing) correct();
-    wasWindowingRef.current = windowing;
     keepPlace();
     if (windowing) scheduleRange();
   });
@@ -691,35 +682,6 @@ export function windowSegments(
     segments.push({ kind: "gap", key: `gap:${last.key}`, height: last.height });
   }
   return segments;
-}
-
-/**
- * Whether a list should render every row it has: always, when the reader
- * asked for that in settings (for a screen reader that walks the whole
- * page), and from the moment they reach for the browser's find
- * (Cmd/Ctrl+F) for as long as the list is on screen, so the find searches
- * everything loaded rather than the rows near the view.
- */
-export function useFullHistory(): boolean {
-  const always = useAtomValue(streamFullHistoryAtom);
-  const [finding, setFinding] = useState(false);
-  useEffect(() => {
-    if (always || finding) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        event.key.toLowerCase() === "f"
-      ) {
-        // Rendered before the browser's find opens, not batched after it.
-        flushSync(() => setFinding(true));
-      }
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKey, { capture: true });
-  }, [always, finding]);
-  return always || finding;
 }
 
 /** A spacer standing in for rows that are not rendered. */

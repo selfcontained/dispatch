@@ -82,7 +82,7 @@ export function IdeLaunchButton({
   const orderedEnabled = IDE_TYPES.filter((ide) => enabledIdes.includes(ide));
 
   // Empty-state CTA: when on loopback with no IDEs enabled, show a discoverable
-  // pill that links into Settings → Agents so users find the toggle.
+  // pill that links into Settings → Workspace so users find the toggle.
   if (onLoopback && orderedEnabled.length === 0) {
     return (
       <Tooltip>
@@ -95,13 +95,13 @@ export function IdeLaunchButton({
             data-testid="ide-launch-cta"
             className={cn("group rounded-full", PILL_BASE)}
           >
-            <Link to="/settings/agents">
+            <Link to="/settings/workspace">
               <Code2 className="h-3 w-3" />
             </Link>
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Open in IDE — enable an IDE in Settings → Agents
+          Open in IDE — enable an IDE in Settings → Workspace
         </TooltipContent>
       </Tooltip>
     );

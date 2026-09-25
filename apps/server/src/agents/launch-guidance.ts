@@ -1,13 +1,4 @@
 import { buildPostEnvelope } from "../chat/envelope.js";
-import { PLUGIN_AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
-
-/**
- * Agent types that can install the Dispatch plugin, whose skills carry the
- * depth the trimmed rules drop.
- */
-const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set(
-  PLUGIN_AGENT_TYPES
-);
 
 /** A startup file as `seedInitialFiles` reports it, for the first turn. */
 export type StartupFile = {
@@ -121,49 +112,19 @@ export function buildStartupPrompt(
   return sections.join("\n\n");
 }
 
-/**
- * Build the numbered launch guidance text shared by all CLI agent types.
- *
- * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
- * different things carry the detail it drops, and the distinction matters:
- *
- * - **The MCP tool schemas.** `post`'s own description already lists
- *   every block kind and attachment type. Restating that here duplicated a
- *   description the agent already has, in every session, whether or not the
- *   flow ever comes up. The trimmed rules say *that* these tools matter and
- *   leave the *how* to the schema. This half does not depend on the plugin.
- * - **Plugin skills**, for the Playwright methodology (→ `ui-validation` +
- *   `sharing`) and the pull-request routine (→ `review-workflow`). This
- *   half genuinely needs the plugin installed, which is why the setting is
- *   worded as an assertion about it.
- *
- * What never trims is the rule with no replacement anywhere: the no-task
- * guardrail. Nothing else states it, and it has to fire before a task exists.
- *
- * A short file-posting nudge survives the trim on purpose. That habit was
- * already stated in two always-on places and agents still pasted file paths
- * into chat, so it's the one tool-routing rule with a demonstrated failure
- * history — the toggle tests the PR line, not this.
- *
- */
+/** Build the startup rules for every agent, independent of plugin installation. */
 export function buildLaunchGuidance(
   agentId: string,
   opts: {
-    agentType?: AgentType;
     jobRunId?: string;
     suggestSessionRename?: boolean;
-    trimmedGuidance?: boolean;
   }
 ): string {
-  const { agentType, jobRunId, suggestSessionRename, trimmedGuidance } = opts;
-  const trimmed =
-    trimmedGuidance === true &&
-    agentType !== undefined &&
-    PLUGIN_CAPABLE_AGENT_TYPES.has(agentType);
+  const { jobRunId, suggestSessionRename } = opts;
   const rules: string[] = [];
 
   if (jobRunId) {
-    // Not affected by `trimmed`: every rule on this branch is a runtime
+    // Every rule on this branch is a runtime
     // protocol obligation (status, job_log, terminal event) with no
     // task-shaped trigger a skill description could key on.
     rules.push(
@@ -187,38 +148,24 @@ export function buildLaunchGuidance(
     );
     if (suggestSessionRename) {
       rules.push(
-        trimmed
-          ? "Name the session with rename_session once the topic is clear — a short label for what the session is about, not a live status."
-          : "Name the session. Once the topic of work is clear, call rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
-      );
-    }
-    if (trimmed) {
-      // One rule: everything the user needs to read, copy or decide is a
-      // block. The tool schema carries the kinds and attachment types.
-      rules.push(
-        "Use post for link, pr, code or file attachments, and question or form blocks for decisions. Ordinary replies already appear in the stream; do not post them a second time."
-      );
-    } else {
-      rules.push(
-        "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports). A path or URL pasted into prose is easy to lose; an attachment is not."
-      );
-      rules.push(
-        "When you need a decision, post a question block (a row of options, freeform allowed when useful) or a form block for several fields. Waiting on an answer is visible to the user; a question buried in prose is not."
+        "Name the session. Once the topic of work is clear, call rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
     }
     rules.push(
-      trimmed
-        ? 'Share artifacts by posting them as files (post with attachments: [{ type: "file", path }]) — screenshots, logs, reports. A file path pasted into the stream is not a deliverable.'
-        : "Playwright: default headless. Capture at least one screenshot per UI flow and post it as a file attachment. Call browser_close when done."
+      "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports). A path or URL pasted into prose is easy to lose; an attachment is not."
     );
-    if (!trimmed) {
-      rules.push(
-        "For pull requests, use the gh CLI (gh pr create) and post the PR as a pr attachment."
-      );
-      rules.push(
-        "For a requested persona review, call list_personas then launch_agent with persona and a self-contained briefing. The review arrives as a new prompt: finish independent work and end the turn instead of polling or waiting. Reply to each finding with post in its thread (replyTo, and to for the reviewer); its reviewer verifies and resolves it with update."
-      );
-    }
+    rules.push(
+      "When you need a decision, post a question block (a row of options, freeform allowed when useful) or a form block for several fields. Waiting on an answer is visible to the user; a question buried in prose is not."
+    );
+    rules.push(
+      "Playwright: default headless. Capture at least one screenshot per UI flow and post it as a file attachment. Call browser_close when done."
+    );
+    rules.push(
+      "For pull requests, use the gh CLI (gh pr create) and post the PR as a pr attachment."
+    );
+    rules.push(
+      "For a requested persona review, call list_personas then launch_agent with persona and a self-contained briefing. The review arrives as a new prompt: finish independent work and end the turn instead of polling or waiting. Reply to each finding with post in its thread (replyTo, and to for the reviewer); its reviewer verifies and resolves it with update."
+    );
   }
 
   rules.push(

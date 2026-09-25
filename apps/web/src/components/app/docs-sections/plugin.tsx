@@ -121,27 +121,18 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       </Section>
 
       <Section>
-        <H3 id="plugin-launch-guidance">Shorter startup rules</H3>
+        <H3 id="plugin-launch-guidance">Startup rules</H3>
         <P>
-          Once the plugin is installed, the launch guidance can drop the rules
-          its skills already cover — the Playwright methodology and the
-          pull-request routing line — and shorten the rest. Turn it on under{" "}
-          <strong>Settings → Agents → Launch guidance</strong> with{" "}
-          <strong>Use short startup rules</strong>. It's off by default.
-        </P>
-        <P>
-          Dispatch never reads the CLI's plugin state, so this is your
-          assertion, not a detection: switching it on without the plugin
-          installed drops that guidance with nothing replacing it. Job runs are
-          untouched. Guidance is composed at launch, so a change only affects
-          agents started afterwards.
+          Dispatch supplies the same complete startup rules with or without the
+          plugin. No launch-guidance setting is needed. Plugin skills provide
+          additional task-specific workflows.
         </P>
       </Section>
 
       <Section>
         <H3 id="plugin-updating">Keeping it updated</H3>
         <P>
-          <strong>Settings → Agents</strong> shows a dismissible card when a
+          <strong>Settings → Updates</strong> shows a dismissible card when a
           newer plugin version is available, with an <strong>Update</strong>{" "}
           button that runs the refresh-then-install sequence below for you.
           Detection shells out to <Code>claude plugin list --json</Code> /{" "}

@@ -22,7 +22,7 @@ import {
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 
 import { ChatRowStateContext, type ChatRowState } from "./chat-row-state";
-import { useFullHistory, useWindowedRows, WindowGap } from "./windowed-rows";
+import { useWindowedRows, WindowGap } from "./windowed-rows";
 
 /**
  * What the channel draws, top to bottom: day rules, and posts that know
@@ -407,7 +407,6 @@ export function ChatFeed({
     [rows, ctx.agentId]
   );
   const fallbackRef = useRef<HTMLElement>(null);
-  const fullHistory = useFullHistory();
   const windowed = useWindowedRows({
     scrollRef: scrollRef ?? fallbackRef,
     keys: rowKeys,
@@ -415,7 +414,7 @@ export function ChatFeed({
     pinned: pinnedIds,
     isFollowing,
     cacheKey: ctx.agentId ? `feed:${ctx.agentId}` : null,
-    enabled: scrollRef !== undefined && !fullHistory,
+    enabled: scrollRef !== undefined,
     anchorable: isEntryRowKey,
   });
   if (placeRef) {

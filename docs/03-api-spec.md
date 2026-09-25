@@ -328,17 +328,23 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                                 | Description                                                                               |
-| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)                         |
-| POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                               |
-| GET    | `/app/settings/agent-types`          | Get enabled agent types                                                                   |
-| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`)                                               |
-| GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                              |
-| POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                              |
-| GET    | `/app/settings/launch-guidance-trim` | Whether launch guidance is trimmed to the short rules (the plugin skills carry the depth) |
-| POST   | `/app/settings/launch-guidance-trim` | Enable or disable trimmed launch guidance                                                 |
-| GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)                     |
+| Method | Path                        | Description                                                           |
+| ------ | --------------------------- | --------------------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name)     |
+| POST   | `/agents/settings`          | Update agent settings (all fields optional)                           |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                               |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`)                           |
+| GET    | `/app/settings/ides`        | Get enabled IDE integrations                                          |
+| POST   | `/app/settings/ides`        | Set enabled IDE integrations                                          |
+| GET    | `/agent-models`             | Curated per-type model catalog (`{ models: { claude: [...], ... } }`) |
+
+Avatar settings use authenticated GET/PUT `/app/settings/user-avatar`. Both return
+`{ avatar }`; PUT accepts the same envelope. An avatar is
+`{ kind: "builtin", id: "person" | "sun" | "cat" | "leaf" | "mountain" | "coffee" }`
+or `{ kind: "image", dataUrl: "data:image/webp;base64,..." }`. Images must be
+PNG/JPEG/WebP, square, at most 256 pixels per side and 100 KB decoded. Invalid
+values return 400. Saving the `person` preset resets the avatar. The setting is
+shared by all browsers connected to this instance.
 
 ## System
 
