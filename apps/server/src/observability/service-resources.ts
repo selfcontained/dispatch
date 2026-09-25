@@ -33,6 +33,8 @@ export type ResourceSample = {
   agentCpuPercent: number | null;
   agentRssBytes: number | null;
   hostLoad1: number;
+  hostFreeMemoryBytes: number;
+  hostTotalMemoryBytes: number;
   subsystems: Record<string, SubsystemResourceSample>;
 };
 
@@ -79,6 +81,7 @@ export type ServiceResourcesDeps = {
   /** Running agents and the pid of each one's host process, when alive. */
   listAgentProcesses: () => Promise<Array<{ hostPid: number | null }>>;
   getWorkloads: () => WorkloadSnapshot;
+  sampleArtifactStorage?: () => Promise<number>;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
   /** Override the platform process probes in focused tests. */
@@ -124,6 +127,11 @@ export type ServiceResourcesResponse = {
       cpuCount: number;
       totalMemoryBytes: number;
       freeMemoryBytes: number;
+    };
+    artifacts?: {
+      sizeBytes: number | null;
+      sampledAt: number | null;
+      error: string | null;
     };
     agents: AgentProcessSnapshot;
     database: {
@@ -228,11 +236,19 @@ export class ServiceResources {
   private httpInFlight = 0;
   private httpBuckets: HttpBucket[] = [];
   private runningAgentCount = 0;
+  private eventLoopP95 = 0;
+  private artifacts = {
+    sizeBytes: null as number | null,
+    sampledAt: null as number | null,
+    error: null as string | null,
+  };
+  private lastArtifactAttemptAt = 0;
+  private artifactProbe: Promise<void> | null = null;
   private workloads: WorkloadSnapshot;
   private previousOwnerCounters: {
     uiEventsPublished: number;
     uiWriteFailures: number;
-      } | null = null;
+  } | null = null;
   private ownerHealth = {
     uiEvents: {
       lastSucceededAt: null as number | null,
@@ -369,7 +385,7 @@ export class ServiceResources {
         message: `${delayed.map((item) => item.label).join(", ")} ${delayed.length === 1 ? "needs" : "need"} attention.`,
       });
     }
-    const eventLoopP95 = round(this.eventLoopDelay.percentile(95) / 1e6, 1);
+    const eventLoopP95 = this.eventLoopP95;
     if (eventLoopP95 > 100) {
       reasons.push({
         code: "EVENT_LOOP_DELAY_HIGH",
@@ -421,6 +437,7 @@ export class ServiceResources {
           totalMemoryBytes: os.totalmem(),
           freeMemoryBytes: os.freemem(),
         },
+        artifacts: { ...this.artifacts },
         agents: { ...this.agentProcesses },
         database: { ...this.database, pool: this.poolSnapshot() },
         eventLoop: { p95DelayMs: eventLoopP95 },
@@ -551,6 +568,7 @@ export class ServiceResources {
 
   private async sample(generation: number): Promise<void> {
     const now = Date.now();
+    this.sampleArtifactsIfDue(generation, now);
     const cpuNow = process.cpuUsage();
     const wallNow = performance.now();
     const cpuMicros =
@@ -584,6 +602,8 @@ export class ServiceResources {
     };
     this.updateOwnerHealth(workloads, now);
     this.workloads = workloads;
+    this.eventLoopP95 = round(this.eventLoopDelay.percentile(95) / 1e6, 1);
+    this.eventLoopDelay.reset();
     this.currentCpuPercent = currentCpuPercent;
     this.previousCpu = cpuNow;
     this.previousCpuAt = wallNow;
@@ -606,6 +626,8 @@ export class ServiceResources {
       agentCpuPercent: agentProcesses.cpuPercent,
       agentRssBytes: agentProcesses.rssBytes,
       hostLoad1: os.loadavg()[0],
+      hostFreeMemoryBytes: os.freemem(),
+      hostTotalMemoryBytes: os.totalmem(),
       subsystems: Object.fromEntries(
         subsystemSnapshots.map((subsystem) => [
           subsystem.id,
@@ -620,6 +642,33 @@ export class ServiceResources {
     if (this.samples.length > MAX_SAMPLES) {
       this.samples = this.samples.slice(-MAX_SAMPLES);
     }
+  }
+
+  private sampleArtifactsIfDue(generation: number, now: number): void {
+    if (
+      !this.deps.sampleArtifactStorage ||
+      this.artifactProbe ||
+      (this.lastArtifactAttemptAt > 0 &&
+        now - this.lastArtifactAttemptAt < DATABASE_SIZE_INTERVAL_MS)
+    )
+      return;
+    this.lastArtifactAttemptAt = now;
+    this.artifactProbe = this.deps
+      .sampleArtifactStorage()
+      .then((sizeBytes) => {
+        if (this.isActive(generation))
+          this.artifacts = { sizeBytes, sampledAt: Date.now(), error: null };
+      })
+      .catch(() => {
+        if (this.isActive(generation))
+          this.artifacts = {
+            ...this.artifacts,
+            error: "Artifact storage sampling failed",
+          };
+      })
+      .finally(() => {
+        this.artifactProbe = null;
+      });
   }
 
   private async sampleDatabase(): Promise<
@@ -787,7 +836,9 @@ export class ServiceResources {
       return {
         processes: {
           ...this.agentProcesses,
-          sampledAt: Date.now(),
+          cpuPercent: null,
+          rssBytes: null,
+          processCount: null,
           error: "Agent session sampling failed",
         },
         runningAgentCount: this.runningAgentCount,
@@ -870,7 +921,9 @@ export class ServiceResources {
       return {
         processes: {
           ...this.agentProcesses,
-          sampledAt: Date.now(),
+          cpuPercent: null,
+          rssBytes: null,
+          processCount: null,
           error: "Process sampling failed",
         },
         runningAgentCount,
@@ -894,7 +947,6 @@ export class ServiceResources {
       } else if (published > 0) {
         this.ownerHealth.uiEvents.lastSucceededAt = now;
       }
-
     }
     this.previousOwnerCounters = {
       uiEventsPublished: workloads.uiEventsPublished,

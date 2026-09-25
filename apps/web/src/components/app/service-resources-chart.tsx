@@ -24,6 +24,7 @@ export function ResourceChart({
   keys,
   unit,
   secondaryKey,
+  primaryAxisWidth = 40,
 }: {
   title: string;
   description: string;
@@ -32,6 +33,7 @@ export function ResourceChart({
   keys: string[];
   unit: string;
   secondaryKey?: string;
+  primaryAxisWidth?: number;
 }) {
   const allKeys = secondaryKey ? [...keys, secondaryKey] : keys;
   return (
@@ -94,7 +96,7 @@ export function ResourceChart({
               />
               <YAxis
                 yAxisId="primary"
-                width={40}
+                width={primaryAxisWidth}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(value) => `${Math.round(Number(value))}${unit}`}

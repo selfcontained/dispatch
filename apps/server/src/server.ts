@@ -1,3 +1,4 @@
+import { sampleArtifactStorage } from "./observability/artifact-storage.js";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -319,6 +320,17 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
 const serviceResources = new ServiceResources({
   pool,
   probePool: serviceResourcesProbePool,
+  sampleArtifactStorage: async () => {
+    // Retained files can belong to archived/deleted sessions or custom roots.
+    const result = await pool.query<{ files_dir: string }>(
+      "SELECT DISTINCT files_dir FROM agents WHERE files_dir IS NOT NULL"
+    );
+    return sampleArtifactStorage([
+      config.filesRoot,
+      config.agentStateRoot,
+      ...result.rows.map((row) => row.files_dir),
+    ]);
+  },
   listAgentProcesses: async () => {
     const agents = await agentManager.listAgents();
     const running = agents.filter((agent) =>
