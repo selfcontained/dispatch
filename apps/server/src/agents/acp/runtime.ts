@@ -11,7 +11,10 @@ import {
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
-import type { AvailableCommand } from "@agentclientprotocol/sdk";
+import type {
+  AvailableCommand,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
@@ -195,6 +198,7 @@ type Waiting = {
 type Live = {
   client: HostClient;
   commands: AvailableCommand[];
+  configOptions: SessionConfigOption[];
   /** Prompts run one at a time, in order. */
   queue: Promise<void>;
   /** Prompts not yet sent, oldest first. */
@@ -362,6 +366,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     ) {
       entry.commands = event.update.availableCommands ?? [];
     }
+    if (event.type === "config") entry.configOptions = event.options;
     if (event.type === "exit") {
       entry.turnOpen = false;
       const waiters = entry.settleWaiters;
@@ -392,6 +397,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const entry: Live = {
       client: null as unknown as HostClient,
       commands: [],
+      configOptions: [],
       queue: Promise.resolve(),
       waiting: [],
       pending: 0,
@@ -445,6 +451,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         }
         entry.turnOpen = welcome.turn !== null;
         entry.commands = welcome.commands;
+        if (welcome.configOptions) entry.configOptions = welcome.configOptions;
       },
       onGone: (reason) => {
         logger.warn({ agentId, reason }, "agent host is gone");
@@ -496,6 +503,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     getCommands(agentId) {
       const entry = live.get(agentId);
       return entry?.client.welcome?.running ? entry.commands : null;
+    },
+    getConfigOptions(agentId) {
+      const entry = live.get(agentId);
+      return entry?.client.welcome?.running ? entry.configOptions : null;
+    },
+    async setConfigOption(agentId, configId, value) {
+      const entry = live.get(agentId);
+      if (!entry?.client.welcome?.running) {
+        throw new Error("The agent's session is not running.");
+      }
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const options = await entry.client.setConfig(id, configId, value);
+      entry.configOptions = options;
+      return options;
     },
 
     async launch(input) {

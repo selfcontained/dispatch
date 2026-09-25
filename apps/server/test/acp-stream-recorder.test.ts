@@ -60,6 +60,34 @@ const thought = (text: string): DriverEvent => ({
 });
 
 describe("StreamRecorder", () => {
+  it("keeps the model a turn started on, through its usage and settle", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "x",
+      model: "haiku",
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: { sessionUpdate: "usage_update", used: 10, size: 100 },
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const turn = (await store.list(A, 10)).find((r) => r.kind === "turn");
+    expect(turn?.payload).toMatchObject({
+      state: "settled",
+      model: "haiku",
+      usage: { used: 10, size: 100 },
+    });
+  });
+
   it("accumulates chunks into one assistant row and settles it at turn end", async () => {
     const rec = new StreamRecorder(store);
     await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });

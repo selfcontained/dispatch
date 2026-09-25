@@ -3,7 +3,10 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
-import type { AvailableCommand } from "@agentclientprotocol/sdk";
+import type {
+  AvailableCommand,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
 import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
@@ -53,6 +56,17 @@ export type AgentRuntime = {
   isAlive(agentId: string): Promise<boolean>;
   /** Commands the live ACP session advertises; null without a live host. */
   getCommands(agentId: string): AvailableCommand[] | null;
+  /** The live session's config options (model, effort, mode); null without a live host. */
+  getConfigOptions(agentId: string): SessionConfigOption[] | null;
+  /**
+   * Set one config option on the live session. Resolves with the engine's
+   * options once it took the value; the `config` event follows as usual.
+   */
+  setConfigOption(
+    agentId: string,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]>;
   /**
    * Queue one turn. `accepted` resolves when the engine has the prompt
    * (after any turn already running); `settled` when the turn ends.
@@ -127,6 +141,12 @@ export function createInertRuntime(): AgentRuntime {
     },
     getCommands() {
       return null;
+    },
+    getConfigOptions() {
+      return null;
+    },
+    async setConfigOption() {
+      throw new Error("No engine is attached in this environment.");
     },
     prompt() {
       return { accepted: Promise.resolve(), settled: Promise.resolve() };

@@ -1,6 +1,8 @@
 import type { PromptSource } from "./prompt-source.js";
 import net from "node:net";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+
 import type { DriverLogger } from "./driver.js";
 import {
   type ClientMessage,
@@ -44,6 +46,13 @@ export class HostClient {
   private readonly pendingPrompts = new Map<
     string,
     { resolve: () => void; reject: (err: Error) => void }
+  >();
+  private readonly pendingConfig = new Map<
+    string,
+    {
+      resolve: (options: SessionConfigOption[]) => void;
+      reject: (err: Error) => void;
+    }
   >();
   private welcomeWaiters: Array<{
     resolve: (w: HostWelcome) => void;
@@ -214,11 +223,22 @@ export class HostClient {
         }
         return;
       }
+      case "config_set": {
+        const pending = this.pendingConfig.get(message.id);
+        if (pending) {
+          this.pendingConfig.delete(message.id);
+          pending.resolve(message.options);
+        }
+        return;
+      }
       case "error": {
         if (message.id) {
-          const pending = this.pendingPrompts.get(message.id);
+          const pending =
+            this.pendingPrompts.get(message.id) ??
+            this.pendingConfig.get(message.id);
           if (pending) {
             this.pendingPrompts.delete(message.id);
+            this.pendingConfig.delete(message.id);
             pending.reject(new Error(message.message));
           }
           return;
@@ -260,6 +280,8 @@ export class HostClient {
   private failPending(err: Error): void {
     for (const pending of this.pendingPrompts.values()) pending.reject(err);
     this.pendingPrompts.clear();
+    for (const pending of this.pendingConfig.values()) pending.reject(err);
+    this.pendingConfig.clear();
   }
 
   private send(message: ClientMessage): void {
@@ -277,6 +299,23 @@ export class HostClient {
         this.send({ type: "prompt", id, text, ...(source ? { source } : {}) });
       } catch (err) {
         this.pendingPrompts.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /** Resolves with the engine's options once it took the value. */
+  setConfig(
+    id: string,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]> {
+    return new Promise<SessionConfigOption[]>((resolve, reject) => {
+      this.pendingConfig.set(id, { resolve, reject });
+      try {
+        this.send({ type: "set_config", id, configId, value });
+      } catch (err) {
+        this.pendingConfig.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });

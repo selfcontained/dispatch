@@ -146,3 +146,15 @@ export type {
   FileDiffResponse,
 } from "./diff-types.js";
 export type { SharedUiEvent } from "./ui-event-types.js";
+export type {
+  AgentConfigChoice,
+  AgentConfigOption,
+  AgentConfigResponse,
+  AgentConfigUpdateRequest,
+  AgentUsageResponse,
+  PlanSpend,
+  PlanWindow,
+  ProviderPlan,
+  ProviderPlansResponse,
+  TokenCounts,
+} from "./usage-types.js";

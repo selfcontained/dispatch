@@ -312,6 +312,7 @@ export class StreamRecorder {
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt,
+            ...(event.model ? { model: event.model } : {}),
           } satisfies TurnPayload);
           this.openTurn.set(event.agentId, row);
           await this.openTurnBlock(event.agentId, row, prompt);

@@ -44,6 +44,8 @@ export type TurnRetryState = "open" | "retried" | "closed";
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
+  /** The model the turn ran on, as the engine published it at the start. */
+  model?: string;
   stopReason?: string;
   error?: string;
   /** The adapter's category for `error`, when it gave one. */

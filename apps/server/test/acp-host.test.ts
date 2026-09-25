@@ -210,6 +210,48 @@ describe("agent host", () => {
     expect(await replacement.runtime.listHosted()).toEqual([]);
   }, 60_000);
 
+  it("sets a config option on the live session and survives a reattach", async () => {
+    const id = "agt_host_cfg";
+    const first = runtimeWith(stateRoot, () => 0);
+    await first.runtime.launch(launchFor(id, cwd));
+    const model = () =>
+      first.runtime.getConfigOptions(id)?.find((o) => o.id === "model");
+    await until(() => model() !== undefined);
+    expect(model()?.currentValue).toBe("default-model");
+
+    const options = await first.runtime.setConfigOption(
+      id,
+      "model",
+      "other-model"
+    );
+    expect(options.find((o) => o.id === "model")?.currentValue).toBe(
+      "other-model"
+    );
+    expect(model()?.currentValue).toBe("other-model");
+    // The engine's config event follows, so the server records the model.
+    await until(() =>
+      first.seen.some(
+        (s) =>
+          s.event.type === "config" &&
+          s.event.options.some(
+            (o) => o.id === "model" && o.currentValue === "other-model"
+          )
+      )
+    );
+
+    // A server that reattaches learns the options from the welcome.
+    const second = runtimeWith(stateRoot, () =>
+      Math.max(...first.seen.map((s) => s.seq))
+    );
+    expect(await second.runtime.attach(id)).toBe(true);
+    expect(
+      second.runtime.getConfigOptions(id)?.find((o) => o.id === "model")
+        ?.currentValue
+    ).toBe("other-model");
+
+    await second.runtime.stop(id, false);
+  }, 60_000);
+
   it("recovers a replaced journal even when the stored sequence is far ahead", async () => {
     const id = "agt_reset";
     const stateDir = path.join(stateRoot, id);

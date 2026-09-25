@@ -17,6 +17,7 @@ import { useSearchParams } from "react-router-dom";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
+import { ComposerMeta } from "@/components/app/chat/composer-meta";
 import { StopTurnButton } from "@/components/app/chat/stop-turn-button";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
@@ -1213,6 +1214,15 @@ export function ChatPane({
                 ) : undefined
               }
             />
+            {agentId && agent ? (
+              <ComposerMeta
+                agentId={agentId}
+                agent={agent}
+                active={active}
+                turnRunning={turnRunning}
+                turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
+              />
+            ) : null}
           </div>
         </div>
       </div>
