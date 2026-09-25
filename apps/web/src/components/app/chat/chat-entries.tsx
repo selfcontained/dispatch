@@ -504,12 +504,8 @@ export const POST_TINT: Record<PostAuthor["kind"], string> = {
   agent: "hover:bg-muted/40",
 };
 
-/**
- * Post bodies stop growing at a comfortable reading measure; on a wide pane
- * a paragraph must not run edge to edge. The tint and the header still span
- * the full width.
- */
-export const POST_BODY_MEASURE = "max-w-[90ch]";
+/** Keep post bodies and turn details within the full available stream width. */
+export const POST_BODY_MEASURE = "max-w-full";
 
 /** Opens the post's thread with the composer ready: a person replying to one post. */
 export function ReplyInThreadButton({
@@ -698,10 +694,7 @@ export function Post({
           </div>
         )}
         <div
-          className={cn(
-            "min-w-0 max-w-full text-sm text-foreground",
-            POST_BODY_MEASURE
-          )}
+          className={cn("min-w-0 text-sm text-foreground", POST_BODY_MEASURE)}
         >
           {children}
         </div>

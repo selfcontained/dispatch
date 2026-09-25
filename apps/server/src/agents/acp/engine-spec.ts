@@ -78,7 +78,8 @@ export type EngineSpec = {
   /**
    * `system_prompt`: `session/new` and `session/resume` carry
    * `_meta.systemPrompt.append`. `first_prompt`: the guidance is the leading
-   * block of a fresh session's first prompt.
+   * block of the first non-command prompt after launch or resume (without
+   * opening a turn). Raw slash commands leave the guidance pending.
    */
   personaDelivery: "system_prompt" | "first_prompt";
   fullAccess: FullAccess;

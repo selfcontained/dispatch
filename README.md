@@ -142,6 +142,15 @@ curl -s -X POST $(bin/dispatch-dev url)/api/v1/agents \
 
 Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. Interactive agents (persona agents included) and job runners each expose a slightly different set, all configured automatically with no setup.
 
+`get_usage` is available to both interactive agents and job runners. Call it with
+`{}` to compare provider usage, or `{ "type": "claude", "force": true }` to
+request a refresh for a comparison focused on Claude. It returns model IDs from
+Dispatch's current launch catalog, remaining percentages for each reported quota
+window, reset times, and remaining spend when available. Quotas are shared by
+agents using the same provider login; model-specific limits retain the provider's
+window labels. Check `observedAt` and `unavailableReason` before using a report to
+choose `launch_agent`'s `type` and `model`. Missing limits mean unknown capacity.
+
 ### Interactive agents
 
 | Tool                       | Description                                                                                         |

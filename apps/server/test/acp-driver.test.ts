@@ -165,6 +165,64 @@ describe("AcpDriver", () => {
       await driver.stop("agt_1");
     }
   });
+  it.each([null, "existing-session"])(
+    "preserves first-turn slash commands and defers guidance after launch/resume (%s)",
+    async (sessionId) => {
+      // No advertised commands: dispatch must also work before the adapter's
+      // asynchronous command list arrives, and for adapter-specific commands.
+      const fake = createFakeAcpAgent();
+      const { driver } = driverWith(fake);
+      const guidance = "Call rename_session once the topic is clear.";
+      await driver.start(
+        launch({ sessionId, firstPromptAppend: guidance }, "codex")
+      );
+      try {
+        const commands = ["/review changes", " /compact ", "/plan", "/status"];
+        for (const command of commands) await driver.prompt("agt_1", command);
+        expect(fake.seen.prompts).toEqual(commands);
+        await driver.prompt("agt_1", "Fix naming");
+        await driver.prompt("agt_1", "Continue");
+        expect(fake.seen.prompts.slice(commands.length)).toEqual([
+          `${guidance}Fix naming`,
+          "Continue",
+        ]);
+      } finally {
+        await driver.stop("agt_1");
+      }
+    }
+  );
+
+  it.each([null, "existing-session"])(
+    "delivers Codex guidance once with real work after launch/resume (%s)",
+    async (sessionId) => {
+      const fake = createFakeAcpAgent();
+      const { driver } = driverWith(fake);
+      const events: DriverEvent[] = [];
+      driver.onEvent((event) => events.push(event));
+      await driver.start(
+        launch(
+          {
+            sessionId,
+            firstPromptAppend: "Call rename_session once the topic is clear.",
+          },
+          "codex"
+        )
+      );
+      expect(fake.seen.prompts).toEqual([]);
+      await driver.prompt("agt_1", "Fix naming");
+      await driver.prompt("agt_1", "Continue");
+      expect(fake.seen.prompts[0]).toContain("rename_session");
+      expect(fake.seen.prompts[0]).toContain("Fix naming");
+      expect(fake.seen.prompts[1]).toBe("Continue");
+      expect(
+        events
+          .filter((event) => event.type === "turn" && event.state === "started")
+          .map((event) => ("text" in event ? event.text : null))
+      ).toEqual(["Fix naming", "Continue"]);
+      await driver.stop("agt_1");
+    }
+  );
+
   it("claude: spawns the adapter with its args and env, declares subagent transcripts, sends the persona in _meta", async () => {
     const fake = createFakeAcpAgent();
     const { spawn, driver } = driverWith(fake);

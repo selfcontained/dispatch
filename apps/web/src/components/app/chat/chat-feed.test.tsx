@@ -1343,8 +1343,10 @@ describe("ChatFeed", () => {
     expect(peer.className).toContain(POST_TINT.peer);
     expect(peer.getAttribute("data-rule")).toBe("true");
 
-    // Bodies stop at a reading measure; the row itself spans the pane.
-    const body = agentPost!.querySelector(".max-w-\\[90ch\\]");
+    // Bodies and rows both use the available pane width.
+    const body = agentPost!.querySelector(
+      ".min-w-0.text-sm.text-foreground.max-w-full"
+    );
     expect(body?.textContent).toContain("agent one");
     // The copy action floats over the corner; it must not reserve a strip down
     // the full height of the message body.

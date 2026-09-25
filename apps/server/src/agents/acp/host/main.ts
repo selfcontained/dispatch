@@ -420,6 +420,8 @@ async function main(): Promise<void> {
       engine: spec,
       systemPromptAppend:
         spec.personaDelivery === "system_prompt" ? launch.systemPrompt : null,
+      firstPromptAppend:
+        spec.personaDelivery === "first_prompt" ? launch.systemPrompt : null,
       mcp: launch.mcp,
       sessionId: resume,
       env: childEnv,

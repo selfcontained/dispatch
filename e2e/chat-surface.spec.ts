@@ -16,6 +16,150 @@ test.describe("Chat surface", () => {
     await cleanupE2EAgents(request);
   });
 
+  test("composer shortcut focuses only a visible composer", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    await callMcpTool(request, agent.id, "post", {
+      text: "A message to reply to",
+    });
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    const mod = await page.evaluate(() =>
+      /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control"
+    );
+    const shortcut = `${mod}+Shift+Space`;
+    const composer = page
+      .getByTestId("chat-pane")
+      .getByTestId("chat-composer-input");
+    await composer.fill("Keep this draft");
+    await page.getByTestId("center-tab-agent").click();
+    await page.keyboard.press(shortcut);
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveValue("Keep this draft");
+
+    await page
+      .getByTestId("chat-message")
+      .filter({ hasText: "A message to reply to" })
+      .getByTestId("chat-reply-in-thread")
+      .click();
+    const thread = page.getByTestId("chat-thread-panel");
+    const reply = thread.getByTestId("chat-composer-input");
+    await page.getByRole("button", { name: "Close", exact: true }).focus();
+    await page.keyboard.press(shortcut);
+    await expect(reply).toBeFocused();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(thread).toHaveCount(0);
+    await page.keyboard.press(shortcut);
+    await expect(composer).toBeFocused();
+
+    const changes = page.getByTestId("center-tab-changes");
+    await changes.click();
+    await expect(composer).not.toBeVisible();
+    await page.keyboard.press(shortcut);
+    await expect(composer).not.toBeFocused();
+    await expect(changes).toHaveAttribute("aria-selected", "true");
+
+    await page.getByTestId("center-tab-agent").click();
+    await expect(composer).toBeVisible();
+    await page.keyboard.press(`${mod}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await page.keyboard.press(shortcut);
+    await expect(palette.getByRole("combobox")).toBeFocused();
+    await expect(composer).not.toBeFocused();
+  });
+
+  test("composer keeps full-width text above its toolbar at desktop and mobile widths", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-composer-layout-${Date.now()}`,
+    });
+    await page.route("**/api/v1/agents/" + agent.id + "/commands", (route) =>
+      route.fulfill({
+        json: { commands: [{ name: "review", description: "Review changes" }] },
+      })
+    );
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    const input = page.getByTestId("chat-composer-input");
+    const controls = page.getByTestId("chat-composer-controls");
+
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await input.fill("Short draft");
+      await expect
+        .poll(async () => (await input.boundingBox())!.height)
+        .toBeLessThan(60);
+      const field = (await input.boundingBox())!;
+      const buttons = (await controls.boundingBox())!;
+      // The toolbar has a consistent home below the full-width field.
+      expect(buttons.y).toBeGreaterThanOrEqual(field.y + field.height);
+      expect(buttons.width).toBe(field.width);
+      await expect(page.getByTestId("chat-composer-send")).toHaveText("");
+
+      await input.fill(
+        "A longer draft fills the space above the icons. ".repeat(6) +
+          "\nLast line."
+      );
+      await expect
+        .poll(async () => (await input.boundingBox())!.height)
+        .toBeGreaterThan(60);
+      await page.screenshot({
+        path: test.info().outputPath(`composer-${width}.png`),
+      });
+
+      await input.fill("A line in a long draft.\n".repeat(30));
+      await expect
+        .poll(
+          async () =>
+            (await controls.boundingBox())!.y -
+            ((await input.boundingBox())!.y +
+              (await input.boundingBox())!.height)
+        )
+        .toBeGreaterThanOrEqual(0);
+      await input.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await expect(input).toBeFocused();
+      await input.fill("");
+      await expect(page.getByTestId("chat-composer-send")).toBeDisabled();
+      await expect(
+        page.getByTestId("chat-composer-mention-button")
+      ).toBeVisible();
+      await expect(
+        page.getByTestId("chat-composer-command-button")
+      ).toBeVisible();
+      await input.fill("Please ");
+      await page.getByTestId("chat-composer-mention-button").click();
+      await expect(page.getByTestId("mention-picker")).toBeVisible();
+      await page.getByTestId("mention-option").first().click();
+      await expect(input).toHaveValue("Please @" + agent.name + " ");
+
+      await input.fill("check this draft");
+      await page.getByTestId("chat-composer-command-button").click();
+      await expect(page.getByTestId("slash-picker")).toBeVisible();
+      await expect
+        .poll(() => input.evaluate((el) => el.selectionStart))
+        .toBe(1);
+      await input.pressSequentially("rev");
+      await expect(page.getByTestId("slash-option")).toHaveCount(1);
+      await input.press("Enter");
+      await expect(input).toHaveValue("/review check this draft");
+      await expect(page.getByTestId("slash-picker")).toBeHidden();
+      await page.getByTestId("chat-composer-command-button").click();
+      await expect(page.getByTestId("slash-picker")).toBeVisible();
+      await input.press("Escape");
+      await expect(page.getByTestId("slash-picker")).toBeHidden();
+      await page.screenshot({
+        path: test.info().outputPath("composer-pickers-" + width + ".png"),
+      });
+    }
+  });
+
   test("Agent tab renders a seeded feed", async ({ page, request }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-on-${Date.now()}`,

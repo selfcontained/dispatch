@@ -18,6 +18,8 @@ export type DriverLaunch = {
   engine: EngineSpec;
   /** The persona, for an engine whose spec says `system_prompt`; null otherwise. */
   systemPromptAppend: string | null;
+  /** Guidance for engines without system-prompt support, once per host start. */
+  firstPromptAppend?: string | null;
   mcp: { url: string; token: string };
   /** Resume this ACP session when set; falls back to a new one if the engine lost it. */
   sessionId: string | null;
@@ -99,6 +101,7 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
   engine: EngineSpec["id"];
+  firstPromptAppend: string | null;
   child: ChildProcessLike;
   conn: acp.ClientSideConnection;
   sessionId: string;
@@ -519,6 +522,7 @@ export class AcpDriver {
       conn,
       sessionId: outcome.session.sessionId,
       startedAt: new Date().toISOString(),
+      firstPromptAppend: launch.firstPromptAppend ?? null,
       exited,
       stopping: false,
       cancelling: false,
@@ -643,10 +647,21 @@ export class AcpDriver {
       throw new Error("the agent exited before the turn settled");
     });
     try {
+      // ACP adapters recognize commands from the first text block and may
+      // handle them without a model turn. Preserve raw slash prompts, and
+      // keep the guidance for the next ordinary prompt instead of consuming
+      // it on a command. Do not depend on the command list arriving first.
+      const guidance = text.trimStart().startsWith("/")
+        ? null
+        : entry.firstPromptAppend;
       const dispatched = entry.conn.prompt({
         sessionId: entry.sessionId,
-        prompt: [{ type: "text", text }],
+        prompt: [
+          ...(guidance ? [{ type: "text" as const, text: guidance }] : []),
+          { type: "text", text },
+        ],
       });
+      if (guidance) entry.firstPromptAppend = null;
       onAccepted?.();
       const res = await Promise.race([dispatched, gone]);
       this.emit({

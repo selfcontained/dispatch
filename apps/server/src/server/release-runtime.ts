@@ -98,6 +98,8 @@ type CreateReleaseRuntimeDeps = {
   ) => ReleaseLogStreamProcessor;
   /** Kept injectable so artifact activation can be tested without a service manager. */
   restartService?: () => void;
+  /** Reject an update before staging if the service manager would kill agent hosts. */
+  checkHostSurvival?: () => Promise<void>;
   writeReleaseCandidate?: (candidate: ReleaseCandidate) => Promise<void>;
 };
 
@@ -109,6 +111,35 @@ export type UpdateJob = Extract<
 
 function kindOf(job: ReleaseJob): ReleaseJobKind {
   return job.jobType === "create" ? "create" : "update";
+}
+
+/** A Linux service restart must leave the host processes in its cgroup alive. */
+export async function assertHostSurvivalOnRestart(
+  platform: string,
+  runCommand: RunCommand
+): Promise<void> {
+  if (platform !== "linux") return;
+  let loaded: string;
+  try {
+    loaded = (
+      await runCommand("systemctl", [
+        "--user",
+        "show",
+        "dispatch.service",
+        "-p",
+        "KillMode",
+      ])
+    ).stdout.trim();
+  } catch {
+    throw new Error(
+      "Cannot verify that the Dispatch service preserves agent hosts. Complete the assisted service migration before updating."
+    );
+  }
+  if (loaded !== "KillMode=process") {
+    throw new Error(
+      `Dispatch service restart is unsafe for running agents (${loaded || "KillMode unavailable"}). Load KillMode=process before updating.`
+    );
+  }
 }
 
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
@@ -470,6 +501,11 @@ Suggested workflow:
   async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     setReleasePhase(job, "deploying");
     appendReleaseLog(job, `==> deploying ${tag}`);
+
+    // A force override of release migrations must never override agent
+    // process survival. Refuse before replacing the live executable.
+    await (deps.checkHostSurvival?.() ??
+      assertHostSurvivalOnRestart(process.platform, deps.runCommand));
 
     await deployFromArtifact(job, tag);
 

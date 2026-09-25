@@ -5,6 +5,7 @@ import {
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
+import { StreamServiceError } from "../../chat/service.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
@@ -17,7 +18,7 @@ import type { AgentRouteDeps } from "./shared.js";
  * ever sent because someone asked for it.
  */
 const RENAME_PROMPT =
-  "Please set a short, descriptive name for this session that reflects the work you're doing — call the `rename_session` MCP tool with the new name. Then continue with whatever you were doing.";
+  "Please call the `rename_session` MCP tool with a short, descriptive name for this session's topic. If the session already has a meaningful name, keep it. This request is only to name the session; it does not ask you to start or resume other work.";
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,
@@ -200,7 +201,7 @@ export async function registerAgentLifecycleRoutes(
           .code(409)
           .send({ error: "Agent must be running to receive a rename prompt." });
       }
-      // Mirror the gates the auto-listener and the sidebar UI apply, so a
+      // Mirror the gates the launch guidance and the sidebar UI apply, so a
       // direct API caller can't paste the rename prompt into an agent that
       // wouldn't be eligible via the UI: personas / job agents / already-
       // renamed agents already carry a meaningful name.
@@ -213,9 +214,19 @@ export async function registerAgentLifecycleRoutes(
           .code(409)
           .send({ error: "Agent already has a custom session name." });
       }
-      await deps.sendAgentPrompt(id, RENAME_PROMPT);
-      return reply.code(204).send();
+      const posted = await deps.chat.sendUserPost(
+        await deps.chat.streamOf(id),
+        {
+          to: id,
+          text: RENAME_PROMPT,
+          allowInert: false,
+        }
+      );
+      return reply.code(202).send(posted);
     } catch (error) {
+      if (error instanceof StreamServiceError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
       return deps.handleAgentError(reply, error);
     }
   });
