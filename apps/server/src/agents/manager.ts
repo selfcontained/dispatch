@@ -56,6 +56,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
+import { syncTurnUsage } from "./usage-recorder.js";
 import type { PromptSource } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
@@ -400,6 +401,9 @@ export class AgentManager {
     seq: number
   ): Promise<void> {
     await this.streamRecorder.handle(event);
+    if (event.type === "turn" && event.state === "settled" && event.usage) {
+      await this.recordUsage(agentId);
+    }
     if (event.type === "update" || event.type === "turn") {
       // ACP activity can change the worktree; the refresher throttles Git reads.
       void this.diffStatsRefresher?.signal(agentId);
@@ -439,6 +443,15 @@ export class AgentManager {
       agentId,
       event.type === "turn" || event.type === "exit"
     );
+  }
+
+  /** Fold the turn the recorder just settled into the token totals; never fails the event. */
+  private async recordUsage(agentId: string): Promise<void> {
+    try {
+      await syncTurnUsage(this.pool, agentId);
+    } catch (err) {
+      this.logger.warn({ err, agentId }, "could not record turn usage");
+    }
   }
 
   /** The engine told us its options: record the model it really runs. */
@@ -560,6 +573,41 @@ export class AgentManager {
   /** The live session's ACP slash commands, including advertised skills. */
   getCommands(id: string): AvailableCommand[] | null {
     return this.runtime.getCommands(id);
+  }
+
+  /** The live session's config options (model, effort, mode); null without one. */
+  getConfigOptions(id: string): SessionConfigOption[] | null {
+    return this.runtime.getConfigOptions(id);
+  }
+
+  /**
+   * Change one of the live session's config options. The engine's `config`
+   * event that follows moves `agents.model`, so a restart resumes on the
+   * model chosen here.
+   */
+  async setConfigOption(
+    id: string,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]> {
+    const access = await this.getTerminalAccess(id);
+    if (access.mode !== "live") {
+      throw new AgentError(access.message, 409);
+    }
+    const option = this.runtime
+      .getConfigOptions(id)
+      ?.find((o) => o.id === configId);
+    if (!option) {
+      throw new AgentError("The engine does not offer that setting.", 400);
+    }
+    try {
+      return await this.runtime.setConfigOption(id, configId, value);
+    } catch (err) {
+      throw new AgentError(
+        err instanceof Error ? err.message : String(err),
+        409
+      );
+    }
   }
 
   /** The agent host's pid when it is alive (resource sampling). */

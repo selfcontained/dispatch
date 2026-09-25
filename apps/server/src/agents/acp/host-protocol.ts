@@ -2,7 +2,10 @@ import type { PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
 import type { DriverEvent } from "./driver.js";
-import type { AvailableCommand } from "@agentclientprotocol/sdk";
+import type {
+  AvailableCommand,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
 
 /**
@@ -60,6 +63,8 @@ export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
   | { type: "prompt"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
+  /** Set one of the session's config options (model, effort, mode). */
+  | { type: "set_config"; id: string; configId: string; value: string }
   | { type: "shutdown"; force?: boolean }
   | { type: "ping" };
 
@@ -81,9 +86,13 @@ export type HostMessage =
       journalId?: string;
       /** Current ACP commands, including skills; refreshed on each reconnect. */
       commands: AvailableCommand[];
+      /** The session's config options as they stand; absent from older hosts. */
+      configOptions?: SessionConfigOption[];
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }
+  /** A set_config took; the engine's options after it. */
+  | { type: "config_set"; id: string; options: SessionConfigOption[] }
   | { type: "error"; id?: string; message: string }
   | { type: "pong" };
 

@@ -479,6 +479,7 @@ export function toTurnEntry(
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.usage ? { usage: turn.usage } : {}),
     ...(questions ? { questions } : {}),
+    ...(payload?.model ? { model: payload.model } : {}),
   };
 }
 

@@ -262,12 +262,15 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     return launchHeader(agent, block.id);
   }
   if (block.author.kind === "agent") {
-    if (block.author.agentId === ctx.agentId) return agentAuthor(ctx, "Agent");
-    return peerAuthor(
-      block.author.agentId,
-      peerName(block.author.agentId, ctx),
-      ctx
-    );
+    const author =
+      block.author.agentId === ctx.agentId
+        ? agentAuthor(ctx, "Agent")
+        : peerAuthor(
+            block.author.agentId,
+            peerName(block.author.agentId, ctx),
+            ctx
+          );
+    return ranOn(author, block.turn?.model, ctx);
   }
   if (block.launchedByAgentId) {
     // The page's own agent launching a child reads as itself, not as an
@@ -282,6 +285,24 @@ export function blockAuthor(block: Block, ctx: FeedContext): PostAuthor {
     );
   }
   return userAuthor();
+}
+
+/**
+ * A turn wears the model it ran on, not the one the agent runs now: a
+ * model switched mid-session must not relabel the turns before it.
+ */
+function ranOn(
+  author: PostAuthor,
+  model: string | undefined,
+  ctx: FeedContext
+): PostAuthor {
+  if (!model || model === author.model) return author;
+  const { modelLabel: _stale, ...rest } = author;
+  return {
+    ...rest,
+    model,
+    ...labelled(ctx, author.agentType ?? null, model),
+  };
 }
 
 /**

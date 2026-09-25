@@ -273,6 +273,7 @@ async function main(): Promise<void> {
           journalSeq: journal.lastSeq,
           journalId: journal.id,
           commands: driver.getCommands(agentId) ?? [],
+          configOptions: driver.getConfigOptions(agentId) ?? [],
         });
         const fromSeq =
           (message.journalId && message.journalId !== journal.id) ||
@@ -319,6 +320,33 @@ async function main(): Promise<void> {
       case "cancel":
         if (running) await driver.cancel(agentId).catch(() => {});
         return;
+      case "set_config": {
+        if (!running) {
+          send(socket, {
+            type: "error",
+            id: message.id,
+            message: "the engine is not running",
+          });
+          return;
+        }
+        // The driver emits the `config` event that tells the server what the
+        // engine runs now; the reply only says the engine took it.
+        try {
+          const options = await driver.setConfigOption(
+            agentId,
+            message.configId,
+            message.value
+          );
+          send(socket, { type: "config_set", id: message.id, options });
+        } catch (err) {
+          send(socket, {
+            type: "error",
+            id: message.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
       case "shutdown":
         await shutdown(message.force ? "SIGKILL" : "graceful");
         return;
@@ -421,6 +449,7 @@ async function main(): Promise<void> {
       journalSeq: journal.lastSeq,
       journalId: journal.id,
       commands: driver.getCommands(agentId) ?? [],
+      configOptions: driver.getConfigOptions(agentId) ?? [],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

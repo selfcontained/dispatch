@@ -140,6 +140,16 @@ queue is busy.
   catalog for that engine (`settings` key `agent_models:<type>`, loaded at
   boot). The shipped list in `shared/agent-models.ts` is only the seed for an
   engine that has never run here.
+- A running agent's model and effort change through the host's `set_config`
+  message (`PUT /api/v1/agents/:id/config`); the `config` event that follows
+  moves `agents.model`, so a restart resumes on it. Each turn row records the
+  model it started on, so earlier turns keep their label.
+- Each turn row keeps its own tokens and session id (neither adapter reports
+  session totals). `agent_token_usage` has one row per (agent, session,
+  model), recomputed as the sum over those turn rows, so replay is harmless.
+  Context and cost come from the newest turn row's `usage_update`; plan limits
+  (`/api/v1/usage/plans`) from Anthropic's OAuth usage endpoint and Codex's
+  newest session rollout.
 - `agent_stream_events` (from #1067) is the durable projection of the stream.
   `chat/turns.ts` assembles turns from it into `ChatTurnEntry` feed rows.
 - Migrations are additive: `0052_agent-stream-events`, `0053_agents-host-seq`.
@@ -162,6 +172,6 @@ cannot do — a question with options, a form, a file, a link.
 
 ## Out of scope for the first milestone
 
-Codex engine wiring, usage and budgets, background processes, model and
-config switching, slash menu, path picker, sandboxed permission mode, the MCP
-tool revamp, pins/surfaces rethink, schema baseline, remote hosts.
+Usage budgets, background processes, config options beyond model and effort
+(mode, fast), switching engines mid-session, path picker, sandboxed
+permission mode, remote hosts.

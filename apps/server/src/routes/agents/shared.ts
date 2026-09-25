@@ -1,3 +1,4 @@
+import type { ProviderPlansResponse } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -46,6 +47,10 @@ export type AgentRouteDeps = {
    * message; see `routes/agents/prompt-routes.ts`.
    */
   chat: StreamService;
+  /** Subscription plan usage; tests inject one so nothing reads a real login. */
+  providerPlans?: (request?: {
+    force?: boolean;
+  }) => Promise<ProviderPlansResponse>;
   /** Read per click: the flag is a cold path and must not be cached stale. */
 };
 

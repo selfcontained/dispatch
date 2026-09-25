@@ -42,6 +42,10 @@ export type DriverEvent =
        * envelope back off the wire to find out what opened the turn.
        */
       source?: PromptSource;
+      /** The model the engine runs this turn on, when it publishes one. */
+      model?: string;
+      /** The ACP session the turn runs in: its usage belongs to that session. */
+      sessionId?: string;
     }
   | {
       type: "turn";
@@ -545,12 +549,23 @@ export class AcpDriver {
     source?: PromptSource
   ): Promise<void> {
     const entry = this.require(agentId);
+    // The model this turn runs on, as the engine publishes it now: a model
+    // switched mid-session must not relabel the turns before it.
+    const modelOption = entry.config.options.find(
+      (o) => o.id === "model" || o.category === "model"
+    );
+    const model =
+      modelOption && modelOption.type === "select"
+        ? String(modelOption.currentValue)
+        : null;
     this.emit({
       type: "turn",
       agentId,
       state: "started",
       text,
       ...(source ? { source } : {}),
+      ...(model ? { model } : {}),
+      sessionId: entry.sessionId,
     });
     // A child that exits mid-turn never answers the request; the pending
     // call would hang and hold the agent's turn slot for ever.

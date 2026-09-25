@@ -370,6 +370,8 @@ export type ChatTurnEntry = {
   plan?: ChatTurnPlanEntry[];
   usage?: { used: number; size: number; costUsd: number | null };
   questions?: ChatTurnQuestionRef[];
+  /** The model the turn ran on; absent when the engine published none. */
+  model?: string;
 };
 
 export type ChatMessageEntry = {
