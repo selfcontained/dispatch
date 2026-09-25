@@ -1,8 +1,39 @@
 diff --git a/dist/index.js b/dist/index.js
-index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..785a37a11e9f2d48630077ae46398481c968db83 100755
+index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..24f4c2d941a172e3a058bdfe156bb7c811654194 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -33387,6 +33387,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -25094,9 +25094,13 @@ ${event.details}` : event.summary;
+         return createContextCompactionStartUpdate(event.item);
+       case "subAgentActivity":
+         return this.subagents.legacyActivityStarted(event.item);
++      case "userMessage":
++        return typeof event.item.clientId === "string" ? {
++          sessionUpdate: "session_info_update",
++          _meta: { "dispatch/steering": { pickedUp: event.item.clientId } }
++        } : null;
+       case "sleep":
+       case "functionCallOutput":
+-      case "userMessage":
+       case "hookPrompt":
+       case "reasoning":
+       case "enteredReviewMode":
+@@ -28982,6 +28986,7 @@ var CodexAcpClient = class {
+     return await this.codexClient.turnSteer({
+       threadId: params.threadId,
+       expectedTurnId: params.turnId,
++      ...(typeof params.receiptId === "string" ? { clientUserMessageId: params.receiptId } : {}),
+       input: buildPromptItems(params.prompt)
+     });
+   }
+@@ -32353,6 +32358,7 @@ var CodexAcpServer = class {
+       },
+       authMethods: getCodexAuthMethods(_params.clientCapabilities),
+       _meta: {
++        "dispatch/steering": { pickupReceipts: true },
+         steering: {
+           supported: true
+         },
+@@ -33387,6 +33393,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return { outcome: "injected" };
        }
      }
@@ -12,7 +43,17 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..785a37a11e9f2d48630077ae46398481
      return await this.startNewTurnFromSteering(params);
    }
    /**
-@@ -33525,7 +33528,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -33415,7 +33424,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+       await this.runWithProcessCheck(() => this.codexAcpClient.steerTurn({
+         threadId: params.sessionId,
+         turnId,
+-        prompt: params.prompt
++        prompt: params.prompt,
++        receiptId: params._meta?.["dispatch/steering"]?.id
+       }));
+       return true;
+     } catch (err) {
+@@ -33525,7 +33535,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
      }
      return {
        sessionId,

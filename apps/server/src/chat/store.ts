@@ -128,6 +128,10 @@ export type BlockRow = {
   delivered: boolean | null;
   /** Per-recipient outcomes on a post addressed to several agents. */
   deliveries?: Record<string, boolean | null> | null;
+  steering_receipts?: Record<
+    string,
+    { id: string; pickedUpAt: string | null }
+  > | null;
   read_at: Date | null;
   /** Only on rows read through the feed query. */
   reactions?: ReactionJson[] | null;
@@ -174,6 +178,11 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
       outcomes && agentId in outcomes ? outcomes[agentId] : row.delivered;
     return {
       agentId,
+      ...(row.steering_receipts?.[agentId]
+        ? {
+            steering: { pickedUpAt: row.steering_receipts[agentId].pickedUpAt },
+          }
+        : {}),
       state:
         own === true
           ? ("delivered" as const)
@@ -495,6 +504,7 @@ export class BlockStore {
     const result = await this.db.query(
       `UPDATE blocks
           SET delivered = NULL,
+              steering_receipts = steering_receipts - $2::text[],
               deliveries = CASE
                 WHEN deliveries IS NULL THEN NULL
                 ELSE deliveries || (
@@ -563,6 +573,32 @@ export class BlockStore {
       id,
       delivered,
     ]);
+  }
+
+  /** Acceptance and pickup are independent; replay cannot erase a pickup. */
+  async recordSteeringReceipt(
+    id: string,
+    agentId: string,
+    receiptId: string,
+    pickedUpAt?: string
+  ): Promise<void> {
+    if (!isBlockId(id)) return;
+    if (pickedUpAt) {
+      await this.db.query(
+        `UPDATE blocks SET steering_receipts = jsonb_set(steering_receipts,
+           ARRAY[$2, 'pickedUpAt'], to_jsonb($4::text))
+         WHERE id = $1 AND steering_receipts->$2->>'id' = $3
+           AND steering_receipts->$2->>'pickedUpAt' IS NULL`,
+        [id, agentId, receiptId, pickedUpAt]
+      );
+    } else {
+      await this.db.query(
+        `UPDATE blocks SET steering_receipts = jsonb_set(COALESCE(steering_receipts, '{}'::jsonb),
+           ARRAY[$2], jsonb_build_object('id', $3::text, 'pickedUpAt', NULL))
+         WHERE id = $1 AND (steering_receipts->$2->>'id') IS DISTINCT FROM $3`,
+        [id, agentId, receiptId]
+      );
+    }
   }
 
   /**

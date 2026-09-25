@@ -99,7 +99,10 @@ const agent = {
         sessionCapabilities: { close: {}, resume: {} },
       },
       authMethods: [],
-      _meta: { steering: { supported: true } },
+      _meta: {
+        steering: { supported: true },
+        "dispatch/steering": { pickupReceipts: true },
+      },
     };
   },
   async authenticate() {
@@ -159,6 +162,17 @@ const agent = {
         content: { type: "text", text: `Steered: ${text}\n` },
       },
     });
+    const receiptId = params._meta?.["dispatch/steering"]?.id;
+    if (receiptId)
+      setTimeout(() => {
+        void conn.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            _meta: { "dispatch/steering": { pickedUp: receiptId } },
+          },
+        });
+      }, 1500);
     return { outcome: "injected" };
   },
   async prompt(params) {

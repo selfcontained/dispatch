@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  CheckCheck,
   ChevronRight,
   Copy,
   Hourglass,
@@ -742,23 +743,34 @@ function nameList(agentIds: readonly string[], ctx: FeedContext): string {
 }
 
 /**
- * Where a post addressed to agents has got to, and nothing once every
- * recipient has it. A message here is queued rather than posted, which is
+ * Where a post addressed to agents has got to. Steering also distinguishes
+ * runtime acceptance from confirmed pickup. A queued message is
  * the part a reader has to be able to see: waiting behind a turn is a
  * normal state a message sits in, not a failure, and it says so in as many
  * words. Recipients are named only when a post went to more than one, so
  * an ordinary message keeps its quiet single line.
  */
-export function DeliveryMeta({
-  block,
-  ctx,
-  className,
-}: {
+type DeliveryMetaProps = {
   block: Block;
   ctx: FeedContext;
   /** Layout for where it sits: a folded row puts it inline, not below. */
   className?: string;
-}): JSX.Element | null {
+};
+
+export function DeliveryMeta(props: DeliveryMetaProps): JSX.Element | null {
+  return (
+    <>
+      <DeliveryStatus {...props} />
+      <SteeringReceipts {...props} />
+    </>
+  );
+}
+
+function DeliveryStatus({
+  block,
+  ctx,
+  className,
+}: DeliveryMetaProps): JSX.Element | null {
   if (block.toAgentId === null || !block.delivery?.length) return null;
   const several = block.delivery.length > 1;
   const failed = inState(block, "failed");
@@ -834,6 +846,55 @@ export function DeliveryMeta({
     );
   }
   return null;
+}
+
+function SteeringReceipts({
+  block,
+  ctx,
+  className,
+}: DeliveryMetaProps): JSX.Element | null {
+  if (block.toAgentId === null || !block.delivery?.length) return null;
+  const several = block.delivery.length > 1;
+  const receipts = block.delivery.filter(
+    (entry) => entry.state === "delivered" && entry.steering
+  );
+  if (!receipts.length) return null;
+  const pickedUp = receipts
+    .filter((entry) => entry.steering?.pickedUpAt)
+    .map((entry) => entry.agentId);
+  const accepted = receipts
+    .filter((entry) => !entry.steering?.pickedUpAt)
+    .map((entry) => entry.agentId);
+  return (
+    <div
+      className={cn(
+        "mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground",
+        className
+      )}
+      data-testid="chat-steering-receipt"
+    >
+      {pickedUp.length > 0 ? (
+        <span
+          className="inline-flex items-center gap-1"
+          title="The agent runtime confirmed it picked up this message for processing."
+          data-testid="chat-steering-picked-up"
+        >
+          <CheckCheck className="h-3 w-3" aria-hidden="true" />
+          {several ? `Picked up by ${nameList(pickedUp, ctx)}` : "Picked up"}
+        </span>
+      ) : null}
+      {accepted.length > 0 ? (
+        <span
+          className="inline-flex items-center gap-1"
+          title="The agent accepted this message. Pickup has not been confirmed."
+          data-testid="chat-steering-delivered"
+        >
+          <Check className="h-3 w-3" aria-hidden="true" />
+          {several ? `Delivered to ${nameList(accepted, ctx)}` : "Delivered"}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 /** "3 replies · last 2m ago", the line that opens a block's thread. */

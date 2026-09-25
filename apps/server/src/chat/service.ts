@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
 
 import type { Pool } from "pg";
@@ -2107,6 +2108,29 @@ export class StreamService {
 
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "stream.changed", agentId });
+  }
+
+  /** Host-journal receipts name the exact post and recipient, including thread replies. */
+  async recordSteering(
+    event: Extract<DriverEvent, { type: "steered" | "steering_picked_up" }>
+  ): Promise<void> {
+    if (!event.receiptId || event.source?.source !== "chat") return;
+    for (const id of event.source.chatMessageIds ?? [
+      event.source.chatMessageId,
+    ]) {
+      const block = await this.store.getById(id);
+      if (
+        !block?.delivery?.some((delivery) => delivery.agentId === event.agentId)
+      )
+        continue;
+      await this.store.recordSteeringReceipt(
+        id,
+        event.agentId,
+        event.receiptId,
+        event.type === "steering_picked_up" ? event.at : undefined
+      );
+      await this.publishEntry(block.streamId, id);
+    }
   }
 
   /**

@@ -22,6 +22,7 @@ export type FakeTurn = (
 export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
+    pickupReceipts?: boolean;
     steer?: (
       params: Record<string, unknown>
     ) => Promise<Record<string, unknown>>;
@@ -108,7 +109,16 @@ export function createFakeAcpAgent(
           sessionCapabilities: { close: {}, resume: {} },
         },
         authMethods: [],
-        ...(opts.steer ? { _meta: { steering: { supported: true } } } : {}),
+        ...(opts.steer
+          ? {
+              _meta: {
+                steering: { supported: true },
+                ...(opts.pickupReceipts
+                  ? { "dispatch/steering": { pickupReceipts: true } }
+                  : {}),
+              },
+            }
+          : {}),
       };
     },
     async extMethod(method, params) {
@@ -183,5 +193,11 @@ export function createFakeAcpAgent(
     Readable.toWeb(toAgent)
   );
   connection = new acp.AgentSideConnection(() => agent, stream);
-  return { child, seen, signals };
+  return {
+    child,
+    seen,
+    signals,
+    emit: (sessionId: string, update: acp.SessionUpdate) =>
+      connection.sessionUpdate({ sessionId, update }),
+  };
 }

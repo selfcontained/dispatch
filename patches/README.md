@@ -1,4 +1,6 @@
-# Codex ACP steering fallback
+# ACP adapter patches
+
+## Codex steering fallback
 
 `@agentclientprotocol/codex-acp@1.12.0` needs to preserve the steering request's
 `_meta` and honor `steering.idleBehavior: "promptRequired"`. If a turn finishes
@@ -9,7 +11,7 @@ starts a detached turn whose terminal response is not observable by the host.
 This is the behavior already offered by the bundled Claude adapter. Upstream:
 https://github.com/agentclientprotocol/codex-acp/pull/441
 
-Remove this patch after upgrading to an adapter release containing that behavior.
+Remove the fallback hunks after upgrading to an adapter release containing that behavior.
 The patch is declared in both package.json (pnpm 9 / CI) and pnpm-workspace.yaml
 (newer pnpm), matching this repository's package-manager compatibility convention.
 
@@ -21,3 +23,35 @@ pnpm 11 uses a different patch hash and rejects this lockfile with
 `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` in frozen mode; a non-frozen install rewrites
 the hash. Keep lockfile changes in pnpm 9's format until the repository migrates
 its package-manager version or this patch is removed.
+
+## Steering pickup receipts
+
+Both bundled adapters expose a private `dispatch/steering` extension in ACP
+`_meta`. Initialization advertises `{ pickupReceipts: true }`; a steering request
+carries `{ id: <UUID> }`; a `session_info_update` carries `{ pickedUp: <UUID> }`.
+The UUID identifies the delivery attempt, independently of message text. This is
+an observation from the runtime, not a claim that the model understood or obeyed
+the message.
+
+- Codex forwards the ID as `turn/steer.clientUserMessageId` and reports it only
+  when a live `item/started` user-message item returns that `clientId`. This occurs
+  when pending input enters the turn, potentially after an outstanding tool call.
+- Claude assigns the UUID to the streamed user message and reports pickup when
+  the SDK echoes that UUID from the current turn's `steeredEchoes` set. Old replay
+  and unrelated messages cannot produce a receipt.
+
+Dispatch correlates session and attempt, buffers a receipt that races the steer
+acknowledgement, journals acceptance before pickup, and persists receipts per
+post/recipient. Retry clears only the retried recipients' receipts. Turn completion
+alone never marks pickup. Adapters without this capability retain the existing
+UI; an older Codex CLI that does not return `clientId` stays at Delivered.
+
+Validated against real authenticated Codex and Claude processes. In the Codex
+probe, steer acceptance preceded pickup by about eight seconds while a shell tool
+ran; Claude's matching echo followed acceptance before the steered response
+completed. Driver and database tests cover races, session correlation, repeated
+text, replay, recipient isolation, and retry invalidation.
+
+Remove these receipt hunks when upstream provides equivalent correlated runtime
+pickup notifications, and translate those notifications at the driver boundary.
+Keep the Codex fallback hunks until its separate upstream fix is included.

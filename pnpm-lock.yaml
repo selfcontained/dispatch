@@ -5,8 +5,11 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@agentclientprotocol/claude-agent-acp@0.79.0':
+    hash: 4wgzmet45myxbuespgzuw5krqe
+    path: patches/@agentclientprotocol__claude-agent-acp@0.79.0.patch
   '@agentclientprotocol/codex-acp@1.12.0':
-    hash: q2d3migryx5xvhs7thmnzw4lda
+    hash: 2ro6k3pkfvlbeodznkjtc4jphq
     path: patches/@agentclientprotocol__codex-acp@1.12.0.patch
 
 importers:
@@ -61,10 +64,10 @@ importers:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
         specifier: 0.79.0
-        version: 0.79.0(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.28.0(zod@4.3.6))
+        version: 0.79.0(patch_hash=4wgzmet45myxbuespgzuw5krqe)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.28.0(zod@4.3.6))
       '@agentclientprotocol/codex-acp':
         specifier: 1.12.0
-        version: 1.12.0(patch_hash=q2d3migryx5xvhs7thmnzw4lda)
+        version: 1.12.0(patch_hash=2ro6k3pkfvlbeodznkjtc4jphq)
       '@agentclientprotocol/sdk':
         specifier: 1.4.0
         version: 1.4.0(zod@4.3.6)
@@ -7668,7 +7671,7 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/claude-agent-acp@0.79.0(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.28.0(zod@4.3.6))':
+  '@agentclientprotocol/claude-agent-acp@0.79.0(patch_hash=4wgzmet45myxbuespgzuw5krqe)(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.28.0(zod@4.3.6))':
     dependencies:
       '@agentclientprotocol/sdk': 1.4.0(zod@4.6.5)
       '@anthropic-ai/claude-agent-sdk': 0.3.274(@anthropic-ai/sdk@0.127.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.28.0(zod@4.3.6))(zod@4.6.5)
@@ -7677,7 +7680,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@agentclientprotocol/codex-acp@1.12.0(patch_hash=q2d3migryx5xvhs7thmnzw4lda)':
+  '@agentclientprotocol/codex-acp@1.12.0(patch_hash=2ro6k3pkfvlbeodznkjtc4jphq)':
     dependencies:
       '@agentclientprotocol/sdk': 1.4.0(zod@4.3.6)
       '@openai/codex': 0.154.0

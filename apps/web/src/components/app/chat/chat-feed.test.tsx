@@ -574,6 +574,7 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
     expect(screen.queryByTestId("chat-held-hint")).toBeNull();
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+    expect(screen.queryByTestId("chat-steering-receipt")).toBeNull();
   });
 
   const steps = {
@@ -2560,5 +2561,108 @@ describe("@mentions in a person's post", () => {
     expect(
       posts[1]!.querySelector('[data-testid="chat-side-recipient"]')
     ).toBeNull();
+  });
+});
+
+describe("steering delivery receipts", () => {
+  it.each([null, "2026-09-25T20:00:00.000Z"])(
+    "shows acceptance separately from pickup (%s)",
+    (pickedUpAt) => {
+      renderFeed([
+        blockEntry(
+          block({
+            id: "steer",
+            authorKind: "user",
+            text: "correction",
+            delivered: true,
+            delivery: [
+              {
+                agentId: AGENT_ID,
+                state: "delivered",
+                steering: { pickedUpAt },
+              },
+            ],
+          })
+        ),
+      ]);
+      expect(
+        screen.getByTestId(
+          pickedUpAt ? "chat-steering-picked-up" : "chat-steering-delivered"
+        ).textContent
+      ).toContain(pickedUpAt ? "Picked up" : "Delivered");
+      expect(
+        screen.queryByTestId(
+          pickedUpAt ? "chat-steering-delivered" : "chat-steering-picked-up"
+        )
+      ).toBeNull();
+    }
+  );
+  it.each(["failed", "held", "pending"] as const)(
+    "preserves pickup when another recipient is %s",
+    (state) => {
+      renderFeed([
+        blockEntry(
+          block({
+            id: "partial",
+            authorKind: "user",
+            delivery: [
+              {
+                agentId: "agt_2",
+                state: "delivered",
+                steering: { pickedUpAt: "2026-09-25T20:00:00.000Z" },
+              },
+              { agentId: "agt_3", state },
+            ],
+          })
+        ),
+      ]);
+      expect(
+        screen.getByTestId("chat-steering-picked-up").textContent
+      ).toContain("Picked up by");
+      expect(
+        screen.getByTestId(
+          state === "held" ? "chat-held-hint" : `chat-delivery-${state}`
+        )
+      ).toBeTruthy();
+    }
+  );
+  it("keeps each recipient's receipt distinct", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "steer",
+            authorKind: "user",
+            text: "correction",
+            delivered: true,
+            delivery: [
+              {
+                agentId: "agt_2",
+                state: "delivered",
+                steering: { pickedUpAt: "2026-09-25T20:00:00.000Z" },
+              },
+              {
+                agentId: "agt_3",
+                state: "delivered",
+                steering: { pickedUpAt: null },
+              },
+            ],
+          })
+        ),
+      ],
+      {},
+      {
+        peers: {
+          agt_2: { name: "reviewer", agentType: "claude", relation: "child" },
+          agt_3: { name: "scout", agentType: "codex", relation: "child" },
+        },
+      }
+    );
+    expect(screen.getByTestId("chat-steering-picked-up").textContent).toBe(
+      "Picked up by reviewer"
+    );
+    expect(screen.getByTestId("chat-steering-delivered").textContent).toBe(
+      "Delivered to scout"
+    );
   });
 });

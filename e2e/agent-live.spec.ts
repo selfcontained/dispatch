@@ -96,6 +96,19 @@ test.describe("Live agent", () => {
     await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
     await expect(turns.first()).not.toHaveAttribute("data-settled", "true");
     await sendChat(page, "incorporate this correction");
+    const correction = page
+      .getByTestId("chat-message")
+      .filter({ hasText: "incorporate this correction" });
+    await expect(
+      correction.getByTestId("chat-steering-delivered")
+    ).toBeVisible();
+    await expect(
+      correction.getByTestId("chat-steering-picked-up")
+    ).toBeVisible();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      correction.getByTestId("chat-steering-picked-up")
+    ).toBeVisible();
     await expect(turns.first()).toContainText("Steered:", {
       timeout: TURN_TIMEOUT,
     });
