@@ -39,6 +39,10 @@ export const HOTKEYS = {
     combo: "mod+shift+down",
     description: "Focus next agent",
   },
+  "focus-composer": {
+    combo: "mod+shift+space",
+    description: "Focus the visible message composer",
+  },
   "open-command-palette": {
     combo: "mod+k",
     description: "Open command palette",
