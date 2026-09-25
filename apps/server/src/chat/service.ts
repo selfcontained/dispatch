@@ -784,6 +784,8 @@ export class StreamService {
       text: string;
       replyTo?: string | null;
       attachments?: ChatUserAttachmentInput[];
+      /** External captures address the selected agent; page text cannot redirect them. */
+      resolveMentions?: boolean;
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewInput | null;
       allowInert?: boolean;
@@ -829,7 +831,8 @@ export class StreamService {
     // the agents on its sides, and a top-level post to the stream's agent
     // unless addressed elsewhere.
     const tree = await this.treeAgents(streamId);
-    const mentioned = findMentions(text, tree);
+    const mentioned =
+      input.resolveMentions === false ? [] : findMentions(text, tree);
     const sides =
       mentioned.length === 0 && !input.to && thread
         ? await this.threadRecipients(thread, USER)

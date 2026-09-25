@@ -15,6 +15,7 @@ import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context"
 import { type Agent } from "@/components/app/types";
 import {
   useAnswerQuestion,
+  useRetryDelivery,
   useSetBlockState,
   useSubmitForm,
   useToggleReaction,
@@ -49,7 +50,24 @@ export function ThreadPage({
   const submitForm = useSubmitForm(rootId);
   const setBlockState = useSetBlockState(rootId);
   const reaction = useToggleReaction(rootId);
+  const retry = useRetryDelivery(rootId);
   const [error, setError] = useState<string | null>(null);
+
+  const { mutate: retryNow } = retry;
+  const onRetryDelivery = useCallback(
+    (id: string) => {
+      setError(null);
+      retryNow(id, {
+        onError: (err) =>
+          setError(`Couldn't send that message again: ${err.message}`),
+      });
+    },
+    [retryNow]
+  );
+  const retrying = useMemo(
+    () => new Set(retry.isPending && retry.variables ? [retry.variables] : []),
+    [retry.isPending, retry.variables]
+  );
 
   const { mutate: answerNow } = answer;
   const onAnswer = useCallback(
@@ -114,6 +132,8 @@ export function ThreadPage({
     onSubmitForm,
     onSetBlockState,
     settingBlockStateId,
+    onRetryDelivery,
+    retrying,
   });
   const disabledReason = useMemo(() => composerDisabledReason(agent), [agent]);
 

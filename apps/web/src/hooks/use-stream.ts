@@ -1363,6 +1363,14 @@ export function useRetryDelivery(rootId: string | null) {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceBlock(old, data.block.id, data.block)
       );
+      mapThreads(queryClient, rootId, (thread) =>
+        mapThreadBlock(thread, data.block.id, () => data.block)
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: [...STREAM_QUERY_PREFIX, rootId, "thread"],
+      });
     },
   });
 }

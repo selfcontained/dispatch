@@ -610,8 +610,7 @@ async function registerRoutes() {
   await registerBrowserExtensionRoutes(app, {
     pool,
     agentManager,
-    sendAgentPrompt: (agentId, prompt) =>
-      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
+    streamService,
     filesRoot: config.filesRoot,
     publishUiEvent: (event) => uiEventBroker.publish(event),
   });

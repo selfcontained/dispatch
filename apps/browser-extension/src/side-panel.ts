@@ -5,7 +5,9 @@ import type {
   DispatchAgent,
   WorkerRequest,
   WorkerResponse,
+  SubmissionReceipt,
 } from "./types";
+import { feedbackUrl } from "./lib/feedback-url";
 import { usesInsecureHttp } from "./lib/dispatch-url";
 import { canSubmitFeedback } from "./lib/feedback-form";
 import { classifyPickerPage } from "./lib/picker-access";
@@ -84,6 +86,11 @@ let noticeDismissTimer: number | null = null;
 let pairingController: AbortController | null = null;
 let pairingPermissionToRevoke: string | null = null;
 let pairingInFlightExchange: Promise<PairingResult> | null = null;
+let receiptGeneration = 0;
+let lastReceipt: SubmissionReceipt | null = null;
+let receiptTimer: number | undefined;
+let receiptError: string | null = null;
+let checkingReceipt = false;
 let pendingSubmission: {
   id: string;
   agentId: string;
@@ -402,7 +409,86 @@ function render(): void {
     }
     shell.append(status);
   }
+  if (connection.connected) renderReceipt(shell);
   app.append(shell);
+}
+
+/** Refresh only this card so polling never steals focus from a new draft. */
+function renderReceipt(shell: HTMLElement): void {
+  shell.querySelector("[data-delivery-receipt]")?.remove();
+  if (!lastReceipt && !receiptError) return;
+  const card = document.createElement("div");
+  card.dataset.deliveryReceipt = "";
+  card.className = `status ${lastReceipt?.status === "failed" ? "error" : "info"}`;
+  card.setAttribute("role", "status");
+  const message = document.createElement("p");
+  message.textContent =
+    receiptError ??
+    (lastReceipt?.status === "pending"
+      ? "Feedback queued. It will reach the agent after its current turn."
+      : lastReceipt?.status === "delivered"
+        ? "Feedback delivered to the selected agent."
+        : lastReceipt?.blockId
+          ? "Feedback was not confirmed delivered. Open Dispatch to review it and retry."
+          : "Feedback could not be delivered. Select the element and send it again.");
+  card.append(message);
+  const receiptUrl =
+    connection.baseUrl && lastReceipt
+      ? feedbackUrl(connection.baseUrl, lastReceipt)
+      : null;
+  if (receiptUrl) {
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "link-button";
+    open.textContent = "Open feedback in Dispatch";
+    open.addEventListener("click", () => {
+      void chrome.tabs.create({
+        url: receiptUrl,
+      });
+    });
+    card.append(open);
+  }
+  if (receiptError || lastReceipt?.status === "failed") {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Check delivery";
+    retry.disabled = checkingReceipt;
+    retry.addEventListener("click", () => void refreshReceipt());
+    card.append(retry);
+  }
+  shell.append(card);
+}
+
+async function refreshReceipt(): Promise<void> {
+  if (checkingReceipt || !connection.connected) return;
+  window.clearTimeout(receiptTimer);
+  checkingReceipt = true;
+  const generation = receiptGeneration;
+  const activeConnection = connection;
+  try {
+    const receipt = await sendWorker<SubmissionReceipt | null>({
+      type: "submission:latest",
+    });
+    if (generation !== receiptGeneration || activeConnection !== connection)
+      return;
+    lastReceipt = receipt;
+    receiptError = null;
+  } catch {
+    if (generation !== receiptGeneration || activeConnection !== connection)
+      return;
+    receiptError =
+      "Could not check feedback delivery. Your feedback may still be queued.";
+  } finally {
+    checkingReceipt = false;
+    const shell = app.querySelector<HTMLElement>(".shell");
+    if (shell) renderReceipt(shell);
+    if (
+      connection.connected &&
+      (lastReceipt?.status === "pending" || receiptError)
+    ) {
+      receiptTimer = window.setTimeout(() => void refreshReceipt(), 3000);
+    }
+  }
 }
 
 function renderConnection(shell: HTMLElement): void {
@@ -978,6 +1064,10 @@ async function disconnectFromDispatch(): Promise<void> {
   resetCaptureState();
   comment = "";
   pendingSubmission = null;
+  receiptGeneration += 1;
+  lastReceipt = null;
+  receiptError = null;
+  window.clearTimeout(receiptTimer);
   notice = result.revokedRemotely
     ? null
     : {
@@ -1251,7 +1341,8 @@ async function submitFeedback(): Promise<void> {
   notice = null;
   render();
   try {
-    await sendWorker({
+    receiptGeneration += 1;
+    lastReceipt = await sendWorker<SubmissionReceipt>({
       type: "submission:create",
       clientSubmissionId: pendingSubmission.id,
       agentId: pendingSubmission.agentId,
@@ -1263,7 +1354,8 @@ async function submitFeedback(): Promise<void> {
     comment = "";
     selection = null;
     resetCaptureState();
-    setNotice("success", "Feedback delivered to the selected agent.");
+    receiptError = null;
+    void refreshReceipt();
   } catch (error) {
     if (
       error instanceof WorkerRequestError &&
@@ -1385,6 +1477,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 window.addEventListener("pagehide", () => {
+  window.clearTimeout(receiptTimer);
   const { tabId } = disarmPicker();
   if (tabId !== null) {
     void cleanupPickerInTab(tabId);
@@ -1403,7 +1496,10 @@ async function initialize(): Promise<void> {
     connection = await sendWorker<ConnectionStatus>({
       type: "connection:status",
     });
-    if (connection.connected) await loadAgents();
+    if (connection.connected) {
+      await loadAgents();
+      await refreshReceipt();
+    }
   } catch (error) {
     setNotice(
       "error",
