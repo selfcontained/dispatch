@@ -28,7 +28,28 @@ export type DriverLaunch = {
 
 export type DriverEvent =
   /** Input accepted into the existing turn, journaled before its settlement. */
-  | { type: "steered"; agentId: string; text: string; source?: PromptSource }
+  | {
+      type: "steered";
+      agentId: string;
+      text: string;
+      source?: PromptSource;
+      receiptId?: string;
+      at?: string;
+    }
+  | {
+      type: "prompt_delivered";
+      agentId: string;
+      receiptId: string;
+      source?: PromptSource;
+      at: string;
+    }
+  | {
+      type: "steering_picked_up";
+      agentId: string;
+      receiptId: string;
+      source?: PromptSource;
+      at: string;
+    }
   /** Live host snapshot, emitted by the runtime with seq 0; never replayed from the journal. */
   | { type: "permissions"; agentId: string; requests: AgentPermissionRequest[] }
   | { type: "update"; agentId: string; update: DriverUpdate }
@@ -103,6 +124,12 @@ type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
   steeringSupported: boolean;
+  pickupReceiptsSupported: boolean;
+  promptReceiptsSupported: boolean;
+  steeringReceipts: Map<
+    string,
+    { source?: PromptSource; accepted: boolean; pickedUpAt?: string }
+  >;
   turnOpen: boolean;
   steering: Promise<unknown>;
   engine: EngineSpec["id"];
@@ -354,6 +381,30 @@ export class AcpDriver {
     const commands: { list: acp.AvailableCommand[] } = { list: [] };
     const client: acp.Client = {
       sessionUpdate: async (params) => {
+        const receipt = params.update._meta?.["dispatch/steering"];
+        if (
+          params.update.sessionUpdate === "session_info_update" &&
+          receipt &&
+          typeof receipt === "object"
+        ) {
+          const id = (receipt as { pickedUp?: unknown }).pickedUp;
+          const entry = this.live.get(launch.agentId);
+          const pending =
+            typeof id === "string"
+              ? entry?.steeringReceipts.get(id)
+              : undefined;
+          if (
+            entry &&
+            params.sessionId === entry.sessionId &&
+            pending &&
+            typeof id === "string"
+          ) {
+            pending.pickedUpAt ??= new Date().toISOString();
+            if (pending.accepted) this.emitPickup(launch.agentId, entry, id);
+          }
+          // Never treat uncorrelated or replayed receipts as user content.
+          return;
+        }
         if (params.update.sessionUpdate === "config_option_update") {
           config.options = params.update.configOptions ?? [];
           this.emit({
@@ -421,6 +472,8 @@ export class AcpDriver {
     };
     const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
     let steeringSupported = false;
+    let pickupReceiptsSupported = false;
+    let promptReceiptsSupported = false;
     const handshake = (async () => {
       const initialized = await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -432,6 +485,15 @@ export class AcpDriver {
         },
       });
       const steering = initialized._meta?.steering;
+      const receipts = initialized._meta?.["dispatch/steering"];
+      pickupReceiptsSupported =
+        !!receipts &&
+        typeof receipts === "object" &&
+        (receipts as { pickupReceipts?: unknown }).pickupReceipts === true;
+      promptReceiptsSupported =
+        !!receipts &&
+        typeof receipts === "object" &&
+        (receipts as { promptReceipts?: unknown }).promptReceipts === true;
       steeringSupported =
         !!steering &&
         typeof steering === "object" &&
@@ -529,6 +591,9 @@ export class AcpDriver {
 
     const entry: Live = {
       steeringSupported,
+      pickupReceiptsSupported,
+      promptReceiptsSupported,
+      steeringReceipts: new Map(),
       turnOpen: false,
       steering: Promise.resolve(),
       engine: engine.id,
@@ -593,6 +658,19 @@ export class AcpDriver {
     return this.live.get(agentId)?.steeringSupported ?? false;
   }
 
+  private emitPickup(agentId: string, entry: Live, receiptId: string): void {
+    const receipt = entry.steeringReceipts.get(receiptId);
+    if (!receipt?.accepted || !receipt.pickedUpAt) return;
+    entry.steeringReceipts.delete(receiptId);
+    this.emit({
+      type: "steering_picked_up",
+      agentId,
+      receiptId,
+      source: receipt.source,
+      at: receipt.pickedUpAt,
+    });
+  }
+
   /** A declined steer consumes nothing; the host still owns the next prompt. */
   steer(
     agentId: string,
@@ -605,11 +683,27 @@ export class AcpDriver {
       .then(async () => {
         if (!entry.steeringSupported || !entry.turnOpen || entry.cancelling)
           return "promptRequired" as const;
-        const result = await entry.conn.extMethod("_session/steering", {
-          sessionId: entry.sessionId,
-          prompt: [{ type: "text", text }],
-          _meta: { steering: { idleBehavior: "promptRequired" } },
-        });
+        const receiptId = entry.pickupReceiptsSupported
+          ? crypto.randomUUID()
+          : undefined;
+        if (receiptId)
+          entry.steeringReceipts.set(receiptId, { source, accepted: false });
+        let result: Record<string, unknown>;
+        try {
+          result = await entry.conn.extMethod("_session/steering", {
+            sessionId: entry.sessionId,
+            prompt: [{ type: "text", text }],
+            _meta: {
+              steering: { idleBehavior: "promptRequired" },
+              ...(receiptId ? { "dispatch/steering": { id: receiptId } } : {}),
+            },
+          });
+        } catch (error) {
+          if (receiptId) entry.steeringReceipts.delete(receiptId);
+          throw error;
+        }
+        if (result.outcome !== "injected" && receiptId)
+          entry.steeringReceipts.delete(receiptId);
         if (result.outcome === "promptRequired")
           return "promptRequired" as const;
         if (result.outcome !== "injected") {
@@ -622,7 +716,13 @@ export class AcpDriver {
           agentId,
           text,
           ...(source ? { source } : {}),
+          ...(receiptId ? { receiptId, at: new Date().toISOString() } : {}),
         });
+        if (receiptId) {
+          const receipt = entry.steeringReceipts.get(receiptId);
+          if (receipt) receipt.accepted = true;
+          this.emitPickup(agentId, entry, receiptId);
+        }
         return "injected" as const;
       });
     entry.steering = request;
@@ -709,18 +809,40 @@ export class AcpDriver {
       const guidance = text.trimStart().startsWith("/")
         ? null
         : entry.firstPromptAppend;
+      const receiptId =
+        entry.promptReceiptsSupported && !text.trimStart().startsWith("/")
+          ? crypto.randomUUID()
+          : undefined;
+      if (receiptId)
+        entry.steeringReceipts.set(receiptId, { source, accepted: false });
       const dispatched = entry.conn.prompt({
         sessionId: entry.sessionId,
+        ...(receiptId
+          ? { _meta: { "dispatch/steering": { id: receiptId } } }
+          : {}),
         prompt: [
           ...(guidance ? [{ type: "text" as const, text: guidance }] : []),
           { type: "text", text },
         ],
       });
       if (guidance) entry.firstPromptAppend = null;
+      if (receiptId) {
+        this.emit({
+          type: "prompt_delivered",
+          agentId,
+          receiptId,
+          source,
+          at: new Date().toISOString(),
+        });
+        const receipt = entry.steeringReceipts.get(receiptId);
+        if (receipt) receipt.accepted = true;
+        this.emitPickup(agentId, entry, receiptId);
+      }
       onAccepted?.();
       const res = await Promise.race([dispatched, gone]);
       entry.turnOpen = false;
       await entry.steering.catch(() => {});
+      entry.steeringReceipts.clear();
       this.emit({
         type: "turn",
         agentId,
@@ -731,6 +853,7 @@ export class AcpDriver {
     } catch (err) {
       entry.turnOpen = false;
       await entry.steering.catch(() => {});
+      entry.steeringReceipts.clear();
       const { message, errorKind } = describeRpcError(err, entry.engine);
       // The exit event already settled the turn row; a second settle would
       // only add a duplicate status line.

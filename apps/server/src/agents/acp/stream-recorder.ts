@@ -197,6 +197,12 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
  */
 /** How the recorder reaches the block behind each turn; see setTurnBlocks. */
 export type TurnBlocks = {
+  steering?(
+    event: Extract<
+      DriverEvent,
+      { type: "steered" | "prompt_delivered" | "steering_picked_up" }
+    >
+  ): Promise<void>;
   /** A turn opened: make its block; returns the block id, or null for none. */
   started(input: {
     agentId: string;
@@ -306,6 +312,7 @@ export class StreamRecorder {
     await this.ensureLoaded(event.agentId);
     switch (event.type) {
       case "steered": {
+        await this.turnBlocks?.steering?.(event);
         const open = this.openTurn.get(event.agentId);
         if (!open) return;
         const payload = open.payload as TurnPayload;
@@ -322,6 +329,10 @@ export class StreamRecorder {
         await this.store.updatePayload(open.id, open.payload);
         return;
       }
+      case "prompt_delivered":
+      case "steering_picked_up":
+        await this.turnBlocks?.steering?.(event);
+        return;
       case "update":
         return this.handleUpdate(event.agentId, event.update);
       case "turn": {

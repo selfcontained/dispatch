@@ -5054,3 +5054,105 @@ describe("StreamService queued message controls", () => {
     await svc.waitForInFlightDeliveries(1000);
   });
 });
+
+describe("steering pickup receipts", () => {
+  it.each(["steered", "prompt_delivered"] as const)(
+    "persists %s receipts for each recipient and publishes thread updates",
+    async (type) => {
+      const deliveredAt = "2026-09-25T19:59:59.000Z";
+      const root = await service.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        toAgentId: A,
+        kind: "text",
+        text: "root",
+      });
+      const post = await service.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        toAgentId: A,
+        kind: "text",
+        text: "follow-up",
+        replyTo: root.id,
+        threadId: root.id,
+        data: { recipients: [A, B] },
+      });
+      for (const agentId of [A, B])
+        await service.store.setRecipientDelivered(post.id, agentId, true);
+      await service.store.settleDelivered(post.id, [A, B]);
+      const source = { source: "chat" as const, chatMessageId: post.id };
+      for (const agentId of [A, B])
+        await service.recordSteering({
+          type,
+          at: deliveredAt,
+          agentId,
+          text: post.text,
+          source,
+          receiptId: agentId,
+        });
+      const at = "2026-09-25T20:00:00.000Z";
+      await service.recordSteering({
+        type: "steering_picked_up",
+        agentId: A,
+        source,
+        receiptId: "wrong-attempt",
+        at,
+      });
+      expect(
+        (await service.store.getById(post.id))!.delivery?.[0].receipt
+          ?.pickedUpAt
+      ).toBeNull();
+      await service.recordSteering({
+        type: "steering_picked_up",
+        agentId: A,
+        source,
+        receiptId: A,
+        at,
+      });
+      // Replaying acceptance must not erase the later pickup.
+      await service.recordSteering({
+        type,
+        at: deliveredAt,
+        agentId: A,
+        text: post.text,
+        source,
+        receiptId: A,
+      });
+      const fresh = new StreamService({
+        pool,
+        publishUiEvent: () => {},
+        getAgent,
+        filesRoot: "/files-root",
+      });
+      expect((await fresh.store.getById(post.id))!.delivery).toEqual([
+        {
+          agentId: A,
+          state: "delivered",
+          receipt: { pickedUpAt: at, deliveredAt },
+        },
+        {
+          agentId: B,
+          state: "delivered",
+          receipt: { pickedUpAt: null, deliveredAt },
+        },
+      ]);
+      expect(published).toContainEqual(entryEvent(post));
+      await fresh.store.markDelivering(post.id, [B]);
+      await fresh.recordSteering({
+        type: "steering_picked_up",
+        agentId: B,
+        source,
+        receiptId: B,
+        at,
+      });
+      expect((await fresh.store.getById(post.id))!.delivery).toEqual([
+        {
+          agentId: A,
+          state: "delivered",
+          receipt: { pickedUpAt: at, deliveredAt },
+        },
+        { agentId: B, state: "pending" },
+      ]);
+    }
+  );
+});

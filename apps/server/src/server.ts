@@ -433,6 +433,7 @@ const streamService = new StreamService({
 });
 agentManager.attachLaunchContextRecorder(streamService);
 agentManager.attachTurnBlocks({
+  steering: (event) => streamService.recordSteering(event),
   started: (input) => streamService.recordTurnStarted(input),
   settled: (input) => streamService.recordTurnSettled(input),
 });

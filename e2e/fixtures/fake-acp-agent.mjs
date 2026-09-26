@@ -99,7 +99,10 @@ const agent = {
         sessionCapabilities: { close: {}, resume: {} },
       },
       authMethods: [],
-      _meta: { steering: { supported: true } },
+      _meta: {
+        steering: { supported: true },
+        "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
+      },
     };
   },
   async authenticate() {
@@ -159,6 +162,17 @@ const agent = {
         content: { type: "text", text: `Steered: ${text}\n` },
       },
     });
+    const receiptId = params._meta?.["dispatch/steering"]?.id;
+    if (receiptId)
+      setTimeout(() => {
+        void conn.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            _meta: { "dispatch/steering": { pickedUp: receiptId } },
+          },
+        });
+      }, 1500);
     return { outcome: "injected" };
   },
   async prompt(params) {
@@ -170,6 +184,14 @@ const agent = {
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
+      const receiptId = params._meta?.["dispatch/steering"]?.id;
+      if (receiptId) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await emit({
+          sessionUpdate: "session_info_update",
+          _meta: { "dispatch/steering": { pickedUp: receiptId } },
+        });
+      }
       const sleep = SLEEP.exec(text);
       if (sleep) {
         await emit({

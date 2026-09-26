@@ -1,21 +1,18 @@
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
+import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
   Block,
   BlockAuthor,
-  BlockDeliveryState,
   BlockStartup,
   BlockOption,
 } from "@dispatch/shared";
 import {
-  AlertTriangle,
   Bot,
   Check,
   ChevronRight,
   Copy,
-  Hourglass,
-  Loader2,
   MessageSquarePlus,
   MessagesSquare,
   Rocket,
@@ -566,6 +563,7 @@ export function Post({
   rule = false,
   side,
   action,
+  deliveryIndicator,
   flush = false,
   children,
   ...rest
@@ -579,6 +577,8 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
+  /** A fixed receipt margin independent of message actions and body layout. */
+  deliveryIndicator?: ReactNode;
   /**
    * No avatar gutter and a narrower inset: for a card that is the whole
    * subject of a narrow panel (a review in the drawer) and wants the width.
@@ -595,6 +595,7 @@ export function Post({
         // row: the "→ recipient" in its header says who it was for. An
         // indent read as a different, harder-to-follow kind of message.
         flush ? "px-3" : "px-4",
+        deliveryIndicator && "pr-8",
         side && author.kind !== "user"
           ? POST_TINT.peer
           : POST_TINT[author.kind],
@@ -609,6 +610,14 @@ export function Post({
       data-flush={flush ? "true" : undefined}
       {...rest}
     >
+      {deliveryIndicator ? (
+        <div
+          className="absolute right-1 top-2 h-4 w-4"
+          data-testid="chat-delivery-slot"
+        >
+          {deliveryIndicator}
+        </div>
+      ) : null}
       {flush ? null : (
         <div className="flex w-8 shrink-0 justify-end">
           {grouped ? (
@@ -630,7 +639,11 @@ export function Post({
             so the action sits in the header row instead. */}
         {action && !flush ? (
           <div
-            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
+            className={cn(
+              "float-right ml-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mt-2",
+              !deliveryIndicator &&
+                "max-sm:-mr-2 [@media(pointer:coarse)]:-mr-2"
+            )}
             data-testid="chat-post-action"
           >
             {action}
@@ -726,115 +739,6 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------
-
-/** The recipients of a post in one of the states worth reporting. */
-function inState(block: Block, state: BlockDeliveryState): readonly string[] {
-  return (block.delivery ?? [])
-    .filter((entry) => entry.state === state)
-    .map((entry) => entry.agentId);
-}
-
-/** "builder", "builder and reviewer", "builder, reviewer and scout". */
-function nameList(agentIds: readonly string[], ctx: FeedContext): string {
-  const names = agentIds.map((id) => agentDisplayName(id, ctx));
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/**
- * Where a post addressed to agents has got to, and nothing once every
- * recipient has it. A message here is queued rather than posted, which is
- * the part a reader has to be able to see: waiting behind a turn is a
- * normal state a message sits in, not a failure, and it says so in as many
- * words. Recipients are named only when a post went to more than one, so
- * an ordinary message keeps its quiet single line.
- */
-export function DeliveryMeta({
-  block,
-  ctx,
-  className,
-}: {
-  block: Block;
-  ctx: FeedContext;
-  /** Layout for where it sits: a folded row puts it inline, not below. */
-  className?: string;
-}): JSX.Element | null {
-  if (block.toAgentId === null || !block.delivery?.length) return null;
-  const several = block.delivery.length > 1;
-  const failed = inState(block, "failed");
-  const held = inState(block, "held");
-  const pending = inState(block, "pending");
-  const retrying = ctx.retrying?.has(block.id) ?? false;
-
-  if (failed.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1.5 text-[11px] text-destructive",
-          className
-        )}
-        title="The message was not taken: the agent had no session, or its engine stopped responding."
-        data-testid="chat-delivery-failed"
-      >
-        <AlertTriangle className="h-3 w-3" />
-        {several
-          ? `Not delivered to ${nameList(failed, ctx)}`
-          : "Not delivered"}
-        {/* The same post, sent again, and only to whoever missed it:
-            nothing new lands in the stream and nobody reads it twice. Not
-            "Retry", which on a failed turn runs the agent again. */}
-        {ctx.onRetryDelivery ? (
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
-            disabled={retrying}
-            onClick={() => ctx.onRetryDelivery?.(block.id)}
-            data-testid="chat-delivery-retry"
-          >
-            {retrying ? "Sending…" : "Send again"}
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-  if (held.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
-          className
-        )}
-        title={
-          block.kind === "text" && block.data?.acpCommand
-            ? "This command will run after the current turn."
-            : "Your message will be delivered after the current turn. Send now delivers during the turn when supported."
-        }
-        data-testid="chat-held-hint"
-      >
-        <Hourglass className="h-3 w-3" />
-        {several
-          ? `Queued for ${nameList(held, ctx)}, until the turn ends`
-          : "Queued until the turn ends"}
-      </div>
-    );
-  }
-  if (pending.length > 0) {
-    return (
-      <div
-        className={cn(
-          "mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground",
-          className
-        )}
-        title="On its way to the agent."
-        data-testid="chat-delivery-pending"
-      >
-        <Loader2 className="h-3 w-3 animate-spin" />
-        {several ? `Sending to ${nameList(pending, ctx)}` : "Sending"}
-      </div>
-    );
-  }
-  return null;
-}
 
 /** "3 replies · last 2m ago", the line that opens a block's thread. */
 export function replyLine(block: Block): string | null {
@@ -1398,6 +1302,10 @@ export const BlockView = memo(function BlockView({
         {copyText ? <MessageCopyButton text={copyText} /> : null}
       </div>
     ) : undefined;
+  const deliveryIndicator =
+    block.toAgentId && block.delivery?.length && block.kind !== "launch" ? (
+      <DeliveryIndicator block={block} />
+    ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : <ThreadLine block={block} ctx={ctx} />;
   // The thread this post opens onto: its own, or the one it is drawn in.
@@ -1432,6 +1340,11 @@ export const BlockView = memo(function BlockView({
   // A launch card reads as the agent it launched (see `blockAuthor`), so
   // it takes the agent layout below, whoever wrote the briefing.
   if (block.author.kind === "user" && block.kind !== "launch") {
+    const queued =
+      block.delivered === null &&
+      block.toAgentId &&
+      !block.origin &&
+      block.delivery?.some((entry) => entry.state === "held");
     return (
       <Post
         author={author}
@@ -1446,6 +1359,7 @@ export const BlockView = memo(function BlockView({
         data-launched-by={block.launchedByAgentId}
         data-block-id={block.id}
         action={copyAction}
+        deliveryIndicator={deliveryIndicator}
       >
         {block.text ? (
           <Markdown
@@ -1459,16 +1373,31 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
-        {block.delivered === null && block.toAgentId && !block.origin ? (
-          <QueuedMessageActions
-            agentId={block.streamId}
-            messageId={block.id}
-            canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
-            status={<DeliveryMeta block={block} ctx={ctx} />}
-          />
-        ) : (
-          <DeliveryMeta block={block} ctx={ctx} />
-        )}
+        {/* Queue/failure actions are persistent callouts. Transient receipt
+            feedback stays in its own fixed margin. */}
+        <div
+          className={cn(
+            "min-w-0",
+            queued &&
+              "mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1"
+          )}
+        >
+          <div className={cn("min-w-0", queued && "[&>div]:mt-0")}>
+            <DeliveryMeta
+              block={block}
+              recipientName={(id) => agentDisplayName(id, ctx)}
+              retrying={ctx.retrying?.has(block.id)}
+              onRetryDelivery={ctx.onRetryDelivery}
+            />
+          </div>
+          {queued ? (
+            <QueuedMessageActions
+              agentId={block.streamId}
+              messageId={block.id}
+              canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
+            />
+          ) : null}
+        </div>
         <ReactionBar
           reactions={reactions}
           agentName={ctx.agentName || "Agent"}
@@ -1542,6 +1471,7 @@ export const BlockView = memo(function BlockView({
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
       action={agentAction}
+      deliveryIndicator={deliveryIndicator}
     >
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
@@ -1557,7 +1487,12 @@ export const BlockView = memo(function BlockView({
       {body}
       <AttachmentList block={block} ctx={ctx} />
       {block.kind === "launch" ? null : (
-        <DeliveryMeta block={block} ctx={ctx} />
+        <DeliveryMeta
+          block={block}
+          recipientName={(id) => agentDisplayName(id, ctx)}
+          retrying={ctx.retrying?.has(block.id)}
+          onRetryDelivery={ctx.onRetryDelivery}
+        />
       )}
       <ReactionBar
         reactions={reactions}

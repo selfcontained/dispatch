@@ -8,6 +8,7 @@ import type {
 import { fileMedia } from "@dispatch/shared";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   renderHook,
@@ -66,6 +67,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   Reflect.deleteProperty(navigator, "clipboard");
 });
 
@@ -574,6 +576,7 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
     expect(screen.queryByTestId("chat-held-hint")).toBeNull();
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+    expect(screen.queryByTestId("chat-steering-receipt")).toBeNull();
   });
 
   const steps = {
@@ -1368,7 +1371,7 @@ describe("ChatFeed", () => {
     ).toBe("Codex");
   });
 
-  it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
+  it("shows a sending hint while delivery is pending, and nothing once delivered", async () => {
     renderFeed([
       blockEntry(
         block({ id: "u1", authorKind: "user", text: "one", delivered: null })
@@ -1377,7 +1380,9 @@ describe("ChatFeed", () => {
         block({ id: "u2", authorKind: "user", text: "two", delivered: true })
       ),
     ]);
-    const pending = screen.getAllByTestId("chat-delivery-pending");
+    // A send in transit must not flash queue controls and resize the row.
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    const pending = await screen.findAllByTestId("chat-delivery-pending");
     expect(pending).toHaveLength(1);
     expect(
       pending[0]!.closest("[data-block-id]")?.getAttribute("data-block-id")
@@ -1832,7 +1837,7 @@ describe("ChatFeed", () => {
     expect(outgoing!.textContent).toContain("Not delivered");
   });
 
-  it("sets agent-to-agent messages apart as a side conversation", () => {
+  it("sets agent-to-agent messages apart as a side conversation", async () => {
     const side = (
       id: string,
       direction: "in" | "out",
@@ -1950,10 +1955,12 @@ describe("ChatFeed", () => {
       .filter((el) => !el.hasAttribute("data-to-agent"));
     expect(ownPosts[1]!.getAttribute("data-grouped")).toBeNull();
 
-    // Delivery markers stay.
-    expect(
-      first.querySelector("[data-testid='chat-delivery-pending']")
-    ).not.toBeNull();
+    // Slow delivery markers appear after the anti-flicker delay.
+    await waitFor(() =>
+      expect(
+        first.querySelector("[data-testid='chat-delivery-pending']")
+      ).not.toBeNull()
+    );
     expect(first.textContent).toContain("Sending");
   });
 
@@ -2589,6 +2596,147 @@ describe("@mentions in messages", () => {
     // A post for the page's own agent says nothing about it.
     expect(
       posts[1]!.querySelector('[data-testid="chat-side-recipient"]')
+    ).toBeNull();
+  });
+});
+
+describe("delivery receipts in the feed", () => {
+  it("shows a receipt when a queued post becomes delivered and received in one update", () => {
+    const queued = block({
+      id: "live-receipt",
+      authorKind: "user",
+      delivered: null,
+      delivery: [{ agentId: AGENT_ID, state: "held" }],
+    });
+    const { rerenderWith } = renderFeed([blockEntry(queued)]);
+    expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          {
+            agentId: AGENT_ID,
+            state: "delivered",
+            receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+  });
+
+  it("waits for every recipient before briefly confirming a mixed queued delivery", () => {
+    vi.useFakeTimers();
+    const queued = block({
+      id: "mixed-receipt",
+      authorKind: "user",
+      delivered: null,
+      delivery: [
+        { agentId: "agt_2", state: "held" },
+        { agentId: "agt_3", state: "held" },
+      ],
+    });
+    const { rerenderWith } = renderFeed(
+      [blockEntry(queued)],
+      {},
+      {
+        peers: {
+          agt_2: { name: "reviewer", agentType: "claude", relation: "child" },
+          agt_3: { name: "scout", agentType: "codex", relation: "child" },
+        },
+      }
+    );
+    const pickedUp = {
+      agentId: "agt_2",
+      state: "delivered" as const,
+      receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
+    };
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivery: [pickedUp, { agentId: "agt_3", state: "held" }],
+      }),
+    ]);
+    expect(screen.getByTestId("chat-delivery-indicator")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(600));
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          pickedUp,
+          {
+            agentId: "agt_3",
+            state: "delivered",
+            receipt: { pickedUpAt: null },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          pickedUp,
+          {
+            agentId: "agt_3",
+            state: "delivered",
+            receipt: { pickedUpAt: "2026-09-25T20:00:01Z" },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(2100));
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+  });
+
+  it("keeps completed history quiet and distinguishes waiting recipients", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "receipt",
+            authorKind: "user",
+            delivered: true,
+            delivery: [
+              {
+                agentId: "agt_2",
+                state: "delivered",
+                receipt: { pickedUpAt: "2026-09-25T20:00:00Z" },
+              },
+              {
+                agentId: "agt_3",
+                state: "delivered",
+                receipt: { pickedUpAt: null },
+              },
+            ],
+          })
+        ),
+      ],
+      {},
+      {
+        peers: {
+          agt_2: { name: "reviewer", agentType: "claude", relation: "child" },
+          agt_3: { name: "scout", agentType: "codex", relation: "child" },
+        },
+      }
+    );
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
+    const indicator = screen.getByTestId("chat-delivery-indicator");
+    expect(indicator.closest('[data-testid="chat-post-action"]')).toBeNull();
+    expect(indicator.getAttribute("aria-label")).toBe(
+      "Sent · 1 of 2 agents received it"
+    );
+    expect(
+      screen.queryByRole("button", { name: "Message delivery details" })
     ).toBeNull();
   });
 });
