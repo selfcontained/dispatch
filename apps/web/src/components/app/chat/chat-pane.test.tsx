@@ -1009,9 +1009,11 @@ describe("ChatPane running turn", () => {
     });
   }
 
-  it("offers Stop while the newest turn runs, and cancels it through the runtime", async () => {
+  it("offers Stop for the server's open turn, and cancels it through the runtime", async () => {
     H.entries = [turn()];
-    renderPane();
+    renderPane({
+      agent: { ...agent, currentTurn: { blockId: "turn:1", threadId: null } },
+    });
     const stop = screen.getByTestId("chat-stop-turn");
     vi.mocked(api).mockClear();
     fireEvent.click(stop);
@@ -1022,7 +1024,42 @@ describe("ChatPane running turn", () => {
     );
   });
 
-  it("hides Stop once the newest turn has settled", () => {
+  it("uses the same composer control to choose between active agents", async () => {
+    const current = {
+      ...agent,
+      currentTurn: { blockId: "turn:1", threadId: null },
+    };
+    const other = {
+      ...agent,
+      id: "agt_2",
+      name: "Second agent",
+      currentTurn: { blockId: "turn:2", threadId: null },
+    };
+    renderPane({ agent: current, agents: [current, other] });
+    vi.mocked(api).mockClear();
+    fireEvent.pointerDown(
+      screen.getByTestId("chat-stop-turn"),
+      new MouseEvent("pointerdown", { bubbles: true, button: 0 })
+    );
+    expect(
+      (await screen.findByTestId("chat-stop-agent-agt_1")).textContent
+    ).toContain("current");
+    expect(screen.getByTestId("chat-stop-agent-agt_2").textContent).toContain(
+      "Second agent"
+    );
+    expect(api).not.toHaveBeenCalledWith(
+      "/api/v1/agents/agt_1/runtime/cancel",
+      { method: "POST" }
+    );
+    fireEvent.click(screen.getByTestId("chat-stop-agent-agt_2"));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/v1/agents/agt_2/runtime/cancel", {
+        method: "POST",
+      })
+    );
+  });
+
+  it("disables Stop once the newest turn has settled", () => {
     H.entries = [
       turn(
         {
@@ -1038,8 +1075,21 @@ describe("ChatPane running turn", () => {
       ),
     ];
     renderPane();
-    expect(screen.queryByTestId("chat-stop-turn")).toBeNull();
+    const stop = screen.getByTestId("chat-stop-turn") as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+    expect(stop.getAttribute("aria-haspopup")).toBeNull();
     expect(screen.getByText("done")).toBeTruthy();
+  });
+
+  it("does not offer Stop for a stale unsettled row after the server closed its turn", () => {
+    H.entries = [turn()];
+    renderPane({ agent: { ...agent, currentTurn: null } });
+    expect(
+      screen.getByTestId("chat-stop-turn").getAttribute("aria-label")
+    ).toBe("No active turns");
+    expect(
+      (screen.getByTestId("chat-stop-turn") as HTMLButtonElement).disabled
+    ).toBe(true);
   });
 
   it("shows the newest turn's plan above the composer while work is left", () => {

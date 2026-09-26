@@ -437,6 +437,7 @@ export function AgentsView({
   const agentPaneProps = {
     agentId: focusedAgentId,
     agent: focusedAgent,
+    agents,
     showChildAgents,
     onShowChildAgentsChange: setShowChildAgents,
     openLightbox,

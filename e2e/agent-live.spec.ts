@@ -66,9 +66,7 @@ test.describe("Live agent", () => {
     );
     await sendChat(page, "permission-test stop");
     await expect(approvals).toBeVisible();
-    await page
-      .getByRole("button", { name: "Stop the running turn", exact: true })
-      .click();
+    await page.getByTestId("chat-stop-turn").click();
     await expect(approvals).toHaveCount(0);
     const res = await request.get(`/api/v1/agents/${agent.id}/permissions`, {
       headers: authHeaders(),
@@ -78,6 +76,58 @@ test.describe("Live agent", () => {
 
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
+  });
+
+  test("composer chooses which of two active agents to stop", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const first = await createAgentViaAPI(request, {
+      name: `e2e-stop-first-${Date.now()}`,
+      type: "codex",
+    });
+    const second = await createAgentViaAPI(request, {
+      name: `e2e-stop-second-${Date.now()}`,
+      type: "codex",
+    });
+    await loadApp(page);
+    await page.goto(`/agents/${first.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:20000 first");
+    await expect(page.getByTestId("chat-turn").last()).not.toHaveAttribute(
+      "data-settled",
+      "true"
+    );
+    await page.goto(`/agents/${second.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:20000 second");
+    const stop = page.getByTestId("chat-stop-turn");
+    await expect(stop).toHaveAttribute("aria-haspopup", "menu", {
+      timeout: TURN_TIMEOUT,
+    });
+    await stop.click();
+    await expect(page.getByTestId(`chat-stop-agent-${first.id}`)).toBeVisible();
+    await expect(
+      page.getByTestId(`chat-stop-agent-${second.id}`)
+    ).toBeVisible();
+    await test.info().attach("choose-agent-to-stop", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await page.getByTestId(`chat-stop-agent-${first.id}`).click();
+    await page.goto(`/agents/${first.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("harness-interrupted")).toBeVisible({
+      timeout: TURN_TIMEOUT,
+    });
+    const stillRunning = await request.get(`/api/v1/agents/${second.id}`, {
+      headers: authHeaders(),
+    });
+    expect((await stillRunning.json()).agent.currentTurn).not.toBeNull();
+    await page.goto(`/agents/${second.id}`, { waitUntil: "domcontentloaded" });
+    await expect(stop).not.toHaveAttribute("aria-haspopup", "menu");
+    await stop.click();
+    await expect(page.getByTestId("harness-interrupted")).toBeVisible({
+      timeout: TURN_TIMEOUT,
+    });
   });
 
   test("Send steers the active turn and Queue waits without interrupting it", async ({
@@ -330,7 +380,7 @@ test.describe("Live agent", () => {
       timeout: 15_000,
     });
     await expect(turns.nth(2).getByTestId("harness-interrupted")).toBeVisible();
-    await expect(stop).toHaveCount(0);
+    await expect(stop).toHaveAttribute("aria-label", "No active turns");
 
     // Stop the agent from its sidebar card, then start it again.
     const card = page.getByTestId(`agent-card-${agent.id}`);
