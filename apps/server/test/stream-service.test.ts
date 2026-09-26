@@ -199,6 +199,28 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.recordLaunchContext", () => {
+  it("delivers native image references from the file owner to another agent and on startup", async () => {
+    const fileId = await seedFiles(A, "native.png");
+    const { svc, injectedOpts } = build();
+    const posted = await svc.post(A, {
+      to: B,
+      text: "Inspect this image",
+      attachments: [{ type: "file", fileId }],
+    });
+    await settled(svc, posted.id);
+    expect(injectedOpts[0]).toMatchObject({
+      images: [{ path: `/files-root/${A}/native.png`, mimeType: "image/png" }],
+    });
+    const prepared = await svc.prepareLaunchContext({
+      agentId: A,
+      text: "Inspect",
+      files: [{ fileId }],
+    });
+    expect(prepared?.images).toEqual([
+      { path: `/files-root/${A}/native.png`, mimeType: "image/png" },
+    ]);
+  });
+
   it("records one delivered user block with file and link attachments", async () => {
     const fileId = await seedFiles(A, "brief-2026.md", 300);
     const block = await service.recordLaunchContext({

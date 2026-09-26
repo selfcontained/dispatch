@@ -13,8 +13,8 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "unknown" {
-  if (type === "claude" || type === "codex") return type;
+): "codex" | "claude" | "opencode" | "unknown" {
+  if (type === "claude" || type === "codex" || type === "opencode") return type;
   return "unknown";
 }
 
@@ -28,11 +28,13 @@ export function AgentTypeIcon({
       ? "Claude"
       : normalizedType === "codex"
         ? "Codex"
-        : "Agent";
+        : normalizedType === "opencode"
+          ? "OpenCode"
+          : "Agent";
   const baseClass =
     "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground";
 
-  if (normalizedType === "unknown") {
+  if (normalizedType === "unknown" || normalizedType === "opencode") {
     return (
       <span
         className={cn(baseClass, className)}

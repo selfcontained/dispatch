@@ -12,8 +12,8 @@ import {
 
 describe("agent type tables", () => {
   it("lists only the ACP engines", () => {
-    expect([...AGENT_TYPES]).toEqual(["claude", "codex"]);
-    expect([...CLI_AGENT_TYPES]).toEqual(["claude", "codex"]);
+    expect([...AGENT_TYPES]).toEqual(["claude", "codex", "opencode"]);
+    expect([...CLI_AGENT_TYPES]).toEqual(["claude", "codex", "opencode"]);
   });
 });
 
@@ -22,12 +22,9 @@ describe("isAgentType", () => {
     expect(isAgentType(type)).toBe(true);
   });
 
-  it.each(["terminal", "cursor", "opencode", "vim", ""])(
-    "returns false for %s",
-    (type) => {
-      expect(isAgentType(type)).toBe(false);
-    }
-  );
+  it.each(["terminal", "cursor", "vim", ""])("returns false for %s", (type) => {
+    expect(isAgentType(type)).toBe(false);
+  });
 });
 
 describe("isCliAgentType", () => {

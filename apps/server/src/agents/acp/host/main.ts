@@ -22,6 +22,7 @@ import {
   resolveExecutable,
   TEARDOWN_STEP_MS,
 } from "../driver.js";
+import { openCodeInstructionsEnv } from "../opencode-instructions.js";
 import { engineSpecFor } from "../engine-spec.js";
 import { engineVersion } from "../../engine-availability.js";
 import {
@@ -189,6 +190,8 @@ async function main(): Promise<void> {
       : bin;
   if (launch.engine === "claude") {
     bins.claudeBin = (await absolute(bins.claudeBin)) ?? "";
+  } else if (launch.engine === "opencode") {
+    bins.opencodeBin = await absolute(bins.opencodeBin ?? "opencode");
   } else {
     bins.codexBin = await absolute(bins.codexBin);
   }
@@ -316,7 +319,8 @@ async function main(): Promise<void> {
             agentId,
             message.text,
             () => send(client, { type: "prompt_accepted", id: message.id }),
-            message.source
+            message.source,
+            message.images
           )
           .catch((err) => {
             logger.warn({ err: String(err) }, "host: turn failed");
@@ -414,7 +418,11 @@ async function main(): Promise<void> {
   try {
     const spec = engineSpecFor(launch.engine, bins, launch.fullAccess ?? true);
     const engineCli =
-      launch.engine === "claude" ? bins.claudeBin : bins.codexBin;
+      launch.engine === "claude"
+        ? bins.claudeBin
+        : launch.engine === "opencode"
+          ? bins.opencodeBin
+          : bins.codexBin;
     // Which CLI, and which release of it, decides the models on offer: say
     // so in the host log, where a missing model gets investigated.
     if (engineCli && !bins.adapter) {
@@ -438,7 +446,14 @@ async function main(): Promise<void> {
         spec.personaDelivery === "first_prompt" ? launch.systemPrompt : null,
       mcp: launch.mcp,
       sessionId: resume,
-      env: childEnv,
+      env:
+        spec.personaDelivery === "instructions_file"
+          ? await openCodeInstructionsEnv(
+              stateDir,
+              launch.systemPrompt,
+              childEnv
+            )
+          : childEnv,
     });
     sessionId = session.sessionId;
     resumed = session.resumed;

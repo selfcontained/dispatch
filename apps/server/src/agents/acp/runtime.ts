@@ -18,7 +18,7 @@ import type {
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -185,6 +185,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 /** A prompt waiting for the turn ahead of it to settle. */
 type Waiting = {
   text: string;
+  images?: PromptImage[];
   source?: PromptSource;
   /** Not to be combined with others: an interrupting post, a job's nudge. */
   alone: boolean;
@@ -340,7 +341,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         let batch: Waiting[];
         if (steering) {
           if (!entry.client.welcome?.steeringSupported) break;
-          const index = entry.waiting.findIndex((w) => w.delivery === "auto");
+          const index = entry.waiting.findIndex(
+            (w) => w.delivery === "auto" && !w.images?.length
+          );
           if (index < 0) break;
           batch = entry.waiting.splice(index, 1);
         } else {
@@ -375,7 +378,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           } else {
             // Set this before submitting: ack and settle can arrive together.
             entry.turnOpen = true;
-            await entry.client.prompt(id, text, source);
+            const images = batch.flatMap((item) => item.images ?? []);
+            await entry.client.prompt(
+              id,
+              text,
+              source,
+              images.length ? images : undefined
+            );
           }
           accepted = true;
           for (const w of batch) {
@@ -706,9 +715,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       });
       const own: Waiting = {
         text,
+        ...(opts?.images?.length ? { images: opts.images } : {}),
         ...(source ? { source } : {}),
         alone: opts?.alone === true || source?.source !== "chat",
-        delivery: opts?.delivery ?? "queue",
+        // Steering accepts text only. Keep images for the next ordinary turn.
+        delivery: opts?.images?.length ? "queue" : (opts?.delivery ?? "queue"),
         taken: false,
         resolveAccepted,
         rejectAccepted,

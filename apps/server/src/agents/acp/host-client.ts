@@ -2,7 +2,7 @@ import type {
   AgentPermissionRequest,
   AgentPermissionsResponse,
 } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import net from "node:net";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -336,7 +336,7 @@ export class HostClient {
     this.socket.write(encodeMessage(message));
   }
 
-  /** Resolves once the adapter has accepted the prompt. */
+  /** Resolves once the adapter has accepted the steering request. */
   steer(
     id: string,
     text: string,
@@ -354,11 +354,22 @@ export class HostClient {
   }
 
   /** Resolves once the adapter has accepted the prompt. */
-  prompt(id: string, text: string, source?: PromptSource): Promise<void> {
+  prompt(
+    id: string,
+    text: string,
+    source?: PromptSource,
+    images?: PromptImage[]
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.pendingPrompts.set(id, { resolve, reject });
       try {
-        this.send({ type: "prompt", id, text, ...(source ? { source } : {}) });
+        this.send({
+          type: "prompt",
+          id,
+          text,
+          ...(source ? { source } : {}),
+          ...(images?.length ? { images } : {}),
+        });
       } catch (err) {
         this.pendingPrompts.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));

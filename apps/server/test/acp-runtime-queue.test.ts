@@ -16,7 +16,10 @@ import {
   type ClientMessage,
   type HostMessage,
 } from "../src/agents/acp/host-protocol.js";
-import type { PromptSource } from "../src/agents/acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptImage,
+} from "../src/agents/acp/prompt-source.js";
 import {
   COMBINE_MAX_CHARS,
   COMBINE_MAX_PROMPTS,
@@ -246,14 +249,22 @@ async function heldTurnHost(
   steers: string[];
   cancels: () => number;
   stateRoot: string;
-  prompts: Array<{ text: string; source?: PromptSource }>;
+  prompts: Array<{
+    text: string;
+    source?: PromptSource;
+    images?: PromptImage[];
+  }>;
   settle: () => void;
 }> {
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
   writeFileSync(hostFile(dir, "pid"), String(process.pid));
-  const prompts: Array<{ text: string; source?: PromptSource }> = [];
+  const prompts: Array<{
+    text: string;
+    source?: PromptSource;
+    images?: PromptImage[];
+  }> = [];
   const steers: string[] = [];
   let cancelCount = 0;
   let seq = 0;
@@ -308,6 +319,7 @@ async function heldTurnHost(
           prompts.push({
             text: message.text,
             ...(message.source ? { source: message.source } : {}),
+            ...(message.images ? { images: message.images } : {}),
           });
           socket.write(
             [
@@ -393,8 +405,16 @@ describe("AcpRuntime combining queued posts", () => {
       text: "do the work",
     });
     await withinSeconds(work.accepted, "the work");
-    const one = runtime.prompt(agentId, envelope(1), post(1));
-    const two = runtime.prompt(agentId, envelope(2), post(2));
+    const images = [
+      { path: "/tmp/one.png", mimeType: "image/png" },
+      { path: "/tmp/two.jpg", mimeType: "image/jpeg" },
+    ];
+    const one = runtime.prompt(agentId, envelope(1), post(1), {
+      images: [images[0]!],
+    });
+    const two = runtime.prompt(agentId, envelope(2), post(2), {
+      images: [images[1]!],
+    });
 
     settle();
     await withinSeconds(work.settled, "the work's settle");
@@ -405,6 +425,7 @@ describe("AcpRuntime combining queued posts", () => {
     await withinSeconds(two.accepted, "the second post accepted");
     expect(prompts.map((p) => p.text.slice(0, 60))).toHaveLength(2);
     const combined = prompts[1]!;
+    expect(combined.images).toEqual(images);
     expect(combined.text.indexOf(envelope(1))).toBeGreaterThan(-1);
     expect(combined.text.indexOf(envelope(2))).toBeGreaterThan(
       combined.text.indexOf(envelope(1))
@@ -441,8 +462,16 @@ describe("AcpRuntime combining queued posts", () => {
 
     const work = runtime.prompt(agentId, "do the work");
     await withinSeconds(work.accepted, "the work");
-    const one = runtime.prompt(agentId, envelope(1), post(1));
-    const two = runtime.prompt(agentId, envelope(2), post(2));
+    const images = [
+      { path: "/tmp/one.png", mimeType: "image/png" },
+      { path: "/tmp/two.jpg", mimeType: "image/jpeg" },
+    ];
+    const one = runtime.prompt(agentId, envelope(1), post(1), {
+      images: [images[0]!],
+    });
+    const two = runtime.prompt(agentId, envelope(2), post(2), {
+      images: [images[1]!],
+    });
     const cut = runtime.prompt(agentId, envelope(3), post(3), {
       alone: true,
     });
@@ -611,6 +640,29 @@ describe("queued post controls", () => {
 });
 
 describe("AcpRuntime delivery during a turn", () => {
+  it("keeps image prompts queued until a turn can carry their images", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work");
+    await work.accepted;
+    const image = { path: "/tmp/queued.png", mimeType: "image/png" };
+    const next = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "auto",
+      images: [image],
+    });
+    expect(host.steers).toEqual([]);
+    expect(host.prompts).toHaveLength(1);
+    host.settle();
+    await withinSeconds(next.accepted, "image prompt");
+    expect(host.prompts[1]).toEqual({
+      text: envelope(1),
+      source: post(1),
+      images: [image],
+    });
+    host.settle();
+    await Promise.all([work.settled, next.settled]);
+  });
+
   it("steers consecutive messages while explicit queue waits, without canceling", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);

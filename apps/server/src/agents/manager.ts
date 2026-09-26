@@ -56,7 +56,11 @@ import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptOptions,
+  PromptImage,
+} from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -115,6 +119,7 @@ function statusLine(text: string): string {
 const ENGINE_LABELS: Record<AgentType, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  opencode: "OpenCode",
 };
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
@@ -221,6 +226,7 @@ export type LaunchContextRecorder = {
      * has to name all of the context the agent was launched with.
      */
     attachmentLines: string[];
+    images?: PromptImage[];
     /** Rejects when the post was not written, including an id collision. */
     record: () => Promise<unknown>;
   } | null>;
@@ -571,7 +577,7 @@ export class AgentManager {
     id: string,
     text: string,
     source?: PromptSource,
-    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> } {
     return this.runtime.prompt(id, text, source, opts);
   }
@@ -670,8 +676,18 @@ export class AgentManager {
     await this.runtime.cancel(id);
   }
 
-  private sendPromptDetached(id: string, text: string, what: string): void {
-    const { accepted, settled } = this.runtime.prompt(id, text);
+  private sendPromptDetached(
+    id: string,
+    text: string,
+    what: string,
+    opts?: PromptOptions
+  ): void {
+    const { accepted, settled } = this.runtime.prompt(
+      id,
+      text,
+      undefined,
+      opts
+    );
     accepted.catch((err: unknown) =>
       this.logger.warn({ err, agentId: id }, `${what} was not accepted`)
     );
@@ -1134,6 +1150,7 @@ export class AgentManager {
     return {
       messageId: prepared.id,
       attachmentLines: prepared.attachmentLines,
+      ...(prepared.images?.length ? { images: prepared.images } : {}),
     };
   }
 
@@ -1395,7 +1412,15 @@ export class AgentManager {
         },
         { jobRunId: opts.jobRunId }
       );
-      if (firstTurn) this.sendPromptDetached(id, firstTurn, "first turn");
+      if (firstTurn)
+        this.sendPromptDetached(
+          id,
+          firstTurn,
+          "first turn",
+          chatLaunchPost?.images?.length
+            ? { images: chatLaunchPost.images }
+            : undefined
+        );
     } catch (error) {
       if (error instanceof GitWorktreeError) {
         const lastError = `Worktree creation failed: ${error.message}`;
@@ -1521,6 +1546,7 @@ export class AgentManager {
           await engineStatuses({
             claude: this.config.claudeBin,
             codex: this.config.codexBin ?? undefined,
+            opencode: this.config.opencodeBin,
           })
         ).find((status) => status.id === agent.type)
       : undefined;
@@ -1530,6 +1556,10 @@ export class AgentManager {
     // The engine this agent runs takes the path we just resolved (a
     // service's PATH rarely has it); the other keeps its configured value.
     const bins: EngineBins = {
+      opencodeBin:
+        agent.type === "opencode"
+          ? (engine?.path ?? this.config.opencodeBin ?? "opencode")
+          : this.config.opencodeBin,
       claudeBin:
         agent.type === "claude"
           ? (engine?.path ?? this.config.claudeBin)

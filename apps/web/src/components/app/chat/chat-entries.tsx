@@ -42,6 +42,7 @@ import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { cn } from "@/lib/utils";
+import { AGENT_TYPE_LABELS, isAgentType } from "@/lib/agent-types";
 
 import {
   type BlockStatePatch,
@@ -464,11 +465,9 @@ export function AuthorMeta({
   );
 }
 
-/** "Claude" / "Codex" for an engine id; null for an unknown one. */
+/** Shared display label for a supported engine; null for an unknown one. */
 export function agentTypeLabel(type: string | null | undefined): string | null {
-  if (type === "claude") return "Claude";
-  if (type === "codex") return "Codex";
-  return null;
+  return isAgentType(type) ? AGENT_TYPE_LABELS[type] : null;
 }
 
 /**

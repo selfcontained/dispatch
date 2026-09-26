@@ -19,6 +19,7 @@ export {
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   claude: "Claude",
   codex: "Codex",
+  opencode: "OpenCode",
 };
 
 export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
