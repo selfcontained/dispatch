@@ -46,7 +46,7 @@ if (!existsSync(binary))
   throw new Error(
     `Missing server binary: ${binary}. Run build:bun for bun-darwin-${arch} first.`
   );
-run("lipo", ["-verify_arch", swiftArch, binary]);
+run("lipo", [binary, "-verify_arch", swiftArch]);
 const output = path.join(root, "dist/macos", arch);
 mkdirSync(output, { recursive: true });
 const temporary = mkdtempSync(path.join(output, ".package-"));
