@@ -34,6 +34,7 @@ const handlers = {
   handleClearCacheAndReload: vi.fn(),
   handleDismiss: vi.fn(),
   handleAssistedDismiss: vi.fn(),
+  retryVersionInfo: vi.fn(),
 };
 
 function makeInfo(overrides: Partial<ReleaseInfo> = {}): ReleaseInfo {
@@ -117,7 +118,14 @@ function stubHook(overrides: Partial<ReleaseUpdates> = {}): void {
       status: { tag: "v1.0.0", deployedAt: null },
       infoProgress: null,
       postRestartPolling: false,
-      versionInfo: null,
+      versionInfo: {
+        releaseTag: "v1.0.0",
+        version: "1.0.0",
+        gitSha: null,
+        releaseNotes: null,
+        releaseUrl: null,
+      },
+      versionInfoError: false,
       notesExpanded: false,
       channel: "stable",
       channelSaving: false,
@@ -166,6 +174,24 @@ it("keeps web installation controls out of app-managed previews", () => {
     screen.queryByRole("button", { name: "More update options" })
   ).toBeNull();
 });
+
+it.each([false, true])(
+  "withholds installation controls while ownership is unresolved (error=%s)",
+  (versionInfoError) => {
+    stubHook({ versionInfo: null, versionInfoError, displayInfo: makeInfo() });
+    renderSection();
+    expect(screen.queryByTestId("standard-update-button")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Check for updates" })
+    ).toBeNull();
+    if (versionInfoError) {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(handlers.retryVersionInfo).toHaveBeenCalledTimes(1);
+    } else {
+      expect(screen.getByText("Loading update settings…")).toBeTruthy();
+    }
+  }
+);
 
 /** Opens the caret half of a split button and returns nothing. */
 function openSplitMenu(label: string): void {

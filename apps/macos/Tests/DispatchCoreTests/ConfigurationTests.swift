@@ -9,6 +9,9 @@ final class ConfigurationTests: XCTestCase {
             "postgres://localhost/postgres", "postgres://localhost/preview?dbname=dispatch",
             "postgres://localhost/preview?host=elsewhere", "https://localhost/preview",
             "postgres://localhost/", "postgres://localhost/preview#fragment",
+            "postgres://dispatch@localhost/.", "postgres://dispatch@localhost/..",
+            "postgres://dispatch@localhost/%2e", "postgres://dispatch@localhost/%2e%2e",
+            "postgres://dispatch@localhost/.%2E", "postgres://dispatch@localhost/%2E.",
         ] {
             XCTAssertThrowsError(try Configuration(databaseURL: url).validate(), url)
         }

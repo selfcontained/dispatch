@@ -25,7 +25,7 @@ public struct Configuration: Codable, Equatable {
             throw ConfigurationError("Enter a PostgreSQL connection URL with a host and a dedicated preview database name.")
         }
         let database = String(url.path.dropFirst())
-        guard database != "dispatch", database != "postgres", !database.contains("/") else {
+        guard !["dispatch", "postgres", ".", ".."].contains(database), !database.contains("/") else {
             throw ConfigurationError("Use a dedicated preview database, not the production ‘dispatch’ database or the ‘postgres’ maintenance database.")
         }
         // libpq parameters can otherwise override the database in the URL path.
