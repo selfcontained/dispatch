@@ -1,0 +1,45 @@
+name: macOS Menu Preview
+
+# Build the selected branch for testing. This does not publish a release or
+# alter the stable binary/service release pipeline.
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Mac architecture
+        type: choice
+        options: [arm64, x64]
+        default: arm64
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pnpm install --frozen-lockfile
+      - run: swift test --package-path apps/macos
+      - run: pnpm run build:bun
+        env:
+          DISPATCH_BUN_TARGETS: bun-darwin-${{ inputs.architecture }}
+      - run: pnpm run build:macos
+        env:
+          DISPATCH_MAC_ARCH: ${{ inputs.architecture }}
+          DISPATCH_MAC_BUILD: ${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-macos-preview-${{ inputs.architecture }}
+          path: dist/macos/**/*.zip
+          if-no-files-found: error
+          retention-days: 14

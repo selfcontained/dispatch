@@ -85,6 +85,12 @@ export async function registerSystemRoutes(
       status: "ok",
       db: "ok",
       now: result.rows[0]?.now,
+      ...(process.env.DISPATCH_UPDATE_OWNER === "macos-app"
+        ? {
+            updateOwner: "macos-app",
+            macInstanceId: process.env.DISPATCH_MAC_INSTANCE_ID ?? null,
+          }
+        : {}),
     };
   });
 

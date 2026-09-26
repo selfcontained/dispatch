@@ -8,6 +8,12 @@ import { UpdatesVersionCard } from "@/components/app/updates-version-card";
 import type { UseReleaseStreamResult } from "@/hooks/use-release-stream";
 import { useReleaseUpdates } from "@/hooks/use-release-updates";
 import { UPDATE_PHASES } from "./release-utils";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 
 type UpdatesSectionProps = {
   stream: UseReleaseStreamResult;
@@ -89,28 +95,46 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
       <div className="border-t border-white/[0.12]" />
 
-      <UpdatesPreferences
-        channel={channel}
-        channelSaving={channelSaving}
-        onChannelChange={(ch) => void handleChannelChange(ch)}
-        autoUpdateMode={autoUpdateMode}
-        autoUpdateSaving={autoUpdateSaving}
-        onAutoUpdateModeChange={(mode) => void handleAutoUpdateModeChange(mode)}
-      />
+      {versionInfo?.updateOwner === "macos-app" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Updates are managed by the Mac app</CardTitle>
+            <CardDescription>
+              This preview uses manual app updates. Finish active agents, choose
+              Stop Server from the Dispatch Preview menu, then quit the menu and
+              replace the app. Open the new app and start its server to
+              continue.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : (
+        <>
+          <UpdatesPreferences
+            channel={channel}
+            channelSaving={channelSaving}
+            onChannelChange={(ch) => void handleChannelChange(ch)}
+            autoUpdateMode={autoUpdateMode}
+            autoUpdateSaving={autoUpdateSaving}
+            onAutoUpdateModeChange={(mode) =>
+              void handleAutoUpdateModeChange(mode)
+            }
+          />
 
-      <UpdatesCheckPanel
-        infoLoading={infoLoading}
-        infoProgress={infoProgress}
-        infoError={infoError}
-        lastCheckMessage={lastCheckMessage}
-        displayInfo={displayInfo}
-        updateError={updateError}
-        assistedUpdateLaunching={assistedUpdateLaunching}
-        onCheckForUpdates={() => void handleCheckForUpdates()}
-        onStandardUpdate={(tag) => void handleUpdate(tag)}
-        onAssistedUpdate={(tag) => void handleAssistedUpdate(tag)}
-        onForceStandardUpdate={() => setForceConfirmOpen(true)}
-      />
+          <UpdatesCheckPanel
+            infoLoading={infoLoading}
+            infoProgress={infoProgress}
+            infoError={infoError}
+            lastCheckMessage={lastCheckMessage}
+            displayInfo={displayInfo}
+            updateError={updateError}
+            assistedUpdateLaunching={assistedUpdateLaunching}
+            onCheckForUpdates={() => void handleCheckForUpdates()}
+            onStandardUpdate={(tag) => void handleUpdate(tag)}
+            onAssistedUpdate={(tag) => void handleAssistedUpdate(tag)}
+            onForceStandardUpdate={() => setForceConfirmOpen(true)}
+          />
+        </>
+      )}
 
       <div className="border-t border-white/[0.12]" />
 

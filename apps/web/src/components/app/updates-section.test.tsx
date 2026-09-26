@@ -147,6 +147,26 @@ function renderSection(): void {
   render(<UpdatesSection stream={{} as UseReleaseStreamResult} />);
 }
 
+it("keeps web installation controls out of app-managed previews", () => {
+  stubHook({
+    versionInfo: {
+      updateOwner: "macos-app",
+      releaseTag: "v1.0.0",
+      version: "1.0.0",
+      gitSha: null,
+      releaseNotes: null,
+      releaseUrl: null,
+    },
+    displayInfo: makeInfo(),
+  });
+  renderSection();
+  expect(screen.getByText("Updates are managed by the Mac app")).toBeTruthy();
+  expect(screen.queryByTestId("standard-update-button")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "More update options" })
+  ).toBeNull();
+});
+
 /** Opens the caret half of a split button and returns nothing. */
 function openSplitMenu(label: string): void {
   fireEvent.pointerDown(screen.getByRole("button", { name: label }));

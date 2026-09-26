@@ -13,6 +13,7 @@
     "dev": "pnpm --filter @dispatch/server dev",
     "build": "pnpm -r build",
     "build:bun": "bun scripts/build-bun-binaries.mjs",
+    "build:macos": "node scripts/build-macos-app.mjs",
     "build:web": "pnpm --filter @dispatch/web build",
     "build:site": "pnpm --filter @dispatch/site build",
     "check:web": "pnpm --filter @dispatch/web check",
