@@ -98,6 +98,8 @@ export type ChatComposerProps = {
    * is the one spot that never moves and has room on a phone.
    */
   action?: ReactNode;
+  /** Controls beside the recipients beneath the input. */
+  footer?: ReactNode;
   /**
    * Resolves once the message is accepted; rejects when it is not. The draft
    * — text and attachments — is cleared only on success so a failed send
@@ -247,6 +249,7 @@ export function ChatComposer({
   replyContext = null,
   pendingQuestion = null,
   action,
+  footer,
   mentionables,
   defaultRecipients,
   slashCommands,
@@ -974,47 +977,6 @@ export function ChatComposer({
       data-testid="chat-composer"
       data-dragging={draggingFiles ? "true" : undefined}
     >
-      {defaultRecipients ? (
-        <TooltipProvider delayDuration={150}>
-          <div
-            className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-1 text-[11px] text-muted-foreground"
-            data-testid="chat-composer-routing"
-            role="group"
-            aria-label="Message recipients"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <span>To:</span>
-            {recipients.map((agent) => (
-              <Tooltip key={agent.id}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    data-testid="chat-composer-recipient"
-                    data-agent-id={agent.id}
-                  >
-                    <AgentSeatBadge
-                      seat={agent.seat ?? null}
-                      name={agent.name}
-                      size="sm"
-                    />
-                    {agent.seat === undefined ? (
-                      <span>{agent.name}</span>
-                    ) : null}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {agent.seat === undefined
-                    ? agent.name
-                    : `@${agent.seat} · ${agent.name}`}
-                </TooltipContent>
-              </Tooltip>
-            ))}
-            {recipients.length === 0 ? <span>Loading recipients…</span> : null}
-          </div>
-        </TooltipProvider>
-      ) : null}
       <div
         className={cn(
           "rounded-2xl border bg-card/70 transition-colors",
@@ -1342,14 +1304,57 @@ export function ChatComposer({
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
         ) : (
-          <span>
-            Enter to send · Shift+Enter for a new line
-            {canQueue
-              ? ` · ${queueShortcut} to queue`
-              : " · paste or drop files"}
-          </span>
+          <span>Enter to send · Shift+Enter for new line</span>
         )}
       </div>
+      {defaultRecipients || footer ? (
+        <div className="flex min-w-0 items-center justify-between gap-2 px-1">
+          {defaultRecipients ? (
+            <TooltipProvider delayDuration={150}>
+              <div
+                className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
+                data-testid="chat-composer-routing"
+                role="group"
+                aria-label="Message recipients"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <span className="shrink-0">To:</span>
+                {recipients.map((agent) => (
+                  <Tooltip key={agent.id}>
+                    <TooltipTrigger asChild>
+                      <span
+                        tabIndex={0}
+                        className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        data-testid="chat-composer-recipient"
+                        data-agent-id={agent.id}
+                      >
+                        <AgentSeatBadge
+                          seat={agent.seat ?? null}
+                          name={agent.name}
+                          size="sm"
+                        />
+                        {agent.seat === undefined ? (
+                          <span>{agent.name}</span>
+                        ) : null}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {agent.seat === undefined
+                        ? agent.name
+                        : `@${agent.seat} · ${agent.name}`}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+                {recipients.length === 0 ? (
+                  <span>Loading recipients…</span>
+                ) : null}
+              </div>
+            </TooltipProvider>
+          ) : null}
+          {footer}
+        </div>
+      ) : null}
     </form>
   );
 }
