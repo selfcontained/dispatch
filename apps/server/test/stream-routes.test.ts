@@ -1794,7 +1794,13 @@ describe("stream routes with a deliverable engine", () => {
   });
 
   it("delivers a user reaction as a reaction envelope and shows it settled", async () => {
-    const { app, ready, streams, prompts, published } = buildApp({});
+    // Hold delivery until after the response assertion; an immediate fake
+    // engine can otherwise settle before the route reads the reaction back.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { app, ready, streams, prompts, published } = buildApp({ gate });
     await ready;
     const block = await store.insert({
       streamId: agentId,
@@ -1810,6 +1816,7 @@ describe("stream routes with a deliverable engine", () => {
     expect(res.json().reactions).toEqual([
       expect.objectContaining({ delivered: null }),
     ]);
+    release();
     await streams.waitForInFlightDeliveries(1_000);
     expect(prompts[0]?.prompt).toContain(
       `--- DISPATCH REACTION (block id: ${block.id}) ---\nThe user reacted 🎉 to your latest post:\n> Shipped it.`

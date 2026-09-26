@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import type {
   ReleaseChannel,
   ReleaseInfo,
@@ -37,7 +38,12 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     setJob,
   } = stream;
 
-  const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
+  const versionQuery = useQuery({
+    queryKey: ["release", "app-version"],
+    queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
+    retry: false,
+  });
+  const versionInfo = versionQuery.data ?? null;
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [channel, setChannel] = useState<ReleaseChannel>("stable");
   const [channelSaving, setChannelSaving] = useState(false);
@@ -66,11 +72,6 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
 
   useEffect(() => {
     let cancelled = false;
-    void api<AppVersionInfo>("/api/v1/app/version")
-      .then((data) => {
-        if (!cancelled) setVersionInfo(data);
-      })
-      .catch(() => {});
     void api<{ channel: ReleaseChannel }>("/api/v1/release/channel")
       .then((data) => {
         if (!cancelled) setChannel(data.channel);
@@ -262,6 +263,8 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     postRestartPolling,
 
     versionInfo,
+    versionInfoError: versionQuery.isError,
+    retryVersionInfo: () => void versionQuery.refetch(),
     notesExpanded,
     setNotesExpanded,
     channel,

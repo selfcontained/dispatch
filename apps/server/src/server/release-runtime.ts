@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
+import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
 import type { Pool } from "pg";
 
@@ -543,6 +544,7 @@ Suggested workflow:
 
   async function runUpdateJob(job: ReleaseJob): Promise<void> {
     try {
+      if (isMacAppManaged()) throw new Error(MAC_APP_UPDATE_MESSAGE);
       const tag = job.tag!;
       setReleasePhase(job, "fetching");
       appendReleaseLog(job, `==> confirming release ${tag}`);
