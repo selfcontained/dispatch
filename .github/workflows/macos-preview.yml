@@ -3,6 +3,11 @@ name: macOS Menu Preview
 # Build the selected branch for testing. This does not publish a release or
 # alter the stable binary/service release pipeline.
 on:
+  push:
+    branches: [agt_e49fa225fda7/agent-25fda7]
+    paths:
+      - .github/workflows/macos-preview.yml
+      - scripts/build-macos-app.mjs
   workflow_dispatch:
     inputs:
       architecture:
@@ -17,6 +22,9 @@ permissions:
 jobs:
   preview:
     runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PREVIEW_ARCH: ${{ inputs.architecture || 'arm64' }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -32,14 +40,50 @@ jobs:
       - run: swift test --package-path apps/macos
       - run: pnpm run build:bun
         env:
-          DISPATCH_BUN_TARGETS: bun-darwin-${{ inputs.architecture }}
-      - run: pnpm run build:macos
+          DISPATCH_BUN_TARGETS: bun-darwin-${{ env.PREVIEW_ARCH }}
+      - name: Configure signing and notarization
         env:
-          DISPATCH_MAC_ARCH: ${{ inputs.architecture }}
+          CERT_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/dispatch-preview.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/dispatch-preview.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          printf '%s' "$CERT_BASE64" | openssl base64 -d -A -out "$CERT_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          xcrun notarytool store-credentials dispatch-preview-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" --keychain "$KEYCHAIN_PATH"
+          echo "DISPATCH_NOTARY_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+      - name: Sign, notarize, and verify app
+        run: pnpm run build:macos
+        env:
+          DISPATCH_MAC_ARCH: ${{ env.PREVIEW_ARCH }}
+          DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
+          DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-preview-notary
+          DISPATCH_NOTARIZE_MACOS_APP: "1"
           DISPATCH_MAC_BUILD: ${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
-          name: dispatch-macos-preview-${{ inputs.architecture }}
+          name: dispatch-macos-preview-${{ env.PREVIEW_ARCH }}
           path: dist/macos/**/*.zip
           if-no-files-found: error
           retention-days: 14
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/dispatch-preview.p12"
+          if [ -f "$RUNNER_TEMP/dispatch-preview.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/dispatch-preview.keychain-db"
+          fi

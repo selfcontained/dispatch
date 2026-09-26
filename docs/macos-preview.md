@@ -135,3 +135,17 @@ LaunchAgent registration, notarization, or agent survival across app upgrades.
    recovery, plus a decision about managed PostgreSQL onboarding.
 4. Add app branding/artwork and a first-run onboarding experience for managed
    PostgreSQL and engine prerequisites.
+
+### Signed CI previews
+
+The macOS Menu Preview workflow imports the existing production signing and
+notarization secrets into a temporary runner keychain, signs and notarizes the
+app, verifies Gatekeeper acceptance, and uploads a ZIP artifact for 14 days.
+It does not publish a release. The keychain is removed at the end of the job.
+The initial preview branch has a narrowly scoped push trigger for workflow and
+packaging-script changes; manual runs can select arm64 or x64 after the workflow
+exists on the default branch.
+
+For local notarization with a non-default keychain, set
+`DISPATCH_NOTARY_KEYCHAIN` to its path alongside the profile name. Credentials
+must already be stored in that keychain; CI secret values are not downloaded.

@@ -139,6 +139,9 @@ try {
       zip,
       "--keychain-profile",
       process.env.DISPATCH_NOTARY_KEYCHAIN_PROFILE,
+      ...(process.env.DISPATCH_NOTARY_KEYCHAIN
+        ? ["--keychain", process.env.DISPATCH_NOTARY_KEYCHAIN]
+        : []),
       "--wait",
     ]);
     run("xcrun", ["stapler", "staple", app]);
