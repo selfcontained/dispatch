@@ -55,6 +55,23 @@ describe("migrations", () => {
     await expect(runTestMigrations()).resolves.not.toThrow();
   });
 
+  it("accepts databases that ran launch guidance cleanup under its old name", async () => {
+    await runTestMigrations();
+    const renamedBack = await pool.query(
+      `UPDATE pgmigrations
+       SET name = '0010_remove_launch_guidance_setting'
+       WHERE name = '0011_remove_launch_guidance_setting'`
+    );
+    expect(renamedBack.rowCount).toBe(1);
+    await expect(runTestMigrations()).resolves.not.toThrow();
+    const migrations = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name LIKE '%launch_guidance_setting'`
+    );
+    expect(migrations.rows.map((row) => row.name)).toEqual([
+      "0011_remove_launch_guidance_setting",
+    ]);
+  });
+
   it("should have all expected columns on agents", async () => {
     const cols = await pool.query(
       `SELECT column_name FROM information_schema.columns
