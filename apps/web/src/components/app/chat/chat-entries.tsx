@@ -1263,7 +1263,13 @@ function LaunchCardBody({
           defaultOpen={!block.launchedByAgentId}
           testId="chat-launch-briefing"
         >
-          <Markdown>{block.text}</Markdown>
+          <Markdown
+            renderText={(text) => (
+              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+            )}
+          >
+            {block.text}
+          </Markdown>
         </LaunchSection>
       ) : null}
       {startup && startup.steps.length > 0 ? (
@@ -1540,7 +1546,13 @@ export const BlockView = memo(function BlockView({
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
       ) : block.text && block.kind !== "launch" ? (
-        <Markdown>{block.text}</Markdown>
+        <Markdown
+          renderText={(text) => (
+            <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+          )}
+        >
+          {block.text}
+        </Markdown>
       ) : null}
       {body}
       <AttachmentList block={block} ctx={ctx} />

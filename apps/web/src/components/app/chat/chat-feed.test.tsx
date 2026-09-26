@@ -2506,7 +2506,37 @@ describe("turn entries", () => {
   });
 });
 
-describe("@mentions in a person's post", () => {
+describe("@mentions in messages", () => {
+  it("decorates agent prose while preserving code and unknown mentions", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "agent-mentions",
+            authorKind: "agent",
+            text: "Ask **@reviewer** and @unknown. `@reviewer` stays code.",
+          })
+        ),
+      ],
+      {},
+      {
+        peers: {
+          agt_rev: {
+            name: "reviewer",
+            agentType: "codex",
+            relation: "child",
+            seat: 2,
+          },
+        },
+        agentSeat: 1,
+      }
+    );
+    const mentions = screen.getAllByTestId("chat-mention");
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0]?.getAttribute("data-agent-id")).toBe("agt_rev");
+    expect(screen.getByText("@reviewer", { selector: "code" })).toBeTruthy();
+  });
+
   it("says whom the post was for and paints the names", () => {
     const peers = {
       agt_rev: {

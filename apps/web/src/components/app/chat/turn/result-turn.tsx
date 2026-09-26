@@ -1,6 +1,6 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 import { Markdown } from "@/components/ui/markdown";
 
@@ -29,9 +29,11 @@ function sameText(a: string, b: string): boolean {
 function ResultTurnImpl({
   turn,
   retry,
+  renderText,
 }: {
   turn: Turn;
   retry?: ResultRetry;
+  renderText?: (text: string) => ReactNode;
 }): JSX.Element {
   const error = turn.error;
   const interrupted = turn.trace?.finalResult === "interrupted";
@@ -43,7 +45,9 @@ function ResultTurnImpl({
     // the retry's own turn, below, carries the conversation on.
     return (
       <div className="space-y-2" data-testid="harness-result">
-        {turn.content && !echoesError ? <ResultBody turn={turn} /> : null}
+        {turn.content && !echoesError ? (
+          <ResultBody turn={turn} renderText={renderText} />
+        ) : null}
         <p
           className="flex min-w-0 items-center gap-[9px] text-[11.5px] text-muted-foreground"
           title={error.message}
@@ -70,7 +74,7 @@ function ResultTurnImpl({
       className="space-y-2 animate-message-in motion-reduce:animate-none"
       data-testid="harness-result"
     >
-      {showContent ? <ResultBody turn={turn} /> : null}
+      {showContent ? <ResultBody turn={turn} renderText={renderText} /> : null}
       {error && !echoesError ? (
         <ResultText content={error.message} error />
       ) : null}
@@ -118,13 +122,20 @@ export const ResultTurn = memo(ResultTurnImpl);
  * The answer's text. What the agent said while it worked reads muted, so
  * the final reply under it stands out and a reader can skip to it.
  */
-function ResultBody({ turn }: { turn: Turn }): JSX.Element {
+function ResultBody({
+  turn,
+  renderText,
+}: {
+  turn: Turn;
+  renderText?: (text: string) => ReactNode;
+}): JSX.Element {
   const final = turn.lead ? turn.content.slice(turn.lead.length).trim() : "";
-  if (!turn.lead || !final) return <ResultText content={turn.content} />;
+  if (!turn.lead || !final)
+    return <ResultText content={turn.content} renderText={renderText} />;
   return (
     <>
-      <ResultText content={turn.lead} muted />
-      <ResultText content={final} />
+      <ResultText content={turn.lead} muted renderText={renderText} />
+      <ResultText content={final} renderText={renderText} />
     </>
   );
 }
@@ -133,10 +144,12 @@ function ResultText({
   content,
   error,
   muted,
+  renderText,
 }: {
   content: string;
   error?: boolean;
   muted?: boolean;
+  renderText?: (text: string) => ReactNode;
 }): JSX.Element {
   return error ? (
     <p className="min-w-0 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
@@ -147,7 +160,10 @@ function ResultText({
       className="min-w-0 text-[12.5px] leading-[1.6]"
       data-testid={muted ? "harness-result-lead" : undefined}
     >
-      <Markdown className={muted ? MUTED_MARKDOWN : undefined}>
+      <Markdown
+        className={muted ? MUTED_MARKDOWN : undefined}
+        renderText={renderText}
+      >
         {content}
       </Markdown>
     </div>
