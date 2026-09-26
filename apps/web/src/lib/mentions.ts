@@ -49,7 +49,12 @@ export function insertMention(
   agent: Mentionable
 ): { text: string; caret: number } {
   const token = `@${agent.name} `;
-  const next = text.slice(0, start) + token + text.slice(caret);
+  // Reuse a following space rather than adding a second one after the token.
+  const suffix = text.slice(caret);
+  const next =
+    text.slice(0, start) +
+    token +
+    (suffix.startsWith(" ") ? suffix.slice(1) : suffix);
   return { text: next, caret: start + token.length };
 }
 
@@ -97,6 +102,7 @@ export function mentionSpans(
     });
     cursor = hit.end;
   }
-  if (cursor < text.length) spans.push({ kind: "text", text: text.slice(cursor) });
+  if (cursor < text.length)
+    spans.push({ kind: "text", text: text.slice(cursor) });
   return spans;
 }

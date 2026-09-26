@@ -37,7 +37,7 @@ test.describe("Chat surface", () => {
     await page.getByTestId("center-tab-agent").click();
     await page.keyboard.press(shortcut);
     await expect(composer).toBeFocused();
-    await expect(composer).toHaveValue("Keep this draft");
+    await expect(composer).toHaveText("Keep this draft");
 
     await page
       .getByTestId("chat-message")
@@ -137,18 +137,28 @@ test.describe("Chat surface", () => {
       await page.getByTestId("chat-composer-mention-button").click();
       await expect(page.getByTestId("mention-picker")).toBeVisible();
       await page.getByTestId("mention-option").first().click();
-      await expect(input).toHaveValue("Please @" + agent.name + " ");
+      await expect(input).toHaveText("Please @" + agent.name + " ");
 
       await input.fill("check this draft");
       await page.getByTestId("chat-composer-command-button").click();
       await expect(page.getByTestId("slash-picker")).toBeVisible();
       await expect
-        .poll(() => input.evaluate((el) => el.selectionStart))
+        .poll(() =>
+          input.evaluate((el) => {
+            const selection = window.getSelection();
+            if (!selection?.anchorNode || !el.contains(selection.anchorNode))
+              return -1;
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            range.setEnd(selection.anchorNode, selection.anchorOffset);
+            return range.toString().length;
+          })
+        )
         .toBe(1);
       await input.pressSequentially("rev");
       await expect(page.getByTestId("slash-option")).toHaveCount(1);
       await input.press("Enter");
-      await expect(input).toHaveValue("/review check this draft");
+      await expect(input).toHaveText("/review check this draft");
       await expect(page.getByTestId("slash-picker")).toBeHidden();
       await page.getByTestId("chat-composer-command-button").click();
       await expect(page.getByTestId("slash-picker")).toBeVisible();
@@ -397,9 +407,9 @@ test.describe("Chat surface", () => {
     await page.getByTestId("center-tab-changes").click();
     await page.waitForURL(new RegExp(`/agents/${agent.id}/changes$`));
     await page.getByTestId("center-tab-agent").click();
-    await expect(input).toHaveValue("Please read this");
+    await expect(input).toHaveText("Please read this");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("chat-composer-input")).toHaveValue(
+    await expect(page.getByTestId("chat-composer-input")).toHaveText(
       "Please read this"
     );
 
@@ -417,10 +427,10 @@ test.describe("Chat surface", () => {
     });
     const chip = composer.getByTestId("context-link-item");
     await expect(chip).toHaveAttribute("title", "https://example.com/design");
-    await expect(input).toHaveValue("Please read this");
+    await expect(input).toHaveText("Please read this");
 
     await composer.getByTestId("chat-composer-send").click();
-    await expect(input).toHaveValue("");
+    await expect(input).toHaveText("");
     await expect(chip).toHaveCount(0);
 
     // The person's own post; the agent's answer (a block too, now) quotes

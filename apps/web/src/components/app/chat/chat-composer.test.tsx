@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
 import {
   act,
   cleanup,
@@ -294,26 +298,10 @@ describe("ChatComposer @mentions", () => {
     expect(onSend).not.toHaveBeenCalled();
     await waitFor(() => expect(input.value).toBe("@reviewer "));
     expect(screen.queryByTestId("mention-picker")).toBeNull();
-    expect(screen.getByTestId("chat-composer-mention").textContent).toBe(
-      "@reviewer"
-    );
     type(input, "@reviewer look at this");
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend.mock.calls[0]![0]).toBe("@reviewer look at this");
-  });
-
-  it("updates badges as mentions are edited without changing the draft", () => {
-    const { input } = renderComposer({ mentionables });
-    type(input, "@reviewer and @builder, not @unknown");
-    expect(screen.getAllByTestId("chat-composer-mention")).toHaveLength(2);
-    type(input, "@reviewe and @builder, not @unknown");
-    expect(screen.getByTestId("chat-composer-mention").textContent).toBe(
-      "@builder"
-    );
-    expect(input.value).toBe("@reviewe and @builder, not @unknown");
-    type(input, "");
-    expect(screen.queryByTestId("chat-composer-mention")).toBeNull();
   });
 
   it("matches a seat number, moves with the arrows, and Escape closes it", () => {
@@ -353,7 +341,7 @@ describe("ChatComposer toolbar pickers", () => {
     await waitFor(() => expect(input.selectionStart).toBe(5));
     expect(input.value).toBe("Ask @ to review");
     fireEvent.click(screen.getByTestId("mention-option"));
-    await waitFor(() => expect(input.value).toBe("Ask @reviewer  to review"));
+    await waitFor(() => expect(input.value).toBe("Ask @reviewer to review"));
     expect(document.activeElement).toBe(input);
     expect(onSend).not.toHaveBeenCalled();
   });

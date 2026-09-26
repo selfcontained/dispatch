@@ -23,7 +23,7 @@ async function sendChat(page: Page, text: string): Promise<void> {
   await expect(input).toBeEnabled({ timeout: TURN_TIMEOUT });
   await input.fill(text);
   await page.getByTestId("chat-composer-send").click();
-  await expect(input).toHaveValue("");
+  await expect(input).toHaveText("");
 }
 
 test.describe("Live agent", () => {
@@ -138,7 +138,7 @@ test.describe("Live agent", () => {
     await input.fill("a separate task for later");
     await page.getByTestId("chat-composer-send-options").click();
     await page.getByTestId("chat-composer-queue").click();
-    await expect(input).toHaveValue("");
+    await expect(input).toHaveText("");
     await expect(page.getByTestId("chat-held-hint")).toBeVisible();
     await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
     await expect(turns.last()).toHaveAttribute("data-settled", "true", {
@@ -243,7 +243,7 @@ test.describe("Live agent", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("chat-composer-queue")).toHaveCount(0);
     await expect(threadPage).toBeVisible();
-    await expect(threadInput).toHaveValue("draft reply");
+    await expect(threadInput).toHaveText("draft reply");
     await threadInput.fill("");
     // The main column keeps only the turn the root post opened.
     const mainTurns = page.getByTestId("chat-pane").getByTestId("chat-turn");

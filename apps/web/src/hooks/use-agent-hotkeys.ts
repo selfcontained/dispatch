@@ -56,8 +56,8 @@ export function useAgentHotkeys({
 
   useHotkey("focus-composer", () => {
     const composers = Array.from(
-      document.querySelectorAll<HTMLTextAreaElement>(
-        "textarea[data-chat-composer]:not(:disabled)"
+      document.querySelectorAll<HTMLElement>(
+        '[data-chat-composer]:not(:disabled):not([aria-disabled="true"])'
       )
     ).filter(
       (element) =>

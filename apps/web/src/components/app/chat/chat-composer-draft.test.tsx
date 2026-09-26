@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
 import {
   act,
   cleanup,

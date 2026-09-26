@@ -88,7 +88,7 @@ export function MentionText({
           <span
             key={index}
             className={cn(
-              "box-decoration-clone rounded-full border px-1.5 py-px font-medium",
+              "box-decoration-clone rounded-full border px-1 py-0 text-[0.8em] font-medium",
               span.agent.seat !== undefined
                 ? seatClasses(span.agent.seat).face
                 : "border-border bg-muted text-foreground"

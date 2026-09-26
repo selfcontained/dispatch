@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
 import type { ChatTurnEntry, StreamEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
