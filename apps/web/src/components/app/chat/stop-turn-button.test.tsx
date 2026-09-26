@@ -85,4 +85,21 @@ describe("StopTurnButton focus", () => {
     await waitFor(() => expect(document.activeElement).toBe(input));
     expect(trigger.disabled).toBe(true);
   });
+
+  it("moves focus to the composer when the remaining Stop is disabled", async () => {
+    const { trigger, rerender } = setup();
+    await openMenu(trigger);
+    fireEvent.click(screen.getByTestId("chat-stop-agent-agt_1"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("chat-stop-agent-agt_2")).toBeNull()
+    );
+
+    const item = await openMenu(trigger);
+    item.focus();
+    rerender([agent]);
+
+    const input = screen.getByTestId("chat-composer-input");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(trigger.disabled).toBe(true);
+  });
 });

@@ -141,7 +141,7 @@ export function StopTurnButton({
         onCloseAutoFocus={(event) => {
           if (turns.length > 1) return;
           event.preventDefault();
-          if (turns.length === 1) {
+          if (turns.length === 1 && !triggerRef.current?.disabled) {
             triggerRef.current?.focus();
           } else {
             const form = triggerRef.current?.closest("form");
