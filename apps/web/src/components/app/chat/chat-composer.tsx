@@ -44,6 +44,13 @@ import {
   STARTUP_FILE_ACCEPT,
   getClipboardFilesFromEvent,
 } from "@/components/app/create-agent-dialog-clipboard";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { MentionPicker } from "@/components/app/chat/mention-picker";
 import { SlashPicker } from "@/components/app/chat/slash-picker";
 import {
@@ -123,8 +130,15 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  pendingQuestion?: {
+    excerpt: string;
+    onAnswer: () => void;
+    onDismiss: () => void;
+  } | null;
   /** The agents a typed `@` can name: the stream's tree. */
   mentionables?: readonly Mentionable[];
+  /** Defaults from the page or server; mentions override these for ordinary posts. */
+  defaultRecipients?: readonly Mentionable[];
   /** Agent-advertised commands and local Dispatch actions in the slash menu. */
   slashCommands?: readonly SlashCommand[];
   /** Return true when a Dispatch command was handled without sending a turn. */
@@ -230,8 +244,10 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  pendingQuestion = null,
   action,
   mentionables,
+  defaultRecipients,
   slashCommands,
   onDispatchCommand,
   canQueue = false,
@@ -285,6 +301,20 @@ export function ChatComposer({
   useEffect(() => cancelCaretFocus, [cancelCaretFocus]);
 
   // ---- @mentions: the token under the caret opens the picker ---------------
+  const mentionedRecipients = mentionSpans(text, mentionables ?? []).flatMap(
+    (span) => (span.kind === "mention" ? [span.agent] : [])
+  );
+  const recipients = [
+    ...new Map(
+      (!replyContext && mentionedRecipients.length
+        ? mentionedRecipients
+        : (defaultRecipients ?? [])
+      ).map((agent) => [
+        agent.id,
+        mentionables?.find((candidate) => candidate.id === agent.id) ?? agent,
+      ])
+    ).values(),
+  ];
   const [caret, setCaret] = useState(0);
   // Escape closes the list until the text changes again.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
@@ -1019,6 +1049,47 @@ export function ChatComposer({
       data-testid="chat-composer"
       data-dragging={draggingFiles ? "true" : undefined}
     >
+      {defaultRecipients ? (
+        <TooltipProvider delayDuration={150}>
+          <div
+            className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-1 text-[11px] text-muted-foreground"
+            data-testid="chat-composer-routing"
+            role="group"
+            aria-label="Message recipients"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span>To:</span>
+            {recipients.map((agent) => (
+              <Tooltip key={agent.id}>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid="chat-composer-recipient"
+                    data-agent-id={agent.id}
+                  >
+                    <AgentSeatBadge
+                      seat={agent.seat ?? null}
+                      name={agent.name}
+                      size="sm"
+                    />
+                    {agent.seat === undefined ? (
+                      <span>{agent.name}</span>
+                    ) : null}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {agent.seat === undefined
+                    ? agent.name
+                    : `@${agent.seat} · ${agent.name}`}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+            {recipients.length === 0 ? <span>Loading recipients…</span> : null}
+          </div>
+        </TooltipProvider>
+      ) : null}
       <div
         className={cn(
           "rounded-2xl border bg-card/70 transition-colors",
@@ -1029,22 +1100,39 @@ export function ChatComposer({
               : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
         )}
       >
-        {replyContext && !disabled ? (
+        {(replyContext || pendingQuestion) && !disabled ? (
           <div className="px-2 pt-2">
             <div
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
-              data-testid="chat-reply-context"
+              className="flex w-full items-start gap-2 rounded-md border border-l-[3px] border-border/70 border-l-primary bg-primary/[0.05] px-2 py-1.5 text-xs text-foreground"
+              data-testid={
+                replyContext ? "chat-reply-context" : "chat-pending-question"
+              }
             >
-              <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
-              <span className="shrink-0 text-muted-foreground">
-                Replying to:
+              <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+              <span className="shrink-0 font-semibold text-primary">
+                {replyContext ? "Answering:" : "Question:"}
               </span>
-              <span className="max-w-[40ch] truncate">
-                {replyContext.excerpt}
+              <span className="min-w-0 flex-1 break-words">
+                {(replyContext || pendingQuestion)?.excerpt}
               </span>
+              {!replyContext && pendingQuestion ? (
+                <Button
+                  type="button"
+                  variant="ghost-primary"
+                  size="sm"
+                  className="h-5 shrink-0 px-1.5 text-xs text-primary hover:bg-primary/10 hover:text-primary"
+                  onClick={() => {
+                    pendingQuestion.onAnswer();
+                    textareaRef.current?.focus();
+                  }}
+                  data-testid="chat-answer-question"
+                >
+                  Answer
+                </Button>
+              ) : null}
               <button
                 type="button"
-                onClick={replyContext.onDismiss}
+                onClick={(replyContext || pendingQuestion)?.onDismiss}
                 className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Send a plain message instead"
                 aria-label="Send a plain message instead"
