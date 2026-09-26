@@ -6,7 +6,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -65,8 +64,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { seatClasses } from "@/lib/agent-seat";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  ComposerInput,
+  type ComposerInputHandle,
+} from "@/components/app/chat/composer-input";
 import {
   insertMention,
   matchMentionables,
@@ -281,25 +282,7 @@ export function ChatComposer({
 
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mentionPaintRef = useRef<HTMLDivElement>(null);
-  const syncMentionPaint = useCallback(() => {
-    const input = textareaRef.current;
-    const paint = mentionPaintRef.current;
-    if (!input || !paint) return;
-    paint.style.width = `${input.clientWidth}px`;
-    paint.style.height = `${input.clientHeight}px`;
-    paint.scrollTop = input.scrollTop;
-    paint.scrollLeft = input.scrollLeft;
-  }, []);
-  const caretFrameRef = useRef<number | null>(null);
-  const cancelCaretFocus = useCallback(() => {
-    if (caretFrameRef.current !== null)
-      cancelAnimationFrame(caretFrameRef.current);
-    caretFrameRef.current = null;
-  }, []);
-  useEffect(() => cancelCaretFocus, [cancelCaretFocus]);
-
+  const textareaRef = useRef<ComposerInputHandle>(null);
   // ---- @mentions: the token under the caret opens the picker ---------------
   const mentionedRecipients = mentionSpans(text, mentionables ?? []).flatMap(
     (span) => (span.kind === "mention" ? [span.agent] : [])
@@ -396,49 +379,41 @@ export function ChatComposer({
       // until the text moves on.
       setDismissedFor(next.text);
       const el = textareaRef.current;
-      if (el) {
-        requestAnimationFrame(() => {
-          el.focus();
-          el.setSelectionRange(next.caret, next.caret);
-        });
-      }
+      el?.setValue(next.text, next.caret);
+      el?.focus();
     },
     [caret, mentionQuery, setText, text]
   );
   const pickSlash = useCallback(
     (command: SlashCommand) => {
       let nextCaret = 0;
+      let nextText = "";
       if (command.source === "dispatch" && onDispatchCommand?.(command.name)) {
         // A toolbar command can precede an existing draft. Consuming the
         // command locally must not consume that draft as well.
         const remaining = text.slice(caret).replace(/^\s*/, "");
+        nextText = remaining;
         setText(remaining);
         setCaret(0);
         setSlashDismissedFor(remaining);
       } else {
         const next = `/${command.name} ${text.slice(caret).replace(/^\s*/, "")}`;
+        nextText = next;
         nextCaret = command.name.length + 2;
         setText(next);
         setCaret(nextCaret);
         setSlashDismissedFor(next);
       }
       setSlashIndex(0);
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        el?.focus();
-        el?.setSelectionRange(nextCaret, nextCaret);
-      });
+      textareaRef.current?.setValue(nextText, nextCaret);
+      textareaRef.current?.focus();
     },
     [caret, onDispatchCommand, setText, text]
   );
-  const focusCaret = (position: number) => {
-    cancelCaretFocus();
+  const focusCaret = (position: number, value = text) => {
     setCaret(position);
-    caretFrameRef.current = requestAnimationFrame(() => {
-      caretFrameRef.current = null;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(position, position);
-    });
+    textareaRef.current?.setValue(value, position);
+    textareaRef.current?.focus();
   };
 
   const openMentions = () => {
@@ -468,7 +443,7 @@ export function ChatComposer({
     setDismissedFor(null);
     setSlashDismissedFor(next);
     setMentionIndex(0);
-    focusCaret(start + trigger.length);
+    focusCaret(start + trigger.length, next);
   };
 
   const openCommands = () => {
@@ -482,7 +457,7 @@ export function ChatComposer({
     setSlashDismissedFor(null);
     setSlashIndex(0);
     setDismissedFor(next);
-    focusCaret(prefix ? prefix[0].length : 1);
+    focusCaret(prefix ? prefix[0].length : 1, next);
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -721,7 +696,7 @@ export function ChatComposer({
   );
 
   const onPaste = useCallback(
-    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    (event: ClipboardEvent<HTMLDivElement>) => {
       if (disabled) return;
       const pastedFiles = getClipboardFilesFromEvent(event);
       if (pastedFiles.length > 0) {
@@ -787,50 +762,6 @@ export function ChatComposer({
     !inFlight &&
     placeholders.length === 0 &&
     (trimmed.length > 0 || attachmentCount > 0);
-
-  // The text owns its rectangle; the toolbar never overlaps its last line.
-  useLayoutEffect(() => {
-    const input = textareaRef.current;
-    if (!input) return;
-    const resize = () => {
-      // Measuring the live field at height:auto can clamp the stream's
-      // scrollTop. Measure a hidden copy so typing and width changes leave
-      // the reader's place alone.
-      const measure = input.cloneNode(false) as HTMLTextAreaElement;
-      measure.removeAttribute("id");
-      measure.removeAttribute("data-testid");
-      measure.removeAttribute("autofocus");
-      measure.setAttribute("aria-hidden", "true");
-      measure.tabIndex = -1;
-      measure.value = input.value;
-      Object.assign(measure.style, {
-        position: "fixed",
-        visibility: "hidden",
-        pointerEvents: "none",
-        width: `${input.getBoundingClientRect().width}px`,
-        height: "0",
-        minHeight: "0",
-        maxHeight: "none",
-        overflow: "hidden",
-      });
-      input.parentElement!.appendChild(measure);
-      input.style.height = `${measure.scrollHeight}px`;
-      measure.remove();
-      syncMentionPaint();
-    };
-    resize();
-    let width = input.clientWidth;
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => {
-            if (input.clientWidth === width) return;
-            width = input.clientWidth;
-            resize();
-          });
-    observer?.observe(input);
-    return () => observer?.disconnect();
-  }, [text, syncMentionPaint]);
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -935,7 +866,7 @@ export function ChatComposer({
   );
 
   const onKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.nativeEvent.isComposing) return;
       if (
         event.key === "Enter" &&
@@ -1018,12 +949,6 @@ export function ChatComposer({
       submit,
       text,
     ]
-  );
-  const syncCaret = useCallback(
-    (event: { currentTarget: HTMLTextAreaElement }) => {
-      setCaret(event.currentTarget.selectionStart ?? 0);
-    },
-    []
   );
 
   const uploadingName = fileViews.find(
@@ -1192,7 +1117,7 @@ export function ChatComposer({
               activeIndex={activeMention}
               onPick={pickMention}
               onHover={setMentionIndex}
-              anchor={textareaRef.current}
+              anchor={textareaRef.current?.element ?? null}
             />
           ) : null}
           {slashOpen ? (
@@ -1202,83 +1127,32 @@ export function ChatComposer({
               listId={slashListId}
               onPick={pickSlash}
               onHover={setSlashIndex}
-              anchor={textareaRef.current}
+              anchor={textareaRef.current?.element ?? null}
             />
           ) : null}
-          <div className="relative">
-            {/* The mirror draws text and badges while the textarea owns editing.
-                Badge margins cancel their padding and border so both layers keep
-                identical glyph positions, wrapping, selection and caret geometry. */}
-            <div
-              ref={mentionPaintRef}
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute left-0 top-0 select-none overflow-hidden whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-sm text-foreground pointer-coarse:text-base",
-                disabled && "opacity-50"
-              )}
-              data-testid="chat-composer-mention-paint"
-            >
-              {draftMentionSpans.map((span, index) =>
-                span.kind === "mention" ? (
-                  <span
-                    key={index}
-                    className={cn(
-                      "box-decoration-clone rounded-full border -mx-1 px-[3px] py-px",
-                      span.agent.seat !== undefined
-                        ? seatClasses(span.agent.seat).face
-                        : "border-border bg-muted text-muted-foreground"
-                    )}
-                    data-testid="chat-composer-mention"
-                    data-agent-id={span.agent.id}
-                  >
-                    {span.text}
-                  </span>
-                ) : (
-                  <span key={index}>{span.text}</span>
-                )
-              )}
-              {/* A trailing newline needs a final line box, as in a textarea. */}
-              <span className="invisible">{"\u200b"}</span>
-            </div>
-            <Textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(event) => {
-                cancelCaretFocus();
-                if (event.target.value !== text) setSlashDismissedFor(null);
-                setText(event.target.value);
-                setCaret(event.target.selectionStart ?? 0);
-                setMentionIndex(0);
-                setSlashIndex(0);
-              }}
-              onScroll={syncMentionPaint}
-              onSelect={syncCaret}
-              onClick={syncCaret}
-              onKeyUp={syncCaret}
-              onKeyDown={onKeyDown}
-              onPaste={onPaste}
-              disabled={disabled}
-              rows={1}
-              maxLength={CHAT_MESSAGE_MAX_CHARS}
-              autoFocus={autoFocus}
-              placeholder={
-                disabled ? "" : replyContext ? "Type your answer…" : placeholder
-              }
-              aria-label="Message the agent"
-              role={slashOpen ? "combobox" : undefined}
-              aria-autocomplete={slashOpen ? "list" : undefined}
-              aria-haspopup={slashOpen ? "listbox" : undefined}
-              aria-expanded={slashOpen ? true : undefined}
-              aria-controls={slashOpen ? slashListId : undefined}
-              aria-activedescendant={
-                slashOpen ? `${slashListId}-option-${activeSlash}` : undefined
-              }
-              // The box around it is the border; the field itself is bare.
-              className="relative max-h-48 min-h-14 w-full resize-none rounded-t-2xl border-0 bg-transparent px-4 pb-2 pt-4 text-sm text-transparent caret-foreground selection:bg-primary selection:text-primary-foreground shadow-none backdrop-blur-none focus-visible:ring-0 pointer-coarse:text-base"
-              data-chat-composer
-              data-testid="chat-composer-input"
-            />
-          </div>
+          <ComposerInput
+            ref={textareaRef}
+            value={text}
+            mentionables={mentionables ?? []}
+            disabled={disabled}
+            maxLength={CHAT_MESSAGE_MAX_CHARS}
+            onChange={(value, position) => {
+              if (value !== text) setSlashDismissedFor(null);
+              setText(value);
+              setCaret(position);
+              setMentionIndex(0);
+              setSlashIndex(0);
+            }}
+            onSelect={setCaret}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            placeholder={
+              disabled ? "" : replyContext ? "Type your answer…" : placeholder
+            }
+            slashOpen={slashOpen}
+            slashListId={slashListId}
+            activeSlash={activeSlash}
+          />
 
           <div
             className="flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"

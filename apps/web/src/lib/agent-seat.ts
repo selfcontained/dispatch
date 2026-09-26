@@ -58,31 +58,37 @@ const SEAT_PALETTE: readonly SeatClasses[] = [
 /** The face is washed in the accent; the number chip is solid. */
 export type SeatClasses = { face: string; chip: string };
 
+// Theme mode is a data attribute, not Tailwind's .dark class.
 // Spelled out per colour so Tailwind sees every class it must emit.
 function seatAccent(colour: string): SeatClasses {
   const faces: Record<string, string> = {
-    sky: "border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300",
-    emerald: "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-    amber: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300",
-    violet: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    rose: "border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300",
-    teal: "border-teal-500/40 bg-teal-500/15 text-teal-700 dark:text-teal-300",
-    orange: "border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300",
-    fuchsia: "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300",
-    lime: "border-lime-500/40 bg-lime-500/15 text-lime-700 dark:text-lime-300",
-    cyan: "border-cyan-500/40 bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+    sky: "border-sky-500/40 bg-sky-500/15 text-sky-800 [[data-theme-mode=dark]_&]:text-sky-300",
+    emerald:
+      "border-emerald-500/40 bg-emerald-500/15 text-emerald-800 [[data-theme-mode=dark]_&]:text-emerald-300",
+    amber:
+      "border-amber-500/40 bg-amber-500/15 text-amber-800 [[data-theme-mode=dark]_&]:text-amber-300",
+    violet:
+      "border-violet-500/40 bg-violet-500/15 text-violet-800 [[data-theme-mode=dark]_&]:text-violet-300",
+    rose: "border-rose-500/40 bg-rose-500/15 text-rose-800 [[data-theme-mode=dark]_&]:text-rose-300",
+    teal: "border-teal-500/40 bg-teal-500/15 text-teal-800 [[data-theme-mode=dark]_&]:text-teal-300",
+    orange:
+      "border-orange-500/40 bg-orange-500/15 text-orange-800 [[data-theme-mode=dark]_&]:text-orange-300",
+    fuchsia:
+      "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-800 [[data-theme-mode=dark]_&]:text-fuchsia-300",
+    lime: "border-lime-500/40 bg-lime-500/15 text-lime-800 [[data-theme-mode=dark]_&]:text-lime-300",
+    cyan: "border-cyan-500/40 bg-cyan-500/15 text-cyan-800 [[data-theme-mode=dark]_&]:text-cyan-300",
   };
   const chips: Record<string, string> = {
-    sky: "bg-sky-500",
-    emerald: "bg-emerald-500",
-    amber: "bg-amber-500",
-    violet: "bg-violet-500",
-    rose: "bg-rose-500",
-    teal: "bg-teal-500",
-    orange: "bg-orange-500",
-    fuchsia: "bg-fuchsia-500",
-    lime: "bg-lime-500",
-    cyan: "bg-cyan-500",
+    sky: "bg-sky-800",
+    emerald: "bg-emerald-800",
+    amber: "bg-amber-800",
+    violet: "bg-violet-800",
+    rose: "bg-rose-800",
+    teal: "bg-teal-800",
+    orange: "bg-orange-800",
+    fuchsia: "bg-fuchsia-800",
+    lime: "bg-lime-800",
+    cyan: "bg-cyan-800",
   };
   return { face: faces[colour]!, chip: chips[colour]! };
 }
