@@ -98,20 +98,24 @@ test.describe("Live agent", () => {
     const initial = page
       .locator('[data-testid="chat-message"][data-author-kind="user"]')
       .filter({ hasText: "sleep:10000 original work" });
-    await initial.hover();
-    await initial
-      .getByRole("button", { name: "Message delivery details" })
-      .click();
     await expect(
-      page.getByRole("dialog", { name: "Message delivery", exact: true })
-    ).toContainText("Received");
-    await page.keyboard.press("Escape");
+      initial.getByRole("button", { name: "Message delivery details" })
+    ).toHaveCount(0);
     await sendChat(page, "incorporate this correction");
     const correction = page
       .locator('[data-testid="chat-message"][data-author-kind="user"]')
       .filter({ hasText: "incorporate this correction" });
     await expect(correction.getByTestId("chat-receipt-sent")).toBeVisible();
     const sentHeight = (await correction.boundingBox())!.height;
+    const slot = correction.getByTestId("chat-delivery-slot");
+    const sentSlot = await slot.boundingBox();
+    await correction.hover();
+    expect(await slot.boundingBox()).toEqual(sentSlot);
+    expect(
+      await slot.evaluate(
+        (e) => !!e.closest('[data-testid="chat-post-action"]')
+      )
+    ).toBe(false);
     await expect(correction.getByTestId("chat-receipt-received")).toBeVisible();
     expect((await correction.boundingBox())!.height).toBe(sentHeight);
     await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
@@ -122,14 +126,9 @@ test.describe("Live agent", () => {
     await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
       0
     );
-    await correction.hover();
-    await correction
-      .getByRole("button", { name: "Message delivery details" })
-      .click();
-    await expect(
-      page.getByRole("dialog", { name: "Message delivery", exact: true })
-    ).toContainText("Received");
-    await page.keyboard.press("Escape");
+    await expect(correction.getByTestId("chat-delivery-indicator")).toHaveClass(
+      /opacity-0/
+    );
     await expect(turns.first()).toContainText("Steered:", {
       timeout: TURN_TIMEOUT,
     });

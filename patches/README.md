@@ -42,15 +42,16 @@ the message.
 Dispatch correlates session and attempt, buffers a receipt that races the steer
 acknowledgement, journals acceptance before pickup, and persists receipts per
 post/recipient. Retry clears only the retried recipients' receipts. Turn completion
-alone never marks pickup. Adapters without this capability retain the existing
-delivery-only status in message details; an older Codex CLI that does not return
+alone never marks pickup. Adapters without this capability retain delivery-only behavior; an older Codex CLI that does not return
 `clientId` stays at Sent. Raw ACP commands skip prompt receipts
 because some commands do not emit a user-message echo.
 
-The fixed-size corner action shows Sent until pickup, briefly confirms Received,
-then fades back to the usual details action. Status changes never resize the message.
-Completed history is quiet on initial load. Details show each recipient's latest
-status and time. True queues and delivery failures retain their callouts/actions.
+A noninteractive mark in a reserved message margin shows Sent until pickup,
+briefly confirms Received, then fades away. It sits outside the action toolbar;
+status changes never resize the message or move with the buttons. There is no
+delivery popover. Completed history is quiet on initial load. For multiple
+recipients, Received waits for every receipt; partial pickup stays Sent.
+True queues and delivery failures retain their callouts/actions.
 The persisted JSONB column and private wire namespace retain their historical
 steering names for compatibility; they now carry normal-prompt receipts too.
 

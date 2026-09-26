@@ -1,5 +1,5 @@
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
-import { DeliveryDetails, DeliveryMeta } from "./chat-delivery-meta";
+import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
 import type {
@@ -563,6 +563,7 @@ export function Post({
   rule = false,
   side,
   action,
+  deliveryIndicator,
   flush = false,
   children,
   ...rest
@@ -576,6 +577,8 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
+  /** A fixed receipt margin independent of message actions and body layout. */
+  deliveryIndicator?: ReactNode;
   /**
    * No avatar gutter and a narrower inset: for a card that is the whole
    * subject of a narrow panel (a review in the drawer) and wants the width.
@@ -592,6 +595,7 @@ export function Post({
         // row: the "→ recipient" in its header says who it was for. An
         // indent read as a different, harder-to-follow kind of message.
         flush ? "px-3" : "px-4",
+        deliveryIndicator && "pr-8",
         side && author.kind !== "user"
           ? POST_TINT.peer
           : POST_TINT[author.kind],
@@ -606,6 +610,14 @@ export function Post({
       data-flush={flush ? "true" : undefined}
       {...rest}
     >
+      {deliveryIndicator ? (
+        <div
+          className="absolute right-1 top-2 h-4 w-4"
+          data-testid="chat-delivery-slot"
+        >
+          {deliveryIndicator}
+        </div>
+      ) : null}
       {flush ? null : (
         <div className="flex w-8 shrink-0 justify-end">
           {grouped ? (
@@ -627,7 +639,11 @@ export function Post({
             so the action sits in the header row instead. */}
         {action && !flush ? (
           <div
-            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
+            className={cn(
+              "float-right ml-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mt-2",
+              !deliveryIndicator &&
+                "max-sm:-mr-2 [@media(pointer:coarse)]:-mr-2"
+            )}
             data-testid="chat-post-action"
           >
             {action}
@@ -1274,15 +1290,15 @@ export const BlockView = memo(function BlockView({
     ) : null;
   const copyText = block.turn ? turnAnswerText(block, block.turn) : block.text;
   const copyAction =
-    copyText || replyAction || block.delivery?.length ? (
+    copyText || replyAction ? (
       <div className="flex items-center">
-        <DeliveryDetails
-          block={block}
-          recipientName={(id) => agentDisplayName(id, ctx)}
-        />
         {replyAction}
         {copyText ? <MessageCopyButton text={copyText} /> : null}
       </div>
+    ) : undefined;
+  const deliveryIndicator =
+    block.toAgentId && block.delivery?.length && block.kind !== "launch" ? (
+      <DeliveryIndicator block={block} />
     ) : undefined;
   const reactions = block.reactions ?? [];
   const threadLine = inThread ? null : <ThreadLine block={block} ctx={ctx} />;
@@ -1337,6 +1353,7 @@ export const BlockView = memo(function BlockView({
         data-launched-by={block.launchedByAgentId}
         data-block-id={block.id}
         action={copyAction}
+        deliveryIndicator={deliveryIndicator}
       >
         {block.text ? (
           <Markdown
@@ -1351,7 +1368,7 @@ export const BlockView = memo(function BlockView({
         {body}
         <AttachmentList block={block} ctx={ctx} />
         {/* Queue/failure actions are persistent callouts. Transient receipt
-            feedback stays in the fixed-size post action above. */}
+            feedback stays in its own fixed margin. */}
         <div
           className={cn(
             "min-w-0",
@@ -1448,6 +1465,7 @@ export const BlockView = memo(function BlockView({
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
       action={agentAction}
+      deliveryIndicator={deliveryIndicator}
     >
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />

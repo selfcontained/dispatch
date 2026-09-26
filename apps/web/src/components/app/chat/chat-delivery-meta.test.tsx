@@ -1,15 +1,9 @@
 // @vitest-environment jsdom
-import {
-  cleanup,
-  act,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { cleanup, act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockDelivery } from "@dispatch/shared";
 import { block } from "@/test-utils/blocks";
-import { DeliveryDetails, DeliveryMeta } from "./chat-delivery-meta";
+import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
 const waiting: BlockDelivery = {
   agentId: "agt_1",
@@ -28,7 +22,7 @@ function ui(delivery: BlockDelivery[]) {
   return (
     <>
       <DeliveryMeta block={receipt(delivery)} recipientName={name} />
-      <DeliveryDetails block={receipt(delivery)} recipientName={name} />
+      <DeliveryIndicator block={receipt(delivery)} />
     </>
   );
 }
@@ -68,7 +62,10 @@ describe("quiet delivery status", () => {
     const other: BlockDelivery = { ...waiting, agentId: "agt_2" };
     const view = render(ui([waiting, other]));
     view.rerender(ui([received, other]));
-    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
+    expect(
+      screen.getByTestId("chat-delivery-indicator").getAttribute("aria-label")
+    ).toBe("Sent · 1 of 2 agents received it");
     act(() => vi.advanceTimersByTime(2100));
     expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
     act(() => vi.advanceTimersByTime(2100));
@@ -78,21 +75,15 @@ describe("quiet delivery status", () => {
     view.rerender(ui([{ agentId: "agt_1", state: "pending" }]));
     expect(screen.queryByTestId("chat-receipt-sent")).toBeNull();
   });
-  it("keeps timestamps and recipient details accessible after success disappears", () => {
-    render(
-      <DeliveryDetails
-        block={receipt([received, { agentId: "agt_2", state: "delivered" }])}
-        recipientName={name}
-      />
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Message delivery details" })
-    );
-    const details = screen.getByRole("dialog");
-    expect(details.textContent).toContain("Received");
-    expect(details.textContent).toContain("Sent");
-    expect(details.querySelector("time")?.getAttribute("datetime")).toBe(
-      received.receipt?.pickedUpAt
-    );
+  it("has no button or popover, and keeps the same slot after a receipt fades", () => {
+    vi.useFakeTimers();
+    const view = render(ui([waiting]));
+    const indicator = screen.getByTestId("chat-delivery-indicator");
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.rerender(ui([received]));
+    act(() => vi.advanceTimersByTime(2100));
+    expect(screen.getByTestId("chat-delivery-indicator")).toBe(indicator);
+    expect(indicator.className).toContain("opacity-0");
   });
 });

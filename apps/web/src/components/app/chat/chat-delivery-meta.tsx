@@ -1,17 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { POST_ACTION_BUTTON, POST_ACTION_FACE } from "./chat-reactions";
 import type { Block, BlockDeliveryState } from "@dispatch/shared";
 import {
   AlertTriangle,
   Check,
   CheckCheck,
-  Info,
   Hourglass,
   Loader2,
 } from "lucide-react";
@@ -160,11 +152,11 @@ function useReceiptFlash(block: Block): boolean {
   return received.some((entry) => !!flashes[entry.agentId]);
 }
 
-/** A quiet, keyboard- and touch-accessible place for durable receipt details. */
-export function DeliveryDetails({
+/** Non-interactive receipt mark. The parent reserves its own fixed margin;
+ * this subtree never participates in the action toolbar or message flow. */
+export function DeliveryIndicator({
   block,
-  recipientName,
-}: DeliveryMetaProps): JSX.Element | null {
+}: Pick<DeliveryMetaProps, "block">): JSX.Element {
   const freshReceipt = useReceiptFlash(block);
   const pendingKey = inState(block, "pending").join(",");
   const [showSending, setShowSending] = useState(false);
@@ -174,116 +166,59 @@ export function DeliveryDetails({
     const timer = setTimeout(() => setShowSending(true), 500);
     return () => clearTimeout(timer);
   }, [block.id, pendingKey]);
-  if (block.toAgentId === null || !block.delivery?.length) return null;
-  const failed = inState(block, "failed").length > 0;
-  const held = inState(block, "held").length > 0;
-  const sent = block.delivery.some(
+
+  const deliveries = block.delivery ?? [];
+  const received = deliveries.filter(
+    (entry) => entry.state === "delivered" && entry.receipt?.pickedUpAt
+  ).length;
+  const awaitingReceipt = deliveries.some(
     (entry) =>
       entry.state === "delivered" && entry.receipt && !entry.receipt.pickedUpAt
   );
-  const status = failed
-    ? "Not delivered"
-    : held
-      ? "Queued"
-      : showSending && pendingKey
-        ? "Sending…"
-        : freshReceipt
-          ? "Received"
-          : sent
-            ? "Sent"
-            : undefined;
-  const Icon = failed
-    ? AlertTriangle
-    : held
-      ? Hourglass
-      : showSending && pendingKey
-        ? Loader2
-        : freshReceipt
-          ? CheckCheck
-          : sent
-            ? Check
-            : Info;
-  const statusTestId = failed
-    ? "chat-delivery-error-icon"
-    : held
-      ? "chat-delivery-queued-icon"
-      : showSending && pendingKey
-        ? "chat-delivery-pending"
-        : freshReceipt
-          ? "chat-receipt-received"
-          : sent
-            ? "chat-receipt-sent"
-            : undefined;
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`${POST_ACTION_BUTTON} shrink-0 data-[state=open]:opacity-100 ${status ? "!opacity-100" : ""}`}
-          aria-label="Message delivery details"
-          title={status ? `${status} · Delivery details` : "Delivery details"}
-          data-testid="chat-delivery-details"
-        >
-          <span className={POST_ACTION_FACE}>
-            <Icon
-              className={`h-3.5 w-3.5 ${status === "Sending…" ? "animate-spin" : ""} ${failed ? "text-destructive" : ""}`}
-              aria-hidden="true"
-              data-testid={statusTestId}
-            />
-            {status ? <span className="sr-only">{status}</span> : null}
-          </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        aria-label="Message delivery"
-        align="end"
-        collisionPadding={12}
-        className="max-h-[var(--radix-popover-content-available-height,calc(100dvh-24px))] max-w-[calc(100vw-24px)] space-y-3 overflow-y-auto overscroll-contain text-xs [overflow-wrap:anywhere]"
-      >
-        <p className="font-medium">Delivery</p>
-        {block.delivery.map((entry) => {
-          const at = entry.receipt?.pickedUpAt ?? entry.receipt?.deliveredAt;
-          const label =
-            entry.state === "failed"
-              ? "Not delivered"
-              : entry.state === "held"
-                ? "Queued"
-                : entry.state === "pending"
-                  ? "Sending…"
-                  : entry.receipt?.pickedUpAt
-                    ? "Received"
-                    : "Sent";
-          return (
-            <div
-              key={entry.agentId}
-              className="flex min-w-0 items-start justify-between gap-4"
-            >
-              <span className="min-w-0 font-medium">
-                {recipientName(entry.agentId)}
-              </span>
-              <span className="shrink-0 text-right text-muted-foreground">
-                {label}
-                {at ? (
-                  <time className="ml-2" dateTime={at} title={timestamp(at)}>
-                    {new Date(at).toLocaleTimeString(undefined, {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                ) : null}
-              </span>
-            </div>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
+  const needsAction = deliveries.some(
+    (entry) => entry.state === "held" || entry.state === "failed"
   );
-}
-
-function timestamp(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  });
+  const status =
+    needsAction || block.toAgentId === null
+      ? undefined
+      : pendingKey
+        ? showSending
+          ? "Sending…"
+          : undefined
+        : awaitingReceipt
+          ? "Sent"
+          : freshReceipt && received === deliveries.length
+            ? "Received"
+            : undefined;
+  const Icon =
+    status === "Sending…" ? Loader2 : status === "Sent" ? Check : CheckCheck;
+  const label =
+    status === "Sent" && deliveries.length > 1
+      ? `Sent · ${received} of ${deliveries.length} agents received it`
+      : status;
+  return (
+    <span
+      className={`flex h-4 w-4 items-center justify-center text-muted-foreground transition-opacity duration-200 motion-reduce:transition-none ${status ? "opacity-100" : "opacity-0"}`}
+      data-testid="chat-delivery-indicator"
+      data-status={status}
+      role="status"
+      aria-label={label}
+      title={label}
+    >
+      <Icon
+        className={`h-3 w-3 ${status === "Sending…" ? "animate-spin motion-reduce:animate-none" : ""}`}
+        aria-hidden="true"
+        data-testid={
+          status === "Sending…"
+            ? "chat-delivery-pending"
+            : status === "Sent"
+              ? "chat-receipt-sent"
+              : status === "Received"
+                ? "chat-receipt-received"
+                : undefined
+        }
+      />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
 }

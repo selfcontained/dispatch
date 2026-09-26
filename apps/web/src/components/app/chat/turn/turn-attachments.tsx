@@ -13,7 +13,7 @@ import {
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
 import {
-  DeliveryDetails,
+  DeliveryIndicator,
   DeliveryMeta,
 } from "@/components/app/chat/chat-delivery-meta";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
@@ -191,7 +191,7 @@ function SentTo({
   const openable = Boolean(block.text) || block.attachments.length > 0;
   return (
     <div
-      className="group flex min-w-0 flex-col text-xs"
+      className="group relative flex min-h-6 min-w-0 flex-col pr-6 text-xs"
       data-testid="chat-turn-sent-to"
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
@@ -235,10 +235,12 @@ function SentTo({
             />
           ) : null}
         </button>
-        <DeliveryDetails
-          block={block}
-          recipientName={(id) => agentDisplayName(id, ctx)}
-        />
+      </div>
+      <div
+        className="absolute right-0 top-0 h-4 w-4"
+        data-testid="chat-delivery-slot"
+      >
+        <DeliveryIndicator block={block} />
       </div>
       <DeliveryMeta
         block={block}

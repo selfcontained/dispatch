@@ -2598,7 +2598,7 @@ describe("delivery receipts in the feed", () => {
     expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
   });
 
-  it("preserves a live flash and its deadline when the last pending recipient settles", () => {
+  it("waits for every recipient before briefly confirming a mixed queued delivery", () => {
     vi.useFakeTimers();
     const queued = block({
       id: "mixed-receipt",
@@ -2630,7 +2630,7 @@ describe("delivery receipts in the feed", () => {
         delivery: [pickedUp, { agentId: "agt_3", state: "held" }],
       }),
     ]);
-    expect(screen.getByTestId("chat-delivery-details")).toBeTruthy();
+    expect(screen.getByTestId("chat-delivery-indicator")).toBeTruthy();
     act(() => vi.advanceTimersByTime(600));
     rerenderWith([
       blockEntry({
@@ -2646,12 +2646,25 @@ describe("delivery receipts in the feed", () => {
         ],
       }),
     ]);
-    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(1000));
-    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(500));
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
     expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
+    rerenderWith([
+      blockEntry({
+        ...queued,
+        delivered: true,
+        delivery: [
+          pickedUp,
+          {
+            agentId: "agt_3",
+            state: "delivered",
+            receipt: { pickedUpAt: "2026-09-25T20:00:01Z" },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(2100));
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
   });
 
   it("keeps completed history quiet and distinguishes waiting recipients", () => {
@@ -2687,8 +2700,13 @@ describe("delivery receipts in the feed", () => {
     );
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
     expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
+    const indicator = screen.getByTestId("chat-delivery-indicator");
+    expect(indicator.closest('[data-testid="chat-post-action"]')).toBeNull();
+    expect(indicator.getAttribute("aria-label")).toBe(
+      "Sent · 1 of 2 agents received it"
+    );
     expect(
-      screen.getByRole("button", { name: "Message delivery details" })
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Message delivery details" })
+    ).toBeNull();
   });
 });
