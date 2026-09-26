@@ -303,11 +303,12 @@ export function latestUserBlockId(entries: StreamEntry[]): string | null {
 }
 
 /**
- * The newest unanswered question that accepts a typed reply. While one is
- * open the composer answers it instead of sending a plain message.
+ * The newest unanswered question that accepts a typed reply, or the selected
+ * question when an ID is supplied. An open question does not select itself.
  */
 export function latestOpenFreeformQuestion(
-  entries: StreamEntry[]
+  entries: StreamEntry[],
+  questionId?: string
 ): Extract<Block, { kind: "question" }> | null {
   // A turn republishes whole on every flush, so its answer state can be
   // fresher than the question's own cached row.
@@ -320,6 +321,7 @@ export function latestOpenFreeformQuestion(
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i]!;
     const block = entry.block;
+    if (questionId !== undefined && block.id !== questionId) continue;
     if (block.author.kind !== "agent" || block.kind !== "question") continue;
     if (block.toAgentId !== null) continue;
     const cancellation = (

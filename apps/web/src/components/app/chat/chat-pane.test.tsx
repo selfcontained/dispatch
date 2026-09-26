@@ -786,7 +786,26 @@ describe("ChatPane", () => {
     expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
-  it("answers the newest open free-text question with what was typed", () => {
+  it("does not let an open question capture an unrelated main-stream message", () => {
+    H.entries = [
+      blockEntry(
+        block({
+          id: "q1",
+          text: "Which branch?",
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    renderPane();
+    typeAndSend("@reviewer check this");
+    expect(H.send).toHaveBeenCalledWith({
+      text: "@reviewer check this",
+      attachments: [],
+    });
+    expect(H.answer).not.toHaveBeenCalled();
+  });
+
+  it("answers the newest open free-text question only after selecting Answer question", () => {
     H.entries = [
       blockEntry(
         block({
@@ -797,9 +816,62 @@ describe("ChatPane", () => {
       ),
     ];
     renderPane();
+    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
     expect(screen.getByTestId("chat-reply-context").textContent).toContain(
       "Which branch should I use?"
     );
+    typeAndSend("release/2.0");
+    expect(H.answer).toHaveBeenCalledWith({
+      blockId: "q1",
+      value: "release/2.0",
+      attachments: [],
+    });
+    expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selected answer target when a newer question arrives", () => {
+    H.entries = [
+      blockEntry(
+        block({
+          id: "q1",
+          text: "Which branch?",
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    const { rerender } = renderPane();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
+    fireEvent.change(screen.getByTestId("chat-composer-input"), {
+      target: { value: "release/2.0" },
+    });
+    H.entries = [
+      ...H.entries,
+      blockEntry(
+        block({
+          id: "q2",
+          text: "Which platform?",
+          body: questionBody([{ label: "web" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        active={true}
+        showChildAgents={true}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.getByTestId("chat-reply-context").textContent).toContain(
+      "Which branch?"
+    );
+    expect(
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
+    ).toBe("release/2.0");
     typeAndSend("release/2.0");
     expect(H.answer).toHaveBeenCalledWith({
       blockId: "q1",
@@ -837,6 +909,7 @@ describe("ChatPane", () => {
       return {} as never;
     });
     const { rerender } = renderPane();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
     const input = screen.getByTestId("chat-composer-input");
     fireEvent.paste(input, {
       clipboardData: { items: [], getData: () => "https://example.com/spec" },
@@ -881,6 +954,7 @@ describe("ChatPane", () => {
       ),
     ];
     renderPane();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
     fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("unrelated note");

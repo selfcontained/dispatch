@@ -214,7 +214,11 @@ export async function registerStreamRoutes(
         ]),
         attachTurns(store.db, blocks),
       ]);
-      return { ...thread, agentNames } satisfies StreamThreadResponse;
+      return {
+        ...thread,
+        agentNames,
+        recipients: await streams.userThreadRecipients(rootId, blockId),
+      } satisfies StreamThreadResponse;
     }
   );
 

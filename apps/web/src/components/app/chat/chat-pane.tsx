@@ -32,7 +32,10 @@ import {
 } from "@/components/app/chat/chat-feed";
 import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
-import { mentionablesOf } from "@/components/app/chat/chat-entries";
+import {
+  agentDisplayName,
+  mentionablesOf,
+} from "@/components/app/chat/chat-entries";
 import {
   latestTurnPlan,
   newestTurnEntry,
@@ -467,19 +470,24 @@ export function ChatPane({
     [entries, showChildAgents, view]
   );
 
-  // A typed reply answers the newest open free-text question unless the
-  // user has opted out of that question with the chip's ×.
+  // Answering is explicit: an open question never captures a new message.
   const openQuestion = useMemo(
     () => latestOpenFreeformQuestion(ownEntries),
     [ownEntries]
   );
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(
+    null
+  );
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null
   );
-  const replyTarget =
-    openQuestion && openQuestion.id !== dismissedQuestionId
-      ? openQuestion
-      : null;
+  const replyTarget = useMemo(
+    () =>
+      answeringQuestionId
+        ? latestOpenFreeformQuestion(ownEntries, answeringQuestionId)
+        : null,
+    [ownEntries, answeringQuestionId]
+  );
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -851,8 +859,7 @@ export function ChatPane({
   // callbacks survive the re-renders live stream updates cause.
   const { mutateAsync: answerAsync, mutate: answerNow } = answer;
   const { mutateAsync: sendAsync } = send;
-  // While a free-text question is open, what gets typed answers it —
-  // attachments included, so the reply stays linked to the question.
+  // Only an explicitly selected question receives the composer's answer.
   const onSend = useCallback(
     async (
       text: string,
@@ -892,7 +899,10 @@ export function ChatPane({
       replyTarget
         ? {
             excerpt: questionExcerpt(replyTarget.text),
-            onDismiss: () => setDismissedQuestionId(replyTarget.id),
+            onDismiss: () => {
+              setDismissedQuestionId(replyTarget.id);
+              setAnsweringQuestionId(null);
+            },
           }
         : null,
     [replyTarget]
@@ -1177,7 +1187,7 @@ export function ChatPane({
 
           <div
             className={cn(
-              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
+              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-4 pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >
@@ -1212,7 +1222,23 @@ export function ChatPane({
               sending={send.isPending || answer.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               replyContext={replyContext}
+              pendingQuestion={
+                openQuestion &&
+                !replyTarget &&
+                dismissedQuestionId !== openQuestion.id
+                  ? {
+                      excerpt: questionExcerpt(openQuestion.text),
+                      onAnswer: () => setAnsweringQuestionId(openQuestion.id),
+                      onDismiss: () => setDismissedQuestionId(openQuestion.id),
+                    }
+                  : null
+              }
               mentionables={mentionables}
+              defaultRecipients={
+                agentId
+                  ? [{ id: agentId, name: agentDisplayName(agentId, ctx) }]
+                  : undefined
+              }
               slashCommands={slashCommands}
               canQueue={Boolean(agentId) && !replyTarget}
               action={

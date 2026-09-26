@@ -201,11 +201,31 @@ describe("ChatComposer", () => {
       replyContext: { excerpt: "Ship it now or wait?", onDismiss },
     });
     const chip = screen.getByTestId("chat-reply-context");
-    expect(chip.textContent).toContain("Replying to:");
+    expect(chip.textContent).toContain("Answering:");
     expect(chip.textContent).toContain("Ship it now or wait?");
     expect(input.placeholder).toBe("Type your answer…");
     fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses the draft and preserves the caret when Answer is activated", () => {
+    const onAnswer = vi.fn();
+    const { input } = renderComposer({
+      pendingQuestion: {
+        excerpt: "Which branch?",
+        onAnswer,
+        onDismiss: vi.fn(),
+      },
+    });
+    fireEvent.change(input, { target: { value: "draft answer" } });
+    input.setSelectionRange(5, 5);
+    screen.getByTestId("chat-answer-question").focus();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("draft answer");
+    expect(input.selectionStart).toBe(5);
+    expect(input.selectionEnd).toBe(5);
   });
 
   it("hides the reply context chip while the composer is disabled", () => {
@@ -280,6 +300,29 @@ describe("ChatComposer @mentions", () => {
       target: { value, selectionStart: value.length },
     });
   };
+
+  it("shows numbered recipient icons above the input, updating mentions and restoring defaults", () => {
+    const { input } = renderComposer({
+      mentionables,
+      // Defaults can come from the server without seat metadata.
+      defaultRecipients: [{ id: "agt_1", name: "orchestrator" }],
+    });
+    const recipientIds = () =>
+      screen
+        .getAllByTestId("chat-composer-recipient")
+        .map((badge) => badge.getAttribute("data-agent-id"));
+    expect(recipientIds()).toEqual(["agt_1"]);
+    expect(screen.getByLabelText("orchestrator, agent 1")).toBeTruthy();
+    type(input, "@reviewer @builder @reviewer check this");
+    expect(recipientIds()).toEqual(["agt_2", "agt_3"]);
+    expect(screen.getByLabelText("reviewer, agent 2")).toBeTruthy();
+    expect(screen.getByLabelText("builder, agent 3")).toBeTruthy();
+    expect(
+      screen.getByTestId("chat-composer-routing").textContent
+    ).not.toContain("In:");
+    type(input, "plain message");
+    expect(recipientIds()).toEqual(["agt_1"]);
+  });
 
   it("opens the picker on @, filters as you type, and Enter inserts the name instead of sending", async () => {
     const { onSend, input } = renderComposer({ mentionables });

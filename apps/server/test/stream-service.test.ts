@@ -3215,21 +3215,21 @@ describe("StreamService review threads", () => {
     // A root agent's own post stays top-level.
     const root = await svc.post(A, { text: "Mine." });
     expect(root).toMatchObject({ threadId: null, replyTo: null });
-    // A person's post to the child, outside any thread, goes to its card.
+    // Addressing the child does not move a person's main-stream post.
     injected.length = 0;
     const toChild = await svc.sendUserPost(A, { to: B, text: "How is it?" });
     expect(toChild.block).toMatchObject({
       streamId: A,
       toAgentId: B,
-      threadId: launchBlockId(B),
-      replyTo: launchBlockId(B),
+      threadId: null,
+      replyTo: null,
     });
     await settled(svc, toChild.block.id);
     expect(injected.map((i) => i.agentId)).toEqual([B]);
     // The launch thread lists all of it, oldest first.
     expect(
       (await svc.store.listThread(launchBlockId(B)))!.replies.map((b) => b.id)
-    ).toEqual([quiet.id, told.id, toChild.block.id]);
+    ).toEqual([quiet.id, told.id]);
   });
 
   it("sends a command typed to a child raw, including after a failed delivery", async () => {
@@ -3244,8 +3244,8 @@ describe("StreamService review threads", () => {
     const failed = await settled(failing, posted.block.id);
     expect(failed).toMatchObject({
       delivered: false,
-      threadId: launchBlockId(B),
-      replyTo: launchBlockId(B),
+      threadId: null,
+      replyTo: null,
       data: { acpCommand: true },
     });
     expect(first).toEqual([{ agentId: B, text: "/skills list" }]);
@@ -3255,6 +3255,96 @@ describe("StreamService review threads", () => {
     await settled(svc, failed.id);
     expect(injected).toEqual([{ agentId: B, text: "/skills list" }]);
     expect(injectedOpts[0]).toMatchObject({ blockId: failed.id, alone: true });
+  });
+
+  it("keeps single and multi-agent mentions and their answers where the user wrote them", async () => {
+    const { svc } = build();
+    const main = await svc.sendUserPost(A, { text: "@Peer how is it?" });
+    const multiple = await svc.sendUserPost(A, {
+      text: "@Peer @Svc compare notes",
+    });
+    for (const post of [main.block, multiple.block]) {
+      expect(post).toMatchObject({ threadId: null, replyTo: null });
+      const turnId = await svc.recordTurnStarted({
+        agentId: B,
+        turnRow: turnRow(51, B),
+        prompt: { source: "chat", text: post.text, chatMessageId: post.id },
+      });
+      expect(await svc.store.getById(turnId!)).toMatchObject({
+        threadId: null,
+        replyTo: null,
+      });
+    }
+    const reply = await svc.sendUserPost(A, {
+      text: "@Peer more detail",
+      replyTo: main.block.id,
+    });
+    const threadTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(52, B),
+      prompt: {
+        source: "chat",
+        text: reply.block.text,
+        chatMessageId: reply.block.id,
+      },
+    });
+    expect(await svc.store.getById(threadTurn!)).toMatchObject({
+      threadId: main.block.id,
+      replyTo: reply.block.id,
+    });
+    const mixedTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(53, B),
+      prompt: {
+        source: "chat",
+        text: "",
+        chatMessageId: main.block.id,
+        chatMessageIds: [main.block.id, reply.block.id],
+      },
+    });
+    expect(await svc.store.getById(mixedTurn!)).toMatchObject({
+      threadId: null,
+    });
+    expect(await svc.userThreadRecipients(A, main.block.id)).toEqual([B]);
+    expect(await svc.userThreadRecipients(A, multiple.block.id)).toEqual([
+      B,
+      A,
+    ]);
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
+  it("places a child's structured posts with its active response, preserving explicit replies", async () => {
+    const { svc } = build({ held: true });
+    const main = await svc.sendUserPost(A, { text: "@Peer status?" });
+    const turnId = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(54, B),
+      prompt: { source: "chat", text: "", chatMessageId: main.block.id },
+    });
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, 1, 'turn', $2)`,
+      [B, JSON.stringify({ state: "started", blockId: turnId })]
+    );
+    const question = await svc.post(B, {
+      text: "Which check?",
+      question: { options: [{ label: "All" }] },
+    });
+    expect(question).toMatchObject({ threadId: null });
+    const answer = await svc.answerQuestion(A, question.id, { value: "All" });
+    const continued = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(55, B),
+      prompt: { source: "chat", text: "All", chatMessageId: answer.reply.id },
+    });
+    expect(await svc.store.getById(continued!)).toMatchObject({
+      threadId: null,
+    });
+    const explicit = await svc.post(B, {
+      text: "Detail",
+      replyTo: main.block.id,
+    });
+    expect(explicit).toMatchObject({ threadId: main.block.id });
+    await svc.waitForInFlightDeliveries(1_000);
   });
 
   it("routes a reply on the launch card between the parent and the child", async () => {
