@@ -13,6 +13,9 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
       className="ml-auto flex min-w-0 max-w-full items-center gap-1"
       title={name}
     >
+      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
+        {name}
+      </span>
       {!iconError ? (
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
@@ -22,9 +25,6 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
           onError={() => setIconError(true)}
         />
       ) : null}
-      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
-        {name}
-      </span>
     </span>
   );
 }
