@@ -1262,16 +1262,18 @@ export function ChatPane({
                   <StopTurnButton agentId={agentId} onError={setSendError} />
                 ) : undefined
               }
+              footer={
+                agentId && agent ? (
+                  <ComposerMeta
+                    agentId={agentId}
+                    agent={agent}
+                    active={active}
+                    turnRunning={turnRunning}
+                    turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
+                  />
+                ) : null
+              }
             />
-            {agentId && agent ? (
-              <ComposerMeta
-                agentId={agentId}
-                agent={agent}
-                active={active}
-                turnRunning={turnRunning}
-                turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
-              />
-            ) : null}
           </div>
         </div>
       </div>

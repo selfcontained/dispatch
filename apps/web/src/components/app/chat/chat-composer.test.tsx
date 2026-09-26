@@ -305,7 +305,7 @@ describe("ChatComposer @mentions", () => {
     });
   };
 
-  it("shows numbered recipient icons above the input, updating mentions and restoring defaults", () => {
+  it("shows numbered recipient icons below the input, updating mentions and restoring defaults", () => {
     const { input } = renderComposer({
       mentionables,
       // Defaults can come from the server without seat metadata.
@@ -315,6 +315,11 @@ describe("ChatComposer @mentions", () => {
       screen
         .getAllByTestId("chat-composer-recipient")
         .map((badge) => badge.getAttribute("data-agent-id"));
+    expect(
+      input.compareDocumentPosition(
+        screen.getByTestId("chat-composer-routing")
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(recipientIds()).toEqual(["agt_1"]);
     expect(screen.getByLabelText("orchestrator, agent 1")).toBeTruthy();
     type(input, "@reviewer @builder @reviewer check this");
