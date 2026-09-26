@@ -9,7 +9,10 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
 
   return (
-    <span className="flex min-w-0 items-center gap-1" title={name}>
+    <span
+      className="ml-auto flex min-w-0 max-w-full items-center gap-1"
+      title={name}
+    >
       {!iconError ? (
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
