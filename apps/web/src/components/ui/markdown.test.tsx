@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "./markdown";
 
 vi.mock("@/components/ui/markdown-mermaid", () => ({
-  MermaidBlock: () => null,
+  MermaidBlock: ({ code }: { code: string }) => (
+    <div data-testid="mermaid-renderer">{code}</div>
+  ),
 }));
 vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
   useMermaidTheme: () => "default",
@@ -30,6 +32,33 @@ describe("MarkdownDefault overflow", () => {
 });
 
 describe("Markdown code blocks", () => {
+  it.each(["```", "~~~~"])(
+    "defers an open %s Mermaid fence until it closes",
+    (fence) => {
+      const source = `${fence}mermaid\ngraph TD\n A[`;
+      const { rerender } = render(<Markdown streaming>{source}</Markdown>);
+      expect(screen.queryByTestId("mermaid-renderer")).toBeNull();
+      expect(screen.getByTestId("markdown-code-block").textContent).toContain(
+        "A["
+      );
+      rerender(<Markdown streaming>{`${source}Ready]\n${fence}\n`}</Markdown>);
+      expect(screen.getByTestId("mermaid-renderer").textContent).toContain(
+        "A[Ready]"
+      );
+      expect(screen.queryByTestId("markdown-code-block")).toBeNull();
+    }
+  );
+
+  it("renders completed invalid diagrams and settled unclosed fences", () => {
+    const source = "```mermaid\ngraph TD\n A[";
+    const { rerender } = render(
+      <Markdown streaming>{`${source}\n\`\`\``}</Markdown>
+    );
+    expect(screen.getByTestId("mermaid-renderer").textContent).toContain("A[");
+    rerender(<Markdown>{source}</Markdown>);
+    expect(screen.getByTestId("mermaid-renderer").textContent).toContain("A[");
+  });
+
   it("gives a fenced block a copy button and leaves inline code alone", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.assign(navigator, { clipboard: { writeText } });

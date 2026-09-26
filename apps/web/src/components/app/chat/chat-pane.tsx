@@ -521,11 +521,13 @@ export function ChatPane({
   const restoredRef = useRef(false);
   const rememberTimerRef = useRef<number | null>(null);
   const rememberedAtRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
+    lastScrollTopRef.current = el.scrollTop;
   }, []);
 
   // While following, the bottom stays in view through every change in the
@@ -536,6 +538,22 @@ export function ChatPane({
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(following);
   followingRef.current = following;
+  const isFollowing = useCallback(() => {
+    const el = scrollRef.current;
+    // A scroll made after this frame's scroll-event phase is already in
+    // the DOM when resize observers/layout effects run. Respect an upward
+    // move now, before the queued onScroll can update our following state.
+    if (
+      followingRef.current &&
+      el &&
+      el.scrollTop < lastScrollTopRef.current - 0.5 &&
+      el.scrollHeight - el.clientHeight - el.scrollTop > FOLLOW_THRESHOLD_PX
+    ) {
+      followingRef.current = false;
+      setFollowing(false);
+    }
+    return followingRef.current && anchoredRef.current === 0;
+  }, []);
   useEffect(() => {
     const el = contentRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -553,11 +571,11 @@ export function ChatPane({
         }
         return;
       }
-      if (followingRef.current) scrollToBottom();
+      if (isFollowing()) scrollToBottom();
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [scrollToBottom]);
+  }, [isFollowing, scrollToBottom]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -603,6 +621,7 @@ export function ChatPane({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    lastScrollTopRef.current = el.scrollTop;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance <= FOLLOW_THRESHOLD_PX;
     setFarFromBottom(distance > JUMP_BUTTON_PX);
@@ -741,7 +760,7 @@ export function ChatPane({
     const landed = agentId
       ? landedTurn(visibleEntries, agentId, settledTurnIdsRef.current)
       : null;
-    if (following && landed) {
+    if (isFollowing() && landed) {
       if (replyStartIfTall(el, landed.id) !== null) {
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
@@ -752,7 +771,7 @@ export function ChatPane({
         return;
       }
     }
-    if (following) {
+    if (isFollowing()) {
       scrollToBottom();
     } else if (appended) {
       setPendingBelow(true);
@@ -760,6 +779,7 @@ export function ChatPane({
   }, [
     agentId,
     following,
+    isFollowing,
     scrollToBottom,
     seekSaved,
     showChildAgents,
@@ -790,8 +810,8 @@ export function ChatPane({
   useEffect(() => {
     // The ref, not the state: a jump in this same commit has already let
     // go of the bottom (see useBlockJump below).
-    if (active && followingRef.current) scrollToBottom();
-  }, [active, following, scrollToBottom]);
+    if (active && isFollowing()) scrollToBottom();
+  }, [active, following, isFollowing, scrollToBottom]);
 
   // A jump to one block (a sidebar row's running turn, a `?block=` link):
   // the reader is put at that block and held there, as at the start of a
@@ -824,10 +844,6 @@ export function ChatPane({
     if (jumpBlockId) ids.add(jumpBlockId);
     return ids;
   }, [jumpBlockId, restoreIds]);
-  const isFollowing = useCallback(
-    () => followingRef.current && anchoredRef.current === 0,
-    []
-  );
 
   // ---- unread: mark read while visible and focused --------------------------
   // markRead itself is a no-op while nothing is unread.
@@ -1059,7 +1075,7 @@ export function ChatPane({
               // Images in the feed size themselves after they load; keep the
               // bottom pinned when that happens while following.
               onLoadCapture={() => {
-                if (following) scrollToBottom();
+                if (isFollowing()) scrollToBottom();
               }}
               className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2 [overflow-anchor:none]"
             >
