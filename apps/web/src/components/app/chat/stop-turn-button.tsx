@@ -26,6 +26,8 @@ export function StopTurnButton({
   onError: (message: string) => void;
 }): JSX.Element {
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
+  const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const timers = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const pendingTimers = timers.current;
@@ -43,6 +45,9 @@ export function StopTurnButton({
         ),
     [agents, selectedAgentId]
   );
+  useEffect(() => {
+    if (turns.length < 2) setMenuOpen(false);
+  }, [turns.length]);
   const cancel = useMutation<unknown, Error, StopRequest>({
     mutationFn: ({ agentId }) =>
       api(`/api/v1/agents/${encodeURIComponent(agentId)}/runtime/cancel`, {
@@ -100,6 +105,7 @@ export function StopTurnButton({
       : "No active turns";
   const button = (
     <Button
+      ref={triggerRef}
       type="button"
       size="icon"
       variant="ghost"
@@ -109,6 +115,7 @@ export function StopTurnButton({
       data-testid="chat-stop-turn"
       title={label}
       aria-label={label}
+      aria-haspopup={turns.length > 1 ? "menu" : undefined}
     >
       {singleState === "stopping" ? (
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -121,11 +128,33 @@ export function StopTurnButton({
     </Button>
   );
 
-  if (turns.length <= 1) return button;
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={turns.length > 1 && menuOpen}
+      onOpenChange={(open) => setMenuOpen(open && turns.length > 1)}
+    >
       <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="min-w-56">
+      <DropdownMenuContent
+        align="end"
+        side="top"
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 min-w-0 max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto"
+        onCloseAutoFocus={(event) => {
+          if (turns.length > 1) return;
+          event.preventDefault();
+          if (turns.length === 1) {
+            triggerRef.current?.focus();
+          } else {
+            const form = triggerRef.current?.closest("form");
+            const input = form?.querySelector<HTMLElement>(
+              '[data-testid="chat-composer-input"]:not([disabled])'
+            );
+            (
+              input ??
+              form?.querySelector<HTMLElement>("button:not([disabled])")
+            )?.focus();
+          }
+        }}
+      >
         {turns.map((agent) => {
           const state = stateOf(agent);
           return (

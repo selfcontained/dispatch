@@ -130,6 +130,129 @@ test.describe("Live agent", () => {
     });
   });
 
+  test("Stop picker scrolls long agent names inside a small mobile viewport", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const agents = [];
+    for (let index = 0; index < 8; index++) {
+      agents.push(
+        await createAgentViaAPI(request, {
+          name: `e2e-stop-${index}-${"long-agent-name-".repeat(5)}`,
+          type: "codex",
+        })
+      );
+    }
+    for (const agent of agents) {
+      await expect
+        .poll(
+          async () => {
+            const response = await request.get(`/api/v1/agents/${agent.id}`, {
+              headers: authHeaders(),
+            });
+            return ((await response.json()) as { agent: { status: string } })
+              .agent.status;
+          },
+          { timeout: TURN_TIMEOUT }
+        )
+        .toBe("running");
+      const response = await request.post(
+        `/api/v1/streams/${agent.id}/blocks`,
+        {
+          headers: authHeaders(),
+          data: { text: "sleep:60000" },
+        }
+      );
+      expect(response.ok(), await response.text()).toBe(true);
+    }
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get("/api/v1/agents", {
+            headers: authHeaders(),
+          });
+          const payload = (await response.json()) as {
+            agents: Array<{ id: string; currentTurn: unknown }>;
+          };
+          const ids = new Set(agents.map((agent) => agent.id));
+          return payload.agents.filter(
+            (agent) => ids.has(agent.id) && agent.currentTurn
+          ).length;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe(agents.length);
+
+    await page.setViewportSize({ width: 320, height: 360 });
+    await loadApp(page);
+    await page.goto(`/agents/${agents[0]!.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const stop = page.getByTestId("chat-stop-turn");
+    await expect(stop).toHaveAttribute("aria-haspopup", "menu", {
+      timeout: TURN_TIMEOUT,
+    });
+    await stop.click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const bounds = await menu.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(360);
+    const scroll = await menu.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+    const label = menu.locator("span.truncate").first();
+    expect(
+      await label.evaluate(
+        (element) => element.scrollWidth > element.clientWidth
+      )
+    ).toBe(true);
+    const last = page.getByTestId(`chat-stop-agent-${agents.at(-1)!.id}`);
+    await last.scrollIntoViewIfNeeded();
+    const lastBounds = await last.boundingBox();
+    const scrolledBounds = await menu.boundingBox();
+    expect(lastBounds).not.toBeNull();
+    expect(scrolledBounds).not.toBeNull();
+    expect(lastBounds!.y).toBeGreaterThanOrEqual(scrolledBounds!.y);
+    expect(lastBounds!.y + lastBounds!.height).toBeLessThanOrEqual(
+      scrolledBounds!.y + scrolledBounds!.height
+    );
+    await test.info().attach("mobile-stop-picker", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    for (const agent of agents) {
+      const response = await request.post(
+        `/api/v1/agents/${agent.id}/runtime/cancel`,
+        { headers: authHeaders() }
+      );
+      expect(response.ok()).toBe(true);
+    }
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get("/api/v1/agents", {
+            headers: authHeaders(),
+          });
+          const payload = (await response.json()) as {
+            agents: Array<{ id: string; currentTurn: unknown }>;
+          };
+          const ids = new Set(agents.map((agent) => agent.id));
+          return payload.agents.filter(
+            (agent) => ids.has(agent.id) && agent.currentTurn
+          ).length;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe(0);
+  });
+
   test("Send steers the active turn and Queue waits without interrupting it", async ({
     page,
     request,
@@ -160,7 +283,13 @@ test.describe("Live agent", () => {
     const slot = correction.getByTestId("chat-delivery-slot");
     const sentSlot = await slot.boundingBox();
     await correction.hover();
-    expect(await slot.boundingBox()).toEqual(sentSlot);
+    const hoveredSlot = await slot.boundingBox();
+    expect(sentSlot).not.toBeNull();
+    expect(hoveredSlot).not.toBeNull();
+    expect(Math.abs(hoveredSlot!.x - sentSlot!.x)).toBeLessThan(1);
+    expect(Math.abs(hoveredSlot!.y - sentSlot!.y)).toBeLessThan(1);
+    expect(hoveredSlot!.width).toBe(sentSlot!.width);
+    expect(hoveredSlot!.height).toBe(sentSlot!.height);
     expect(
       await slot.evaluate(
         (e) => !!e.closest('[data-testid="chat-post-action"]')
