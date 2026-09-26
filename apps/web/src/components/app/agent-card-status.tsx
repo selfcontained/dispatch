@@ -9,7 +9,7 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
 
   return (
-    <span className="ml-auto flex min-w-0 items-center gap-1 pl-2">
+    <span className="flex min-w-0 items-center gap-1" title={name}>
       {!iconError ? (
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
@@ -67,7 +67,7 @@ export function AgentCardPhaseStatus({
 }
 
 /**
- * The current turn's reported step beside the repo it works in. Archive
+ * The current turn's reported step above the repo it works in. Archive
  * progress has its own line.
  */
 export function AgentCardActivity({
@@ -82,8 +82,13 @@ export function AgentCardActivity({
   const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
 
   return (
-    <div className="mt-1 flex min-h-4 min-w-0 items-center text-xs text-muted-foreground">
-      <AgentActivityLabel agent={agent} linkToTurn onNavigate={onNavigate} />
+    <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+      <AgentActivityLabel
+        agent={agent}
+        className="w-full"
+        linkToTurn
+        onNavigate={onNavigate}
+      />
       {repoName && !agent.reconnect ? (
         <RepoLabel agentId={agent.id} name={repoName} />
       ) : null}
