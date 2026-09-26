@@ -1318,7 +1318,11 @@ export const BlockView = memo(function BlockView({
   // A launch card reads as the agent it launched (see `blockAuthor`), so
   // it takes the agent layout below, whoever wrote the briefing.
   if (block.author.kind === "user" && block.kind !== "launch") {
-    const queued = block.delivered === null && block.toAgentId && !block.origin;
+    const queued =
+      block.delivered === null &&
+      block.toAgentId &&
+      !block.origin &&
+      block.delivery?.some((entry) => entry.state === "held");
     return (
       <Post
         author={author}
@@ -1346,8 +1350,8 @@ export const BlockView = memo(function BlockView({
         ) : null}
         {body}
         <AttachmentList block={block} ctx={ctx} />
-        {/* Keep receipt observation mounted as queued controls disappear. A
-            delivery update can include pickup in the same render. */}
+        {/* Queue/failure actions are persistent callouts. Transient receipt
+            feedback stays in the fixed-size post action above. */}
         <div
           className={cn(
             "min-w-0",

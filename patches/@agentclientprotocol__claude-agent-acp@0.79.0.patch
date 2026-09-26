@@ -1,5 +1,5 @@
 diff --git a/dist/acp-agent.js b/dist/acp-agent.js
-index 212de03f7c4d8117348f76f47987a24d0d97c395..a295216f0e31306073ea4632844538694c1f398f 100644
+index 212de03f7c4d8117348f76f47987a24d0d97c395..1c0654086410823a6490bfd42826b637f6ceb7a2 100644
 --- a/dist/acp-agent.js
 +++ b/dist/acp-agent.js
 @@ -956,6 +956,7 @@ export class ClaudeAcpAgent {
@@ -40,7 +40,25 @@ index 212de03f7c4d8117348f76f47987a24d0d97c395..a295216f0e31306073ea463284453869
          userMessage.uuid = steeredUuid;
          // Deliver into the running turn rather than queuing behind it as a fresh
          // prompt would.
-@@ -4047,6 +4053,13 @@ export class ClaudeAcpAgent {
+@@ -2600,6 +2606,17 @@ export class ClaudeAcpAgent {
+                             const queued = findUnsettledTurn(frame.command_uuid);
+                             if (queued) {
+                                 queued.commandStarted = true;
++                                // A normal prompt can be picked up without a user echo
++                                // (for example, input folded across a turn boundary).
++                                // This CLI acknowledgement names the exact submitted UUID;
++                                // queued/terminal frames alone do not prove pickup.
++                                if (queued.receiptId === frame.command_uuid) {
++                                    queued.receiptId = undefined;
++                                    await sendUpdate({
++                                        sessionId: params.sessionId,
++                                        update: { sessionUpdate: "session_info_update", _meta: { "dispatch/steering": { pickedUp: frame.command_uuid } } },
++                                    });
++                                }
+                             }
+                             // ...and promote an already-orphaned command: once dispatched,
+                             // a bare `cancelled` no longer means "dropped without running".
+@@ -4047,6 +4064,13 @@ export class ClaudeAcpAgent {
                                      // result re-emit the answer.
                                      activateTurn(queued);
                                  }
@@ -54,7 +72,7 @@ index 212de03f7c4d8117348f76f47987a24d0d97c395..a295216f0e31306073ea463284453869
                                  break;
                              }
                              if ("isReplay" in message && message.isReplay) {
-@@ -4055,7 +4068,15 @@ export class ClaudeAcpAgent {
+@@ -4055,7 +4079,15 @@ export class ClaudeAcpAgent {
                                  // lane tells "the answer is still ahead" from "the turn is over"
                                  // (see Turn.steeredEchoes).
                                  if (isSteering(session.activeTurn)) {

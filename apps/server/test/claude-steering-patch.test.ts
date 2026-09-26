@@ -3,7 +3,7 @@ import type { AgentSideConnection } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 describe("bundled Claude steering receipt patch", () => {
-  it.each(["steer", "prompt"])(
+  it.each(["steer", "prompt", "prompt-started", "prompt-started-echo"])(
     "emits one receipt in the owning session for a current %s echo",
     async (kind) => {
       const sessionUpdate = vi.fn(async () => {});
@@ -23,8 +23,8 @@ describe("bundled Claude steering receipt patch", () => {
       const receiptId = "a1234567-0000-4000-8000-000000000000";
       const turn = {
         settled: false,
-        promptUuid: kind === "prompt" ? receiptId : undefined,
-        receiptId: kind === "prompt" ? receiptId : undefined,
+        promptUuid: kind.startsWith("prompt") ? receiptId : undefined,
+        receiptId: kind.startsWith("prompt") ? receiptId : undefined,
         steeredEchoes: new Set([receiptId]),
         reject: vi.fn(),
         resolve: vi.fn(),
@@ -32,7 +32,7 @@ describe("bundled Claude steering receipt patch", () => {
       const session = {
         activeTurn: turn as typeof turn | undefined,
         cancelController: new AbortController(),
-        turnQueue: kind === "prompt" ? [turn] : [],
+        turnQueue: kind.startsWith("prompt") ? [turn] : [],
         sessionFailureState: {},
         messageIdToUuid: new Map(),
         liveBackgroundTasks: new Map(),
@@ -46,7 +46,28 @@ describe("bundled Claude steering receipt patch", () => {
         input: { end: vi.fn() },
         query: Object.assign(
           (async function* () {
-            for (const uuid of ["unrelated-replay", receiptId, receiptId]) {
+            if (kind.startsWith("prompt-started")) {
+              for (const [state, command_uuid] of [
+                ["queued", receiptId],
+                ["started", "unrelated-command"],
+                ["completed", "unrelated-command"],
+              ]) {
+                yield { type: "command_lifecycle", state, command_uuid };
+                expect(sessionUpdate).not.toHaveBeenCalled();
+              }
+              for (let i = 0; i < 2; i++) {
+                yield {
+                  type: "command_lifecycle",
+                  state: "started",
+                  command_uuid: receiptId,
+                };
+              }
+            }
+            const echoes =
+              kind === "prompt-started"
+                ? []
+                : ["unrelated-replay", receiptId, receiptId];
+            for (const uuid of echoes) {
               yield {
                 type: "user",
                 uuid,

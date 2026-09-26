@@ -7,16 +7,9 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
 import type { BlockDelivery } from "@dispatch/shared";
 import { block } from "@/test-utils/blocks";
 import { DeliveryDetails, DeliveryMeta } from "./chat-delivery-meta";
-
-// Browser tests cover the exit animation; keep timer assertions about receipt state.
-vi.mock("framer-motion", async () => ({
-  ...(await vi.importActual("framer-motion")),
-  AnimatePresence: ({ children }: { children: ReactNode }) => children,
-}));
 
 const waiting: BlockDelivery = {
   agentId: "agt_1",
@@ -32,7 +25,12 @@ function receipt(delivery: BlockDelivery[]) {
   return block({ id: "receipt", authorKind: "user", delivery });
 }
 function ui(delivery: BlockDelivery[]) {
-  return <DeliveryMeta block={receipt(delivery)} recipientName={name} />;
+  return (
+    <>
+      <DeliveryMeta block={receipt(delivery)} recipientName={name} />
+      <DeliveryDetails block={receipt(delivery)} recipientName={name} />
+    </>
+  );
 }
 afterEach(() => {
   cleanup();
@@ -42,15 +40,15 @@ describe("quiet delivery status", () => {
   it("shows waiting, briefly confirms a new receipt, and keeps reload quiet", () => {
     vi.useFakeTimers();
     const view = render(ui([waiting]));
-    expect(screen.getByTestId("chat-receipt-waiting")).toBeTruthy();
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
     view.rerender(ui([received]));
-    expect(screen.queryByTestId("chat-receipt-waiting")).toBeNull();
+    expect(screen.queryByTestId("chat-receipt-sent")).toBeNull();
     expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
     act(() => vi.advanceTimersByTime(2100));
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
     view.unmount();
     render(ui([received]));
-    expect(screen.queryByTestId("chat-receipt-status")).toBeNull();
+    expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
   });
   it("suppresses fast sends and keeps queued/failed states visible", () => {
     vi.useFakeTimers();
@@ -70,15 +68,15 @@ describe("quiet delivery status", () => {
     const other: BlockDelivery = { ...waiting, agentId: "agt_2" };
     const view = render(ui([waiting, other]));
     view.rerender(ui([received, other]));
-    expect(screen.getByTestId("chat-receipt-waiting").textContent).toContain(
-      "agt_2"
-    );
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(2100));
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
     act(() => vi.advanceTimersByTime(2100));
     view.rerender(ui([received, { agentId: "agt_2", state: "failed" }]));
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
     view.rerender(ui([{ agentId: "agt_1", state: "pending" }]));
-    expect(screen.queryByTestId("chat-receipt-waiting")).toBeNull();
+    expect(screen.queryByTestId("chat-receipt-sent")).toBeNull();
   });
   it("keeps timestamps and recipient details accessible after success disappears", () => {
     render(
@@ -92,7 +90,9 @@ describe("quiet delivery status", () => {
     );
     const details = screen.getByRole("dialog");
     expect(details.textContent).toContain("Received");
-    expect(details.textContent).toContain("Receipt unavailable");
-    expect(details.textContent).toContain("2026");
+    expect(details.textContent).toContain("Sent");
+    expect(details.querySelector("time")?.getAttribute("datetime")).toBe(
+      received.receipt?.pickedUpAt
+    );
   });
 });

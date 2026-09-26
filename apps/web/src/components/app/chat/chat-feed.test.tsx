@@ -1380,6 +1380,8 @@ describe("ChatFeed", () => {
         block({ id: "u2", authorKind: "user", text: "two", delivered: true })
       ),
     ]);
+    // A send in transit must not flash queue controls and resize the row.
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
     const pending = await screen.findAllByTestId("chat-delivery-pending");
     expect(pending).toHaveLength(1);
     expect(
@@ -2593,9 +2595,7 @@ describe("delivery receipts in the feed", () => {
       }),
     ]);
     expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
-    expect(screen.getByTestId("chat-receipt-received").textContent).toBe(
-      "Received"
-    );
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
   });
 
   it("preserves a live flash and its deadline when the last pending recipient settles", () => {
@@ -2630,9 +2630,7 @@ describe("delivery receipts in the feed", () => {
         delivery: [pickedUp, { agentId: "agt_3", state: "held" }],
       }),
     ]);
-    expect(screen.getByTestId("chat-receipt-received").textContent).toContain(
-      "reviewer"
-    );
+    expect(screen.getByTestId("chat-delivery-details")).toBeTruthy();
     act(() => vi.advanceTimersByTime(600));
     rerenderWith([
       blockEntry({
@@ -2648,16 +2646,12 @@ describe("delivery receipts in the feed", () => {
         ],
       }),
     ]);
-    expect(screen.getByTestId("chat-receipt-received").textContent).toContain(
-      "reviewer"
-    );
+    expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.getByTestId("chat-receipt-received")).toBeTruthy();
     act(() => vi.advanceTimersByTime(500));
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
-    expect(screen.getByTestId("chat-receipt-waiting").textContent).toContain(
-      "scout"
-    );
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
   });
 
   it("keeps completed history quiet and distinguishes waiting recipients", () => {
@@ -2692,9 +2686,7 @@ describe("delivery receipts in the feed", () => {
       }
     );
     expect(screen.queryByTestId("chat-receipt-received")).toBeNull();
-    expect(screen.getByTestId("chat-receipt-waiting").textContent).toBe(
-      "Waiting for scout…"
-    );
+    expect(screen.getByTestId("chat-receipt-sent")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Message delivery details" })
     ).toBeTruthy();

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -8,7 +7,14 @@ import {
 } from "@/components/ui/popover";
 import { POST_ACTION_BUTTON, POST_ACTION_FACE } from "./chat-reactions";
 import type { Block, BlockDeliveryState } from "@dispatch/shared";
-import { AlertTriangle, Check, Info, Hourglass, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCheck,
+  Info,
+  Hourglass,
+  Loader2,
+} from "lucide-react";
 
 /** The recipients of a post in one of the states worth reporting. */
 function inState(block: Block, state: BlockDeliveryState): readonly string[] {
@@ -43,12 +49,7 @@ type DeliveryMetaProps = {
 };
 
 export function DeliveryMeta(props: DeliveryMetaProps): JSX.Element | null {
-  return (
-    <>
-      <DeliveryStatus {...props} />
-      <ReceiptStatus {...props} />
-    </>
-  );
+  return <DeliveryStatus {...props} />;
 }
 
 function DeliveryStatus({
@@ -57,19 +58,10 @@ function DeliveryStatus({
   retrying = false,
   onRetryDelivery,
 }: DeliveryMetaProps): JSX.Element | null {
-  const pendingKey = inState(block, "pending").join(",");
-  const [showSending, setShowSending] = useState(false);
-  useEffect(() => {
-    setShowSending(false);
-    if (!pendingKey) return;
-    const timer = setTimeout(() => setShowSending(true), 500);
-    return () => clearTimeout(timer);
-  }, [block.id, pendingKey]);
   if (block.toAgentId === null || !block.delivery?.length) return null;
   const several = block.delivery.length > 1;
   const failed = inState(block, "failed");
   const held = inState(block, "held");
-  const pending = inState(block, "pending");
 
   if (failed.length > 0) {
     return (
@@ -117,29 +109,13 @@ function DeliveryStatus({
       </div>
     );
   }
-  if (pending.length > 0 && showSending) {
-    return (
-      <div
-        className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
-        title="On its way to the agent."
-        data-testid="chat-delivery-pending"
-      >
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-        {several
-          ? `Sending to ${nameList(pending, recipientName)}`
-          : "Sending…"}
-      </div>
-    );
-  }
+
   return null;
 }
 
 /** Only changes observed while this row is mounted get a success flash. History
  * (including reload and virtualized rows) is quiet from its first render. */
-function ReceiptStatus({
-  block,
-  recipientName,
-}: DeliveryMetaProps): JSX.Element | null {
+function useReceiptFlash(block: Block): boolean {
   const receipts = (block.delivery ?? []).filter(
     (entry) => entry.state === "delivered" && entry.receipt
   );
@@ -149,7 +125,6 @@ function ReceiptStatus({
   );
   const previous = useRef({ blockId: block.id, signature });
   const [flashes, setFlashes] = useState<Record<string, number>>({});
-  const reducedMotion = useReducedMotion();
   useEffect(() => {
     const before = previous.current;
     previous.current = { blockId: block.id, signature };
@@ -182,62 +157,7 @@ function ReceiptStatus({
     );
     return () => clearTimeout(timer);
   }, [flashes]);
-  const waiting = receipts
-    .filter((entry) => !entry.receipt?.pickedUpAt)
-    .map((entry) => entry.agentId);
-  const fresh = received
-    .filter((entry) => flashes[entry.agentId])
-    .map((entry) => entry.agentId);
-  const several = (block.delivery?.length ?? 0) > 1;
-  const show =
-    block.toAgentId !== null && (waiting.length > 0 || fresh.length > 0);
-  return (
-    <AnimatePresence initial={false}>
-      {show ? (
-        <motion.div
-          key={block.id}
-          initial={false}
-          animate={{ opacity: 1, height: "auto", marginTop: 4 }}
-          exit={{ opacity: 0, height: 0, marginTop: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.2 }}
-          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden text-[11px] text-muted-foreground"
-          data-testid="chat-receipt-status"
-        >
-          {waiting.length > 0 ? (
-            <span
-              className="inline-flex min-w-0 max-w-full items-start gap-1 [overflow-wrap:anywhere]"
-              title="Delivered to the runtime; receipt has not been confirmed."
-              data-testid="chat-receipt-waiting"
-            >
-              <Hourglass
-                className="mt-0.5 h-3 w-3 shrink-0"
-                aria-hidden="true"
-              />
-              <span className="min-w-0">
-                {several
-                  ? `Waiting for ${nameList(waiting, recipientName)}…`
-                  : "Waiting for agent…"}
-              </span>
-            </span>
-          ) : null}
-          {fresh.length > 0 ? (
-            <span
-              className="inline-flex min-w-0 max-w-full items-start gap-1 [overflow-wrap:anywhere]"
-              title="The runtime confirmed receipt. This does not mean the agent has acted on the message."
-              data-testid="chat-receipt-received"
-            >
-              <Check className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-              <span className="min-w-0">
-                {several
-                  ? `Received by ${nameList(fresh, recipientName)}`
-                  : "Received"}
-              </span>
-            </span>
-          ) : null}
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
+  return received.some((entry) => !!flashes[entry.agentId]);
 }
 
 /** A quiet, keyboard- and touch-accessible place for durable receipt details. */
@@ -245,20 +165,73 @@ export function DeliveryDetails({
   block,
   recipientName,
 }: DeliveryMetaProps): JSX.Element | null {
+  const freshReceipt = useReceiptFlash(block);
+  const pendingKey = inState(block, "pending").join(",");
+  const [showSending, setShowSending] = useState(false);
+  useEffect(() => {
+    setShowSending(false);
+    if (!pendingKey) return;
+    const timer = setTimeout(() => setShowSending(true), 500);
+    return () => clearTimeout(timer);
+  }, [block.id, pendingKey]);
   if (block.toAgentId === null || !block.delivery?.length) return null;
+  const failed = inState(block, "failed").length > 0;
+  const held = inState(block, "held").length > 0;
+  const sent = block.delivery.some(
+    (entry) =>
+      entry.state === "delivered" && entry.receipt && !entry.receipt.pickedUpAt
+  );
+  const status = failed
+    ? "Not delivered"
+    : held
+      ? "Queued"
+      : showSending && pendingKey
+        ? "Sending…"
+        : freshReceipt
+          ? "Received"
+          : sent
+            ? "Sent"
+            : undefined;
+  const Icon = failed
+    ? AlertTriangle
+    : held
+      ? Hourglass
+      : showSending && pendingKey
+        ? Loader2
+        : freshReceipt
+          ? CheckCheck
+          : sent
+            ? Check
+            : Info;
+  const statusTestId = failed
+    ? "chat-delivery-error-icon"
+    : held
+      ? "chat-delivery-queued-icon"
+      : showSending && pendingKey
+        ? "chat-delivery-pending"
+        : freshReceipt
+          ? "chat-receipt-received"
+          : sent
+            ? "chat-receipt-sent"
+            : undefined;
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
-          className={`${POST_ACTION_BUTTON} shrink-0 data-[state=open]:opacity-100`}
+          className={`${POST_ACTION_BUTTON} shrink-0 data-[state=open]:opacity-100 ${status ? "!opacity-100" : ""}`}
           aria-label="Message delivery details"
-          title="Message delivery details"
+          title={status ? `${status} · Delivery details` : "Delivery details"}
           data-testid="chat-delivery-details"
         >
           <span className={POST_ACTION_FACE}>
-            <Info className="h-3.5 w-3.5" />
+            <Icon
+              className={`h-3.5 w-3.5 ${status === "Sending…" ? "animate-spin" : ""} ${failed ? "text-destructive" : ""}`}
+              aria-hidden="true"
+              data-testid={statusTestId}
+            />
+            {status ? <span className="sr-only">{status}</span> : null}
           </span>
         </Button>
       </PopoverTrigger>
@@ -268,44 +241,41 @@ export function DeliveryDetails({
         collisionPadding={12}
         className="max-h-[var(--radix-popover-content-available-height,calc(100dvh-24px))] max-w-[calc(100vw-24px)] space-y-3 overflow-y-auto overscroll-contain text-xs [overflow-wrap:anywhere]"
       >
-        <p className="font-medium">Message delivery</p>
-        <p className="text-muted-foreground">
-          Sent {timestamp(block.createdAt)}
-        </p>
-        {block.delivery.map((entry) => (
-          <div key={entry.agentId} className="space-y-1">
-            <p className="font-medium">{recipientName(entry.agentId)}</p>
-            {entry.state === "delivered" ? (
-              <>
-                <p>
-                  Delivered
-                  {entry.receipt?.deliveredAt
-                    ? ` ${timestamp(entry.receipt.deliveredAt)}`
-                    : ""}
-                </p>
-                <p>
-                  {entry.receipt?.pickedUpAt
-                    ? `Received ${timestamp(entry.receipt.pickedUpAt)}`
-                    : entry.receipt
-                      ? "Waiting for agent…"
-                      : "Receipt unavailable"}
-                </p>
-              </>
-            ) : (
-              <p>
-                {entry.state === "held"
-                  ? "Queued until the turn ends"
-                  : entry.state === "failed"
-                    ? "Not delivered"
-                    : "Sending…"}
-              </p>
-            )}
-          </div>
-        ))}
-        <p className="text-muted-foreground">
-          Received means the runtime picked up the message, not that the agent
-          has acted on it.
-        </p>
+        <p className="font-medium">Delivery</p>
+        {block.delivery.map((entry) => {
+          const at = entry.receipt?.pickedUpAt ?? entry.receipt?.deliveredAt;
+          const label =
+            entry.state === "failed"
+              ? "Not delivered"
+              : entry.state === "held"
+                ? "Queued"
+                : entry.state === "pending"
+                  ? "Sending…"
+                  : entry.receipt?.pickedUpAt
+                    ? "Received"
+                    : "Sent";
+          return (
+            <div
+              key={entry.agentId}
+              className="flex min-w-0 items-start justify-between gap-4"
+            >
+              <span className="min-w-0 font-medium">
+                {recipientName(entry.agentId)}
+              </span>
+              <span className="shrink-0 text-right text-muted-foreground">
+                {label}
+                {at ? (
+                  <time className="ml-2" dateTime={at} title={timestamp(at)}>
+                    {new Date(at).toLocaleTimeString(undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
       </PopoverContent>
     </Popover>
   );

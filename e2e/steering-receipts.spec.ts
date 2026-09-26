@@ -8,7 +8,7 @@ import {
 } from "../apps/web/src/test-utils/blocks";
 import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
 
-test("folded steering receipts wrap and remain operable at 320px and desktop", async ({
+test("corner receipts and folded messages remain operable at 320px and desktop", async ({
   page,
   request,
 }) => {
@@ -74,9 +74,7 @@ test("folded steering receipts wrap and remain operable at 320px and desktop", a
       await page.setViewportSize({ width, height: 900 });
       await expect(fold).toBeVisible();
       await expect(fold.getByTestId("chat-receipt-received")).toHaveCount(0);
-      await expect(fold.getByTestId("chat-receipt-waiting")).toContainText(
-        "Frontend accessibility reviewer and ReleaseReadinessReviewerWithALongName"
-      );
+      await expect(fold.getByTestId("chat-receipt-sent")).toBeVisible();
       await fold.hover();
       await fold
         .getByRole("button", { name: "Message delivery details" })
@@ -94,8 +92,8 @@ test("folded steering receipts wrap and remain operable at 320px and desktop", a
       );
       await page.keyboard.press("Escape");
       for (const id of [
-        "chat-receipt-status",
-        "chat-receipt-waiting",
+        "chat-delivery-details",
+        "chat-receipt-sent",
         "chat-turn-sent-to-toggle",
       ]) {
         const bounds = await fold.getByTestId(id).boundingBox();
@@ -172,10 +170,10 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
     await expect(
       page.getByRole("button", { name: "Send now", exact: true })
     ).toHaveCount(0);
-    await expect(page.getByTestId("chat-receipt-status")).toHaveCount(0);
+    await expect(page.getByTestId("chat-receipt-received")).toHaveCount(0);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByText(post.text, { exact: true })).toBeVisible();
-    await expect(page.getByTestId("chat-receipt-status")).toHaveCount(0);
+    await expect(page.getByTestId("chat-receipt-received")).toHaveCount(0);
   } finally {
     await cleanupE2EAgents(request);
   }

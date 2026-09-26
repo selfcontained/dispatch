@@ -110,11 +110,14 @@ test.describe("Live agent", () => {
     const correction = page
       .locator('[data-testid="chat-message"][data-author-kind="user"]')
       .filter({ hasText: "incorporate this correction" });
-    await expect(correction.getByTestId("chat-receipt-waiting")).toBeVisible();
+    await expect(correction.getByTestId("chat-receipt-sent")).toBeVisible();
+    const sentHeight = (await correction.boundingBox())!.height;
     await expect(correction.getByTestId("chat-receipt-received")).toBeVisible();
+    expect((await correction.boundingBox())!.height).toBe(sentHeight);
     await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
       0
     );
+    expect((await correction.boundingBox())!.height).toBe(sentHeight);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(correction.getByTestId("chat-receipt-received")).toHaveCount(
       0

@@ -37,20 +37,20 @@ the message.
   when a live `item/started` user-message item returns that `clientId`. This occurs
   when pending input enters the turn, potentially after an outstanding tool call.
 - Claude assigns the UUID to the streamed user message and reports pickup when
-  the SDK echoes that UUID from a queued prompt or the current turn's `steeredEchoes` set. Old replay
-  and unrelated messages cannot produce a receipt.
+  the SDK echoes that UUID from a queued prompt or the current turn's `steeredEchoes` set. For normal prompts, a CLI `command_lifecycle.started` frame naming the same UUID also confirms pickup, covering missing echoes. Queued/terminal frames and unrelated IDs never produce receipts.
 
 Dispatch correlates session and attempt, buffers a receipt that races the steer
 acknowledgement, journals acceptance before pickup, and persists receipts per
 post/recipient. Retry clears only the retried recipients' receipts. Turn completion
 alone never marks pickup. Adapters without this capability retain the existing
 delivery-only status in message details; an older Codex CLI that does not return
-`clientId` stays at Waiting for agent. Raw ACP commands skip prompt receipts
+`clientId` stays at Sent. Raw ACP commands skip prompt receipts
 because some commands do not emit a user-message echo.
 
-The feed shows Waiting for agent until pickup, briefly confirms Received, then
-fades the receipt line away. Completed history is quiet on initial load.
-Per-recipient delivery and pickup timestamps remain in the message details.
+The fixed-size corner action shows Sent until pickup, briefly confirms Received,
+then fades back to the usual details action. Status changes never resize the message.
+Completed history is quiet on initial load. Details show each recipient's latest
+status and time. True queues and delivery failures retain their callouts/actions.
 The persisted JSONB column and private wire namespace retain their historical
 steering names for compatibility; they now carry normal-prompt receipts too.
 
