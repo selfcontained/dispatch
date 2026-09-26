@@ -138,6 +138,12 @@ test.describe("Chat surface", () => {
       await expect(page.getByTestId("mention-picker")).toBeVisible();
       await page.getByTestId("mention-option").first().click();
       await expect(input).toHaveValue("Please @" + agent.name + " ");
+      // Picking a mention restores focus/caret on the next animation frame.
+      // Wait for that interaction to finish before selecting a new draft.
+      await expect(input).toBeFocused();
+      await expect
+        .poll(() => input.evaluate((el) => el.selectionStart))
+        .toBe(("Please @" + agent.name + " ").length);
 
       await input.fill("check this draft");
       await page.getByTestId("chat-composer-command-button").click();

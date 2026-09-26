@@ -140,16 +140,18 @@ function ResultBody({
   );
 }
 
-function ResultText({
+export function ResultText({
   content,
   error,
   muted,
   renderText,
+  streaming,
 }: {
   content: string;
   error?: boolean;
   muted?: boolean;
   renderText?: (text: string) => ReactNode;
+  streaming?: boolean;
 }): JSX.Element {
   return error ? (
     <p className="min-w-0 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
@@ -163,6 +165,7 @@ function ResultText({
       <Markdown
         className={muted ? MUTED_MARKDOWN : undefined}
         renderText={renderText}
+        streaming={streaming}
       >
         {content}
       </Markdown>
