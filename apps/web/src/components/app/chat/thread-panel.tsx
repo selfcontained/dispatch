@@ -529,7 +529,7 @@ export function ThreadPanel({
           </>
         ) : null}
       </div>
-      <div className="shrink-0 border-t border-border/40 px-4 pb-3 pt-2">
+      <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
         {error ? (
           <div
             role="alert"
@@ -555,6 +555,10 @@ export function ThreadPanel({
           }
           autoFocus={!isMobile}
           mentionables={mentionables}
+          defaultRecipients={(thread.recipients ?? []).map((id) => ({
+            id,
+            name: agentDisplayName(id, ctx),
+          }))}
         />
       </div>
     </aside>

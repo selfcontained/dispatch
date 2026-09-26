@@ -650,7 +650,7 @@ function sidesOf(block: Block): string[] {
   const sides = [
     block.author.kind === "agent" ? block.author.agentId : null,
     block.launchedByAgentId ?? null,
-    block.toAgentId,
+    ...addressedTo(block),
   ].filter((id): id is string => !!id);
   return [...new Set(sides)];
 }
@@ -709,6 +709,16 @@ export class StreamService {
       (p): p is { kind: "agent"; agentId: string } => p.kind === "agent"
     );
     return agent ? [agent.agentId] : [];
+  }
+
+  /** Recipients shown before a person sends an unmentioned thread reply. */
+  async userThreadRecipients(
+    streamId: string,
+    blockId: string
+  ): Promise<string[]> {
+    const thread = await this.resolveThread(streamId, blockId);
+    const recipients = thread ? await this.threadRecipients(thread, USER) : [];
+    return recipients.length ? recipients : [streamId];
   }
 
   /**
@@ -838,7 +848,7 @@ export class StreamService {
           : false;
       return { block: created, delivered: created.delivered, held };
     }
-    let thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
     // `@name` in the text names the recipients, in the stream's tree; it
     // wins over the page's default. Otherwise a reply in a thread goes to
     // the agents on its sides, and a top-level post to the stream's agent
@@ -865,19 +875,13 @@ export class StreamService {
     const rawCommand =
       !!commandName &&
       !review &&
-      // Only an explicit reply is a conversation. A child's default home
-      // is its launch-card thread, but a command typed in its composer is
-      // still a standalone ACP prompt.
+      // Only an explicit reply is a conversation; a command typed in
+      // the main composer is a standalone ACP prompt.
       !thread &&
       attachments.length === 0 &&
       mentioned.length === 0 &&
       recipients.length === 1 &&
       (this.delivery().commands?.(toAgentId) ?? []).includes(commandName);
-    // A message for one child, written anywhere but a thread, goes to the
-    // child's own thread: its card is where its conversation is.
-    if (!thread && recipients.length === 1) {
-      thread = await this.homeOf(toAgentId);
-    }
     const recipientAgents = await Promise.all(
       recipients.map((id) => this.requireAgent(id))
     );
@@ -1638,7 +1642,18 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    const home = await this.homeOf(agentId);
+    let home = await this.homeOf(agentId);
+    if (kind !== "review") {
+      const active = await this.turns.openTurn(agentId);
+      const turnId = active?.payload.blockId;
+      const turn =
+        typeof turnId === "string" ? await this.store.getById(turnId) : null;
+      if (turn) {
+        home = turn.threadId
+          ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
+          : null;
+      }
+    }
     const attachments = await this.resolveAgentAttachments(
       agent,
       attachmentInputs
@@ -1667,9 +1682,9 @@ export class StreamService {
       return review;
     }
     // Named with replyTo, the post goes in that thread; otherwise in the
-    // agent's own place — a child's launch thread, the stream for anyone
-    // else. Only a reply named on purpose is routed to the thread's other
-    // side: a post in the agent's own place is for whoever it names.
+    // active turn's location, falling back to the agent's own place. Only
+    // an explicit reply routes to the thread's other side; otherwise the
+    // post is delivered only to whoever it names.
     const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
     const sides =
       toAgentId === null && replyTo && thread
@@ -2247,9 +2262,9 @@ export class StreamService {
   /**
    * A turn opened: its block, by the agent, empty until the turn settles.
    * A turn that a reply in a thread opened answers in that thread; any
-   * other turn answers in the agent's own place (a child's launch thread,
-   * the stream for anyone else). The block's id goes back onto the turn row
-   * so later events find it.
+   * main-stream user post answers in the stream. Background work answers
+   * in the agent's own place (a child's launch thread). The block's id goes
+   * back onto the turn row so later events find it.
    */
   async recordTurnStarted(input: {
     agentId: string;
@@ -2257,7 +2272,8 @@ export class StreamService {
     prompt: PromptSource;
   }): Promise<string | null> {
     const streamId = await this.streamOf(input.agentId);
-    let thread: { threadId: string; replyTo: string } | null = null;
+    let thread: { threadId: string | null; replyTo: string | null } | null =
+      null;
     if (input.prompt.source === "chat" && input.prompt.answerIn) {
       // The prompt said where its answer goes.
       const host = await this.store.getById(input.prompt.answerIn);
@@ -2266,14 +2282,16 @@ export class StreamService {
       }
     } else if (input.prompt.source === "chat") {
       // Posts delivered together each say where their answer belongs. The
-      // turn answers in a thread only when every one of them points into
-      // that same thread; any disagreement puts it in the agent's own
-      // place, where an answer to a post in a thread is still seen and one
-      // about a channel post is not buried in a thread.
+      // turn answers in a thread only when every post points there.
+      // Any main-stream user post keeps the combined answer in the stream;
+      // other disagreements fall back to the agent's background work.
       const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
       const places = await Promise.all(ids.map((id) => this.turnPlaceFor(id)));
       const [first] = places;
-      if (first && places.every((p) => p?.threadId === first.threadId)) {
+      if (places.some((place) => place?.threadId === null)) {
+        // A batched main-stream message must not have its answer buried.
+        thread = { threadId: null, replyTo: null };
+      } else if (first && places.every((p) => p?.threadId === first.threadId)) {
         thread = places[places.length - 1]!;
       }
     }
@@ -2306,20 +2324,30 @@ export class StreamService {
    * so the root is rarely the question.
    */
   private async turnPlaceFor(blockId: string): Promise<{
-    threadId: string;
-    replyTo: string;
+    threadId: string | null;
+    replyTo: string | null;
   } | null> {
     if (!isBlockId(blockId)) return null;
     const opener = await this.store.getById(blockId);
     // A block another shows (a review delivered to the agent whose work it
     // is) opens work, which belongs in the agent's own place. A prompt
     // about such a block that belongs under it says so (`answerIn`).
+    // A top-level user message explicitly chooses the main stream, even
+    // when addressed to a child. Null alone means background work at home.
+    if (
+      opener?.author.kind === "user" &&
+      opener.kind === "text" &&
+      !opener.threadId
+    ) {
+      return { threadId: null, replyTo: null };
+    }
     if (!opener?.threadId || (await this.isShown(opener))) return null;
     const answered = opener.replyTo
       ? await this.store.getById(opener.replyTo)
       : null;
     if (answered?.kind === "question" || answered?.kind === "form") {
-      return null;
+      // Continue a main-stream ask in the main stream, including a child's.
+      return answered.threadId ? null : { threadId: null, replyTo: null };
     }
     return { threadId: opener.threadId, replyTo: opener.id };
   }

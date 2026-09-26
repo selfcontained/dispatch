@@ -101,6 +101,39 @@ test.describe("Stream windowing", () => {
   });
 
   for (const width of [1280, 390]) {
+    test(`a late resize respects an upward scroll before its event at width ${width}`, async ({
+      page,
+      request,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const agent = await createAgentViaAPI(request);
+      const ids = await seedPosts(agent.id, 20);
+      await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+      await expect(
+        page.locator(`[data-chat-entry-id="${ids[19]}"]`)
+      ).toBeInViewport();
+      const stream = scroller(page);
+      // Scroll in rAF, after this frame's scroll-event delivery, then let
+      // a row resize (as a font/image can) before the next scroll event.
+      const wantedTop = await stream.evaluate(
+        (el) =>
+          new Promise<number>((resolve) => {
+            requestAnimationFrame(() => {
+              el.scrollTop = el.scrollHeight - el.clientHeight - 100;
+              const top = el.scrollTop;
+              const row = el.querySelectorAll<HTMLElement>(
+                "[data-chat-entry-id]"
+              );
+              row[row.length - 1]!.style.paddingBottom = "20px";
+              requestAnimationFrame(() => resolve(top));
+            });
+          })
+      );
+      await expect
+        .poll(() => stream.evaluate((el) => el.scrollTop))
+        .toBe(wantedTop);
+    });
+
     test(`typing a multiline draft preserves the idle stream at width ${width}`, async ({
       page,
       request,

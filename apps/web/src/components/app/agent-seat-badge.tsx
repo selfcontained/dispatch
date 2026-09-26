@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { seatClasses } from "@/lib/agent-seat";
 import { cn } from "@/lib/utils";
 
@@ -9,16 +10,19 @@ import { cn } from "@/lib/utils";
  * appears in a stream. Size "md" is a post's avatar, "sm" a folded row's.
  * A null seat is the sidebar's top-level agent: the root's face, no number,
  * since seats count within one tree and a list of roots would repeat 1.
+ * Sidebar rows pass the agent type to show its engine icon instead of the bot.
  */
 export function AgentSeatBadge({
   seat,
   name,
+  type,
   size = "md",
   className,
   "data-testid": testId = "chat-avatar-agent",
 }: {
   seat: number | null;
   name: string;
+  type?: string | null;
   size?: "md" | "sm";
   className?: string;
   "data-testid"?: string;
@@ -27,9 +31,9 @@ export function AgentSeatBadge({
   return (
     <span
       className={cn(
-        "relative flex shrink-0 items-center justify-center border",
+        "relative flex shrink-0 items-center justify-center",
         size === "md" ? "h-8 w-8 rounded-md" : "h-5 w-5 rounded",
-        face,
+        !type && ["border", face],
         className
       )}
       aria-label={seat === null ? name : `${name}, agent ${seat}`}
@@ -37,10 +41,17 @@ export function AgentSeatBadge({
       data-testid={testId}
       data-seat={seat ?? undefined}
     >
-      <Bot
-        className={size === "md" ? "h-[18px] w-[18px]" : "h-3 w-3"}
-        aria-hidden
-      />
+      {type ? (
+        <AgentTypeIcon
+          type={type}
+          className="h-full w-full rounded-[inherit]"
+        />
+      ) : (
+        <Bot
+          className={size === "md" ? "h-[18px] w-[18px]" : "h-3 w-3"}
+          aria-hidden
+        />
+      )}
       {seat === null ? null : (
         <span
           className={cn(

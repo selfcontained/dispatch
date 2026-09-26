@@ -141,6 +141,7 @@ export function ChildAgentRow({
       <AgentSeatBadge
         seat={seat}
         name={displayName}
+        type={agent.type}
         size="sm"
         data-testid={`child-agent-avatar-${agent.id}`}
       />

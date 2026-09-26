@@ -138,6 +138,21 @@ test.describe("Chat surface", () => {
       await expect(page.getByTestId("mention-picker")).toBeVisible();
       await page.getByTestId("mention-option").first().click();
       await expect(input).toHaveText("Please @" + agent.name + " ");
+      // Wait for picker insertion to restore the editor's focus and caret.
+      await expect(input).toBeFocused();
+      await expect
+        .poll(() =>
+          input.evaluate((el) => {
+            const selection = window.getSelection();
+            if (!selection?.anchorNode || !el.contains(selection.anchorNode))
+              return -1;
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            range.setEnd(selection.anchorNode, selection.anchorOffset);
+            return range.toString().length;
+          })
+        )
+        .toBe(("Please @" + agent.name + " ").length);
 
       await input.fill("check this draft");
       await page.getByTestId("chat-composer-command-button").click();

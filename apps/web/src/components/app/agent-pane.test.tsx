@@ -208,7 +208,9 @@ describe("ChatFiltersButton", () => {
 describe("AgentPane", () => {
   it("shows the agent's name, the filters and the chat pane", () => {
     renderPane();
-    expect(screen.getByText("agent agt_a")).toBeTruthy();
+    expect(
+      screen.getByText("agent agt_a", { selector: ".truncate" })
+    ).toBeTruthy();
     expect(screen.getByTestId("chat-filters-trigger")).toBeTruthy();
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
     expect(screen.queryByTestId("agent-view-toggle")).toBeNull();
@@ -218,7 +220,9 @@ describe("AgentPane", () => {
   it("leaves the header to the split pane when asked", () => {
     renderPane({ header: false });
     expect(screen.queryByTestId("chat-filters-trigger")).toBeNull();
-    expect(screen.queryByText("agent agt_a")).toBeNull();
+    expect(
+      screen.queryByText("agent agt_a", { selector: ".truncate" })
+    ).toBeNull();
     expect(screen.getByTestId("chat-pane")).toBeTruthy();
   });
 

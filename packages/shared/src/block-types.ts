@@ -476,6 +476,8 @@ export type AgentTurnResponse = {
 
 /** `GET /streams/:rootId/blocks/:id/thread`. */
 export type StreamThreadResponse = {
+  /** Default delivery targets for a person replying without @mentions. */
+  recipients?: string[];
   root: Block;
   replies: Block[];
   /** As on the feed: names for every agent the thread mentions. */

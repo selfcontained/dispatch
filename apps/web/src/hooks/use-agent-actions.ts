@@ -98,9 +98,10 @@ export function useAgentActions({
         if (index === -1) {
           return sortAgentsByCreatedAtDesc([agent, ...old]);
         }
-        const next = [...old];
-        next[index] = agent;
-        return sortAgentsByCreatedAtDesc(next);
+        // Startup events can reach the cache before the create response.
+        // That response is the original "creating" snapshot; replacing a
+        // live entry with it strands the composer in its disabled state.
+        return old;
       });
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.id);

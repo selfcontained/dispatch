@@ -338,6 +338,7 @@ export function useStreamFeedSelect<T>(
 // ---------------------------------------------------------------------------
 
 export type ThreadState = {
+  recipients?: string[];
   root: Block | null;
   replies: Block[];
   /** Names for the agents the thread mentions, archived ones included. */
@@ -365,6 +366,7 @@ export function useThread(
     void refetchQuery();
   }, [refetchQuery]);
   return {
+    recipients: query.data?.recipients,
     root: query.data?.root ?? null,
     replies: query.data?.replies ?? [],
     agentNames: query.data?.agentNames,
