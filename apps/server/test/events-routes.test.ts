@@ -39,6 +39,7 @@ function createReply() {
   const raw = Object.assign(new EventEmitter(), {
     setHeader: vi.fn(),
     write: vi.fn(),
+    end: vi.fn(),
   });
   return { raw, hijack: vi.fn() };
 }
@@ -46,6 +47,18 @@ function createReply() {
 afterEach(() => vi.useRealTimers());
 
 describe("GET /api/v1/events", () => {
+  it("closes a connection whose snapshot failed so the browser can reconcile on retry", async () => {
+    vi.useFakeTimers();
+    const harness = await createRouteHarness(async () => {
+      throw new Error("database unavailable");
+    });
+    const reply = createReply();
+    await harness.handler(createRequest(), reply);
+    expect(reply.raw.end).toHaveBeenCalledOnce();
+    expect(harness.broker.getMetrics().clients).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("removes a client that disconnects after its snapshot", async () => {
     vi.useFakeTimers();
     const harness = await createRouteHarness(async () => []);

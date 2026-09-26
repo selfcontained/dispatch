@@ -18,7 +18,7 @@ import type {
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -185,6 +185,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 /** A prompt waiting for the turn ahead of it to settle. */
 type Waiting = {
   text: string;
+  images?: PromptImage[];
   source?: PromptSource;
   /** Not to be combined with others: an interrupting post, a job's nudge. */
   alone: boolean;
@@ -268,6 +269,7 @@ function combine(batch: Waiting[]): { text: string; source?: PromptSource } {
 /** Send one turn's prompt; resolves when that turn settles. */
 async function runTurn(entry: Live, batch: Waiting[]): Promise<void> {
   const { text, source } = combine(batch);
+  const images = batch.flatMap((item) => item.images ?? []);
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   let settledEarly = false;
   let resolveSettle!: () => void;
@@ -279,7 +281,12 @@ async function runTurn(entry: Live, batch: Waiting[]): Promise<void> {
   });
   entry.settleWaiters.push(resolveSettle);
   try {
-    await entry.client.prompt(id, text, source);
+    await entry.client.prompt(
+      id,
+      text,
+      source,
+      images.length ? images : undefined
+    );
   } catch (err) {
     entry.settleWaiters = entry.settleWaiters.filter(
       (w) => w !== resolveSettle
@@ -647,6 +654,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       });
       const own: Waiting = {
         text,
+        ...(opts?.images?.length ? { images: opts.images } : {}),
         ...(source ? { source } : {}),
         // Only posts are combined: each carries its own envelope, so the
         // agent can tell them apart and answer each. Anything else is a

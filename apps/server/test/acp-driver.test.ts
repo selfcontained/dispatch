@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -21,6 +24,7 @@ const resolveBinary = async (bin: string) => bin;
 const bins: EngineBins = {
   claudeBin: "/home/u/.local/bin/claude",
   codexBin: "/home/u/.local/bin/codex",
+  opencodeBin: "/home/u/.opencode/bin/opencode",
 };
 
 function launch(
@@ -45,10 +49,51 @@ function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
 }
 
 describe("AcpDriver", () => {
-  it.each(["claude", "codex"] as const)(
+  it.each([true, false])(
+    "native images respect the negotiated capability (%s)",
+    async (supportsImages) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "dispatch-acp-image-"));
+      const file = path.join(dir, "image.png");
+      const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "base64");
+      await writeFile(file, bytes);
+      const fake = createFakeAcpAgent({ supportsImages });
+      const { driver } = driverWith(fake);
+      try {
+        await driver.start(launch({}, "opencode"));
+        await driver.prompt(
+          "agt_1",
+          "Look at image.png",
+          undefined,
+          undefined,
+          [{ path: file, mimeType: "image/png" }]
+        );
+        expect(fake.seen.promptBlocks[0]).toEqual([
+          { type: "text", text: "Look at image.png" },
+          ...(supportsImages
+            ? [
+                {
+                  type: "image",
+                  mimeType: "image/png",
+                  data: bytes.toString("base64"),
+                },
+              ]
+            : []),
+        ]);
+      } finally {
+        await driver.stop("agt_1");
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+  );
+  it.each(["claude", "codex", "opencode"] as const)(
     "%s: auth failures explain CLI login during startup and turns",
     async (engine) => {
-      const command = engine === "claude" ? "claude auth login" : "codex login";
+      const command =
+        engine === "claude"
+          ? "claude auth login"
+          : engine === "opencode"
+            ? "opencode auth login"
+            : "codex login";
       const startup = driverWith(
         createFakeAcpAgent({ sessionError: acp.RequestError.authRequired() })
       );
@@ -81,7 +126,7 @@ describe("AcpDriver", () => {
     }
   );
 
-  it.each(["claude", "codex"] as const)(
+  it.each(["claude", "codex", "opencode"] as const)(
     "%s: restricted mode is applied on resume and requests wait for a matching user choice",
     async (engine) => {
       let result: acp.RequestPermissionResponse | undefined;
@@ -104,12 +149,16 @@ describe("AcpDriver", () => {
         )
       );
       try {
-        expect(fake.seen.setMode).toEqual([
-          {
-            sessionId: "existing",
-            modeId: engine === "claude" ? "default" : "read-only",
-          },
-        ]);
+        expect(fake.seen.setMode).toEqual(
+          engine === "opencode"
+            ? []
+            : [
+                {
+                  sessionId: "existing",
+                  modeId: engine === "claude" ? "default" : "read-only",
+                },
+              ]
+        );
         if (engine === "claude")
           expect(fake.seen.resumeSession[0]?._meta).toMatchObject({
             claudeCode: { options: { allowDangerouslySkipPermissions: false } },

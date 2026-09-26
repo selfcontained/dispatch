@@ -48,6 +48,10 @@ export async function registerAgentEventRoutes(
       }
     } catch (error) {
       deps.appLog.warn({ err: error }, "Failed to load SSE snapshot.");
+      // Reconnect must carry a snapshot to reconcile events missed offline.
+      // A heartbeat-only connection would otherwise look healthy forever.
+      cleanup();
+      stream.end();
     }
   });
 

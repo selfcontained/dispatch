@@ -1,5 +1,5 @@
 import type { AgentPermissionRequest } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
 import type { DriverEvent } from "./driver.js";
@@ -64,7 +64,13 @@ export type JournalEntry = {
 
 export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
-  | { type: "prompt"; id: string; text: string; source?: PromptSource }
+  | {
+      type: "prompt";
+      id: string;
+      text: string;
+      source?: PromptSource;
+      images?: PromptImage[];
+    }
   | { type: "cancel" }
   | {
       type: "answer_permission";

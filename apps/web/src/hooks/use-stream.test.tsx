@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   answered,
+  turnBlock,
   block,
   blockEntry,
   findingBlock,
@@ -28,6 +29,7 @@ import {
 } from "@/test-utils/blocks";
 
 import {
+  ACTIVE_TURN_RECONCILE_MS,
   appendToNewestPage,
   applyStreamRead,
   bumpReplyCount,
@@ -1786,5 +1788,47 @@ describe("useMarkStreamRead", () => {
     // Another unread post arrived: the same mark is worth sending again.
     rerender({ count: 3 });
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(3));
+  });
+});
+
+describe("active turn recovery", () => {
+  it("recovers a missed settlement without reloading and stops polling once settled", async () => {
+    vi.useFakeTimers();
+    const running = turnBlock({ turn: { settled: false } });
+    const finished = turnBlock({ id: running.id, turn: { settled: true } });
+    const response = (value: Block) => ({
+      entries: [blockEntry(value)],
+      nextCursor: null,
+      unreadCount: 0,
+    });
+    apiMock
+      .mockResolvedValueOnce(response(running))
+      .mockResolvedValue(response(finished));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const hook = renderHook(() => useStreamFeed("agt_1"), { wrapper });
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(apiMock).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ACTIVE_TURN_RECONCILE_MS + 10);
+      });
+      expect(feedBlocks(client)[0]?.turn?.settled).toBe(true);
+      expect(apiMock).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ACTIVE_TURN_RECONCILE_MS * 2);
+      });
+      expect(apiMock).toHaveBeenCalledTimes(2);
+    } finally {
+      hook.unmount();
+      client.clear();
+      vi.useRealTimers();
+    }
   });
 });

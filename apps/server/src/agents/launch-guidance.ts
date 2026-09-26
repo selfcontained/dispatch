@@ -1,3 +1,4 @@
+import type { PromptImage } from "./acp/prompt-source.js";
 import { buildPostEnvelope } from "../chat/envelope.js";
 
 /** A startup file as `seedInitialFiles` reports it, for the first turn. */
@@ -17,6 +18,7 @@ export type StartupFile = {
 export type ChatLaunchPost = {
   messageId: string;
   attachmentLines: string[];
+  images?: PromptImage[];
 };
 
 export type StartupTurnInput = {

@@ -28,8 +28,9 @@ export function PersonasContent() {
           where the git diff is not the subject.
         </P>
         <P>
-          Persona agents run as <Code>claude</Code> or <Code>codex</Code> agents
-          like any other; the launcher lets you pick which.
+          Persona agents run as <Code>claude</Code>, <Code>codex</Code>, or{" "}
+          <Code>opencode</Code> agents like any other; the launcher lets you
+          pick which.
         </P>
         <P>
           From the UI, the <strong>Launch personas</strong> button on the

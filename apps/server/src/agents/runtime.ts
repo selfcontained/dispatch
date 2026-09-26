@@ -1,5 +1,5 @@
 import type { AgentPermissionsResponse } from "@dispatch/shared";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
@@ -93,7 +93,7 @@ export type AgentRuntime = {
      * `alone`: never combine this prompt with others waiting beside it. A
      * post sent to interrupt is the point of its own turn.
      */
-    opts?: { alone?: boolean }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** Atomically claim an unsent post at every recipient. */
   controlQueuedPrompt(

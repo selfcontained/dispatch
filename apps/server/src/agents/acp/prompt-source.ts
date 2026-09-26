@@ -38,3 +38,7 @@ export type QueuedPrompt = {
   source: PromptSource;
   createdAt: string;
 };
+
+/** Server-resolved files, kept out of turn journals and encoded only for ACP. */
+export type PromptImage = { path: string; mimeType: string };
+export type PromptOptions = { alone?: boolean; images?: PromptImage[] };

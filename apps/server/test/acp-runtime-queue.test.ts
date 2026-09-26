@@ -16,7 +16,10 @@ import {
   type ClientMessage,
   type HostMessage,
 } from "../src/agents/acp/host-protocol.js";
-import type { PromptSource } from "../src/agents/acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptImage,
+} from "../src/agents/acp/prompt-source.js";
 import {
   COMBINE_MAX_CHARS,
   COMBINE_MAX_PROMPTS,
@@ -242,14 +245,22 @@ describe("AcpRuntime legacy host replay", () => {
  */
 async function heldTurnHost(): Promise<{
   stateRoot: string;
-  prompts: Array<{ text: string; source?: PromptSource }>;
+  prompts: Array<{
+    text: string;
+    source?: PromptSource;
+    images?: PromptImage[];
+  }>;
   settle: () => void;
 }> {
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
   writeFileSync(hostFile(dir, "pid"), String(process.pid));
-  const prompts: Array<{ text: string; source?: PromptSource }> = [];
+  const prompts: Array<{
+    text: string;
+    source?: PromptSource;
+    images?: PromptImage[];
+  }> = [];
   let seq = 0;
   let live: net.Socket | null = null;
   const event = (e: unknown): HostMessage =>
@@ -281,6 +292,7 @@ async function heldTurnHost(): Promise<{
           prompts.push({
             text: message.text,
             ...(message.source ? { source: message.source } : {}),
+            ...(message.images ? { images: message.images } : {}),
           });
           socket.write(
             [
@@ -366,8 +378,16 @@ describe("AcpRuntime combining queued posts", () => {
       text: "do the work",
     });
     await withinSeconds(work.accepted, "the work");
-    const one = runtime.prompt(agentId, envelope(1), post(1));
-    const two = runtime.prompt(agentId, envelope(2), post(2));
+    const images = [
+      { path: "/tmp/one.png", mimeType: "image/png" },
+      { path: "/tmp/two.jpg", mimeType: "image/jpeg" },
+    ];
+    const one = runtime.prompt(agentId, envelope(1), post(1), {
+      images: [images[0]!],
+    });
+    const two = runtime.prompt(agentId, envelope(2), post(2), {
+      images: [images[1]!],
+    });
 
     settle();
     await withinSeconds(work.settled, "the work's settle");
@@ -378,6 +398,7 @@ describe("AcpRuntime combining queued posts", () => {
     await withinSeconds(two.accepted, "the second post accepted");
     expect(prompts.map((p) => p.text.slice(0, 60))).toHaveLength(2);
     const combined = prompts[1]!;
+    expect(combined.images).toEqual(images);
     expect(combined.text.indexOf(envelope(1))).toBeGreaterThan(-1);
     expect(combined.text.indexOf(envelope(2))).toBeGreaterThan(
       combined.text.indexOf(envelope(1))
@@ -414,8 +435,16 @@ describe("AcpRuntime combining queued posts", () => {
 
     const work = runtime.prompt(agentId, "do the work");
     await withinSeconds(work.accepted, "the work");
-    const one = runtime.prompt(agentId, envelope(1), post(1));
-    const two = runtime.prompt(agentId, envelope(2), post(2));
+    const images = [
+      { path: "/tmp/one.png", mimeType: "image/png" },
+      { path: "/tmp/two.jpg", mimeType: "image/jpeg" },
+    ];
+    const one = runtime.prompt(agentId, envelope(1), post(1), {
+      images: [images[0]!],
+    });
+    const two = runtime.prompt(agentId, envelope(2), post(2), {
+      images: [images[1]!],
+    });
     const cut = runtime.prompt(agentId, envelope(3), post(3), {
       alone: true,
     });

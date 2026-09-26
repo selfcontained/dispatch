@@ -418,6 +418,7 @@ const streamService = new StreamService({
               ? { source: { source: "chat", chatMessageId: opts.blockId } }
               : {}),
           ...(opts?.alone ? { alone: true } : {}),
+          ...(opts?.images?.length ? { images: opts.images } : {}),
         })
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
@@ -675,7 +676,11 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    engineBins: { claude: config.claudeBin, codex: config.codexBin },
+    engineBins: {
+      claude: config.claudeBin,
+      codex: config.codexBin,
+      opencode: config.opencodeBin,
+    },
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 

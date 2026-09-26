@@ -64,7 +64,11 @@ import {
   turnAnchorOf,
 } from "./turns.js";
 import { findMentions, type Mentionable } from "./mentions.js";
-import type { PromptSource } from "../agents/acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptOptions,
+  PromptImage,
+} from "../agents/acp/prompt-source.js";
 import {
   StreamStore,
   type StreamEventRow,
@@ -149,7 +153,7 @@ export type StreamDeliveryAdapter = {
   inject: (
     agentId: string,
     text: string,
-    opts?: { blockId?: string; source?: PromptSource; alone?: boolean }
+    opts?: PromptOptions & { blockId?: string; source?: PromptSource }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
@@ -279,6 +283,7 @@ export type PreparedLaunchContext = {
    * describe all the startup files and links.
    */
   attachmentLines: string[];
+  images?: PromptImage[];
   /** Exactly what the row will store. */
   postText: string;
   /** Write the block and announce the feed change. */
@@ -874,10 +879,17 @@ export class StreamService {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
     }
     const linesFor = new Map(
-      recipientAgents.map((agent) => [
-        agent.id,
-        resolved.length > 0 ? this.describeAttachments(agent, resolved) : [],
-      ])
+      await Promise.all(
+        recipientAgents.map(
+          async (agent) =>
+            [
+              agent.id,
+              resolved.length > 0
+                ? await this.describeAttachments(agent, resolved)
+                : [],
+            ] as const
+        )
+      )
     );
     const liveFor = new Map(
       await Promise.all(
@@ -1107,7 +1119,7 @@ export class StreamService {
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
-      attachmentLines = this.describeAttachments(recipient, resolved);
+      attachmentLines = await this.describeAttachments(recipient, resolved);
     }
     const live = await this.canDeliver(toAgentId, true);
 
@@ -1642,7 +1654,7 @@ export class StreamService {
       attachmentInputs
     );
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
-    const attachmentLines = this.describeAttachments(agent, attachments);
+    const attachmentLines = await this.describeAttachments(agent, attachments);
     if (kind === "review") {
       // A review is its own record, not a reply: a child's goes on its
       // launch card, which shows it; anyone else's goes in the stream.
@@ -1945,7 +1957,7 @@ export class StreamService {
     if (inputs.length > 0) {
       const agent = await this.requireAgent(input.agentId);
       attachments = await this.resolveAttachmentsFor(agent, inputs);
-      attachmentLines = this.describeAttachments(agent, attachments);
+      attachmentLines = await this.describeAttachments(agent, attachments);
     }
     const stored =
       attachments.length > BLOCK_ATTACHMENTS_MAX
@@ -1961,6 +1973,7 @@ export class StreamService {
     return {
       id,
       attachmentLines,
+      images: await this.promptImages(attachments, input.agentId),
       postText,
       record: async () => {
         const block = await this.store.writeLaunchBriefing({
@@ -2413,6 +2426,7 @@ export class StreamService {
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
+    const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
     // recipient that never took it can be seen, and sent again, without
@@ -2471,6 +2485,7 @@ export class StreamService {
         },
         logContext: { blockId: block.id },
         ...(own.alone ? { alone: true } : {}),
+        ...(images.length && !own.rawPrompt ? { images } : {}),
       });
       held = held || result.held;
     }
@@ -2494,6 +2509,7 @@ export class StreamService {
     logContext: Record<string, string>;
     /** What the prompt is, for a prompt that is not a block being delivered. */
     source?: PromptSource;
+    images?: PromptImage[];
     alone?: boolean;
   }): { held: boolean } {
     const { agentId, logContext } = input;
@@ -2505,6 +2521,7 @@ export class StreamService {
           ? { source: input.source }
           : { blockId: input.logContext.blockId }),
         ...(input.alone ? { alone: true } : {}),
+        ...(input.images?.length ? { images: input.images } : {}),
       })
       .then(
         () => true,
@@ -2746,12 +2763,17 @@ export class StreamService {
     // wake something that is not running.
     for (const id of recipients) await this.canDeliver(id, false);
     const lines = new Map(
-      agents.map((agent) => [
-        agent.id,
-        block.attachments.length > 0
-          ? this.describeAttachments(agent, block.attachments)
-          : [],
-      ])
+      await Promise.all(
+        agents.map(
+          async (agent) =>
+            [
+              agent.id,
+              block.attachments.length > 0
+                ? await this.describeAttachments(agent, block.attachments)
+                : [],
+            ] as const
+        )
+      )
     );
     // The ask this post answers, from the ask's own record of who answered
     // it — not from the fact that the post replies to a question, which a
@@ -2923,25 +2945,56 @@ export class StreamService {
     return out;
   }
 
-  /**
-   * One envelope line per resolved attachment: `file: <abs path> (<mime>,
-   * <size>)`, `link: <url>`, `code: …`. File paths use the
-   * recipient agent's files directory when the file is its own; otherwise
-   * the file is described by name and the agent fetches it by URL.
-   */
-  private describeAttachments(
+  /** Native image references come only from resolved attachment metadata. */
+  private async promptImages(
+    attachments: ChatAttachment[],
+    fallbackOwnerId: string
+  ): Promise<PromptImage[]> {
+    const images: PromptImage[] = [];
+    for (const attachment of attachments) {
+      if (
+        attachment.type !== "file" ||
+        !attachment.mimeType ||
+        !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+          attachment.mimeType
+        )
+      )
+        continue;
+      // Attachment metadata was resolved against the file registry on posting.
+      // Use its owner, even when the post is addressed to another agent.
+      if (path.basename(attachment.fileName) !== attachment.fileName) continue;
+      const owner = await this.requireAgent(
+        attachment.ownerAgentId ?? fallbackOwnerId
+      );
+      images.push({
+        path: path.join(
+          resolveFilesDir(owner.id, owner.filesDir, this.deps.filesRoot),
+          attachment.fileName
+        ),
+        mimeType: attachment.mimeType,
+      });
+    }
+    return images;
+  }
+
+  /** Keep file-tool fallback paths aligned with the actual attachment owner. */
+  private async describeAttachments(
     agent: StreamAgent,
     attachments: ChatAttachment[]
-  ): string[] {
-    const filesDir = resolveFilesDir(
-      agent.id,
-      agent.filesDir,
-      this.deps.filesRoot
-    );
+  ): Promise<string[]> {
     const lines: string[] = [];
     for (const attachment of attachments) {
       switch (attachment.type) {
         case "file": {
+          const owner =
+            attachment.ownerAgentId && attachment.ownerAgentId !== agent.id
+              ? await this.requireAgent(attachment.ownerAgentId)
+              : agent;
+          const filesDir = resolveFilesDir(
+            owner.id,
+            owner.filesDir,
+            this.deps.filesRoot
+          );
           const mime = attachment.mimeType ?? "application/octet-stream";
           lines.push(
             `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`

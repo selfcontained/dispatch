@@ -1122,7 +1122,7 @@ describe("ChatFeed", () => {
         type: "codex",
         parentAgentId: "agt_root",
       },
-      { id: "agt_far", name: "far", type: "claude", parentAgentId: null },
+      { id: "agt_far", name: "far", type: "opencode", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const from = (id: string, senderAgentId: string, minute: string) =>
@@ -1165,7 +1165,7 @@ describe("ChatFeed", () => {
           post.querySelector('[data-testid="chat-author-engine"]')
             ?.textContent ?? null
       )
-    ).toEqual(["Codex", "Claude", "Codex", "Claude", null]);
+    ).toEqual(["Codex", "Claude", "Codex", "OpenCode", null]);
     const modelChip = posts[0]!.querySelector(
       '[data-testid="chat-author-model"]'
     );
@@ -1357,16 +1357,22 @@ describe("ChatFeed", () => {
     expect(action?.className).toContain("max-sm:-mt-2");
   });
 
-  it("gives the agent a bot avatar and names its engine under it", () => {
-    renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType: "codex" });
-    const post = screen.getByTestId("chat-message");
-    expect(
-      post.querySelector("[data-testid='chat-avatar-agent']")
-    ).toBeTruthy();
-    expect(
-      post.querySelector("[data-testid='chat-author-engine']")?.textContent
-    ).toBe("Codex");
-  });
+  it.each([
+    ["codex", "Codex"],
+    ["opencode", "OpenCode"],
+  ] as const)(
+    "gives a %s agent a bot avatar and engine badge",
+    (agentType, label) => {
+      renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType });
+      const post = screen.getByTestId("chat-message");
+      expect(
+        post.querySelector("[data-testid='chat-avatar-agent']")
+      ).toBeTruthy();
+      expect(
+        post.querySelector("[data-testid='chat-author-engine']")?.textContent
+      ).toBe(label);
+    }
+  );
 
   it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
     renderFeed([
