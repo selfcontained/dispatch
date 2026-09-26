@@ -1312,7 +1312,7 @@ export function ChatComposer({
           {defaultRecipients ? (
             <TooltipProvider delayDuration={150}>
               <div
-                className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground"
+                className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
                 data-testid="chat-composer-routing"
                 role="group"
                 aria-label="Message recipients"

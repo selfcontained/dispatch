@@ -242,6 +242,7 @@ function UsageChip({
   const [open, setOpen] = useState(false);
   const percent = contextPercent(usage);
   const cost = usage?.sessionCost;
+  const usageLabel = percent === null ? "Usage" : `${percent}% context`;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -249,13 +250,23 @@ function UsageChip({
           type="button"
           className={cn(CHIP_CLASS, "shrink-0 tabular-nums")}
           title="Usage"
+          aria-label={
+            cost
+              ? `${usageLabel} · ${formatCost(cost.amount, cost.currency)}`
+              : usageLabel
+          }
           data-testid="composer-usage-chip"
         >
           <Gauge className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>
-            {percent === null ? "Usage" : `${percent}% context`}
-            {cost ? ` · ${formatCost(cost.amount, cost.currency)}` : ""}
+          <span className="max-[360px]:hidden">{usageLabel}</span>
+          <span className="hidden max-[360px]:inline">
+            {percent === null ? "Usage" : `${percent}% ctx`}
           </span>
+          {cost ? (
+            <span className="max-[360px]:hidden">
+              · {formatCost(cost.amount, cost.currency)}
+            </span>
+          ) : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
