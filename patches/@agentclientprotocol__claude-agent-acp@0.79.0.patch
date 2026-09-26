@@ -1,0 +1,91 @@
+diff --git a/dist/acp-agent.js b/dist/acp-agent.js
+index 212de03f7c4d8117348f76f47987a24d0d97c395..1c0654086410823a6490bfd42826b637f6ceb7a2 100644
+--- a/dist/acp-agent.js
++++ b/dist/acp-agent.js
+@@ -956,6 +956,7 @@ export class ClaudeAcpAgent {
+             // so clients know they may inject a follow-up into a running turn.
+             _meta: {
+                 ...airSessionFailureCapabilityMeta(AGENT_FILE_CHANGE_REPORT_CAPABILITY, AIR_NATIVE_SUBAGENT_SESSIONS_CAPABILITY, AIR_ASYNC_TASKS_CAPABILITY, AIR_RECOMMENDED_CONFIG_VALUE_CAPABILITY),
++                "dispatch/steering": { pickupReceipts: true, promptReceipts: true },
+                 steering: {
+                     supported: true,
+                 },
+@@ -1415,7 +1416,9 @@ export class ClaudeAcpAgent {
+             await this.publishTaskPlan(params.sessionId, session.taskState);
+         }
+         const userMessage = promptToClaude(params);
+-        const promptUuid = randomUUID();
++        const requestedReceipt = params._meta?.["dispatch/steering"]?.id;
++        const receiptId = typeof requestedReceipt === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedReceipt) ? requestedReceipt : undefined;
++        const promptUuid = receiptId ?? randomUUID();
+         userMessage.uuid = promptUuid;
+         // Local-only commands (e.g. `/clear`) return a result without replaying the
+         // user message, so the consumer can't promote the turn from the echo.
+@@ -1433,6 +1436,7 @@ export class ClaudeAcpAgent {
+         // consumer is running, and awaits the deferred.
+         const turn = {
+             promptUuid,
++            receiptId,
+             isLocalOnlyCommand,
+             ...(isUsageCommand ? { isUsageCommand: true } : {}),
+             ...(usageMarkdownAbort ? { usageMarkdownAbort } : {}),
+@@ -1758,7 +1762,9 @@ export class ClaudeAcpAgent {
+             prompt: params.prompt,
+         };
+         const userMessage = promptToClaude(promptRequest);
+-        const steeredUuid = randomUUID();
++        const receiptId = params._meta?.["dispatch/steering"]?.id;
++        const steeredUuid = typeof receiptId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receiptId)
++            ? receiptId : randomUUID();
+         userMessage.uuid = steeredUuid;
+         // Deliver into the running turn rather than queuing behind it as a fresh
+         // prompt would.
+@@ -2600,6 +2606,17 @@ export class ClaudeAcpAgent {
+                             const queued = findUnsettledTurn(frame.command_uuid);
+                             if (queued) {
+                                 queued.commandStarted = true;
++                                // A normal prompt can be picked up without a user echo
++                                // (for example, input folded across a turn boundary).
++                                // This CLI acknowledgement names the exact submitted UUID;
++                                // queued/terminal frames alone do not prove pickup.
++                                if (queued.receiptId === frame.command_uuid) {
++                                    queued.receiptId = undefined;
++                                    await sendUpdate({
++                                        sessionId: params.sessionId,
++                                        update: { sessionUpdate: "session_info_update", _meta: { "dispatch/steering": { pickedUp: frame.command_uuid } } },
++                                    });
++                                }
+                             }
+                             // ...and promote an already-orphaned command: once dispatched,
+                             // a bare `cancelled` no longer means "dropped without running".
+@@ -4047,6 +4064,13 @@ export class ClaudeAcpAgent {
+                                     // result re-emit the answer.
+                                     activateTurn(queued);
+                                 }
++                                if (queued.receiptId === message.uuid) {
++                                    queued.receiptId = undefined;
++                                    await sendUpdate({
++                                        sessionId: params.sessionId,
++                                        update: { sessionUpdate: "session_info_update", _meta: { "dispatch/steering": { pickedUp: message.uuid } } },
++                                    });
++                                }
+                                 break;
+                             }
+                             if ("isReplay" in message && message.isReplay) {
+@@ -4055,7 +4079,15 @@ export class ClaudeAcpAgent {
+                                 // lane tells "the answer is still ahead" from "the turn is over"
+                                 // (see Turn.steeredEchoes).
+                                 if (isSteering(session.activeTurn)) {
+-                                    session.activeTurn.steeredEchoes.delete(message.uuid);
++                                    if (session.activeTurn.steeredEchoes.delete(message.uuid)) {
++                                        await sendUpdate({
++                                            sessionId: params.sessionId,
++                                            update: {
++                                                sessionUpdate: "session_info_update",
++                                                _meta: { "dispatch/steering": { pickedUp: message.uuid } },
++                                            },
++                                        });
++                                    }
+                                 }
+                                 // Unrelated replay (e.g. the echo of an already-settled turn).
+                                 break;

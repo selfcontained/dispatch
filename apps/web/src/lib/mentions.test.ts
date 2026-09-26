@@ -16,7 +16,10 @@ const agents = [
 describe("mentionQueryAt", () => {
   it("finds the @query the caret sits in, spaces included", () => {
     expect(mentionQueryAt("hi @rev", 7)).toEqual({ start: 3, query: "rev" });
-    expect(mentionQueryAt("@badge de", 9)).toEqual({ start: 0, query: "badge de" });
+    expect(mentionQueryAt("@badge de", 9)).toEqual({
+      start: 0,
+      query: "badge de",
+    });
     expect(mentionQueryAt("@", 1)).toEqual({ start: 0, query: "" });
   });
 
@@ -30,7 +33,9 @@ describe("mentionQueryAt", () => {
 describe("matchMentionables", () => {
   it("lists everyone for an empty query, then filters by name or seat", () => {
     expect(matchMentionables("", agents)).toHaveLength(3);
-    expect(matchMentionables("REV", agents).map((a) => a.id)).toEqual(["agt_r"]);
+    expect(matchMentionables("REV", agents).map((a) => a.id)).toEqual([
+      "agt_r",
+    ]);
     expect(matchMentionables("2", agents).map((a) => a.id)).toEqual(["agt_c"]);
     expect(matchMentionables("badge", agents).map((a) => a.id)).toEqual([
       "agt_p",
@@ -42,7 +47,7 @@ describe("matchMentionables", () => {
 describe("insertMention", () => {
   it("replaces the token with @Name and a space, caret after it", () => {
     expect(insertMention("ask @rev about it", 4, 8, agents[2]!)).toEqual({
-      text: "ask @reviewer  about it",
+      text: "ask @reviewer about it",
       caret: 14,
     });
   });
@@ -50,7 +55,9 @@ describe("insertMention", () => {
 
 describe("mentionSpans", () => {
   it("paints known names, longest first, and leaves the rest as text", () => {
-    expect(mentionSpans("@badge demo parent and @reviewer: go", agents)).toEqual([
+    expect(
+      mentionSpans("@badge demo parent and @reviewer: go", agents)
+    ).toEqual([
       { kind: "mention", text: "@badge demo parent", agent: agents[0] },
       { kind: "text", text: " and " },
       { kind: "mention", text: "@reviewer", agent: agents[2] },

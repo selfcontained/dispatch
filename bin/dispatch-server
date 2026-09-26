@@ -145,13 +145,18 @@ cmd_build() {
     echo "bun not found on PATH" >&2
     exit 1
   fi
-  if ! command -v pnpm &>/dev/null; then
-    echo "pnpm not found on PATH" >&2
+  cd "$ROOT_DIR"
+  local package_manager
+  package_manager="$(bun -p 'require("./package.json").packageManager')"
+  local pnpm_cmd=(pnpm)
+  if command -v corepack &>/dev/null; then
+    pnpm_cmd=(corepack "$package_manager")
+  elif ! command -v pnpm &>/dev/null || [[ "$(pnpm --version)" != "${package_manager#pnpm@}" ]]; then
+    echo "Source builds require ${package_manager}. Install Corepack or that exact pnpm version." >&2
     exit 1
   fi
-  cd "$ROOT_DIR"
-  pnpm install --frozen-lockfile
-  pnpm run build:bun
+  "${pnpm_cmd[@]}" install --frozen-lockfile
+  "${pnpm_cmd[@]}" run build:bun
 }
 
 cmd_update() {

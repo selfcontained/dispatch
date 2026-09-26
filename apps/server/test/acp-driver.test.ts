@@ -615,3 +615,259 @@ describe("AcpDriver", () => {
     await driver.stop("agt_1");
   });
 });
+
+describe("ACP steering", () => {
+  it("journals accepted input before a racing turn settlement, without cancellation", async () => {
+    let endTurn!: () => void;
+    let acceptSteer!: () => void;
+    const turnGate = new Promise<void>((r) => {
+      endTurn = r;
+    });
+    const steerGate = new Promise<void>((r) => {
+      acceptSteer = r;
+    });
+    const fake = createFakeAcpAgent({
+      turn: async () => {
+        await turnGate;
+        return "end_turn";
+      },
+      steer: async () => {
+        await steerGate;
+        return { outcome: "injected" };
+      },
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start(launch());
+    try {
+      expect(driver.supportsSteering("agt_1")).toBe(true);
+      const turn = driver.prompt("agt_1", "work");
+      await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+      const source = {
+        source: "chat" as const,
+        chatMessageId: "message-2",
+        answerIn: "finding-1",
+      };
+      const steering = driver.steer("agt_1", "correction", source);
+      await vi.waitFor(() => expect(fake.seen.steers).toHaveLength(1));
+      expect(fake.seen.steers[0]).toMatchObject({
+        _meta: { steering: { idleBehavior: "promptRequired" } },
+      });
+      endTurn();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(
+        events.some((e) => e.type === "turn" && e.state === "settled")
+      ).toBe(false);
+      acceptSteer();
+      expect(await steering).toBe("injected");
+      await turn;
+      expect(
+        events.filter((e) => e.type === "turn" || e.type === "steered")
+      ).toEqual([
+        expect.objectContaining({ type: "turn", state: "started" }),
+        { type: "steered", agentId: "agt_1", text: "correction", source },
+        expect.objectContaining({
+          type: "turn",
+          state: "settled",
+          stopReason: "end_turn",
+        }),
+      ]);
+      expect(fake.seen.cancels).toBe(0);
+      expect(await driver.steer("agt_1", "too late")).toBe("promptRequired");
+      expect(fake.seen.steers).toHaveLength(1);
+    } finally {
+      endTurn();
+      acceptSteer();
+      await driver.stop("agt_1");
+    }
+  });
+
+  it("preserves an outstanding permission request when guidance arrives", async () => {
+    const fake = createFakeAcpAgent({
+      steer: async () => ({ outcome: "injected" }),
+      turn: async (_text, _emit, ask) => {
+        await ask({
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        });
+        return "end_turn";
+      },
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(
+      launch({ engine: engineSpecFor("claude", bins, false) })
+    );
+    try {
+      const turn = driver.prompt("agt_1", "work");
+      await vi.waitFor(() =>
+        expect(driver.getPermissions("agt_1")).toHaveLength(1)
+      );
+      const permission = driver.getPermissions("agt_1")[0]!;
+      await driver.steer("agt_1", "use the smaller change");
+      expect(driver.getPermissions("agt_1")[0]!.id).toBe(permission.id);
+      expect(fake.seen.cancels).toBe(0);
+      driver.answerPermission("agt_1", permission.id, "allow");
+      await turn;
+    } finally {
+      await driver.stop("agt_1");
+    }
+  });
+});
+
+describe("steering pickup receipts", () => {
+  it.each([false, true])(
+    "correlates receipt before acceptance=%s and ignores duplicates or wrong sessions",
+    async (early) => {
+      let finish!: () => void;
+      const gate = new Promise<void>((r) => {
+        finish = r;
+      });
+      const fake = createFakeAcpAgent({
+        pickupReceipts: true,
+        turn: async () => {
+          await gate;
+          return "end_turn";
+        },
+        steer: async (params) => {
+          if (early)
+            await fake.emit(String(params.sessionId), {
+              sessionUpdate: "session_info_update",
+              _meta: {
+                "dispatch/steering": {
+                  pickedUp: (params._meta as Record<string, { id: string }>)[
+                    "dispatch/steering"
+                  ].id,
+                },
+              },
+            });
+          return { outcome: "injected" };
+        },
+      });
+      const { driver } = driverWith(fake);
+      const events: DriverEvent[] = [];
+      driver.onEvent((event) => events.push(event));
+      await driver.start(launch());
+      const turn = driver.prompt("agt_1", "work");
+      try {
+        await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+        const source = { source: "chat" as const, chatMessageId: "post-2" };
+        await driver.steer("agt_1", "same text", source);
+        const accepted = events.find((e) => e.type === "steered") as Extract<
+          DriverEvent,
+          { type: "steered" }
+        >;
+        expect(accepted.receiptId).toMatch(/^[0-9a-f-]{36}$/);
+        const update: acp.SessionUpdate = {
+          sessionUpdate: "session_info_update",
+          _meta: { "dispatch/steering": { pickedUp: accepted.receiptId! } },
+        };
+        if (!early) {
+          await fake.emit("wrong-session", update);
+          await new Promise((r) => setTimeout(r, 10));
+          expect(
+            events.filter((e) => e.type === "steering_picked_up")
+          ).toHaveLength(0);
+          await fake.emit("sess_1", update);
+        }
+        await vi.waitFor(() =>
+          expect(
+            events.filter((e) => e.type === "steering_picked_up")
+          ).toHaveLength(1)
+        );
+        await fake.emit("sess_1", update);
+        await driver.steer("agt_1", "same text", {
+          source: "chat",
+          chatMessageId: "post-3",
+        });
+        const acceptedEvents = events.filter((e) => e.type === "steered");
+        expect(acceptedEvents[1].receiptId).not.toBe(accepted.receiptId);
+        expect(
+          events
+            .filter(
+              (e) => e.type === "steered" || e.type === "steering_picked_up"
+            )
+            .slice(0, 2)
+        ).toMatchObject([
+          { type: "steered", receiptId: accepted.receiptId },
+          {
+            type: "steering_picked_up",
+            receiptId: accepted.receiptId,
+            source,
+            at: expect.any(String),
+          },
+        ]);
+        finish();
+        await turn;
+        await fake.emit("sess_1", {
+          sessionUpdate: "session_info_update",
+          _meta: {
+            "dispatch/steering": { pickedUp: acceptedEvents[1].receiptId! },
+          },
+        });
+        await new Promise((r) => setTimeout(r, 10));
+        expect(
+          events.filter((e) => e.type === "steering_picked_up")
+        ).toHaveLength(early ? 2 : 1);
+      } finally {
+        finish();
+        await driver.stop("agt_1");
+      }
+    }
+  );
+});
+
+describe("normal prompt receipts", () => {
+  it("confirms only the matching echo, and excludes raw commands", async () => {
+    let finish!: () => void;
+    let gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fake = createFakeAcpAgent({
+      promptReceipts: true,
+      turn: async () => {
+        await gate;
+        return "end_turn";
+      },
+    });
+    const { driver } = driverWith(fake);
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start(launch());
+    const source = { source: "chat" as const, chatMessageId: "initial-post" };
+    const turn = driver.prompt("agt_1", "start work", undefined, source);
+    try {
+      await vi.waitFor(() => expect(fake.seen.prompts).toHaveLength(1));
+      const delivered = events.find(
+        (e) => e.type === "prompt_delivered"
+      ) as Extract<DriverEvent, { type: "prompt_delivered" }>;
+      expect(delivered).toMatchObject({ source, at: expect.any(String) });
+      expect(fake.seen.promptRequests[0]._meta).toEqual({
+        "dispatch/steering": { id: delivered.receiptId },
+      });
+      expect(events.some((e) => e.type === "steering_picked_up")).toBe(false);
+      const update: acp.SessionUpdate = {
+        sessionUpdate: "session_info_update",
+        _meta: { "dispatch/steering": { pickedUp: delivered.receiptId } },
+      };
+      await fake.emit("wrong-session", update);
+      await fake.emit("sess_1", update);
+      await fake.emit("sess_1", update);
+      await vi.waitFor(() =>
+        expect(
+          events.filter((e) => e.type === "steering_picked_up")
+        ).toHaveLength(1)
+      );
+      finish();
+      await turn;
+      gate = Promise.resolve();
+      await driver.prompt("agt_1", "/compact", undefined, source);
+      expect(fake.seen.promptRequests[1]._meta).toBeUndefined();
+      expect(events.filter((e) => e.type === "prompt_delivered")).toHaveLength(
+        1
+      );
+    } finally {
+      finish();
+      await driver.stop("agt_1");
+    }
+  });
+});

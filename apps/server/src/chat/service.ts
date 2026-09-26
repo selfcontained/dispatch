@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
 
 import type { Pool } from "pg";
@@ -115,6 +116,7 @@ export type PostInput = {
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
   notify?: boolean;
+  delivery?: "auto" | "queue";
 };
 
 export type UpdateInput = {
@@ -648,7 +650,7 @@ function sidesOf(block: Block): string[] {
   const sides = [
     block.author.kind === "agent" ? block.author.agentId : null,
     block.launchedByAgentId ?? null,
-    block.toAgentId,
+    ...addressedTo(block),
   ].filter((id): id is string => !!id);
   return [...new Set(sides)];
 }
@@ -707,6 +709,16 @@ export class StreamService {
       (p): p is { kind: "agent"; agentId: string } => p.kind === "agent"
     );
     return agent ? [agent.agentId] : [];
+  }
+
+  /** Recipients shown before a person sends an unmentioned thread reply. */
+  async userThreadRecipients(
+    streamId: string,
+    blockId: string
+  ): Promise<string[]> {
+    const thread = await this.resolveThread(streamId, blockId);
+    const recipients = thread ? await this.threadRecipients(thread, USER) : [];
+    return recipients.length ? recipients : [streamId];
   }
 
   /**
@@ -794,7 +806,8 @@ export class StreamService {
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewInput | null;
       allowInert?: boolean;
-      /** Cut the recipient's running turn so this lands next, not after it. */
+      delivery?: "auto" | "queue";
+      /** Legacy clients: sending no longer cancels the running turn. */
       interrupt?: boolean;
     }
   ): Promise<StreamPostResponse> {
@@ -821,16 +834,21 @@ export class StreamService {
         toAgentId,
         text,
         review,
+        delivery: input.delivery,
         host: null,
         live: await this.canDeliver(toAgentId, input.allowInert ?? true),
       });
       const held =
         created.delivered === null
-          ? (await this.deliverBlock(created, { kind: "user" })).held
+          ? (
+              await this.deliverBlock(created, { kind: "user" }, [], {
+                delivery: input.delivery,
+              })
+            ).held
           : false;
       return { block: created, delivered: created.delivered, held };
     }
-    let thread = await this.resolveThread(streamId, input.replyTo ?? null);
+    const thread = await this.resolveThread(streamId, input.replyTo ?? null);
     // `@name` in the text names the recipients, in the stream's tree; it
     // wins over the page's default. Otherwise a reply in a thread goes to
     // the agents on its sides, and a top-level post to the stream's agent
@@ -857,19 +875,13 @@ export class StreamService {
     const rawCommand =
       !!commandName &&
       !review &&
-      // Only an explicit reply is a conversation. A child's default home
-      // is its launch-card thread, but a command typed in its composer is
-      // still a standalone ACP prompt.
+      // Only an explicit reply is a conversation; a command typed in
+      // the main composer is a standalone ACP prompt.
       !thread &&
       attachments.length === 0 &&
       mentioned.length === 0 &&
       recipients.length === 1 &&
       (this.delivery().commands?.(toAgentId) ?? []).includes(commandName);
-    // A message for one child, written anywhere but a thread, goes to the
-    // child's own thread: its card is where its conversation is.
-    if (!thread && recipients.length === 1) {
-      thread = await this.homeOf(toAgentId);
-    }
     const recipientAgents = await Promise.all(
       recipients.map((id) => this.requireAgent(id))
     );
@@ -902,6 +914,7 @@ export class StreamService {
     const liveRecipients = recipients.filter((id) => liveFor.get(id));
     const live = liveRecipients.length === recipients.length;
     const textData = {
+      ...(input.delivery ? { delivery: input.delivery } : {}),
       ...(rawCommand ? { acpCommand: true as const } : {}),
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
       ...(mentioned.length === 0 && recipients.length > 1
@@ -928,22 +941,6 @@ export class StreamService {
     }
     await this.publishEntry(streamId, block.id);
     if (!live) return { block, delivered: false, held: false };
-    // Cut each recipient's turn first, so the prompt this sends is what the
-    // agent reads next instead of queueing behind work the user is trying
-    // to redirect. The turn settles as `interrupted`.
-    if (input.interrupt) {
-      const delivery = this.delivery();
-      await Promise.all(
-        recipients.map((id) =>
-          delivery.cancel(id).catch((error: unknown) => {
-            this.log.warn(
-              { err: error, agentId: id, blockId: block.id },
-              "stream: could not cut the turn for an interrupting post"
-            );
-          })
-        )
-      );
-    }
     const nameOf = new Map(recipientAgents.map((a) => [a.id, a.name]));
     const { held } = await this.deliverBlockTo(
       block,
@@ -960,7 +957,7 @@ export class StreamService {
                   .map((id) => nameOf.get(id) ?? id),
               }
             : null,
-        ...(input.interrupt ? { alone: true } : {}),
+        delivery: rawCommand ? "queue" : (input.delivery ?? "auto"),
       })
     );
     return { block, delivered: null, held };
@@ -1002,6 +999,7 @@ export class StreamService {
     toAgentId: string | null;
     text: string;
     review: BlockReviewInput;
+    delivery?: "auto" | "queue";
     host: { threadId: string; replyTo: string } | null;
     live: boolean;
     attachments?: ChatAttachment[];
@@ -1021,7 +1019,10 @@ export class StreamService {
         threadId: input.host?.threadId ?? null,
         replyTo: input.host?.replyTo ?? null,
         text: input.text,
-        data: { summary: input.review.summary },
+        data: {
+          summary: input.review.summary,
+          ...(input.delivery ? { delivery: input.delivery } : {}),
+        },
         state: { blocks: [] },
         attachments: input.attachments ?? [],
         delivered: input.toAgentId ? (input.live ? null : false) : null,
@@ -1648,7 +1649,18 @@ export class StreamService {
       throw new StreamValidationError("to must name another agent.");
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
-    const home = await this.homeOf(agentId);
+    let home = await this.homeOf(agentId);
+    if (kind !== "review") {
+      const active = await this.turns.openTurn(agentId);
+      const turnId = active?.payload.blockId;
+      const turn =
+        typeof turnId === "string" ? await this.store.getById(turnId) : null;
+      if (turn) {
+        home = turn.threadId
+          ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
+          : null;
+      }
+    }
     const attachments = await this.resolveAgentAttachments(
       agent,
       attachmentInputs
@@ -1664,19 +1676,22 @@ export class StreamService {
         toAgentId,
         text,
         review: data as BlockReviewInput,
+        delivery: input.delivery,
         host: home,
         live: toAgentId ? await this.canDeliver(toAgentId, true) : false,
         attachments,
       });
       if (toAgentId && review.delivered === null) {
-        await this.deliverBlock(review, from, attachmentLines);
+        await this.deliverBlock(review, from, attachmentLines, {
+          delivery: input.delivery,
+        });
       }
       return review;
     }
     // Named with replyTo, the post goes in that thread; otherwise in the
-    // agent's own place — a child's launch thread, the stream for anyone
-    // else. Only a reply named on purpose is routed to the thread's other
-    // side: a post in the agent's own place is for whoever it names.
+    // active turn's location, falling back to the agent's own place. Only
+    // an explicit reply routes to the thread's other side; otherwise the
+    // post is delivered only to whoever it names.
     const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
     const sides =
       toAgentId === null && replyTo && thread
@@ -1702,8 +1717,12 @@ export class StreamService {
       replyTo: thread?.replyTo ?? null,
       text,
       data:
-        recipients.length > 1
-          ? { ...((data as object) ?? {}), recipients }
+        recipients.length > 1 || input.delivery
+          ? {
+              ...((data as object) ?? {}),
+              ...(recipients.length > 1 ? { recipients } : {}),
+              ...(input.delivery ? { delivery: input.delivery } : {}),
+            }
           : data,
       state: initialState(kind, data),
       attachments,
@@ -1762,6 +1781,7 @@ export class StreamService {
       await this.deliverBlockTo(block, recipients, from, () => ({
         attachmentLines,
         answers: answered ? { blockId: answered.id, kind: "question" } : null,
+        delivery: input.delivery,
       }));
     }
     if (
@@ -1838,8 +1858,12 @@ export class StreamService {
     }
     const patch: UpdateBlockInput = {};
     if (input.text !== undefined) patch.text = requireText(input.text);
-    if (input.data !== undefined)
-      patch.data = validUpdateData(block, input.data);
+    if (input.data !== undefined) {
+      const data = validUpdateData(block, input.data);
+      patch.data = block.data?.delivery
+        ? { ...((data as object) ?? {}), delivery: block.data.delivery }
+        : data;
+    }
     if (input.attachments !== undefined) {
       const agent = await this.requireAgent(agentId);
       patch.attachments = await this.resolveAgentAttachments(
@@ -2109,6 +2133,33 @@ export class StreamService {
     this.deps.publishUiEvent({ type: "stream.changed", agentId });
   }
 
+  /** Host-journal receipts name the exact post and recipient, including thread replies. */
+  async recordSteering(
+    event: Extract<
+      DriverEvent,
+      { type: "steered" | "prompt_delivered" | "steering_picked_up" }
+    >
+  ): Promise<void> {
+    if (!event.receiptId || event.source?.source !== "chat") return;
+    for (const id of event.source.chatMessageIds ?? [
+      event.source.chatMessageId,
+    ]) {
+      const block = await this.store.getById(id);
+      if (
+        !block?.delivery?.some((delivery) => delivery.agentId === event.agentId)
+      )
+        continue;
+      await this.store.recordSteeringReceipt(
+        id,
+        event.agentId,
+        event.receiptId,
+        event.type === "steering_picked_up" ? event.at : undefined,
+        event.type !== "steering_picked_up" ? event.at : undefined
+      );
+      await this.publishEntry(block.streamId, id);
+    }
+  }
+
   /**
    * The agent's newest turn as the feed row it now is. Never rejects. One
    * compose per agent at a time, with a single trailing re-run.
@@ -2219,9 +2270,9 @@ export class StreamService {
   /**
    * A turn opened: its block, by the agent, empty until the turn settles.
    * A turn that a reply in a thread opened answers in that thread; any
-   * other turn answers in the agent's own place (a child's launch thread,
-   * the stream for anyone else). The block's id goes back onto the turn row
-   * so later events find it.
+   * main-stream user post answers in the stream. Background work answers
+   * in the agent's own place (a child's launch thread). The block's id goes
+   * back onto the turn row so later events find it.
    */
   async recordTurnStarted(input: {
     agentId: string;
@@ -2229,7 +2280,8 @@ export class StreamService {
     prompt: PromptSource;
   }): Promise<string | null> {
     const streamId = await this.streamOf(input.agentId);
-    let thread: { threadId: string; replyTo: string } | null = null;
+    let thread: { threadId: string | null; replyTo: string | null } | null =
+      null;
     if (input.prompt.source === "chat" && input.prompt.answerIn) {
       // The prompt said where its answer goes.
       const host = await this.store.getById(input.prompt.answerIn);
@@ -2238,14 +2290,16 @@ export class StreamService {
       }
     } else if (input.prompt.source === "chat") {
       // Posts delivered together each say where their answer belongs. The
-      // turn answers in a thread only when every one of them points into
-      // that same thread; any disagreement puts it in the agent's own
-      // place, where an answer to a post in a thread is still seen and one
-      // about a channel post is not buried in a thread.
+      // turn answers in a thread only when every post points there.
+      // Any main-stream user post keeps the combined answer in the stream;
+      // other disagreements fall back to the agent's background work.
       const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
       const places = await Promise.all(ids.map((id) => this.turnPlaceFor(id)));
       const [first] = places;
-      if (first && places.every((p) => p?.threadId === first.threadId)) {
+      if (places.some((place) => place?.threadId === null)) {
+        // A batched main-stream message must not have its answer buried.
+        thread = { threadId: null, replyTo: null };
+      } else if (first && places.every((p) => p?.threadId === first.threadId)) {
         thread = places[places.length - 1]!;
       }
     }
@@ -2278,20 +2332,30 @@ export class StreamService {
    * so the root is rarely the question.
    */
   private async turnPlaceFor(blockId: string): Promise<{
-    threadId: string;
-    replyTo: string;
+    threadId: string | null;
+    replyTo: string | null;
   } | null> {
     if (!isBlockId(blockId)) return null;
     const opener = await this.store.getById(blockId);
     // A block another shows (a review delivered to the agent whose work it
     // is) opens work, which belongs in the agent's own place. A prompt
     // about such a block that belongs under it says so (`answerIn`).
+    // A top-level user message explicitly chooses the main stream, even
+    // when addressed to a child. Null alone means background work at home.
+    if (
+      opener?.author.kind === "user" &&
+      opener.kind === "text" &&
+      !opener.threadId
+    ) {
+      return { threadId: null, replyTo: null };
+    }
     if (!opener?.threadId || (await this.isShown(opener))) return null;
     const answered = opener.replyTo
       ? await this.store.getById(opener.replyTo)
       : null;
     if (answered?.kind === "question" || answered?.kind === "form") {
-      return null;
+      // Continue a main-stream ask in the main stream, including a child's.
+      return answered.threadId ? null : { threadId: null, replyTo: null };
     }
     return { threadId: opener.threadId, replyTo: opener.id };
   }
@@ -2396,13 +2460,17 @@ export class StreamService {
     block: Block,
     from: EnvelopeSender,
     attachmentLines: string[] = [],
-    extra: { answers?: { blockId: string; kind: BlockKind } | null } = {}
+    extra: {
+      answers?: { blockId: string; kind: BlockKind } | null;
+      delivery?: "auto" | "queue";
+    } = {}
   ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
     if (!toAgentId) return { held: false };
     return this.deliverBlockTo(block, [toAgentId], from, () => ({
       attachmentLines,
       answers: extra.answers ?? null,
+      delivery: extra.delivery,
     }));
   }
 
@@ -2419,7 +2487,8 @@ export class StreamService {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
-      /** Sent to cut in: its own turn, never combined with other posts. */
+      delivery?: "auto" | "queue";
+      /** Never combined with other posts. */
       alone?: boolean;
       /** ACP slash command, sent without the Dispatch envelope. */
       rawPrompt?: string;
@@ -2486,6 +2555,9 @@ export class StreamService {
         logContext: { blockId: block.id },
         ...(own.alone ? { alone: true } : {}),
         ...(images.length && !own.rawPrompt ? { images } : {}),
+        delivery: own.rawPrompt
+          ? "queue"
+          : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
       held = held || result.held;
     }
@@ -2511,6 +2583,7 @@ export class StreamService {
     source?: PromptSource;
     images?: PromptImage[];
     alone?: boolean;
+    delivery?: "auto" | "queue";
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
@@ -2522,6 +2595,7 @@ export class StreamService {
           : { blockId: input.logContext.blockId }),
         ...(input.alone ? { alone: true } : {}),
         ...(input.images?.length ? { images: input.images } : {}),
+        ...(input.delivery ? { delivery: input.delivery } : {}),
       })
       .then(
         () => true,
@@ -2699,6 +2773,15 @@ export class StreamService {
       block.origin
     ) {
       throw new StreamValidationError("Queued user message not found.");
+    }
+    if (
+      action === "send-now" &&
+      block.kind === "text" &&
+      block.data?.acpCommand
+    ) {
+      throw new StreamValidationError(
+        "ACP commands must wait for the current turn to finish."
+      );
     }
     if (
       block.delivered !== null ||

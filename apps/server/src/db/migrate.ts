@@ -48,6 +48,33 @@ export async function runMigrations(
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
 
+    // 0010_remove_launch_guidance_setting shipped alongside
+    // 0010_browser_feedback_blocks before it was renumbered to 0011. Existing
+    // databases already ran its SQL, but node-pg-migrate treats the new name
+    // as an unapplied migration before the old, applied name and refuses to
+    // start. Rename only the recorded migration; its schema change is done.
+    const migrationTable = await lockClient.query<{ name: string | null }>(
+      "SELECT to_regclass('pgmigrations') AS name"
+    );
+    if (migrationTable.rows[0]?.name) {
+      const renamed = await lockClient.query(
+        `UPDATE pgmigrations
+         SET name = '0011_remove_launch_guidance_setting'
+         WHERE name = '0010_remove_launch_guidance_setting'
+           AND EXISTS (
+             SELECT 1 FROM pgmigrations
+             WHERE name = '0010_browser_feedback_blocks'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM pgmigrations
+             WHERE name = '0011_remove_launch_guidance_setting'
+           )`
+      );
+      if (renamed.rowCount) {
+        console.log("[migrate] Recorded launch guidance migration as 0011.");
+      }
+    }
+
     await runner({
       databaseUrl: url,
       dir: migrationsDir,

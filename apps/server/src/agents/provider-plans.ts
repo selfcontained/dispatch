@@ -369,17 +369,12 @@ class RefreshFailure extends Error {
 }
 
 function readMacKeychain(): Promise<string> {
+  // Match Claude's service in the accessible Keychain. Bun can report the
+  // username as "unknown", which would incorrectly exclude a saved login.
   return new Promise((resolve, reject) => {
     execFile(
       "/usr/bin/security",
-      [
-        "find-generic-password",
-        "-s",
-        CLAUDE_KEYCHAIN_SERVICE,
-        "-a",
-        os.userInfo().username,
-        "-w",
-      ],
+      ["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
       { timeout: 5_000, maxBuffer: 64 * 1024 },
       (error, stdout) => {
         if (error) reject(new Error("keychain read failed"));

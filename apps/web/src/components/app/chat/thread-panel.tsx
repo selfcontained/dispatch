@@ -235,9 +235,15 @@ export function ThreadPanel({
   const onSend = useCallback(
     async (
       text: string,
-      attachments: ChatUserAttachmentInput[]
+      attachments: ChatUserAttachmentInput[],
+      options?: { delivery?: "auto" | "queue" }
     ): Promise<void> => {
-      await postAsync({ text, attachments, replyTo: threadBlockId });
+      await postAsync({
+        text,
+        attachments,
+        replyTo: threadBlockId,
+        ...options,
+      });
     },
     [threadBlockId, postAsync]
   );
@@ -523,7 +529,7 @@ export function ThreadPanel({
           </>
         ) : null}
       </div>
-      <div className="shrink-0 border-t border-border/40 px-4 pb-3 pt-2">
+      <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
         {error ? (
           <div
             role="alert"
@@ -540,6 +546,7 @@ export function ThreadPanel({
           // swap drafts with the main composer.
           agentId={null}
           onSend={onSend}
+          canQueue
           uploadFile={uploadFile}
           disabledReason={disabledReason}
           sending={post.isPending}
@@ -548,6 +555,10 @@ export function ThreadPanel({
           }
           autoFocus={!isMobile}
           mentionables={mentionables}
+          defaultRecipients={(thread.recipients ?? []).map((id) => ({
+            id,
+            name: agentDisplayName(id, ctx),
+          }))}
         />
       </div>
     </aside>

@@ -280,6 +280,7 @@ describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
         expect.objectContaining({ id: r2.id, replyTo: r1.id }),
       ],
       agentNames: { [agentId]: expect.any(String) },
+      recipients: [agentId],
     });
   });
 

@@ -4,7 +4,13 @@ import type {
   StreamBlockEntry,
   StreamEntry,
 } from "@dispatch/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -291,7 +297,7 @@ describe("TurnAttachments", () => {
     expect(row.textContent).not.toContain("Sending");
   });
 
-  it("folds a sent post to one line naming the recipient and its state, and opens to the whole post", () => {
+  it("folds a sent post to one line naming the recipient and its state, and opens to the whole post", async () => {
     const post = blockEntry(
       block({
         id: "long1",
@@ -314,7 +320,7 @@ describe("TurnAttachments", () => {
     expect(toggle.textContent).toContain("Reviewer");
     expect(toggle.textContent).toContain("Please review the diff.");
     expect(toggle.textContent).not.toContain("Focus on the retry path");
-    expect(row.textContent).toContain("Sending");
+    await waitFor(() => expect(row.textContent).toContain("Sending"));
     expect(body.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(toggle);

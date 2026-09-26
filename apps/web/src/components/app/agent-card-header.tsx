@@ -116,6 +116,7 @@ export function AgentCardHeader({
                 <AgentSeatBadge
                   seat={null}
                   name={agent.name}
+                  type={agent.type}
                   size="sm"
                   data-testid={`agent-avatar-${agent.id}`}
                 />

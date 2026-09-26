@@ -419,6 +419,7 @@ const streamService = new StreamService({
               : {}),
           ...(opts?.alone ? { alone: true } : {}),
           ...(opts?.images?.length ? { images: opts.images } : {}),
+          ...(opts?.delivery ? { delivery: opts.delivery } : {}),
         })
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
@@ -433,6 +434,7 @@ const streamService = new StreamService({
 });
 agentManager.attachLaunchContextRecorder(streamService);
 agentManager.attachTurnBlocks({
+  steering: (event) => streamService.recordSteering(event),
   started: (input) => streamService.recordTurnStarted(input),
   settled: (input) => streamService.recordTurnSettled(input),
 });

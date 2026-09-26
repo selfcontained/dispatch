@@ -23,6 +23,11 @@ export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
     supportsImages?: boolean;
+    pickupReceipts?: boolean;
+    promptReceipts?: boolean;
+    steer?: (
+      params: Record<string, unknown>
+    ) => Promise<Record<string, unknown>>;
     resumeFails?: boolean;
     sessionError?: Error;
     /** Commands advertised right after a session opens. */
@@ -73,6 +78,8 @@ export function createFakeAcpAgent(
     setConfig: [] as acp.SetSessionConfigOptionRequest[],
     prompts: [] as string[],
     promptBlocks: [] as acp.ContentBlock[][],
+    promptRequests: [] as acp.PromptRequest[],
+    steers: [] as Record<string, unknown>[],
     cancels: 0,
     closes: 0,
   };
@@ -107,7 +114,20 @@ export function createFakeAcpAgent(
           sessionCapabilities: { close: {}, resume: {} },
         },
         authMethods: [],
+        _meta: {
+          ...(opts.steer ? { steering: { supported: true } } : {}),
+          "dispatch/steering": {
+            pickupReceipts: !!opts.pickupReceipts,
+            promptReceipts: !!opts.promptReceipts,
+          },
+        },
       };
+    },
+    async extMethod(method, params) {
+      if (method !== "_session/steering" || !opts.steer)
+        throw new Error("unsupported");
+      seen.steers.push(params);
+      return opts.steer(params);
     },
     async authenticate() {
       return {};
@@ -142,6 +162,7 @@ export function createFakeAcpAgent(
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
       seen.prompts.push(text);
+      seen.promptRequests.push(params);
       const emit = (update: acp.SessionUpdate) =>
         connection.sessionUpdate({ sessionId: params.sessionId, update });
       const ask = (request: Pick<acp.RequestPermissionRequest, "options">) =>
@@ -176,5 +197,11 @@ export function createFakeAcpAgent(
     Readable.toWeb(toAgent)
   );
   connection = new acp.AgentSideConnection(() => agent, stream);
-  return { child, seen, signals };
+  return {
+    child,
+    seen,
+    signals,
+    emit: (sessionId: string, update: acp.SessionUpdate) =>
+      connection.sessionUpdate({ sessionId, update }),
+  };
 }

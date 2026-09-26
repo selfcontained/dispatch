@@ -20,6 +20,13 @@ afterAll(async () => {
 });
 
 describe("migrations", () => {
+  it("uses a unique numeric prefix for each migration", () => {
+    const prefixes = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .map((name) => name.split("_", 1)[0]);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
   it("should apply cleanly to a fresh database", async () => {
     await runTestMigrations();
 
@@ -46,6 +53,23 @@ describe("migrations", () => {
   it("should be idempotent (run twice without error)", async () => {
     // First run already happened above; run again
     await expect(runTestMigrations()).resolves.not.toThrow();
+  });
+
+  it("accepts databases that ran launch guidance cleanup under its old name", async () => {
+    await runTestMigrations();
+    const renamedBack = await pool.query(
+      `UPDATE pgmigrations
+       SET name = '0010_remove_launch_guidance_setting'
+       WHERE name = '0011_remove_launch_guidance_setting'`
+    );
+    expect(renamedBack.rowCount).toBe(1);
+    await expect(runTestMigrations()).resolves.not.toThrow();
+    const migrations = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name LIKE '%launch_guidance_setting'`
+    );
+    expect(migrations.rows.map((row) => row.name)).toEqual([
+      "0011_remove_launch_guidance_setting",
+    ]);
   });
 
   it("should have all expected columns on agents", async () => {

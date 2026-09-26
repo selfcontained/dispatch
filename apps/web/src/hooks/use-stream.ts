@@ -353,6 +353,7 @@ export function useStreamFeedSelect<T>(
 // ---------------------------------------------------------------------------
 
 export type ThreadState = {
+  recipients?: string[];
   root: Block | null;
   replies: Block[];
   /** Names for the agents the thread mentions, archived ones included. */
@@ -388,6 +389,7 @@ export function useThread(
     void refetchQuery();
   }, [refetchQuery]);
   return {
+    recipients: query.data?.recipients,
     root: query.data?.root ?? null,
     replies: query.data?.replies ?? [],
     agentNames: query.data?.agentNames,
@@ -957,10 +959,10 @@ export function usePostBlock(rootId: string | null) {
       replyTo,
       attachments,
       review,
-      interrupt,
+      delivery,
     }) => {
       const body: StreamPostRequest = { id, text };
-      if (interrupt) body.interrupt = true;
+      if (delivery) body.delivery = delivery;
       if (to) body.to = to;
       if (replyTo) body.replyTo = replyTo;
       if (attachments && attachments.length > 0) body.attachments = attachments;

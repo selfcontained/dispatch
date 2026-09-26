@@ -175,7 +175,7 @@ const textSchema = z
   .describe(`Markdown body, up to ${BLOCK_TEXT_MAX_CHARS} characters.`);
 
 const POST_DESCRIPTION =
-  "Post a block into a stream. Without `to` it goes to your own stream, where the user reads it (a child agent's goes to the thread on its launch card). " +
+  "Post a block into a stream. Without `to` it goes where your current turn is answering; outside a turn, a child agent's posts go to its launch-card thread. " +
   "With `to: <agentId>` it is delivered to that agent as a prompt (any agent, any time); the user still sees it in the stream. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
   'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
@@ -222,6 +222,12 @@ export function registerStreamTools(
           tasks: tasksSchema.optional(),
           attachments: attachmentsSchema.optional(),
           notify: z.boolean().optional(),
+          delivery: z
+            .enum(["auto", "queue"])
+            .optional()
+            .describe(
+              "Default auto: deliver during the running turn, or start a turn if idle. Choose queue to wait for the current turn to finish."
+            ),
         },
       },
       async (args) => {
@@ -237,6 +243,7 @@ export function registerStreamTools(
             tasks: args.tasks ?? null,
             attachments: args.attachments ?? [],
             notify: args.notify,
+            delivery: args.delivery,
           });
           const findings = (block.blocks ?? []).flatMap((shown) =>
             shown.kind === "finding"

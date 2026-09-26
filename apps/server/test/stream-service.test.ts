@@ -3237,21 +3237,21 @@ describe("StreamService review threads", () => {
     // A root agent's own post stays top-level.
     const root = await svc.post(A, { text: "Mine." });
     expect(root).toMatchObject({ threadId: null, replyTo: null });
-    // A person's post to the child, outside any thread, goes to its card.
+    // Addressing the child does not move a person's main-stream post.
     injected.length = 0;
     const toChild = await svc.sendUserPost(A, { to: B, text: "How is it?" });
     expect(toChild.block).toMatchObject({
       streamId: A,
       toAgentId: B,
-      threadId: launchBlockId(B),
-      replyTo: launchBlockId(B),
+      threadId: null,
+      replyTo: null,
     });
     await settled(svc, toChild.block.id);
     expect(injected.map((i) => i.agentId)).toEqual([B]);
     // The launch thread lists all of it, oldest first.
     expect(
       (await svc.store.listThread(launchBlockId(B)))!.replies.map((b) => b.id)
-    ).toEqual([quiet.id, told.id, toChild.block.id]);
+    ).toEqual([quiet.id, told.id]);
   });
 
   it("sends a command typed to a child raw, including after a failed delivery", async () => {
@@ -3266,8 +3266,8 @@ describe("StreamService review threads", () => {
     const failed = await settled(failing, posted.block.id);
     expect(failed).toMatchObject({
       delivered: false,
-      threadId: launchBlockId(B),
-      replyTo: launchBlockId(B),
+      threadId: null,
+      replyTo: null,
       data: { acpCommand: true },
     });
     expect(first).toEqual([{ agentId: B, text: "/skills list" }]);
@@ -3277,6 +3277,96 @@ describe("StreamService review threads", () => {
     await settled(svc, failed.id);
     expect(injected).toEqual([{ agentId: B, text: "/skills list" }]);
     expect(injectedOpts[0]).toMatchObject({ blockId: failed.id, alone: true });
+  });
+
+  it("keeps single and multi-agent mentions and their answers where the user wrote them", async () => {
+    const { svc } = build();
+    const main = await svc.sendUserPost(A, { text: "@Peer how is it?" });
+    const multiple = await svc.sendUserPost(A, {
+      text: "@Peer @Svc compare notes",
+    });
+    for (const post of [main.block, multiple.block]) {
+      expect(post).toMatchObject({ threadId: null, replyTo: null });
+      const turnId = await svc.recordTurnStarted({
+        agentId: B,
+        turnRow: turnRow(51, B),
+        prompt: { source: "chat", text: post.text, chatMessageId: post.id },
+      });
+      expect(await svc.store.getById(turnId!)).toMatchObject({
+        threadId: null,
+        replyTo: null,
+      });
+    }
+    const reply = await svc.sendUserPost(A, {
+      text: "@Peer more detail",
+      replyTo: main.block.id,
+    });
+    const threadTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(52, B),
+      prompt: {
+        source: "chat",
+        text: reply.block.text,
+        chatMessageId: reply.block.id,
+      },
+    });
+    expect(await svc.store.getById(threadTurn!)).toMatchObject({
+      threadId: main.block.id,
+      replyTo: reply.block.id,
+    });
+    const mixedTurn = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(53, B),
+      prompt: {
+        source: "chat",
+        text: "",
+        chatMessageId: main.block.id,
+        chatMessageIds: [main.block.id, reply.block.id],
+      },
+    });
+    expect(await svc.store.getById(mixedTurn!)).toMatchObject({
+      threadId: null,
+    });
+    expect(await svc.userThreadRecipients(A, main.block.id)).toEqual([B]);
+    expect(await svc.userThreadRecipients(A, multiple.block.id)).toEqual([
+      B,
+      A,
+    ]);
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
+  it("places a child's structured posts with its active response, preserving explicit replies", async () => {
+    const { svc } = build({ held: true });
+    const main = await svc.sendUserPost(A, { text: "@Peer status?" });
+    const turnId = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(54, B),
+      prompt: { source: "chat", text: "", chatMessageId: main.block.id },
+    });
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, payload) VALUES ($1, 1, 'turn', $2)`,
+      [B, JSON.stringify({ state: "started", blockId: turnId })]
+    );
+    const question = await svc.post(B, {
+      text: "Which check?",
+      question: { options: [{ label: "All" }] },
+    });
+    expect(question).toMatchObject({ threadId: null });
+    const answer = await svc.answerQuestion(A, question.id, { value: "All" });
+    const continued = await svc.recordTurnStarted({
+      agentId: B,
+      turnRow: turnRow(55, B),
+      prompt: { source: "chat", text: "All", chatMessageId: answer.reply.id },
+    });
+    expect(await svc.store.getById(continued!)).toMatchObject({
+      threadId: null,
+    });
+    const explicit = await svc.post(B, {
+      text: "Detail",
+      replyTo: main.block.id,
+    });
+    expect(explicit).toMatchObject({ threadId: main.block.id });
+    await svc.waitForInFlightDeliveries(1_000);
   });
 
   it("routes a reply on the launch card between the parent and the child", async () => {
@@ -4080,15 +4170,20 @@ describe("StreamService turn blocks", () => {
     });
   });
 
-  it("an interrupting post is delivered to go alone", async () => {
+  it("Send and legacy Send now steer without cancellation; explicit queue waits", async () => {
     const { svc, injectedOpts, cancelled } = build();
     const plain = await svc.sendUserPost(A, { text: "a note" });
     const cut = await svc.sendUserPost(A, { text: "stop", interrupt: true });
+    const queued = await svc.sendUserPost(A, {
+      text: "later",
+      delivery: "queue",
+    });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(cancelled).toEqual([A]);
+    expect(cancelled).toEqual([]);
     expect(injectedOpts).toEqual([
-      { blockId: plain.block.id },
-      { blockId: cut.block.id, alone: true },
+      { blockId: plain.block.id, delivery: "auto" },
+      { blockId: cut.block.id, delivery: "auto" },
+      { blockId: queued.block.id, delivery: "queue" },
     ]);
   });
 
@@ -4305,6 +4400,55 @@ describe("StreamService delivery that is never taken", () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.retryDelivery", () => {
+  it.each([
+    "user",
+    "user-thread",
+    "user-review",
+    "agent",
+    "agent-thread",
+    "agent-review",
+    "agent-question",
+  ] as const)(
+    "preserves explicit queue intent across a failed %s post and retry during an active turn",
+    async (kind) => {
+      const { svc } = build({ fail: true });
+      const root = await svc.post(A, { text: "Thread root" });
+      const review = { summary: "Queued review", findings: [] };
+      const failed = kind.startsWith("user")
+        ? (
+            await svc.sendUserPost(A, {
+              text: "Later",
+              delivery: "queue",
+              ...(kind === "user-thread" ? { replyTo: root.id } : {}),
+              ...(kind === "user-review" ? { review } : {}),
+            })
+          ).block
+        : await svc.post(A, {
+            to: B,
+            text: "Later",
+            delivery: "queue",
+            ...(kind === "agent-thread" ? { replyTo: root.id } : {}),
+            ...(kind === "agent-review" ? { review } : {}),
+            ...(kind === "agent-question"
+              ? { question: { options: [{ label: "Yes" }] } }
+              : {}),
+          });
+      expect((await settled(svc, failed.id)).data).toMatchObject({
+        delivery: "queue",
+      });
+      if (kind === "agent-review") {
+        await svc.update(A, failed.id, { data: { summary: "Edited review" } });
+      }
+      // A new service instance must recover the choice from storage.
+      const retry = build({ held: true });
+      expect((await retry.svc.retryDelivery(A, failed.id)).held).toBe(true);
+      await settled(retry.svc, failed.id);
+      expect(retry.injectedOpts).toEqual([
+        expect.objectContaining({ blockId: failed.id, delivery: "queue" }),
+      ]);
+    }
+  );
+
   it("retries a failed ACP command as the same raw, isolated prompt", async () => {
     const { svc: failing, injected: first } = build({
       fail: true,
@@ -4966,6 +5110,26 @@ describe("StreamService.retryTurn", () => {
 });
 
 describe("StreamService queued message controls", () => {
+  it("rejects Send now for a queued ACP command while allowing deletion", async () => {
+    const control = vi.fn(() => true);
+    const { svc } = build({ controlQueuedPrompt: control });
+    const block = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      kind: "text",
+      text: "/compact",
+      data: { acpCommand: true },
+      delivered: null,
+    });
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "send-now")
+    ).rejects.toThrow("ACP commands must wait");
+    expect(control).not.toHaveBeenCalled();
+    await svc.controlQueuedMessage(A, block.id, "delete");
+    expect(control).toHaveBeenCalledWith([A], block.id, "delete");
+  });
+
   it("checks stream and delivery state before claiming a prompt", async () => {
     const control = vi.fn(() => true);
     const { svc } = build({ controlQueuedPrompt: control });
@@ -5001,4 +5165,106 @@ describe("StreamService queued message controls", () => {
     release();
     await svc.waitForInFlightDeliveries(1000);
   });
+});
+
+describe("steering pickup receipts", () => {
+  it.each(["steered", "prompt_delivered"] as const)(
+    "persists %s receipts for each recipient and publishes thread updates",
+    async (type) => {
+      const deliveredAt = "2026-09-25T19:59:59.000Z";
+      const root = await service.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        toAgentId: A,
+        kind: "text",
+        text: "root",
+      });
+      const post = await service.store.insert({
+        streamId: A,
+        author: { kind: "user" },
+        toAgentId: A,
+        kind: "text",
+        text: "follow-up",
+        replyTo: root.id,
+        threadId: root.id,
+        data: { recipients: [A, B] },
+      });
+      for (const agentId of [A, B])
+        await service.store.setRecipientDelivered(post.id, agentId, true);
+      await service.store.settleDelivered(post.id, [A, B]);
+      const source = { source: "chat" as const, chatMessageId: post.id };
+      for (const agentId of [A, B])
+        await service.recordSteering({
+          type,
+          at: deliveredAt,
+          agentId,
+          text: post.text,
+          source,
+          receiptId: agentId,
+        });
+      const at = "2026-09-25T20:00:00.000Z";
+      await service.recordSteering({
+        type: "steering_picked_up",
+        agentId: A,
+        source,
+        receiptId: "wrong-attempt",
+        at,
+      });
+      expect(
+        (await service.store.getById(post.id))!.delivery?.[0].receipt
+          ?.pickedUpAt
+      ).toBeNull();
+      await service.recordSteering({
+        type: "steering_picked_up",
+        agentId: A,
+        source,
+        receiptId: A,
+        at,
+      });
+      // Replaying acceptance must not erase the later pickup.
+      await service.recordSteering({
+        type,
+        at: deliveredAt,
+        agentId: A,
+        text: post.text,
+        source,
+        receiptId: A,
+      });
+      const fresh = new StreamService({
+        pool,
+        publishUiEvent: () => {},
+        getAgent,
+        filesRoot: "/files-root",
+      });
+      expect((await fresh.store.getById(post.id))!.delivery).toEqual([
+        {
+          agentId: A,
+          state: "delivered",
+          receipt: { pickedUpAt: at, deliveredAt },
+        },
+        {
+          agentId: B,
+          state: "delivered",
+          receipt: { pickedUpAt: null, deliveredAt },
+        },
+      ]);
+      expect(published).toContainEqual(entryEvent(post));
+      await fresh.store.markDelivering(post.id, [B]);
+      await fresh.recordSteering({
+        type: "steering_picked_up",
+        agentId: B,
+        source,
+        receiptId: B,
+        at,
+      });
+      expect((await fresh.store.getById(post.id))!.delivery).toEqual([
+        {
+          agentId: A,
+          state: "delivered",
+          receipt: { pickedUpAt: at, deliveredAt },
+        },
+        { agentId: B, state: "pending" },
+      ]);
+    }
+  );
 });

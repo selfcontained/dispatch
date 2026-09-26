@@ -60,6 +60,46 @@ const thought = (text: string): DriverEvent => ({
 });
 
 describe("StreamRecorder", () => {
+  it("keeps steering sources and thread context on the same turn across recorder reconnects", async () => {
+    const rec = new StreamRecorder(store);
+    const original = { source: "chat" as const, chatMessageId: "original" };
+    const followup = {
+      source: "chat" as const,
+      chatMessageId: "followup",
+      answerIn: "finding",
+    };
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "work",
+      source: original,
+    });
+    await rec.handle({
+      type: "steered",
+      agentId: A,
+      text: "correction",
+      source: followup,
+    });
+    const reconnected = new StreamRecorder(store);
+    await reconnected.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const rows = await pool.query(
+      "SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'",
+      [A]
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].payload).toMatchObject({
+      prompt: original,
+      state: "settled",
+      steering: [{ source: followup, at: expect.any(String) }],
+    });
+  });
+
   it("keeps a turn's model, session and own tokens on its row", async () => {
     const rec = new StreamRecorder(store);
     await rec.handle({

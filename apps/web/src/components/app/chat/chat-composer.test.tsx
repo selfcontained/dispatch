@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+vi.mock(
+  "@/components/app/chat/composer-input",
+  () => import("@/test-utils/composer-input")
+);
 import {
   act,
   cleanup,
@@ -112,6 +116,33 @@ describe("ChatComposer", () => {
     expect(screen.queryByTestId("chat-composer-error")).toBeNull();
   });
 
+  it("preserves queued delivery on the advertised Enter retry, then resets after success", async () => {
+    const onSend = vi
+      .fn<Parameters<typeof ChatComposer>[0]["onSend"]>()
+      .mockRejectedValueOnce(new Error("Temporarily unavailable"))
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({ onSend, canQueue: true });
+    fireEvent.change(input, { target: { value: "later" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toContain("press Enter to queue again");
+    expect(input.value).toBe("later");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenNthCalledWith(1, "later", [], {
+      delivery: "queue",
+    });
+    expect(onSend).toHaveBeenNthCalledWith(2, "later", [], {
+      delivery: "queue",
+    });
+    await waitFor(() => expect(input.value).toBe(""));
+
+    fireEvent.change(input, { target: { value: "new message" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenLastCalledWith("new message", []);
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
   it("does not send on Shift+Enter", () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "line one" } });
@@ -174,11 +205,31 @@ describe("ChatComposer", () => {
       replyContext: { excerpt: "Ship it now or wait?", onDismiss },
     });
     const chip = screen.getByTestId("chat-reply-context");
-    expect(chip.textContent).toContain("Replying to:");
+    expect(chip.textContent).toContain("Answering:");
     expect(chip.textContent).toContain("Ship it now or wait?");
     expect(input.placeholder).toBe("Type your answer…");
     fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses the draft and preserves the caret when Answer is activated", () => {
+    const onAnswer = vi.fn();
+    const { input } = renderComposer({
+      pendingQuestion: {
+        excerpt: "Which branch?",
+        onAnswer,
+        onDismiss: vi.fn(),
+      },
+    });
+    fireEvent.change(input, { target: { value: "draft answer" } });
+    input.setSelectionRange(5, 5);
+    screen.getByTestId("chat-answer-question").focus();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("draft answer");
+    expect(input.selectionStart).toBe(5);
+    expect(input.selectionEnd).toBe(5);
   });
 
   it("hides the reply context chip while the composer is disabled", () => {
@@ -199,22 +250,22 @@ describe("ChatComposer", () => {
   });
 
   it.each(["metaKey", "ctrlKey"])(
-    "sends now with %s + Shift + Enter while busy",
+    "queues with %s + Shift + Enter while busy",
     async (modifier) => {
-      const { input, onSend } = renderComposer({ canInterrupt: true });
+      const { input, onSend } = renderComposer({ canQueue: true });
       fireEvent.change(input, { target: { value: "urgent" } });
       fireEvent.keyDown(input, {
         key: "Enter",
         shiftKey: true,
         [modifier]: true,
       });
-      expect(onSend).toHaveBeenCalledWith("urgent", [], { interrupt: true });
+      expect(onSend).toHaveBeenCalledWith("urgent", [], { delivery: "queue" });
       await waitFor(() => expect(input.value).toBe(""));
     }
   );
 
-  it("queues on Enter while busy and keeps Shift+Enter for newlines", async () => {
-    const { input, onSend } = renderComposer({ canInterrupt: true });
+  it("sends on Enter while busy and keeps Shift+Enter for newlines", async () => {
+    const { input, onSend } = renderComposer({ canQueue: true });
     fireEvent.change(input, { target: { value: "later" } });
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
@@ -231,9 +282,9 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
-  it("does not send now during an in-flight send", () => {
+  it("does not queue during an in-flight send", () => {
     const { input, onSend } = renderComposer({
-      canInterrupt: true,
+      canQueue: true,
       sending: true,
     });
     fireEvent.change(input, { target: { value: "wait" } });
@@ -253,6 +304,34 @@ describe("ChatComposer @mentions", () => {
       target: { value, selectionStart: value.length },
     });
   };
+
+  it("shows numbered recipient icons below the input, updating mentions and restoring defaults", () => {
+    const { input } = renderComposer({
+      mentionables,
+      // Defaults can come from the server without seat metadata.
+      defaultRecipients: [{ id: "agt_1", name: "orchestrator" }],
+    });
+    const recipientIds = () =>
+      screen
+        .getAllByTestId("chat-composer-recipient")
+        .map((badge) => badge.getAttribute("data-agent-id"));
+    expect(
+      input.compareDocumentPosition(
+        screen.getByTestId("chat-composer-routing")
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(recipientIds()).toEqual(["agt_1"]);
+    expect(screen.getByLabelText("orchestrator, agent 1")).toBeTruthy();
+    type(input, "@reviewer @builder @reviewer check this");
+    expect(recipientIds()).toEqual(["agt_2", "agt_3"]);
+    expect(screen.getByLabelText("reviewer, agent 2")).toBeTruthy();
+    expect(screen.getByLabelText("builder, agent 3")).toBeTruthy();
+    expect(
+      screen.getByTestId("chat-composer-routing").textContent
+    ).not.toContain("In:");
+    type(input, "plain message");
+    expect(recipientIds()).toEqual(["agt_1"]);
+  });
 
   it("opens the picker on @, filters as you type, and Enter inserts the name instead of sending", async () => {
     const { onSend, input } = renderComposer({ mentionables });
@@ -310,7 +389,7 @@ describe("ChatComposer toolbar pickers", () => {
     await waitFor(() => expect(input.selectionStart).toBe(5));
     expect(input.value).toBe("Ask @ to review");
     fireEvent.click(screen.getByTestId("mention-option"));
-    await waitFor(() => expect(input.value).toBe("Ask @reviewer  to review"));
+    await waitFor(() => expect(input.value).toBe("Ask @reviewer to review"));
     expect(document.activeElement).toBe(input);
     expect(onSend).not.toHaveBeenCalled();
   });

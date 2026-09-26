@@ -60,6 +60,7 @@ const BLOCK_COLUMNS = [
   "launched_by_agent_id",
   "delivered",
   "deliveries",
+  "steering_receipts",
   "read_at",
   "created_at",
   "updated_at",

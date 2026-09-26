@@ -793,7 +793,7 @@ describe("browser extension scoped API", () => {
     }
   });
 
-  it("returns the retained thread and block for child-agent feedback recovery", async () => {
+  it("returns the retained main-stream block for child-agent feedback recovery", async () => {
     const { token } = await approveAndExchange();
     const app = await createSubmissionTestApp(async () => {
       throw new Error("Disconnected");
@@ -814,7 +814,7 @@ describe("browser extension scoped API", () => {
       });
       const receipt = response.json();
       expect(receipt.streamId).toBe("agt_parent");
-      expect(receipt.threadId).toBeTruthy();
+      expect(receipt.threadId).toBeNull();
       const block = (
         await ctx.pool.query("SELECT id, thread_id FROM blocks WHERE id = $1", [
           receipt.blockId,

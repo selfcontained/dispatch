@@ -102,8 +102,12 @@ function getCodeBlock(
 
 type MarkdownProps = {
   children: string;
+  /** Keep unfinished Mermaid fences as source while the reply is arriving. */
+  streaming?: boolean;
   className?: string;
   variant?: "default" | "pin" | "caption";
+  /** Decorate prose text without altering Markdown syntax or code. */
+  renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
   // default: most `default`-variant consumers are compact cards that pass
   // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
@@ -116,7 +120,9 @@ export const Markdown = memo(function Markdown({
   children,
   className,
   variant = "default",
+  renderText,
   headingAccents = false,
+  streaming = false,
 }: MarkdownProps): JSX.Element {
   if (variant === "pin") {
     return <MarkdownPin className={className}>{children}</MarkdownPin>;
@@ -127,7 +133,12 @@ export const Markdown = memo(function Markdown({
   }
 
   return (
-    <MarkdownDefault className={className} headingAccents={headingAccents}>
+    <MarkdownDefault
+      className={className}
+      headingAccents={headingAccents}
+      renderText={renderText}
+      streaming={streaming}
+    >
       {children}
     </MarkdownDefault>
   );
@@ -212,15 +223,62 @@ function MarkdownPin({
   );
 }
 
+// Wrap prose leaves after Markdown parsing so decorators never touch code or URLs.
+type ProseNode = {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: ProseNode[];
+};
+
+function wrapProseText() {
+  return (tree: ProseNode) => {
+    const walk = (node: ProseNode) => {
+      if (node.tagName === "code" || node.tagName === "pre") return;
+      node.children = node.children?.map((child) => {
+        if (child.type === "text" && child.value?.trim()) {
+          return {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: [child],
+          };
+        }
+        walk(child);
+        return child;
+      });
+    };
+    walk(tree);
+  };
+}
+
+/** Positions include the fences; CommonMark also accepts an unclosed fence. */
+function hasClosingFence(source: string): boolean {
+  const lines = source.split(/\r?\n/);
+  const opening = /^(`{3,}|~{3,})/.exec(lines[0] ?? "")?.[1];
+  const closing = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/.exec(lines.at(-1) ?? "")?.[1];
+  return !!(
+    lines.length > 1 &&
+    opening &&
+    closing &&
+    opening[0] === closing[0] &&
+    closing.length >= opening.length
+  );
+}
+
 function MarkdownDefault({
   children,
   className,
   headingAccents = false,
+  renderText,
+  streaming = false,
 }: Pick<
   MarkdownProps,
-  "children" | "className" | "headingAccents"
+  "children" | "className" | "headingAccents" | "renderText" | "streaming"
 >): JSX.Element {
   const mermaidTheme = useMermaidTheme();
+  const source = children;
 
   return (
     <div
@@ -265,7 +323,17 @@ function MarkdownDefault({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={renderText ? [wrapProseText] : []}
         components={{
+          span({ children }) {
+            return (
+              <span>
+                {renderText && typeof children === "string"
+                  ? renderText(children)
+                  : children}
+              </span>
+            );
+          },
           table({ node: _node, ...props }) {
             return (
               <div
@@ -276,9 +344,19 @@ function MarkdownDefault({
               </div>
             );
           },
-          pre({ children }) {
+          pre({ children, node }) {
             const block = getCodeBlock(children);
             if (block?.className === "language-mermaid") {
+              const start = node?.position?.start.offset;
+              const end = node?.position?.end.offset;
+              if (
+                streaming &&
+                (start === undefined ||
+                  end === undefined ||
+                  !hasClosingFence(source.slice(start, end)))
+              ) {
+                return <CodeBlock code={block.code}>{children}</CodeBlock>;
+              }
               return <MermaidBlock code={block.code} theme={mermaidTheme} />;
             }
             const highlightedHtml = block

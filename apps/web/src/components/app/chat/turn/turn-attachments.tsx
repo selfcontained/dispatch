@@ -10,9 +10,12 @@ import { LinkBlockBody } from "@/components/app/chat/block-bodies";
 import { AttachmentList } from "@/components/app/chat/chat-attachment-views";
 import {
   agentDisplayName,
-  DeliveryMeta,
   type FeedContext,
 } from "@/components/app/chat/chat-entries";
+import {
+  DeliveryIndicator,
+  DeliveryMeta,
+} from "@/components/app/chat/chat-delivery-meta";
 import { useChatRowState } from "@/components/app/chat/chat-row-state";
 import { Collapse } from "@/components/app/chat/collapse";
 import { cn } from "@/lib/utils";
@@ -188,7 +191,7 @@ function SentTo({
   const openable = Boolean(block.text) || block.attachments.length > 0;
   return (
     <div
-      className="flex min-w-0 flex-col text-xs"
+      className="group relative flex min-h-6 min-w-0 flex-col pr-6 text-xs"
       data-testid="chat-turn-sent-to"
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
@@ -208,7 +211,10 @@ function SentTo({
           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
             Sent to
           </span>
-          <span className="shrink-0 font-medium text-foreground">
+          <span
+            className="max-w-[40%] truncate font-medium text-foreground"
+            title={recipientName}
+          >
             {recipientName}
           </span>
           {preview ? (
@@ -229,8 +235,19 @@ function SentTo({
             />
           ) : null}
         </button>
-        <DeliveryMeta block={block} ctx={ctx} className="mt-0 shrink-0" />
       </div>
+      <div
+        className="absolute right-0 top-0 h-4 w-4"
+        data-testid="chat-delivery-slot"
+      >
+        <DeliveryIndicator block={block} />
+      </div>
+      <DeliveryMeta
+        block={block}
+        recipientName={(id) => agentDisplayName(id, ctx)}
+        retrying={ctx.retrying?.has(block.id)}
+        onRetryDelivery={ctx.onRetryDelivery}
+      />
       <Collapse open={open} data-testid="chat-turn-sent-to-body">
         <div className="flex min-w-0 flex-col gap-1 pt-1.5">
           {block.text ? (

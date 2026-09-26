@@ -48,10 +48,11 @@ export function createPromptInjector(
       agentId,
       prompt,
       opts?.source,
-      opts?.alone || opts?.images?.length
+      opts?.alone || opts?.images?.length || opts?.delivery
         ? {
-            ...(opts.alone ? { alone: true } : {}),
+            ...(opts?.alone ? { alone: true } : {}),
             ...(opts.images?.length ? { images: opts.images } : {}),
+            ...(opts?.delivery ? { delivery: opts.delivery } : {}),
           }
         : undefined
     );

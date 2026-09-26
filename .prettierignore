@@ -18,3 +18,6 @@ playwright-report
 release-notes/current.md
 .dispatch/config.json
 .dispatch/worktrees
+
+# Keep the generated lockfile in pnpm's native format.
+pnpm-lock.yaml

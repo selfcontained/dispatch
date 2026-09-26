@@ -6,7 +6,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,7 +17,6 @@ import {
   AtSign,
   ChevronDown,
   CornerDownRight,
-  ListPlus,
   Plus,
   SquareSlash,
   SendHorizontal,
@@ -45,6 +43,13 @@ import {
   STARTUP_FILE_ACCEPT,
   getClipboardFilesFromEvent,
 } from "@/components/app/create-agent-dialog-clipboard";
+import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { MentionPicker } from "@/components/app/chat/mention-picker";
 import { SlashPicker } from "@/components/app/chat/slash-picker";
 import {
@@ -59,7 +64,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  ComposerInput,
+  type ComposerInputHandle,
+} from "@/components/app/chat/composer-input";
 import {
   insertMention,
   matchMentionables,
@@ -90,6 +98,8 @@ export type ChatComposerProps = {
    * is the one spot that never moves and has room on a phone.
    */
   action?: ReactNode;
+  /** Controls beside the recipients beneath the input. */
+  footer?: ReactNode;
   /**
    * Resolves once the message is accepted; rejects when it is not. The draft
    * — text and attachments — is cleared only on success so a failed send
@@ -98,14 +108,10 @@ export type ChatComposerProps = {
   onSend: (
     text: string,
     attachments: ChatUserAttachmentInput[],
-    options?: { interrupt?: boolean }
+    options?: { delivery?: "auto" | "queue" }
   ) => Promise<void>;
-  /**
-   * A turn is running, so a plain send would queue behind it. Offers "Send
-   * now", which cuts the turn and makes this message what the agent reads
-   * next.
-   */
-  canInterrupt?: boolean;
+  /** Offer an explicit alternative to delivery during the current turn. */
+  canQueue?: boolean;
   /**
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
@@ -127,8 +133,15 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  pendingQuestion?: {
+    excerpt: string;
+    onAnswer: () => void;
+    onDismiss: () => void;
+  } | null;
   /** The agents a typed `@` can name: the stream's tree. */
   mentionables?: readonly Mentionable[];
+  /** Defaults from the page or server; mentions override these for ordinary posts. */
+  defaultRecipients?: readonly Mentionable[];
   /** Agent-advertised commands and local Dispatch actions in the slash menu. */
   slashCommands?: readonly SlashCommand[];
   /** Return true when a Dispatch command was handled without sending a turn. */
@@ -191,7 +204,11 @@ type DraftFileView = {
  * something; an upload or send failure leaves a sendable draft behind, so
  * that one gets the retry hint.
  */
-type ComposerError = { text: string; retryable: boolean };
+type ComposerError = {
+  text: string;
+  retryable: boolean;
+  retryDelivery?: "auto" | "queue";
+};
 
 /**
  * An upload the server refused (a 4xx): the same bytes would be refused
@@ -230,11 +247,14 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  pendingQuestion = null,
   action,
+  footer,
   mentionables,
+  defaultRecipients,
   slashCommands,
   onDispatchCommand,
-  canInterrupt = false,
+  canQueue = false,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -265,16 +285,22 @@ export function ChatComposer({
 
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const caretFrameRef = useRef<number | null>(null);
-  const cancelCaretFocus = useCallback(() => {
-    if (caretFrameRef.current !== null)
-      cancelAnimationFrame(caretFrameRef.current);
-    caretFrameRef.current = null;
-  }, []);
-  useEffect(() => cancelCaretFocus, [cancelCaretFocus]);
-
+  const textareaRef = useRef<ComposerInputHandle>(null);
   // ---- @mentions: the token under the caret opens the picker ---------------
+  const mentionedRecipients = mentionSpans(text, mentionables ?? []).flatMap(
+    (span) => (span.kind === "mention" ? [span.agent] : [])
+  );
+  const recipients = [
+    ...new Map(
+      (!replyContext && mentionedRecipients.length
+        ? mentionedRecipients
+        : (defaultRecipients ?? [])
+      ).map((agent) => [
+        agent.id,
+        mentionables?.find((candidate) => candidate.id === agent.id) ?? agent,
+      ])
+    ).values(),
+  ];
   const [caret, setCaret] = useState(0);
   // Escape closes the list until the text changes again.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
@@ -285,9 +311,13 @@ export function ChatComposer({
   );
   const slashListId = useId();
   const hasSlashAttachments = draft.files.length > 0 || links.length > 0;
-  const hasSlashMention =
-    !!mentionables?.length &&
-    mentionSpans(text, mentionables).some((span) => span.kind === "mention");
+  const draftMentionSpans = useMemo(
+    () => mentionSpans(text, mentionables ?? []),
+    [text, mentionables]
+  );
+  const hasSlashMention = draftMentionSpans.some(
+    (span) => span.kind === "mention"
+  );
   const advertisedName = /^\/([^\s/]+)(?:\s|$)/.exec(text)?.[1];
   const advertisedCommand = slashCommands?.some(
     (command) => command.source === "agent" && command.name === advertisedName
@@ -352,49 +382,41 @@ export function ChatComposer({
       // until the text moves on.
       setDismissedFor(next.text);
       const el = textareaRef.current;
-      if (el) {
-        requestAnimationFrame(() => {
-          el.focus();
-          el.setSelectionRange(next.caret, next.caret);
-        });
-      }
+      el?.setValue(next.text, next.caret);
+      el?.focus();
     },
     [caret, mentionQuery, setText, text]
   );
   const pickSlash = useCallback(
     (command: SlashCommand) => {
       let nextCaret = 0;
+      let nextText = "";
       if (command.source === "dispatch" && onDispatchCommand?.(command.name)) {
         // A toolbar command can precede an existing draft. Consuming the
         // command locally must not consume that draft as well.
         const remaining = text.slice(caret).replace(/^\s*/, "");
+        nextText = remaining;
         setText(remaining);
         setCaret(0);
         setSlashDismissedFor(remaining);
       } else {
         const next = `/${command.name} ${text.slice(caret).replace(/^\s*/, "")}`;
+        nextText = next;
         nextCaret = command.name.length + 2;
         setText(next);
         setCaret(nextCaret);
         setSlashDismissedFor(next);
       }
       setSlashIndex(0);
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        el?.focus();
-        el?.setSelectionRange(nextCaret, nextCaret);
-      });
+      textareaRef.current?.setValue(nextText, nextCaret);
+      textareaRef.current?.focus();
     },
     [caret, onDispatchCommand, setText, text]
   );
-  const focusCaret = (position: number) => {
-    cancelCaretFocus();
+  const focusCaret = (position: number, value = text) => {
     setCaret(position);
-    caretFrameRef.current = requestAnimationFrame(() => {
-      caretFrameRef.current = null;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(position, position);
-    });
+    textareaRef.current?.setValue(value, position);
+    textareaRef.current?.focus();
   };
 
   const openMentions = () => {
@@ -424,7 +446,7 @@ export function ChatComposer({
     setDismissedFor(null);
     setSlashDismissedFor(next);
     setMentionIndex(0);
-    focusCaret(start + trigger.length);
+    focusCaret(start + trigger.length, next);
   };
 
   const openCommands = () => {
@@ -438,7 +460,7 @@ export function ChatComposer({
     setSlashDismissedFor(null);
     setSlashIndex(0);
     setDismissedFor(next);
-    focusCaret(prefix ? prefix[0].length : 1);
+    focusCaret(prefix ? prefix[0].length : 1, next);
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -677,7 +699,7 @@ export function ChatComposer({
   );
 
   const onPaste = useCallback(
-    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    (event: ClipboardEvent<HTMLDivElement>) => {
       if (disabled) return;
       const pastedFiles = getClipboardFilesFromEvent(event);
       if (pastedFiles.length > 0) {
@@ -744,55 +766,12 @@ export function ChatComposer({
     placeholders.length === 0 &&
     (trimmed.length > 0 || attachmentCount > 0);
 
-  // The text owns its rectangle; the toolbar never overlaps its last line.
-  useLayoutEffect(() => {
-    const input = textareaRef.current;
-    if (!input) return;
-    const resize = () => {
-      // Measuring the live field at height:auto can clamp the stream's
-      // scrollTop. Measure a hidden copy so typing and width changes leave
-      // the reader's place alone.
-      const measure = input.cloneNode(false) as HTMLTextAreaElement;
-      measure.removeAttribute("id");
-      measure.removeAttribute("data-testid");
-      measure.removeAttribute("autofocus");
-      measure.setAttribute("aria-hidden", "true");
-      measure.tabIndex = -1;
-      measure.value = input.value;
-      Object.assign(measure.style, {
-        position: "fixed",
-        visibility: "hidden",
-        pointerEvents: "none",
-        width: `${input.getBoundingClientRect().width}px`,
-        height: "0",
-        minHeight: "0",
-        maxHeight: "none",
-        overflow: "hidden",
-      });
-      input.parentElement!.appendChild(measure);
-      input.style.height = `${measure.scrollHeight}px`;
-      measure.remove();
-    };
-    resize();
-    let width = input.clientWidth;
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => {
-            if (input.clientWidth === width) return;
-            width = input.clientWidth;
-            resize();
-          });
-    observer?.observe(input);
-    return () => observer?.disconnect();
-  }, [text]);
-
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
   const submit = useCallback(
-    (options?: { interrupt?: boolean }) => {
+    (options?: { delivery?: "auto" | "queue" }) => {
       if (!canSend) return;
       setError(null);
       setInFlight(true);
@@ -869,6 +848,7 @@ export function ChatComposer({
           setError({
             text: err instanceof Error ? err.message : "Message not sent.",
             retryable: !(err instanceof UploadRefused),
+            retryDelivery: options?.delivery,
           });
         })
         .finally(() => {
@@ -889,7 +869,7 @@ export function ChatComposer({
   );
 
   const onKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.nativeEvent.isComposing) return;
       if (
         event.key === "Enter" &&
@@ -898,7 +878,7 @@ export function ChatComposer({
         !event.altKey
       ) {
         event.preventDefault();
-        submit(canInterrupt ? { interrupt: true } : undefined);
+        submit(canQueue ? { delivery: "queue" } : undefined);
         return;
       }
       if (slashOpen) {
@@ -950,12 +930,19 @@ export function ChatComposer({
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       event.preventDefault();
-      submit();
+      // Enter is the advertised retry; retain an explicit queue choice.
+      // The Send button/menu still lets the user choose immediate delivery.
+      submit(
+        error?.retryable && error.retryDelivery === "queue"
+          ? { delivery: "queue" }
+          : undefined
+      );
     },
     [
       activeMention,
       activeSlash,
-      canInterrupt,
+      canQueue,
+      error,
       mentionCandidates,
       mentionOpen,
       pickMention,
@@ -966,18 +953,12 @@ export function ChatComposer({
       text,
     ]
   );
-  const syncCaret = useCallback(
-    (event: { currentTarget: HTMLTextAreaElement }) => {
-      setCaret(event.currentTarget.selectionStart ?? 0);
-    },
-    []
-  );
 
   const uploadingName = fileViews.find(
     (view) => fileStatus[view.key] === "uploading"
   )?.entry.name;
   const hasAttachments = attachmentCount > 0;
-  const sendNowShortcut =
+  const queueShortcut =
     typeof navigator !== "undefined" &&
     /Mac|iPod|iPhone|iPad/.test(navigator.platform)
       ? "⌘⇧Enter"
@@ -1006,22 +987,39 @@ export function ChatComposer({
               : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
         )}
       >
-        {replyContext && !disabled ? (
+        {(replyContext || pendingQuestion) && !disabled ? (
           <div className="px-2 pt-2">
             <div
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
-              data-testid="chat-reply-context"
+              className="flex w-full items-start gap-2 rounded-md border border-l-[3px] border-border/70 border-l-primary bg-primary/[0.05] px-2 py-1.5 text-xs text-foreground"
+              data-testid={
+                replyContext ? "chat-reply-context" : "chat-pending-question"
+              }
             >
-              <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
-              <span className="shrink-0 text-muted-foreground">
-                Replying to:
+              <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+              <span className="shrink-0 font-semibold text-primary">
+                {replyContext ? "Answering:" : "Question:"}
               </span>
-              <span className="max-w-[40ch] truncate">
-                {replyContext.excerpt}
+              <span className="min-w-0 flex-1 break-words">
+                {(replyContext || pendingQuestion)?.excerpt}
               </span>
+              {!replyContext && pendingQuestion ? (
+                <Button
+                  type="button"
+                  variant="ghost-primary"
+                  size="sm"
+                  className="h-5 shrink-0 px-1.5 text-xs text-primary hover:bg-primary/10 hover:text-primary"
+                  onClick={() => {
+                    pendingQuestion.onAnswer();
+                    textareaRef.current?.focus();
+                  }}
+                  data-testid="chat-answer-question"
+                >
+                  Answer
+                </Button>
+              ) : null}
               <button
                 type="button"
-                onClick={replyContext.onDismiss}
+                onClick={(replyContext || pendingQuestion)?.onDismiss}
                 className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title="Send a plain message instead"
                 aria-label="Send a plain message instead"
@@ -1081,7 +1079,7 @@ export function ChatComposer({
               activeIndex={activeMention}
               onPick={pickMention}
               onHover={setMentionIndex}
-              anchor={textareaRef.current}
+              anchor={textareaRef.current?.element ?? null}
             />
           ) : null}
           {slashOpen ? (
@@ -1091,45 +1089,31 @@ export function ChatComposer({
               listId={slashListId}
               onPick={pickSlash}
               onHover={setSlashIndex}
-              anchor={textareaRef.current}
+              anchor={textareaRef.current?.element ?? null}
             />
           ) : null}
-          <Textarea
+          <ComposerInput
             ref={textareaRef}
             value={text}
-            onChange={(event) => {
-              cancelCaretFocus();
-              if (event.target.value !== text) setSlashDismissedFor(null);
-              setText(event.target.value);
-              setCaret(event.target.selectionStart ?? 0);
+            mentionables={mentionables ?? []}
+            disabled={disabled}
+            maxLength={CHAT_MESSAGE_MAX_CHARS}
+            onChange={(value, position) => {
+              if (value !== text) setSlashDismissedFor(null);
+              setText(value);
+              setCaret(position);
               setMentionIndex(0);
               setSlashIndex(0);
             }}
-            onSelect={syncCaret}
-            onClick={syncCaret}
-            onKeyUp={syncCaret}
+            onSelect={setCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            disabled={disabled}
-            rows={1}
-            maxLength={CHAT_MESSAGE_MAX_CHARS}
-            autoFocus={autoFocus}
             placeholder={
               disabled ? "" : replyContext ? "Type your answer…" : placeholder
             }
-            aria-label="Message the agent"
-            role={slashOpen ? "combobox" : undefined}
-            aria-autocomplete={slashOpen ? "list" : undefined}
-            aria-haspopup={slashOpen ? "listbox" : undefined}
-            aria-expanded={slashOpen ? true : undefined}
-            aria-controls={slashOpen ? slashListId : undefined}
-            aria-activedescendant={
-              slashOpen ? `${slashListId}-option-${activeSlash}` : undefined
-            }
-            // The box around it is the border; the field itself is bare.
-            className="max-h-48 min-h-14 w-full resize-none rounded-t-2xl border-0 bg-transparent px-4 pb-2 pt-4 text-sm shadow-none backdrop-blur-none focus-visible:ring-0 pointer-coarse:text-base"
-            data-chat-composer
-            data-testid="chat-composer-input"
+            slashOpen={slashOpen}
+            slashListId={slashListId}
+            activeSlash={activeSlash}
           />
 
           <div
@@ -1218,25 +1202,17 @@ export function ChatComposer({
                   size="icon"
                   variant={canSend ? "success" : "ghost"}
                   disabled={!canSend}
-                  title={
-                    canInterrupt
-                      ? "Queue message until the turn ends (Enter)"
-                      : "Send (Enter)"
-                  }
-                  aria-label={canInterrupt ? "Queue message" : "Send message"}
+                  title="Send (Enter)"
+                  aria-label="Send message"
                   data-testid="chat-composer-send"
                   className={cn(
                     "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
-                    canInterrupt && "rounded-r-none"
+                    canQueue && "rounded-r-none"
                   )}
                 >
-                  {canInterrupt ? (
-                    <ListPlus className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
-                  )}
+                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                 </Button>
-                {canInterrupt ? (
+                {canQueue ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -1256,6 +1232,7 @@ export function ChatComposer({
                       side="top"
                       align="end"
                       className="w-72"
+                      onEscapeKeyDown={(event) => event.stopPropagation()}
                     >
                       <DropdownMenuItem
                         disabled={!canSend}
@@ -1263,27 +1240,27 @@ export function ChatComposer({
                         className="text-foreground"
                       >
                         <span className="flex justify-between gap-3">
-                          Queue message{" "}
+                          Send{" "}
                           <span className="text-muted-foreground">Enter</span>
                         </span>
                         <span className="block text-xs text-muted-foreground">
-                          Send when the current turn ends
+                          Deliver while the agent works
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={!canSend}
-                        onSelect={() => submit({ interrupt: true })}
-                        data-testid="chat-composer-send-now"
+                        onSelect={() => submit({ delivery: "queue" })}
+                        data-testid="chat-composer-queue"
                         className="text-foreground"
                       >
                         <span className="flex justify-between gap-3">
-                          Send now{" "}
+                          Queue for next turn{" "}
                           <span className="text-muted-foreground">
-                            {sendNowShortcut}
+                            {queueShortcut}
                           </span>
                         </span>
                         <span className="block text-xs text-muted-foreground">
-                          Stop the current turn and send this message
+                          Send after the current turn finishes
                         </span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1311,7 +1288,7 @@ export function ChatComposer({
             data-retryable={error.retryable ? "true" : undefined}
           >
             {error.retryable
-              ? `${error.text} — your message is still here; press Enter to try again.`
+              ? `${error.text} — your message is still here; press Enter to ${error.retryDelivery === "queue" ? "queue again" : "try again"}.`
               : error.text}
           </span>
         ) : placeholders.length > 0 ? (
@@ -1327,15 +1304,57 @@ export function ChatComposer({
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
         ) : (
-          <span>
-            {canInterrupt ? "Enter to queue" : "Enter to send"} · Shift+Enter
-            for a new line
-            {canInterrupt
-              ? ` · ${sendNowShortcut} to send now`
-              : " · paste or drop files"}
-          </span>
+          <span>Enter to send · Shift+Enter for new line</span>
         )}
       </div>
+      {defaultRecipients || footer ? (
+        <div className="flex min-w-0 items-center justify-between gap-2 px-1">
+          {defaultRecipients ? (
+            <TooltipProvider delayDuration={150}>
+              <div
+                className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
+                data-testid="chat-composer-routing"
+                role="group"
+                aria-label="Message recipients"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <span className="shrink-0">To:</span>
+                {recipients.map((agent) => (
+                  <Tooltip key={agent.id}>
+                    <TooltipTrigger asChild>
+                      <span
+                        tabIndex={0}
+                        className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        data-testid="chat-composer-recipient"
+                        data-agent-id={agent.id}
+                      >
+                        <AgentSeatBadge
+                          seat={agent.seat ?? null}
+                          name={agent.name}
+                          size="sm"
+                        />
+                        {agent.seat === undefined ? (
+                          <span>{agent.name}</span>
+                        ) : null}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {agent.seat === undefined
+                        ? agent.name
+                        : `@${agent.seat} · ${agent.name}`}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+                {recipients.length === 0 ? (
+                  <span>Loading recipients…</span>
+                ) : null}
+              </div>
+            </TooltipProvider>
+          ) : null}
+          {footer}
+        </div>
+      ) : null}
     </form>
   );
 }

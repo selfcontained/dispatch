@@ -2,9 +2,12 @@ import { memo, type ReactNode, useMemo } from "react";
 import type { Block, ChatTurnEntry } from "@dispatch/shared";
 import {
   BlockView,
+  mentionablesOf,
   type FeedContext,
   POST_BODY_MEASURE,
 } from "@/components/app/chat/chat-entries";
+import { MentionText } from "@/components/app/chat/mention-picker";
+import { mentionSpans } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 import { ActivityBlock } from "./activity-block";
@@ -13,7 +16,7 @@ import { AutoHeight } from "./auto-height";
 import type { Trace, Turn } from "./contracts";
 import { turnLabelFromSteps } from "./registry";
 import { turnTrace } from "./trace";
-import { type ResultRetry, ResultTurn } from "./result-turn";
+import { type ResultRetry, ResultText, ResultTurn } from "./result-turn";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
@@ -89,9 +92,8 @@ function TurnEntryViewImpl({
 /**
  * The body of a turn's block: the answer, and under it one quiet activity
  * line that opens into the step list on click. An internal prompt leaves only
- * the agent's turn. The message lands whole when the turn
- * settles, as a chat message does; nothing streams into the column. Until
- * then the block is its header and one activity line.
+ * the agent's turn. The reply renders as muted Markdown while it streams,
+ * then takes its final styling when the turn settles.
  */
 export function TurnAnswer({
   block,
@@ -143,17 +145,27 @@ export function TurnAnswer({
           rather than jumps while it follows the bottom. */}
       <AutoHeight data-testid="chat-turn-body">
         {turn.settled ? (
-          <ResultTurn turn={result} retry={retry} />
+          <ResultTurn
+            turn={result}
+            retry={retry}
+            renderText={(text) => (
+              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+            )}
+          />
         ) : result.content ? (
           // The reply as it is being written: the agent's own words, in the
           // quiet tone of something still in progress, so a long turn reads
           // as it happens rather than landing whole at the end. It takes its
           // final styling when the turn settles and this becomes the answer.
-          <div
-            className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]"
-            data-testid="chat-turn-live-text"
-          >
-            {result.content}
+          <div data-testid="chat-turn-live-text">
+            <ResultText
+              content={result.content}
+              muted
+              streaming
+              renderText={(text) => (
+                <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+              )}
+            />
           </div>
         ) : null}
         <TurnAttachments items={folded} ctx={ctx} />
