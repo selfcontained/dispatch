@@ -226,7 +226,7 @@ export function registerStreamTools(
             .enum(["auto", "queue"])
             .optional()
             .describe(
-              "Default auto: deliver during the running turn when supported, or start a turn if idle. Choose queue to wait for the current turn to finish. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
+              "Agent-to-agent posts wait for active work to finish, or start a turn if the recipient is idle. Both auto (default) and queue follow this rule; only actual user messages can steer an active conversation. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
             ),
         },
       },
