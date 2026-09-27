@@ -368,7 +368,8 @@ const notificationRuntime = createNotificationRuntime({
 });
 const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
   agentManager,
-  app.log
+  app.log,
+  (agentId, source) => streamService.resolvePromptSource(agentId, source)
 );
 // Status and phase changes the manager makes on its own (a detached launch
 // coming up, an engine exiting, a restore at boot) reach the sidebar and the
@@ -434,6 +435,8 @@ const streamService = new StreamService({
 });
 agentManager.attachLaunchContextRecorder(streamService);
 agentManager.attachTurnBlocks({
+  responseStarted: (input) => streamService.recordResponseStarted(input),
+  responseSplit: (input) => streamService.recordResponseSplit(input),
   steering: (event) => streamService.recordSteering(event),
   started: (input) => streamService.recordTurnStarted(input),
   settled: (input) => streamService.recordTurnSettled(input),

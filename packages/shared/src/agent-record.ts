@@ -1,3 +1,4 @@
+import type { AgentInputState } from "./conversation-delivery.js";
 /**
  * The agent row as it goes over the wire.
  *
@@ -54,6 +55,7 @@ export type AgentGitContext = {
 };
 
 export type AgentCurrentTurn = {
+  streamId?: string;
   blockId: string;
   threadId: string | null;
 };
@@ -90,6 +92,8 @@ export type AgentRecord = {
    * is in the main column). Null otherwise.
    */
   currentTurn: AgentCurrentTurn | null;
+  /** Live per-recipient delivery capability and conversation. */
+  inputState?: AgentInputState;
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;

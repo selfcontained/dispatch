@@ -51,6 +51,7 @@ export type AssembledTurn = {
   prompt: ChatTurnPrompt;
   trace: {
     startedAt: string;
+    lastProgressAt?: string;
     endedAt?: string;
     /** `interrupted`: the turn was cancelled (Stop, Ctrl+C, Send now). */
     finalResult?: "ok" | "error" | "interrupted";
@@ -169,8 +170,11 @@ function toolStep(row: TurnSourceRow): ChatTurnStep | null {
         ? "ok"
         : p.status === "failed"
           ? "error"
-          : "running",
+          : p.status === "in_progress"
+            ? "running"
+            : "pending",
     startedAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
     ...(settled
       ? {
           endedAt: row.updatedAt.toISOString(),
@@ -363,6 +367,11 @@ export function assembleTurns(
           parent: null,
         });
       } else if (row.kind === "assistant") {
+        if (
+          turnPayload?.responseStartSeq &&
+          row.seq < turnPayload.responseStartSeq
+        )
+          continue;
         const p = row.payload as Partial<AssistantPayload>;
         const text = p.text ?? "";
         if (text.trim()) spoken.push(text.trim());
@@ -385,7 +394,27 @@ export function assembleTurns(
     const steps = nestSteps(flat);
     const error = turnPayload?.error;
     const lastRow = group.rows[group.rows.length - 1];
-    const trace: AssembledTurn["trace"] = { startedAt, steps };
+    // Only actual output/tool updates are progress; turn metadata (including
+    // usage and liveness updates) must not reset the quiet clock.
+    const progressRows = group.rows.filter(
+      (row) =>
+        row.kind === "assistant" ||
+        row.kind === "thought" ||
+        row.kind === "tool_call"
+    );
+    const lastProgressAt = progressRows.length
+      ? new Date(
+          progressRows.reduce(
+            (latest, row) => Math.max(latest, row.updatedAt.getTime()),
+            -Infinity
+          )
+        ).toISOString()
+      : undefined;
+    const trace: AssembledTurn["trace"] = {
+      startedAt,
+      steps,
+      ...(lastProgressAt ? { lastProgressAt } : {}),
+    };
     if (settled) {
       if (turnPayload?.endedAt) trace.endedAt = turnPayload.endedAt;
       trace.finalResult = error
@@ -413,7 +442,7 @@ export function assembleTurns(
       // a feed cursor over it compares against a real row id.
       id: group.turn ? `turn:${group.turn.id}` : `turn:pre:${group.rows[0].id}`,
       prompt: turnPayload
-        ? promptFor(turnPayload.prompt, chat)
+        ? promptFor(turnPayload.responsePrompt ?? turnPayload.prompt, chat)
         : { source: "system", text: "Earlier activity", attachments: [] },
       trace,
       result,
@@ -501,7 +530,8 @@ type StreamRowResult = {
 export async function loadTurnEntries(
   db: Queryable,
   agentId: string,
-  anchorIds: readonly number[]
+  anchorIds: readonly number[],
+  currentBlocks?: Map<number, string>
 ): Promise<Map<number, ChatTurnEntry>> {
   const out = new Map<number, ChatTurnEntry>();
   if (anchorIds.length === 0) return out;
@@ -563,6 +593,8 @@ export async function loadTurnEntries(
   turns.forEach((turn, index) => {
     const group = groups[index];
     if (!group?.turn || !wanted.has(group.turn.id)) return;
+    const blockId = group.turn.payload.blockId;
+    if (typeof blockId === "string") currentBlocks?.set(group.turn.id, blockId);
     out.set(group.turn.id, toTurnEntry(turn, group, agentId));
   });
   return out;
@@ -593,15 +625,24 @@ export async function attachTurns<T extends Block>(
     byAgent.set(block.author.agentId, list);
   }
   const loaded = new Map<string, Map<number, ChatTurnEntry>>();
+  const currentBlocks = new Map<number, string>();
   await Promise.all(
     [...byAgent].map(async ([agentId, anchors]) => {
-      loaded.set(agentId, await loadTurnEntries(db, agentId, anchors));
+      loaded.set(
+        agentId,
+        await loadTurnEntries(db, agentId, anchors, currentBlocks)
+      );
     })
   );
   for (const block of blocks) {
     const anchor = turnAnchorOf(block);
     if (anchor === null || block.author.kind !== "agent") continue;
     const turn = loaded.get(block.author.agentId)?.get(anchor);
+    const current = currentBlocks.get(anchor);
+    if (current && current !== block.id) {
+      delete block.turn;
+      continue;
+    }
     if (turn) block.turn = turn;
   }
   return blocks;
@@ -630,7 +671,10 @@ export async function loadNewestTurnBlockId(
 function chatPromptIds(rows: TurnSourceRow[]): string[] {
   return rows
     .filter((r) => r.kind === "turn")
-    .map((r) => (r.payload as TurnPayload).prompt)
+    .flatMap((r) => {
+      const p = r.payload as TurnPayload;
+      return [p.prompt, ...(p.responsePrompt ? [p.responsePrompt] : [])];
+    })
     .filter(
       (p): p is Extract<PromptSource, { source: "chat" }> => p.source === "chat"
     )

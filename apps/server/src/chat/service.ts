@@ -116,7 +116,7 @@ export type PostInput = {
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
   notify?: boolean;
-  delivery?: "auto" | "queue";
+  delivery?: "auto" | "queue" | "interrupt";
 };
 
 export type UpdateInput = {
@@ -328,6 +328,7 @@ export function buildLaunchPostText(
 }
 
 export type AnswerInput = {
+  delivery?: "auto" | "queue" | "interrupt";
   /** Client-minted id for the reply block. */
   id?: string;
   value: string;
@@ -806,7 +807,7 @@ export class StreamService {
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewInput | null;
       allowInert?: boolean;
-      delivery?: "auto" | "queue";
+      delivery?: "auto" | "queue" | "interrupt";
       /** Legacy clients: sending no longer cancels the running turn. */
       interrupt?: boolean;
     }
@@ -957,7 +958,12 @@ export class StreamService {
                   .map((id) => nameOf.get(id) ?? id),
               }
             : null,
-        delivery: rawCommand ? "queue" : (input.delivery ?? "auto"),
+        delivery:
+          input.delivery === "interrupt"
+            ? "interrupt"
+            : rawCommand
+              ? "queue"
+              : (input.delivery ?? "auto"),
       })
     );
     return { block, delivered: null, held };
@@ -999,7 +1005,7 @@ export class StreamService {
     toAgentId: string | null;
     text: string;
     review: BlockReviewInput;
-    delivery?: "auto" | "queue";
+    delivery?: "auto" | "queue" | "interrupt";
     host: { threadId: string; replyTo: string } | null;
     live: boolean;
     attachments?: ChatAttachment[];
@@ -1139,6 +1145,7 @@ export class StreamService {
         replyTo: question.id,
         text,
         attachments: resolved,
+        ...(input.delivery ? { data: { delivery: input.delivery } } : {}),
         delivered: live ? null : false,
       };
       const inserted = input.id
@@ -1172,6 +1179,7 @@ export class StreamService {
     if (live) {
       await this.deliverBlock(reply, { kind: "user" }, attachmentLines, {
         answers: { blockId: question.id, kind: "question" },
+        delivery: input.delivery,
       });
     }
     return { block: answered, reply, delivered: live ? null : false };
@@ -2282,7 +2290,16 @@ export class StreamService {
     const streamId = await this.streamOf(input.agentId);
     let thread: { threadId: string | null; replyTo: string | null } | null =
       null;
-    if (input.prompt.source === "chat" && input.prompt.answerIn) {
+    if (input.prompt.conversation?.streamId === streamId) {
+      const threadId = input.prompt.conversation.threadId;
+      thread = {
+        threadId,
+        replyTo:
+          threadId && input.prompt.source === "chat"
+            ? input.prompt.chatMessageId
+            : threadId,
+      };
+    } else if (input.prompt.source === "chat" && input.prompt.answerIn) {
       // The prompt said where its answer goes.
       const host = await this.store.getById(input.prompt.answerIn);
       if (host && host.streamId === streamId) {
@@ -2361,6 +2378,73 @@ export class StreamService {
   }
 
   /** A turn settled or was cut: its block takes the answer as its text. */
+  async recordResponseStarted(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+    receiptId: string;
+  }): Promise<string | null> {
+    if (input.prompt.source !== "chat") return null;
+    const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
+    const messages = await Promise.all(ids.map((id) => this.store.getById(id)));
+    if (!messages.length || !messages.every((b) => b?.author.kind === "user"))
+      return null;
+    const previousId = input.turnRow.payload.blockId;
+    if (typeof previousId !== "string") return null;
+    const previous = await this.store.getById(previousId);
+    if (
+      !previous ||
+      previous.author.kind !== "agent" ||
+      previous.author.agentId !== input.agentId
+    )
+      return null;
+    // Cross-conversation input must wait for a separate execution turn. This
+    // guard also protects older hosts and delayed pickup receipts.
+    const conversation = input.prompt.conversation;
+    const samePlace = conversation
+      ? conversation.streamId === previous.streamId &&
+        conversation.threadId === previous.threadId
+      : messages.every(
+          (b) =>
+            b?.streamId === previous.streamId &&
+            b.threadId === previous.threadId
+        );
+    if (!samePlace) return null;
+    const id = derivedBlockId(
+      `response:${input.agentId}:${input.turnRow.id}:${input.receiptId}`
+    );
+    if (id === previousId) return id;
+    // Freeze just this response before the turn's current-block pointer moves.
+    await this.recordTurnSettled(input);
+    await this.store.insertIfAbsent({
+      id,
+      streamId: previous.streamId,
+      author: { kind: "agent", agentId: input.agentId },
+      kind: "text",
+      origin: "turn",
+      data: {
+        turnEventId: input.turnRow.id,
+        responseTo: ids,
+        responseToThreadId: messages[messages.length - 1]!.threadId,
+      },
+      text: "",
+      threadId: previous.threadId,
+      replyTo: previous.threadId ? ids[ids.length - 1]! : null,
+    });
+    return id;
+  }
+
+  async recordResponseSplit(input: {
+    agentId: string;
+    previousBlockId: string;
+  }): Promise<void> {
+    const streamId = await this.streamOf(input.agentId);
+    // Re-publish the old response without its live turn, so a reader already
+    // looking at it stops seeing a spinner. The new response streams normally.
+    await this.publishEntry(streamId, input.previousBlockId);
+  }
+
+  /** A turn settled or was cut: its current response takes its own text. */
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
@@ -2433,6 +2517,26 @@ export class StreamService {
     return false;
   }
 
+  /** Resolve once before enqueueing; runtime compares again at actual submission. */
+  async resolvePromptSource(
+    agentId: string,
+    source: PromptSource
+  ): Promise<PromptSource> {
+    if (source.conversation) return source;
+    const streamId = await this.streamOf(agentId);
+    const place =
+      source.source === "chat"
+        ? source.answerIn
+          ? { threadId: source.answerIn }
+          : await this.turnPlaceFor(source.chatMessageId)
+        : null;
+    const home = place ?? (await this.homeOf(agentId));
+    return {
+      ...source,
+      conversation: { streamId, threadId: home?.threadId ?? null },
+    };
+  }
+
   private delivery(): StreamDeliveryAdapter {
     if (!this.deps.delivery) {
       throw new Error("StreamService: no delivery adapter configured.");
@@ -2462,7 +2566,7 @@ export class StreamService {
     attachmentLines: string[] = [],
     extra: {
       answers?: { blockId: string; kind: BlockKind } | null;
-      delivery?: "auto" | "queue";
+      delivery?: "auto" | "queue" | "interrupt";
     } = {}
   ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
@@ -2487,7 +2591,7 @@ export class StreamService {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
-      delivery?: "auto" | "queue";
+      delivery?: "auto" | "queue" | "interrupt";
       /** Never combined with other posts. */
       alone?: boolean;
       /** ACP slash command, sent without the Dispatch envelope. */
@@ -2507,8 +2611,29 @@ export class StreamService {
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
+      const structuredAnswer =
+        own.answers?.kind === "question" || own.answers?.kind === "form";
+      const interrupts = (own.delivery ?? block.data?.delivery) === "interrupt";
+      const source: PromptSource = {
+        source: "chat",
+        chatMessageId: block.id,
+        userMessage: from.kind === "user",
+        ...(from.kind === "user" && !structuredAnswer
+          ? {
+              conversation: {
+                streamId: block.streamId,
+                threadId: block.threadId,
+              },
+            }
+          : {}),
+      };
       const result = this.injectDetached({
         agentId,
+        // Structured answers are stored with the ask but resume its work.
+        // Plain messages explicitly choose the location they were posted in.
+        source: structuredAnswer
+          ? await this.resolvePromptSource(agentId, source)
+          : source,
         envelope:
           own.rawPrompt ??
           buildPostEnvelope({
@@ -2555,9 +2680,11 @@ export class StreamService {
         logContext: { blockId: block.id },
         ...(own.alone ? { alone: true } : {}),
         ...(images.length && !own.rawPrompt ? { images } : {}),
-        delivery: own.rawPrompt
-          ? "queue"
-          : (own.delivery ?? block.data?.delivery ?? "auto"),
+        delivery: interrupts
+          ? "interrupt"
+          : own.rawPrompt
+            ? "queue"
+            : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
       held = held || result.held;
     }
@@ -2583,16 +2710,18 @@ export class StreamService {
     source?: PromptSource;
     images?: PromptImage[];
     alone?: boolean;
-    delivery?: "auto" | "queue";
+    delivery?: "auto" | "queue" | "interrupt";
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
     let accepted = false;
     const settlement = delivery
       .inject(agentId, input.envelope, {
-        ...(input.source
-          ? { source: input.source }
-          : { blockId: input.logContext.blockId }),
+        ...(input.logContext.blockId &&
+        (!input.source || input.source.source === "chat")
+          ? { blockId: input.logContext.blockId }
+          : {}),
+        ...(input.source ? { source: input.source } : {}),
         ...(input.alone ? { alone: true } : {}),
         ...(input.images?.length ? { images: input.images } : {}),
         ...(input.delivery ? { delivery: input.delivery } : {}),

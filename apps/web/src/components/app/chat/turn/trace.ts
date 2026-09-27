@@ -37,6 +37,7 @@ export function turnStep(step: ChatTurnStep): Step {
     label: step.label,
     status: step.status,
     startedAt: Date.parse(step.startedAt),
+    ...(step.updatedAt ? { updatedAt: Date.parse(step.updatedAt) } : {}),
     ...(step.endedAt ? { endedAt: Date.parse(step.endedAt) } : {}),
     ...(step.durMs !== undefined ? { durMs: step.durMs } : {}),
     detail: step.detail,
@@ -49,6 +50,9 @@ export function turnStep(step: ChatTurnStep): Step {
 export function turnTrace(turn: ChatTurnEntry): Trace {
   return {
     startedAt: Date.parse(turn.trace.startedAt),
+    ...(turn.trace.lastProgressAt
+      ? { lastProgressAt: Date.parse(turn.trace.lastProgressAt) }
+      : {}),
     ...(turn.trace.endedAt ? { endedAt: Date.parse(turn.trace.endedAt) } : {}),
     ...(turn.trace.finalResult ? { finalResult: turn.trace.finalResult } : {}),
     steps: turn.trace.steps.map(turnStep),

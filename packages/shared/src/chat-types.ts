@@ -252,7 +252,7 @@ export type ChatFileEntry = {
   at: string;
 };
 
-export type ChatTurnStepStatus = "running" | "ok" | "error";
+export type ChatTurnStepStatus = "pending" | "running" | "ok" | "error";
 
 /**
  * One unit of work inside a turn's trace: a tool call, a thought, or a
@@ -265,6 +265,8 @@ export type ChatTurnStep = {
   label: string;
   status: ChatTurnStepStatus;
   startedAt: string;
+  /** Latest persisted tool update, independent of total turn age. */
+  updatedAt?: string;
   endedAt?: string;
   durMs?: number;
   detail: {
@@ -340,6 +342,8 @@ export type ChatTurnEntry = {
   prompt: ChatTurnPrompt;
   trace: {
     startedAt: string;
+    /** Last assistant/thought/tool update; excludes usage and turn metadata. */
+    lastProgressAt?: string;
     endedAt?: string;
     finalResult?: "ok" | "error" | "interrupted";
     /** The feed omits large settled edit diffs; open the activity to load them. */

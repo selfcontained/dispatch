@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
@@ -43,6 +44,7 @@ import { lineageSeats } from "@/lib/agent-seat";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { cn } from "@/lib/utils";
 import { AGENT_TYPE_LABELS, isAgentType } from "@/lib/agent-types";
+import { agentTurnLocation } from "@/lib/agent-routes";
 
 import {
   type BlockStatePatch,
@@ -1393,7 +1395,15 @@ export const BlockView = memo(function BlockView({
             <QueuedMessageActions
               agentId={block.streamId}
               messageId={block.id}
-              canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
+              recipientIds={block.delivery?.map((entry) => entry.agentId)}
+              threadId={block.threadId}
+              canSendNow={
+                !(
+                  block.kind === "text" &&
+                  (block.data?.acpCommand ||
+                    block.data?.delivery === "interrupt")
+                )
+              }
             />
           ) : null}
         </div>
@@ -1472,6 +1482,25 @@ export const BlockView = memo(function BlockView({
       action={agentAction}
       deliveryIndicator={deliveryIndicator}
     >
+      {block.kind === "text" && block.data?.responseTo?.length ? (
+        <Link
+          className="mb-1 inline-block text-[11px] text-muted-foreground hover:underline"
+          to={(() => {
+            const location = agentTurnLocation(block.streamId, {
+              blockId:
+                block.data!.responseTo![block.data!.responseTo!.length - 1]!,
+              threadId:
+                block.data!.responseToThreadId !== undefined
+                  ? block.data!.responseToThreadId
+                  : block.threadId,
+            });
+            return `${location.pathname}${location.search}`;
+          })()}
+        >
+          In response to your{" "}
+          {block.data.responseTo.length > 1 ? "messages" : "message"}
+        </Link>
+      ) : null}
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
       ) : block.text && block.kind !== "launch" ? (

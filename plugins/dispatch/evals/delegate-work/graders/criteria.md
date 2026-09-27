@@ -13,8 +13,10 @@ agent that has none of this context.
    Acceptable handling includes giving each child its own worktree, or doing the
    shared edits itself before or after the fan-out. Simply ignoring the overlap
    is a fail.
-4. The response says how it will collect results — `list_agents`, `post`
-   with `to`, or waiting for the children to post back into its stream.
+4. The response asks children to report with `post` and `to`. It finishes
+   independent work and ends its turn when results are needed, allowing their
+   reports to arrive as new prompts rather than sleeping or polling. A launch
+   or posting receipt is not treated as a completed result.
 
 **Fail if:**
 

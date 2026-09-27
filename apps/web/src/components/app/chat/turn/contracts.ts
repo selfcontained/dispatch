@@ -6,7 +6,7 @@
 // clarification, the transport port) and its stream-event reducer are left
 // out: the server assembles settled turns, so nothing folds events here.
 
-export type StepStatus = "running" | "ok" | "error";
+export type StepStatus = "pending" | "running" | "ok" | "error";
 
 /** One unit of work inside a turn's trace. `kind` is open: the registry maps it. */
 export interface Step {
@@ -15,6 +15,7 @@ export interface Step {
   label?: string;
   status: StepStatus;
   startedAt: number;
+  updatedAt?: number;
   endedAt?: number;
   durMs?: number;
   detail?: unknown;
@@ -25,6 +26,7 @@ export interface Step {
 /** The activity behind one assistant turn. */
 export interface Trace {
   startedAt: number;
+  lastProgressAt?: number;
   endedAt?: number;
   steps: Step[];
   finalResult?: "ok" | "error" | "interrupted";

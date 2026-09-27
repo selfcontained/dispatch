@@ -73,10 +73,11 @@ const postBodySchema = z.object({
     .max(BLOCK_ATTACHMENTS_MAX)
     .optional(),
   interrupt: z.boolean().optional(),
-  delivery: z.enum(["auto", "queue"]).optional(),
+  delivery: z.enum(["auto", "queue", "interrupt"]).optional(),
 }) satisfies z.ZodType<StreamPostRequest, unknown>;
 
 const answerBodySchema = z.object({
+  delivery: z.enum(["auto", "queue", "interrupt"]).optional(),
   id: z.uuid().optional(),
   value: z.string("value is required."),
   label: z.string("label must be a string.").optional(),
@@ -255,13 +256,14 @@ export async function registerStreamRoutes(
       if (!parsed.success) {
         return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
       }
-      const { value, label, attachments, id } = parsed.data;
+      const { value, label, attachments, id, delivery } = parsed.data;
       try {
         return await streams.answerQuestion(
           params.rootId ?? "",
           params.blockId ?? "",
           {
             value,
+            ...(delivery !== undefined ? { delivery } : {}),
             ...(id !== undefined ? { id } : {}),
             ...(label !== undefined ? { label } : {}),
             ...(attachments && attachments.length > 0 ? { attachments } : {}),

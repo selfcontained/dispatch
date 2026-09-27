@@ -82,25 +82,48 @@ export function stepLabel(step: Step): string {
   return toolName(title).name.toLowerCase();
 }
 
-/** The label of a step actually reported as running in the turn trace. */
-export function activeStepLabel(steps: Step[]): string | undefined {
-  const running = steps.find((step) => step.status === "running");
-  return running ? stepLabel(running) : undefined;
+/** Flatten nested work so an active child cannot be hidden by its parent. */
+function activitySteps(steps: Step[]): Step[] {
+  return steps.flatMap((step) => [step, ...activitySteps(step.children ?? [])]);
 }
 
-/**
- * The one line a running turn shows, in its own summary row and in the
- * sidebar alike: the step running now, or between steps "thinking" before
- * the first and what the turn has done so far after it.
- */
+function latestStep(steps: Step[]): Step | undefined {
+  return steps.reduce<Step | undefined>(
+    (latest, step) =>
+      !latest ||
+      (step.updatedAt ?? step.endedAt ?? step.startedAt) >=
+        (latest.updatedAt ?? latest.endedAt ?? latest.startedAt)
+        ? step
+        : latest,
+    undefined
+  );
+}
+
+/** Latest reported execution, with other concurrent executions kept visible. */
+export function activeStepLabel(steps: Step[]): string | undefined {
+  const running = activitySteps(steps).filter(
+    (step) => step.status === "running"
+  );
+  const latest = latestStep(running);
+  return latest
+    ? `${stepLabel(latest)}${running.length > 1 ? ` + ${running.length - 1} other active` : ""}`
+    : undefined;
+}
+
+/** Pending input is preparation, and only describes current work when latest. */
 export function runningTurnVerb(
   steps: Step[],
-  label: string | undefined = turnLabelFromSteps(steps)
+  _label?: string,
+  lastProgressAt?: number
 ): string {
-  return (
-    activeStepLabel(steps) ??
-    (steps.length === 0 ? "thinking" : (label ?? "working"))
-  );
+  const active = activeStepLabel(steps);
+  if (active) return active;
+  const latest = latestStep(activitySteps(steps));
+  return latest?.status === "pending" &&
+    (lastProgressAt === undefined ||
+      lastProgressAt <= (latest.updatedAt ?? latest.startedAt))
+    ? `preparing ${stepLabel(latest)}`
+    : "thinking";
 }
 
 /** The tool's input as a record, when it is one. */
@@ -269,7 +292,9 @@ export function hasInput(step: Step): boolean {
  */
 export function hasDetail(step: Step): boolean {
   return (
-    (step.status === "running" && hasInput(step)) || hasSettledDetail(step)
+    ((step.status === "running" || step.status === "pending") &&
+      hasInput(step)) ||
+    hasSettledDetail(step)
   );
 }
 

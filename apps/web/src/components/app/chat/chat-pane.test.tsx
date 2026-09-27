@@ -76,6 +76,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/hooks/use-agent-tree", () => ({
+  useDeliveryAgents: () => H.agents,
   useRootAgentId: (agentId: string | null) => H.rootId ?? agentId,
   useDescendantAgentIds: () => H.descendants,
   useAgentRecord: (agentId: string | null) =>
@@ -833,6 +834,110 @@ describe("ChatPane", () => {
     });
     expect(H.send).not.toHaveBeenCalled();
   });
+
+  it("forwards selected Interrupt for a free-text question answer", async () => {
+    H.agents = [
+      {
+        ...agent,
+        inputState: {
+          active: true,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: { streamId: "agt_1", threadId: null },
+        },
+      },
+    ];
+    H.entries = [
+      blockEntry(
+        block({
+          id: "q1",
+          text: "Which branch?",
+          body: questionBody([{ label: "main" }], { allowFreeform: true }),
+        })
+      ),
+    ];
+    renderPane();
+    fireEvent.click(screen.getByTestId("chat-answer-question"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Now" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Interrupt current work" })
+    );
+    expect(H.answer).not.toHaveBeenCalled();
+    typeAndSend("release/2.0");
+    expect(H.answer).toHaveBeenCalledWith({
+      blockId: "q1",
+      value: "release/2.0",
+      attachments: [],
+      delivery: "interrupt",
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
+      ).toBe("")
+    );
+  });
+
+  it.each([
+    { name: "root ask", askThread: null, workThread: null, loadedHome: true },
+    {
+      name: "threaded ask",
+      askThread: "other-discussion",
+      workThread: "child-home",
+      loadedHome: true,
+    },
+    {
+      name: "unloaded home",
+      askThread: "other-discussion",
+      workThread: "child-home",
+      loadedHome: false,
+    },
+  ])(
+    "resolves child answer timing for $name",
+    ({ askThread, workThread, loadedHome }) => {
+      H.rootId = "agt_1";
+      const child = {
+        ...agent,
+        id: "agt_child",
+        parentAgentId: "agt_1",
+        inputState: {
+          active: true,
+          steeringSupported: true,
+          interruptSupported: true,
+          conversation: { streamId: "agt_1", threadId: workThread },
+        },
+      };
+      H.agents = [agent, child];
+      H.entries = [
+        ...(loadedHome
+          ? [
+              blockEntry(
+                launchBlock({ id: "child-home", toAgentId: "agt_child" })
+              ),
+            ]
+          : []),
+        blockEntry(
+          block({
+            id: "q-child",
+            author: { kind: "agent", agentId: "agt_child" },
+            threadId: askThread,
+            text: "Which branch?",
+            body: questionBody([{ label: "main" }], { allowFreeform: true }),
+          })
+        ),
+      ];
+      renderPane({ agentId: "agt_child", agent: child });
+      fireEvent.click(screen.getByTestId("chat-answer-question"));
+      if (loadedHome) {
+        expect(
+          screen.getByRole("button", { name: "Message timing: Now" })
+        ).toBeTruthy();
+      } else {
+        expect(screen.queryByTestId("chat-composer-delivery")).toBeNull();
+      }
+    }
+  );
 
   it("keeps the selected answer target when a newer question arrives", () => {
     H.entries = [

@@ -1400,6 +1400,31 @@ describe("stream routes with a deliverable engine", () => {
     await app.close();
   });
 
+  it("accepts interrupt delivery on user posts and question answers", async () => {
+    const { app, ready, streams } = buildApp({});
+    await ready;
+    try {
+      const post = await app.inject({
+        method: "POST",
+        url: `/api/v1/streams/${agentId}/blocks`,
+        payload: { text: "Urgent", delivery: "interrupt" },
+      });
+      expect(post.statusCode).toBe(200);
+      expect(post.json().block.data).toMatchObject({ delivery: "interrupt" });
+      const q = await question(agentId, { options: [{ label: "Yes" }] });
+      const answer = await app.inject({
+        method: "POST",
+        url: `/api/v1/streams/${agentId}/blocks/${q.id}/answer`,
+        payload: { value: "Yes", delivery: "interrupt" },
+      });
+      expect(answer.statusCode).toBe(200);
+      expect(answer.json().reply.data).toMatchObject({ delivery: "interrupt" });
+      await streams.waitForInFlightDeliveries(1_000);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("stores user attachments and lists them in the injected envelope", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
@@ -1807,9 +1832,10 @@ describe("stream routes with a deliverable engine", () => {
       payload: { emoji: "🎉" },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().reactions).toEqual([
-      expect.objectContaining({ delivered: null }),
-    ]);
+    // Async delivery may finish before the route reads the stored reaction.
+    expect(res.json().reactions).toHaveLength(1);
+    expect(res.json().reactions[0]).toMatchObject({ emoji: "🎉" });
+    expect([null, true]).toContain(res.json().reactions[0].delivered);
     await streams.waitForInFlightDeliveries(1_000);
     expect(prompts[0]?.prompt).toContain(
       `--- DISPATCH REACTION (block id: ${block.id}) ---\nThe user reacted 🎉 to your latest post:\n> Shipped it.`

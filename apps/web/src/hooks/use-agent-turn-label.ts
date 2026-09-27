@@ -64,7 +64,10 @@ function pruneTurnLabels(queryClient: QueryClient, agentId: string): void {
 function turnEntryLabel(entry: StreamEntry): string | null {
   if (!isTurnEntry(entry)) return null;
   const turn = entry.block.turn;
-  return turn.settled ? null : runningTurnVerb(turnTrace(turn).steps);
+  const trace = turnTrace(turn);
+  return turn.settled
+    ? null
+    : runningTurnVerb(trace.steps, undefined, trace.lastProgressAt);
 }
 
 /** Record the running step from a `stream.entry`; a settled turn clears it. */

@@ -1414,6 +1414,27 @@ describe("ChatFeed", () => {
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
+  it("keeps a held interrupt waiting for stop without offering Send now", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "urgent",
+          authorKind: "user",
+          text: "Urgent",
+          threadId: null,
+          body: { kind: "text", data: { delivery: "interrupt" }, state: null },
+          delivered: null,
+          delivery: [{ agentId: "agt_1", state: "held" }],
+        })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Stop requested"
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  });
+
   it("shows the hold hint on the queued message only", () => {
     renderFeed([
       blockEntry(block({ id: "u1", authorKind: "user", text: "one" })),

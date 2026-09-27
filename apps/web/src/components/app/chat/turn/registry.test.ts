@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { Step } from "./contracts";
 import {
+  activeStepLabel,
+  runningTurnVerb,
   argsSummary,
   hasDetail,
   stepLabel,
@@ -224,5 +226,63 @@ describe("stepLabel", () => {
     };
     expect(stepLabel(step)).toBe("todo_write");
     expect(stepSummary(step)).toBeUndefined();
+  });
+});
+
+describe("truthful live activity", () => {
+  const pending = step({
+    kind: "other",
+    label: "mcp__dispatch__post",
+    status: "pending",
+    startedAt: 1,
+    updatedAt: 2,
+    detail: { input: { to: "parent" } },
+  });
+  it("distinguishes partial tool input from confirmed execution", () => {
+    expect(activeStepLabel([pending])).toBeUndefined();
+    expect(runningTurnVerb([pending])).toBe("preparing post");
+    expect(hasDetail(pending)).toBe(true);
+  });
+  it("does not let an abandoned pending post mask later work or later output", () => {
+    const newer = step({
+      kind: "execute",
+      label: "bash",
+      status: "running",
+      startedAt: 3,
+    });
+    expect(runningTurnVerb([pending, newer])).toBe("bash");
+    expect(
+      runningTurnVerb([pending, { ...newer, status: "ok", endedAt: 4 }])
+    ).toBe("thinking");
+    expect(runningTurnVerb([pending], undefined, 5)).toBe("thinking");
+    expect(pending.status).toBe("pending");
+  });
+  it("uses latest updates while retaining legitimate parallel executions", () => {
+    const a = step({
+      kind: "execute",
+      label: "bash",
+      status: "running",
+      startedAt: 1,
+      updatedAt: 8,
+    });
+    const b = step({
+      kind: "read",
+      label: "Read",
+      status: "running",
+      startedAt: 4,
+      updatedAt: 5,
+    });
+    expect(activeStepLabel([a, b])).toBe("bash + 1 other active");
+    expect(activeStepLabel([{ ...a, status: "ok" }, b])).toBe("read");
+  });
+  it("includes active nested calls", () => {
+    expect(
+      activeStepLabel([
+        step({
+          kind: "other",
+          children: [step({ kind: "read", status: "running" })],
+        }),
+      ])
+    ).toBe("read");
   });
 });

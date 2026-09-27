@@ -19,6 +19,7 @@ import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
 
 const STATUS_ARIA: Record<StepStatus, string> = {
+  pending: "preparing; execution not confirmed",
   running: "running",
   ok: "completed",
   error: "failed",
@@ -68,7 +69,7 @@ export function StepRow({
             : "font-normal text-foreground"
         )}
       >
-        {label}
+        {step.status === "pending" ? `preparing ${label}` : label}
         {server ? (
           <span className="ml-1 text-[10px] text-muted-foreground">
             {server}
