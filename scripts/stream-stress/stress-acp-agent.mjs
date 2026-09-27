@@ -40,7 +40,8 @@ const WORDS =
 
 function sentence(r, n) {
   const out = [];
-  for (let i = 0; i < n; i += 1) out.push(WORDS[Math.floor(r() * WORDS.length)]);
+  for (let i = 0; i < n; i += 1)
+    out.push(WORDS[Math.floor(r() * WORDS.length)]);
   return out.join(" ");
 }
 
@@ -87,16 +88,34 @@ function sized(r, lo, hi) {
 /** One tool call's shape, in proportion to the dogfood sample. */
 function step(r, i, cwd) {
   const pick = r();
-  const file = path.join(cwd, `src/${WORDS[i % WORDS.length]}/${sentence(r, 1)}.ts`);
+  const file = path.join(
+    cwd,
+    `src/${WORDS[i % WORDS.length]}/${sentence(r, 1)}.ts`
+  );
   if (pick < 0.45) {
     const withOutput = r() < 0.25;
     return {
       title: `pnpm vitest run ${sentence(r, 1)}`,
       kind: "execute",
-      rawInput: { command: `pnpm vitest run src/${sentence(r, 2).replace(" ", "/")}` },
+      rawInput: {
+        command: `pnpm vitest run src/${sentence(r, 2).replace(" ", "/")}`,
+      },
       content: withOutput
-        ? [{ type: "content", content: { type: "text", text: terminal(r, sized(r, 1_500, 16_000)) } }]
-        : [{ type: "content", content: { type: "text", text: terminal(r, 300) } }],
+        ? [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: terminal(r, sized(r, 1_500, 16_000)),
+              },
+            },
+          ]
+        : [
+            {
+              type: "content",
+              content: { type: "text", text: terminal(r, 300) },
+            },
+          ],
     };
   }
   if (pick < 0.65) return { thought: sentence(r, 30 + Math.floor(r() * 90)) };
@@ -107,7 +126,15 @@ function step(r, i, cwd) {
       kind: "read",
       locations: [{ path: file }],
       content: withOutput
-        ? [{ type: "content", content: { type: "text", text: source(r, sized(r, 5_000, 35_000), "read") } }]
+        ? [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: source(r, sized(r, 5_000, 35_000), "read"),
+              },
+            },
+          ]
         : [],
     };
   }
@@ -117,7 +144,14 @@ function step(r, i, cwd) {
       title: `Edit ${path.basename(file)}`,
       kind: "edit",
       locations: [{ path: file }],
-      content: [{ type: "diff", path: file, oldText, newText: `${oldText}\n${source(r, 400, "added")}` }],
+      content: [
+        {
+          type: "diff",
+          path: file,
+          oldText,
+          newText: `${oldText}\n${source(r, 400, "added")}`,
+        },
+      ],
     };
   }
   if (pick < 0.92) {
@@ -125,14 +159,21 @@ function step(r, i, cwd) {
       title: `grep ${sentence(r, 1)}`,
       kind: "search",
       rawInput: { pattern: sentence(r, 1), path: "apps" },
-      content: [{ type: "content", content: { type: "text", text: terminal(r, 400) } }],
+      content: [
+        { type: "content", content: { type: "text", text: terminal(r, 400) } },
+      ],
     };
   }
   return {
     title: `fetch ${sentence(r, 2)}`,
     kind: "other",
     rawInput: { url: "https://example.test/" + sentence(r, 1) },
-    content: [{ type: "content", content: { type: "text", text: terminal(r, sized(r, 400, 4_000)) } }],
+    content: [
+      {
+        type: "content",
+        content: { type: "text", text: terminal(r, sized(r, 400, 4_000)) },
+      },
+    ],
   };
 }
 
@@ -173,7 +214,9 @@ const agent = {
     return { configOptions: [] };
   },
   async prompt(params) {
-    const text = params.prompt.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const text = params.prompt
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
     const sessionId = params.sessionId;
     const cwd = cwdBySession.get(sessionId) ?? process.cwd();
     const emit = (update) => conn.sessionUpdate({ sessionId, update });
@@ -187,7 +230,11 @@ const agent = {
       sessionUpdate: "plan",
       entries: [
         { content: "Read the code", status: "completed", priority: "high" },
-        { content: "Make the change", status: "in_progress", priority: "medium" },
+        {
+          content: "Make the change",
+          status: "in_progress",
+          priority: "medium",
+        },
         { content: "Run the checks", status: "pending", priority: "low" },
       ],
     });
@@ -195,7 +242,10 @@ const agent = {
       if (cancelled.has(sessionId)) return { stopReason: "cancelled" };
       const s = step(r, i, cwd);
       if (s.thought) {
-        await emit({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: s.thought } });
+        await emit({
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: s.thought },
+        });
         await sleep(STEP_MS / 2);
         continue;
       }
@@ -211,10 +261,20 @@ const agent = {
         content: [],
       });
       await sleep(STEP_MS / 2);
-      await emit({ sessionUpdate: "tool_call_update", toolCallId, status: "completed", content: s.content });
+      await emit({
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "completed",
+        content: s.content,
+      });
       await sleep(STEP_MS / 2);
     }
-    await emit({ sessionUpdate: "usage_update", used: 40_000 + steps * 900, size: 200_000, cost: { amount: 0.02 * steps, currency: "USD" } });
+    await emit({
+      sessionUpdate: "usage_update",
+      used: 40_000 + steps * 900,
+      size: 200_000,
+      cost: { amount: 0.02 * steps, currency: "USD" },
+    });
     const answer = [
       `Done with ${steps} steps. ${sentence(r, 40)}.`,
       "",
@@ -226,12 +286,22 @@ const agent = {
       `- ${sentence(r, 12)}`,
     ].join("\n");
     for (let at = 0; at < answer.length; at += 400) {
-      await emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: answer.slice(at, at + 400) } });
+      await emit({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: answer.slice(at, at + 400) },
+      });
       await sleep(40);
     }
     return {
       stopReason: "end_turn",
-      usage: { totalTokens: 1000, inputTokens: 900, outputTokens: 100, thoughtTokens: 0, cachedReadTokens: 0, cachedWriteTokens: 0 },
+      usage: {
+        totalTokens: 1000,
+        inputTokens: 900,
+        outputTokens: 100,
+        thoughtTokens: 0,
+        cachedReadTokens: 0,
+        cachedWriteTokens: 0,
+      },
     };
   },
   async cancel(params) {
@@ -242,6 +312,9 @@ const agent = {
   },
 };
 
-const stream = acp.ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
+const stream = acp.ndJsonStream(
+  Writable.toWeb(process.stdout),
+  Readable.toWeb(process.stdin)
+);
 conn = new acp.AgentSideConnection(() => agent, stream);
 process.stdin.on("end", () => process.exit(0));

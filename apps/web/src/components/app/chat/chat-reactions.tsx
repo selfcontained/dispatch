@@ -167,7 +167,10 @@ export function ReactionPickerButton({
   );
 }
 
-function userReactionTitle(reaction: BlockReaction, removable: boolean): string {
+function userReactionTitle(
+  reaction: BlockReaction,
+  removable: boolean
+): string {
   const state =
     reaction.delivered === null
       ? "Sending your reaction to the agent…"
