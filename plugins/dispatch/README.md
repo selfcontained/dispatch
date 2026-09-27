@@ -60,6 +60,20 @@ The plugin carries an explicit `version` in its manifests, so updates only ship
 when that version is bumped — routine commits to `main` do not register as a
 plugin update.
 
+## Source and installed guidance
+
+`plugins/dispatch/skills/` is the maintained source. Installed plugin caches are
+snapshots and can lag behind it; editing this tree does not update an existing
+session or cache. Current Dispatch sessions use `post` for structured blocks
+and agent messages, while ordinary replies stream automatically. Follow the
+session startup rules and exposed tool schemas if an older installed skill
+names obsolete communication tools.
+
+These Markdown skills need no generated build output. Publish source changes
+with the normal plugin version/release process, then update the installed plugin
+and start a fresh session to pick them up. Do not edit a user's plugin cache or
+reinstall it as part of a repository documentation change.
+
 ## Trust
 
 Plugins on both platforms are **unsigned and unsandboxed, and run with your full

@@ -1,5 +1,6 @@
+import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
@@ -93,7 +94,7 @@ export type AgentRuntime = {
      * `alone`: never combine this prompt with others waiting beside it. A
      * post sent to interrupt is the point of its own turn.
      */
-    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> };
   /** Atomically claim an unsent post at every recipient. */
   controlQueuedPrompt(
@@ -105,6 +106,7 @@ export type AgentRuntime = {
   isBusy(agentId: string): boolean;
   /** A turn is actually running, excluding prompts waiting in the queue. */
   hasOpenTurn(agentId: string): boolean;
+  inputState?(agentId: string): AgentInputState;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;

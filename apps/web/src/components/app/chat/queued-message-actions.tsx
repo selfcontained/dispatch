@@ -1,3 +1,5 @@
+import { useDeliveryAgents } from "@/hooks/use-agent-tree";
+import { recipientTimings } from "./composer-delivery";
 import { Trash2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,12 +10,25 @@ export function QueuedMessageActions({
   agentId,
   messageId,
   canSendNow = true,
+  recipientIds,
+  threadId,
 }: {
   agentId: string;
   messageId: string;
   canSendNow?: boolean;
+  recipientIds?: readonly string[];
+  threadId?: string | null;
 }) {
   const client = useQueryClient();
+  const agents = useDeliveryAgents();
+  const safeNow =
+    !recipientIds ||
+    recipientTimings(
+      recipientIds.map((id) => ({ id, name: id })),
+      agents,
+      { streamId: agentId, threadId: threadId ?? null },
+      "auto"
+    ).every((item) => item.timing === "Now");
   const action = useMutation({
     mutationFn: (kind: "delete" | "send-now") =>
       api<void>(
@@ -26,7 +41,7 @@ export function QueuedMessageActions({
   return (
     <>
       <div className="flex shrink-0 items-center gap-1.5">
-        {canSendNow ? (
+        {canSendNow && safeNow ? (
           <Button
             variant="ghost-warning"
             size="sm"

@@ -25,6 +25,7 @@ export type AppConfig = {
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
+  opencodeBin?: string;
   /** Per-agent host state (launch file, socket, journal, log). */
   agentStateRoot: string;
   agentRuntime: "acp" | "inert";
@@ -86,6 +87,11 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex",
     claudeBin:
       process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude",
+    opencodeBin: resolveConfiguredBin(
+      process.env.DISPATCH_OPENCODE_BIN ??
+        process.env.OPENCODE_BIN ??
+        "opencode"
+    ),
     agentStateRoot: resolveConfiguredPath(
       process.env.DISPATCH_AGENT_STATE_ROOT ??
         path.join(

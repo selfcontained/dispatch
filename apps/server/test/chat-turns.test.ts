@@ -874,3 +874,59 @@ describe("toTurnEntry", () => {
     ]);
   });
 });
+
+describe("tool activity evidence", () => {
+  it("preserves pending partial posts alongside later successful and concurrent calls", () => {
+    const rows = [
+      row(
+        "turn",
+        { state: "started", prompt: { source: "system", text: "work" } },
+        0
+      ),
+      row(
+        "tool_call",
+        { title: "post", status: "pending", input: { to: "parent" } },
+        1,
+        2
+      ),
+      row("tool_call", { title: "post", status: "completed" }, 3, 4),
+      row("tool_call", { title: "bash", status: "in_progress" }, 5, 7),
+      row("tool_call", { title: "read", status: "in_progress" }, 6, 8),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.steps.map((s) => s.status)).toEqual([
+      "pending",
+      "ok",
+      "running",
+      "running",
+    ]);
+    expect(turn.trace.steps[0]).toMatchObject({
+      updatedAt: at(2).toISOString(),
+    });
+    expect(turn.trace.steps[0].endedAt).toBeUndefined();
+    expect(turn.trace.lastProgressAt).toBe(at(8).toISOString());
+  });
+
+  it("ignores later usage/turn metadata for progress freshness", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "started",
+          prompt: { source: "system", text: "work" },
+          usage: { used: 10, size: 100 },
+        },
+        0,
+        40
+      ),
+      row("assistant", { text: "Working", streaming: true }, 1, 5),
+      row("tool_call", { title: "bash", status: "in_progress" }, 2, 20),
+      row("thought", { text: "Checking" }, 3, 10),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.lastProgressAt).toBe(at(20).toISOString());
+    const entry = toTurnEntry(turn, groupTurnRows(rows)[0], "a");
+    expect(entry.updatedAt).toBe(at(40).toISOString());
+    expect(entry.trace.lastProgressAt).toBe(at(20).toISOString());
+  });
+});

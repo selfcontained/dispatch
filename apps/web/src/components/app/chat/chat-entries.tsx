@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
@@ -42,6 +44,8 @@ import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { lineageSeats } from "@/lib/agent-seat";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { cn } from "@/lib/utils";
+import { AGENT_TYPE_LABELS, isAgentType } from "@/lib/agent-types";
+import { agentTurnLocation } from "@/lib/agent-routes";
 
 import {
   type BlockStatePatch,
@@ -464,11 +468,9 @@ export function AuthorMeta({
   );
 }
 
-/** "Claude" / "Codex" for an engine id; null for an unknown one. */
+/** Shared display label for a supported engine; null for an unknown one. */
 export function agentTypeLabel(type: string | null | undefined): string | null {
-  if (type === "claude") return "Claude";
-  if (type === "codex") return "Codex";
-  return null;
+  return isAgentType(type) ? AGENT_TYPE_LABELS[type] : null;
 }
 
 /**
@@ -1394,7 +1396,17 @@ export const BlockView = memo(function BlockView({
             <QueuedMessageActions
               agentId={block.streamId}
               messageId={block.id}
-              canSendNow={!(block.kind === "text" && block.data?.acpCommand)}
+              recipientIds={block.delivery
+                ?.filter((entry) => entry.state === "held")
+                .map((entry) => entry.agentId)}
+              threadId={block.threadId}
+              canSendNow={
+                !(
+                  block.kind === "text" &&
+                  (block.data?.acpCommand ||
+                    block.data?.delivery === "interrupt")
+                )
+              }
             />
           ) : null}
         </div>
@@ -1473,6 +1485,22 @@ export const BlockView = memo(function BlockView({
       action={agentAction}
       deliveryIndicator={deliveryIndicator}
     >
+      {block.kind === "text" && block.data?.responseTo?.length ? (
+        <ResponseBacklink
+          agentId={
+            block.author.kind === "agent"
+              ? block.author.agentId
+              : block.streamId
+          }
+          blockId={block.data.responseTo[block.data.responseTo.length - 1]!}
+          threadId={
+            block.data.responseToThreadId !== undefined
+              ? block.data.responseToThreadId
+              : block.threadId
+          }
+          multiple={block.data.responseTo.length > 1}
+        />
+      ) : null}
       {block.turn ? (
         <TurnAnswer block={block} turn={block.turn} ctx={ctx} folded={folded} />
       ) : block.text && block.kind !== "launch" ? (
@@ -1503,3 +1531,38 @@ export const BlockView = memo(function BlockView({
     </Post>
   );
 });
+
+function ResponseBacklink({
+  agentId,
+  blockId,
+  threadId,
+  multiple,
+}: {
+  agentId: string;
+  blockId: string;
+  threadId: string | null;
+  multiple: boolean;
+}) {
+  const jumpToTurn = useJumpToTurn();
+  const turn = { blockId, threadId };
+  return (
+    <Link
+      className="mb-1 inline-block text-[11px] text-muted-foreground hover:underline"
+      to={agentTurnLocation(agentId, turn)}
+      onClick={(event) => {
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return;
+        event.preventDefault();
+        jumpToTurn(agentId, turn);
+      }}
+    >
+      In response to your {multiple ? "messages" : "message"}
+    </Link>
+  );
+}

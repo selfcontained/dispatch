@@ -18,7 +18,7 @@ import { useTurnDetail } from "@/hooks/use-stream";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { arrive, burstIndex } from "./motion";
-import { runningTurnVerb } from "./registry";
+import { activeStepLabel, runningTurnVerb } from "./registry";
 import { LiveDuration, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 import { useChatRowState } from "../chat-row-state";
@@ -251,7 +251,12 @@ export function StepList({
         ))}
         {!done &&
         trace.steps.length > 0 &&
-        !trace.steps.some((s) => s.status === "running") ? (
+        !activeStepLabel(trace.steps) &&
+        !runningTurnVerb(
+          trace.steps,
+          undefined,
+          trace.lastProgressAt
+        ).startsWith("preparing ") ? (
           <ThinkingRow
             since={trace.steps.reduce(
               (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
@@ -373,14 +378,17 @@ function SummaryRow({
   useStreamTicker(!done);
   const summary = turnSummary(trace, label);
   const { steps, ms, thinking } = summary;
-  const verb = done ? summary.verb : runningTurnVerb(trace.steps, label);
+  const verb = done
+    ? summary.verb
+    : runningTurnVerb(trace.steps, label, trace.lastProgressAt);
+  const freshness = !done ? progressFreshness(trace) : undefined;
   const slot = !done || summary.failed || summary.interrupted;
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)}, ${open ? "collapse" : "expand"} activity`}
+      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total${freshness ? `, ${freshness}` : ""}, ${open ? "collapse" : "expand"} activity`}
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
@@ -415,9 +423,18 @@ function SummaryRow({
         </span>
       </span>
       <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-        {thinking
-          ? formatStepDuration(ms)
-          : `${steps} · ${formatStepDuration(ms)}`}
+        <span className="block">
+          {thinking ? "" : `${steps} · `}
+          {formatStepDuration(ms)} total
+        </span>
+        {freshness ? (
+          <span
+            className="block text-[10px]"
+            data-testid="harness-progress-freshness"
+          >
+            {freshness}
+          </span>
+        ) : null}
       </span>
       <span
         aria-hidden="true"
@@ -475,4 +492,14 @@ function ThinkingRow({
       </span>
     </div>
   );
+}
+
+/** A quiet clock never claims a stalled operation succeeded or was cancelled. */
+export function progressFreshness(trace: Trace, now = Date.now()): string {
+  const elapsed = Math.max(0, now - (trace.lastProgressAt ?? trace.startedAt));
+  const age = formatStepDuration(elapsed);
+  const quiet = elapsed >= 30_000 ? "quiet · " : "";
+  return trace.lastProgressAt === undefined
+    ? `${quiet}no output yet · ${age}`
+    : `${quiet}updated ${age} ago`;
 }

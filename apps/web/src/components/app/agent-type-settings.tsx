@@ -16,6 +16,7 @@ type AgentTypeSettingsResponse = {
 const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
   claude: "Claude Code CLI by Anthropic.",
   codex: "Codex CLI by OpenAI.",
+  opencode: "OpenCode CLI with your configured model providers.",
 };
 
 type AgentTypeSettingsProps = {

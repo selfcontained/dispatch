@@ -2,7 +2,7 @@ import type {
   AgentPermissionRequest,
   AgentPermissionsResponse,
 } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import net from "node:net";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -50,6 +50,10 @@ export class HostClient {
       resolve: (outcome: "injected" | "promptRequired") => void;
       reject: (err: Error) => void;
     }
+  >();
+  private readonly pendingInterrupts = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
   >();
   private permissions: AgentPermissionRequest[] = [];
   private readonly pendingPermissions = new Map<
@@ -242,6 +246,12 @@ export class HostClient {
         pending?.resolve(message.outcome);
         return;
       }
+      case "interrupt_result": {
+        const pending = this.pendingInterrupts.get(message.id);
+        this.pendingInterrupts.delete(message.id);
+        pending?.resolve();
+        return;
+      }
       case "prompt_accepted": {
         const pending = this.pendingPrompts.get(message.id);
         if (pending) {
@@ -271,11 +281,13 @@ export class HostClient {
       case "error": {
         if (message.id) {
           const pending =
+            this.pendingInterrupts.get(message.id) ??
             this.pendingSteers.get(message.id) ??
             this.pendingPrompts.get(message.id) ??
             this.pendingConfig.get(message.id) ??
             this.pendingPermissions.get(message.id);
           if (pending) {
+            this.pendingInterrupts.delete(message.id);
             this.pendingSteers.delete(message.id);
             this.pendingPrompts.delete(message.id);
             this.pendingConfig.delete(message.id);
@@ -319,6 +331,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingInterrupts.values()) pending.reject(err);
+    this.pendingInterrupts.clear();
     for (const pending of this.pendingSteers.values()) pending.reject(err);
     this.pendingSteers.clear();
     for (const pending of this.pendingPermissions.values()) pending.reject(err);
@@ -336,7 +350,7 @@ export class HostClient {
     this.socket.write(encodeMessage(message));
   }
 
-  /** Resolves once the adapter has accepted the prompt. */
+  /** Resolves once the adapter has accepted the steering request. */
   steer(
     id: string,
     text: string,
@@ -354,11 +368,22 @@ export class HostClient {
   }
 
   /** Resolves once the adapter has accepted the prompt. */
-  prompt(id: string, text: string, source?: PromptSource): Promise<void> {
+  prompt(
+    id: string,
+    text: string,
+    source?: PromptSource,
+    images?: PromptImage[]
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.pendingPrompts.set(id, { resolve, reject });
       try {
-        this.send({ type: "prompt", id, text, ...(source ? { source } : {}) });
+        this.send({
+          type: "prompt",
+          id,
+          text,
+          ...(source ? { source } : {}),
+          ...(images?.length ? { images } : {}),
+        });
       } catch (err) {
         this.pendingPrompts.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -421,6 +446,19 @@ export class HostClient {
           .get(id)
           ?.reject(err instanceof Error ? err : new Error(String(err)));
         this.pendingPermissions.delete(id);
+      }
+    });
+  }
+
+  /** Completion means the cancel request returned, not that the turn settled. */
+  interrupt(id: string, turnSeq: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.pendingInterrupts.set(id, { resolve, reject });
+      try {
+        this.send({ type: "interrupt", id, turnSeq });
+      } catch (err) {
+        this.pendingInterrupts.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }

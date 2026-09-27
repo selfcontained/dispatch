@@ -368,7 +368,8 @@ const notificationRuntime = createNotificationRuntime({
 });
 const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
   agentManager,
-  app.log
+  app.log,
+  (agentId, source) => streamService.resolvePromptSource(agentId, source)
 );
 // Status and phase changes the manager makes on its own (a detached launch
 // coming up, an engine exiting, a restore at boot) reach the sidebar and the
@@ -418,6 +419,7 @@ const streamService = new StreamService({
               ? { source: { source: "chat", chatMessageId: opts.blockId } }
               : {}),
           ...(opts?.alone ? { alone: true } : {}),
+          ...(opts?.images?.length ? { images: opts.images } : {}),
           ...(opts?.delivery ? { delivery: opts.delivery } : {}),
         })
       ).delivery,
@@ -433,6 +435,8 @@ const streamService = new StreamService({
 });
 agentManager.attachLaunchContextRecorder(streamService);
 agentManager.attachTurnBlocks({
+  responseStarted: (input) => streamService.recordResponseStarted(input),
+  responseSplit: (input) => streamService.recordResponseSplit(input),
   steering: (event) => streamService.recordSteering(event),
   started: (input) => streamService.recordTurnStarted(input),
   settled: (input) => streamService.recordTurnSettled(input),
@@ -677,7 +681,11 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    engineBins: { claude: config.claudeBin, codex: config.codexBin },
+    engineBins: {
+      claude: config.claudeBin,
+      codex: config.codexBin,
+      opencode: config.opencodeBin,
+    },
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 

@@ -56,7 +56,11 @@ import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptOptions,
+  PromptImage,
+} from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -115,6 +119,7 @@ function statusLine(text: string): string {
 const ENGINE_LABELS: Record<AgentType, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  opencode: "OpenCode",
 };
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
@@ -212,6 +217,10 @@ export type LaunchContextInput = {
 };
 
 export type LaunchContextRecorder = {
+  resolvePromptSource?: (
+    agentId: string,
+    source: PromptSource
+  ) => Promise<PromptSource>;
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
     /** The launch card the briefing is written onto; the first turn names it. */
     id: string;
@@ -221,6 +230,7 @@ export type LaunchContextRecorder = {
      * has to name all of the context the agent was launched with.
      */
     attachmentLines: string[];
+    images?: PromptImage[];
     /** Rejects when the post was not written, including an id collision. */
     record: () => Promise<unknown>;
   } | null>;
@@ -571,7 +581,7 @@ export class AgentManager {
     id: string,
     text: string,
     source?: PromptSource,
-    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> } {
     return this.runtime.prompt(id, text, source, opts);
   }
@@ -670,8 +680,23 @@ export class AgentManager {
     await this.runtime.cancel(id);
   }
 
-  private sendPromptDetached(id: string, text: string, what: string): void {
-    const { accepted, settled } = this.runtime.prompt(id, text);
+  private async sendPromptDetached(
+    id: string,
+    text: string,
+    what: string,
+    opts?: PromptOptions,
+    source?: PromptSource
+  ): Promise<void> {
+    const resolved = await this.launchContextRecorder?.resolvePromptSource?.(
+      id,
+      source ?? { source: "system", text: what }
+    );
+    const { accepted, settled } = this.runtime.prompt(
+      id,
+      text,
+      resolved ?? source,
+      opts
+    );
     accepted.catch((err: unknown) =>
       this.logger.warn({ err, agentId: id }, `${what} was not accepted`)
     );
@@ -824,7 +849,16 @@ export class AgentManager {
 
   /** The stream is blocks only: every turn gets a block through these. */
   attachTurnBlocks(turnBlocks: TurnBlocks): void {
-    this.streamRecorder.setTurnBlocks(turnBlocks);
+    this.streamRecorder.setTurnBlocks({
+      ...turnBlocks,
+      responseSplit: async (input) => {
+        await turnBlocks.responseSplit?.(input);
+        // A new response is still the same execution turn, but its deep link
+        // changed. Publish that pointer without inventing a new turn event.
+        const agent = await this.getAgent(input.agentId);
+        if (agent) this.eventBus.publish(agent);
+      },
+    });
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -857,7 +891,11 @@ export class AgentManager {
             nextRetryAt: this.nextReconcileAt,
           })
         : null;
-    const live = this.liveActivity({ ...agent, reconnect });
+    const live = this.liveActivity({
+      ...agent,
+      reconnect,
+      inputState: this.runtime.inputState?.(agent.id),
+    });
     // The open turn comes from the stream; only ACP's live turn state decides
     // whether it is still current. Derived activity is a separate UI summary.
     if (agent.status === "running" && this.runtime.hasOpenTurn(agent.id))
@@ -1134,6 +1172,7 @@ export class AgentManager {
     return {
       messageId: prepared.id,
       attachmentLines: prepared.attachmentLines,
+      ...(prepared.images?.length ? { images: prepared.images } : {}),
     };
   }
 
@@ -1395,7 +1434,18 @@ export class AgentManager {
         },
         { jobRunId: opts.jobRunId }
       );
-      if (firstTurn) this.sendPromptDetached(id, firstTurn, "first turn");
+      if (firstTurn)
+        await this.sendPromptDetached(
+          id,
+          firstTurn,
+          "first turn",
+          chatLaunchPost?.images?.length
+            ? { images: chatLaunchPost.images }
+            : undefined,
+          chatLaunchPost
+            ? { source: "chat", chatMessageId: chatLaunchPost.messageId }
+            : undefined
+        );
     } catch (error) {
       if (error instanceof GitWorktreeError) {
         const lastError = `Worktree creation failed: ${error.message}`;
@@ -1521,6 +1571,7 @@ export class AgentManager {
           await engineStatuses({
             claude: this.config.claudeBin,
             codex: this.config.codexBin ?? undefined,
+            opencode: this.config.opencodeBin,
           })
         ).find((status) => status.id === agent.type)
       : undefined;
@@ -1530,6 +1581,10 @@ export class AgentManager {
     // The engine this agent runs takes the path we just resolved (a
     // service's PATH rarely has it); the other keeps its configured value.
     const bins: EngineBins = {
+      opencodeBin:
+        agent.type === "opencode"
+          ? (engine?.path ?? this.config.opencodeBin ?? "opencode")
+          : this.config.opencodeBin,
       claudeBin:
         agent.type === "claude"
           ? (engine?.path ?? this.config.claudeBin)
@@ -1946,7 +2001,7 @@ export class AgentManager {
  * withLiveActivity.
  */
 const CURRENT_TURN_SQL = `(
-          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id)
+          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id, 'streamId', b.stream_id)
             FROM (
               SELECT t.payload FROM agent_stream_events t
                WHERE t.agent_id = agents.id AND t.kind = 'turn'

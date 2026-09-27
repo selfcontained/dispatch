@@ -98,6 +98,14 @@ describe("get_usage", () => {
                 windows: [],
                 unavailableReason: "No usage report available.",
               },
+              {
+                type: "opencode",
+                models: [],
+                observedAt: null,
+                windows: [],
+                unavailableReason:
+                  "OpenCode ACP reports session usage, but does not expose provider subscription limits.",
+              },
             ],
           });
         }

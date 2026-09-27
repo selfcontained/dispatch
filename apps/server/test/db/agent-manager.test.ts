@@ -1584,6 +1584,7 @@ describe("AgentManager", () => {
         expect(await currentTurnOf(agent.id)).toBeNull();
         runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: null,
         });
@@ -1608,6 +1609,7 @@ describe("AgentManager", () => {
 
         expect(await activityOf(agent.id)).toBe("starting");
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: null,
         });
@@ -1625,6 +1627,7 @@ describe("AgentManager", () => {
         const block = await openTurn(agent.id, root.id);
         runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: root.id,
         });

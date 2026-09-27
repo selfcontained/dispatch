@@ -1,12 +1,13 @@
 import { PermissionRequests } from "./permissions.js";
 import type { AgentPermissionRequest } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptSource, PromptImage } from "./prompt-source.js";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { access, constants as fsConstants } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { EngineSpec } from "./engine-spec.js";
+import { readPromptImages } from "./prompt-images.js";
 import { isPackageBinDir } from "./package-bin-dir.js";
 
 export type DriverUpdate = acp.SessionUpdate;
@@ -123,6 +124,7 @@ export type SpawnFn = (
 type ExitInfo = { code: number | null; signal: string | null; error?: Error };
 
 type Live = {
+  supportsImages: boolean;
   steeringSupported: boolean;
   pickupReceiptsSupported: boolean;
   promptReceiptsSupported: boolean;
@@ -171,8 +173,18 @@ function describeRpcError(
 } {
   if (!(err instanceof Error)) return { message: String(err) };
   if ((err as { code?: number }).code === -32000) {
-    const command = engine === "claude" ? "claude auth login" : "codex login";
-    const name = engine === "claude" ? "Claude" : "Codex";
+    const command =
+      engine === "claude"
+        ? "claude auth login"
+        : engine === "opencode"
+          ? "opencode auth login"
+          : "codex login";
+    const name =
+      engine === "claude"
+        ? "Claude"
+        : engine === "opencode"
+          ? "OpenCode"
+          : "Codex";
     return {
       message: `${name} sign-in required. Run \`${command}\` in a terminal on the machine running Dispatch, using the same OS account as the Dispatch server. Then restart this agent and resend your message.`,
       errorKind: "authentication_required",
@@ -471,6 +483,7 @@ export class AcpDriver {
         : {}),
     };
     const sessionMeta = Object.keys(meta).length ? { _meta: meta } : {};
+    let supportsImages = false;
     let steeringSupported = false;
     let pickupReceiptsSupported = false;
     let promptReceiptsSupported = false;
@@ -484,6 +497,8 @@ export class AcpDriver {
             : {}),
         },
       });
+      supportsImages =
+        initialized.agentCapabilities?.promptCapabilities?.image === true;
       const steering = initialized._meta?.steering;
       const receipts = initialized._meta?.["dispatch/steering"];
       pickupReceiptsSupported =
@@ -540,7 +555,9 @@ export class AcpDriver {
         config.options = res.configOptions ?? config.options;
         session = { sessionId: res.sessionId, resumed: false };
       }
-      if (engine.fullAccess.kind === "approval") {
+      // OpenCode modes select agents (build/plan), not approval policies.
+      // Its permission policy is configured in the engine environment.
+      if (engine.fullAccess.kind === "approval" && engine.id !== "opencode") {
         // Override saved/user default modes before accepting any prompt, including on resume.
         // Failure must fail startup, never silently run with broader permissions.
         await conn.setSessionMode({
@@ -590,6 +607,7 @@ export class AcpDriver {
     }
 
     const entry: Live = {
+      supportsImages,
       steeringSupported,
       pickupReceiptsSupported,
       promptReceiptsSupported,
@@ -771,7 +789,8 @@ export class AcpDriver {
     agentId: string,
     text: string,
     onAccepted?: () => void,
-    source?: PromptSource
+    source?: PromptSource,
+    images?: PromptImage[]
   ): Promise<void> {
     const entry = this.require(agentId);
     entry.cancelling = false;
@@ -809,6 +828,14 @@ export class AcpDriver {
       const guidance = text.trimStart().startsWith("/")
         ? null
         : entry.firstPromptAppend;
+      const imageBlocks = entry.supportsImages
+        ? await Promise.race([
+            readPromptImages(images ?? [], this.opts.logger),
+            gone,
+          ])
+        : [];
+      if (entry.cancelling || entry.stopping)
+        throw new Error("The turn was cancelled before delivery.");
       const receiptId =
         entry.promptReceiptsSupported && !text.trimStart().startsWith("/")
           ? crypto.randomUUID()
@@ -823,6 +850,7 @@ export class AcpDriver {
         prompt: [
           ...(guidance ? [{ type: "text" as const, text: guidance }] : []),
           { type: "text", text },
+          ...imageBlocks,
         ],
       });
       if (guidance) entry.firstPromptAppend = null;

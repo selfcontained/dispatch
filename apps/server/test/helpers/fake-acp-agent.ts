@@ -22,6 +22,7 @@ export type FakeTurn = (
 export function createFakeAcpAgent(
   opts: {
     turn?: FakeTurn;
+    supportsImages?: boolean;
     pickupReceipts?: boolean;
     promptReceipts?: boolean;
     steer?: (
@@ -76,6 +77,7 @@ export function createFakeAcpAgent(
     setMode: [] as acp.SetSessionModeRequest[],
     setConfig: [] as acp.SetSessionConfigOptionRequest[],
     prompts: [] as string[],
+    promptBlocks: [] as acp.ContentBlock[][],
     promptRequests: [] as acp.PromptRequest[],
     steers: [] as Record<string, unknown>[],
     cancels: 0,
@@ -108,6 +110,7 @@ export function createFakeAcpAgent(
         agentInfo: { name: "fake-acp-agent", version: "0.0.0" },
         agentCapabilities: {
           mcpCapabilities: { http: true },
+          promptCapabilities: { image: opts.supportsImages ?? false },
           sessionCapabilities: { close: {}, resume: {} },
         },
         authMethods: [],
@@ -154,6 +157,7 @@ export function createFakeAcpAgent(
       return { configOptions: options };
     },
     async prompt(params) {
+      seen.promptBlocks.push(params.prompt);
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");

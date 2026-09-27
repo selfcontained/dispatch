@@ -38,6 +38,11 @@ const ENGINES: Record<
     bin: "claude",
     install: "npm i -g @anthropic-ai/claude-code",
   },
+  opencode: {
+    label: "OpenCode",
+    bin: "opencode",
+    install: "npm i -g opencode-ai",
+  },
   codex: {
     label: "Codex",
     bin: "codex",
@@ -62,6 +67,7 @@ export function defaultSearchDirs(home: string): string[] {
   }
   return [
     path.join(home, ".local", "bin"),
+    path.join(home, ".opencode", "bin"),
     path.join(home, ".bun", "bin"),
     path.join(home, ".volta", "bin"),
     ...nvm,

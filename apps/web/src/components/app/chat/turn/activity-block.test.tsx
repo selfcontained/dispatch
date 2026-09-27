@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const useTurnDetailMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-stream", () => ({ useTurnDetail: useTurnDetailMock }));
 
-import { ActivityBlock } from "./activity-block";
+import { ActivityBlock, progressFreshness } from "./activity-block";
 import type { Trace } from "./contracts";
 
 const at = Date.parse("2026-09-07T10:00:00Z");
@@ -192,11 +192,11 @@ describe("ActivityBlock settle", () => {
     expect(document.querySelector('[aria-label="activity steps"]')).toBeNull();
   });
 
-  it("keeps the turn summary between reported running steps", () => {
+  it("does not present historical work as current between reported running steps", () => {
     render(<ActivityBlock trace={open} label="read a.ts" />);
     expect(
       screen.getByTestId("harness-activity-summary").textContent
-    ).toContain("read a.ts");
+    ).toContain("thinking");
   });
 
   it("does not toggle step details as the stream progresses", () => {
@@ -257,5 +257,50 @@ describe("ActivityBlock settle", () => {
       ).toContain("read a.ts");
     });
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
+  });
+});
+
+describe("activity progress freshness", () => {
+  it("keeps turn duration separate from the latest output age and marks quiet", () => {
+    const trace = { ...open, lastProgressAt: at + 90_000 };
+    expect(progressFreshness(trace, at + 100_000)).toBe("updated 10.0s ago");
+    expect(progressFreshness(trace, at + 120_000)).toBe(
+      "quiet · updated 30.0s ago"
+    );
+    expect(progressFreshness({ ...open, steps: [] }, at + 30_000)).toBe(
+      "quiet · no output yet · 30.0s"
+    );
+  });
+
+  it("shows preparation without an execution spinner or operation timer", () => {
+    render(
+      <ActivityBlock
+        trace={{
+          startedAt: at,
+          lastProgressAt: at,
+          steps: [
+            {
+              id: "pending",
+              kind: "other",
+              label: "mcp__dispatch__post",
+              status: "pending",
+              startedAt: at,
+              detail: { input: { to: "parent" } },
+            },
+          ],
+        }}
+      />
+    );
+    expect(
+      screen.getByTestId("harness-activity-summary").textContent
+    ).toContain("preparing post");
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    const row = screen.getByRole("button", {
+      name: "post, preparing; execution not confirmed",
+    });
+    expect(row.textContent).toContain("preparing post");
+    expect(row.textContent).not.toMatch(/\d+s/);
+    fireEvent.click(row);
+    expect(screen.getAllByText(/parent/).length).toBeGreaterThan(0);
   });
 });
