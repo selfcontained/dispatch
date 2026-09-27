@@ -981,6 +981,45 @@ describe("conversation-authoritative delivery", () => {
 });
 
 describe("AcpRuntime explicit interruption", () => {
+  it("keeps interrupts ahead of declined steering without cancelling a later turn", async () => {
+    const host = await heldTurnHost("promptRequired", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const fallback = runtime.prompt(agentId, "ordinary fallback", post(1), {
+      delivery: "auto",
+    });
+    const urgent = runtime.prompt(agentId, "urgent", post(2), {
+      delivery: "interrupt",
+    });
+    const second = runtime.prompt(agentId, "urgent two", post(3), {
+      delivery: "interrupt",
+    });
+    await withinSeconds(urgent.accepted, "urgent before fallback");
+    expect(host.steers).toEqual(["ordinary fallback"]);
+    expect(host.prompts.map((p) => p.text)).toEqual(["active", "urgent"]);
+    expect(host.interruptTargets).toEqual([]);
+    host.settle();
+    await withinSeconds(second.accepted, "second urgent before fallback");
+    expect(host.interruptTargets).toEqual([]);
+    host.settle();
+    await withinSeconds(fallback.accepted, "ordinary fallback after urgent");
+    expect(host.prompts.map((p) => p.text)).toEqual([
+      "active",
+      "urgent",
+      "urgent two",
+      "ordinary fallback",
+    ]);
+    expect(host.interruptTargets).toEqual([]);
+    host.settle();
+    await Promise.all([
+      active.settled,
+      urgent.settled,
+      second.settled,
+      fallback.settled,
+    ]);
+  });
+
   it("cancels once, waits for settlement, then opens urgent origin before old queue", async () => {
     const host = await heldTurnHost("injected", "supported");
     const runtime = await attached(host.stateRoot);

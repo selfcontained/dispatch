@@ -363,6 +363,19 @@ describe("entryOwner / filterStreamView", () => {
     ]);
   });
 
+  it("keeps a child response's source visible on its own page with child activity hidden", () => {
+    const source = blockEntry(
+      block({
+        id: "child-source",
+        authorKind: "user",
+        toAgentId: "agt_child",
+        threadId: null,
+      })
+    );
+    expect(filterStreamView([source], rootView, false)).toEqual([]);
+    expect(filterStreamView([source], childView, false)).toEqual([source]);
+  });
+
   it("filters a child's page to its own turns and the posts by or to it", () => {
     expect(ids(filterStreamView(entries, childView, false))).toEqual([
       "child-turn",

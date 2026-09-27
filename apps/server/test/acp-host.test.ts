@@ -147,6 +147,10 @@ describe("agent host", () => {
       );
       await urgent.settled;
       await active.settled;
+      // Settlement releases prompt waiters before serialized event listeners.
+      await until(
+        () => seen.filter(({ event }) => event.type === "turn").length === 4
+      );
       const turns = seen
         .filter(({ event }) => event.type === "turn")
         .map(({ event }) => event);

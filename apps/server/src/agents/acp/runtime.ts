@@ -359,6 +359,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     try {
       while (entry.waiting.length && live.get(agentId) === entry) {
         const urgent = entry.waiting.filter((w) => w.delivery === "interrupt");
+        for (const w of urgent) {
+          // A steering request may settle the arrival-time turn while the pump
+          // is locked. Its interrupt must never migrate to a subsequent turn.
+          if (
+            !entry.turnOpen ||
+            (w.interruptTargetSeq !== undefined &&
+              w.interruptTargetSeq !== entry.turnSeq)
+          )
+            w.interruptHandled = true;
+        }
         if (entry.turnOpen && urgent.length) {
           if (urgent.every((w) => w.interruptHandled)) break;
           if (
@@ -381,7 +391,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             entry.interruptedTurnSeq = targetSeq;
             for (const w of urgent.filter((w) => !w.interruptHandled)) {
               w.interruptHandled = true;
-              w.interruptTargetSeq = targetSeq;
+              w.interruptTargetSeq ??= targetSeq;
             }
             try {
               // Keep the pump locked until cancel returns, even if settlement
@@ -449,7 +459,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 w.taken = false;
                 w.delivery = "queue";
               }
-              entry.waiting.unshift(...batch);
+              // Keep declined steering ahead of ordinary queued work, but
+              // behind interrupts that arrived while the request was pending.
+              const firstOrdinary = entry.waiting.findIndex(
+                (w) => w.delivery !== "interrupt"
+              );
+              entry.waiting.splice(
+                firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+                0,
+                ...batch
+              );
               continue;
             }
           } else {
