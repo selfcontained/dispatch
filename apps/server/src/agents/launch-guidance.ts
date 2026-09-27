@@ -146,7 +146,7 @@ export function buildLaunchGuidance(
       "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
     );
     rules.push(
-      "Keep the user informed. Your replies stream live: briefly explain your approach before substantial work and give concise progress updates as you work. Continue within the user's authorized scope; ask when a missing decision or permission prevents progress. Dispatch tracks turn activity automatically."
+      "Keep the user informed. Your replies stream live: briefly explain your approach before substantial work and give concise progress updates as you work. Continue within the user's authorized scope; ask when a missing decision or permission prevents progress. Dispatch tracks turn activity automatically; do not report synthetic statuses. A posting receipt or pickup indicator is not an answer or proof of completion."
     );
     if (suggestSessionRename) {
       rules.push(

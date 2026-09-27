@@ -217,6 +217,10 @@ export type LaunchContextInput = {
 };
 
 export type LaunchContextRecorder = {
+  resolvePromptSource?: (
+    agentId: string,
+    source: PromptSource
+  ) => Promise<PromptSource>;
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
     /** The launch card the briefing is written onto; the first turn names it. */
     id: string;
@@ -676,16 +680,21 @@ export class AgentManager {
     await this.runtime.cancel(id);
   }
 
-  private sendPromptDetached(
+  private async sendPromptDetached(
     id: string,
     text: string,
     what: string,
-    opts?: PromptOptions
-  ): void {
+    opts?: PromptOptions,
+    source?: PromptSource
+  ): Promise<void> {
+    const resolved = await this.launchContextRecorder?.resolvePromptSource?.(
+      id,
+      source ?? { source: "system", text: what }
+    );
     const { accepted, settled } = this.runtime.prompt(
       id,
       text,
-      undefined,
+      resolved ?? source,
       opts
     );
     accepted.catch((err: unknown) =>
@@ -840,7 +849,16 @@ export class AgentManager {
 
   /** The stream is blocks only: every turn gets a block through these. */
   attachTurnBlocks(turnBlocks: TurnBlocks): void {
-    this.streamRecorder.setTurnBlocks(turnBlocks);
+    this.streamRecorder.setTurnBlocks({
+      ...turnBlocks,
+      responseSplit: async (input) => {
+        await turnBlocks.responseSplit?.(input);
+        // A new response is still the same execution turn, but its deep link
+        // changed. Publish that pointer without inventing a new turn event.
+        const agent = await this.getAgent(input.agentId);
+        if (agent) this.eventBus.publish(agent);
+      },
+    });
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -873,7 +891,11 @@ export class AgentManager {
             nextRetryAt: this.nextReconcileAt,
           })
         : null;
-    const live = this.liveActivity({ ...agent, reconnect });
+    const live = this.liveActivity({
+      ...agent,
+      reconnect,
+      inputState: this.runtime.inputState?.(agent.id),
+    });
     // The open turn comes from the stream; only ACP's live turn state decides
     // whether it is still current. Derived activity is a separate UI summary.
     if (agent.status === "running" && this.runtime.isBusy(agent.id))
@@ -1413,12 +1435,15 @@ export class AgentManager {
         { jobRunId: opts.jobRunId }
       );
       if (firstTurn)
-        this.sendPromptDetached(
+        await this.sendPromptDetached(
           id,
           firstTurn,
           "first turn",
           chatLaunchPost?.images?.length
             ? { images: chatLaunchPost.images }
+            : undefined,
+          chatLaunchPost
+            ? { source: "chat", chatMessageId: chatLaunchPost.messageId }
             : undefined
         );
     } catch (error) {
@@ -1976,7 +2001,7 @@ export class AgentManager {
  * withLiveActivity.
  */
 const CURRENT_TURN_SQL = `(
-          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id)
+          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id, 'streamId', b.stream_id)
             FROM (
               SELECT t.payload FROM agent_stream_events t
                WHERE t.agent_id = agents.id AND t.kind = 'turn'

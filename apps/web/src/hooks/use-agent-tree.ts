@@ -125,3 +125,10 @@ export function useAgentRecord(agentId: string | null): Agent | null {
   });
   return data ?? null;
 }
+
+/** Live recipient snapshots for conversation-aware composer timing. */
+export function useDeliveryAgents(): readonly Agent[] {
+  return (
+    useQuery<Agent[]>({ queryKey: ["agents"], queryFn: fetchAgents }).data ?? []
+  );
+}

@@ -197,6 +197,17 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
  */
 /** How the recorder reaches the block behind each turn; see setTurnBlocks. */
 export type TurnBlocks = {
+  /** Split a visible response, keeping the same execution turn. */
+  responseStarted?(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+    receiptId: string;
+  }): Promise<string | null>;
+  responseSplit?(input: {
+    agentId: string;
+    previousBlockId: string;
+  }): Promise<void>;
   steering?(
     event: Extract<
       DriverEvent,
@@ -316,23 +327,76 @@ export class StreamRecorder {
         const open = this.openTurn.get(event.agentId);
         if (!open) return;
         const payload = open.payload as TurnPayload;
-        open.payload = {
+        const next = {
           ...payload,
           steering: [
             ...(payload.steering ?? []),
             {
               source: event.source ?? systemPromptSource(event.text),
               at: new Date().toISOString(),
+              ...(event.receiptId ? { receiptId: event.receiptId } : {}),
             },
           ],
         };
-        await this.store.updatePayload(open.id, open.payload);
+        await this.store.updatePayload(open.id, next);
+        open.payload = next;
         return;
       }
       case "prompt_delivered":
-      case "steering_picked_up":
         await this.turnBlocks?.steering?.(event);
         return;
+      case "steering_picked_up": {
+        await this.turnBlocks?.steering?.(event);
+        const open = this.openTurn.get(event.agentId);
+        if (
+          !open ||
+          event.source?.source !== "chat" ||
+          !event.source.userMessage
+        )
+          return;
+        const payload = open.payload as TurnPayload;
+        // Initial prompt receipts and repeated/replayed pickups are not new replies.
+        if (
+          !payload.steering?.some((s) => s.receiptId === event.receiptId) ||
+          payload.responseReceipts?.includes(event.receiptId) ||
+          payload.pendingResponse?.receiptId === event.receiptId
+        )
+          return;
+        await this.closeText(event.agentId);
+        const prior = payload.pendingResponse;
+        const priorSource = prior?.source;
+        const source =
+          priorSource?.source === "chat"
+            ? {
+                ...event.source,
+                chatMessageIds: [
+                  ...new Set([
+                    ...(priorSource.chatMessageIds ?? [
+                      priorSource.chatMessageId,
+                    ]),
+                    ...(event.source.chatMessageIds ?? [
+                      event.source.chatMessageId,
+                    ]),
+                  ]),
+                ],
+              }
+            : event.source;
+        const next = {
+          ...payload,
+          ...(prior
+            ? {
+                responseReceipts: [
+                  ...(payload.responseReceipts ?? []),
+                  prior.receiptId,
+                ],
+              }
+            : {}),
+          pendingResponse: { receiptId: event.receiptId, source },
+        } satisfies TurnPayload;
+        await this.store.updatePayload(open.id, next);
+        open.payload = next;
+        return;
+      }
       case "update":
         return this.handleUpdate(event.agentId, event.update);
       case "turn": {
@@ -697,6 +761,7 @@ export class StreamRecorder {
     delta: string
   ): Promise<void> {
     if (!delta) return;
+    if (kind === "assistant") await this.startResponse(agentId);
     const state = this.open.get(agentId) ?? {};
     const other: TextKind = kind === "assistant" ? "thought" : "assistant";
     if (state[other]) await this.closeText(agentId, other);
@@ -737,6 +802,42 @@ export class StreamRecorder {
         void this.write(kind, pending, true).catch(() => {});
       }, FLUSH_INTERVAL_MS);
       current.flushTimer.unref?.();
+    }
+  }
+
+  private async startResponse(agentId: string): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    const payload = open?.payload as TurnPayload | undefined;
+    const pending = payload?.pendingResponse;
+    if (!open || !payload || !pending) return;
+    const previousBlockId = open.payload.blockId;
+    const blockId = await this.turnBlocks?.responseStarted?.({
+      agentId,
+      turnRow: open,
+      prompt: pending.source,
+      receiptId: pending.receiptId,
+    });
+    const { pendingResponse: _pending, ...rest } = payload;
+    const next = {
+      ...rest,
+      responseReceipts: [
+        ...(payload.responseReceipts ?? []),
+        pending.receiptId,
+      ],
+      ...(blockId
+        ? {
+            blockId,
+            responsePrompt: pending.source,
+            responseStartSeq: await this.store.nextSeq(agentId),
+          }
+        : {}),
+    };
+    // Keep the boundary retryable if its durable pointer write fails. The
+    // block insertion is deterministic, so re-entering can safely reuse it.
+    await this.store.updatePayload(open.id, next);
+    open.payload = next;
+    if (blockId && typeof previousBlockId === "string") {
+      await this.turnBlocks?.responseSplit?.({ agentId, previousBlockId });
     }
   }
 

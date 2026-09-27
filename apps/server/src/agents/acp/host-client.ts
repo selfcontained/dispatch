@@ -51,6 +51,10 @@ export class HostClient {
       reject: (err: Error) => void;
     }
   >();
+  private readonly pendingInterrupts = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
+  >();
   private permissions: AgentPermissionRequest[] = [];
   private readonly pendingPermissions = new Map<
     string,
@@ -242,6 +246,12 @@ export class HostClient {
         pending?.resolve(message.outcome);
         return;
       }
+      case "interrupt_result": {
+        const pending = this.pendingInterrupts.get(message.id);
+        this.pendingInterrupts.delete(message.id);
+        pending?.resolve();
+        return;
+      }
       case "prompt_accepted": {
         const pending = this.pendingPrompts.get(message.id);
         if (pending) {
@@ -271,11 +281,13 @@ export class HostClient {
       case "error": {
         if (message.id) {
           const pending =
+            this.pendingInterrupts.get(message.id) ??
             this.pendingSteers.get(message.id) ??
             this.pendingPrompts.get(message.id) ??
             this.pendingConfig.get(message.id) ??
             this.pendingPermissions.get(message.id);
           if (pending) {
+            this.pendingInterrupts.delete(message.id);
             this.pendingSteers.delete(message.id);
             this.pendingPrompts.delete(message.id);
             this.pendingConfig.delete(message.id);
@@ -319,6 +331,8 @@ export class HostClient {
   }
 
   private failPending(err: Error): void {
+    for (const pending of this.pendingInterrupts.values()) pending.reject(err);
+    this.pendingInterrupts.clear();
     for (const pending of this.pendingSteers.values()) pending.reject(err);
     this.pendingSteers.clear();
     for (const pending of this.pendingPermissions.values()) pending.reject(err);
@@ -432,6 +446,19 @@ export class HostClient {
           .get(id)
           ?.reject(err instanceof Error ? err : new Error(String(err)));
         this.pendingPermissions.delete(id);
+      }
+    });
+  }
+
+  /** Completion means the cancel request returned, not that the turn settled. */
+  interrupt(id: string, turnSeq: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.pendingInterrupts.set(id, { resolve, reject });
+      try {
+        this.send({ type: "interrupt", id, turnSeq });
+      } catch (err) {
+        this.pendingInterrupts.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }

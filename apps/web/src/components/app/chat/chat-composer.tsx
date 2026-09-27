@@ -15,7 +15,6 @@ import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
 import {
   AtSign,
-  ChevronDown,
   CornerDownRight,
   Plus,
   SquareSlash,
@@ -59,11 +58,11 @@ import {
 } from "@/components/app/chat/slash-commands";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ComposerDelivery,
+  recipientTimings,
+  type DeliveryAgent,
+} from "./composer-delivery";
+import type { PromptConversation } from "@dispatch/shared";
 import {
   ComposerInput,
   type ComposerInputHandle,
@@ -108,10 +107,12 @@ export type ChatComposerProps = {
   onSend: (
     text: string,
     attachments: ChatUserAttachmentInput[],
-    options?: { delivery?: "auto" | "queue" }
+    options?: { delivery?: "auto" | "queue" | "interrupt" }
   ) => Promise<void>;
   /** Offer an explicit alternative to delivery during the current turn. */
   canQueue?: boolean;
+  deliveryAgents?: readonly DeliveryAgent[];
+  conversation?: PromptConversation;
   /**
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
@@ -207,7 +208,6 @@ type DraftFileView = {
 type ComposerError = {
   text: string;
   retryable: boolean;
-  retryDelivery?: "auto" | "queue";
 };
 
 /**
@@ -255,6 +255,8 @@ export function ChatComposer({
   slashCommands,
   onDispatchCommand,
   canQueue = false,
+  deliveryAgents = [],
+  conversation,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -283,6 +285,9 @@ export function ChatComposer({
     [updateDraft]
   );
 
+  const [deliveryMode, setDeliveryMode] = useState<
+    "auto" | "queue" | "interrupt"
+  >("auto");
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<ComposerInputHandle>(null);
@@ -758,7 +763,25 @@ export function ChatComposer({
     [addFiles, disabled]
   );
 
-  const canSend =
+  const deliveryTimings = conversation
+    ? recipientTimings(
+        recipients,
+        deliveryAgents,
+        conversation,
+        deliveryMode,
+        advertisedCommand ||
+          fileViews.some((view) => view.file && isImageAttachment(view.file))
+      )
+    : [];
+  const interruptUnavailableReason =
+    !canQueue || !conversation || recipients.length === 0
+      ? "Interrupt is unavailable until the recipients' work conversation is known. Choose Automatic or Queue to continue."
+      : deliveryTimings.some((item) => item.busy && !item.interruptSupported)
+        ? "Interrupt is unavailable for a busy recipient. Choose Automatic or Queue to continue."
+        : null;
+  const deliveryBlockedReason =
+    deliveryMode === "interrupt" ? interruptUnavailableReason : null;
+  const sendReady =
     !disabled &&
     !slashBlockedReason &&
     !sending &&
@@ -766,13 +789,23 @@ export function ChatComposer({
     placeholders.length === 0 &&
     (trimmed.length > 0 || attachmentCount > 0);
 
+  const canSend = sendReady && !deliveryBlockedReason;
+
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
   const submit = useCallback(
-    (options?: { delivery?: "auto" | "queue" }) => {
-      if (!canSend) return;
+    (options?: { delivery?: "auto" | "queue" | "interrupt" }) => {
+      if (!sendReady) return;
+      const selectedMode = options?.delivery ?? deliveryMode;
+      if (selectedMode === "interrupt" && interruptUnavailableReason) return;
+      options ??=
+        canQueue && deliveryMode !== "auto"
+          ? { delivery: deliveryMode }
+          : undefined;
+      // One preference drives the selector, shortcut, retry hint, and every send.
+      setDeliveryMode(options?.delivery ?? "auto");
       setError(null);
       setInFlight(true);
       // Only what was sent gets cleared: anything typed or attached while the
@@ -828,6 +861,7 @@ export function ChatComposer({
 
       run()
         .then(() => {
+          setDeliveryMode("auto");
           // What was sent leaves the draft in one write — text, links and
           // file entries together — so no render, remount or other tab ever
           // sees a draft that still lists a sent file.
@@ -848,7 +882,6 @@ export function ChatComposer({
           setError({
             text: err instanceof Error ? err.message : "Message not sent.",
             retryable: !(err instanceof UploadRefused),
-            retryDelivery: options?.delivery,
           });
         })
         .finally(() => {
@@ -857,7 +890,10 @@ export function ChatComposer({
         });
     },
     [
-      canSend,
+      sendReady,
+      interruptUnavailableReason,
+      canQueue,
+      deliveryMode,
       fileViews,
       forgetFile,
       links,
@@ -930,19 +966,12 @@ export function ChatComposer({
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       event.preventDefault();
-      // Enter is the advertised retry; retain an explicit queue choice.
-      // The Send button/menu still lets the user choose immediate delivery.
-      submit(
-        error?.retryable && error.retryDelivery === "queue"
-          ? { delivery: "queue" }
-          : undefined
-      );
+      submit();
     },
     [
       activeMention,
       activeSlash,
       canQueue,
-      error,
       mentionCandidates,
       mentionOpen,
       pickMention,
@@ -958,11 +987,6 @@ export function ChatComposer({
     (view) => fileStatus[view.key] === "uploading"
   )?.entry.name;
   const hasAttachments = attachmentCount > 0;
-  const queueShortcut =
-    typeof navigator !== "undefined" &&
-    /Mac|iPod|iPhone|iPad/.test(navigator.platform)
-      ? "⌘⇧Enter"
-      : "Ctrl+Shift+Enter";
 
   return (
     <form
@@ -1206,66 +1230,11 @@ export function ChatComposer({
                   aria-label="Send message"
                   data-testid="chat-composer-send"
                   className={cn(
-                    "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
-                    canQueue && "rounded-r-none"
+                    "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
                   )}
                 >
                   <SendHorizontal className="h-4 w-4" aria-hidden="true" />
                 </Button>
-                {canQueue ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant={canSend ? "success" : "ghost"}
-                        disabled={!canSend}
-                        aria-label="Send options"
-                        title="Send options"
-                        data-testid="chat-composer-send-options"
-                        className="h-9 w-7 rounded-l-none border-l border-l-background/20 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      side="top"
-                      align="end"
-                      className="w-72"
-                      onEscapeKeyDown={(event) => event.stopPropagation()}
-                    >
-                      <DropdownMenuItem
-                        disabled={!canSend}
-                        onSelect={() => submit()}
-                        className="text-foreground"
-                      >
-                        <span className="flex justify-between gap-3">
-                          Send{" "}
-                          <span className="text-muted-foreground">Enter</span>
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Deliver while the agent works
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!canSend}
-                        onSelect={() => submit({ delivery: "queue" })}
-                        data-testid="chat-composer-queue"
-                        className="text-foreground"
-                      >
-                        <span className="flex justify-between gap-3">
-                          Queue for next turn{" "}
-                          <span className="text-muted-foreground">
-                            {queueShortcut}
-                          </span>
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Send after the current turn finishes
-                        </span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
               </div>
             </div>
           </div>
@@ -1280,6 +1249,10 @@ export function ChatComposer({
           <span role="alert" data-testid="chat-composer-slash-hint">
             {slashBlockedReason}
           </span>
+        ) : deliveryBlockedReason ? (
+          <span role="alert" data-testid="chat-composer-delivery-blocked">
+            {deliveryBlockedReason}
+          </span>
         ) : error ? (
           <span
             role="alert"
@@ -1288,7 +1261,7 @@ export function ChatComposer({
             data-retryable={error.retryable ? "true" : undefined}
           >
             {error.retryable
-              ? `${error.text} — your message is still here; press Enter to ${error.retryDelivery === "queue" ? "queue again" : "try again"}.`
+              ? `${error.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
               : error.text}
           </span>
         ) : placeholders.length > 0 ? (
@@ -1346,6 +1319,14 @@ export function ChatComposer({
                     </TooltipContent>
                   </Tooltip>
                 ))}
+                {(canQueue && conversation) || deliveryMode === "interrupt" ? (
+                  <ComposerDelivery
+                    timings={deliveryTimings}
+                    mode={deliveryMode}
+                    onMode={setDeliveryMode}
+                    unavailableReason={deliveryBlockedReason}
+                  />
+                ) : null}
                 {recipients.length === 0 ? (
                   <span>Loading recipients…</span>
                 ) : null}

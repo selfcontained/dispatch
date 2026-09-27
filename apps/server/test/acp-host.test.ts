@@ -119,6 +119,55 @@ describe("agent host", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  it("interrupts real host work then starts urgent input in a separate turn", async () => {
+    const id = "agt_interrupt";
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    await runtime.launch(launchFor(id, cwd));
+    try {
+      expect(runtime.inputState?.(id).interruptSupported).toBe(true);
+      const active = runtime.prompt(id, "sleep:60000");
+      await active.accepted;
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "update" &&
+            event.update.sessionUpdate === "agent_message_chunk"
+        )
+      );
+      const urgent = runtime.prompt(
+        id,
+        "Urgent new work",
+        {
+          source: "chat",
+          chatMessageId: "urgent",
+          userMessage: true,
+          conversation: { streamId: id, threadId: "urgent-thread" },
+        },
+        { delivery: "interrupt" }
+      );
+      await urgent.settled;
+      await active.settled;
+      // Settlement releases prompt waiters before serialized event listeners.
+      await until(
+        () => seen.filter(({ event }) => event.type === "turn").length === 4
+      );
+      const turns = seen
+        .filter(({ event }) => event.type === "turn")
+        .map(({ event }) => event);
+      expect(
+        turns.map((event) => event.type === "turn" && event.state)
+      ).toEqual(["started", "settled", "started", "settled"]);
+      expect(turns[2]).toMatchObject({
+        source: {
+          chatMessageId: "urgent",
+          conversation: { streamId: id, threadId: "urgent-thread" },
+        },
+      });
+    } finally {
+      await runtime.stop(id, true);
+    }
+  });
+
   it("keeps approval pending across server reconnects, validates choices and cancels on stop", async () => {
     const id = "agt_perm";
     const first = runtimeWith(stateRoot, () => 0);

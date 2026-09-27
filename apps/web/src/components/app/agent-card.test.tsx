@@ -570,9 +570,7 @@ describe("AgentCardStatus wiring", () => {
     act(() => {
       recordTurnLabel(client, turnEntry({ settled: false }));
     });
-    await waitFor(() =>
-      expect(activity()?.textContent).toMatch(/ran pnpm test$/)
-    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/thinking$/));
 
     act(() => {
       recordTurnLabel(client, turnEntry({ settled: true }));
@@ -668,9 +666,7 @@ describe("AgentCardStatus wiring", () => {
       return {};
     });
     act(() => refreshTurnLabels(client));
-    await waitFor(() =>
-      expect(activity()?.textContent).toMatch(/ran pnpm test$/)
-    );
+    await waitFor(() => expect(activity()?.textContent).toMatch(/thinking$/));
   });
 
   it("still has a long step's label when a row mounts minutes into it", async () => {

@@ -1,3 +1,4 @@
+import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
 import {
@@ -191,11 +192,14 @@ type Waiting = {
   alone: boolean;
   /** The turn that took it, once one has; later jobs for it just wait on it. */
   taken: boolean;
-  delivery: "auto" | "queue";
+  delivery: "auto" | "queue" | "interrupt";
   resolveSettled: () => void;
   resolveAccepted: () => void;
   rejectAccepted: (error: Error) => void;
   cancelled: boolean;
+  /** Cancellation belongs to the turn active when this post arrived. */
+  interruptHandled: boolean;
+  interruptTargetSeq?: number;
 };
 
 type Live = {
@@ -208,6 +212,9 @@ type Live = {
   waiting: Waiting[];
   pending: number;
   turnOpen: boolean;
+  turnSeq: number | undefined;
+  interruptedTurnSeq: number | undefined;
+  conversation: PromptConversation | undefined;
   /** Event handling is serialized per agent so rows land in seq order. */
   events: Promise<void>;
   lastSeq: number;
@@ -228,7 +235,16 @@ function takeBatch(waiting: Waiting[]): Waiting[] {
   let size = batch[0]!.text.length;
   while (batch.length < COMBINE_MAX_PROMPTS) {
     const next = waiting[0];
-    if (!next || next.alone) break;
+    if (
+      !next ||
+      next.alone ||
+      !sameConversation(
+        batch[0]!.source?.conversation,
+        next.source?.conversation
+      ) ||
+      batch[0]!.source?.userMessage !== next.source?.userMessage
+    )
+      break;
     size += next.text.length + COMBINED_SEPARATOR.length;
     if (size + combinedPreamble(batch.length + 1).length > COMBINE_MAX_CHARS) {
       break;
@@ -264,7 +280,12 @@ function combine(batch: Waiting[]): { text: string; source?: PromptSource } {
     text:
       combinedPreamble(batch.length) +
       batch.map((w) => w.text).join(COMBINED_SEPARATOR),
-    source: { source: "chat", chatMessageId: ids[0]!, chatMessageIds: ids },
+    source: {
+      ...batch[0]!.source,
+      source: "chat",
+      chatMessageId: ids[0]!,
+      chatMessageIds: ids,
+    },
   };
 }
 
@@ -337,12 +358,78 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     entry.pumping = true;
     try {
       while (entry.waiting.length && live.get(agentId) === entry) {
+        const urgent = entry.waiting.filter((w) => w.delivery === "interrupt");
+        for (const w of urgent) {
+          // A steering request may settle the arrival-time turn while the pump
+          // is locked. Its interrupt must never migrate to a subsequent turn.
+          if (
+            !entry.turnOpen ||
+            (w.interruptTargetSeq !== undefined &&
+              w.interruptTargetSeq !== entry.turnSeq)
+          )
+            w.interruptHandled = true;
+        }
+        if (entry.turnOpen && urgent.length) {
+          if (urgent.every((w) => w.interruptHandled)) break;
+          if (
+            !entry.client.welcome?.interruptSupported ||
+            entry.turnSeq === undefined
+          ) {
+            for (const w of urgent.filter((w) => !w.interruptHandled)) {
+              entry.waiting.splice(entry.waiting.indexOf(w), 1);
+              w.rejectAccepted(
+                new Error(
+                  "This agent host cannot safely interrupt an active turn. Restart the agent and retry."
+                )
+              );
+              w.resolveSettled();
+            }
+            continue;
+          }
+          if (entry.interruptedTurnSeq !== entry.turnSeq) {
+            const targetSeq = entry.turnSeq;
+            entry.interruptedTurnSeq = targetSeq;
+            for (const w of urgent.filter((w) => !w.interruptHandled)) {
+              w.interruptHandled = true;
+              w.interruptTargetSeq ??= targetSeq;
+            }
+            try {
+              // Keep the pump locked until cancel returns, even if settlement
+              // wins the race. Never let a pending cancel hit the next turn.
+              await entry.client.interrupt(crypto.randomUUID(), targetSeq);
+            } catch (error) {
+              if (entry.turnSeq === targetSeq)
+                entry.interruptedTurnSeq = undefined;
+              // Preserve stored posts as failed deliveries for explicit retry.
+              // Never claim settlement or dispatch concurrently after failure.
+              for (const w of entry.waiting.filter(
+                (w) =>
+                  w.delivery === "interrupt" &&
+                  w.interruptTargetSeq === targetSeq
+              )) {
+                entry.waiting.splice(entry.waiting.indexOf(w), 1);
+                w.rejectAccepted(
+                  error instanceof Error ? error : new Error(String(error))
+                );
+                w.resolveSettled();
+              }
+            }
+            if (!entry.turnOpen) continue;
+          }
+          for (const w of urgent) w.interruptHandled = true;
+          // Settlement, not the cancellation response, releases the new turn.
+          break;
+        }
         const steering = entry.turnOpen;
         let batch: Waiting[];
         if (steering) {
           if (!entry.client.welcome?.steeringSupported) break;
           const index = entry.waiting.findIndex(
-            (w) => w.delivery === "auto" && !w.images?.length
+            (w) =>
+              w.delivery === "auto" &&
+              !w.images?.length &&
+              w.source?.userMessage === true &&
+              sameConversation(w.source.conversation, entry.conversation)
           );
           if (index < 0) break;
           batch = entry.waiting.splice(index, 1);
@@ -372,12 +459,22 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 w.taken = false;
                 w.delivery = "queue";
               }
-              entry.waiting.unshift(...batch);
+              // Keep declined steering ahead of ordinary queued work, but
+              // behind interrupts that arrived while the request was pending.
+              const firstOrdinary = entry.waiting.findIndex(
+                (w) => w.delivery !== "interrupt"
+              );
+              entry.waiting.splice(
+                firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+                0,
+                ...batch
+              );
               continue;
             }
           } else {
             // Set this before submitting: ack and settle can arrive together.
             entry.turnOpen = true;
+            entry.conversation = source?.conversation;
             const images = batch.flatMap((item) => item.images ?? []);
             await entry.client.prompt(
               id,
@@ -414,6 +511,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   function emit(agentId: string, entry: Live, event: DriverEvent, seq: number) {
     if (event.type === "turn") {
       entry.turnOpen = event.state === "started";
+      entry.turnSeq = event.state === "started" ? seq : undefined;
+      entry.conversation =
+        event.state === "started" ? event.source?.conversation : undefined;
       if (event.state === "settled") {
         const waiters = entry.settleWaiters;
         entry.settleWaiters = [];
@@ -464,6 +564,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       waiting: [],
       pending: 0,
       turnOpen: false,
+      turnSeq: undefined,
+      interruptedTurnSeq: undefined,
+      conversation: undefined,
       events: Promise.resolve(),
       lastSeq: cursor.seq,
       journalId: cursor.journalId,
@@ -514,6 +617,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           );
         }
         entry.turnOpen = welcome.turn !== null;
+        entry.turnSeq = welcome.turn?.seq;
+        entry.conversation = welcome.turn?.source?.conversation;
         entry.commands = welcome.commands;
         if (welcome.configOptions) entry.configOptions = welcome.configOptions;
       },
@@ -717,16 +822,40 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         text,
         ...(opts?.images?.length ? { images: opts.images } : {}),
         ...(source ? { source } : {}),
-        alone: opts?.alone === true || source?.source !== "chat",
+        alone:
+          opts?.delivery === "interrupt" ||
+          opts?.alone === true ||
+          source?.source !== "chat",
         // Steering accepts text only. Keep images for the next ordinary turn.
-        delivery: opts?.images?.length ? "queue" : (opts?.delivery ?? "queue"),
+        delivery:
+          opts?.delivery === "interrupt"
+            ? "interrupt"
+            : opts?.images?.length
+              ? "queue"
+              : (opts?.delivery ?? "queue"),
         taken: false,
         resolveAccepted,
         rejectAccepted,
         resolveSettled,
         cancelled: false,
+        interruptTargetSeq: entry.turnSeq,
+        interruptHandled:
+          !entry.turnOpen ||
+          (entry.turnSeq !== undefined &&
+            entry.interruptedTurnSeq === entry.turnSeq),
       };
-      entry.waiting.push(own);
+      if (own.delivery === "interrupt") {
+        const firstOrdinary = entry.waiting.findIndex(
+          (w) => w.delivery !== "interrupt"
+        );
+        entry.waiting.splice(
+          firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+          0,
+          own
+        );
+      } else {
+        entry.waiting.push(own);
+      }
       entry.pending += 1;
       accepted.catch(() => {});
       void pump(agentId, entry);
@@ -748,6 +877,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       // No awaits between checking and claiming: partially delivered posts
       // cannot be deleted, nor can a prompt already handed to the engine.
       if (!targets.length || targets.some((target) => !target)) return false;
+      if (
+        action === "send-now" &&
+        targets.some((target) => {
+          const { entry, prompt } = target!;
+          return (
+            entry.turnOpen &&
+            (prompt.delivery === "interrupt" ||
+              !prompt.source?.userMessage ||
+              !sameConversation(prompt.source.conversation, entry.conversation))
+          );
+        })
+      )
+        return false;
       for (const target of targets) {
         const { entry, prompt } = target!;
         entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
@@ -759,7 +901,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           prompt.resolveSettled();
         } else {
           prompt.alone = true;
-          entry.waiting.unshift(prompt);
+          const firstOrdinary = entry.waiting.findIndex(
+            (w) => w.delivery !== "interrupt"
+          );
+          entry.waiting.splice(
+            firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+            0,
+            prompt
+          );
           prompt.delivery = "auto";
         }
       }
@@ -771,6 +920,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     isBusy(agentId) {
       const entry = live.get(agentId);
       return entry ? entry.turnOpen || entry.pending > 0 : false;
+    },
+
+    inputState(agentId) {
+      const entry = live.get(agentId);
+      return {
+        active: entry?.turnOpen ?? false,
+        steeringSupported: entry?.client.welcome?.steeringSupported ?? false,
+        interruptSupported: entry?.client.welcome?.interruptSupported ?? false,
+        conversation: entry?.conversation ?? null,
+      };
     },
 
     hasOpenTurn(agentId) {

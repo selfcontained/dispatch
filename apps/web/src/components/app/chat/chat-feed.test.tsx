@@ -17,7 +17,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -134,6 +134,13 @@ function makeCtx(
 
 let queryClient = new QueryClient();
 
+function JumpLocation() {
+  const location = useLocation();
+  return (
+    <output data-testid="jump-location">{JSON.stringify(location)}</output>
+  );
+}
+
 function feedElement(
   entries: StreamEntry[],
   ctx: FeedContext,
@@ -143,6 +150,7 @@ function feedElement(
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
+        <JumpLocation />
         <ChatFeed
           entries={entries}
           ctx={ctx}
@@ -1412,6 +1420,27 @@ describe("ChatFeed", () => {
       "Queued until the turn ends"
     );
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+  });
+
+  it("keeps a held interrupt waiting for stop without offering Send now", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "urgent",
+          authorKind: "user",
+          text: "Urgent",
+          threadId: null,
+          body: { kind: "text", data: { delivery: "interrupt" }, state: null },
+          delivered: null,
+          delivery: [{ agentId: "agt_1", state: "held" }],
+        })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Stop requested"
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
   it("shows the hold hint on the queued message only", () => {
@@ -2744,5 +2773,88 @@ describe("delivery receipts in the feed", () => {
     expect(
       screen.queryByRole("button", { name: "Message delivery details" })
     ).toBeNull();
+  });
+});
+
+describe("response backlinks", () => {
+  it("gives repeated clicks a fresh jump nonce and keeps the child view", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "response",
+            streamId: AGENT_ID,
+            author: { kind: "agent", agentId: "agt_child" },
+            body: {
+              kind: "text",
+              state: null,
+              data: {
+                responseTo: ["source-message"],
+                responseToThreadId: null,
+              },
+            },
+            text: "Answer",
+          })
+        ),
+      ],
+      {},
+      { agentId: "agt_child" }
+    );
+    const link = screen.getByRole("link", {
+      name: "In response to your message",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "/agents/agt_child?block=source-message"
+    );
+    fireEvent.click(link);
+    const first = JSON.parse(screen.getByTestId("jump-location").textContent!);
+    expect(first.pathname).toBe("/agents/agt_child");
+    expect(first.state.blockJump).toBeTruthy();
+    fireEvent.click(link);
+    const second = JSON.parse(screen.getByTestId("jump-location").textContent!);
+    expect(second.state.blockJump).not.toBe(first.state.blockJump);
+  });
+
+  it("offers Send now for held recipients regardless of delivered recipients' work", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "mixed-held",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [
+              { agentId: "agt_done", state: "delivered" },
+              { agentId: "agt_held", state: "held" },
+            ],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: "agt_done",
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: "elsewhere" },
+          },
+        } as Agent,
+        {
+          id: "agt_held",
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: null },
+          },
+        } as Agent,
+      ]
+    );
+    expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
   });
 });

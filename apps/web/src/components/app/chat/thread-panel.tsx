@@ -1,3 +1,4 @@
+import { useDeliveryAgents } from "@/hooks/use-agent-tree";
 /**
  * The thread behind one block, Slack-style: a panel to the right of the
  * stream (a full-width sheet on a phone) showing the root block, its
@@ -190,6 +191,7 @@ export function ThreadPanel({
   // With a finding open over it, the panel is the finding's own thread:
   // the finding in full, its status controls, and its discussion.
   const threadBlockId = findingId ?? blockId;
+  const deliveryAgents = useDeliveryAgents();
   const thread = useThread(rootId, threadBlockId);
   const ctx = useMemo(
     () => withThreadNames(feedCtx, thread.agentNames),
@@ -236,7 +238,7 @@ export function ThreadPanel({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { delivery?: "auto" | "queue" }
+      options?: { delivery?: "auto" | "queue" | "interrupt" }
     ): Promise<void> => {
       await postAsync({
         text,
@@ -547,6 +549,8 @@ export function ThreadPanel({
           agentId={null}
           onSend={onSend}
           canQueue
+          deliveryAgents={deliveryAgents}
+          conversation={{ streamId: rootId, threadId: threadBlockId }}
           uploadFile={uploadFile}
           disabledReason={disabledReason}
           sending={post.isPending}

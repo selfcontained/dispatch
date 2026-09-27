@@ -43,7 +43,14 @@ export type TurnRetryState = "open" | "retried" | "closed";
 
 export type TurnPayload = {
   /** Additional input accepted during this turn; original routing stays intact. */
-  steering?: Array<{ source: PromptSource; at: string }>;
+  steering?: Array<{ source: PromptSource; at: string; receiptId?: string }>;
+  /** A confirmed steering pickup waiting for its first visible output. */
+  pendingResponse?: { receiptId: string; source: PromptSource };
+  /** Receipts already used as response boundaries, including after reconnect. */
+  responseReceipts?: string[];
+  /** Only assistant rows from here belong to the current visible response. */
+  responseStartSeq?: number;
+  responsePrompt?: PromptSource;
   state: "started" | "settled";
   prompt: PromptSource;
   /** The model the turn ran on, as the engine published it at the start. */
@@ -124,6 +131,15 @@ const INSERT_SQL = `
  */
 export class StreamStore {
   constructor(private readonly db: Queryable) {}
+
+  /** Recorder events are serialized per agent; reserve no row for a reply boundary. */
+  async nextSeq(agentId: string): Promise<number> {
+    const result = await this.db.query<{ seq: number }>(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM agent_stream_events WHERE agent_id = $1`,
+      [agentId]
+    );
+    return Number(result.rows[0]!.seq);
+  }
 
   async append(
     agentId: string,

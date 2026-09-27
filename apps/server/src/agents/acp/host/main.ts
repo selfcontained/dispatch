@@ -1,3 +1,4 @@
+import type { PromptSource } from "../prompt-source.js";
 /**
  * `dispatch agent-host --state <dir>`: the process that owns one agent's
  * ACP session. It spawns the engine adapter, holds its stdio for its whole
@@ -198,7 +199,11 @@ async function main(): Promise<void> {
 
   // One client at a time; the newest connection wins.
   let client: net.Socket | null = null;
-  let openTurn: { seq: number; startedAt: string } | null = null;
+  let openTurn: {
+    seq: number;
+    startedAt: string;
+    source?: PromptSource;
+  } | null = null;
   let running = false;
   let sessionId = "";
   let resumed = false;
@@ -216,7 +221,7 @@ async function main(): Promise<void> {
     if (event.type === "turn") {
       openTurn =
         event.state === "started"
-          ? { seq: entry.seq, startedAt: entry.at }
+          ? { seq: entry.seq, startedAt: entry.at, source: event.source }
           : null;
     }
     if (event.type === "exit") {
@@ -277,6 +282,7 @@ async function main(): Promise<void> {
           resumed,
           running,
           steeringSupported: driver.supportsSteering(agentId),
+          interruptSupported: true,
           turn: openTurn,
           journalSeq: journal.lastSeq,
           journalId: journal.id,
@@ -335,6 +341,18 @@ async function main(): Promise<void> {
             message.source
           );
           send(socket, { type: "steer_result", id: message.id, outcome });
+        } catch (err) {
+          send(socket, { type: "error", id: message.id, message: String(err) });
+        }
+        return;
+      }
+      case "interrupt": {
+        try {
+          // No await between checking the turn identity and invoking cancel.
+          // A stale request must never cancel a later unrelated turn.
+          if (running && openTurn?.seq === message.turnSeq)
+            await driver.cancel(agentId);
+          send(socket, { type: "interrupt_result", id: message.id });
         } catch (err) {
           send(socket, { type: "error", id: message.id, message: String(err) });
         }
@@ -495,6 +513,7 @@ async function main(): Promise<void> {
       resumed,
       running,
       steeringSupported: driver.supportsSteering(agentId),
+      interruptSupported: true,
       turn: null,
       journalSeq: journal.lastSeq,
       journalId: journal.id,

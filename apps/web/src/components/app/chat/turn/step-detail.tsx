@@ -106,7 +106,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
   // settled detail in its own right, so an execute step keeps CommandLine.
   const command = input?.command ?? input?.cmd;
   if (
-    step.status === "running" &&
+    (step.status === "running" || step.status === "pending") &&
     !hasSettledDetail(step) &&
     !(step.kind === "execute" && typeof command === "string")
   ) {

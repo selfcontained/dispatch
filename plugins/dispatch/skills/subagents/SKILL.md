@@ -15,7 +15,7 @@ That difference decides when delegation is worth it:
   that needs its own branch or worktree; a long-running background task; a
   genuinely separate perspective on what you just built.
 - **Not worth it:** anything you could finish faster yourself. A launch costs a
-  full CLI startup, and the child starts with none of your context — everything
+  separate ACP session, and the child starts with none of your context — everything
   it needs has to be written into the prompt.
 
 For _review_ specifically, launch with `persona: <slug>` rather than a plain
@@ -75,10 +75,16 @@ from `parentAgentId`, and hold on to the ID of anyone you plan to contact later.
 it can reply the same way — its reply arrives as a DISPATCH POST naming the
 sender, and `replyTo` keeps an exchange in one thread. The user sees the traffic
 in the stream. `to` takes an agent ID (`agt_…`); names drift as agents rename
-themselves, so hold on to the ID. **Delivery only works for agents that are
-currently running** — a post to a stopped agent is recorded but not delivered,
-so check `list_agents` when one goes unanswered rather than assuming it
-landed.
+themselves, so hold on to the ID. A successful `post` records the block; it
+does not prove the recipient picked it up or answered. A stopped agent cannot
+consume a prompt until its session is available. Inspect `list_agents` when
+diagnosing a delivery problem, rather than repeatedly polling for a result.
+
+Finish independent work after delegating, then end the turn if the next step
+depends on the result. The child reports back with `post` and `to`, which arrives
+as a new prompt; do not keep a turn alive by sleeping or polling. Reply to
+another agent only when it asks for one. Sending a message does not cancel a
+running tool, and progress from a child is not proof that its task is complete.
 
 Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the

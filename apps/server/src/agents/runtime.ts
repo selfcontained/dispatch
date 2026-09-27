@@ -1,3 +1,4 @@
+import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
@@ -105,6 +106,7 @@ export type AgentRuntime = {
   isBusy(agentId: string): boolean;
   /** A turn is actually running, excluding prompts waiting in the queue. */
   hasOpenTurn(agentId: string): boolean;
+  inputState?(agentId: string): AgentInputState;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;

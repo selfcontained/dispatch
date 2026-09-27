@@ -170,3 +170,9 @@ export type {
   AgentPermissionRequest,
   AgentPermissionsResponse,
 } from "./permission-types.js";
+
+export { sameConversation } from "./conversation-delivery.js";
+export type {
+  PromptConversation,
+  AgentInputState,
+} from "./conversation-delivery.js";

@@ -66,13 +66,18 @@ itself, since it is already in the worktree.
 
 ## Working the review
 
+After launching reviewers, finish independent work and end the turn when the
+next step depends on their findings. Reviews arrive as new prompts; do not
+sleep or poll for them. A launch receipt or progress reply is not a review.
+
 The review arrives as a DISPATCH POST carrying a `review` block: its
 `summary`, and its findings, each with its own `id`, `severity`, `title`,
 `body`, and often a `path` and `line`. Each finding is a block of its own, and
 its thread is where it is discussed.
 
 ```
-post    replyTo: <finding id>, text   — answer a finding in its thread
+post    to: <reviewer agent id>, replyTo: <finding id>, text
+        — answer a finding in its thread and deliver it to the reviewer
 ```
 
 Where a review stands comes from its findings: open until one is resolved,
@@ -81,8 +86,8 @@ dismissed. **The reviewer resolves them, not you**: it checks your answer and
 settles the finding, or tells you under it what is still missing and reopens
 it.
 
-**Keep the discussion in the finding's thread.** A reply there reaches the
-reviewer as a prompt and keeps the finding, the fix, and the verification
+**Keep the discussion in the finding's thread.** Use `replyTo` for the thread
+and `to` for delivery to the reviewer. This keeps the finding, the fix, and the verification
 attached to each other; a loose post does neither. Don't narrate in the review's
 own thread.
 

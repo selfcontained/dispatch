@@ -1114,8 +1114,16 @@ export function useAnswerQuestion(rootId: string | null) {
     StreamAnswerInput & { id: string },
     { previous: Block | null }
   >({
-    mutationFn: async ({ id, blockId, value, label, attachments }) => {
+    mutationFn: async ({
+      id,
+      blockId,
+      value,
+      label,
+      attachments,
+      delivery,
+    }) => {
       const body: StreamAnswerRequest = { id, value };
+      if (delivery) body.delivery = delivery;
       if (label) body.label = label;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       return api<StreamAnswerResponse>(`${blockPath(rootId, blockId)}/answer`, {

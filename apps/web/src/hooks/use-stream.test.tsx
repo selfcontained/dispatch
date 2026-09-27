@@ -169,6 +169,34 @@ describe("useAnswerQuestion", () => {
     expect(client.getQueryData(threadQueryKey("agt_1", "q1"))).toBeUndefined();
   });
 
+  it.each(["queue", "interrupt"] as const)(
+    "forwards %s delivery for free-text answers",
+    async (delivery) => {
+      const client = seededClient([]);
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      );
+      apiMock.mockResolvedValue({
+        block: block({ id: "q1", body: questionBody([{ label: "main" }]) }),
+        reply: block({ id: "r1", authorKind: "user", threadId: "q1" }),
+        delivered: null,
+      } satisfies StreamAnswerResponse);
+      const { result } = renderHook(() => useAnswerQuestion("agt_1"), {
+        wrapper,
+      });
+      await act(async () => {
+        await result.current.mutateAsync({
+          blockId: "q1",
+          value: "main",
+          delivery,
+        });
+      });
+      expect(
+        JSON.parse(apiMock.mock.calls[0]![1].body! as string)
+      ).toMatchObject({ value: "main", delivery });
+    }
+  );
+
   it("leaves attachments out of the body when there are none", async () => {
     const client = seededClient([]);
     const wrapper = ({ children }: { children: ReactNode }) => (
