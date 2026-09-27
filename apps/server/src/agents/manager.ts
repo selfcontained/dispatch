@@ -898,7 +898,7 @@ export class AgentManager {
     });
     // The open turn comes from the stream; only ACP's live turn state decides
     // whether it is still current. Derived activity is a separate UI summary.
-    if (agent.status === "running" && this.runtime.isBusy(agent.id))
+    if (agent.status === "running" && this.runtime.hasOpenTurn(agent.id))
       return live;
     return live.currentTurn === null ? live : { ...live, currentTurn: null };
   }
@@ -916,7 +916,7 @@ export class AgentManager {
     if (
       agent.status === "running" &&
       resting &&
-      this.runtime.isBusy(agent.id)
+      this.runtime.hasOpenTurn(agent.id)
     ) {
       return { ...agent, activity: "working" };
     }

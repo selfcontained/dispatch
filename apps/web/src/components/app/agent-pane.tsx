@@ -91,6 +91,7 @@ export function ChatFiltersButton({
 export type AgentPaneProps = {
   agentId: string | null;
   agent: Agent | null;
+  agents?: Agent[];
   /** The pane is on screen (its tab is active, or it sits in a split). */
   active: boolean;
   showChildAgents: boolean;
@@ -110,6 +111,7 @@ export type AgentPaneProps = {
 export function AgentPane({
   agentId,
   agent,
+  agents,
   active,
   showChildAgents,
   onShowChildAgentsChange,
@@ -173,6 +175,7 @@ export function AgentPane({
             key={agentId ?? "none"}
             agentId={agentId}
             agent={agent}
+            agents={agents}
             active={active}
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}

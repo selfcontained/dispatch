@@ -75,6 +75,7 @@ import { cn } from "@/lib/utils";
 export type ChatPaneProps = {
   agentId: string | null;
   agent: Agent | null;
+  agents?: Agent[];
   /**
    * The pane is on screen: its tab is active (or it sits in a split). While false the
    * pane stays mounted — feed, scroll position and draft intact — but does
@@ -408,6 +409,7 @@ export function questionExcerpt(text: string, max = 80): string {
 export function ChatPane({
   agentId,
   agent,
+  agents = [],
   active,
   showChildAgents,
   onShowChildAgentsChange,
@@ -1078,7 +1080,7 @@ export function ChatPane({
 
   const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
-  const turnRunning = newestTurn !== null && !newestTurn.block.turn?.settled;
+  const turnRunning = Boolean(agent?.currentTurn);
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
@@ -1283,9 +1285,11 @@ export function ChatPane({
               deliveryAgents={deliveryAgents}
               conversation={composerConversation}
               action={
-                agentId && turnRunning ? (
-                  <StopTurnButton agentId={agentId} onError={setSendError} />
-                ) : undefined
+                <StopTurnButton
+                  agents={agents.length ? agents : agent ? [agent] : []}
+                  selectedAgentId={agentId}
+                  onError={setSendError}
+                />
               }
               footer={
                 agentId && agent ? (
