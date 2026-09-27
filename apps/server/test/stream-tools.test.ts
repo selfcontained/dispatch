@@ -25,19 +25,25 @@ function createMockServer() {
 }
 
 const AGENT_ID = "agt_stream_tools";
-const ALL = new Set(["post", "update", "react"]);
+const ALL = new Set(["post", "update", "react", "get_review"]);
 const BLOCK = "7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5";
 const OTHER = "0f9e8d7c-6b5a-4433-8211-000011112222";
 
 describe("registerStreamTools", () => {
   let server: ReturnType<typeof createMockServer>;
   let post: ReturnType<typeof vi.fn>;
+  let getReview: ReturnType<typeof vi.fn>;
   let update: ReturnType<typeof vi.fn>;
   let addReaction: ReturnType<typeof vi.fn>;
   let removeReaction: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     server = createMockServer();
+    getReview = vi.fn(async () => ({
+      id: BLOCK,
+      summary: "Clean",
+      findings: [],
+    }));
     post = vi.fn(async (_agentId: string, input: { kind?: string }) => ({
       id: BLOCK,
       kind: input.kind ?? "text",
@@ -70,7 +76,13 @@ describe("registerStreamTools", () => {
     removeReaction = vi.fn(async () => ({ blockId: OTHER, reactions: [] }));
     registerStreamTools(server as never, ALL, {
       agentId: AGENT_ID,
-      streams: { post, update, addReaction, removeReaction } as never,
+      streams: {
+        post,
+        update,
+        getReview,
+        addReaction,
+        removeReaction,
+      } as never,
     });
   });
 
@@ -82,6 +94,7 @@ describe("registerStreamTools", () => {
 
   it("registers the tools only when allowed and a service is present", () => {
     expect(server.tools.map((t) => t.name)).toEqual([
+      "get_review",
       "post",
       "update",
       "react",
@@ -95,6 +108,28 @@ describe("registerStreamTools", () => {
       streams: { post, update } as never,
     });
     expect(onlyPost.tools.map((t) => t.name)).toEqual(["post"]);
+  });
+
+  it("fetches the latest review or an explicit id within the calling agent's scope", async () => {
+    const latest = await tool("get_review").handler({});
+    expect(getReview).toHaveBeenCalledWith(AGENT_ID, undefined);
+    expect(latest.structuredContent).toEqual({
+      id: BLOCK,
+      summary: "Clean",
+      findings: [],
+    });
+    await tool("get_review").handler({ id: BLOCK });
+    expect(getReview).toHaveBeenLastCalledWith(AGENT_ID, BLOCK);
+    const schema = tool("get_review").config.inputSchema.id as Schema;
+    expect(schema.safeParse("not-a-uuid").success).toBe(false);
+  });
+
+  it("returns a useful error when a review cannot be fetched", async () => {
+    getReview.mockRejectedValueOnce(new Error("Review not found."));
+    expect(await tool("get_review").handler({ id: BLOCK })).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Review not found." }],
+    });
   });
 
   it("describes post as the one verb: to, kinds, replyTo and notify", () => {

@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -19,6 +22,134 @@ beforeEach(async () => {
 });
 
 describe("MCP auth integration", () => {
+  it("uploads, lists, and reads shared files through real MCP calls, including useful errors", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "dispatch-mcp-files-"));
+    const parent = "agt_files_parent";
+    const child = "agt_files_child";
+    const stranger = "agt_files_stranger";
+    try {
+      for (const id of [parent, child, stranger]) {
+        await ctx.pool.query(
+          `INSERT INTO agents (id, name, type, status, cwd, files_dir, parent_agent_id)
+           VALUES ($1, $1, 'codex', 'running', $2, $3, $4)`,
+          [id, dir, path.join(dir, id), id === child ? parent : null]
+        );
+      }
+      const token = (
+        await ctx.pool.query<{ value: string }>(
+          "SELECT value FROM settings WHERE key = 'auth_token'"
+        )
+      ).rows[0]!.value;
+      const call = async (
+        agentId: string,
+        name: string,
+        args: Record<string, unknown>
+      ) => {
+        const response = await ctx.app.inject({
+          method: "POST",
+          url: `/api/mcp/${agentId}`,
+          headers: {
+            authorization: `Bearer ${ctx.auth.createAgentMcpToken(token, agentId)}`,
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          payload: {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name, arguments: args },
+          },
+        });
+        expect(response.statusCode).toBe(200);
+        const data = response.body
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        const body = JSON.parse(data ? data.slice(6) : response.body);
+        expect(body.error).toBeUndefined();
+        return body.result as {
+          isError?: boolean;
+          content: Array<{ type: string; text: string }>;
+        };
+      };
+      const source = path.join(dir, "review notes.txt");
+      await writeFile(source, "Review attachment round trip.\n");
+      expect(
+        await call(child, "post", {
+          attachments: [{ type: "file", path: source }],
+        })
+      ).not.toHaveProperty("isError", true);
+
+      const own = await call(child, "list_files", {});
+      expect(own.isError).not.toBe(true);
+      const files = JSON.parse(own.content[0]!.text);
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatchObject({ ownerAgentId: child, source: "text" });
+      expect(await readFile(files[0].filePath, "utf8")).toBe(
+        "Review attachment round trip.\n"
+      );
+      const family = await call(parent, "list_files", { ownerAgentId: child });
+      expect(JSON.parse(family.content[0]!.text)).toEqual(files);
+      const filtered = await call(parent, "list_files", {
+        ownerAgentId: child,
+        source: "screenshot",
+      });
+      expect(JSON.parse(filtered.content[0]!.text)).toEqual([]);
+      // The review reader is callable through the same scoped MCP route.
+      const posted = await call(child, "post", {
+        to: parent,
+        review: { summary: "Files checked.", findings: [] },
+      });
+      expect(posted.isError).not.toBe(true);
+      const reviewId = JSON.parse(posted.content[0]!.text).id;
+      const fetched = await call(parent, "get_review", {});
+      expect(fetched.isError).not.toBe(true);
+      expect(JSON.parse(fetched.content[0]!.text)).toMatchObject({
+        id: reviewId,
+        summary: "Files checked.",
+        status: "complete",
+        findings: [],
+      });
+      expect(
+        await call(stranger, "get_review", { id: reviewId })
+      ).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "Review not found." }],
+      });
+
+      // An archive must not make a child's reports unreadable.
+      await ctx.pool.query(
+        "UPDATE agents SET deleted_at = NOW() WHERE id = $1",
+        [child]
+      );
+      expect(
+        JSON.parse(
+          (await call(parent, "list_files", { ownerAgentId: child }))
+            .content[0]!.text
+        )
+      ).toEqual(files);
+      const forbidden = await call(stranger, "list_files", {
+        ownerAgentId: child,
+      });
+      expect(forbidden).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "Agent not found." }],
+      });
+
+      const missing = path.join(dir, "missing.txt");
+      const failed = await call(parent, "post", {
+        attachments: [{ type: "file", path: missing }],
+      });
+      expect(failed.isError).toBe(true);
+      expect(failed.content[0]!.text).toContain("ENOENT");
+      expect(failed.content[0]!.text).toContain("missing.txt");
+      expect(
+        JSON.parse((await call(parent, "list_files", {})).content[0]!.text)
+      ).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects invalid scoped agent tokens on the real route", async () => {
     const response = await ctx.app.inject({
       method: "POST",
@@ -121,6 +252,7 @@ describe("MCP auth integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("rename_session");
+    expect(response.body).toContain("get_review");
     expect(response.body).not.toContain('"name":"review_submit"');
   });
 
@@ -168,6 +300,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("rename_session");
     expect(response.body).toContain("rename_session");
     expect(response.body).toContain("list_files");
+    expect(response.body).toContain("get_review");
     expect(response.body).toContain("list_personas");
     expect(response.body).toContain("launch_agent");
     expect(response.body).not.toContain("launch_persona");

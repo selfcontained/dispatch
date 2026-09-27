@@ -1451,16 +1451,9 @@ export class StreamService {
     // recipient (the one whose work it is) when the author does.
     const sides = new Set(sidesOf(updated));
     if (by.kind === "agent") sides.delete(by.agentId);
-    // A finding settled by its reviewer asks nothing of the agent whose
-    // work it is: only a reopen gives that agent something to do.
-    if (
-      updated.kind === "finding" &&
-      updated.state.status === "resolved" &&
-      updated.toAgentId &&
-      sameAuthor(updated.author, by)
-    ) {
-      sides.delete(updated.toAgentId);
-    }
+    // Verification results must reach the requester too: otherwise it can
+    // wait forever after asking the reviewer to check a fix. The resolved
+    // hint makes clear that no acknowledgement is needed.
     const summary = describeStateChange(updated, stamped);
     const from = await this.senderOf(by);
     for (const agentId of sides) {
@@ -1630,6 +1623,48 @@ export class StreamService {
   // -------------------------------------------------------------------------
   // Agents (MCP)
   // -------------------------------------------------------------------------
+
+  /** Read a review without delivering a prompt or changing unread state. */
+  async getReview(agentId: string, id?: string) {
+    await this.requireAgent(agentId);
+    const review = id
+      ? await this.store.getById(id)
+      : await this.store.latestReviewFor(agentId);
+    if (
+      !review ||
+      review.kind !== "review" ||
+      (review.toAgentId !== agentId &&
+        !sameAuthor(review.author, { kind: "agent", agentId }))
+    ) {
+      throw new StreamNotFoundError("Review not found.");
+    }
+    const entry = await loadBlockEntry(
+      this.store.db,
+      review.streamId,
+      review.id,
+      this.heldCheck()
+    );
+    if (!entry) throw new StreamNotFoundError("Review not found.");
+    const findings = reviewFindings(entry.block).map((finding) => ({
+      id: finding.id,
+      ...finding.data,
+      state: finding.state,
+    }));
+    const open = findings.filter(
+      (finding) => finding.state.status === "open"
+    ).length;
+    return {
+      id: review.id,
+      author: review.author,
+      toAgentId: review.toAgentId,
+      summary: review.data.summary,
+      text: review.text,
+      createdAt: review.createdAt,
+      status: open > 0 ? "open" : "complete",
+      openFindings: open,
+      findings,
+    };
+  }
 
   /** An agent's `post`. */
   async post(agentId: string, input: PostInput): Promise<Block> {

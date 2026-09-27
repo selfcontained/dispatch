@@ -1824,8 +1824,8 @@ describe("StreamService.sendUserPost", () => {
       threadId: findings[0]!.id,
       toAgentId: null,
     });
-    // The person is its reviewer: resolving it asks nothing of the agent,
-    // so the agent is not told; reopening it is the agent's move again.
+    // The person is its reviewer: both verification and reopening reach
+    // the agent whose work was reviewed.
     injected.length = 0;
     await svc.setState(
       A,
@@ -1834,7 +1834,9 @@ describe("StreamService.sendUserPost", () => {
       { kind: "user" }
     );
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "Guard" fixed.');
+    injected.length = 0;
     await svc.setState(
       A,
       findings[0]!.id,
@@ -2747,10 +2749,15 @@ describe("StreamService.setState", () => {
       by: { kind: "agent", agentId: B },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    // The reviewer settling its own finding asks nothing of the builder:
-    // no notification (each one would cost the builder a turn).
-    expect(injected).toEqual([]);
-    // Dismissed by the reviewer: the same.
+    // The builder receives the verification result without being asked
+    // to acknowledge it.
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "c" fixed.');
+    expect(injected[0]!.text).toContain(
+      "Nothing to do on your side unless it is reopened."
+    );
+    injected.length = 0;
+    // Dismissals also carry the reviewer's explanation.
     await svc.setState(
       B,
       f2.id,
@@ -2758,7 +2765,10 @@ describe("StreamService.setState", () => {
       { kind: "agent", agentId: B }
     );
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      'Finding "c" dismissed: On reflection, fine.'
+    );
     // The reviewer reopening tells the builder it is its move.
     injected.length = 0;
     await svc.setState(
@@ -2958,6 +2968,93 @@ describe("StreamService review threads", () => {
     );
     expect(injected[0]!.text).toContain(`(id: ${f1.id}, open)`);
     expect(injected[0]!.text).toContain(`(id: ${f2.id}, open)`);
+  });
+
+  it("delivers a clean review and its summary to the requesting agent", async () => {
+    const { svc, injected } = build();
+    await launchChild(svc);
+    const review = await svc.post(B, {
+      to: A,
+      review: {
+        summary: "Checked the changes; no issues found.",
+        findings: [],
+      },
+    });
+    await settled(svc, review.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      `Review (id: ${review.id}): no findings.`
+    );
+    expect(injected[0]!.text).toContain(
+      "Checked the changes; no issues found."
+    );
+  });
+
+  it("fetches current review findings for the requester and reviewer without sending a prompt", async () => {
+    const { svc, injected } = build();
+    const { r, f1, f2 } = await reviewed(svc);
+    await svc.update(B, f1.id, {
+      state: { status: "fixed", note: "Verified the fix." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    injected.length = 0;
+    const latest = await svc.getReview(A);
+    expect(latest).toMatchObject({
+      id: r.id,
+      summary: "s",
+      status: "open",
+      openFindings: 1,
+      findings: [
+        {
+          id: f1.id,
+          title: "a",
+          state: {
+            status: "resolved",
+            resolution: "fixed",
+            note: "Verified the fix.",
+          },
+        },
+        { id: f2.id, title: "c", state: { status: "open" } },
+      ],
+    });
+    expect(await svc.getReview(B, r.id)).toEqual(latest);
+    expect(injected).toEqual([]);
+    await svc.update(B, f2.id, {
+      state: { status: "dismissed", note: "Not applicable." },
+    });
+    expect(await svc.getReview(A, r.id)).toMatchObject({
+      status: "complete",
+      openFindings: 0,
+    });
+    const clean = await svc.post(B, {
+      to: A,
+      review: { summary: "Follow-up is clean.", findings: [] },
+    });
+    expect(await svc.getReview(A)).toMatchObject({
+      id: clean.id,
+      status: "complete",
+      findings: [],
+    });
+    expect((await svc.getReview(A, r.id)).findings).toHaveLength(2);
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
+  it("does not expose unrelated reviews, non-review blocks, or missing reviews", async () => {
+    const { svc } = build();
+    await expect(svc.getReview(A)).rejects.toThrow("Review not found.");
+    const own = await svc.post(B, {
+      review: { summary: "Private", findings: [] },
+    });
+    await expect(svc.getReview(A, own.id)).rejects.toThrow("Review not found.");
+    expect(await svc.getReview(B, own.id)).toMatchObject({ id: own.id });
+    const text = await svc.post(A, { text: "Not a review" });
+    await expect(svc.getReview(A, text.id)).rejects.toThrow(
+      "Review not found."
+    );
+    await expect(svc.getReview(A, NIL)).rejects.toThrow("Review not found.");
+    await expect(svc.getReview(A, "invalid")).rejects.toThrow(
+      "Review not found."
+    );
   });
 
   it("reads the card with the review and its findings attached, and counts none of them as replies", async () => {
@@ -3465,16 +3562,24 @@ describe("StreamService review threads", () => {
     await svc.waitForInFlightDeliveries(1_000);
   });
 
-  it("tells the builder only when the reviewer reopens a finding, and the reviewer when the builder resolves one", async () => {
+  it("tells the builder when the reviewer verifies or reopens a finding, and the reviewer when the builder resolves one", async () => {
     const { svc, injected, injectedOpts } = build();
     const { f1, f2 } = await reviewed(svc);
     injected.length = 0;
-    // The reviewer resolving its own finding: nothing asked of the builder.
+    // The reviewer resolving its own finding delivers the verification note.
     await svc.update(B, f1.id, {
       state: { status: "fixed", note: "Verified." },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "a" fixed: Verified.');
+    expect(injected[0]!.text).toContain(
+      "Nothing to do on your side unless it is reopened."
+    );
+    expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
+      source: { source: "chat", chatMessageId: f1.id, answerIn: f1.id },
+    });
+    injected.length = 0;
     // Reopening it is the builder's move: the builder is told, on the finding.
     await svc.update(B, f1.id, {
       state: { status: "open", note: "Regressed." },
