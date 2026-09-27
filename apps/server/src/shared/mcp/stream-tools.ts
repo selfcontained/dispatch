@@ -19,7 +19,7 @@ export type StreamToolsContext = {
   agentId: string;
   streams?: Pick<
     StreamService,
-    "post" | "update" | "addReaction" | "removeReaction"
+    "post" | "update" | "getReview" | "addReaction" | "removeReaction"
   >;
 };
 
@@ -192,7 +192,7 @@ const REACT_DESCRIPTION =
   "Put an emoji reaction on a block someone else posted on your stream (the user's message, another agent's post), by the id from its DISPATCH POST envelope. " +
   "A reaction does not count as an unread message for the user. Explain in an ordinary reply, or use post for structured content. Pass remove: true to take it off.";
 
-/** `post`, `update`, `react`: the whole stream surface an agent has. */
+/** Stream posting, review retrieval, updates, and reactions. */
 export function registerStreamTools(
   server: McpServer,
   allowed: ReadonlySet<string>,
@@ -201,6 +201,35 @@ export function registerStreamTools(
   if (!context.streams) return;
   const streams = context.streams;
   const agentId = context.agentId;
+
+  if (allowed.has("get_review")) {
+    server.registerTool(
+      "get_review",
+      {
+        description:
+          "Fetch a review's summary, findings (with ids), and current resolution states and notes. " +
+          "Omit id for the latest review addressed to you, or provide an id for a review you authored or received. " +
+          "Use for on-demand inspection or recovering context; review results are also delivered as prompts, so do not poll while waiting.",
+        inputSchema: {
+          id: z
+            .uuid()
+            .optional()
+            .describe("Review block id; omit for your latest received review."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await streams.getReview(agentId, args.id);
+          return {
+            content: [{ type: "text", text: jsonText(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   if (allowed.has("post")) {
     server.registerTool(

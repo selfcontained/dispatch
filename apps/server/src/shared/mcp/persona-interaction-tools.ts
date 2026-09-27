@@ -177,7 +177,6 @@ export function registerPersonaInteractionTools(
     );
   }
 
-
   // ── list_personas ────────────────────────────────────────────────
   if (allowed.has("list_personas") && callbacks.listPersonas) {
     const listPersonas = callbacks.listPersonas;

@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, acp-runtime]
     # Naming `types` replaces the default set, so the first three are the
     # defaults restored. `edited` is the addition: it re-runs when a title or
     # description changes, so a session link pasted in after a green run can't

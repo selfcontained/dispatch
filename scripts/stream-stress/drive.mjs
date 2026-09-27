@@ -16,7 +16,11 @@ import { execSync } from "node:child_process";
 const args = Object.fromEntries(
   process.argv
     .slice(3)
-    .reduce((pairs, arg, i, all) => (arg.startsWith("--") ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs), [])
+    .reduce(
+      (pairs, arg, i, all) =>
+        arg.startsWith("--") ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs,
+      []
+    )
 );
 const mode = process.argv[2];
 const API = args.api ?? "http://127.0.0.1:60466";
@@ -36,7 +40,10 @@ async function api(path, init = {}) {
     ...init,
     headers: { "content-type": "application/json", ...(init.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`${init.method ?? "GET"} ${path}: ${res.status} ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(
+      `${init.method ?? "GET"} ${path}: ${res.status} ${await res.text()}`
+    );
   return res.json();
 }
 
@@ -44,13 +51,22 @@ async function api(path, init = {}) {
 async function tool(agentId, name, argsIn) {
   const res = await fetch(`${API}/api/mcp/${agentId}`, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: argsIn } }),
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: argsIn },
+    }),
   });
   const text = await res.text();
   const line = text.split("\n").find((l) => l.startsWith("data: "));
   const payload = JSON.parse(line ? line.slice(6) : text);
-  if (payload.error || payload.result?.isError) throw new Error(`${name}: ${text.slice(0, 300)}`);
+  if (payload.error || payload.result?.isError)
+    throw new Error(`${name}: ${text.slice(0, 300)}`);
   const body = payload.result?.content?.[0]?.text;
   try {
     return JSON.parse(body ?? "{}");
@@ -62,7 +78,13 @@ async function tool(agentId, name, argsIn) {
 async function createAgent(name, parentAgentId) {
   const { agent } = await api("/agents", {
     method: "POST",
-    body: JSON.stringify({ name, type: "claude", cwd: "/tmp", useWorktree: false, parentAgentId }),
+    body: JSON.stringify({
+      name,
+      type: "claude",
+      cwd: "/tmp",
+      useWorktree: false,
+      parentAgentId,
+    }),
   });
   return agent.id;
 }
@@ -90,7 +112,10 @@ const MARKDOWN = [
 async function userTurn(root, agentId, steps, ms) {
   await api(`/streams/${root}/blocks`, {
     method: "POST",
-    body: JSON.stringify({ to: agentId, text: `stress:steps=${steps} ms=${ms} seed=${between(1, 1e6)} ${pick(MARKDOWN)}` }),
+    body: JSON.stringify({
+      to: agentId,
+      text: `stress:steps=${steps} ms=${ms} seed=${between(1, 1e6)} ${pick(MARKDOWN)}`,
+    }),
   });
 }
 
@@ -103,9 +128,15 @@ async function userTurn(root, agentId, steps, ms) {
  */
 function assertStressHost() {
   const port = new URL(API).port;
-  const pid = execSync(`lsof -tiTCP:${port} -sTCP:LISTEN || true`).toString().trim().split("\n")[0];
+  const pid = execSync(`lsof -tiTCP:${port} -sTCP:LISTEN || true`)
+    .toString()
+    .trim()
+    .split("\n")[0];
   const env = pid ? execSync(`ps eww -p ${pid} -o command=`).toString() : "";
-  if (!/DISPATCH_AGENT_HOST_COMMAND=\S*stress-host\.sh/.test(env) || !/DISPATCH_AGENT_RUNTIME=acp/.test(env)) {
+  if (
+    !/DISPATCH_AGENT_HOST_COMMAND=\S*stress-host\.sh/.test(env) ||
+    !/DISPATCH_AGENT_RUNTIME=acp/.test(env)
+  ) {
     throw new Error(
       `the API on :${port} does not run the stress host (DISPATCH_AGENT_HOST_COMMAND=…/stress-host.sh, live runtime); refusing to launch agents`
     );
@@ -113,13 +144,21 @@ function assertStressHost() {
 }
 
 async function assertStressEngine(agentId) {
-  await api(`/streams/${agentId}/blocks`, { method: "POST", body: JSON.stringify({ to: agentId, text: "stress:steps=1 ms=1 canary" }) });
+  await api(`/streams/${agentId}/blocks`, {
+    method: "POST",
+    body: JSON.stringify({ to: agentId, text: "stress:steps=1 ms=1 canary" }),
+  });
   await waitIdle(agentId);
   const { entries } = await api(`/streams/${agentId}/blocks?limit=10`);
-  const answer = entries.map((e) => e.block.turn?.result?.text ?? "").find(Boolean) ?? "";
+  const answer =
+    entries.map((e) => e.block.turn?.result?.text ?? "").find(Boolean) ?? "";
   if (!answer.startsWith("Done with 1 steps.")) {
-    await api(`/agents/${agentId}?cleanupWorktree=force`, { method: "DELETE" }).catch(() => {});
-    throw new Error(`the first agent did not answer as the stress engine (got ${JSON.stringify(answer.slice(0, 80))}); deleted it and stopped`);
+    await api(`/agents/${agentId}?cleanupWorktree=force`, {
+      method: "DELETE",
+    }).catch(() => {});
+    throw new Error(
+      `the first agent did not answer as the stress engine (got ${JSON.stringify(answer.slice(0, 80))}); deleted it and stopped`
+    );
   }
 }
 
@@ -131,15 +170,18 @@ async function setup() {
   await assertStressEngine(root);
   const builders = [];
   const reviewers = [];
-  for (let i = 1; i <= 3; i += 1) builders.push(await createAgent(`stress builder ${i}`, root));
-  for (let i = 1; i <= 2; i += 1) reviewers.push(await createAgent(`stress reviewer ${i}`, root));
+  for (let i = 1; i <= 3; i += 1)
+    builders.push(await createAgent(`stress builder ${i}`, root));
+  for (let i = 1; i <= 2; i += 1)
+    reviewers.push(await createAgent(`stress reviewer ${i}`, root));
   for (const id of [root, ...builders, ...reviewers]) await waitIdle(id);
 
   // Root history: moderate turns and posts, the bulk of the pages.
   const rootTurns = Math.round(60 * SCALE);
   for (let i = 0; i < rootTurns; i += 1) {
     await userTurn(root, root, between(3, 40), 4);
-    if (i % 3 === 0) await tool(pick(builders), "post", { text: pick(MARKDOWN) });
+    if (i % 3 === 0)
+      await tool(pick(builders), "post", { text: pick(MARKDOWN) });
     if (i % 4 === 0) await tool(root, "post", { text: pick(MARKDOWN) });
     await waitIdle(root);
   }
@@ -152,7 +194,10 @@ async function setup() {
   // launch thread.
   for (const builder of builders) {
     for (let i = 0; i < Math.round(15 * SCALE); i += 1) {
-      await tool(root, "post", { to: builder, text: `stress:steps=${between(3, 25)} ms=4 ${pick(MARKDOWN)}` });
+      await tool(root, "post", {
+        to: builder,
+        text: `stress:steps=${between(3, 25)} ms=4 ${pick(MARKDOWN)}`,
+      });
       await waitIdle(builder);
     }
   }
@@ -182,14 +227,26 @@ async function setup() {
     let replyTo = finding;
     for (let i = 0; i < replies; i += 1) {
       const author = i % 2 === 0 ? root : reviewers[n < 12 ? 0 : 1];
-      const posted = await tool(author, "post", { replyTo, text: pick(MARKDOWN) });
+      const posted = await tool(author, "post", {
+        replyTo,
+        text: pick(MARKDOWN),
+      });
       replyTo = posted.id ?? replyTo;
     }
   }
-  for (const id of [root, ...builders, ...reviewers]) await waitIdle(id, 300_000);
+  for (const id of [root, ...builders, ...reviewers])
+    await waitIdle(id, 300_000);
   const feed = await api(`/streams/${root}/blocks?limit=100`);
   console.log(
-    JSON.stringify({ root, builders, reviewers, findings, seconds: Math.round((Date.now() - t0) / 1000), firstPageBytes: JSON.stringify(feed).length, hasMore: feed.hasMore })
+    JSON.stringify({
+      root,
+      builders,
+      reviewers,
+      findings,
+      seconds: Math.round((Date.now() - t0) / 1000),
+      firstPageBytes: JSON.stringify(feed).length,
+      hasMore: feed.hasMore,
+    })
   );
 }
 
@@ -203,8 +260,12 @@ async function live() {
   const root = args.root;
   const { agents } = await api("/agents");
   const kids = agents.filter((a) => a.parentAgentId === root);
-  const builders = kids.filter((a) => a.name.includes("builder")).map((a) => a.id);
-  const reviewers = kids.filter((a) => a.name.includes("reviewer")).map((a) => a.id);
+  const builders = kids
+    .filter((a) => a.name.includes("builder"))
+    .map((a) => a.id);
+  const reviewers = kids
+    .filter((a) => a.name.includes("reviewer"))
+    .map((a) => a.id);
   const finding = args.finding;
   const until = Date.now() + Number(args.seconds ?? 120) * 1000;
   await userTurn(root, root, 400, 250);
@@ -213,10 +274,23 @@ async function live() {
     n += 1;
     const roll = rand();
     try {
-      if (roll < 0.25) await tool(root, "post", { to: pick(builders), text: `stress:steps=${between(10, 40)} ms=250 ${pick(MARKDOWN)}` });
-      else if (roll < 0.55) await tool(pick([...builders, root]), "post", { text: pick(MARKDOWN) });
-      else if (roll < 0.8 && finding) await tool(pick(reviewers), "post", { replyTo: finding, text: pick(MARKDOWN) });
-      else await tool(pick(reviewers), "react", { blockId: finding ?? root, emoji: pick(["👍", "👀", "✅"]) }).catch(() => {});
+      if (roll < 0.25)
+        await tool(root, "post", {
+          to: pick(builders),
+          text: `stress:steps=${between(10, 40)} ms=250 ${pick(MARKDOWN)}`,
+        });
+      else if (roll < 0.55)
+        await tool(pick([...builders, root]), "post", { text: pick(MARKDOWN) });
+      else if (roll < 0.8 && finding)
+        await tool(pick(reviewers), "post", {
+          replyTo: finding,
+          text: pick(MARKDOWN),
+        });
+      else
+        await tool(pick(reviewers), "react", {
+          blockId: finding ?? root,
+          emoji: pick(["👍", "👀", "✅"]),
+        }).catch(() => {});
     } catch (error) {
       console.error(String(error).slice(0, 200));
     }
@@ -228,6 +302,8 @@ async function live() {
 if (mode === "setup") await setup();
 else if (mode === "live") await live();
 else {
-  console.error("usage: drive.mjs setup|live --api URL [--scale N] [--root ID --finding ID --seconds S]");
+  console.error(
+    "usage: drive.mjs setup|live --api URL [--scale N] [--root ID --finding ID --seconds S]"
+  );
   process.exit(2);
 }

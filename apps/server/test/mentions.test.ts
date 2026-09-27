@@ -11,9 +11,9 @@ const agents = [
 
 describe("findMentions", () => {
   it("names agents at word edges, case-insensitively, once each, in order", () => {
-    expect(findMentions("@Reviewer look, then @reviewer again", agents)).toEqual([
-      "agt_r",
-    ]);
+    expect(
+      findMentions("@Reviewer look, then @reviewer again", agents)
+    ).toEqual(["agt_r"]);
     expect(findMentions("ping @reviewer and (@badge demo)", agents)).toEqual([
       "agt_r",
       "agt_c",
