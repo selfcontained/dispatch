@@ -173,7 +173,7 @@ test("a queued post confirms a combined delivery and pickup update, then stays q
   }
 });
 
-test("receipt margin stays fixed and separate from changing post actions", async ({
+test("receipt stays at the bottom left while actions use the right edge", async ({
   page,
   request,
 }) => {
@@ -220,7 +220,10 @@ test("receipt margin stays fixed and separate from changing post actions", async
           row.boundingBox(),
           slot.boundingBox(),
         ]);
-        return { right: r!.x + r!.width - s!.x - s!.width, top: s!.y - r!.y };
+        return {
+          left: s!.x - r!.x,
+          bottom: r!.y + r!.height - s!.y - s!.height,
+        };
       };
       const original = await offset();
       for (const withCopy of [true, false]) {
@@ -235,7 +238,10 @@ test("receipt margin stays fixed and separate from changing post actions", async
           slot.boundingBox(),
           row.getByTestId("chat-post-action").boundingBox(),
         ]);
-        expect(a!.x + a!.width).toBeLessThanOrEqual(s!.x - 4);
+        const r = (await row.boundingBox())!;
+        expect(s!.x).toBe(r.x + 16);
+        expect(s!.y + s!.height).toBe(r.y + r.height - 4);
+        expect(a!.x + a!.width).toBe(r.x + r.width - (width < 640 ? 8 : 16));
         await page.mouse.move(0, 0);
         expect(await offset()).toEqual(original);
         await expect(

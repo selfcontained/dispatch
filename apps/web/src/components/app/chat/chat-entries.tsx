@@ -579,7 +579,7 @@ export function Post({
   side?: { recipientName: string };
   /** A compact post action, shown in the top-right on hover or touch. */
   action?: ReactNode;
-  /** A fixed receipt margin independent of message actions and body layout. */
+  /** A receipt in the bottom-left gutter, independent of the message body. */
   deliveryIndicator?: ReactNode;
   /**
    * No avatar gutter and a narrower inset: for a card that is the whole
@@ -597,7 +597,6 @@ export function Post({
         // row: the "→ recipient" in its header says who it was for. An
         // indent read as a different, harder-to-follow kind of message.
         flush ? "px-3" : "px-4",
-        deliveryIndicator && "pr-8",
         side && author.kind !== "user"
           ? POST_TINT.peer
           : POST_TINT[author.kind],
@@ -612,14 +611,6 @@ export function Post({
       data-flush={flush ? "true" : undefined}
       {...rest}
     >
-      {deliveryIndicator ? (
-        <div
-          className="absolute right-1 top-2 h-4 w-4"
-          data-testid="chat-delivery-slot"
-        >
-          {deliveryIndicator}
-        </div>
-      ) : null}
       {flush ? null : (
         <div className="flex w-8 shrink-0 justify-end">
           {grouped ? (
@@ -636,16 +627,11 @@ export function Post({
         </div>
       )}
       <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
-        {/* Floated beside the body, except in a flush post: there a card
-            with its own overflow context would shrink to dodge the float,
-            so the action sits in the header row instead. */}
+        {/* Actions share the author row. The body clears this float so even
+            grouped posts and overflow-contained markdown get the full width. */}
         {action && !flush ? (
           <div
-            className={cn(
-              "float-right ml-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mt-2",
-              !deliveryIndicator &&
-                "max-sm:-mr-2 [@media(pointer:coarse)]:-mr-2"
-            )}
+            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
             data-testid="chat-post-action"
           >
             {action}
@@ -694,10 +680,21 @@ export function Post({
           </div>
         )}
         <div
-          className={cn("min-w-0 text-sm text-foreground", POST_BODY_MEASURE)}
+          className={cn(
+            "clear-both min-w-0 text-sm text-foreground",
+            POST_BODY_MEASURE
+          )}
         >
           {children}
         </div>
+        {deliveryIndicator ? (
+          <div
+            className="absolute bottom-1 left-4 h-4 w-4"
+            data-testid="chat-delivery-slot"
+          >
+            {deliveryIndicator}
+          </div>
+        ) : null}
       </div>
     </div>
   );
