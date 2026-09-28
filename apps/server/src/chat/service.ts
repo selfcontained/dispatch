@@ -2966,7 +2966,7 @@ export class StreamService {
     // The post now carries the intent it was given, the same as one sent
     // as an interrupt from the composer: the row reads "Stop requested",
     // and a retry after a failed stop asks to interrupt again.
-    if (action === "interrupt" && block.kind === "text") {
+    if (action === "interrupt") {
       await this.store.update(blockId, {
         data: { ...(block.data ?? {}), delivery: "interrupt" },
       });

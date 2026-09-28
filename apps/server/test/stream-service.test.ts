@@ -5487,6 +5487,39 @@ describe("StreamService queued message controls", () => {
     await svc.waitForInFlightDeliveries(1000);
   });
 
+  it("retries an interrupted queued review with its interrupt intent", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { svc } = build({
+      gate,
+      held: true,
+      fail: true,
+      controlQueuedPrompt: () => true,
+    });
+    const { block } = await svc.sendUserPost(A, {
+      text: "Review is ready",
+      review: { summary: "Review is ready", findings: [] },
+      delivery: "queue",
+    });
+    expect(block.kind).toBe("review");
+    await svc.controlQueuedMessage(A, block.id, "interrupt");
+    release();
+    const failed = await settled(svc, block.id);
+    expect(failed).toMatchObject({
+      delivered: false,
+      data: { delivery: "interrupt", summary: "Review is ready" },
+    });
+
+    const retry = build({ held: true });
+    expect((await retry.svc.retryDelivery(A, block.id)).held).toBe(true);
+    await settled(retry.svc, block.id);
+    expect(retry.injectedOpts).toEqual([
+      expect.objectContaining({ blockId: block.id, delivery: "interrupt" }),
+    ]);
+  });
+
   it("rejects interrupting a queued ACP command", async () => {
     const control = vi.fn(() => true);
     const { svc } = build({ controlQueuedPrompt: control });
