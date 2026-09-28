@@ -179,8 +179,8 @@ function useReceiptFlash(block: Block): boolean {
   return received.some((entry) => !!flashes[entry.agentId]);
 }
 
-/** Non-interactive receipt mark. The parent reserves its own fixed margin;
- * this subtree never participates in the action toolbar or message flow. */
+/** Non-interactive receipt mark. Its fixed-size slot stays in place after
+ * the confirmation fades, so message content and actions never shift. */
 export function DeliveryIndicator({
   block,
 }: Pick<DeliveryMetaProps, "block">): JSX.Element {
@@ -217,6 +217,13 @@ export function DeliveryIndicator({
           : freshReceipt && received === deliveries.length
             ? "Received"
             : undefined;
+  // Keep the success color after the flash expires so the double check
+  // fades out in green instead of changing back to gray during its exit.
+  const confirmed =
+    !needsAction &&
+    !pendingKey &&
+    received > 0 &&
+    received === deliveries.length;
   const Icon =
     status === "Sending…" ? Loader2 : status === "Sent" ? Check : CheckCheck;
   const label =
@@ -225,7 +232,7 @@ export function DeliveryIndicator({
       : status;
   return (
     <span
-      className={`flex h-4 w-4 items-center justify-center text-muted-foreground transition-opacity duration-200 motion-reduce:transition-none ${status ? "opacity-100" : "opacity-0"}`}
+      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-green-700 [[data-theme-mode=dark]_&]:text-green-500" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
       data-testid="chat-delivery-indicator"
       data-status={status}
       role="status"
