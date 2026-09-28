@@ -1543,3 +1543,63 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 [data-theme-mode="light"] .chat-user-wash:hover {
   background-color: rgb(0 0 0 / 6.5%);
 }
+
+/* The mobile reading state keeps the actual editor mounted, so the first
+   tap focuses it directly and opens the software keyboard. Drafts, questions,
+   attachments and errors retain the full composer. Portaled menus keep their
+   trigger open, which also keeps the controls visible while using them. */
+@media (max-width: 767px) {
+  .chat-composer {
+    gap: 0;
+  }
+
+  .chat-composer-details {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      grid-template-rows 180ms ease,
+      opacity 180ms ease,
+      visibility 180ms;
+  }
+
+  .chat-composer [data-testid="chat-composer-controls"] {
+    transition: padding-bottom 180ms ease;
+  }
+
+  .chat-composer [data-chat-composer] {
+    transition:
+      min-height 180ms ease,
+      padding 180ms ease;
+  }
+
+  .chat-composer[data-mobile-idle="true"]:not(:focus-within):not(
+      :has([data-state="open"])
+    ) {
+    .chat-composer-details {
+      grid-template-rows: 0fr;
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    [data-testid="chat-composer-controls"] {
+      padding-bottom: 0;
+    }
+
+    [data-chat-composer] {
+      min-height: 44px;
+      padding-top: 10px;
+      padding-bottom: 10px;
+      border-radius: 1rem;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer-details,
+  .chat-composer [data-testid="chat-composer-controls"],
+  .chat-composer [data-chat-composer] {
+    transition: none;
+  }
+}

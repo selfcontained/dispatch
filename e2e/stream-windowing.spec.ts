@@ -147,6 +147,13 @@ test.describe("Stream windowing", () => {
       ).toBeInViewport();
       const input = page.getByTestId("chat-composer-input");
       await input.fill("one\ntwo\nthree\nfour\nfive");
+      // Mobile expands on focus. Measure the idle stream after that deliberate
+      // viewport resize, rather than halfway through the opening transition.
+      await page.getByTestId("chat-composer").evaluate(async (el) => {
+        await Promise.all(
+          el.getAnimations({ subtree: true }).map((a) => a.finished)
+        );
+      });
       const stream = scroller(page);
       for (const distance of [0, 65, 250]) {
         await stream.evaluate((el, gap) => {

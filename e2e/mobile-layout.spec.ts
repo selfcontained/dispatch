@@ -8,6 +8,8 @@ import { mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { createAgentViaAPI, cleanupE2EAgents } from "./helpers";
+
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -99,4 +101,39 @@ test.describe("Mobile layout", () => {
       )
       .toBe(0);
   });
+});
+
+test("mobile composer expands on focus and preserves drafts when returning to reading", async ({
+  page,
+  request,
+}) => {
+  const agent = await createAgentViaAPI(request);
+  try {
+    await gotoMobile(page, `/agents/${agent.id}`);
+    const composer = page.getByTestId("chat-composer");
+    const input = page.getByTestId("chat-composer-input");
+    const attach = page.getByTestId("chat-composer-attach-button");
+    await expect(input).toBeVisible();
+    await expect(attach).toBeHidden();
+    expect((await composer.boundingBox())!.height).toBeLessThan(60);
+    await input.click();
+    await expect(attach).toBeVisible();
+    await input.pressSequentially("Keep this draft");
+    await page.getByTestId("chat-filters-trigger").click();
+    await expect(page.getByTestId("chat-filters-popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(attach).toBeVisible();
+    await expect(input).toHaveText("Keep this draft");
+    await input.click();
+    await input.press("ControlOrMeta+A");
+    await input.press("Backspace");
+    await page.getByTestId("chat-filters-trigger").click();
+    await expect(page.getByTestId("chat-filters-popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(attach).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(attach).toBeVisible();
+  } finally {
+    await cleanupE2EAgents(request);
+  }
 });
