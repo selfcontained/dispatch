@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronDown, ChevronRight, Square, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, Square, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useTurnDetail } from "@/hooks/use-stream";
@@ -148,6 +148,7 @@ function ActivityBlockImpl({
               <StepList
                 trace={trace}
                 disclosures={[stepOverrides, setStepOverrides]}
+                freshness
               />
             )
           ) : null}
@@ -203,8 +204,11 @@ function FullTraceStepList({
 export function StepList({
   trace,
   disclosures,
+  freshness = false,
 }: {
   trace: Trace;
+  /** Head the list with how long a running turn has gone without output. */
+  freshness?: boolean;
   /**
    * Which steps are open, owned by something that outlives the list. A
    * turn's list unmounts while its fold is closed, so its caller holds this;
@@ -215,7 +219,6 @@ export function StepList({
     Dispatch<SetStateAction<Record<string, boolean>>>,
   ];
 }): JSX.Element {
-  const done = trace.endedAt != null;
   const own = useChatRowState<Record<string, boolean>>("activity-steps", {});
   const [stepOverrides, setStepOverrides] = disclosures ?? own;
   // Stream updates must not open and close details underneath the reader.
@@ -249,14 +252,7 @@ export function StepList({
             onToggle={toggleStep}
           />
         ))}
-        {!done &&
-        trace.steps.length > 0 &&
-        !activeStepLabel(trace.steps) &&
-        !runningTurnVerb(
-          trace.steps,
-          undefined,
-          trace.lastProgressAt
-        ).startsWith("preparing ") ? (
+        {showsThinking(trace) ? (
           <ThinkingRow
             since={trace.steps.reduce(
               (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
@@ -266,7 +262,23 @@ export function StepList({
           />
         ) : null}
       </div>
+      {/* Not a step, so outside the list: its count matches the summary's. */}
+      {freshness ? (
+        <ProgressFreshness trace={trace} maskClass={BLOCK_FILL} />
+      ) : null}
     </div>
+  );
+}
+
+/** Nothing is running and nothing is being prepared: the model is between steps. */
+function showsThinking(trace: Trace): boolean {
+  return (
+    trace.endedAt == null &&
+    trace.steps.length > 0 &&
+    !activeStepLabel(trace.steps) &&
+    !runningTurnVerb(trace.steps, undefined, trace.lastProgressAt).startsWith(
+      "preparing "
+    )
   );
 }
 
@@ -381,14 +393,13 @@ function SummaryRow({
   const verb = done
     ? summary.verb
     : runningTurnVerb(trace.steps, label, trace.lastProgressAt);
-  const freshness = !done ? progressFreshness(trace) : undefined;
   const slot = !done || summary.failed || summary.interrupted;
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total${freshness ? `, ${freshness}` : ""}, ${open ? "collapse" : "expand"} activity`}
+      aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total, ${open ? "collapse" : "expand"} activity`}
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
@@ -423,18 +434,8 @@ function SummaryRow({
         </span>
       </span>
       <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-        <span className="block">
-          {thinking ? "" : `${steps} · `}
-          {formatStepDuration(ms)} total
-        </span>
-        {freshness ? (
-          <span
-            className="block text-[10px]"
-            data-testid="harness-progress-freshness"
-          >
-            {freshness}
-          </span>
-        ) : null}
+        {thinking ? "" : `${steps} · `}
+        {formatStepDuration(ms)} total
       </span>
       <span
         aria-hidden="true"
@@ -494,12 +495,75 @@ function ThinkingRow({
   );
 }
 
-/** A quiet clock never claims a stalled operation succeeded or was cancelled. */
-export function progressFreshness(trace: Trace, now = Date.now()): string {
+/** How long output can pause before the summary says when it last arrived. */
+const FRESHNESS_DELAY_MS = 10_000;
+
+/** Slack between a step starting and the progress that start recorded. */
+const SAME_MOMENT_MS = 250;
+
+/**
+ * A quiet clock never claims a stalled operation succeeded or was cancelled.
+ * Undefined while output is still arriving (an age that keeps resetting says
+ * nothing) and whenever another row already times the same silence: a running
+ * step that has printed nothing since it started, or the thinking row.
+ */
+export function progressFreshness(
+  trace: Trace,
+  now = Date.now()
+): string | undefined {
   const elapsed = Math.max(0, now - (trace.lastProgressAt ?? trace.startedAt));
+  if (elapsed < FRESHNESS_DELAY_MS) return undefined;
+  if (showsThinking(trace)) return undefined;
+  const last = trace.lastProgressAt;
+  if (
+    last !== undefined &&
+    trace.steps.some(
+      (s) => s.status === "running" && s.startedAt >= last - SAME_MOMENT_MS
+    )
+  ) {
+    return undefined;
+  }
   const age = formatStepDuration(elapsed);
   const quiet = elapsed >= 30_000 ? "quiet · " : "";
   return trace.lastProgressAt === undefined
     ? `${quiet}no output yet · ${age}`
     : `${quiet}updated ${age} ago`;
+}
+
+/**
+ * How long a running turn has gone without output, at the foot of its open
+ * step list beside the work it describes. Kept off the summary line, where a
+ * second clock ticking beside the turn total read as noise.
+ */
+function ProgressFreshness({
+  trace,
+  maskClass,
+}: {
+  trace: Trace;
+  maskClass: string;
+}): JSX.Element | null {
+  const running = trace.endedAt == null;
+  useStreamTicker(running);
+  const freshness = running ? progressFreshness(trace) : undefined;
+  if (!freshness) return null;
+  return (
+    <div
+      className="flex items-center gap-2 py-1.5"
+      data-testid="harness-progress-freshness"
+    >
+      <span
+        className={cn(
+          "z-10 flex w-3 shrink-0 items-center justify-center text-muted-foreground",
+          maskClass
+        )}
+        aria-hidden="true"
+      >
+        <Clock className="h-3 w-3" />
+      </span>
+      <span className="min-w-0 truncate text-[11px] leading-5 tabular-nums text-muted-foreground">
+        <span className="sr-only">Activity: </span>
+        {freshness}
+      </span>
+    </div>
+  );
 }
