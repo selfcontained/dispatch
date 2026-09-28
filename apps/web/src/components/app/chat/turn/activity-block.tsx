@@ -219,7 +219,6 @@ export function StepList({
     Dispatch<SetStateAction<Record<string, boolean>>>,
   ];
 }): JSX.Element {
-  const done = trace.endedAt != null;
   const own = useChatRowState<Record<string, boolean>>("activity-steps", {});
   const [stepOverrides, setStepOverrides] = disclosures ?? own;
   // Stream updates must not open and close details underneath the reader.
@@ -244,9 +243,6 @@ export function StepList({
         className="absolute bottom-2 left-[5.5px] top-1 w-px bg-border"
       />
       <div role="list" aria-label="activity steps" className="relative">
-        {freshness ? (
-          <ProgressFreshness trace={trace} maskClass={BLOCK_FILL} />
-        ) : null}
         {trace.steps.map((step, i) => (
           <StepListRow
             key={step.id}
@@ -256,14 +252,7 @@ export function StepList({
             onToggle={toggleStep}
           />
         ))}
-        {!done &&
-        trace.steps.length > 0 &&
-        !activeStepLabel(trace.steps) &&
-        !runningTurnVerb(
-          trace.steps,
-          undefined,
-          trace.lastProgressAt
-        ).startsWith("preparing ") ? (
+        {showsThinking(trace) ? (
           <ThinkingRow
             since={trace.steps.reduce(
               (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
@@ -273,7 +262,23 @@ export function StepList({
           />
         ) : null}
       </div>
+      {/* Not a step, so outside the list: its count matches the summary's. */}
+      {freshness ? (
+        <ProgressFreshness trace={trace} maskClass={BLOCK_FILL} />
+      ) : null}
     </div>
+  );
+}
+
+/** Nothing is running and nothing is being prepared: the model is between steps. */
+function showsThinking(trace: Trace): boolean {
+  return (
+    trace.endedAt == null &&
+    trace.steps.length > 0 &&
+    !activeStepLabel(trace.steps) &&
+    !runningTurnVerb(trace.steps, undefined, trace.lastProgressAt).startsWith(
+      "preparing "
+    )
   );
 }
 
@@ -493,10 +498,14 @@ function ThinkingRow({
 /** How long output can pause before the summary says when it last arrived. */
 const FRESHNESS_DELAY_MS = 10_000;
 
+/** Slack between a step starting and the progress that start recorded. */
+const SAME_MOMENT_MS = 250;
+
 /**
  * A quiet clock never claims a stalled operation succeeded or was cancelled.
- * Undefined while output is still arriving: an age that keeps resetting says
- * nothing.
+ * Undefined while output is still arriving (an age that keeps resetting says
+ * nothing) and whenever another row already times the same silence: a running
+ * step that has printed nothing since it started, or the thinking row.
  */
 export function progressFreshness(
   trace: Trace,
@@ -504,6 +513,16 @@ export function progressFreshness(
 ): string | undefined {
   const elapsed = Math.max(0, now - (trace.lastProgressAt ?? trace.startedAt));
   if (elapsed < FRESHNESS_DELAY_MS) return undefined;
+  if (showsThinking(trace)) return undefined;
+  const last = trace.lastProgressAt;
+  if (
+    last !== undefined &&
+    trace.steps.some(
+      (s) => s.status === "running" && s.startedAt >= last - SAME_MOMENT_MS
+    )
+  ) {
+    return undefined;
+  }
   const age = formatStepDuration(elapsed);
   const quiet = elapsed >= 30_000 ? "quiet · " : "";
   return trace.lastProgressAt === undefined
@@ -512,9 +531,9 @@ export function progressFreshness(
 }
 
 /**
- * How long a running turn has gone without output, at the head of its open
- * step list. Kept off the summary line, where a second clock ticking beside
- * the turn total read as noise.
+ * How long a running turn has gone without output, at the foot of its open
+ * step list beside the work it describes. Kept off the summary line, where a
+ * second clock ticking beside the turn total read as noise.
  */
 function ProgressFreshness({
   trace,
@@ -529,8 +548,7 @@ function ProgressFreshness({
   if (!freshness) return null;
   return (
     <div
-      className="flex items-center gap-[9px] py-1"
-      role="listitem"
+      className="flex items-center gap-2 py-1.5"
       data-testid="harness-progress-freshness"
     >
       <span
@@ -542,7 +560,8 @@ function ProgressFreshness({
       >
         <Clock className="h-3 w-3" />
       </span>
-      <span className="min-w-0 truncate text-[11px] tabular-nums text-muted-foreground">
+      <span className="min-w-0 truncate text-[11px] leading-5 tabular-nums text-muted-foreground">
+        <span className="sr-only">Activity: </span>
         {freshness}
       </span>
     </div>
