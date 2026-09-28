@@ -1228,7 +1228,7 @@ export function ChatPane({
 
           <div
             className={cn(
-              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-4 pt-3",
+              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >

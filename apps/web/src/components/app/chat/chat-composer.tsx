@@ -990,7 +990,7 @@ export function ChatComposer({
 
   return (
     <form
-      className="flex flex-col gap-1"
+      className="chat-composer flex flex-col gap-1"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -999,6 +999,18 @@ export function ChatComposer({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       data-testid="chat-composer"
+      data-mobile-idle={
+        !text &&
+        !hasAttachments &&
+        !replyContext &&
+        !pendingQuestion &&
+        !error &&
+        !disabledReason &&
+        !draggingFiles &&
+        !inFlight
+          ? "true"
+          : undefined
+      }
       data-dragging={draggingFiles ? "true" : undefined}
     >
       <div
@@ -1140,107 +1152,109 @@ export function ChatComposer({
             activeSlash={activeSlash}
           />
 
-          <div
-            className="flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
-            data-testid="chat-composer-controls"
-          >
-            <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={STARTUP_FILE_ACCEPT}
-                className="hidden"
-                onChange={onFileChange}
-                data-testid="chat-composer-file-input"
-              />
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={disabled || attachmentsFull}
-                onClick={() => fileInputRef.current?.click()}
-                title="Attach a file"
-                aria-label="Attach a file"
-                data-testid="chat-composer-attach-button"
-                className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={disabled || !mentionables?.length}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={openMentions}
-                title={
-                  mentionables?.length
-                    ? "Mention an agent (@)"
-                    : "No agents available to mention"
-                }
-                aria-label="Mention an agent"
-                aria-haspopup="listbox"
-                aria-expanded={mentionOpen}
-                data-testid="chat-composer-mention-button"
-                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <AtSign className="h-[18px] w-[18px]" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={Boolean(slashUnavailableReason)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={openCommands}
-                title={slashUnavailableReason ?? "Slash commands (/)"}
-                aria-label="Slash commands"
-                aria-haspopup="listbox"
-                aria-expanded={slashOpen}
-                aria-controls={slashOpen ? slashListId : undefined}
-                data-testid="chat-composer-command-button"
-                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <SquareSlash className="h-[18px] w-[18px]" />
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-1 pointer-coarse:gap-0">
-              {action ? (
-                <>
-                  {action}
-                  <span
-                    className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
-                    aria-hidden="true"
-                  />
-                </>
-              ) : null}
-              <div
-                className="inline-flex items-center"
-                role="group"
-                aria-label="Send message actions"
-              >
+          <div className="chat-composer-details">
+            <div
+              className="min-h-0 overflow-hidden flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
+              data-testid="chat-composer-controls"
+            >
+              <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={STARTUP_FILE_ACCEPT}
+                  className="hidden"
+                  onChange={onFileChange}
+                  data-testid="chat-composer-file-input"
+                />
                 <Button
-                  type="submit"
+                  type="button"
                   size="icon"
-                  variant={canSend ? "success" : "ghost"}
-                  disabled={!canSend}
-                  title="Send (Enter)"
-                  aria-label="Send message"
-                  data-testid="chat-composer-send"
-                  className={cn(
-                    "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                  )}
+                  variant="ghost"
+                  disabled={disabled || attachmentsFull}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach a file"
+                  aria-label="Attach a file"
+                  data-testid="chat-composer-attach-button"
+                  className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
                 >
-                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  <Plus className="h-5 w-5" />
                 </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={disabled || !mentionables?.length}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openMentions}
+                  title={
+                    mentionables?.length
+                      ? "Mention an agent (@)"
+                      : "No agents available to mention"
+                  }
+                  aria-label="Mention an agent"
+                  aria-haspopup="listbox"
+                  aria-expanded={mentionOpen}
+                  data-testid="chat-composer-mention-button"
+                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                >
+                  <AtSign className="h-[18px] w-[18px]" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={Boolean(slashUnavailableReason)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openCommands}
+                  title={slashUnavailableReason ?? "Slash commands (/)"}
+                  aria-label="Slash commands"
+                  aria-haspopup="listbox"
+                  aria-expanded={slashOpen}
+                  aria-controls={slashOpen ? slashListId : undefined}
+                  data-testid="chat-composer-command-button"
+                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                >
+                  <SquareSlash className="h-[18px] w-[18px]" />
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-1 pointer-coarse:gap-0">
+                {action ? (
+                  <>
+                    {action}
+                    <span
+                      className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
+                      aria-hidden="true"
+                    />
+                  </>
+                ) : null}
+                <div
+                  className="inline-flex items-center"
+                  role="group"
+                  aria-label="Send message actions"
+                >
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant={canSend ? "success" : "ghost"}
+                    disabled={!canSend}
+                    title="Send (Enter)"
+                    aria-label="Send message"
+                    data-testid="chat-composer-send"
+                    className={cn(
+                      "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    )}
+                  >
+                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <div className="px-1 text-[10px] text-muted-foreground">
+      <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
         {disabledReason ? (
           <span data-testid="chat-composer-disabled-reason">
             {disabledReason}
@@ -1277,63 +1291,68 @@ export function ChatComposer({
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
         ) : (
-          <span>Enter to send · Shift+Enter for new line</span>
+          <span className="hidden md:inline">
+            Enter to send · Shift+Enter for new line
+          </span>
         )}
       </div>
       {defaultRecipients || footer ? (
-        <div className="flex min-w-0 items-center justify-between gap-2 px-1">
-          {defaultRecipients ? (
-            <TooltipProvider delayDuration={150}>
-              <div
-                className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
-                data-testid="chat-composer-routing"
-                role="group"
-                aria-label="Message recipients"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <span className="shrink-0">To:</span>
-                {recipients.map((agent) => (
-                  <Tooltip key={agent.id}>
-                    <TooltipTrigger asChild>
-                      <span
-                        tabIndex={0}
-                        className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        data-testid="chat-composer-recipient"
-                        data-agent-id={agent.id}
-                      >
-                        <AgentSeatBadge
-                          seat={agent.seat ?? null}
-                          name={agent.name}
-                          size="sm"
-                        />
-                        {agent.seat === undefined ? (
-                          <span>{agent.name}</span>
-                        ) : null}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {agent.seat === undefined
-                        ? agent.name
-                        : `@${agent.seat} · ${agent.name}`}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-                {(canQueue && conversation) || deliveryMode === "interrupt" ? (
-                  <ComposerDelivery
-                    timings={deliveryTimings}
-                    mode={deliveryMode}
-                    onMode={setDeliveryMode}
-                    unavailableReason={deliveryBlockedReason}
-                  />
-                ) : null}
-                {recipients.length === 0 ? (
-                  <span>Loading recipients…</span>
-                ) : null}
-              </div>
-            </TooltipProvider>
-          ) : null}
-          {footer}
+        <div className="chat-composer-details">
+          <div className="min-h-0 overflow-hidden flex min-w-0 items-center justify-between gap-2 px-1">
+            {defaultRecipients ? (
+              <TooltipProvider delayDuration={150}>
+                <div
+                  className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
+                  data-testid="chat-composer-routing"
+                  role="group"
+                  aria-label="Message recipients"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <span className="shrink-0">To:</span>
+                  {recipients.map((agent) => (
+                    <Tooltip key={agent.id}>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          data-testid="chat-composer-recipient"
+                          data-agent-id={agent.id}
+                        >
+                          <AgentSeatBadge
+                            seat={agent.seat ?? null}
+                            name={agent.name}
+                            size="sm"
+                          />
+                          {agent.seat === undefined ? (
+                            <span>{agent.name}</span>
+                          ) : null}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {agent.seat === undefined
+                          ? agent.name
+                          : `@${agent.seat} · ${agent.name}`}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                  {(canQueue && conversation) ||
+                  deliveryMode === "interrupt" ? (
+                    <ComposerDelivery
+                      timings={deliveryTimings}
+                      mode={deliveryMode}
+                      onMode={setDeliveryMode}
+                      unavailableReason={deliveryBlockedReason}
+                    />
+                  ) : null}
+                  {recipients.length === 0 ? (
+                    <span>Loading recipients…</span>
+                  ) : null}
+                </div>
+              </TooltipProvider>
+            ) : null}
+            {footer}
+          </div>
         </div>
       ) : null}
     </form>
