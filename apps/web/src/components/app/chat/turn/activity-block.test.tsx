@@ -263,6 +263,7 @@ describe("ActivityBlock settle", () => {
 describe("activity progress freshness", () => {
   it("keeps turn duration separate from the latest output age and marks quiet", () => {
     const trace = { ...open, lastProgressAt: at + 90_000 };
+    expect(progressFreshness(trace, at + 93_700)).toBeUndefined();
     expect(progressFreshness(trace, at + 100_000)).toBe("updated 10.0s ago");
     expect(progressFreshness(trace, at + 120_000)).toBe(
       "quiet · updated 30.0s ago"
@@ -270,6 +271,20 @@ describe("activity progress freshness", () => {
     expect(progressFreshness({ ...open, steps: [] }, at + 30_000)).toBe(
       "quiet · no output yet · 30.0s"
     );
+  });
+
+  it("keeps the quiet clock off the summary line and at the head of the open list", () => {
+    // `open` last progressed long before now, so it reads as quiet.
+    render(<ActivityBlock trace={{ ...open, lastProgressAt: at }} />);
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(screen.queryByTestId("harness-progress-freshness")).toBeNull();
+    expect(summary.textContent).not.toContain("updated");
+
+    fireEvent.click(summary);
+    expect(
+      screen.getByTestId("harness-progress-freshness").textContent
+    ).toMatch(/^quiet · updated .+ ago$/);
+    expect(summary.textContent).not.toContain("updated");
   });
 
   it("shows preparation without an execution spinner or operation timer", () => {
