@@ -685,6 +685,62 @@ describe("queued post controls", () => {
       envelope(2),
     ]);
   });
+
+  it("interrupts the running turn for a queued post and opens it alone next", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const older = runtime.prompt(agentId, envelope(1), post(1), {
+      delivery: "queue",
+    });
+    const urgent = runtime.prompt(agentId, envelope(2), post(2), {
+      delivery: "queue",
+    });
+    expect(host.cancels()).toBe(0);
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "interrupt")).toBe(
+      true
+    );
+    await expect.poll(host.cancels).toBe(1);
+    expect(host.interruptTargets).toEqual([1]);
+    // Already asked for: not asked for twice, and no longer steerable.
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "interrupt")).toBe(
+      false
+    );
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "send-now")).toBe(
+      false
+    );
+    expect(host.prompts).toHaveLength(1);
+    host.settle();
+    await withinSeconds(urgent.accepted, "interrupting post");
+    expect(host.prompts.map((p) => p.text)).toEqual(["active", envelope(2)]);
+    host.settle();
+    await withinSeconds(older.accepted, "older post");
+    host.settle();
+    await Promise.all([active.settled, older.settled, urgent.settled]);
+    expect(host.prompts.map((p) => p.text)).toEqual([
+      "active",
+      envelope(2),
+      envelope(1),
+    ]);
+    expect(host.cancels()).toBe(1);
+  });
+
+  it("refuses to interrupt on a host that cannot stop its turn", async () => {
+    const host = await heldTurnHost();
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "active", post(0));
+    await active.accepted;
+    const queued = runtime.prompt(agentId, envelope(1), post(1));
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "interrupt")).toBe(
+      false
+    );
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await withinSeconds(queued.accepted, "queued post still delivered");
+    host.settle();
+    await Promise.all([active.settled, queued.settled]);
+  });
 });
 
 describe("AcpRuntime delivery during a turn", () => {

@@ -43,7 +43,11 @@ import {
   type Reconciler,
   createReconciler,
 } from "./reconciler.js";
-import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
+import {
+  type AgentRuntime,
+  type QueuedPromptAction,
+  createAgentRuntime,
+} from "./runtime.js";
 import {
   buildStartupTurn,
   type ChatLaunchPost,
@@ -670,7 +674,7 @@ export class AgentManager {
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): boolean {
     return this.runtime.controlQueuedPrompt(agentIds, blockId, action);
   }

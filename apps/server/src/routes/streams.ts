@@ -92,6 +92,11 @@ const submitBodySchema = z.object({
   values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
 }) satisfies z.ZodType<StreamSubmitRequest, unknown>;
 
+const sendNowBodySchema = z.object({
+  /** Stop the running turn and give the queued post its own turn next. */
+  interrupt: z.boolean().optional(),
+});
+
 const stateBodySchema = z.object({
   state: z.record(z.string(), z.unknown()),
 });
@@ -293,17 +298,28 @@ export async function registerStreamRoutes(
     }
   );
 
+  // Send now steers the post into the running turn; with `interrupt: true`
+  // it stops that turn and the post opens the next one.
   for (const action of ["delete", "send-now"] as const) {
     app.route({
       method: action === "delete" ? "DELETE" : "POST",
       url: `/api/v1/streams/:rootId/blocks/:blockId${action === "delete" ? "" : "/send-now"}`,
       handler: async (request, reply) => {
         const params = request.params as { rootId: string; blockId: string };
+        const parsed =
+          action === "send-now"
+            ? sendNowBodySchema.safeParse(request.body ?? {})
+            : null;
+        if (parsed && !parsed.success) {
+          return reply
+            .code(400)
+            .send({ error: bodyIssueMessage(parsed.error) });
+        }
         try {
           return await streams.controlQueuedMessage(
             params.rootId,
             params.blockId,
-            action
+            parsed?.data.interrupt ? "interrupt" : action
           );
         } catch (error) {
           return sendError(reply, error);

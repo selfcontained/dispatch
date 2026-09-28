@@ -42,6 +42,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
+import type { QueuedPromptAction } from "../agents/runtime.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
@@ -166,7 +167,7 @@ export type StreamDeliveryAdapter = {
   controlQueuedPrompt?: (
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ) => boolean;
   /** Names of commands this agent's ACP session currently accepts. */
   commands?: (agentId: string) => readonly string[];
@@ -2926,7 +2927,7 @@ export class StreamService {
   async controlQueuedMessage(
     streamId: string,
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): Promise<{ ok: true }> {
     const block = await this.store.getById(blockId);
     if (
@@ -2939,7 +2940,7 @@ export class StreamService {
       throw new StreamValidationError("Queued user message not found.");
     }
     if (
-      action === "send-now" &&
+      action !== "delete" &&
       block.kind === "text" &&
       block.data?.acpCommand
     ) {
@@ -2956,10 +2957,21 @@ export class StreamService {
       )
     ) {
       throw new StreamConflictError(
-        "This message is no longer queued. Refresh and try again."
+        action === "interrupt"
+          ? "This message cannot interrupt now: it is no longer queued, or the agent cannot stop its turn. Refresh and try again."
+          : "This message is no longer queued. Refresh and try again."
       );
     }
     if (action === "delete") await this.store.deleteQueuedMessage(blockId);
+    // The post now carries the intent it was given, the same as one sent
+    // as an interrupt from the composer: the row reads "Stop requested",
+    // and a retry after a failed stop asks to interrupt again.
+    if (action === "interrupt") {
+      await this.store.update(blockId, {
+        data: { ...(block.data ?? {}), delivery: "interrupt" },
+      });
+      await this.publishEntry(streamId, blockId);
+    }
     this.publishChanged(streamId);
     if (block.threadId) await this.publishEntry(streamId, block.threadId);
     return { ok: true };
