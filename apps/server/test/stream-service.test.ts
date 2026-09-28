@@ -5460,6 +5460,50 @@ describe("StreamService queued message controls", () => {
     release();
     await svc.waitForInFlightDeliveries(1000);
   });
+
+  it("marks a queued post as an interrupt once the runtime has claimed it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const control = vi.fn(() => false);
+    const { svc } = build({ gate, held: true, controlQueuedPrompt: control });
+    const { block } = await svc.sendUserPost(A, { text: "Queued" });
+    // A refused claim (the host cannot stop its turn) leaves the post as it was.
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "interrupt")
+    ).rejects.toThrow("cannot interrupt now");
+    expect((await svc.store.getById(block.id))?.data).not.toMatchObject({
+      delivery: "interrupt",
+    });
+    control.mockReturnValue(true);
+    await svc.controlQueuedMessage(A, block.id, "interrupt");
+    expect(control).toHaveBeenLastCalledWith([A], block.id, "interrupt");
+    // The row now reads as a stop request, and a retry would interrupt again.
+    expect((await svc.store.getById(block.id))?.data).toMatchObject({
+      delivery: "interrupt",
+    });
+    release();
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("rejects interrupting a queued ACP command", async () => {
+    const control = vi.fn(() => true);
+    const { svc } = build({ controlQueuedPrompt: control });
+    const block = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      kind: "text",
+      text: "/compact",
+      data: { acpCommand: true },
+      delivered: null,
+    });
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "interrupt")
+    ).rejects.toThrow("ACP commands must wait");
+    expect(control).not.toHaveBeenCalled();
+  });
 });
 
 describe("steering pickup receipts", () => {

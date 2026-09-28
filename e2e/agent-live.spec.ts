@@ -367,6 +367,89 @@ test.describe("Live agent", () => {
     await expect(turns.last()).not.toContainText("DISPATCH POST");
   });
 
+  test("Send now on a post queued behind another conversation interrupts that turn and opens its own", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-send-now-interrupt-${Date.now()}`,
+      type: "codex",
+    });
+    const post = async (body: Record<string, unknown>) => {
+      const res = await request.post(`/api/v1/streams/${agent.id}/blocks`, {
+        headers: authHeaders(),
+        data: body,
+      });
+      return ((await res.json()) as { block: { id: string } }).block.id;
+    };
+    // The host is up once the agent leaves `creating`.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/api/v1/agents/${agent.id}`, {
+            headers: authHeaders(),
+          });
+          return ((await res.json()) as { agent: { status: string } }).agent
+            .status;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe("running");
+    await loadApp(page);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const rootId = await post({ text: "root post" });
+    const turns = page.getByTestId("chat-turn");
+    await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await expect(turns.first()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    // A long turn in the thread; a main-column post cannot steer into it.
+    // Wait until the engine is inside its delay: a cancel that lands in the
+    // same instant as the prompt itself is a race no person can produce.
+    await post({ text: "sleep:60000 thread work", replyTo: rootId });
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(
+            `/api/v1/streams/${agent.id}/blocks/${rootId}/thread`,
+            { headers: authHeaders() }
+          );
+          return JSON.stringify(await res.json());
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toContain("Waiting for the requested delay.");
+    await expect(page.getByTestId("chat-stop-turn")).toBeVisible();
+    await sendChat(page, "urgent main post");
+    const queued = page
+      .locator('[data-testid="chat-message"][data-author-kind="user"]')
+      .filter({ hasText: "urgent main post" });
+    await expect(queued.getByTestId("chat-held-hint")).toContainText(
+      "Queued until the turn ends"
+    );
+    const sendNow = queued.getByRole("button", {
+      name: "Send now",
+      exact: true,
+    });
+    await expect(sendNow).toHaveAttribute("data-send-now", "interrupt");
+    await sendNow.click();
+    // Its own turn, in the main column, after the thread's turn was cut.
+    await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+    await expect(turns.last()).toContainText("urgent main post", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(turns.last()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(queued.getByTestId("chat-held-hint")).toHaveCount(0);
+    const thread = await request.get(
+      `/api/v1/streams/${agent.id}/blocks/${rootId}/thread`,
+      { headers: authHeaders() }
+    );
+    expect(JSON.stringify(await thread.json())).toContain('"interrupted"');
+  });
+
   test("a reply in a thread opens a turn drawn in that thread, not the main column", async ({
     page,
     request,

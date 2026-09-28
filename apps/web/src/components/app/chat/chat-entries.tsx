@@ -4,11 +4,12 @@ import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { memo, type ReactNode, useMemo } from "react";
-import type {
-  Block,
-  BlockAuthor,
-  BlockStartup,
-  BlockOption,
+import {
+  type Block,
+  type BlockAuthor,
+  type BlockStartup,
+  type BlockOption,
+  fileMedia,
 } from "@dispatch/shared";
 import {
   Bot,
@@ -1397,6 +1398,11 @@ export const BlockView = memo(function BlockView({
                 ?.filter((entry) => entry.state === "held")
                 .map((entry) => entry.agentId)}
               threadId={block.threadId}
+              requiresNextTurn={block.attachments.some(
+                (attachment) =>
+                  attachment.type === "file" &&
+                  fileMedia(attachment.mimeType) === "image"
+              )}
               canSendNow={
                 !(
                   block.kind === "text" &&

@@ -890,6 +890,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         })
       )
         return false;
+      // An interrupt already asked for is not asked for twice, and a host
+      // that cannot cut a turn is refused up front rather than failing the
+      // post after the fact.
+      if (
+        action === "interrupt" &&
+        targets.some((target) => {
+          const { entry, prompt } = target!;
+          return (
+            prompt.delivery === "interrupt" ||
+            (entry.turnOpen && !entry.client.welcome?.interruptSupported)
+          );
+        })
+      )
+        return false;
       for (const target of targets) {
         const { entry, prompt } = target!;
         entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
@@ -899,16 +913,29 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           error.name = "QueuedPromptDeletedError";
           prompt.rejectAccepted(error);
           prompt.resolveSettled();
+          continue;
+        }
+        prompt.alone = true;
+        // Ahead of ordinary posts, behind interrupts already waiting.
+        const firstOrdinary = entry.waiting.findIndex(
+          (w) => w.delivery !== "interrupt"
+        );
+        entry.waiting.splice(
+          firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+          0,
+          prompt
+        );
+        if (action === "interrupt") {
+          // Exactly what a post sent as an interrupt gets on arrival: the
+          // cancellation belongs to the turn open now, and is skipped when
+          // that turn is already being stopped.
+          prompt.delivery = "interrupt";
+          prompt.interruptTargetSeq = entry.turnSeq;
+          prompt.interruptHandled =
+            !entry.turnOpen ||
+            (entry.turnSeq !== undefined &&
+              entry.interruptedTurnSeq === entry.turnSeq);
         } else {
-          prompt.alone = true;
-          const firstOrdinary = entry.waiting.findIndex(
-            (w) => w.delivery !== "interrupt"
-          );
-          entry.waiting.splice(
-            firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
-            0,
-            prompt
-          );
           prompt.delivery = "auto";
         }
       }

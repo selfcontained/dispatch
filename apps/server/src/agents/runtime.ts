@@ -48,6 +48,9 @@ export type RuntimeEventListener = (
  * implementation is behind it: `AcpRuntime` (a host process per agent) or
  * `InertRuntime` (no processes; e2e and tests).
  */
+/** What a person can do to a post still waiting in an agent's queue. */
+export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
+
 export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
@@ -96,11 +99,15 @@ export type AgentRuntime = {
      */
     opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> };
-  /** Atomically claim an unsent post at every recipient. */
+  /**
+   * Atomically claim an unsent post at every recipient. `send-now` steers
+   * it into the running turn; `interrupt` stops that turn and gives the post
+   * its own turn next.
+   */
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): boolean;
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;

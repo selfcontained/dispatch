@@ -194,19 +194,23 @@ const agent = {
       }
       const sleep = SLEEP.exec(text);
       if (sleep) {
-        await emit({
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "Waiting for the requested delay.\n" },
-        });
-        const cancelled = await new Promise((resolve) => {
+        // Register the cancel hook before anything is awaited: a cancel can
+        // arrive within milliseconds of the turn starting, and an engine
+        // honors it whenever it lands.
+        const cancelled = new Promise((resolve) => {
           const timer = setTimeout(() => resolve(false), Number(sleep[1]));
           sleeping.set(params.sessionId, () => {
             clearTimeout(timer);
             resolve(true);
           });
         });
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Waiting for the requested delay.\n" },
+        });
+        const wasCancelled = await cancelled;
         sleeping.delete(params.sessionId);
-        if (cancelled) return { stopReason: "cancelled" };
+        if (wasCancelled) return { stopReason: "cancelled" };
       }
       const run = RUN.exec(text);
       if (run) {

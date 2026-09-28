@@ -2857,4 +2857,83 @@ describe("response backlinks", () => {
     );
     expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
   });
+
+  it("offers Send now as an interrupt when the post cannot steer into the turn", async () => {
+    const { api } = await import("@/lib/api");
+    vi.mocked(api).mockClear();
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "elsewhere",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [{ agentId: AGENT_ID, state: "held" }],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: AGENT_ID,
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            interruptSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: "other-thread" },
+          },
+        } as Agent,
+      ]
+    );
+    const button = screen.getByRole("button", { name: "Send now" });
+    expect(button.getAttribute("data-send-now")).toBe("interrupt");
+    expect(button.getAttribute("title")).toContain("Stop the current turn");
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        `/api/v1/streams/${AGENT_ID}/blocks/elsewhere/send-now`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ interrupt: true }),
+        })
+      )
+    );
+  });
+
+  it("withholds Send now when the post can neither steer nor interrupt", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "stuck",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [{ agentId: AGENT_ID, state: "held" }],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: AGENT_ID,
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: false,
+            interruptSupported: false,
+            conversation: { streamId: AGENT_ID, threadId: null },
+          },
+        } as Agent,
+      ]
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  });
 });
