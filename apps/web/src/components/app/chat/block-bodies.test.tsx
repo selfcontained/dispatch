@@ -521,6 +521,30 @@ describe("TasksBlockBody", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("renders item text as Markdown so cited links are clickable", () => {
+    const withLink = block({
+      id: "t2",
+      body: tasksBody(
+        [
+          {
+            id: "a",
+            text: "Fix [SWE-1702](https://linear.app/mytra/issue/SWE-1702): `reason` hidden",
+          },
+        ],
+        { items: {} }
+      ),
+    }) as Extract<Block, { kind: "tasks" }>;
+    render(<TasksBlockBody block={withLink} />);
+    // The Markdown renderer is mocked here; what matters is that the item
+    // text goes through it untouched rather than into a plain span.
+    const row = screen.getByTestId("chat-task");
+    expect(
+      row.querySelector("[data-testid='markdown-mock']")?.textContent
+    ).toBe(
+      "Fix [SWE-1702](https://linear.app/mytra/issue/SWE-1702): `reason` hidden"
+    );
+  });
+
   it("folds to its count line once every item is done, and opens on click", () => {
     render(<TasksBlockBody block={tasks({ a: "done", b: "done" })} />);
     expect(screen.queryByTestId("chat-task")).toBeNull();

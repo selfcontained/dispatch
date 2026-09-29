@@ -31,6 +31,45 @@ describe("MarkdownDefault overflow", () => {
   });
 });
 
+describe("Markdown inline variant", () => {
+  it("keeps links and marks but unwraps headings, fences and paragraphs", () => {
+    const { container } = render(
+      <Markdown variant="inline">{`Fix [SWE-1](https://x.test/1): \`reason\` **hidden**
+
+# Second line
+
+\`\`\`sh
+pnpm run check
+\`\`\``}</Markdown>
+    );
+    const root = screen.getByTestId("markdown-inline");
+    expect(root.tagName).toBe("DIV");
+    expect(container.querySelector("h1, pre, p")).toBeNull();
+    expect(root.querySelector("a")?.getAttribute("href")).toBe(
+      "https://x.test/1"
+    );
+    expect(root.querySelector("strong")?.textContent).toBe("hidden");
+    // A paragraph still gets its own line, as a block span, not a <p>; the
+    // heading and the fence drop to their inline content at the item's size.
+    const lines = root.querySelectorAll(":scope > span.block");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe("Fix SWE-1: reason hidden");
+    expect(root.textContent).toContain("Second line");
+    expect(root.querySelector(":scope > code")?.textContent).toBe(
+      "pnpm run check\n"
+    );
+  });
+
+  it("keeps nested lists inside a valid block container", () => {
+    render(<Markdown variant="inline">{"- nested item"}</Markdown>);
+    const root = screen.getByTestId("markdown-inline");
+    expect(root.tagName).toBe("DIV");
+    expect(root.querySelector(":scope > ul > li")?.textContent).toBe(
+      "nested item"
+    );
+  });
+});
+
 describe("Markdown code blocks", () => {
   it.each(["```", "~~~~"])(
     "defers an open %s Mermaid fence until it closes",
