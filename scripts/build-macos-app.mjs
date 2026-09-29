@@ -93,6 +93,10 @@ try {
   // Resources and link the standard runtime layout to it for relocatability.
   const postgresResources = path.join(contents, "Resources/Postgres");
   mkdirSync(postgresResources, { recursive: true });
+  cpSync(
+    path.join(root, "apps/macos/Resources/Dispatch.icns"),
+    path.join(contents, "Resources/Dispatch.icns")
+  );
   for (const name of ["share", "licenses", "SOURCE.json"]) {
     renameSync(path.join(postgres, name), path.join(postgresResources, name));
     symlinkSync(`../../Resources/Postgres/${name}`, path.join(postgres, name));
