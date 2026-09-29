@@ -67,6 +67,11 @@ export type BlockActor = { by: BlockAuthor; at: string };
 export type BlockCancellation = BlockActor & {
   /** Short, optional: why it was pulled. */
   reason?: string;
+  /**
+   * The thread note that recorded the cancellation and carried it to the
+   * other side. Absent on cancellations recorded before notes were tracked.
+   */
+  blockId?: string;
 };
 
 export type BlockQuestionState = {

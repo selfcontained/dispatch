@@ -476,7 +476,7 @@ export class BlockStore {
    */
   async recordCancellation(
     blockId: string,
-    cancellation: BlockActor & { reason?: string }
+    cancellation: BlockActor & { reason?: string; blockId?: string }
   ): Promise<Block | null> {
     if (!isBlockId(blockId)) return null;
     const result = await this.db.query<BlockRow>(

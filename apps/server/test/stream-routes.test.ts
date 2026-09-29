@@ -863,14 +863,25 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
       block: expect.objectContaining({
         id: q.id,
         state: {
-          cancellation: { by: { kind: "user" }, at: expect.any(String) },
+          cancellation: {
+            by: { kind: "user" },
+            at: expect.any(String),
+            blockId: expect.any(String),
+          },
         },
       }),
     });
     const thread = await store.listThread(q.id);
     expect(thread?.replies).toMatchObject([
-      { author: { kind: "user" }, text: "Canceled.", replyTo: q.id },
+      {
+        author: { kind: "user" },
+        text: "Dismissed without answering.",
+        replyTo: q.id,
+      },
     ]);
+    expect(res.json().block.state.cancellation.blockId).toBe(
+      thread?.replies[0].id
+    );
     // Retrying is a no-op: same block, no second note.
     const again = await authedInject("PATCH", url, {
       state: { cancellation: true },

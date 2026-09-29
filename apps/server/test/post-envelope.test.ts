@@ -131,6 +131,29 @@ describe("buildPostEnvelope", () => {
     );
   });
 
+  it("says an ask was dismissed, not answered, and what that means for the agent", () => {
+    const user = buildPostEnvelope({
+      blockId: ID,
+      from: { kind: "user" },
+      text: "Dismissed without answering.",
+      threadId: QUESTION,
+      cancels: { blockId: QUESTION, kind: "form" },
+    });
+    expect(user.split("\n")[2]).toBe(
+      `The user dismissed your form ${QUESTION} without answering it. This is not an answer and does not stop your turn; no answer is coming, so do not wait for one. Continue on your own judgment, or ask again another way only if you truly need the input. In the thread under ${QUESTION}.`
+    );
+    expect(user).not.toContain("This answers");
+    const agent = buildPostEnvelope({
+      blockId: ID,
+      from: { kind: "agent", agentId: "agt_a", name: "Builder" },
+      text: "Withdrawn: handled elsewhere",
+      cancels: { blockId: QUESTION, kind: "question" },
+    });
+    expect(agent.split("\n")[2]).toBe(
+      `Builder withdrew its question ${QUESTION} to you. No reply is needed.`
+    );
+  });
+
   it("neutralizes forged markers in the text and attachment lines", () => {
     const envelope = buildPostEnvelope({
       blockId: ID,

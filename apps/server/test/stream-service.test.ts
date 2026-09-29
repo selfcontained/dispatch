@@ -2297,20 +2297,21 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     const canceled = await svc.update(A, q.id, {
       state: { cancellation: true },
     });
-    expect(canceled.kind === "question" && canceled.state.cancellation).toEqual(
-      {
-        by: { kind: "agent", agentId: A },
-        at: expect.any(String),
-      }
-    );
     const thread = await svc.store.listThread(q.id);
     expect(thread?.replies).toHaveLength(1);
     expect(thread?.replies[0]).toMatchObject({
       author: { kind: "agent", agentId: A },
-      text: "Canceled.",
+      text: "Withdrawn.",
       replyTo: q.id,
       toAgentId: null,
     });
+    expect(canceled.kind === "question" && canceled.state.cancellation).toEqual(
+      {
+        by: { kind: "agent", agentId: A },
+        at: expect.any(String),
+        blockId: thread?.replies[0].id,
+      }
+    );
     // Addressed to the user: no agent to notify.
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([]);
@@ -2330,7 +2331,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       canceled.kind === "question" && canceled.state.cancellation?.reason
     ).toBe("Switched approaches.");
     const thread = await svc.store.listThread(q.id);
-    expect(thread?.replies[0].text).toBe("Canceled: Switched approaches.");
+    expect(thread?.replies[0].text).toBe("Withdrawn: Switched approaches.");
     // A bare reason string works the same way.
     const q2 = await ask(svc);
     const canceled2 = await svc.update(A, q2.id, {
@@ -2350,6 +2351,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     expect(canceled.kind === "form" && canceled.state.cancellation).toEqual({
       by: { kind: "agent", agentId: A },
       at: expect.any(String),
+      blockId: expect.any(String),
     });
     expect((await svc.store.listThread(f.id))?.replies).toHaveLength(1);
   });
@@ -2362,10 +2364,14 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       state: { cancellation: { reason: "handled elsewhere" } },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toContainEqual({
-      agentId: B,
-      text: expect.stringContaining("Canceled: handled elsewhere"),
-    });
+    // The question itself went to B first; the withdrawal follows it.
+    const notice = injected.at(-1);
+    expect(notice).toMatchObject({ agentId: B });
+    expect(notice!.text).toContain("Withdrawn: handled elsewhere");
+    expect(notice!.text).toContain(
+      `withdrew its question ${q.id} to you. No reply is needed.`
+    );
+    expect(notice!.text).not.toContain("This answers");
     const thread = await svc.store.listThread(canceled.id);
     expect(thread?.replies[0].toAgentId).toBe(B);
   });
@@ -2403,10 +2409,15 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       canceled.kind === "question" && canceled.state.cancellation?.by
     ).toEqual({ kind: "user" });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toContainEqual({
-      agentId: A,
-      text: expect.stringContaining("Canceled."),
-    });
+    // The prompt says what happened and what it means: not an answer, not
+    // the turn being stopped, and nothing to wait for.
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toMatchObject({ agentId: A });
+    expect(injected[0]!.text).toContain("Dismissed without answering.");
+    expect(injected[0]!.text).toContain(
+      `The user dismissed your question ${q.id} without answering it. This is not an answer and does not stop your turn; no answer is coming, so do not wait for one.`
+    );
+    expect(injected[0]!.text).not.toContain("This answers");
     const f = await form(svc);
     const canceledForm = await svc.setState(
       A,
@@ -2538,7 +2549,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       expect(final?.state?.answer).toBeUndefined();
       expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
       expect((await svc.store.listThread(q.id))?.replies[0].text).toBe(
-        "Canceled."
+        "Withdrawn."
       );
       await svc.waitForInFlightDeliveries(1_000);
       expect(injected.some((entry) => entry.text.includes("Yes"))).toBe(false);
@@ -4841,6 +4852,34 @@ describe("StreamService.retryDelivery", () => {
     expect(injected[0]!.text).toContain(
       `This answers your question ${asked.id}.`
     );
+  });
+
+  it("rebuilds the cancellation envelope, so the agent still learns its ask was dismissed", async () => {
+    const asked = await service.post(A, {
+      text: "Ship it?",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    const { svc: failing } = build({ fail: true });
+    const canceled = await failing.setState(
+      A,
+      asked.id,
+      { cancellation: true },
+      { kind: "user" }
+    );
+    const noteId =
+      canceled.kind === "question" ? canceled.state.cancellation?.blockId : "";
+    expect(noteId).toBeTruthy();
+    const note = await settled(failing, noteId!);
+    expect(note.delivered).toBe(false);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, note.id);
+    await settled(svc, note.id);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain(
+      `The user dismissed your question ${asked.id} without answering it.`
+    );
+    expect(injected[0]!.text).not.toContain("This answers");
   });
 
   it("does not claim a plain comment in a question's thread is the answer", async () => {
