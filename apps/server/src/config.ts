@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { parseListenHosts } from "./multi-listener.js";
 import { Client } from "pg";
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -19,6 +20,7 @@ export type TlsConfig = {
 
 export type AppConfig = {
   host: string;
+  listenHosts?: string[];
   port: number;
   databaseUrl: string;
   authToken: string;
@@ -74,8 +76,14 @@ function resolveConfiguredBin(value: string): string {
 }
 
 export function loadConfig(): AppConfig {
+  const listenHosts = parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS);
   const config: AppConfig = {
-    host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
+    host:
+      listenHosts?.[0] ??
+      process.env.DISPATCH_HOST ??
+      process.env.HOST ??
+      "127.0.0.1",
+    listenHosts,
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()

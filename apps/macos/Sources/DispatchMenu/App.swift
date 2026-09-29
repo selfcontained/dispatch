@@ -6,382 +6,223 @@ import ServiceManagement
 final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var timer: Timer?
+    private var settings: SettingsWindowController?
     private var configuration = Configuration()
     private var configurationError: String?
     private var externalURL: URL?
+    private var runtime: ServiceRuntime?
+    private var legacyActiveConfiguration: Configuration?
     private var ready = false
-    private var openWhenReady = false
     private var checking = false
     private var changingService = false
     private var validationServer: Process?
-    private var registered: Bool {
-        PreviewPaths.testRoot != nil ? validationServer?.isRunning == true : service.status == .enabled || service.status == .requiresApproval
-    }
-    private var status = "Checking server…"
+    private var status = "Checking…"
     private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.preview.server.plist")
-    private let preferences = UserDefaults.standard
-    private var browserID: String? { preferences.string(forKey: "browserBundleIdentifier") }
-    private var serverURL: URL { externalURL ?? configuration.serverURL }
+    private var stopping: Bool { runtime?.phase == "stopping" }
+    private var active: Bool { runtime?.isActive == true || ready }
+    private var serverURL: URL { externalURL ?? runtime?.configuration?.serverURL ?? legacyActiveConfiguration?.serverURL ?? configuration.serverURL }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
-            if let value = ProcessInfo.processInfo.environment["DISPATCH_MENU_VALIDATION_URL"] {
-                externalURL = try validationURL(value)
-            } else if FileManager.default.fileExists(atPath: PreviewPaths.configuration.path) {
-                configuration = try Configuration.read(from: PreviewPaths.configuration)
-            }
-        } catch {
-            configurationError = error.localizedDescription
-        }
+            if let value = ProcessInfo.processInfo.environment["DISPATCH_MENU_VALIDATION_URL"] { externalURL = try validationURL(value) }
+            else if FileManager.default.fileExists(atPath: PreviewPaths.configuration.path) { configuration = try Configuration.read(from: PreviewPaths.configuration) }
+        } catch { configurationError = error.localizedDescription }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "Dispatch Preview")
-        statusItem.button?.toolTip = "Dispatch Preview"
+        statusItem.button?.image = dispatchStatusIcon()
         rebuildMenu()
         refresh()
-        if externalURL == nil && configuration.databaseURL.isEmpty && configurationError == nil {
-            DispatchQueue.main.async { self.configure() }
+        if externalURL == nil && configuration.databaseURL.isEmpty { DispatchQueue.main.async { self.showSettings() } }
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+        // Standard responder actions support copying/pasting in native settings fields.
+        let main = NSMenu()
+        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        edit.submenu = NSMenu(title: "Edit")
+        for (title, action, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+            edit.submenu?.addItem(NSMenuItem(title: title, action: NSSelectorFromString(action), keyEquivalent: key))
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        main.addItem(edit)
+        NSApp.mainMenu = main
+        // Register an idle service once, so choosing login startup later only
+        // changes a preference. It does not start a server on this launch.
+        if externalURL == nil && PreviewPaths.testRoot == nil && service.status == .notRegistered {
+            do {
+                try requireInstalledApp()
+                try ServiceRequest(start: false).save()
+                try service.register()
+            } catch { configurationError = error.localizedDescription }
         }
     }
-
     func menuWillOpen(_ menu: NSMenu) { rebuildMenuContents(menu); refresh() }
-
     private func item(_ title: String, _ action: Selector?, enabled: Bool = true) -> NSMenuItem {
         let result = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        result.target = self
-        result.isEnabled = enabled
+        result.target = self; result.isEnabled = enabled
         return result
     }
-
     private func rebuildMenu() {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.delegate = self
-        rebuildMenuContents(menu)
-        statusItem.menu = menu
+        let menu = NSMenu(); menu.autoenablesItems = false; menu.delegate = self
+        rebuildMenuContents(menu); statusItem.menu = menu; updateSettings()
     }
-
     private func rebuildMenuContents(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(item("Dispatch Preview", nil, enabled: false))
         menu.addItem(item(status, nil, enabled: false))
-        menu.addItem(.separator())
         menu.addItem(item("Open Dispatch", #selector(openDispatch), enabled: ready))
-        let browsers = item("Open in Browser", nil)
-        let browserMenu = NSMenu()
-        browserMenu.autoenablesItems = false
-        let system = item("System Default", #selector(selectBrowser))
-        system.state = browserID == nil ? .on : .off
-        browserMenu.addItem(system)
-        browserMenu.addItem(.separator())
-        var foundSelected = browserID == nil
-        var seen = Set<String>()
-        for url in NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            guard let id = Bundle(url: url)?.bundleIdentifier, seen.insert(id).inserted else { continue }
-            let browser = item(url.deletingPathExtension().lastPathComponent, #selector(selectBrowser))
-            browser.representedObject = id
-            browser.state = browserID == id ? .on : .off
-            foundSelected = foundSelected || browserID == id
-            browserMenu.addItem(browser)
-        }
-        if !foundSelected { browserMenu.addItem(item("Selected browser is unavailable", nil, enabled: false)) }
-        browsers.submenu = browserMenu
-        menu.addItem(browsers)
+        let address = item(serverURL.absoluteString, #selector(copyURL))
+        address.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")
+        address.toolTip = "Copy address"
+        menu.addItem(address)
+        if externalURL == nil { menu.addItem(item(stopping ? "Stopping…" : active ? "Stop Server" : "Start Server", active ? #selector(stopServer) : #selector(startServer), enabled: !changingService && !stopping)) }
         menu.addItem(.separator())
-        if externalURL == nil {
-            menu.addItem(item("Set Up Preview…", #selector(configure), enabled: !changingService))
-            menu.addItem(item("Start Server", #selector(startServer), enabled: !registered && !changingService))
-            menu.addItem(item("Stop Server…", #selector(stopServer), enabled: registered && !changingService))
-            if service.status == .requiresApproval {
-                menu.addItem(item("Allow Background Service…", #selector(openLoginSettings)))
-            }
-            let login = item("Open Menu at Login", #selector(toggleLogin), enabled: PreviewPaths.testRoot == nil)
-            login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-            menu.addItem(login)
-            menu.addItem(item("Show Server Log", #selector(showLog)))
-            menu.addItem(item("Show Data Folder", #selector(showDataFolder)))
-        } else {
-            menu.addItem(item("Connected to development server", nil, enabled: false))
-        }
-        menu.addItem(item("About This Preview…", #selector(about)))
-        menu.addItem(.separator())
-        menu.addItem(item("Quit Menu (Keep Server Running)", #selector(quit), enabled: !changingService))
+        let settingsItem = item("Settings…", #selector(showSettings)); settingsItem.keyEquivalent = ","
+        menu.addItem(settingsItem)
+        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService))
     }
-
     private func refresh() {
-        guard !checking, !changingService else { return }
-        if let error = configurationError {
-            ready = false
-            status = "Configuration needs attention"
-            statusItem.button?.toolTip = error
-            rebuildMenu()
-            return
+        guard !checking else { return }
+        if externalURL == nil {
+            if let saved = try? Configuration.read(from: PreviewPaths.configuration) { configuration = saved; configurationError = nil }
+            runtime = ServiceRuntime.read()
+            if runtime != nil { legacyActiveConfiguration = nil }
         }
-        if externalURL == nil && configuration.databaseURL.isEmpty {
-            ready = false
-            status = "Setup required — Set Up Preview…"
-            rebuildMenu()
-            return
-        }
+        if let error = configurationError { status = error; ready = false; rebuildMenu(); return }
+        if configuration.databaseURL.isEmpty && externalURL == nil { status = "Not configured"; ready = false; rebuildMenu(); return }
         checking = true
-        let endpoint = serverURL.appendingPathComponent("api/v1/health")
-        let expectedInstance = configuration.instanceID
-        let isExternal = externalURL != nil
+        let url = serverURL
+        let checkedConfiguration = runtime?.configuration ?? legacyActiveConfiguration ?? configuration
+        let expected = checkedConfiguration.instanceID
         Task {
             var healthy = false
-            var wrongInstance = false
             do {
-                var request = URLRequest(url: endpoint)
-                request.timeoutInterval = 2
-                request.cachePolicy = .reloadIgnoringLocalCacheData
+                var request = URLRequest(url: url.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1; request.cachePolicy = .reloadIgnoringLocalCacheData
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-                let matches = isExternal || (body?["macInstanceId"] as? String == expectedInstance && body?["updateOwner"] as? String == "macos-app")
-                healthy = (response as? HTTPURLResponse)?.statusCode == 200 && body?["status"] as? String == "ok" && matches
-                wrongInstance = !matches
-            } catch { /* The service may still be starting, or deliberately stopped. */ }
-            ready = healthy
-            checking = false
-            if healthy { status = "Running · \(serverURL.host!):\(serverURL.port!)" }
-            else if wrongInstance { status = "Port is used by another server" }
-            else if externalURL != nil { status = "Development server unavailable" }
-            else if service.status == .requiresApproval { status = "Background service needs approval" }
-            else if service.status == .enabled { status = "Server not ready — check log" }
-            else { status = "Server stopped" }
-            statusItem.button?.toolTip = "Dispatch Preview — \(status)"
+                healthy = (response as? HTTPURLResponse)?.statusCode == 200 && body?["status"] as? String == "ok" && (externalURL != nil || (body?["macInstanceId"] as? String == expected && body?["updateOwner"] as? String == "macos-app"))
+            } catch {}
+            if healthy && runtime == nil { legacyActiveConfiguration = checkedConfiguration }
+            ready = healthy; checking = false
+            if runtime?.phase == "stopping" { status = "Stopping…" }
+            else if healthy { status = "Running" }
+            else if runtime?.isActive == true { status = "Starting…" }
+            else if service.status == .requiresApproval { status = "Needs permission in System Settings" }
+            else { status = "Stopped" }
+            statusItem.button?.toolTip = "Dispatch — \(status)"
             rebuildMenu()
-            if healthy && openWhenReady { openWhenReady = false; openDispatch() }
         }
     }
-
-    @objc private func selectBrowser(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? String { preferences.set(id, forKey: "browserBundleIdentifier") }
-        else { preferences.removeObject(forKey: "browserBundleIdentifier") }
-        rebuildMenu()
+    @objc private func copyURL() {
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(serverURL.absoluteString, forType: .string)
     }
-
     @objc private func openDispatch() {
         guard ready else { return }
-        guard let id = browserID else {
-            if !NSWorkspace.shared.open(serverURL) { showError("The system browser could not open Dispatch.") }
-            return
-        }
-        guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
-            showError("Your selected browser is no longer installed. Choose another browser in Open in Browser.")
-            return
-        }
-        NSWorkspace.shared.open([serverURL], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-            if let error { Task { @MainActor in self.showError(error.localizedDescription) } }
-        }
+        if !NSWorkspace.shared.open(serverURL) { showError("Your default browser could not open Dispatch.") }
     }
-
-    @objc private func configure() {
-        guard externalURL == nil, !changingService else { return }
-        guard !registered else {
-            showError("Stop the preview server before changing its configuration.")
-            return
+    @objc private func showSettings() {
+        if settings == nil {
+            settings = SettingsWindowController(configuration: configuration)
+            settings?.onLoginChange = { [weak self] in self?.toggleLogin() }
+            settings?.onServerLoginChange = { [weak self] enabled in
+                do { try StartupPreferences(startServerAtLogin: enabled).save() }
+                catch { self?.showError(error.localizedDescription) }
+                self?.updateSettings()
+            }
+            settings?.onSave = { [weak self] fields in self?.saveConfiguration(fields) }
+            settings?.onApproval = { SMAppService.openSystemSettingsLoginItems() }
+            settings?.onDataFolder = { NSWorkspace.shared.open(PreviewPaths.root) }
+            settings?.onStartStop = { [weak self] in
+                guard let self else { return }
+                if self.active { self.stopServer() } else { self.startServer() }
+            }
         }
-        let alert = NSAlert()
-        alert.messageText = "Set up Dispatch Preview"
-        alert.informativeText = "Dispatch will create a private local database for you. No database installation or connection details are needed. Your regular Dispatch data stays separate."
-        alert.addButton(withTitle: "Start Dispatch")
-        alert.addButton(withTitle: "Cancel")
-        let fields = SetupFields(configuration: configuration)
-        alert.accessoryView = fields.view
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        updateSettings(); settings?.showWindow(nil); NSApp.activate(ignoringOtherApps: true); settings?.window?.makeKeyAndOrderFront(nil)
+    }
+    private func updateSettings() {
+        settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil, canSave: externalURL == nil, status: status, active: active,
+                         loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && PreviewPaths.testRoot == nil,
+                         needsApproval: service.status == .requiresApproval, busy: changingService,
+                         serverAtLogin: StartupPreferences.read().startServerAtLogin, stopping: stopping)
+    }
+    private func saveConfiguration(_ fields: SetupFields) {
+        guard externalURL == nil, !changingService else { return }
         do {
-            try requireInstalledApp()
-            guard let number = Int(fields.port.stringValue), (1024...65535).contains(number), number != 6767 else {
-                throw ConfigurationError("Choose a server port between 1024 and 65535 other than 6767.")
-            }
+            guard let port = Int(fields.port.stringValue) else { throw ConfigurationError("Enter a valid port number.") }
+            var candidate: Configuration
             if fields.external.state == .on {
-                let candidate = Configuration(port: number, databaseURL: fields.database.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: configuration.instanceID)
-                try candidate.save(to: PreviewPaths.configuration)
-                configuration = candidate
-                configurationError = nil
-                openWhenReady = true
-                startServer()
-                return
+                candidate = Configuration(port: port, databaseURL: fields.database.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: configuration.instanceID)
+            } else if let local = try? Configuration.read(from: PreviewPaths.root.appendingPathComponent("local-database.json")) {
+                candidate = local; candidate.port = port; candidate.instanceID = configuration.instanceID
+            } else {
+                let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
+                candidate = try database.configuration(port: port, instanceID: configuration.instanceID)
             }
-            changingService = true
-            ready = false
-            status = "Setting up local database…"
-            rebuildMenu()
-            let progress = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
-            progress.isReleasedWhenClosed = false
-            progress.title = "Setting up Dispatch"
-            let label = NSTextField(labelWithString: "Creating your private local database…")
-            label.frame = NSRect(x: 24, y: 64, width: 380, height: 24)
-            let spinner = NSProgressIndicator(frame: NSRect(x: 24, y: 28, width: 372, height: 16))
-            spinner.style = .bar
-            spinner.isIndeterminate = true
-            spinner.startAnimation(nil)
-            progress.contentView?.addSubview(label)
-            progress.contentView?.addSubview(spinner)
-            progress.center()
-            progress.makeKeyAndOrderFront(nil)
-            let instance = configuration.instanceID
-            let bundle = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres")
-            Task {
-                do {
-                    let candidate = try await Task.detached {
-                        let database = LocalDatabase(binaries: bundle)
-                        let candidate = try database.configuration(port: number, instanceID: instance)
-                        try database.start(candidate)
-                        try database.stop()
-                        try candidate.save(to: PreviewPaths.configuration)
-                        return candidate
-                    }.value
-                    configuration = candidate
-                    configurationError = nil
-                    changingService = false
-                    progress.close()
-                    openWhenReady = true
-                    startServer()
-                } catch {
-                    changingService = false
-                    progress.close()
-                    refresh()
-                    showError(error.localizedDescription)
-                }
-            }
+            candidate.hosts = fields.selectedHosts
+            try candidate.save(to: PreviewPaths.configuration)
+            configuration = candidate; configurationError = nil
+            settings?.didSave(candidate)
+            refresh()
         } catch { showError(error.localizedDescription) }
     }
-
     private func requireInstalledApp() throws {
         if PreviewPaths.testRoot != nil { return }
         guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") || Bundle.main.bundleURL.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path + "/") else {
-            throw ConfigurationError("Move Dispatch Preview to Applications, open it there, and choose Set Up Preview to continue.")
+            throw ConfigurationError("Move Dispatch to Applications and open it there.")
         }
     }
-
     @objc private func startServer() {
-        guard externalURL == nil, !changingService else { return }
-        if configuration.databaseURL.isEmpty { configure(); return }
-        do {
-            configuration = try Configuration.read(from: PreviewPaths.configuration)
-            try requireInstalledApp()
-            if let root = PreviewPaths.testRoot {
-                let process = Process()
-                process.executableURL = Bundle.main.executableURL
-                process.arguments = ["--server", "--isolated-test", root.path]
-                try process.run()
-                validationServer = process
-            } else {
-                try service.register()
-            }
-            configurationError = nil
-            refresh()
-        } catch { showError(error.localizedDescription) }
+        guard !changingService, !stopping, externalURL == nil else { return }
+        if configuration.databaseURL.isEmpty { showSettings(); return }
+        sendServiceCommand(start: true)
     }
-
     @objc private func stopServer() {
-        guard externalURL == nil, !changingService else { return }
-        let alert = NSAlert()
-        alert.messageText = "Stop the Dispatch preview server?"
-        alert.informativeText = "The browser will disconnect. " + (configuration.usesManagedDatabase ? "The private local database will stop too. " : "") + "Running agent hosts remain alive, but tools that need the server may fail until you start it again. The server will also stop launching at login."
-        alert.addButton(withTitle: "Stop Server")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        changingService = true
-        rebuildMenu()
+        guard !changingService, !stopping, externalURL == nil else { return }
+        sendServiceCommand(start: false)
+    }
+    private func sendServiceCommand(start: Bool) {
+        changingService = true; rebuildMenu()
         Task {
+            defer { changingService = false; refresh() }
             do {
-                if let process = validationServer {
-                    if process.isRunning { process.terminate() }
-                    await Task.detached { process.waitUntilExit() }.value
-                    validationServer = nil
-                } else { try await service.unregister() }
-            }
-            catch { showError(error.localizedDescription) }
-            changingService = false
-            refresh()
+                try requireInstalledApp()
+                let command = ServiceRequest(start: start)
+                try command.save()
+                if let root = PreviewPaths.testRoot {
+                    if validationServer?.isRunning != true {
+                        let process = Process(); process.executableURL = Bundle.main.executableURL
+                        process.arguments = ["--server", "--isolated-test", root.path]
+                        try process.run(); validationServer = process
+                    }
+                } else if ServiceRuntime.read() == nil {
+                    // Migrate the earlier preview service once. Its running agents
+                    // remain detached; only the owned API/database are stopped.
+                    if service.status == .enabled { try await service.unregister() }
+                    try service.register()
+                    if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems(); return }
+                }
+                for _ in 0..<120 {
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                    if ServiceRuntime.read()?.requestID == command.id { return }
+                }
+                throw ConfigurationError("The server did not respond. Check its log in the Dispatch data folder.")
+            } catch { showError(error.localizedDescription) }
         }
     }
-
     @objc private func toggleLogin() {
-        guard externalURL == nil, PreviewPaths.testRoot == nil else { return }
+        guard PreviewPaths.testRoot == nil, externalURL == nil, !changingService else { return }
+        changingService = true; rebuildMenu()
         Task {
+            defer { changingService = false; rebuildMenu() }
             do {
                 if SMAppService.mainApp.status == .enabled { try await SMAppService.mainApp.unregister() }
                 else { try SMAppService.mainApp.register() }
                 if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-                rebuildMenu()
             } catch { showError(error.localizedDescription) }
         }
-    }
-
-    @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
-    @objc private func showDataFolder() { NSWorkspace.shared.open(PreviewPaths.root) }
-    @objc private func showLog() {
-        if FileManager.default.fileExists(atPath: PreviewPaths.log.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([PreviewPaths.log])
-        } else { showError("No server log yet. Configure and start the preview server first.") }
-    }
-    @objc private func about() {
-        let alert = NSAlert()
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
-        alert.messageText = "Dispatch Preview \(version)"
-        alert.informativeText = "A menu bar home for Dispatch. Open Dispatch uses your chosen browser.\n\nUpdates are manual in this preview. Before replacing the app, finish active agents and stop the server. Sparkle updates and migration from an existing service are planned separately.\n\nQuitting this menu leaves the background server running."
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
     }
     @objc private func quit() {
         if let process = validationServer, process.isRunning { process.terminate(); process.waitUntilExit() }
         NSApp.terminate(nil)
     }
     private func showError(_ message: String) {
-        let alert = NSAlert()
-        alert.messageText = "Dispatch Preview"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
-}
-
-
-@MainActor
-final class SetupFields: NSObject {
-    let view = NSStackView()
-    let port: NSTextField
-    let database: NSSecureTextField
-    let external = NSButton(checkboxWithTitle: "Use an existing database (advanced)", target: nil, action: nil)
-    private let databaseLabel = NSTextField(labelWithString: "Dedicated PostgreSQL connection URL")
-    private let hint = NSTextField(wrappingLabelWithString: "Your database is stored privately on this Mac and kept when you quit or update the app.")
-
-    init(configuration: Configuration) {
-        port = NSTextField(string: String(configuration.port))
-        database = NSSecureTextField(string: configuration.usesManagedDatabase ? "" : configuration.databaseURL)
-        super.init()
-        external.state = !configuration.databaseURL.isEmpty && !configuration.usesManagedDatabase ? .on : .off
-        external.target = self
-        external.action = #selector(toggle)
-        port.setAccessibilityLabel("Server port")
-        database.setAccessibilityLabel("PostgreSQL connection URL")
-        database.placeholderString = "postgres://user:password@localhost/dispatch_preview"
-        view.orientation = .vertical
-        view.alignment = .leading
-        view.spacing = 8
-        for field in [hint, NSTextField(labelWithString: "Server port"), port, external, databaseLabel, database] {
-            view.addArrangedSubview(field)
-            field.widthAnchor.constraint(equalToConstant: 430).isActive = true
-        }
-        view.frame = NSRect(x: 0, y: 0, width: 430, height: 200)
-        toggle()
-    }
-
-    @objc private func toggle() {
-        let advanced = external.state == .on
-        database.isHidden = !advanced
-        databaseLabel.isHidden = !advanced
-        hint.stringValue = advanced
-            ? "Use a dedicated preview database. Dispatch will run migrations there; do not use your regular Dispatch database."
-            : "Your database is stored privately on this Mac and kept when you quit or update the app."
+        let alert = NSAlert(); alert.messageText = "Dispatch"; alert.informativeText = message; alert.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true); alert.runModal()
     }
 }
 
@@ -392,12 +233,21 @@ struct DispatchMenuApp {
             do {
                 guard CommandLine.arguments.indices.contains(index + 1) else { throw ConfigurationError("Missing isolated test directory.") }
                 try PreviewPaths.enableIsolatedTest(root: CommandLine.arguments[index + 1])
-            } catch { fputs("Dispatch Preview: \(error.localizedDescription)\n", stderr); exit(1) }
+            } catch { fputs("Dispatch: \(error.localizedDescription)\n", stderr); exit(1) }
         }
-        if CommandLine.arguments.contains("--server") {
+        if CommandLine.arguments.contains("--worker") {
             do { try runServer() }
-            catch { fputs("Dispatch Preview: \(error.localizedDescription)\n", stderr); exit(1) }
+            catch { fputs("Dispatch: \(error.localizedDescription)\n", stderr); exit(1) }
+        } else if CommandLine.arguments.contains("--server") {
+            do { try runServiceSupervisor() }
+            catch { fputs("Dispatch: \(error.localizedDescription)\n", stderr); exit(1) }
         } else {
+            #if SPARKLE_PROBE
+            if Bundle.main.object(forInfoDictionaryKey: "DispatchSparkleProbeRoot") != nil {
+                runSparkleProbe()
+                return
+            }
+            #endif
             let app = NSApplication.shared
             let controller = MenuController()
             app.delegate = controller

@@ -1,3 +1,4 @@
+import { serverOrigin } from "../../server-origin.js";
 import type { AppConfig } from "../../config.js";
 
 /**
@@ -13,5 +14,5 @@ export function dispatchMcpUrl(
   const route = jobRunId
     ? `/api/mcp/jobs/${jobRunId}/${agentId}`
     : `/api/mcp/${agentId}`;
-  return `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}${route}`;
+  return `${serverOrigin(config)}${route}`;
 }

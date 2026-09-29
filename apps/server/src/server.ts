@@ -1,4 +1,5 @@
 import path from "node:path";
+import { listenAdditionalHosts } from "./multi-listener.js";
 import os from "node:os";
 import {
   mkdir,
@@ -892,6 +893,8 @@ export async function closeApp(): Promise<void> {
   await cleanupAppResources();
 }
 
+let closeAdditionalListeners: (() => Promise<void>) | undefined;
+
 export async function start() {
   await initializeApp();
 
@@ -900,6 +903,17 @@ export async function start() {
     host: config.host,
     port: config.port,
   });
+  try {
+    closeAdditionalListeners = await listenAdditionalHosts(
+      app,
+      config.listenHosts?.slice(1) ?? [],
+      config.port,
+      config.tls
+    );
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   app.log.info(
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
@@ -926,6 +940,8 @@ async function cleanupAppResources(): Promise<void> {
   }
   shuttingDown = true;
 
+  await closeAdditionalListeners?.();
+  closeAdditionalListeners = undefined;
   streamManager.stopAll();
   agentLifecycleRuntime.stopReconcileLoop();
   stopRetentionSweep?.();

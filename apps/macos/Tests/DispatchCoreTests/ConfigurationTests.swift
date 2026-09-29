@@ -21,6 +21,20 @@ final class ConfigurationTests: XCTestCase {
         try Configuration(databaseURL: "postgresql://user:pass@localhost/preview?sslmode=require").validate()
     }
 
+    func testNetworkBindingAndBrowserAddresses() throws {
+        let legacy = Configuration(databaseURL: "postgres://localhost/preview")
+        XCTAssertEqual(legacy.bindHost, "127.0.0.1")
+        for (host, expected) in [("0.0.0.0", "http://127.0.0.1:6768"), ("192.168.1.23", "http://192.168.1.23:6768"), ("100.100.1.2", "http://100.100.1.2:6768"), ("::", "http://[::1]:6768"), ("::1", "http://[::1]:6768")] {
+            let config = Configuration(databaseURL: "postgres://localhost/preview", host: host)
+            try config.validate()
+            XCTAssertEqual(config.serverURL.absoluteString, expected)
+            XCTAssertEqual(try JSONDecoder().decode(Configuration.self, from: JSONEncoder().encode(config)), config)
+        }
+        for host in ["", "example.com", "127.0.0.1:8000", "http://localhost", "999.1.1.1", "127.0.0.1\n"] {
+            XCTAssertThrowsError(try Configuration(databaseURL: "postgres://localhost/preview", host: host).validate())
+        }
+    }
+
     func testPrivateConfigurationRoundTripAndReplacement() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

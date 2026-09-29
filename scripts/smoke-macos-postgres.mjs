@@ -20,7 +20,7 @@ const isApp =
 const relocatedApp = path.join(
   temporary,
   "Relocated App",
-  "Dispatch Preview.app"
+  "Dispatch.app"
 );
 const runtime = isApp
   ? path.join(relocatedApp, "Contents/Helpers/Postgres")

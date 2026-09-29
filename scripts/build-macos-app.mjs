@@ -54,7 +54,7 @@ run("lipo", [binary, "-verify_arch", swiftArch]);
 const output = path.join(root, "dist/macos", arch);
 mkdirSync(output, { recursive: true });
 const temporary = mkdtempSync(path.join(output, ".package-"));
-const appName = "Dispatch Preview.app";
+const appName = "Dispatch.app";
 const app = path.join(temporary, appName);
 const contents = path.join(app, "Contents");
 const identity = process.env.DISPATCH_CODESIGN_IDENTITY;
@@ -97,6 +97,15 @@ try {
     path.join(root, "apps/macos/Resources/Dispatch.icns"),
     path.join(contents, "Resources/Dispatch.icns")
   );
+  for (const name of [
+    "DispatchMenuTemplate.png",
+    "DispatchMenuTemplate@2x.png",
+  ]) {
+    cpSync(
+      path.join(root, "apps/macos/Resources", name),
+      path.join(contents, "Resources", name)
+    );
+  }
   for (const name of ["share", "licenses", "SOURCE.json"]) {
     renameSync(path.join(postgres, name), path.join(postgresResources, name));
     symlinkSync(`../../Resources/Postgres/${name}`, path.join(postgres, name));

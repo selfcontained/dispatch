@@ -1,23 +1,50 @@
 import Foundation
+import Darwin
 
 public struct Configuration: Codable, Equatable {
     public var port: Int
     public var databaseURL: String
     public var instanceID: String
     public var managedDatabase: Bool?
+    public var host: String?
+    public var hosts: [String]?
+    public var bindHosts: [String] { hosts ?? [host ?? "127.0.0.1"] }
+    public var bindHost: String { bindHosts.first ?? "127.0.0.1" }
 
     public var usesManagedDatabase: Bool { managedDatabase == true }
 
-    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString, managedDatabase: Bool? = nil) {
+    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString, managedDatabase: Bool? = nil, host: String? = nil, hosts: [String]? = nil) {
         self.port = port
         self.databaseURL = databaseURL
         self.instanceID = instanceID
         self.managedDatabase = managedDatabase
+        self.host = host
+        self.hosts = hosts
     }
 
-    public var serverURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
+    public var serverURL: URL {
+        var components = URLComponents()
+        components.scheme = "http"
+        let address = ["0.0.0.0", "::"].contains(bindHost) ? (bindHost == "::" ? "::1" : "127.0.0.1") : bindHost
+        components.host = address.contains(":") ? "[\(address)]" : address
+        components.port = port
+        return components.url!
+    }
 
     public func validate() throws {
+        guard !bindHosts.isEmpty, bindHosts.count <= 16, Set(bindHosts).count == bindHosts.count else {
+            throw ConfigurationError("Select between one and sixteen different IP addresses.")
+        }
+        guard bindHosts.count == 1 || !bindHosts.contains(where: { ["0.0.0.0", "::"].contains($0) }) else {
+            throw ConfigurationError("All interfaces cannot be combined with individual addresses.")
+        }
+        for host in bindHosts {
+            var ipv4 = in_addr()
+            var ipv6 = in6_addr()
+            guard inet_pton(AF_INET, host, &ipv4) == 1 || inet_pton(AF_INET6, host, &ipv6) == 1 else {
+                throw ConfigurationError("Choose valid local IPv4 or IPv6 addresses.")
+            }
+        }
         guard (1024...65535).contains(port), port != 6767 else {
             throw ConfigurationError("Choose a port between 1024 and 65535 other than 6767 (reserved for your existing Dispatch installation).")
         }
@@ -26,11 +53,11 @@ public struct Configuration: Codable, Equatable {
               let host = url.host, !host.isEmpty,
               url.fragment == nil,
               url.path.count > 1 else {
-            throw ConfigurationError("Enter a PostgreSQL connection URL with a host and a dedicated preview database name.")
+            throw ConfigurationError("Enter a PostgreSQL connection URL with a host and a dedicated database name.")
         }
         let database = String(url.path.dropFirst())
         guard !["dispatch", "postgres", ".", ".."].contains(database), !database.contains("/") else {
-            throw ConfigurationError("Use a dedicated preview database, not the production ‘dispatch’ database or the ‘postgres’ maintenance database.")
+            throw ConfigurationError("Use a dedicated database, not the production ‘dispatch’ database or the ‘postgres’ maintenance database.")
         }
         // libpq parameters can otherwise override the database in the URL path.
         let allowedParameters: Set<String> = ["sslmode", "sslcert", "sslkey", "sslrootcert", "connect_timeout", "application_name"]
@@ -47,7 +74,7 @@ public struct Configuration: Codable, Equatable {
             }
         }
         guard UUID(uuidString: instanceID) != nil else {
-            throw ConfigurationError("The preview instance identifier is invalid. Restore a valid configuration before starting.")
+            throw ConfigurationError("The Dispatch instance identifier is invalid. Restore a valid configuration before starting.")
         }
     }
 
@@ -66,7 +93,7 @@ public struct Configuration: Codable, Equatable {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let data = try JSONEncoder().encode(self)
         guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
-            throw ConfigurationError("Could not save the preview configuration.")
+            throw ConfigurationError("Could not save the configuration.")
         }
         if FileManager.default.fileExists(atPath: url.path) {
             _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)

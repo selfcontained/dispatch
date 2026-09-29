@@ -9,21 +9,29 @@ func runServer() throws -> Never {
     let serverDirectory = root.appendingPathComponent("server", isDirectory: true)
     try FileManager.default.createDirectory(at: serverDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let log = open(PreviewPaths.log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
-    guard log >= 0 else { throw ConfigurationError("Cannot open the preview server log.") }
+    guard log >= 0 else { throw ConfigurationError("Cannot open the server log.") }
     _ = dup2(log, STDOUT_FILENO)
     _ = dup2(log, STDERR_FILENO)
     if log > STDERR_FILENO { close(log) }
     var config = try Configuration.read(from: PreviewPaths.configuration)
+    let requested = config
     let managedDatabase: LocalDatabase?
     if config.usesManagedDatabase {
         let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
+        let hosts = config.bindHosts
         config = try database.configuration(port: config.port, instanceID: config.instanceID)
-        try config.save(to: PreviewPaths.configuration)
+        config.hosts = hosts
         managedDatabase = database
     } else { managedDatabase = nil }
+    // Persist first-time database reconciliation only if the user has not saved
+    // a newer configuration while this worker was starting.
+    if (try? Configuration.read(from: PreviewPaths.configuration)) == requested {
+        try config.save(to: PreviewPaths.configuration)
+    }
+    try config.save(to: root.appendingPathComponent("running-configuration.json"))
     let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/dispatch")
     guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-        throw ConfigurationError("The bundled Dispatch server is missing. Download a complete preview app.")
+        throw ConfigurationError("The bundled Dispatch server is missing. Download a complete Dispatch app.")
     }
 
     // Never inherit another Dispatch instance's state, credentials, TLS, or test seams.
@@ -32,7 +40,8 @@ func runServer() throws -> Never {
     }
     let environment = [
         "DATABASE_URL": config.databaseURL,
-        "DISPATCH_HOST": "127.0.0.1",
+        "DISPATCH_HOST": config.bindHost,
+        "DISPATCH_LISTEN_HOSTS": config.bindHosts.joined(separator: ","),
         "DISPATCH_PORT": String(config.port),
         "DISPATCH_STATE_DIR": root.path,
         "DISPATCH_SERVER_DIR": serverDirectory.path,
@@ -44,26 +53,24 @@ func runServer() throws -> Never {
     ]
     for (key, value) in environment { setenv(key, value, 1) }
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
-    guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the preview state directory.") }
-    if let database = managedDatabase {
-        let termination = ServerTermination()
-        try database.start(config)
-        defer { try? database.stop() }
-        if termination.requested { try database.stop(); exit(0) }
-        let server = Process()
-        server.executableURL = executable
-        server.environment = ProcessInfo.processInfo.environment
-        server.standardOutput = FileHandle.standardOutput
-        server.standardError = FileHandle.standardError
+    guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the data directory.") }
+    let termination = ServerTermination()
+    try managedDatabase?.start(config)
+    if termination.requested { try managedDatabase?.stop(); exit(0) }
+    let server = Process()
+    server.executableURL = executable
+    server.environment = ProcessInfo.processInfo.environment
+    server.standardOutput = FileHandle.standardOutput
+    server.standardError = FileHandle.standardError
+    do {
         try termination.launch(server)
-        let status = try termination.waitForExitAndCleanUp { try database.stop() }
+        let status = try termination.waitForExitAndCleanUp { try managedDatabase?.stop() }
         exit(status)
+    } catch {
+        try? managedDatabase?.stop()
+        throw error
     }
-    let argument = strdup(executable.path)!
-    defer { free(argument) }
-    var arguments: [UnsafeMutablePointer<CChar>?] = [argument, nil]
-    execv(executable.path, &arguments)
-    throw ConfigurationError("Cannot launch the bundled server (errno \(errno)).")
+
 }
 
 /// Signal handlers execute off the thread waiting for the child. Keep launch and
@@ -75,6 +82,7 @@ final class ServerTermination {
     private let lock = NSLock()
     private var stopping = false
     private var process: Process?
+    private weak var stoppingChild: Process?
     private var sources: [DispatchSourceSignal] = []
     var requested: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
 
@@ -93,16 +101,28 @@ final class ServerTermination {
     func requestStop() {
         lock.lock()
         defer { lock.unlock() }
-        guard !stopping else { return }
         stopping = true
-        guard let child = process, child.isRunning else { return }
+        stopChildLocked()
+    }
+
+    /// Stops this child without shutting down the coordinator. Repeated requests
+    /// share one deadline; its timer can never target a replacement child.
+    func stopChild() {
+        lock.lock()
+        defer { lock.unlock() }
+        stopChildLocked()
+    }
+
+    private func stopChildLocked() {
+        guard let child = process, child.isRunning, stoppingChild !== child else { return }
+        stoppingChild = child
         child.terminate()
         DispatchQueue.global().asyncAfter(deadline: .now() + gracePeriod) { [weak self, weak child] in
             guard let self, let child else { return }
             self.lock.lock()
             defer { self.lock.unlock() }
             guard self.process === child, child.isRunning else { return }
-            // Kill only our API child, never its group or detached agent hosts.
+            // Kill only our owned child, never a process group or detached agents.
             _ = Darwin.kill(child.processIdentifier, SIGKILL)
         }
     }
@@ -117,6 +137,7 @@ final class ServerTermination {
         // on this PID after reaping (including a subsequently reused PID).
         lock.lock()
         process = nil
+        stoppingChild = nil
         let stopped = stopping
         lock.unlock()
         try cleanup()

@@ -1,6 +1,6 @@
 # macOS menu bar preview
 
-Dispatch Preview is an optional macOS 13+ menu bar app. It bundles the same Bun
+Dispatch is an optional macOS 13+ menu bar app. It bundles the same Bun
 server used by the binary release and opens its local web app in a browser.
 There is no embedded webview. Linux installation and release artifacts are
 unchanged.
@@ -10,26 +10,27 @@ It is not yet a replacement for the stable installer.
 
 ## What ships
 
-- **Open Dispatch** opens the running server in the system browser or the
-  installed browser selected under **Open in Browser**. The preference survives
-  quitting and relaunching the menu. An unavailable selected browser produces an
-  error rather than silently switching browsers.
-- **Set Up Preview** defaults to a private local PostgreSQL database. Choose
-  **Start Dispatch**: the app creates the database, saves private credentials,
-  and starts the server. No PostgreSQL installation, Docker, or connection URL
-  is needed. **Use an existing database (advanced)** keeps manual configuration
-  available. The web port defaults to 6768. Production port 6767 and database
-  names `dispatch` and `postgres` remain reserved.
-- **Start Server** registers an app-bundled, per-user LaunchAgent through
-  `SMAppService`. macOS may require approval in Login Items & Extensions. The
-  menu shows that state and links to System Settings. Registration also enables
-  starting the server at login; it does not run before the user logs in.
-- **Stop Server** unregisters that service and cleanly stops its managed local
-  database. Agent hosts remain detached, but server-dependent tools are
-  unavailable while it is stopped. External databases are never stopped.
-- **Open Menu at Login** independently controls the menu application's login
-  item. **Quit Menu (Keep Server Running)** leaves the service running.
-- **Show Server Log** reveals the preview log in Finder.
+- **Open Dispatch** uses the system default browser. The menu and Settings
+  provide a copy action for the server address.
+- **Settings → General** shows status and Start/Stop controls below Startup. Select one or more
+  local IP addresses in **Network** and choose a web port (6768 by default).
+  Settings remain editable while running; **Save** does not start or restart
+  the server. Saved changes apply on the next start, while the displayed address
+  continues to describe the running instance.
+- **Settings → Database** defaults to a private PostgreSQL database managed by
+  Dispatch. An external database can be configured there. Passwords are not
+  displayed; **Copy Connection URL** includes credentials. Production port 6767
+  and database names `dispatch` and `postgres` remain reserved.
+- **Settings → General** has independent preferences for showing the menu bar app and
+  starting the server at login. Changing either does not start/stop the server.
+- An app-bundled per-user LaunchAgent accepts explicit Start/Stop commands and
+  reads the server startup preference at login. When stopped, it remains idle.
+  macOS may require approval in Login Items & Extensions.
+- **Stop Server** stops the owned API and managed database, without changing
+  login preferences. Agent hosts remain detached; external databases are never
+  stopped. **Quit Dispatch** leaves the server running.
+- **Settings → Support** shows the version and a single **Dispatch Data** entry
+  with **Show in Finder** and **Copy Path**, covering data, configuration and logs.
 
 State lives under `~/.dispatch-mac-preview/`, including `configuration.json`,
 `server.log`, files, agents, and release stores. Configuration is written
@@ -39,7 +40,7 @@ private and do not attach the configuration file to bug reports.
 
 The preview neither adopts nor stops the existing `com.dispatch.server`
 service. A health response must identify this preview instance before **Open
-Dispatch** is enabled. A occupied port does not cause it to attach to a different
+Dispatch** is enabled. An occupied port does not cause it to attach to a different
 installation. PostgreSQL 17 is bundled and runs only on a private loopback
 port with password authentication; data lives in `~/.dispatch-mac-preview/postgres`.
 Database credentials are saved separately in `local-database.json` with mode 0600,
@@ -61,11 +62,11 @@ DISPATCH_BUN_TARGETS=bun-darwin-arm64 pnpm run build:bun
 pnpm run build:macos
 ```
 
-The app and ZIP are in `dist/macos/arm64/`. Move **Dispatch Preview.app** to
-`/Applications` or `~/Applications` before starting the service. Open it, choose
-**Start Dispatch** in the first-run setup dialog. Later, **Set Up Preview**
-lets you change the web port or choose an external database while stopped. If macOS requests background approval, use **Allow Background
-Service** in the menu. Once healthy, choose **Open Dispatch**.
+The app and ZIP are in `dist/macos/arm64/`. Move **Dispatch.app** to
+`/Applications` or `~/Applications` before starting the service. Open Settings,
+choose **Save** to keep the initial configuration, then **Start Server**. If macOS
+requests background approval, use **Allow in System Settings**. Once healthy,
+choose **Open Dispatch**.
 
 For Intel, build `bun-darwin-x64` and set `DISPATCH_MAC_ARCH=x64` when packaging.
 `DISPATCH_MAC_SERVER_BINARY` can select an already-built executable; its
@@ -107,13 +108,15 @@ rejects tarball installation as a second guard. Linux and standalone macOS
 servers retain their existing update behavior.
 
 For a manual update, finish active agents, choose **Stop Server**, disable
-**Open Menu at Login** if enabled, and quit the menu. Replace the app at the same
-location, reopen it, and choose **Start Server**. Keep a backup of the preview
+**Launch Dispatch at login** if enabled, and quit the app. Disable its background
+item in macOS Login Items & Extensions before replacing the bundle, so the idle
+coordinator is also unloaded. Replace the app at the same
+location, reopen it, re-enable its background item, and choose **Start Server**. Keep a backup of the preview
 database before changing versions: replacing an app cannot undo schema changes.
 Do not move/replace the app while its server or agents are using it.
 
-To remove it, stop its server, disable its menu login item, quit, and delete the
-app. State and the database are intentionally retained; remove them separately
+To remove it, stop its server, disable its app login preference and macOS
+background item, quit, and delete the app. State and the database are intentionally retained; remove them separately
 only if they are no longer needed.
 
 ## Validation without registering a service
@@ -123,12 +126,12 @@ with its printed **web** URL:
 
 ```sh
 DISPATCH_MENU_VALIDATION_URL=http://127.0.0.1:PORT \
-  'dist/macos/arm64/Dispatch Preview.app/Contents/MacOS/DispatchMenu'
+  'dist/macos/arm64/Dispatch.app/Contents/MacOS/DispatchMenu'
 ```
 
 This explicit mode connects only to an HTTP loopback URL with a non-production
-port. It omits server configuration, lifecycle controls, and login registration.
-Use it to exercise status, browser selection, persistence, and browser handoff
+port. It disables configuration and lifecycle actions, and does not register login items.
+Use it to exercise status, exact address copying, and default-browser handoff
 without touching an installed service. Browser validation alone does not prove
 LaunchAgent registration, notarization, or agent survival across app upgrades.
 
@@ -143,8 +146,8 @@ LaunchAgent registration, notarization, or agent survival across app upgrades.
    Keep the web updater excluded from app-owned installations.
 3. Add an explicit migration path from the existing service with backup and
    recovery with the managed local PostgreSQL cluster.
-4. Add app branding/artwork and a first-run onboarding experience for managed
-   engine prerequisites.
+4. Validate first-run onboarding and branding on an installed signed build.
+   App artwork and managed database setup are implemented.
 
 ### Signed CI previews
 
@@ -152,7 +155,7 @@ The macOS Menu Preview workflow imports the existing production signing and
 notarization secrets into a temporary runner keychain, signs and notarizes the
 app, verifies Gatekeeper acceptance, and uploads a ZIP artifact for 14 days.
 It does not publish a release. The keychain is removed at the end of the job.
-The initial preview branch has a narrowly scoped push trigger for workflow and
+The earlier preview branch used a narrowly scoped push trigger for workflow and
 packaging-script changes; manual runs can select arm64 or x64 after the workflow
 exists on the default branch.
 
@@ -174,3 +177,53 @@ or service-registration test.
 --package-path apps/macos` runs real cluster creation, authenticated connection,
 persistence, shutdown, and restart tests in a temporary directory. CI runs these
 with its downloaded bundle. No production database is contacted.
+
+## Display-name change and automatic updates
+
+The visible app name is **Dispatch**. This is not a database migration: retain
+`dev.bradharris.dispatch.preview`, its LaunchAgent identifier,
+`~/.dispatch-mac-preview`, and the managed `dispatch_preview` role/database.
+Existing configuration, credentials, instance identity, sessions, and startup
+preferences must be reused. Do not adopt the standalone `dispatch` database or
+rename/copy its data. An existing installed bundle should be stopped and moved
+with service re-registration as part of a controlled installer/update, not
+renamed underneath a running coordinator.
+
+Sparkle is not integrated yet. Remaining work:
+
+- Embed/sign Sparkle 2 and add Check for Updates plus automatic-check preferences.
+- Provision a separate Sparkle EdDSA signing key (Apple signing remains in use),
+  embed its public key, and configure an HTTPS appcast URL.
+- Extend CI to publish notarized/stapled archives and a signed appcast, with
+  increasing build numbers and explicit release-channel policy.
+- Coordinate installation with the app-owned service: preserve whether the server
+  was running, stop/reap owned processes, replace the app, repair registration,
+  and restore prior running state. Preserve detached agent hosts only when the
+  new runtime remains compatible.
+- Gate incompatible database/runtime migrations, provide backup/recovery, and
+  verify post-update health before declaring success. PostgreSQL major-version
+  upgrades need a separate data-migration path; never replace the engine blindly.
+- Validate two real signed versions: running/stopped server, retained sessions and
+  preferences, existing standalone installation, interrupted update, and failed
+  restart. Linux keeps its existing standalone delivery/update path.
+
+See [Sparkle documentation](https://sparkle-project.org/documentation/).
+
+### Recommended Linux counterpart (not implemented)
+
+Retain the standalone installer and binary updater for the first release. Share
+release/compatibility metadata, migration eligibility, agent-survival rules,
+health confirmation and recovery requirements with the Mac path. Sparkle and the
+Linux installer remain separate artifact installers with one update owner per
+installation.
+
+The current automatic-update modes are `off` and `check`; unattended installation
+is additional work. Before enabling it, add authenticated release verification
+(the current archive checksum is not a publisher signature), a compatible-update
+policy, and recovery controlled outside the server being replaced. Keep the
+previous executable, but allow automatic binary rollback only when the database
+schema remains compatible; otherwise use an explicit backup/recovery procedure.
+A future package-managed installation must delegate file replacement to its
+package manager rather than also running the self-updater.
+
+The next gate is documented in [the notarized SMAppService proof](macos-sparkle-service-proof.md). Its dedicated workflow now owns the temporary feature-branch push trigger; the ordinary preview workflow is manual.

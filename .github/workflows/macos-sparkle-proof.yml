@@ -1,25 +1,27 @@
-name: macOS Menu Preview
+name: macOS Sparkle Service Proof
 
-# Build the selected branch for testing. This does not publish a release or
-# alter the stable binary/service release pipeline.
+# Test-only artifacts, never a release. One hosted build at a time.
 on:
+  push:
+    branches: [agt_e49fa225fda7/agent-25fda7]
+    paths:
+      - .github/workflows/macos-sparkle-proof.yml
+      - scripts/build-macos-sparkle-proof.py
+      - scripts/validate-macos-sparkle-proof.py
+      - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
   workflow_dispatch:
-    inputs:
-      architecture:
-        description: Mac architecture
-        type: choice
-        options: [arm64, x64]
-        default: arm64
 
 permissions:
   contents: read
 
+concurrency:
+  group: macos-sparkle-proof-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  preview:
+  proof:
     runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      PREVIEW_ARCH: ${{ inputs.architecture || 'arm64' }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -36,14 +38,20 @@ jobs:
         with:
           path: dist/cache/postgres
           key: macos-postgres-${{ hashFiles('scripts/download-macos-postgres.mjs') }}
-      - name: Extract verified PostgreSQL for Swift integration tests
-        run: node scripts/download-macos-postgres.mjs "$PREVIEW_ARCH" "$RUNNER_TEMP/dispatch-postgres-test"
-      - run: swift test --package-path apps/macos
+      - name: Download and verify Sparkle SDK
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sparkle-sdk"
+          curl --fail --location --silent --show-error \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz \
+            -o "$RUNNER_TEMP/sparkle-sdk/sdk.tar.xz"
+          echo "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  $RUNNER_TEMP/sparkle-sdk/sdk.tar.xz" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/sparkle-sdk/sdk.tar.xz" -C "$RUNNER_TEMP/sparkle-sdk"
+      - name: Build bundled server
+        run: pnpm run build:bun
         env:
-          DISPATCH_TEST_POSTGRES_BUNDLE: ${{ runner.temp }}/dispatch-postgres-test
-      - run: pnpm run build:bun
-        env:
-          DISPATCH_BUN_TARGETS: bun-darwin-${{ env.PREVIEW_ARCH }}
+          DISPATCH_BUN_TARGETS: bun-darwin-arm64
+          NODE_OPTIONS: --max-old-space-size=2048
       - name: Configure signing and notarization
         env:
           CERT_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12 }}
@@ -69,20 +77,26 @@ jobs:
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_NOTARY_PASSWORD" --keychain "$KEYCHAIN_PATH"
           echo "DISPATCH_NOTARY_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-      - name: Sign, notarize, and verify app
+      - name: Assemble signed base app
         run: pnpm run build:macos
         env:
-          DISPATCH_MAC_ARCH: ${{ env.PREVIEW_ARCH }}
+          DISPATCH_MAC_ARCH: arm64
           DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
-          DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-preview-notary
-          DISPATCH_NOTARIZE_MACOS_APP: "1"
           DISPATCH_MAC_BUILD: ${{ github.run_number }}
-      - name: Smoke test relocated bundled PostgreSQL
-        run: node scripts/smoke-macos-postgres.mjs "dist/macos/$PREVIEW_ARCH/Dispatch.app/Contents/Helpers/Postgres"
+      - name: Produce two notarized Sparkle service builds
+        run: |
+          python3 scripts/build-macos-sparkle-proof.py \
+            --base-app 'dist/macos/arm64/Dispatch.app' \
+            --sdk "$RUNNER_TEMP/sparkle-sdk" \
+            --output dist/sparkle-proof \
+            --proof-id "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --identity 'Developer ID Application: Brad Harris (ML8BQ6D727)' \
+            --notary-profile dispatch-preview-notary \
+            --notary-keychain "$DISPATCH_NOTARY_KEYCHAIN"
       - uses: actions/upload-artifact@v4
         with:
-          name: dispatch-macos-preview-${{ env.PREVIEW_ARCH }}
-          path: dist/macos/**/*.zip
+          name: dispatch-sparkle-service-proof
+          path: dist/sparkle-proof/
           if-no-files-found: error
           retention-days: 14
       - name: Remove signing credentials

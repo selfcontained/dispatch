@@ -24,7 +24,7 @@ public final class LocalDatabase {
         guard fd >= 0 else { throw ConfigurationError("Cannot open the local database lock.") }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             close(fd)
-            throw ConfigurationError("The preview database is already in use. Stop the preview server before changing setup.")
+            throw ConfigurationError("The database is already in use. Stop the server before changing setup.")
         }
         lockFD = fd
     }
@@ -97,7 +97,7 @@ public final class LocalDatabase {
             try FileManager.default.moveItem(at: staging, to: data)
         }
         guard (try String(contentsOf: data.appendingPathComponent("PG_VERSION"))).trimmingCharacters(in: .whitespacesAndNewlines) == "17" else {
-            throw ConfigurationError("This preview requires PostgreSQL 17 data. Your existing data has not been changed.")
+            throw ConfigurationError("Dispatch requires PostgreSQL 17 data. Your existing data has not been changed.")
         }
         do {
             if try run("pg_ctl", ["-D", data.path, "status"], allowed: [0, 3]) == 3 {
@@ -109,7 +109,7 @@ public final class LocalDatabase {
             let environment = ["PGHOST": "127.0.0.1", "PGPORT": String(url.port!), "PGUSER": "dispatch_preview", "PGPASSWORD": url.password!, "PGDATABASE": "postgres", "PGCONNECT_TIMEOUT": "5"]
             let actual = try output("psql", ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", "SHOW data_directory"], environment: environment)
             guard URL(fileURLWithPath: actual.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath() == data.resolvingSymlinksInPath() else {
-                throw ConfigurationError("The database port belongs to another database. Your preview data has not been changed.")
+                throw ConfigurationError("The database port belongs to another database. Your data has not been changed.")
             }
             let exists = try output("psql", ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", "SELECT 1 FROM pg_database WHERE datname = 'dispatch_preview'"], environment: environment)
             if exists.trimmingCharacters(in: .whitespacesAndNewlines) != "1" {
@@ -132,7 +132,7 @@ public final class LocalDatabase {
     private func process(_ name: String, _ arguments: [String], environment: [String: String]) throws -> Process {
         let executable = binaries.appendingPathComponent("bin/\(name)")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw ConfigurationError("The bundled database is missing. Download a complete Dispatch Preview app.")
+            throw ConfigurationError("The bundled database is missing. Download a complete Dispatch app.")
         }
         let process = Process()
         process.executableURL = executable
@@ -158,7 +158,7 @@ public final class LocalDatabase {
         try process.run()
         process.waitUntilExit()
         guard allowed.contains(process.terminationStatus) else {
-            throw ConfigurationError("Local database \(name) failed. See database-setup.log and postgres.log in the preview data folder, then retry setup. Your existing data has been kept.")
+            throw ConfigurationError("Local database \(name) failed. See database-setup.log and postgres.log in the Dispatch data folder, then retry setup. Your existing data has been kept.")
         }
         return process.terminationStatus
     }
@@ -171,7 +171,7 @@ public final class LocalDatabase {
         try process.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw ConfigurationError("Could not connect to the private database. Check postgres.log in the preview data folder and retry setup.") }
+        guard process.terminationStatus == 0 else { throw ConfigurationError("Could not connect to the private database. Check postgres.log in the Dispatch data folder and retry setup.") }
         return String(decoding: data, as: UTF8.self)
     }
 
