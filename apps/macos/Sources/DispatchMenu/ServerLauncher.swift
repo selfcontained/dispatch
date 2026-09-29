@@ -13,7 +13,14 @@ func runServer() throws -> Never {
     _ = dup2(log, STDOUT_FILENO)
     _ = dup2(log, STDERR_FILENO)
     if log > STDERR_FILENO { close(log) }
-    let config = try Configuration.read(from: PreviewPaths.configuration)
+    var config = try Configuration.read(from: PreviewPaths.configuration)
+    let managedDatabase: LocalDatabase?
+    if config.usesManagedDatabase {
+        let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
+        config = try database.configuration(port: config.port, instanceID: config.instanceID)
+        try config.save(to: PreviewPaths.configuration)
+        managedDatabase = database
+    } else { managedDatabase = nil }
     let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/dispatch")
     guard FileManager.default.isExecutableFile(atPath: executable.path) else {
         throw ConfigurationError("The bundled Dispatch server is missing. Download a complete preview app.")
@@ -38,8 +45,7 @@ func runServer() throws -> Never {
     for (key, value) in environment { setenv(key, value, 1) }
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
     guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the preview state directory.") }
-    if config.usesManagedDatabase {
-        let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
+    if let database = managedDatabase {
         let termination = ServerTermination()
         try database.start(config)
         defer { try? database.stop() }

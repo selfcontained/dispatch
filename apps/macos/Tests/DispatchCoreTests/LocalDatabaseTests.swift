@@ -1,4 +1,5 @@
 import DispatchCore
+import Darwin
 import Foundation
 import XCTest
 
@@ -62,6 +63,39 @@ final class LocalDatabaseTests: XCTestCase {
         XCTAssertEqual(try database.configuration(port: 6768, instanceID: config.instanceID), config)
         try database.start(config)
         XCTAssertEqual(try sql("SELECT value FROM persistence_check", configuration: config, binaries: binaries).1.trimmingCharacters(in: .whitespacesAndNewlines), "kept")
+        try database.stop()
+        try config.save(to: root.appendingPathComponent("configuration.json"))
+        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(listener, 0)
+        defer { close(listener) }
+        var reuse: Int32 = 1
+        _ = setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = UInt16(URLComponents(string: config.databaseURL)!.port!).bigEndian
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        XCTAssertEqual(bound, 0)
+        XCTAssertEqual(listen(listener, 1), 0)
+        let recovered = try database.configuration(port: 6768, instanceID: config.instanceID)
+        let oldURL = URLComponents(string: config.databaseURL)!
+        let newURL = URLComponents(string: recovered.databaseURL)!
+        XCTAssertNotEqual(newURL.port, oldURL.port)
+        XCTAssertEqual(newURL.password, oldURL.password)
+        XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("local-database.json")), recovered)
+        XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("configuration.json")), recovered)
+        // Simulate interruption after the canonical metadata changed but before
+        // the active config write: the next launcher/setup reconciliation repairs it.
+        try config.save(to: root.appendingPathComponent("configuration.json"))
+        XCTAssertEqual(try database.configuration(port: 6768, instanceID: config.instanceID), recovered)
+        XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("configuration.json")), recovered)
+        try database.start(recovered)
+        XCTAssertEqual(try sql("SELECT value FROM persistence_check", configuration: recovered, binaries: binaries).1.trimmingCharacters(in: .whitespacesAndNewlines), "kept")
+        XCTAssertEqual(try database.configuration(port: 6768, instanceID: config.instanceID), recovered, "Never move a running private cluster")
+        XCTAssertEqual(fcntl(listener, F_GETFD), 0, "Unrelated listener remains open")
     }
 
     private func sql(_ statement: String, configuration: Configuration, binaries: URL, password: String? = nil) throws -> (Int32, String) {

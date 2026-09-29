@@ -36,7 +36,26 @@ public final class LocalDatabase {
             guard result.usesManagedDatabase else { throw ConfigurationError("The saved local database configuration is invalid.") }
             result.port = port
             result.instanceID = instanceID
+            let activeURL = root.appendingPathComponent("configuration.json")
+            var active = FileManager.default.fileExists(atPath: activeURL.path) ? try Configuration.read(from: activeURL) : nil
+            let running = FileManager.default.fileExists(atPath: data.appendingPathComponent("PG_VERSION").path)
+                ? try run("pg_ctl", ["-D", data.path, "status"], allowed: [0, 3]) == 0 : false
+            var url = URLComponents(string: result.databaseURL)!
+            if !running && (url.port == port || (try? Self.availablePort(requested: url.port!)) == nil) {
+                var replacement = try Self.availablePort()
+                let reserved = [6767, port, active?.port ?? port]
+                while reserved.contains(replacement) { replacement = try Self.availablePort() }
+                url.port = replacement
+                result.databaseURL = url.string!
+            }
             try result.validate()
+            // Canonical local metadata is saved first. The launcher reconciles it
+            // again before every start, recovering interruption between these writes.
+            try result.save(to: savedConfiguration)
+            if active?.usesManagedDatabase == true {
+                active!.databaseURL = result.databaseURL
+                try active!.save(to: activeURL)
+            }
             return result
         }
         guard !FileManager.default.fileExists(atPath: data.path) else {
@@ -156,11 +175,12 @@ public final class LocalDatabase {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func availablePort() throws -> Int {
+    private static func availablePort(requested: Int = 0) throws -> Int {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ConfigurationError("Cannot choose a local database port.") }
         defer { close(fd) }
         var address = sockaddr_in()
+        address.sin_port = UInt16(requested).bigEndian
         address.sin_family = sa_family_t(AF_INET)
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
