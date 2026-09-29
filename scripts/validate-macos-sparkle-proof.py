@@ -23,6 +23,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+from sparkle_proof_cleanup import TLS_CONFIG, read_events, assert_restore, cleanup_service, cleanup_certificate, cleanup_phases, final_verdict
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--artifacts', type=Path, default=Path(__file__).resolve().parent)
@@ -51,14 +52,15 @@ root.mkdir(mode=0o700)
 evidence = artifacts/'evidence'/f'{args.case}-{uuid.uuid4().hex}'
 evidence.mkdir(parents=True, mode=0o700)
 log = (evidence/'commands.log').open('w')
-server = None; trusted = False; registered_app = False; completed = False
+server = None; feed_started = False; trusted = False; registered_app = False; completed = False
+lifecycle = {"lifecycle": "failed", "case": args.case}
 
-def run(*command, capture=False, check=True, **kwargs):
-    return subprocess.run([str(c) for c in command], check=check, text=True, stdout=subprocess.PIPE if capture else log, stderr=log, **kwargs)
+def run(*command, capture=False, check=True, capture_errors=False, **kwargs):
+    return subprocess.run([str(c) for c in command], check=check, text=True, stdout=subprocess.PIPE if capture else log, stderr=subprocess.PIPE if capture_errors else log, **kwargs)
 
 def events():
     path=root/'sparkle-events.jsonl'
-    return [json.loads(x) for x in path.read_text().splitlines()] if path.exists() else []
+    return read_events(path)
 
 def wait_event(name, build, timeout=600):
     deadline=time.monotonic()+timeout; told_approval=False
@@ -107,16 +109,17 @@ def sql(statement):
 
 try:
     certificate=root/'feed-cert.pem';key=root/'feed-key.pem';config=root/'tls.cnf'
-    config.write_text(f'[req]\ndistinguished_name=dn\nx509_extensions=v3\nprompt=no\n[dn]\nCN=Dispatch Sparkle Proof {identity}\n[v3]\nsubjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,digitalSignature,keyCertSign,cRLSign\nextendedKeyUsage=serverAuth\n')
+    config.write_text(TLS_CONFIG)
     run('/usr/bin/openssl','req','-x509','-newkey','rsa:2048','-nodes','-sha256','-days','2','-config',config,'-keyout',key,'-out',certificate)
     key.chmod(0o600)
     keychain=Path.home()/'Library/Keychains/login.keychain-db'
-    run('security','add-trusted-cert','-r','trustRoot','-k',keychain,certificate);trusted=True
+    trusted=True  # Cleanup also covers a partially successful import.
+    run('security','add-trusted-cert','-r','trustRoot','-k',keychain,certificate)
     handler=functools.partial(http.server.SimpleHTTPRequestHandler,directory=str(artifacts))
     server=http.server.ThreadingHTTPServer(('127.0.0.1',58443),handler)
     tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);tls.load_cert_chain(certificate,key)
     server.socket=tls.wrap_socket(server.socket,server_side=True)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
+    threading.Thread(target=server.serve_forever,daemon=True).start();feed_started=True
     staging=root/'unpack';staging.mkdir()
     run('ditto','-x','-k',artifacts/'initial.zip',staging)
     assert sorted(p.name for p in staging.iterdir())==[meta['appName']]
@@ -135,6 +138,7 @@ try:
     saved={name:json.loads((root/name).read_text()) for name in ['configuration.json','local-database.json','startup.json']}
     (root/'begin-update').touch()
     wait_event('upgrade-confirmed','2')
+    restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), args.case=='running')
     after=service_record();assert after and after['pid']!=before['pid']
     # Any surviving old PID is a failure, even if the new service is healthy.
     assert run('ps','-p',str(before['pid']),capture=True,check=False).returncode!=0
@@ -153,30 +157,30 @@ try:
     assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
     assert all(json.loads((root/name).read_text())==value for name,value in saved.items())
     if args.case=='stopped':service_state(False)
-    (evidence/'result.json').write_text(json.dumps({'result':'passed','case':args.case,'before':before,'after':after,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False},indent=2))
+    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False}
     completed=True
+except BaseException as exc:
+    lifecycle['error']=str(exc)
+    raise
 finally:
-    # Native cleanup unregisters only this bundle's unique SMAppService label.
-    rows=events()
-    for pid in {e['pid'] for e in rows}:
-        current=run('ps','-p',str(pid),'-o','command=',capture=True,check=False).stdout.strip()
-        if current and Path(current).resolve()==(app/'Contents/MacOS/DispatchMenu').resolve():os.kill(pid,signal.SIGTERM)
-    deadline=time.monotonic()+60;clean=False
-    while time.monotonic()<deadline:
-        job=run('launchctl','print',f'gui/{os.getuid()}/{label}',capture=True,check=False)
-        if job.returncode and not (root/'postgres/postmaster.pid').exists():clean=True;break
-        time.sleep(.2)
-    if server:server.shutdown();server.server_close()
+    phases=[('service',lambda: cleanup_service(run,app,root,label,os.getuid()))]
+    if feed_started: phases.append(('feed shutdown',lambda: server.shutdown()))
+    if server: phases.append(('feed close',lambda: server.server_close()))
     if trusted:
-        run('security','remove-trusted-cert',root/'feed-cert.pem',check=False)
-        fingerprint=run('/usr/bin/openssl','x509','-in',root/'feed-cert.pem','-noout','-fingerprint','-sha1',capture=True).stdout.strip().split('=',1)[1].replace(':','')
-        run('security','delete-certificate','-Z',fingerprint,Path.home()/'Library/Keychains/login.keychain-db',check=False)
-    if (root/'sparkle-events.jsonl').exists():shutil.copy2(root/'sparkle-events.jsonl',evidence/'sparkle-events.jsonl')
-    if clean:
-        if registered_app:shutil.rmtree(app)
-        if completed:shutil.rmtree(root)
-    else:
-        (evidence/'cleanup-failed.txt').write_text('Test service or database remains. Keep app/data for explicit cleanup; do not retry over it.')
+        phases.append(('certificate',lambda: cleanup_certificate(run,certificate,keychain,evidence)))
+    phases.append(('lifecycle evidence',lambda: (evidence/'lifecycle.json').write_text(json.dumps(lifecycle,indent=2))))
+    if (root/'sparkle-events.jsonl').exists():
+        phases.append(('events',lambda: shutil.copy2(root/'sparkle-events.jsonl',evidence/'sparkle-events.jsonl')))
+    errors=cleanup_phases(phases)
+    # Keep installation and recovery certificate/key/data on any cleanup failure.
+    if not errors:
+        if registered_app:
+            errors.extend(cleanup_phases([('app files',lambda: shutil.rmtree(app))]))
+        if completed and not errors:
+            errors.extend(cleanup_phases([('test data',lambda: shutil.rmtree(root))]))
+    verdict=final_verdict(lifecycle,errors)
+    (evidence/'result.json').write_text(json.dumps(verdict,indent=2))
+    if errors: (evidence/'cleanup-failed.txt').write_text('\n'.join(errors))
     log.close()
     print(f'Evidence: {evidence}',flush=True)
-    if not clean:raise RuntimeError('Owned test service cleanup did not finish')
+    if errors: raise RuntimeError('Proof cleanup failed: '+'; '.join(errors))

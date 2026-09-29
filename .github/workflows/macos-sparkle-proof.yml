@@ -8,6 +8,9 @@ on:
       - .github/workflows/macos-sparkle-proof.yml
       - scripts/build-macos-sparkle-proof.py
       - scripts/validate-macos-sparkle-proof.py
+      - scripts/sparkle_proof_cleanup.py
+      - scripts/test_sparkle_proof_cleanup.py
+      - apps/macos/Sources/DispatchCore/ServiceControl.swift
       - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
   workflow_dispatch:
 
@@ -24,6 +27,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+      - name: Test proof driver failure handling
+        run: python3 scripts/test_sparkle_proof_cleanup.py
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9

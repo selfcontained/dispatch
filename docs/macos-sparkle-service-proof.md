@@ -12,7 +12,7 @@ The `macOS Sparkle Service Proof` workflow produces:
 - `update.zip`: the same isolated app identity, build 2, also notarized/stapled.
 - `appcast.xml`: HTTPS loopback feed, with the update's Ed25519 signature.
 - `proof.json`: exact bundle/service identity, data root, ports, and checksums.
-- `validate.py`: a standalone driver for an explicitly approved disposable Mac.
+- `validate.py` and `sparkle_proof_cleanup.py`: a driver and cleanup helper for an explicitly approved disposable Mac.
 
 The workflow reuses the repository's existing Apple signing/notarization secrets.
 It generates a temporary Sparkle key for the pair and destroys the private key;
@@ -35,8 +35,9 @@ This time the real coordinator is launched by **SMAppService/launchd**. Before
 Sparkle installs, the delegate durably records whether the server was running,
 unregisters the test service, and waits for shutdown. The new app registers its
 service again and restores the recorded state independently of login preference.
-After matching-instance API health (or confirmed stopped state), it records
-upgrade confirmation. An installation abort after shutdown attempts to restore
+It requires the replacement coordinator to acknowledge the exact restore request
+and expected phase, plus matching-instance API health when running, before recording
+upgrade confirmation. The driver verifies this acknowledgment before issuing another request. An installation abort after shutdown attempts to restore
 the old service. Failed new-version startup does not yet implement rollback.
 
 ## Running on an approved disposable Mac
@@ -69,7 +70,10 @@ The driver explicitly changes this test environment:
    is a failure, not a successful result.
 
 Evidence is written beside the artifacts under `evidence/`. Review `result.json`,
-`sparkle-events.jsonl`, and `commands.log`. Data/configuration with passwords is
+`lifecycle.json`, `sparkle-events.jsonl`, and `commands.log`. The lifecycle result
+is provisional; the overall verdict is finalized only after service, database,
+and certificate/trust cleanup have been checked. Cleanup failures retain recovery
+material and produce a failed overall verdict. Data/configuration with passwords is
 not copied into the evidence folder. Failed tests may retain their private data
 root for diagnosis; do not retry over it without explicit cleanup.
 

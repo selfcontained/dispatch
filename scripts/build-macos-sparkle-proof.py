@@ -104,4 +104,5 @@ try key.publicKey.rawRepresentation.base64EncodedString().write(to: root.appendi
     metadata = {'bundleID':identity,'serviceLabel':label,'stateRoot':state_root,'appName':app_name,'feedURL':feed_url,'apiPort':56789,'builds':['1','2'],'sparkleVersion':'2.10.0','sdkSHA256':SDK_SHA256,'archiveSHA256':{name:hashlib.sha256((args.output/name).read_bytes()).hexdigest() for name in ['initial.zip','update.zip']}}
     (args.output/'proof.json').write_text(json.dumps(metadata,indent=2))
     shutil.copy2(repo/'scripts/validate-macos-sparkle-proof.py',args.output/'validate.py')
+    shutil.copy2(repo/'scripts/sparkle_proof_cleanup.py',args.output/'sparkle_proof_cleanup.py')
 print(f'Notarized service proof artifacts ready: {args.output}')

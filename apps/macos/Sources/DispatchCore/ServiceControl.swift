@@ -39,6 +39,9 @@ public struct ServiceRuntime: Codable {
               abs(state.updated.timeIntervalSinceNow) < 10 else { return nil }
         return state
     }
+    public func acknowledges(_ request: ServiceRequest) -> Bool {
+        requestID == request.id && phase == (request.start ? "running" : "stopped")
+    }
     public func save(root: URL = PreviewPaths.root) throws {
         var current = self; current.updated = Date()
         try writePrivateJSON(current, to: root.appendingPathComponent("service-runtime.json"))

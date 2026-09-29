@@ -18,6 +18,7 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
     private var terminationSignal: DispatchSourceSignal?
     private var stopping = false
     private var stopped = false
+    private var restoreRequest: ServiceRequest?
     private var root: URL { PreviewPaths.root }
     private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as! String }
     private var initialRunPreference: Bool { Bundle.main.object(forInfoDictionaryKey: "DispatchProbeRunning") as? Bool ?? true }
@@ -35,7 +36,7 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
     }
 
     private func startOwnedService() async throws {
-        try ServiceRequest(start: shouldRun).save()
+        let requestedStart = shouldRun
         if let service {
             if service.status == .notRegistered { try service.register() }
             if service.status == .requiresApproval {
@@ -47,8 +48,16 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
             guard service.status == .enabled else { throw ConfigurationError("Approve the isolated Sparkle test background item, then retry.") }
+            let request = ServiceRequest(start: requestedStart)
+            restoreRequest = request
+            try request.save()
+            event("restore-requested", request.id.uuidString)
             event("service-registered", Bundle.main.object(forInfoDictionaryKey: "DispatchProbeServiceLabel") as! String)
         } else {
+            let request = ServiceRequest(start: requestedStart)
+            restoreRequest = request
+            try request.save()
+            event("restore-requested", request.id.uuidString)
             let process = Process(); process.executableURL = Bundle.main.executableURL
             process.arguments = ["--server", "--isolated-test", root.path]
             try process.run(); supervisor = process
@@ -86,15 +95,18 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 let config = try Configuration.read(from: PreviewPaths.configuration)
                 var ready = false
                 for _ in 0..<600 {
-                    if shouldRun {
-                        var request = URLRequest(url: config.serverURL.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1
-                        if let (data, _) = try? await URLSession.shared.data(for: request),
-                           let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           body["macInstanceId"] as? String == config.instanceID, body["status"] as? String == "ok" { ready = true; break }
-                    } else if ServiceRuntime.read()?.phase == "stopped" { ready = true; break }
+                    if let restoreRequest, ServiceRuntime.read()?.acknowledges(restoreRequest) == true {
+                        if restoreRequest.start {
+                            var request = URLRequest(url: config.serverURL.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1
+                            if let (data, _) = try? await URLSession.shared.data(for: request),
+                               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                               body["macInstanceId"] as? String == config.instanceID, body["status"] as? String == "ok" { ready = true; break }
+                        } else { ready = true; break }
+                    }
                     try await Task.sleep(nanoseconds: 100_000_000)
                 }
                 guard ready else { throw ConfigurationError("Probe service failed readiness") }
+                event("restore-acknowledged", restoreRequest!.id.uuidString)
                 event("ready", shouldRun ? "running" : "stopped")
                 if let data = try? Data(contentsOf: updateStatePath),
                    let state = try? JSONDecoder().decode(ProbeUpdateState.self, from: data), state.targetBuild == build {
