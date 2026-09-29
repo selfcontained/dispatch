@@ -194,7 +194,7 @@ function MarkdownInline({
   className,
 }: Pick<MarkdownProps, "children" | "className">): JSX.Element {
   return (
-    <span
+    <div
       className={cn(
         "block min-w-0 [overflow-wrap:anywhere]",
         "[&_a]:text-primary [&_a]:underline",
@@ -227,7 +227,7 @@ function MarkdownInline({
       >
         {children}
       </ReactMarkdown>
-    </span>
+    </div>
   );
 }
 
