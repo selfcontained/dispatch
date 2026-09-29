@@ -361,6 +361,20 @@ function requireText(text: string | undefined): string {
  * `state.cancellation` as given to `update`/`PATCH …/state`: `true` (no
  * reason), a reason string, or `{ reason }`. Anything else is malformed.
  */
+/**
+ * The thread note a cancellation leaves. It reads the same to the person
+ * in the stream and to the agent in its prompt, so it names the act: a
+ * person dismisses an ask put to them, an agent withdraws its own.
+ * "Canceled" alone was read as the turn being stopped.
+ */
+export function cancellationNoteText(
+  by: BlockAuthor,
+  reason: string | undefined
+): string {
+  const verb = by.kind === "user" ? "Dismissed without answering" : "Withdrawn";
+  return reason ? `${verb}: ${reason}` : `${verb}.`;
+}
+
 function parseCancelReason(raw: unknown): string | undefined {
   if (raw === true) return undefined;
   if (typeof raw === "string") {
@@ -1346,24 +1360,26 @@ export class StreamService {
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
+      // The note first, so the cancellation can record which block carried
+      // it (as an answer records its reply); a lost race rolls both back.
+      note = await tx.insert({
+        streamId: block.streamId,
+        author: by,
+        toAgentId: notifyAgentId,
+        kind: "text",
+        threadId: block.threadId ?? block.id,
+        replyTo: block.id,
+        text: cancellationNoteText(by, reason),
+        delivered: notifyAgentId ? (live ? null : false) : null,
+      });
       canceled = await tx.recordCancellation(block.id, {
         by,
         at: new Date().toISOString(),
+        blockId: note.id,
         ...(reason ? { reason } : {}),
       });
-      if (canceled) {
-        note = await tx.insert({
-          streamId: block.streamId,
-          author: by,
-          toAgentId: notifyAgentId,
-          kind: "text",
-          threadId: block.threadId ?? block.id,
-          replyTo: block.id,
-          text: reason ? `Canceled: ${reason}` : "Canceled.",
-          delivered: notifyAgentId ? (live ? null : false) : null,
-        });
-      }
       await client.query(canceled ? "COMMIT" : "ROLLBACK");
+      if (!canceled) note = null;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -1393,7 +1409,7 @@ export class StreamService {
     if (notifyAgentId && live && note) {
       const from = await this.senderOf(by);
       await this.deliverBlock(note, from, [], {
-        answers: { blockId: canceled.id, kind: canceled.kind },
+        cancels: { blockId: canceled.id, kind: canceled.kind },
       });
     }
     return canceled;
@@ -2602,6 +2618,7 @@ export class StreamService {
     attachmentLines: string[] = [],
     extra: {
       answers?: { blockId: string; kind: BlockKind } | null;
+      cancels?: { blockId: string; kind: BlockKind } | null;
       delivery?: "auto" | "queue" | "interrupt";
     } = {}
   ): Promise<{ held: boolean }> {
@@ -2610,6 +2627,7 @@ export class StreamService {
     return this.deliverBlockTo(block, [toAgentId], from, () => ({
       attachmentLines,
       answers: extra.answers ?? null,
+      cancels: extra.cancels ?? null,
       delivery: extra.delivery,
     }));
   }
@@ -2626,6 +2644,7 @@ export class StreamService {
     perRecipient: (agentId: string) => {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
+      cancels?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
       delivery?: "auto" | "queue" | "interrupt";
       /** Never combined with other posts. */
@@ -2647,8 +2666,11 @@ export class StreamService {
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
+      // A cancellation closes the ask the same way an answer does: it
+      // resumes the work the ask came from rather than opening a thread.
+      const closes = own.answers ?? own.cancels;
       const structuredAnswer =
-        own.answers?.kind === "question" || own.answers?.kind === "form";
+        closes?.kind === "question" || closes?.kind === "form";
       const interrupts = (own.delivery ?? block.data?.delivery) === "interrupt";
       const source: PromptSource = {
         source: "chat",
@@ -2686,6 +2708,7 @@ export class StreamService {
                 }
               : null,
             answers: own.answers ?? null,
+            cancels: own.cancels ?? null,
             mention: own.mention ?? null,
           }),
         record: async (delivered) => {
@@ -3041,13 +3064,18 @@ export class StreamService {
       ? await this.store.getById(block.replyTo)
       : null;
     let answers: { blockId: string; kind: BlockKind } | null = null;
+    let cancels: { blockId: string; kind: BlockKind } | null = null;
     if (answered?.kind === "question") {
       if (answered.state?.answer?.blockId === block.id) {
         answers = { blockId: answered.id, kind: "question" };
+      } else if (answered.state?.cancellation?.blockId === block.id) {
+        cancels = { blockId: answered.id, kind: "question" };
       }
     } else if (answered?.kind === "form") {
       if (answered.state?.submission?.blockId === block.id) {
         answers = { blockId: answered.id, kind: "form" };
+      } else if (answered.state?.cancellation?.blockId === block.id) {
+        cancels = { blockId: answered.id, kind: "form" };
       }
     }
     const names = new Map(agents.map((agent) => [agent.id, agent.name]));
@@ -3065,6 +3093,7 @@ export class StreamService {
         ...(rawCommand ? { rawPrompt: block.text, alone: true } : {}),
         attachmentLines: lines.get(agentId) ?? [],
         answers,
+        cancels,
         // "also to" names everyone the post was addressed to, not just the
         // ones being sent again: that is who is in the conversation.
         mention:
