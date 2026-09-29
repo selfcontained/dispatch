@@ -50,9 +50,8 @@ func runServer() throws -> Never {
         server.standardOutput = FileHandle.standardOutput
         server.standardError = FileHandle.standardError
         try termination.launch(server)
-        server.waitUntilExit()
-        try database.stop()
-        exit(termination.requested ? 0 : server.terminationStatus)
+        let status = try termination.waitForExitAndCleanUp { try database.stop() }
+        exit(status)
     }
     let argument = strdup(executable.path)!
     defer { free(argument) }
@@ -63,27 +62,59 @@ func runServer() throws -> Never {
 
 /// Signal handlers execute off the thread waiting for the child. Keep launch and
 /// cancellation atomic so a stop during database startup never launches the API.
-private final class ServerTermination {
+final class ServerTermination {
+    // Ten seconds for the API plus pg_ctl's 30-second stop leaves 20 seconds
+    // inside launchd's 60-second ExitTimeOut for dispatch/reaping overhead.
+    private let gracePeriod: TimeInterval
     private let lock = NSLock()
     private var stopping = false
     private var process: Process?
     private var sources: [DispatchSourceSignal] = []
     var requested: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
 
-    init() {
+    init(gracePeriod: TimeInterval = 10, installSignalHandlers: Bool = true) {
+        self.gracePeriod = gracePeriod
+        guard installSignalHandlers else { return }
         for number in [SIGTERM, SIGINT] {
             signal(number) { _ in }
             let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-            source.setEventHandler { [weak self] in
-                guard let self else { return }
-                self.lock.lock()
-                defer { self.lock.unlock() }
-                self.stopping = true
-                if let process = self.process, process.isRunning { process.terminate() }
-            }
+            source.setEventHandler { [weak self] in self?.requestStop() }
             source.resume()
             sources.append(source)
         }
+    }
+
+    func requestStop() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopping else { return }
+        stopping = true
+        guard let child = process, child.isRunning else { return }
+        child.terminate()
+        DispatchQueue.global().asyncAfter(deadline: .now() + gracePeriod) { [weak self, weak child] in
+            guard let self, let child else { return }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            guard self.process === child, child.isRunning else { return }
+            // Kill only our API child, never its group or detached agent hosts.
+            _ = Darwin.kill(child.processIdentifier, SIGKILL)
+        }
+    }
+
+    func waitForExitAndCleanUp(_ cleanup: () throws -> Void) throws -> Int32 {
+        lock.lock()
+        let child = process
+        lock.unlock()
+        guard let child else { throw ConfigurationError("No owned server process to wait for.") }
+        child.waitUntilExit()
+        // Remove ownership before cleanup so an outstanding deadline cannot act
+        // on this PID after reaping (including a subsequently reused PID).
+        lock.lock()
+        process = nil
+        let stopped = stopping
+        lock.unlock()
+        try cleanup()
+        return stopped ? 0 : child.terminationStatus
     }
 
     func launch(_ child: Process) throws {
