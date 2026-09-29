@@ -1,6 +1,6 @@
 ---
 name: sharing
-description: Give the user a file, screenshot, log, or snippet they can actually open. Use whenever you produce an artifact worth seeing — writing it to disk and pasting the path does not surface it in Dispatch.
+description: Give the user a file, screenshot, log, report, plan, design doc, or snippet they can actually open. Use whenever you produce an artifact worth seeing, or are about to write a plan or analysis longer than a screen — writing it to disk and pasting the path, or posting it as a wall of prose, does not serve it well in Dispatch.
 ---
 
 # Sharing artifacts with the user
@@ -89,6 +89,13 @@ the artifact _shows_, not what it is:
   beat a paragraph describing the difference.
 - **Long output** you would otherwise paste into chat: test failures, generated
   files, query results. Attached, it stays readable and does not bury your summary.
+- **A plan, design, or analysis longer than a screen.** Write it as a `.md`
+  file and attach it; keep the reply to the approach and the decisions you need.
+  A file opens in its own viewer, stays findable after the stream moves on, and
+  can be revised in place with `update` as the plan changes, where a long
+  message scrolls away and a second version becomes a second wall of text.
+  The revised block stays where it was first posted, so say in your reply
+  what changed.
 - **Anything the user might want to forward.** A path cannot be forwarded.
 
 Keep the prose summary in your reply and put the bulk in the artifact. The reply
