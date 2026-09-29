@@ -23,6 +23,7 @@ the same stream; the rows differ in what the user can _do_ with it.
 | What you have                                                 | Send it as                                                      | Depth       |
 | ------------------------------------------------------------- | --------------------------------------------------------------- | ----------- |
 | An explanation, an answer, a short result                     | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A plan, design, or analysis longer than a screen              | `post` with a `.md` file attachment, summary in the reply       | `sharing`   |
 | A question with a finite set of answers                       | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in         | `post` with `form`                                              | below       |
 | A file, screenshot, log, or report                            | `post` with a file attachment                                   | `sharing`   |
@@ -79,7 +80,10 @@ an interim reply or response
 segment is not automatically a completed answer to every pending request.
 
 Keep the prose and the evidence separate: the reply says what happened, the
-file or link carries the bulk.
+file or link carries the bulk. The same split applies to a plan or design
+write-up: a few sentences on the approach and the decisions it needs in the
+reply, the sections themselves in a markdown file the user can open, forward,
+and see revised with `update` as the plan changes.
 
 ## Not this skill's job
 

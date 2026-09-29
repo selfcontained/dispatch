@@ -154,7 +154,7 @@ export function buildLaunchGuidance(
       );
     }
     rules.push(
-      "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports). A path or URL pasted into prose is easy to lose; an attachment is not."
+      "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports, plans, design docs). A path or URL pasted into prose is easy to lose; an attachment is not. A plan, design, or analysis longer than a screen goes in a markdown file attachment with a short summary in the reply, revised with update as it evolves."
     );
     rules.push(
       "When you need a decision, post a question block (a row of options, freeform allowed when useful) or a form block for several fields. Waiting on an answer is visible to the user; a question buried in prose is not."
