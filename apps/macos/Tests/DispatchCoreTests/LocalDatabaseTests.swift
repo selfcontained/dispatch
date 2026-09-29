@@ -26,6 +26,8 @@ final class LocalDatabaseTests: XCTestCase {
         let database = LocalDatabase(root: root, binaries: root)
         let config = try database.configuration(port: 6768, instanceID: UUID().uuidString)
         XCTAssertTrue(config.usesManagedDatabase)
+        // Setup must still be able to repair a malformed active configuration.
+        try Data("invalid".utf8).write(to: root.appendingPathComponent("configuration.json"))
         XCTAssertEqual(try database.configuration(port: 6768, instanceID: config.instanceID), config)
         XCTAssertThrowsError(try LocalDatabase(root: root, binaries: root).acquire())
         let permissions = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("local-database.json").path)[.posixPermissions] as? Int

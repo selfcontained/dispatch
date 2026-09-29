@@ -37,7 +37,7 @@ public final class LocalDatabase {
             result.port = port
             result.instanceID = instanceID
             let activeURL = root.appendingPathComponent("configuration.json")
-            var active = FileManager.default.fileExists(atPath: activeURL.path) ? try Configuration.read(from: activeURL) : nil
+            var active = try? Configuration.read(from: activeURL)
             let running = FileManager.default.fileExists(atPath: data.appendingPathComponent("PG_VERSION").path)
                 ? try run("pg_ctl", ["-D", data.path, "status"], allowed: [0, 3]) == 0 : false
             var url = URLComponents(string: result.databaseURL)!
