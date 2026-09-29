@@ -200,7 +200,7 @@ function MarkdownInline({
         "[&_a]:text-primary [&_a]:underline",
         "[&_strong]:font-semibold [&_em]:italic [&_del]:line-through",
         "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
-        "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-4 [&_ol]:pl-5 [&_li]:marker:text-muted-foreground",
+        "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-4 [&_ol]:pl-6 [&_li]:marker:text-muted-foreground",
         className
       )}
       data-testid="markdown-inline"
