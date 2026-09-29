@@ -94,6 +94,8 @@ the artifact _shows_, not what it is:
   A file opens in its own viewer, stays findable after the stream moves on, and
   can be revised in place with `update` as the plan changes, where a long
   message scrolls away and a second version becomes a second wall of text.
+  The revised block stays where it was first posted, so say in your reply
+  what changed.
 - **Anything the user might want to forward.** A path cannot be forwarded.
 
 Keep the prose summary in your reply and put the bulk in the artifact. The reply

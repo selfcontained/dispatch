@@ -6,9 +6,11 @@ markdown file rather than posted as a long message.
 1. The full plan is written to a file with a `.md` extension and delivered with
    `post` and a file attachment (`attachments: [{ type: "file", path: "...md" }]`),
    or the response states that it is calling `post` that way.
-2. The ordinary reply is short: it names the approach and any decision the user
-   must make, and points at the attached plan. It does not reproduce the phases
-   in full.
+2. The ordinary reply is short and enough to act on without opening the file:
+   it names the approach, asks for the approval or decision the user must give
+   (in the reply or in a `question` block), and points at the attached plan. It
+   does not reproduce the phases in full. "Plan attached" plus a vague
+   one-liner does not satisfy this.
 3. The attachment carries a `description` (or the post carries text) that says
    what the plan covers, not just the filename.
 

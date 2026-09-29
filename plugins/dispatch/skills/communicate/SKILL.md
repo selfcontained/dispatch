@@ -22,7 +22,7 @@ the same stream; the rows differ in what the user can _do_ with it.
 
 | What you have                                                 | Send it as                                                      | Depth       |
 | ------------------------------------------------------------- | --------------------------------------------------------------- | ----------- |
-| An explanation, an answer, a short result                     | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A short explanation, answer, or result                        | your ordinary reply — it streams; do not repeat it with `post`  | —           |
 | A plan, design, or analysis longer than a screen              | `post` with a `.md` file attachment, summary in the reply       | `sharing`   |
 | A question with a finite set of answers                       | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in         | `post` with `form`                                              | below       |
@@ -37,7 +37,8 @@ the same stream; the rows differ in what the user can _do_ with it.
 
 Take the narrowest row that fits. A `code` attachment is not a substitute for a
 form, and a `tasks` block is overkill for one URL. When two rows could work, the
-plainer one wins: the user is already reading the stream.
+plainer one wins: the user is already reading the stream. The one exception is
+length: anything longer than a screen goes in a file, however plain it is.
 
 ## Asking
 
@@ -83,7 +84,9 @@ Keep the prose and the evidence separate: the reply says what happened, the
 file or link carries the bulk. The same split applies to a plan or design
 write-up: a few sentences on the approach and the decisions it needs in the
 reply, the sections themselves in a markdown file the user can open, forward,
-and see revised with `update` as the plan changes.
+and see revised with `update` as the plan changes. An `update` changes the
+block where it was posted, which may be several screens up by then, so say in
+your reply what changed.
 
 ## Not this skill's job
 

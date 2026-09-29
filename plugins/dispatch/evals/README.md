@@ -29,6 +29,7 @@ once the runner is available, not as a passing suite.
 | ------------------- | ---------------- | -------------------------------------------------------------------------- |
 | `share-screenshot`  | `sharing`        | Writing an artifact to disk and pasting the path instead of sharing it     |
 | `share-plan`        | `sharing`        | Posting a multi-screen plan as a message instead of a shared markdown file |
+| `share-plan-short`  | `sharing`        | Counter-case: turning a plan that fits on one screen into a file           |
 | `remember-decision` | `brain`          | Recording durable context in chat, where the next agent cannot find it     |
 | `delegate-work`     | `subagents`      | Doing independent parallelizable work serially in one session              |
 | `repo-script-tool`  | `repo-tools`     | Re-teaching each agent a shell command instead of publishing it as a tool  |
