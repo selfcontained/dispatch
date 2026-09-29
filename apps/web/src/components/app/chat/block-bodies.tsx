@@ -1297,16 +1297,18 @@ export function TasksBlockBody({
                     <CircleDot className="h-3 w-3" aria-hidden="true" />
                   ) : null}
                 </span>
-                <span
+                {/* Item text is Markdown: agents cite issues and threads as
+                    links, and a bare URL in a phone-width row is unreadable. */}
+                <Markdown
                   className={cn(
-                    "min-w-0 text-sm",
+                    "min-w-0 flex-1 text-sm prose-p:my-0",
                     checked
-                      ? "text-muted-foreground line-through"
+                      ? "text-muted-foreground line-through prose-a:text-muted-foreground"
                       : "text-foreground"
                   )}
                 >
                   {item.text}
-                </span>
+                </Markdown>
                 {status === "now" ? (
                   <span
                     className="rounded-full border border-status-working/40 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-status-working"
