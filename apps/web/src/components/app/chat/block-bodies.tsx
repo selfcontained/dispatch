@@ -1300,10 +1300,11 @@ export function TasksBlockBody({
                 {/* Item text is Markdown: agents cite issues and threads as
                     links, and a bare URL in a phone-width row is unreadable. */}
                 <Markdown
+                  variant="inline"
                   className={cn(
-                    "min-w-0 flex-1 text-sm prose-p:my-0",
+                    "text-sm",
                     checked
-                      ? "text-muted-foreground line-through prose-a:text-muted-foreground"
+                      ? "text-muted-foreground line-through [&_a]:text-muted-foreground"
                       : "text-foreground"
                   )}
                 >

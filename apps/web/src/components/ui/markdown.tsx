@@ -105,7 +105,7 @@ type MarkdownProps = {
   /** Keep unfinished Mermaid fences as source while the reply is arriving. */
   streaming?: boolean;
   className?: string;
-  variant?: "default" | "pin" | "caption";
+  variant?: "default" | "pin" | "caption" | "inline";
   /** Decorate prose text without altering Markdown syntax or code. */
   renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
@@ -130,6 +130,10 @@ export const Markdown = memo(function Markdown({
 
   if (variant === "caption") {
     return <MarkdownCaption className={className}>{children}</MarkdownCaption>;
+  }
+
+  if (variant === "inline") {
+    return <MarkdownInline className={className}>{children}</MarkdownInline>;
   }
 
   return (
@@ -171,6 +175,55 @@ function MarkdownCaption({
         remarkPlugins={[remarkGfm]}
         allowedElements={["strong", "em", "code", "del"]}
         unwrapDisallowed
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
+  );
+}
+
+/**
+ * One line of a list or row (e.g. a task item): inline marks, links and a
+ * plain nested list, at the surrounding text size and color. Headings,
+ * fences and paragraph margins are unwrapped so an item can never grow
+ * into a document and break the rhythm of the rows around it. Each
+ * paragraph still gets its own line, without the prose spacing.
+ */
+function MarkdownInline({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "block min-w-0 [overflow-wrap:anywhere]",
+        "[&_a]:text-primary [&_a]:underline",
+        "[&_strong]:font-semibold [&_em]:italic [&_del]:line-through",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-4 [&_ol]:pl-5 [&_li]:marker:text-muted-foreground",
+        className
+      )}
+      data-testid="markdown-inline"
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={[
+          "p",
+          "a",
+          "strong",
+          "em",
+          "code",
+          "del",
+          "ul",
+          "ol",
+          "li",
+        ]}
+        unwrapDisallowed
+        components={{
+          p({ children }) {
+            return <span className="block">{children}</span>;
+          },
+        }}
       >
         {children}
       </ReactMarkdown>
