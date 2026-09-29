@@ -10,8 +10,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var configurationError: String?
     private var externalURL: URL?
     private var ready = false
+    private var openWhenReady = false
     private var checking = false
     private var changingService = false
+    private var validationServer: Process?
+    private var registered: Bool {
+        PreviewPaths.testRoot != nil ? validationServer?.isRunning == true : service.status == .enabled || service.status == .requiresApproval
+    }
     private var status = "Checking server…"
     private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.preview.server.plist")
     private let preferences = UserDefaults.standard
@@ -33,6 +38,9 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.toolTip = "Dispatch Preview"
         rebuildMenu()
         refresh()
+        if externalURL == nil && configuration.databaseURL.isEmpty && configurationError == nil {
+            DispatchQueue.main.async { self.configure() }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -83,27 +91,27 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(browsers)
         menu.addItem(.separator())
         if externalURL == nil {
-            menu.addItem(item("Configure Preview…", #selector(configure), enabled: !changingService))
-            let registered = service.status == .enabled || service.status == .requiresApproval
+            menu.addItem(item("Set Up Preview…", #selector(configure), enabled: !changingService))
             menu.addItem(item("Start Server", #selector(startServer), enabled: !registered && !changingService))
             menu.addItem(item("Stop Server…", #selector(stopServer), enabled: registered && !changingService))
             if service.status == .requiresApproval {
                 menu.addItem(item("Allow Background Service…", #selector(openLoginSettings)))
             }
-            let login = item("Open Menu at Login", #selector(toggleLogin))
+            let login = item("Open Menu at Login", #selector(toggleLogin), enabled: PreviewPaths.testRoot == nil)
             login.state = SMAppService.mainApp.status == .enabled ? .on : .off
             menu.addItem(login)
             menu.addItem(item("Show Server Log", #selector(showLog)))
+            menu.addItem(item("Show Data Folder", #selector(showDataFolder)))
         } else {
             menu.addItem(item("Connected to development server", nil, enabled: false))
         }
         menu.addItem(item("About This Preview…", #selector(about)))
         menu.addItem(.separator())
-        menu.addItem(item("Quit Menu (Keep Server Running)", #selector(quit)))
+        menu.addItem(item("Quit Menu (Keep Server Running)", #selector(quit), enabled: !changingService))
     }
 
     private func refresh() {
-        guard !checking else { return }
+        guard !checking, !changingService else { return }
         if let error = configurationError {
             ready = false
             status = "Configuration needs attention"
@@ -113,7 +121,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if externalURL == nil && configuration.databaseURL.isEmpty {
             ready = false
-            status = "Setup required — Configure Preview…"
+            status = "Setup required — Set Up Preview…"
             rebuildMenu()
             return
         }
@@ -144,6 +152,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             else { status = "Server stopped" }
             statusItem.button?.toolTip = "Dispatch Preview — \(status)"
             rebuildMenu()
+            if healthy && openWhenReady { openWhenReady = false; openDispatch() }
         }
     }
 
@@ -169,52 +178,101 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func configure() {
-        guard externalURL == nil else { return }
-        guard service.status != .enabled && service.status != .requiresApproval else {
+        guard externalURL == nil, !changingService else { return }
+        guard !registered else {
             showError("Stop the preview server before changing its configuration.")
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Configure Dispatch Preview"
-        alert.informativeText = "Use an existing, dedicated PostgreSQL database. Dispatch will run migrations in that database. Your regular Dispatch service and data stay separate."
-        alert.addButton(withTitle: "Save")
+        alert.messageText = "Set up Dispatch Preview"
+        alert.informativeText = "Dispatch will create a private local database for you. No database installation or connection details are needed. Your regular Dispatch data stays separate."
+        alert.addButton(withTitle: "Start Dispatch")
         alert.addButton(withTitle: "Cancel")
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        let port = NSTextField(string: String(configuration.port))
-        let database = NSSecureTextField(string: configuration.databaseURL)
-        database.placeholderString = "postgres://user:password@localhost/dispatch_preview"
-        port.setAccessibilityLabel("Server port")
-        database.setAccessibilityLabel("PostgreSQL connection URL")
-        for view in [NSTextField(labelWithString: "Server port"), port, NSTextField(labelWithString: "PostgreSQL connection URL"), database] {
-            stack.addArrangedSubview(view)
-            view.widthAnchor.constraint(equalToConstant: 430).isActive = true
-        }
-        stack.frame = NSRect(x: 0, y: 0, width: 430, height: 116)
-        alert.accessoryView = stack
+        let fields = SetupFields(configuration: configuration)
+        alert.accessoryView = fields.view
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
-            guard let number = Int(port.stringValue) else { throw ConfigurationError("Enter a numeric port.") }
-            let candidate = Configuration(port: number, databaseURL: database.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: configuration.instanceID)
-            try candidate.save(to: PreviewPaths.configuration)
-            configuration = candidate
-            configurationError = nil
-            refresh()
+            try requireInstalledApp()
+            guard let number = Int(fields.port.stringValue), (1024...65535).contains(number), number != 6767 else {
+                throw ConfigurationError("Choose a server port between 1024 and 65535 other than 6767.")
+            }
+            if fields.external.state == .on {
+                let candidate = Configuration(port: number, databaseURL: fields.database.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: configuration.instanceID)
+                try candidate.save(to: PreviewPaths.configuration)
+                configuration = candidate
+                configurationError = nil
+                openWhenReady = true
+                startServer()
+                return
+            }
+            changingService = true
+            ready = false
+            status = "Setting up local database…"
+            rebuildMenu()
+            let progress = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+            progress.isReleasedWhenClosed = false
+            progress.title = "Setting up Dispatch"
+            let label = NSTextField(labelWithString: "Creating your private local database…")
+            label.frame = NSRect(x: 24, y: 64, width: 380, height: 24)
+            let spinner = NSProgressIndicator(frame: NSRect(x: 24, y: 28, width: 372, height: 16))
+            spinner.style = .bar
+            spinner.isIndeterminate = true
+            spinner.startAnimation(nil)
+            progress.contentView?.addSubview(label)
+            progress.contentView?.addSubview(spinner)
+            progress.center()
+            progress.makeKeyAndOrderFront(nil)
+            let instance = configuration.instanceID
+            let bundle = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres")
+            Task {
+                do {
+                    let candidate = try await Task.detached {
+                        let database = LocalDatabase(binaries: bundle)
+                        let candidate = try database.configuration(port: number, instanceID: instance)
+                        try database.start(candidate)
+                        try database.stop()
+                        try candidate.save(to: PreviewPaths.configuration)
+                        return candidate
+                    }.value
+                    configuration = candidate
+                    configurationError = nil
+                    changingService = false
+                    progress.close()
+                    openWhenReady = true
+                    startServer()
+                } catch {
+                    changingService = false
+                    progress.close()
+                    refresh()
+                    showError(error.localizedDescription)
+                }
+            }
         } catch { showError(error.localizedDescription) }
+    }
+
+    private func requireInstalledApp() throws {
+        if PreviewPaths.testRoot != nil { return }
+        guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") || Bundle.main.bundleURL.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path + "/") else {
+            throw ConfigurationError("Move Dispatch Preview to Applications, open it there, and choose Set Up Preview to continue.")
+        }
     }
 
     @objc private func startServer() {
         guard externalURL == nil, !changingService else { return }
+        if configuration.databaseURL.isEmpty { configure(); return }
         do {
             configuration = try Configuration.read(from: PreviewPaths.configuration)
-            // Service Management requires a stable installed bundle location.
-            guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") || Bundle.main.bundleURL.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path + "/") else {
-                throw ConfigurationError("Move Dispatch Preview to Applications before starting its background server.")
+            try requireInstalledApp()
+            if let root = PreviewPaths.testRoot {
+                let process = Process()
+                process.executableURL = Bundle.main.executableURL
+                process.arguments = ["--server", "--isolated-test", root.path]
+                try process.run()
+                validationServer = process
+            } else {
+                try service.register()
             }
-            try service.register()
             configurationError = nil
             refresh()
         } catch { showError(error.localizedDescription) }
@@ -224,7 +282,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard externalURL == nil, !changingService else { return }
         let alert = NSAlert()
         alert.messageText = "Stop the Dispatch preview server?"
-        alert.informativeText = "The browser will disconnect. Running agent hosts remain alive, but tools that need the server may fail until you start it again. The server will also stop launching at login."
+        alert.informativeText = "The browser will disconnect. " + (configuration.usesManagedDatabase ? "The private local database will stop too. " : "") + "Running agent hosts remain alive, but tools that need the server may fail until you start it again. The server will also stop launching at login."
         alert.addButton(withTitle: "Stop Server")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
@@ -232,7 +290,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         changingService = true
         rebuildMenu()
         Task {
-            do { try await service.unregister() }
+            do {
+                if let process = validationServer {
+                    if process.isRunning { process.terminate() }
+                    await Task.detached { process.waitUntilExit() }.value
+                    validationServer = nil
+                } else { try await service.unregister() }
+            }
             catch { showError(error.localizedDescription) }
             changingService = false
             refresh()
@@ -240,7 +304,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleLogin() {
-        guard externalURL == nil else { return }
+        guard externalURL == nil, PreviewPaths.testRoot == nil else { return }
         Task {
             do {
                 if SMAppService.mainApp.status == .enabled { try await SMAppService.mainApp.unregister() }
@@ -252,6 +316,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
+    @objc private func showDataFolder() { NSWorkspace.shared.open(PreviewPaths.root) }
     @objc private func showLog() {
         if FileManager.default.fileExists(atPath: PreviewPaths.log.path) {
             NSWorkspace.shared.activateFileViewerSelecting([PreviewPaths.log])
@@ -265,7 +330,10 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
-    @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func quit() {
+        if let process = validationServer, process.isRunning { process.terminate(); process.waitUntilExit() }
+        NSApp.terminate(nil)
+    }
     private func showError(_ message: String) {
         let alert = NSAlert()
         alert.messageText = "Dispatch Preview"
@@ -276,9 +344,56 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
+
+@MainActor
+final class SetupFields: NSObject {
+    let view = NSStackView()
+    let port: NSTextField
+    let database: NSSecureTextField
+    let external = NSButton(checkboxWithTitle: "Use an existing database (advanced)", target: nil, action: nil)
+    private let databaseLabel = NSTextField(labelWithString: "Dedicated PostgreSQL connection URL")
+    private let hint = NSTextField(wrappingLabelWithString: "Your database is stored privately on this Mac and kept when you quit or update the app.")
+
+    init(configuration: Configuration) {
+        port = NSTextField(string: String(configuration.port))
+        database = NSSecureTextField(string: configuration.usesManagedDatabase ? "" : configuration.databaseURL)
+        super.init()
+        external.state = !configuration.databaseURL.isEmpty && !configuration.usesManagedDatabase ? .on : .off
+        external.target = self
+        external.action = #selector(toggle)
+        port.setAccessibilityLabel("Server port")
+        database.setAccessibilityLabel("PostgreSQL connection URL")
+        database.placeholderString = "postgres://user:password@localhost/dispatch_preview"
+        view.orientation = .vertical
+        view.alignment = .leading
+        view.spacing = 8
+        for field in [hint, NSTextField(labelWithString: "Server port"), port, external, databaseLabel, database] {
+            view.addArrangedSubview(field)
+            field.widthAnchor.constraint(equalToConstant: 430).isActive = true
+        }
+        view.frame = NSRect(x: 0, y: 0, width: 430, height: 200)
+        toggle()
+    }
+
+    @objc private func toggle() {
+        let advanced = external.state == .on
+        database.isHidden = !advanced
+        databaseLabel.isHidden = !advanced
+        hint.stringValue = advanced
+            ? "Use a dedicated preview database. Dispatch will run migrations there; do not use your regular Dispatch database."
+            : "Your database is stored privately on this Mac and kept when you quit or update the app."
+    }
+}
+
 @main
 struct DispatchMenuApp {
     @MainActor static func main() {
+        if let index = CommandLine.arguments.firstIndex(of: "--isolated-test") {
+            do {
+                guard CommandLine.arguments.indices.contains(index + 1) else { throw ConfigurationError("Missing isolated test directory.") }
+                try PreviewPaths.enableIsolatedTest(root: CommandLine.arguments[index + 1])
+            } catch { fputs("Dispatch Preview: \(error.localizedDescription)\n", stderr); exit(1) }
+        }
         if CommandLine.arguments.contains("--server") {
             do { try runServer() }
             catch { fputs("Dispatch Preview: \(error.localizedDescription)\n", stderr); exit(1) }

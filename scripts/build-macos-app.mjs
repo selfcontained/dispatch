@@ -8,8 +8,12 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
 } from "node:fs";
-import os from "node:os";
+import {
+  downloadPostgres,
+  verifyPostgres,
+} from "./download-macos-postgres.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -81,6 +85,18 @@ try {
     path.join(contents, "MacOS/DispatchMenu")
   );
   cpSync(binary, path.join(contents, "Helpers/dispatch"));
+  const postgres = await downloadPostgres(
+    arch,
+    path.join(contents, "Helpers/Postgres")
+  );
+  // Helpers is a nested-code location. Keep PostgreSQL's data/source notices in
+  // Resources and link the standard runtime layout to it for relocatability.
+  const postgresResources = path.join(contents, "Resources/Postgres");
+  mkdirSync(postgresResources, { recursive: true });
+  for (const name of ["share", "licenses", "SOURCE.json"]) {
+    renameSync(path.join(postgres, name), path.join(postgresResources, name));
+    symlinkSync(`../../Resources/Postgres/${name}`, path.join(postgres, name));
+  }
   cpSync(
     path.join(root, "apps/macos/Resources/Info.plist"),
     path.join(contents, "Info.plist")
@@ -119,6 +135,16 @@ try {
     identity ?? "-",
     ...(identity ? ["--options", "runtime", "--timestamp"] : []),
   ];
+  // Sign every nested PostgreSQL Mach-O, deepest libraries first. Never rely on
+  // --deep signing: each binary must receive the same Developer ID/runtime flags.
+  const postgresCode = verifyPostgres(postgres, arch).sort(
+    (a, b) =>
+      Number(a.includes(`${path.sep}bin${path.sep}`)) -
+        Number(b.includes(`${path.sep}bin${path.sep}`)) ||
+      b.split(path.sep).length - a.split(path.sep).length ||
+      a.localeCompare(b)
+  );
+  for (const file of postgresCode) run("codesign", [...signing, file]);
   run("codesign", [
     ...signing,
     "--identifier",

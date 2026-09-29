@@ -4,11 +4,15 @@ public struct Configuration: Codable, Equatable {
     public var port: Int
     public var databaseURL: String
     public var instanceID: String
+    public var managedDatabase: Bool?
 
-    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString) {
+    public var usesManagedDatabase: Bool { managedDatabase == true }
+
+    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString, managedDatabase: Bool? = nil) {
         self.port = port
         self.databaseURL = databaseURL
         self.instanceID = instanceID
+        self.managedDatabase = managedDatabase
     }
 
     public var serverURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
@@ -32,6 +36,15 @@ public struct Configuration: Codable, Equatable {
         let allowedParameters: Set<String> = ["sslmode", "sslcert", "sslkey", "sslrootcert", "connect_timeout", "application_name"]
         guard (url.queryItems ?? []).allSatisfy({ allowedParameters.contains($0.name) }) else {
             throw ConfigurationError("The connection URL contains unsupported parameters. Specify the database and host in the URL itself.")
+        }
+        if usesManagedDatabase {
+            guard url.host == "127.0.0.1", let databasePort = url.port,
+                  (1024...65535).contains(databasePort), databasePort != 6767, databasePort != port,
+                  url.user == "dispatch_preview", url.path == "/dispatch_preview",
+                  let password = url.password, password.count == 64,
+                  password.allSatisfy({ $0.isHexDigit }), (url.queryItems ?? []).isEmpty else {
+                throw ConfigurationError("The managed database configuration is invalid. Run local setup again.")
+            }
         }
         guard UUID(uuidString: instanceID) != nil else {
             throw ConfigurationError("The preview instance identifier is invalid. Restore a valid configuration before starting.")
@@ -71,8 +84,18 @@ public struct ConfigurationError: LocalizedError {
 }
 
 public enum PreviewPaths {
+    /// Explicit test mode is confined to a fresh temporary directory, never user state.
+    public static var testRoot: URL?
+    public static func enableIsolatedTest(root: String) throws {
+        let url = URL(fileURLWithPath: root).resolvingSymlinksInPath()
+        guard url.deletingLastPathComponent().path == URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath().path,
+              url.lastPathComponent.hasPrefix("dispatch-macos-test-") else {
+            throw ConfigurationError("Isolated testing requires a dispatch-macos-test-* directory directly under /tmp.")
+        }
+        testRoot = url
+    }
     public static var root: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dispatch-mac-preview", isDirectory: true)
+        testRoot ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dispatch-mac-preview", isDirectory: true)
     }
     public static var configuration: URL { root.appendingPathComponent("configuration.json") }
     public static var log: URL { root.appendingPathComponent("server.log") }

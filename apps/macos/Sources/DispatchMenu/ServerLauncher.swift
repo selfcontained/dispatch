@@ -2,7 +2,7 @@ import Darwin
 import DispatchCore
 import Foundation
 
-/// launchd starts this mode; exec keeps the service PID attached to the server.
+/// launchd starts this mode; managed databases are supervised with the server.
 /// ACP hosts have their own sessions and are not stopped with the menu app.
 func runServer() throws -> Never {
     let root = PreviewPaths.root
@@ -38,9 +38,59 @@ func runServer() throws -> Never {
     for (key, value) in environment { setenv(key, value, 1) }
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
     guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the preview state directory.") }
+    if config.usesManagedDatabase {
+        let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
+        let termination = ServerTermination()
+        try database.start(config)
+        defer { try? database.stop() }
+        if termination.requested { try database.stop(); exit(0) }
+        let server = Process()
+        server.executableURL = executable
+        server.environment = ProcessInfo.processInfo.environment
+        server.standardOutput = FileHandle.standardOutput
+        server.standardError = FileHandle.standardError
+        try termination.launch(server)
+        server.waitUntilExit()
+        try database.stop()
+        exit(termination.requested ? 0 : server.terminationStatus)
+    }
     let argument = strdup(executable.path)!
     defer { free(argument) }
     var arguments: [UnsafeMutablePointer<CChar>?] = [argument, nil]
     execv(executable.path, &arguments)
     throw ConfigurationError("Cannot launch the bundled server (errno \(errno)).")
+}
+
+/// Signal handlers execute off the thread waiting for the child. Keep launch and
+/// cancellation atomic so a stop during database startup never launches the API.
+private final class ServerTermination {
+    private let lock = NSLock()
+    private var stopping = false
+    private var process: Process?
+    private var sources: [DispatchSourceSignal] = []
+    var requested: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
+
+    init() {
+        for number in [SIGTERM, SIGINT] {
+            signal(number) { _ in }
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                defer { self.lock.unlock() }
+                self.stopping = true
+                if let process = self.process, process.isRunning { process.terminate() }
+            }
+            source.resume()
+            sources.append(source)
+        }
+    }
+
+    func launch(_ child: Process) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopping else { throw ConfigurationError("Server startup was cancelled.") }
+        try child.run()
+        process = child
+    }
 }

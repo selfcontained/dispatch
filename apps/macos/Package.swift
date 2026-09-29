@@ -9,5 +9,6 @@ let package = Package(
         .target(name: "DispatchCore"),
         .executableTarget(name: "DispatchMenu", dependencies: ["DispatchCore"]),
         .testTarget(name: "DispatchCoreTests", dependencies: ["DispatchCore"]),
+        .testTarget(name: "DispatchMenuTests", dependencies: ["DispatchMenu", "DispatchCore"]),
     ]
 )
