@@ -15,6 +15,7 @@ import {
   verifyPostgres,
 } from "./download-macos-postgres.mjs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -58,6 +59,20 @@ const appName = "Dispatch.app";
 const app = path.join(temporary, appName);
 const contents = path.join(app, "Contents");
 const identity = process.env.DISPATCH_CODESIGN_IDENTITY;
+const sparkleSDK = process.env.DISPATCH_SPARKLE_SDK;
+if (process.env.DISPATCH_SPARKLE_PROBE_SDK)
+  throw new Error("Production packaging cannot use DISPATCH_SPARKLE_PROBE_SDK");
+if (sparkleSDK) {
+  const digest = createHash("sha256").update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz"))).digest("hex");
+  if (digest !== "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c")
+    throw new Error("Sparkle SDK archive checksum mismatch");
+  const key = process.env.DISPATCH_SPARKLE_PUBLIC_KEY ?? "";
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, "base64").length !== 32)
+    throw new Error("DISPATCH_SPARKLE_PUBLIC_KEY must be a base64 Ed25519 public key");
+  const feed = new URL(process.env.DISPATCH_SPARKLE_FEED_URL ?? "");
+  if (feed.protocol !== "https:" || feed.username || feed.password)
+    throw new Error("Sparkle feed must use HTTPS without credentials");
+}
 const notarize = process.env.DISPATCH_NOTARIZE_MACOS_APP === "1";
 if (notarize && (!identity || !process.env.DISPATCH_NOTARY_KEYCHAIN_PROFILE)) {
   throw new Error(
@@ -70,9 +85,13 @@ try {
     "apps/macos",
     "--configuration",
     "release",
+    "--jobs",
+    "1",
     "--triple",
     `${swiftArch}-apple-macosx13.0`,
   ];
+  // Keep update-enabled and ordinary Swift build products isolated.
+  swiftArgs.push("--scratch-path", path.join(temporary, "swift-build"));
   run("swift", ["build", ...swiftArgs]);
   const buildPath = run("swift", ["build", ...swiftArgs, "--show-bin-path"], {
     stdio: "pipe",
@@ -141,6 +160,18 @@ try {
     build,
     path.join(contents, "Info.plist"),
   ]);
+  if (sparkleSDK) {
+    const plist = path.join(contents, "Info.plist");
+    for (const [key, value] of Object.entries({
+      SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
+      SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
+      DispatchUpdateChannel: "acp-runtime",
+    })) run("plutil", ["-insert", key, "-string", value, plist]);
+    for (const key of ["SUEnableAutomaticChecks", "SUAutomaticallyUpdate", "SUAllowsAutomaticUpdates", "SUVerifyUpdateBeforeExtraction"])
+      run("plutil", ["-insert", key, "-bool", "YES", plist]);
+    mkdirSync(path.join(contents, "Frameworks"), { recursive: true });
+    run("ditto", [path.join(sparkleSDK, "Sparkle.framework"), path.join(contents, "Frameworks/Sparkle.framework")]);
+  }
   // Sign nested code first; Bun needs JIT entitlements, the native shell does not.
   const signing = [
     "--force",
@@ -166,9 +197,14 @@ try {
     path.join(root, "scripts/dispatch-bun.entitlements.plist"),
     path.join(contents, "Helpers/dispatch"),
   ]);
+  if (sparkleSDK) {
+    const framework = path.join(contents, "Frameworks/Sparkle.framework");
+    for (const code of ["Versions/B/XPCServices/Downloader.xpc", "Versions/B/XPCServices/Installer.xpc", "Versions/B/Autoupdate", "Versions/B/Updater.app", ""])
+      run("codesign", [...signing, path.join(framework, code)]);
+  }
   run("codesign", [...signing, app]);
   run("codesign", ["--verify", "--deep", "--strict", app]);
-  const zipName = `dispatch-macos-preview-${version}-${arch}.zip`;
+  const zipName = sparkleSDK ? `dispatch-macos-acp-${build}-${arch}.zip` : `dispatch-macos-preview-${version}-${arch}.zip`;
   const zip = path.join(temporary, zipName);
   run("ditto", ["-c", "-k", "--keepParent", app, zip]);
   if (notarize) {
@@ -185,6 +221,7 @@ try {
     ]);
     run("xcrun", ["stapler", "staple", app]);
     run("xcrun", ["stapler", "validate", app]);
+    run("codesign", ["--verify", "--deep", "--strict", app]);
     run("spctl", ["--assess", "--type", "execute", "--verbose", app]);
     rmSync(zip);
     run("ditto", ["-c", "-k", "--keepParent", app, zip]);

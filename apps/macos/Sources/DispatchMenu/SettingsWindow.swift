@@ -59,8 +59,9 @@ final class SettingsWindowController: NSWindowController {
         ])
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
+        let channel = Bundle.main.object(forInfoDictionaryKey: "DispatchUpdateChannel") as? String
         addTab("Support", to: tabs, views: [
-            card("Dispatch", [heading("Version \(version)"), note("Build \(build)")]),
+            card("Dispatch", [heading("Version \(version)"), note("Build \(build)" + (channel.map { " · \($0)" } ?? ""))]),
             card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(PreviewPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
         ])
         updateDetails(configuration)

@@ -1,23 +1,7 @@
 name: macOS Sparkle Service Proof
 
-# Test-only artifacts, never a release. One hosted build at a time.
+# Test-only artifacts, never a release. Manual now that dogfood builds own branch pushes.
 on:
-  push:
-    branches: [agt_e49fa225fda7/agent-25fda7]
-    paths:
-      - .github/workflows/macos-sparkle-proof.yml
-      - scripts/build-macos-sparkle-proof.py
-      - scripts/validate-macos-sparkle-proof.py
-      - scripts/sparkle_proof_cleanup.py
-      - scripts/test_sparkle_proof_cleanup.py
-      - scripts/sparkle_proof_live.py
-      - scripts/fixtures/sparkle-acp.py
-      - scripts/test_sparkle_proof_live.py
-      - apps/macos/Sources/DispatchMenu/ServerLauncher.swift
-      - apps/macos/Sources/DispatchCore/ServiceControl.swift
-      - apps/macos/Sources/DispatchCore/LocalDatabase.swift
-      - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
-      - apps/macos/Sources/DispatchMenu/ServiceRegistration.swift
   workflow_dispatch:
 
 permissions:
