@@ -166,18 +166,31 @@ host survival and reattachment, followed by compatible/incompatible schema
 fixtures. PostgreSQL major-version migration and automatic rollback after a
 schema change require explicit designs; restoring only an old app is insufficient.
 
-## Interrupted pre-install recovery (pending VM proof)
+## Interrupted installation recovery (pending corrected VM proof)
 
-The driver also accepts `--case interrupted-running` and `--case interrupted-stopped`.
-These cases pause the isolated probe after durable intent is saved and its service
-and database have stopped, but before invoking Sparkle's installation handler.
-The driver verifies the owned GUI executable before killing that one process,
-confirms build 1 is still installed, and relaunches it. Recovery must acknowledge
-a fresh request from that new process and preserve the original running/stopped
-intent. The driver then retries the update and applies the same build-2 state,
-data, signature and cleanup assertions as the normal cases.
+The driver accepts `--case interrupted-running` and `--case interrupted-stopped`.
+These pause the isolated probe after durable intent is saved and its service
+and database have stopped, before invoking Sparkle's immediate-install handler.
+The driver verifies the owned GUI executable before killing that one process.
+It waits for Sparkle to finish installing build 2, verifies the bundle, then opens
+the app (reusing any existing instance). The replacement must acknowledge its
+exact restore request and preserve the original running/stopped intent, settings,
+and database records. The stopped case rejects even transient database starts.
 
-This is recovery on relaunch from one specific crash boundary. It does not claim
-power-loss recovery during bundle replacement, automatic relaunch after a crash,
-new-version health rollback, or live agent continuity. The pause marker is compiled
-only into the isolated proof and cannot affect normal Dispatch app builds.
+The first interruption attempt (CI 36661962465, build 297be3bf) exposed an invalid
+test assumption: the old app need not remain installed after a crash. Sparkle
+installed build 2 while the driver immediately relaunched build 1. The test was
+interrupted, evidence exported, and the clone deleted. It did not pass the
+recovery gate or complete verified in-guest certificate cleanup; deleting the
+clone removed all temporary trust and processes.
+
+[The Sparkle delegate contract](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html)
+explicitly allows installation on application termination even if the immediate
+handler has not been invoked. The corrected driver waits for that installation
+instead of racing it. This also means the immediate handler is not an exclusive
+installation gate; durable recovery state must already exist before app exit.
+
+This proves only the selected crash boundary when rerun successfully. It does
+not establish power-loss recovery during bundle replacement, automatic relaunch,
+old-version retry, new-version health rollback, or live agent continuity. The
+pause marker is compiled only into the isolated proof, never normal Dispatch.

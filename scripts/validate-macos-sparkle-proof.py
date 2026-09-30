@@ -157,30 +157,30 @@ try:
         while run('ps','-p',str(paused['pid']),capture=True,check=False).returncode == 0:
             assert time.monotonic() < deadline, 'Interrupted GUI did not exit'
             time.sleep(.1)
+        # Sparkle installs on termination even when we have not invoked its
+        # immediate-install handler. Do not race it by relaunching build 1.
+        deadline = time.monotonic()+60
+        while True:
+            try:
+                with (app/'Contents/Info.plist').open('rb') as f:
+                    installed = plistlib.load(f)['CFBundleVersion']
+            except (OSError, ValueError, KeyError): installed = None
+            if installed == '2': break
+            assert time.monotonic() < deadline, 'Sparkle did not finish installation after the crash'
+            time.sleep(.2)
+        run('codesign','--verify','--deep','--strict',app)
         (root/'pause-before-install').unlink()
-        with (app/'Contents/Info.plist').open('rb') as f: assert plistlib.load(f)['CFBundleVersion']=='1'
-        cursor = len(events())
-        run('open','-n',app)
-        recovered = wait_event('interrupted-update-restored','1',after=cursor)
-        assert recovered['pid'] != paused['pid']
-        recovery = assert_restore(events()[cursor:], json.loads((root/'service-runtime.json').read_text()), should_run, build='1', pid=recovered['pid'])
-        recovered_service = service_record()
-        assert recovered_service and recovered_service['pid'] != before['pid'], 'Relaunch did not restore registration'
-        assert not any(e['event']=='approval-required' for e in events()[cursor:]), 'Recovery required renewed background approval'
-        assert json.loads((root/'probe-update-state.json').read_text()) == pending, 'Recovery lost durable update intent'
-        if not should_run:
-            assert not (root/'postgres/postmaster.pid').exists()
-            assert (root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')==database_starts_before, 'Stopped database started during recovery'
-        else:
-            assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
-        interruption = {'boundary':'after-service-stop-before-install','oldAppPID':paused['pid'],'recoveredAppPID':recovered['pid'],'recoveredService':recovered_service,'restore':recovery}
-        (root/'begin-update').touch()
-    wait_event('upgrade-confirmed','2')
-    restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), should_run)
-    after=service_record();assert after and after['pid']!=before['pid']
+        # Reuse an existing app if Sparkle already relaunched it.
+        run('open',app)
+        interruption = {'boundary':'after-service-stop-before-explicit-install','oldAppPID':paused['pid'],'installedAfterCrash':'2'}
+    confirmed = wait_event('upgrade-confirmed','2')
+    restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), should_run, pid=confirmed['pid'])
     if interruption:
-        assert after['pid'] != interruption['recoveredService']['pid']
-        assert run('ps','-p',str(interruption['recoveredService']['pid']),capture=True,check=False).returncode!=0
+        assert confirmed['pid'] != interruption['oldAppPID']
+        assert not any(e['build']=='1' and e['event']=='installing' for e in events()), 'Explicit installation ran before interruption'
+        interruption['recoveredAppPID'] = confirmed['pid']
+        assert not (root/'probe-update-state.json').exists(), 'Healthy target did not clear pending intent'
+    after=service_record();assert after and after['pid']!=before['pid']
     # Any surviving old PID is a failure, even if the new service is healthy.
     assert run('ps','-p',str(before['pid']),capture=True,check=False).returncode!=0
     rows=events()
