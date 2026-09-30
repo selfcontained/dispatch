@@ -155,7 +155,7 @@ function renderSection(): void {
   render(<UpdatesSection stream={{} as UseReleaseStreamResult} />);
 }
 
-it("keeps web installation controls out of app-managed previews", () => {
+it("keeps web installation controls out of app-managed installations", () => {
   stubHook({
     versionInfo: {
       updateOwner: "macos-app",
@@ -168,7 +168,7 @@ it("keeps web installation controls out of app-managed previews", () => {
     displayInfo: makeInfo(),
   });
   renderSection();
-  expect(screen.getByText("Updates are managed by the Mac app")).toBeTruthy();
+  expect(screen.getByText("Update Dispatch")).toBeTruthy();
   expect(screen.queryByTestId("standard-update-button")).toBeNull();
   expect(
     screen.queryByRole("button", { name: "More update options" })

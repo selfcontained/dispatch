@@ -121,12 +121,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       ) : versionInfo.updateOwner === "macos-app" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Updates are managed by the Mac app</CardTitle>
+            <CardTitle>Update Dispatch</CardTitle>
             <CardDescription>
-              Use Check for Updates in the Dispatch menu bar menu. You can also
-              enable automatic updates there. If your app has no update
-              controls, install the latest Mac app first. App updates keep your
-              settings and database.
+              Click the Dispatch icon in your Mac’s menu bar, then choose{" "}
+              <strong>Check for Updates</strong> or{" "}
+              <strong>Install Updates Automatically</strong>.
             </CardDescription>
           </CardHeader>
         </Card>
