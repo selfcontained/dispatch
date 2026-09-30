@@ -191,3 +191,66 @@ describe("registerPersonaInteractionTools", () => {
     });
   });
 });
+
+describe("launch_owner_reviews MCP tool", () => {
+  it("requires both an allowed capability and a handler", () => {
+    const server = createMockServer();
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      { agentId: "parent" }
+    );
+    expect(server.tools).toHaveLength(0);
+    registerPersonaInteractionTools(server as any, new Set(), {
+      agentId: "parent",
+      launchOwnerReviews: vi.fn(),
+    });
+    expect(server.tools).toHaveLength(0);
+  });
+  it("passes scope and options and returns structured partial launch results", async () => {
+    const server = createMockServer();
+    const result = {
+      baseRef: "main",
+      changedFiles: ["src/a.ts"],
+      owners: [],
+      uncoveredFiles: [],
+      launched: [
+        { persona: "owner", agentId: "reviewer", files: ["src/a.ts"] },
+      ],
+      failures: [
+        { persona: "other", error: "unavailable", files: ["src/a.ts"] },
+      ],
+    };
+    const launchOwnerReviews = vi.fn().mockResolvedValue(result);
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      { agentId: "parent", launchOwnerReviews }
+    );
+    const args = {
+      context: "Changed contracts",
+      dryRun: false,
+      agentType: "codex",
+    };
+    const response = (await server.tools[0].handler(args)) as any;
+    expect(launchOwnerReviews).toHaveBeenCalledWith("parent", args);
+    expect(response.structuredContent).toEqual(result);
+    expect(response.content[0].text).toContain("1 launch failure(s)");
+    expect(response.content[0].text).toContain("End this turn");
+  });
+  it("returns a tool error when routing fails", async () => {
+    const server = createMockServer();
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["launch_owner_reviews"]),
+      {
+        agentId: "parent",
+        launchOwnerReviews: vi.fn().mockRejectedValue(new Error("Invalid map")),
+      }
+    );
+    expect(await server.tools[0].handler({ context: "Review" })).toMatchObject({
+      isError: true,
+      content: [{ text: "Invalid map" }],
+    });
+  });
+});

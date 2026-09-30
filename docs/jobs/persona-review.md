@@ -156,7 +156,7 @@ If persona files were changed:
 1. Run `pnpm run format:write` to fix formatting.
 2. Commit on a new branch. The PR should only contain persona prompt changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was assessed, what changed, what post-change evidence justified the adjustment, and what's queued for the next run.
-4. **Launch a reviewer.** Launch `architecture-review` with `launch_agent` (`persona: "architecture-review"`); the `prompt` explains what persona changes were made and why. The reviewer posts a `review` block to you; address each finding and resolve it with `update` before proceeding.
+4. **Launch a reviewer.** Call `launch_owner_reviews` with context explaining what persona changes were made and why. This selects the review lifecycle owner and any other owners affected by the change. The reviewer posts a `review` block to you; address each finding and resolve it with `update` before proceeding.
 5. **Wait for CI.** Poll `gh pr checks <num>` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.

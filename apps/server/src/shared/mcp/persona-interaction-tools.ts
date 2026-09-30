@@ -31,6 +31,7 @@ export type PersonaInteractionCallbacks = {
   worktreeRoot?: string | null;
   repoRoot?: string | null;
   listPersonas?: McpRequestContext["listPersonas"];
+  launchOwnerReviews?: McpRequestContext["launchOwnerReviews"];
 };
 
 type PersonaSummary = { slug: string; name: string; description: string };
@@ -199,6 +200,57 @@ export function registerPersonaInteractionTools(
           return {
             content: [{ type: "text", text: jsonText({ personas }) }],
             structuredContent: { personas },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+  if (allowed.has("launch_owner_reviews") && callbacks.launchOwnerReviews) {
+    const launchOwnerReviews = callbacks.launchOwnerReviews;
+    server.registerTool(
+      "launch_owner_reviews",
+      {
+        description:
+          "Launch all code owner reviewers selected by .dispatch/codeowners.json for committed, uncommitted, and untracked changes in your workspace. Every matching rule contributes owners; each persona launches once with your context and its matched paths. Returns selected owners, uncovered files, launched agents, and failures. Use dryRun to preview routing without launching. After launching, end the turn; reviewers post their review blocks to you automatically.",
+        inputSchema: {
+          context: z
+            .string()
+            .min(1)
+            .max(80_000)
+            .describe(
+              "Change briefing: what changed, decisions, concerns, and what is out of scope."
+            ),
+          agentType: z.enum(LAUNCH_PERSONA_AGENT_TYPES).optional(),
+          model: z
+            .string()
+            .optional()
+            .describe(
+              "Optional reviewer model; omit to use the normal reviewer default."
+            ),
+          dryRun: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Preview owners and uncovered files without launching reviewers."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await launchOwnerReviews(agentId, args);
+          const status = args.dryRun
+            ? `Selected ${result.owners.length} code owner reviewer(s); no reviewers launched.`
+            : `Launched ${result.launched.length} code owner reviewer(s); ${result.failures.length} launch failure(s).`;
+          return {
+            content: [
+              {
+                type: "text",
+                text: `${status} ${result.uncoveredFiles.length} file(s) lack an explicit owner.${result.launched.length ? "\nEnd this turn after launching all reviewers. Do not poll or wait; Dispatch will deliver each posted review automatically." : ""}`,
+              },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);

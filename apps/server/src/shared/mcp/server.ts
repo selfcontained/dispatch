@@ -76,6 +76,7 @@ const AGENT_TOOLS = new Set([
   "clear_active_personality",
   "list_agents",
   "launch_agent",
+  "launch_owner_reviews",
   "archive_agent",
   "post",
   "update",
@@ -121,6 +122,7 @@ const JOB_TOOLS = new Set([
   "job_log",
   "list_agents",
   "launch_agent",
+  "launch_owner_reviews",
   "archive_agent",
   "post",
   "update",
@@ -222,6 +224,15 @@ export type McpRequestContext = UsageCallbacks & {
     opts: { source?: string; ownerAgentId?: string }
   ) => Promise<ListedFileItem[]>;
   deleteFile?: (agentId: string, fileName: string) => Promise<void>;
+  launchOwnerReviews?: (
+    agentId: string,
+    opts: {
+      context: string;
+      agentType?: LaunchPersonaAgentType;
+      model?: string;
+      dryRun?: boolean;
+    }
+  ) => Promise<import("../../personas/codeowners.js").OwnerReviewResult>;
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
@@ -413,6 +424,7 @@ export async function createDispatchMcpServer(
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
       listPersonas: context.listPersonas,
+      launchOwnerReviews: context.launchOwnerReviews,
     });
   }
 

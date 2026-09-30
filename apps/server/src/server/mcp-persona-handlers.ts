@@ -14,6 +14,13 @@ import {
   loadPersonas,
   type PersonaDefinition,
 } from "../personas/loader.js";
+import {
+  collectOwnerReviewFiles,
+  launchOwnerReviewPlan,
+  loadCodeowners,
+  resolveCodeowners,
+  type OwnerReviewResult,
+} from "../personas/codeowners.js";
 import { buildPersonaReviewDiff } from "../personas/review-diff.js";
 import {
   refreshRemoteBaseRef,
@@ -46,6 +53,8 @@ export type PersonaLaunchOptions = {
   /** Include a file-level map of the parent's changes (default true). */
   includeDiff?: boolean;
   model?: string;
+  /** Internal: pin every owner in a batch to the selected review base. */
+  reviewBaseRef?: string;
   /** Display name; defaults to `<persona>-<parent suffix>`. */
   name?: string;
 };
@@ -69,6 +78,35 @@ export type PreparedPersonaLaunch = {
  */
 export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   const { pool, agentManager, publishUiEvent, withStreamFlag } = deps;
+
+  async function resolveReviewBase(
+    parent: AgentRecord,
+    cwd: string
+  ): Promise<string> {
+    let baseBranch: string | null = parent.workspacePath
+      ? parent.workspaceBaseBranch
+      : (parent.baseBranch ??
+        (parent.worktreePath && parent.worktreeBranch ? "main" : null));
+    if (baseBranch == null) {
+      try {
+        baseBranch =
+          (await getPrStatus({ cwd }, runCommand)).baseRefName ?? null;
+      } catch {
+        /* No PR: use the normal upstream fallback. */
+      }
+    }
+    const allowUpstreamFallback = baseBranch == null;
+    await refreshRemoteBaseRef(cwd, baseBranch, {
+      runCommand,
+      allowUpstreamFallback,
+    });
+    return (
+      (await resolveBaseRef(cwd, baseBranch, {
+        runCommand,
+        allowUpstreamFallback,
+      })) ?? "origin/main"
+    );
+  }
 
   async function preparePersonaLaunch(
     parent: AgentRecord,
@@ -123,28 +161,8 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const includeDiff = opts.includeDiff !== false;
     let diffResult = null;
     if (includeDiff) {
-      let reviewBaseBranch: string | null = parent.workspacePath
-        ? parent.workspaceBaseBranch
-        : (parent.baseBranch ??
-          (parent.worktreePath && parent.worktreeBranch ? "main" : null));
-      if (reviewBaseBranch == null) {
-        try {
-          const pr = await getPrStatus({ cwd: parentCwd }, runCommand);
-          if (pr.baseRefName) reviewBaseBranch = pr.baseRefName;
-        } catch {
-          // No PR: fall through to the upstream fallback.
-        }
-      }
-      const allowUpstreamFallback = reviewBaseBranch == null;
-      await refreshRemoteBaseRef(parentCwd, reviewBaseBranch, {
-        runCommand,
-        allowUpstreamFallback,
-      });
       const baseRef =
-        (await resolveBaseRef(parentCwd, reviewBaseBranch, {
-          runCommand,
-          allowUpstreamFallback,
-        })) ?? "origin/main";
+        opts.reviewBaseRef ?? (await resolveReviewBase(parent, parentCwd));
       diffResult = await buildPersonaReviewDiff(parentCwd, baseRef, runCommand);
     }
     const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
@@ -211,6 +229,54 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     return { agentId: agent.id, name: agent.name, persona: opts.persona };
   }
 
+  async function launchOwnerReviews(
+    parentId: string,
+    opts: {
+      context: string;
+      agentType?: (typeof CLI_AGENT_TYPES)[number];
+      model?: string;
+      dryRun?: boolean;
+    }
+  ): Promise<OwnerReviewResult> {
+    const parent = await agentManager.getAgent(parentId);
+    if (!parent) throw new Error("Parent agent not found.");
+    if (parent.parentAgentId)
+      throw new Error(
+        "Child agents cannot launch owner reviews. Ask the parent agent to launch them."
+      );
+    const cwd = agentWorkspaceDir(parent) ?? parent.cwd;
+    const root = await resolveWorktreeRoot(cwd);
+    const config = await loadCodeowners(root);
+    const baseRef = await resolveReviewBase(parent, cwd);
+    const files = await collectOwnerReviewFiles(root, baseRef, runCommand);
+    const plan = resolveCodeowners(config, files, baseRef);
+    if (opts.dryRun) return { ...plan, launched: [], failures: [] };
+    // Resolve the whole selection before launching any agent. Ownership is
+    // local to this checkout, even though manual persona launches can fall back.
+    for (const owner of plan.owners) {
+      const persona =
+        (await loadPersonaBySlug(root, owner.persona)) ??
+        getBuiltInPersona(owner.persona);
+      if (!persona)
+        throw new Error(
+          `Owner persona "${owner.persona}" not found in this workspace or built-ins.`
+        );
+      if (!persona.body.trim())
+        throw new Error(
+          `Owner persona "${owner.persona}" has no instructions.`
+        );
+    }
+    return launchOwnerReviewPlan(plan, opts.context, (persona, context) =>
+      launchPersonaAgent(parentId, {
+        persona,
+        context,
+        agentType: opts.agentType,
+        model: opts.model,
+        reviewBaseRef: baseRef,
+      })
+    );
+  }
+
   async function listPersonas(
     agentCwd: string
   ): Promise<Array<{ slug: string; name: string; description: string }>> {
@@ -222,7 +288,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     }));
   }
 
-  return { preparePersonaLaunch, launchPersonaAgent, listPersonas };
+  return {
+    preparePersonaLaunch,
+    launchPersonaAgent,
+    launchOwnerReviews,
+    listPersonas,
+  };
 }
 
 /** The first turn a persona agent receives: begin, and where to report. */

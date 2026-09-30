@@ -93,12 +93,7 @@ This phase is not done until **CI is green and the PR is merged**. `job_complete
 1. Run `pnpm run format:write` to fix formatting in files you touched.
 2. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was fixed, why it qualifies as tech debt, and what's queued for the next run.
-4. **Launch a reviewer.** After the PR is open, launch **one** review persona with `launch_agent` (`persona: <slug>`, `prompt`: the briefing). Pick the best fit based on what you changed:
-   - `architecture-review` — structural refactors, module boundaries, dependency changes
-   - `backend-security-review` — anything touching auth, API routes, data handling, or env vars
-   - `frontend-ux-review` — UI component changes, style updates, accessibility
-   - `infra-review` — build config, CI, deployment, dev tooling
-     Brief it thoroughly in `prompt`: what was changed, why, and what is NOT in scope (pre-existing issues). The reviewer posts a `review` block to you; if it requests changes, address them, push, and resolve the findings with `update` on that block's state before proceeding.
+4. **Launch the owners.** After the PR is open, call `launch_owner_reviews` with a thorough `context`: what was changed, why, and what is NOT in scope (pre-existing issues). Dispatch selects every owner whose paths changed. Each reviewer posts a `review` block to you; address findings in their threads and ask the reviewer to verify and resolve them before proceeding.
 5. **Wait for CI.** Poll `gh pr checks <num>` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge the PR via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.

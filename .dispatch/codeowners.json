@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "paths": [
+        "apps/server/src/agents/**",
+        "apps/server/src/server/agent-*.ts",
+        "apps/server/src/shared/git/**",
+        "apps/server/src/agents/acp/**",
+        "apps/server/src/agents/engine-*.ts",
+        "apps/server/src/shared/mcp/agent-*.ts",
+        "apps/server/src/routes/agents/**",
+        "apps/web/src/components/app/agent-pane*",
+        "apps/web/src/components/app/agent-*",
+        "apps/server/test/*agent*",
+        "apps/server/test/*worktree*",
+        "apps/server/test/*acp*",
+        "e2e/*agent-live*",
+        "e2e/*agent*"
+      ],
+      "personas": ["agent-runtime-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/personas/**",
+        "apps/server/src/chat/review*.ts",
+        "apps/server/src/chat/service.ts",
+        "apps/server/src/server/mcp-persona-handlers.ts",
+        "apps/server/src/shared/mcp/persona-interaction-tools.ts",
+        "apps/server/src/chat/validation.ts",
+        "apps/server/src/routes/personas.ts",
+        "apps/server/src/routes/streams.ts",
+        "apps/web/src/components/app/*review*",
+        "apps/web/src/components/app/*persona*",
+        "apps/web/src/hooks/use-stream-review*.ts",
+        "apps/server/test/*persona*",
+        "apps/server/test/codeowners.test.ts",
+        "docs/code-owner-reviews.md",
+        "apps/server/test/*review*",
+        "e2e/*review*",
+        ".dispatch/personas/**",
+        ".dispatch/codeowners.json",
+        "apps/server/test/mcp-persona-codeowners.test.ts",
+        "e2e/review-loop.spec.ts",
+        "apps/web/src/components/app/diff-finding*",
+        "apps/web/src/components/app/chat/blocks/review*",
+        "apps/web/src/components/app/chat/review*"
+      ],
+      "personas": ["review-lifecycle-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/agents/acp/stream-*.ts",
+        "apps/server/src/chat/**",
+        "apps/server/src/routes/streams.ts",
+        "apps/server/src/routes/agents/streaming-routes.ts",
+        "apps/server/src/server/ui-events.ts",
+        "apps/server/src/chat/envelope.ts",
+        "apps/server/src/routes/chat.ts",
+        "apps/web/src/components/app/chat/**",
+        "apps/web/src/hooks/*stream*",
+        "apps/web/src/hooks/*chat*",
+        "packages/shared/src/chat-types.ts",
+        "packages/shared/src/ui-event-types.ts",
+        "apps/server/test/*stream*",
+        "apps/server/test/*message*",
+        "apps/server/test/*chat*",
+        "e2e/*chat*",
+        "e2e/*stream*"
+      ],
+      "personas": ["stream-delivery-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/shared/mcp/**",
+        "apps/server/src/routes/mcp.ts",
+        "apps/server/src/server/mcp-*.ts",
+        "apps/server/src/server.ts",
+        "plugins/dispatch/**",
+        "apps/server/test/*mcp*"
+      ],
+      "personas": ["mcp-contract-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/chat/service.ts",
+        "apps/server/src/chat/validation.ts",
+        "apps/server/src/routes/streams.ts",
+        "apps/server/src/shared/mcp/stream-tools.ts",
+        "apps/web/src/components/app/chat/block*",
+        "apps/web/src/components/app/chat/composer*",
+        "apps/web/src/components/app/chat/chat-composer*",
+        "apps/web/src/components/app/chat/thread*",
+        "apps/web/src/components/app/chat/permission*",
+        "packages/shared/src/chat-types.ts",
+        "apps/server/test/stream-tools.test.ts",
+        "apps/server/test/stream-service.test.ts",
+        "e2e/stream-blocks.spec.ts"
+      ],
+      "personas": ["stream-interactions-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/jobs/**",
+        "apps/server/src/templates/**",
+        "apps/server/src/routes/jobs.ts",
+        "apps/server/src/routes/templates.ts",
+        "apps/server/src/shared/mcp/job*.ts",
+        "apps/web/src/components/app/jobs*",
+        "apps/web/src/components/app/template*",
+        "apps/server/test/*job*",
+        "apps/server/test/*template*",
+        "e2e/*job*",
+        "e2e/*template*"
+      ],
+      "personas": ["jobs-owner"]
+    },
+    {
+      "paths": [
+        "apps/server/src/release*.ts",
+        "apps/server/src/server/release-*.ts",
+        "apps/server/src/routes/release.ts",
+        "apps/server/src/db/migrations/**",
+        "update-migrations/**",
+        "release-notes/**",
+        "bin/**",
+        "scripts/*release*",
+        "scripts/*build-bun*",
+        "apps/web/src/components/app/release*",
+        "apps/server/test/*release*",
+        "apps/server/test/*update*",
+        "e2e/*release*"
+      ],
+      "personas": ["release-update-owner"]
+    }
+  ],
+  "fallback": ["code-review"]
+}

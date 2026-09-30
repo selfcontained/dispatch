@@ -659,6 +659,7 @@ async function registerRoutes() {
     mcpListFiles: mcpHandlers.listFiles,
     mcpDeleteFile: mcpHandlers.deleteFile,
     mcpListPersonas: mcpHandlers.listPersonas,
+    mcpLaunchOwnerReviews: mcpHandlers.launchOwnerReviews,
     mcpListPersonalities: mcpHandlers.listPersonalities,
     mcpCreatePersonality: mcpHandlers.createPersonality,
     mcpUpdatePersonality: mcpHandlers.updatePersonality,
