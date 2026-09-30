@@ -210,3 +210,23 @@ VM remained stopped; the host's installed app and databases were untouched.
 Validation also passed 29 Sparkle-enabled native tests with real PostgreSQL,
 8 publisher tests, type checks, web finalization, unit suites, and 169 E2E tests
 with one worker (8 skipped). PR CI passed on `ae77ab83`.
+
+## Domain feed validation — 2026-09-30
+
+[Build 36772644428.1](https://github.com/selfcontained/dispatch/actions/runs/36772644428)
+passed the signing/notarization/stapling pipeline and deployed both domain feeds
+using the existing Cloudflare credentials. Preview serves that build; Stable
+serves a valid empty feed. Both return XML with cache revalidation headers. A
+headless browser loaded each feed and navigated back successfully; screenshots
+and HTTP evidence were exported, and the browser was closed.
+
+The public legacy GitHub feed exactly matches Preview. The downloaded ZIP's
+Ed25519 signature verifies against the existing public key. Its embedded
+`SUFeedURL` points to the domain Preview feed, its channel is `preview`, and its
+bundle identity is unchanged. The website homepage bytes are unchanged by feed
+deployment. This establishes publication and bridge metadata; no additional VM
+or installed-app update was run for this hosting-only change. Earlier native
+running/stopped update validation is recorded above.
+
+The hosting change passed 20 focused publisher/domain tests, type checks,
+formatting, 169 E2E tests (8 skipped, one worker), and two source reviews.
