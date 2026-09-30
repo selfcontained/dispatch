@@ -1041,11 +1041,13 @@ export class AgentManager {
       [id, resolved.path, resolved.baseBranch]
     );
     await this.populateGitContext(id);
-    this.streamRecorder.setCwd(id, resolved.path ?? agent.cwd);
     this.diffStatsRefresher?.clear(id);
     void this.diffStatsRefresher?.signal(id);
 
+    // Read back rather than trusting `resolved`: an overlapping call may
+    // have landed after this one's UPDATE, and the recorder follows the row.
     const updated = await this.getRequiredAgent(id);
+    this.streamRecorder.setCwd(id, updated.workspacePath ?? updated.cwd);
     this.eventBus.publish(updated);
     return updated;
   }

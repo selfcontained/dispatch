@@ -5,7 +5,7 @@
  * Dispatch still owns.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -299,5 +299,30 @@ describe("archive with a moved workspace", () => {
     await archive("agt_owner");
 
     expect(cleanupGitWorktreeSpy).not.toHaveBeenCalled();
+  });
+
+  it("spares it when the owner recorded the worktree through a symlink", async () => {
+    // The owner's worktree_path keeps the spelling it was created under;
+    // the mover's workspace is stored as the real path.
+    const alias = `${root}-alias`;
+    await symlink(root, alias);
+    try {
+      await insertWorktreeAgent(
+        "agt_owner",
+        path.join(alias, "own-wt"),
+        "agt/own"
+      );
+      await insertWorktreeAgent("agt_mover", launchWorktree, "agt/launch");
+      const mover = await manager.setWorkspace("agt_mover", {
+        path: path.join(alias, "own-wt"),
+      });
+      expect(mover.workspacePath).toBe(ownWorktree);
+
+      await archive("agt_owner");
+
+      expect(cleanupGitWorktreeSpy).not.toHaveBeenCalled();
+    } finally {
+      await rm(alias, { force: true });
+    }
   });
 });
