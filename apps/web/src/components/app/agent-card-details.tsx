@@ -10,6 +10,7 @@ import {
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { ChangeWorkspaceButton } from "@/components/app/change-workspace-dialog";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { type Agent, type DiffStats } from "@/components/app/types";
@@ -97,7 +98,12 @@ export function AgentCardDetails({
   worktreePathCopied,
   copyWorktreePath,
 }: AgentCardDetailsProps): JSX.Element {
-  const sidebarBaseBranch = agent.baseBranch ?? "main";
+  // A moved workspace is where the agent works now; the launch cwd is only
+  // where its engine runs.
+  const workspaceDir = agent.workspacePath ?? agent.cwd;
+  const sidebarBaseBranch =
+    (agent.workspacePath ? agent.workspaceBaseBranch : agent.baseBranch) ??
+    "main";
   const modelCatalog = useAgentModelCatalogData();
 
   return (
@@ -140,7 +146,7 @@ export function AgentCardDetails({
           <CompactMetaRow
             label="Working dir"
             icon={<Folder className="h-3.5 w-3.5" />}
-            value={agent.cwd}
+            value={workspaceDir}
             mono
             truncateStart
           />
@@ -172,20 +178,21 @@ export function AgentCardDetails({
       />
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
-          {agent.cwd ? (
-            <IdeLaunchButton path={agent.cwd} enabledIdes={enabledIdes} />
+          {workspaceDir ? (
+            <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
           ) : null}
-          {agent.gitContext?.isWorktree && agent.cwd ? (
+          <ChangeWorkspaceButton agent={agent} />
+          {agent.gitContext?.isWorktree && workspaceDir ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => agent.cwd && copyWorktreePath(agent.cwd)}
+                  onClick={() => workspaceDir && copyWorktreePath(workspaceDir)}
                   aria-label={
                     worktreePathCopied
                       ? "Worktree path copied"
-                      : `Copy worktree path: ${agent.cwd}`
+                      : `Copy worktree path: ${workspaceDir}`
                   }
                   className="group relative h-auto min-h-6 gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-muted/60 hover:text-foreground"
                 >
@@ -204,7 +211,7 @@ export function AgentCardDetails({
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-[420px] break-all">
-                {agent.cwd}
+                {workspaceDir}
                 <div className="mt-1 text-[10px] opacity-70">Click to copy</div>
               </TooltipContent>
             </Tooltip>

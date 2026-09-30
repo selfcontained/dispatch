@@ -1,3 +1,7 @@
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -356,6 +360,62 @@ describe("POST /api/v1/agents/:id/setup/phase", () => {
       {}
     );
     expect(res.statusCode).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/v1/agents/:id/workspace
+// ---------------------------------------------------------------------------
+describe("PATCH /api/v1/agents/:id/workspace", () => {
+  it("moves the workspace to another directory and back", async () => {
+    const agent = await createAgent();
+    const other = await mkdtemp(path.join(os.tmpdir(), "dispatch-ws-route-"));
+    try {
+      const moved = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        { path: other }
+      );
+      expect(moved.statusCode).toBe(200);
+      expect(moved.json().agent.workspacePath).toBe(await realpath(other));
+      expect(moved.json().agent.cwd).toBe("/tmp");
+
+      const back = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        { path: null }
+      );
+      expect(back.statusCode).toBe(200);
+      expect(back.json().agent.workspacePath).toBeNull();
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects relative and missing paths and non-string bodies", async () => {
+    const agent = await createAgent();
+    for (const body of [
+      { path: "relative" },
+      { path: "/definitely/not/here" },
+      { path: 42 },
+      { path: "/tmp", baseBranch: ["main"] },
+    ]) {
+      const res = await authedInject(
+        "PATCH",
+        `/api/v1/agents/${agent.id}/workspace`,
+        body
+      );
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
+  it("404s for an unknown agent", async () => {
+    const res = await authedInject(
+      "PATCH",
+      "/api/v1/agents/agt_missing/workspace",
+      { path: "/tmp" }
+    );
+    expect(res.statusCode).toBe(404);
   });
 });
 

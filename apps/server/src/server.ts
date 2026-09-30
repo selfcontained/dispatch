@@ -195,6 +195,8 @@ const diffStatsRefresher = new DiffStatsRefresher({
       worktreePath: agent.worktreePath,
       cwd: agent.cwd,
       baseBranch: agent.baseBranch,
+      workspacePath: agent.workspacePath,
+      workspaceBaseBranch: agent.workspaceBaseBranch,
     };
   },
   publishEvent: (event) => uiEventBroker.publish(event),
@@ -652,6 +654,7 @@ async function registerRoutes() {
     validateAgentMcpToken,
     mcpSendNotify: mcpHandlers.sendNotify,
     mcpRenameSession: mcpHandlers.renameSession,
+    mcpSetWorkspace: mcpHandlers.setWorkspace,
     mcpShareFile: mcpHandlers.shareFile,
     mcpListFiles: mcpHandlers.listFiles,
     mcpDeleteFile: mcpHandlers.deleteFile,

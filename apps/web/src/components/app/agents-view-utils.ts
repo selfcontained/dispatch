@@ -10,6 +10,15 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export function agentProjectRoot(
   agent: Agent | undefined | null
 ): string | undefined {
+  // A moved workspace is where the agent works now; its probed repo wins
+  // over the directory it launched in.
+  if (agent?.workspacePath) {
+    return (
+      agent.gitContext?.repoRoot?.trim() ||
+      agent.workspacePath.trim() ||
+      undefined
+    );
+  }
   return (
     agent?.launchCwd?.trim() ||
     agent?.gitContext?.repoRoot?.trim() ||
