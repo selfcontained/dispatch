@@ -39,6 +39,30 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
   return { ...actual, cleanupGitWorktree: cleanupGitWorktreeSpy };
 });
 
+// Lets a test hold one directory's git probe open to reorder it against a
+// workspace change.
+const probeGates = new Map<string, Promise<void>>();
+vi.mock("../../src/shared/git/git-context.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/shared/git/git-context.js")
+  >("../../src/shared/git/git-context.js");
+  return {
+    ...actual,
+    probeGitContext: async (
+      cwd: string,
+      opts?: Parameters<typeof actual.probeGitContext>[1]
+    ) => {
+      const result = await actual.probeGitContext(cwd, opts);
+      const gate = probeGates.get(cwd);
+      if (gate) {
+        probeGates.delete(cwd);
+        await gate;
+      }
+      return result;
+    },
+  };
+});
+
 const { AgentManager } = await import("../../src/agents/manager.js");
 
 const noopLogger = {
@@ -199,6 +223,39 @@ describe("setWorkspace", () => {
 });
 
 describe("git context refresh", () => {
+  it("drops a probe of a workspace the agent has since moved out of", async () => {
+    await insertWorktreeAgent("agt_r", launchWorktree, "agt/launch");
+    await manager.setWorkspace("agt_r", { path: otherRepo });
+    const published: Array<string | undefined> = [];
+    manager.onAgentUpdated((agent) => {
+      if (agent.id === "agt_r") published.push(agent.gitContext?.repoRoot);
+    });
+
+    // The old repo changes, so its late probe would be a real write.
+    git(otherRepo, "checkout", "-q", "-b", "fix/moved-on");
+    let release!: () => void;
+    probeGates.set(otherRepo, new Promise<void>((r) => (release = r)));
+    // A settled turn starts probing the old workspace...
+    const stale = manager.populateGitContext("agt_r", {
+      publishIfChanged: true,
+    });
+    await vi.waitFor(() => expect(probeGates.has(otherRepo)).toBe(false));
+    // ...the agent moves before it finishes...
+    await manager.setWorkspace("agt_r", { path: ownWorktree });
+    // ...and the old probe lands last.
+    release();
+    await stale;
+
+    const agent = await manager.getAgent("agt_r");
+    expect(agent?.workspacePath).toBe(ownWorktree);
+    expect(agent?.gitContext).toMatchObject({
+      worktreePath: ownWorktree,
+      branch: "agt/own",
+    });
+    expect(published).toEqual([repo]);
+    git(otherRepo, "checkout", "-q", "fix/wrong-repo");
+  });
+
   it("reads a managed worktree's branch live and publishes only on change", async () => {
     const wt = path.join(root, "switch-wt");
     git(repo, "worktree", "add", "-q", "-b", "agt/switch", wt);

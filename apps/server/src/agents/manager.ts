@@ -988,29 +988,34 @@ export class AgentManager {
       return;
     }
 
+    // The probe ran against the workspace read above; a set_workspace that
+    // landed meanwhile has probed its own, so this result no longer applies.
+    const probedWorkspace = agent.workspacePath;
+
     if (result.status === "error") {
       this.logger.warn(
         { agentId: id },
         "Git context probe failed; marking stale and continuing."
       );
       await this.pool.query(
-        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW() WHERE id = $1`,
-        [id]
+        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
+         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
+        [id, probedWorkspace]
       );
       return;
     }
 
-    await this.pool.query(
+    const written = await this.pool.query(
       `
       UPDATE agents
       SET git_context = $2::jsonb,
           git_context_stale = false,
           git_context_updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $3
       `,
-      [id, result.value ? JSON.stringify(result.value) : null]
+      [id, result.value ? JSON.stringify(result.value) : null, probedWorkspace]
     );
-    if (opts.publishIfChanged) {
+    if (opts.publishIfChanged && (written.rowCount ?? 0) > 0) {
       const updated = await this.getAgent(id);
       if (updated) this.eventBus.publish(updated);
     }

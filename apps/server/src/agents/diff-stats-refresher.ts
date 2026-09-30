@@ -55,6 +55,8 @@ export class DiffStatsRefresher {
   private readonly cache = new Map<string, DiffStats | null>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly lastSignaledAt = new Map<string, number>();
+  /** Bumped by clear(); a refresh started under an older one is discarded. */
+  private readonly generation = new Map<string, number>();
 
   private readonly getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
@@ -143,6 +145,7 @@ export class DiffStatsRefresher {
    * Drop any cached state for an agent (archive/delete cleanup).
    */
   clear(agentId: string): void {
+    this.generation.set(agentId, (this.generation.get(agentId) ?? 0) + 1);
     this.cache.delete(agentId);
     this.lastSignaledAt.delete(agentId);
     this.inFlight.delete(agentId);
@@ -150,6 +153,7 @@ export class DiffStatsRefresher {
 
   private async refresh(agentId: string): Promise<void> {
     const trackedRun = this.tracker?.start();
+    const generation = this.generation.get(agentId) ?? 0;
     let nextStats: DiffStats | null = null;
     let computation: DiffStatsComputation = { kind: "no-data", stats: null };
     try {
@@ -181,6 +185,10 @@ export class DiffStatsRefresher {
     } else {
       trackedRun?.succeed({ files: nextStats?.files ?? 0 });
     }
+
+    // Cleared mid-flight (the workspace moved): these stats describe the old
+    // directory, and the refresh started after clear() owns the cache.
+    if ((this.generation.get(agentId) ?? 0) !== generation) return;
 
     const previous = this.cache.has(agentId)
       ? this.cache.get(agentId)
