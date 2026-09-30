@@ -215,7 +215,7 @@ Remaining work includes live ACP-host survival/reattachment, earlier-crash and
 power-loss boundaries, failed-target startup/migration policy, and product feed,
 key custody and update UI integration. These results do not enable product updates.
 
-## Live ACP continuity (pending notarized proof)
+## Live ACP continuity
 
 `--case live-agent` starts one agent using a stdlib-only fake ACP engine. The
 engine holds its turn until the driver releases a marker after the Sparkle
@@ -250,3 +250,30 @@ their real CLI checks. The driver also omits JSON content type on bodyless DELET
 requests, correcting an archive request rejected during this run. Focused tests
 cover executable version discovery and the bodyless request. A fresh notarized
 run is still required.
+
+### Live continuity passed: build 72470303
+
+[CI 36667987085](https://github.com/selfcontained/dispatch/actions/runs/36667987085)
+produced the corrected notarized pair. The live-agent case passed on a fresh
+macOS 15.7.7 VM with 2 CPUs and 4 GiB RAM:
+
+- Sparkle installed build 2; the launchd coordinator changed from PID 786 to 899.
+- The detached ACP host (PID 827) and fake engine (PID 874) retained their process
+  start identities and the same engine session through the server replacement.
+- The held in-flight turn completed successfully after the replacement was ready;
+  a follow-up through the new server completed through that same host and engine.
+- Exact settings, credentials, private database port, login and stored session
+  records were preserved. Both versions passed staple and Gatekeeper validation;
+  no renewed background-item approval was required.
+- The final result was `passed` with empty `cleanupErrors`. Service, database,
+  detached processes, feed and temporary certificate trust were cleaned up.
+  Evidence was exported, the clone stopped/deleted, and the source VM preserved
+  stopped. No VM remains running.
+
+The fixture exercises the real bundled server, ACP host, journal/reattachment and
+Sparkle/service lifecycle with a deterministic fake engine. It does not establish
+real-provider CLI compatibility, earlier crash/power-loss recovery, incompatible
+schema rollback, or production unattended rollout. Production Sparkle remains
+disabled. Local validation passed type checks, the native probe build, 12 focused
+Python tests, and 168 single-worker E2E tests (5 skipped); native lifecycle tests
+also passed in the signed CI build. Source review had no remaining findings.
