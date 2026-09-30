@@ -17,11 +17,7 @@ const enclosingApp = path.resolve(sourcePath, "../../..");
 const isApp =
   enclosingApp.endsWith(".app") &&
   existsSync(path.join(enclosingApp, "Contents/Info.plist"));
-const relocatedApp = path.join(
-  temporary,
-  "Relocated App",
-  "Dispatch.app"
-);
+const relocatedApp = path.join(temporary, "Relocated App", "Dispatch.app");
 const runtime = isApp
   ? path.join(relocatedApp, "Contents/Helpers/Postgres")
   : path.join(temporary, "Relocated App", "Postgres");

@@ -63,12 +63,22 @@ const sparkleSDK = process.env.DISPATCH_SPARKLE_SDK;
 if (process.env.DISPATCH_SPARKLE_PROBE_SDK)
   throw new Error("Production packaging cannot use DISPATCH_SPARKLE_PROBE_SDK");
 if (sparkleSDK) {
-  const digest = createHash("sha256").update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz"))).digest("hex");
-  if (digest !== "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c")
+  const digest = createHash("sha256")
+    .update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz")))
+    .digest("hex");
+  if (
+    digest !==
+    "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c"
+  )
     throw new Error("Sparkle SDK archive checksum mismatch");
   const key = process.env.DISPATCH_SPARKLE_PUBLIC_KEY ?? "";
-  if (!/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, "base64").length !== 32)
-    throw new Error("DISPATCH_SPARKLE_PUBLIC_KEY must be a base64 Ed25519 public key");
+  if (
+    !/^[A-Za-z0-9+/]{43}=$/.test(key) ||
+    Buffer.from(key, "base64").length !== 32
+  )
+    throw new Error(
+      "DISPATCH_SPARKLE_PUBLIC_KEY must be a base64 Ed25519 public key"
+    );
   const feed = new URL(process.env.DISPATCH_SPARKLE_FEED_URL ?? "");
   if (feed.protocol !== "https:" || feed.username || feed.password)
     throw new Error("Sparkle feed must use HTTPS without credentials");
@@ -166,11 +176,20 @@ try {
       SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
       SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
       DispatchUpdateChannel: "acp-runtime",
-    })) run("plutil", ["-insert", key, "-string", value, plist]);
-    for (const key of ["SUEnableAutomaticChecks", "SUAutomaticallyUpdate", "SUAllowsAutomaticUpdates", "SUVerifyUpdateBeforeExtraction"])
+    }))
+      run("plutil", ["-insert", key, "-string", value, plist]);
+    for (const key of [
+      "SUEnableAutomaticChecks",
+      "SUAutomaticallyUpdate",
+      "SUAllowsAutomaticUpdates",
+      "SUVerifyUpdateBeforeExtraction",
+    ])
       run("plutil", ["-insert", key, "-bool", "YES", plist]);
     mkdirSync(path.join(contents, "Frameworks"), { recursive: true });
-    run("ditto", [path.join(sparkleSDK, "Sparkle.framework"), path.join(contents, "Frameworks/Sparkle.framework")]);
+    run("ditto", [
+      path.join(sparkleSDK, "Sparkle.framework"),
+      path.join(contents, "Frameworks/Sparkle.framework"),
+    ]);
   }
   // Sign nested code first; Bun needs JIT entitlements, the native shell does not.
   const signing = [
@@ -199,12 +218,20 @@ try {
   ]);
   if (sparkleSDK) {
     const framework = path.join(contents, "Frameworks/Sparkle.framework");
-    for (const code of ["Versions/B/XPCServices/Downloader.xpc", "Versions/B/XPCServices/Installer.xpc", "Versions/B/Autoupdate", "Versions/B/Updater.app", ""])
+    for (const code of [
+      "Versions/B/XPCServices/Downloader.xpc",
+      "Versions/B/XPCServices/Installer.xpc",
+      "Versions/B/Autoupdate",
+      "Versions/B/Updater.app",
+      "",
+    ])
       run("codesign", [...signing, path.join(framework, code)]);
   }
   run("codesign", [...signing, app]);
   run("codesign", ["--verify", "--deep", "--strict", app]);
-  const zipName = sparkleSDK ? `dispatch-macos-acp-${build}-${arch}.zip` : `dispatch-macos-preview-${version}-${arch}.zip`;
+  const zipName = sparkleSDK
+    ? `dispatch-macos-acp-${build}-${arch}.zip`
+    : `dispatch-macos-preview-${version}-${arch}.zip`;
   const zip = path.join(temporary, zipName);
   run("ditto", ["-c", "-k", "--keepParent", app, zip]);
   if (notarize) {
