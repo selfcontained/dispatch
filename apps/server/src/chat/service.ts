@@ -957,7 +957,6 @@ export class StreamService {
     }
     await this.publishEntry(streamId, block.id);
     if (!live) return { block, delivered: false, held: false };
-    const nameOf = new Map(recipientAgents.map((a) => [a.id, a.name]));
     const { held } = await this.deliverBlockTo(
       block,
       recipients,
@@ -965,14 +964,6 @@ export class StreamService {
       (agentId) => ({
         ...(rawCommand ? { rawPrompt: text, alone: true } : {}),
         attachmentLines: linesFor.get(agentId) ?? [],
-        mention:
-          mentioned.length > 0
-            ? {
-                alsoTo: recipients
-                  .filter((id) => id !== agentId)
-                  .map((id) => nameOf.get(id) ?? id),
-              }
-            : null,
         delivery:
           input.delivery === "interrupt"
             ? "interrupt"
@@ -2645,7 +2636,6 @@ export class StreamService {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
       cancels?: { blockId: string; kind: BlockKind } | null;
-      mention?: { alsoTo: string[] } | null;
       delivery?: "auto" | "queue" | "interrupt";
       /** Never combined with other posts. */
       alone?: boolean;
@@ -2663,6 +2653,21 @@ export class StreamService {
     // copy must not overwrite the other recipients' results.
     const named = addressedTo(block);
     const perAgent = named.length > 1;
+    // Everyone the post was addressed to, not just the ones being sent to
+    // now: that is who is in the conversation, and each should know the
+    // others have it rather than pass it along.
+    const nameOf = new Map(
+      perAgent
+        ? await Promise.all(
+            named.map(
+              async (id) =>
+                [id, (await this.deps.getAgent(id))?.name ?? id] as const
+            )
+          )
+        : []
+    );
+    const mentioned =
+      block.kind === "text" && (block.data?.mentions?.length ?? 0) > 0;
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
@@ -2709,7 +2714,15 @@ export class StreamService {
               : null,
             answers: own.answers ?? null,
             cancels: own.cancels ?? null,
-            mention: own.mention ?? null,
+            addressed:
+              mentioned || perAgent
+                ? {
+                    mention: mentioned,
+                    alsoTo: named
+                      .filter((id) => id !== agentId)
+                      .map((id) => nameOf.get(id) ?? id),
+                  }
+                : null,
           }),
         record: async (delivered) => {
           outcomes.set(agentId, delivered);
@@ -3078,7 +3091,6 @@ export class StreamService {
         cancels = { blockId: answered.id, kind: "form" };
       }
     }
-    const names = new Map(agents.map((agent) => [agent.id, agent.name]));
     const from = await this.senderOf(block.author);
     if (!(await this.store.markDelivering(block.id, recipients))) {
       throw new StreamValidationError("Block not found.");
@@ -3094,16 +3106,6 @@ export class StreamService {
         attachmentLines: lines.get(agentId) ?? [],
         answers,
         cancels,
-        // "also to" names everyone the post was addressed to, not just the
-        // ones being sent again: that is who is in the conversation.
-        mention:
-          mentioned && mentioned.length > 0
-            ? {
-                alsoTo: named
-                  .filter((id) => id !== agentId)
-                  .map((id) => names.get(id) ?? id),
-              }
-            : null,
       })
     );
     return { block: pending, held };
