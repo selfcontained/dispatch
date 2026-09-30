@@ -4,4 +4,4 @@ export function isMacAppManaged(): boolean {
 }
 
 export const MAC_APP_UPDATE_MESSAGE =
-  "This server is managed by Dispatch Preview for macOS. Web updates and assisted-update agents are disabled. Finish active agents, stop the server from its menu, and replace the app to update this preview.";
+  "Click the Dispatch icon in your Mac’s menu bar, then choose Check for Updates. To receive updates automatically, make sure Install Updates Automatically is enabled.";
