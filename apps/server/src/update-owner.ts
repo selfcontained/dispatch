@@ -4,4 +4,4 @@ export function isMacAppManaged(): boolean {
 }
 
 export const MAC_APP_UPDATE_MESSAGE =
-  "Click the Dispatch icon in your Mac’s menu bar, then choose Check for Updates or Install Updates Automatically.";
+  "Click the Dispatch icon in your Mac’s menu bar, then choose Check for Updates. To receive updates automatically, make sure Install Updates Automatically is enabled.";

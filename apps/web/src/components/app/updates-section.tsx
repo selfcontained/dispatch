@@ -124,8 +124,9 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             <CardTitle>Update Dispatch</CardTitle>
             <CardDescription>
               Click the Dispatch icon in your Mac’s menu bar, then choose{" "}
-              <strong>Check for Updates</strong> or{" "}
-              <strong>Install Updates Automatically</strong>.
+              <strong>Check for Updates</strong>. To receive updates
+              automatically, make sure{" "}
+              <strong>Install Updates Automatically</strong> is enabled.
             </CardDescription>
           </CardHeader>
         </Card>
