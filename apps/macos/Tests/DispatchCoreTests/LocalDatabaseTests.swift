@@ -100,6 +100,42 @@ final class LocalDatabaseTests: XCTestCase {
         XCTAssertEqual(fcntl(listener, F_GETFD), 0, "Unrelated listener remains open")
     }
 
+    func testStoppedDatabasePortSurvivesTCPTimeWait() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = LocalDatabase(root: root, binaries: root)
+        let config = try database.configuration(port: 6768, instanceID: UUID().uuidString)
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = UInt16(URLComponents(string: config.databaseURL)!.port!).bigEndian
+        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        let client = socket(AF_INET, SOCK_STREAM, 0)
+        var reuse: Int32 = 1
+        XCTAssertEqual(setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size)), 0)
+        try withUnsafePointer(to: &address) { pointer in
+            try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { endpoint in
+                guard Darwin.bind(listener, endpoint, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0,
+                      listen(listener, 1) == 0,
+                      connect(client, endpoint, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 else {
+                    close(listener); close(client)
+                    throw ConfigurationError("Cannot create isolated TCP fixture")
+                }
+            }
+        }
+        let connection = accept(listener, nil, nil)
+        XCTAssertGreaterThanOrEqual(connection, 0)
+        // Server initiates close, leaving its local port in TIME_WAIT after the
+        // client acknowledges the FIN. PostgreSQL can rebind with SO_REUSEADDR.
+        close(connection)
+        var byte: UInt8 = 0
+        XCTAssertEqual(recv(client, &byte, 1, 0), 0)
+        close(client)
+        close(listener)
+        XCTAssertEqual(try database.configuration(port: config.port, instanceID: config.instanceID), config)
+    }
+
     private func sql(_ statement: String, configuration: Configuration, binaries: URL, password: String? = nil) throws -> (Int32, String) {
         let url = URLComponents(string: configuration.databaseURL)!
         let process = Process()

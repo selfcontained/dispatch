@@ -136,6 +136,7 @@ try:
     sql("INSERT INTO sessions(token,expires_at) VALUES ('sparkle-service-login',now()+interval '1 day'); INSERT INTO agents(id,name,status,cwd,cli_session_id) VALUES ('sparkle-service-agent','Service proof','archived','/tmp','service-proof-engine-session');")
     if args.case=='stopped': service_state(False)
     saved={name:json.loads((root/name).read_text()) for name in ['configuration.json','local-database.json','startup.json']}
+    database_starts_before=(root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')
     (root/'begin-update').touch()
     wait_event('upgrade-confirmed','2')
     restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), args.case=='running')
@@ -152,10 +153,12 @@ try:
     if args.case=='stopped':
         assert json.loads((root/'service-runtime.json').read_text())['phase']=='stopped'
         assert not (root/'postgres/postmaster.pid').exists()
+        assert (root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')==database_starts_before, 'Stopped database briefly started during update'
         service_state(True)
     assert sql("SELECT cli_session_id FROM agents WHERE id='sparkle-service-agent'")=='service-proof-engine-session'
     assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
-    assert all(json.loads((root/name).read_text())==value for name,value in saved.items())
+    changed=[name for name,value in saved.items() if json.loads((root/name).read_text())!=value]
+    assert not changed, 'Saved settings changed: '+', '.join(changed)
     if args.case=='stopped':service_state(False)
     lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False}
     completed=True

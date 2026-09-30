@@ -179,6 +179,12 @@ public final class LocalDatabase {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ConfigurationError("Cannot choose a local database port.") }
         defer { close(fd) }
+        // Match PostgreSQL's bind behavior: closed connections in TIME_WAIT do
+        // not make the saved port unavailable. A live listener still conflicts.
+        var reuse: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw ConfigurationError("Cannot check the local database port.")
+        }
         var address = sockaddr_in()
         address.sin_port = UInt16(requested).bigEndian
         address.sin_family = sa_family_t(AF_INET)

@@ -11,6 +11,7 @@ on:
       - scripts/sparkle_proof_cleanup.py
       - scripts/test_sparkle_proof_cleanup.py
       - apps/macos/Sources/DispatchCore/ServiceControl.swift
+      - apps/macos/Sources/DispatchCore/LocalDatabase.swift
       - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
       - apps/macos/Sources/DispatchMenu/ServiceRegistration.swift
   workflow_dispatch:

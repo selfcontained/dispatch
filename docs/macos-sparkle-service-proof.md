@@ -101,6 +101,31 @@ required a desktop authorization prompt; teardown ultimately removed the entire
 clone, so this attempt does not establish successful in-guest cleanup. The next
 artifact pair still needs the full running/stopped update and cleanup proof.
 
+## Second VM run: notarized build 7544f9c7
+
+CI run 36657837007 produced the next signed/notarized pair. On macOS 15.7.7:
+
+- **Running update passed**, including replacement launchd PID, exact restore
+  acknowledgment, health, unchanged settings/credentials, preserved login and
+  agent-session records, and verified service/database/certificate cleanup.
+- **Stopped update did not pass the complete gate.** It installed build 2,
+  acknowledged stopped state, and preserved the database records. The exact
+  settings check caught a changed private DB port. Logs also exposed a brief
+  database start before the stopped request reached the replacement coordinator.
+- Both cases verified signatures, staples, and Gatekeeper on both versions and
+  required no renewed background-item approval. Certificate trust prompts belong
+  to this localhost test feed, not the product update experience.
+
+The fixes now queue restore intent before registration, refresh it while awaiting
+approval, and match PostgreSQL's SO_REUSEADDR behavior when checking a saved port.
+A real TCP TIME_WAIT regression failed before the socket fix and passes afterward;
+the occupied-listener recovery test still passes. The driver now also rejects any
+transient PostgreSQL start during a stopped upgrade. The exact settings assertion
+is retained. These changes need another notarized VM run.
+
+The second clone was stopped/deleted after exporting evidence. No VM is left
+running; the original source VM remains preserved.
+
 ## Subsequent gates
 
 Once this passes, use the same fixtures for controlled shutdown/relaunch failure
