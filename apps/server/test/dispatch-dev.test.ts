@@ -58,6 +58,11 @@ function run(
         ...options?.env,
         // Clear agent ID so it doesn't leak into suffix
         DISPATCH_AGENT_ID: "",
+        // A parent dev stack can export its restart ports. Each test stack must
+        // allocate its own ports instead of probing or connecting to that stack.
+        RESTART_API_PORT: "",
+        RESTART_DB_PORT: "",
+        RESTART_VITE_PORT: "",
       },
     }).trim();
   } catch (error) {
@@ -74,7 +79,7 @@ describe("dispatch-dev", () => {
   afterAll(() => {
     // Ensure cleanup even if tests fail
     try {
-      run("down");
+      run("down --wipe");
     } catch {
       // already down
     }
@@ -148,7 +153,7 @@ describe("dispatch-dev", () => {
     const displayHost = "127.0.0.1";
 
     try {
-      const upOutput = run("up --no-db", {
+      const upOutput = run("up --no-seed", {
         env: { DISPATCH_HOST: "0.0.0.0" },
       });
       expect(upOutput).toContain(`api: http://${displayHost}:`);
@@ -163,7 +168,7 @@ describe("dispatch-dev", () => {
         new RegExp(`^http://${displayHost.replaceAll(".", "\\.")}:\\d+$`)
       );
     } finally {
-      run("down");
+      run("down --wipe");
     }
   }, 60_000);
 
@@ -173,7 +178,7 @@ describe("dispatch-dev", () => {
       const output = run("up", { expectFail: true });
       expect(output).toContain("already running");
     } finally {
-      run("down");
+      run("down --wipe");
     }
   }, 60_000);
 
@@ -350,13 +355,13 @@ describe("dispatch-dev", () => {
           await until(() => !processAlive(hostPid));
         }
 
-        run("down");
+        run("down --wipe");
         if (preserveHosts) {
           await until(() => !processAlive(hostPid));
         }
       } finally {
         try {
-          run("down");
+          run("down --wipe");
         } catch {
           // already down
         }
@@ -385,7 +390,7 @@ describe("dispatch-dev", () => {
       expect(output).toContain("Cleaning stale state");
       expect(output).toContain("API server starting on port");
     } finally {
-      run("down");
+      run("down --wipe");
     }
   }, 60_000);
 });

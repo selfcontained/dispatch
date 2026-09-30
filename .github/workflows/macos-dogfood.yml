@@ -1,0 +1,176 @@
+name: macOS Releases
+
+on:
+  push:
+    # Preview follows this development branch until it is ready to merge to main.
+    branches: [acp-runtime]
+    paths:
+      - .github/workflows/macos-dogfood.yml
+      - apps/**
+      - packages/**
+      - scripts/**
+      - bin/**
+      - plugins/**
+      - public/**
+      - patches/**
+      - update-migrations/**
+      - release-notes/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig*.json
+      - .npmrc
+      - .nvmrc
+      - "!**/*.md"
+  # Manual Preview builds can select a reviewed ref; Stable requires main.
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Stable requires main; preview is opt-in prerelease delivery"
+        type: choice
+        options: [preview, stable]
+        default: preview
+
+permissions:
+  contents: read
+
+# Shared across refs and reruns. Never cancel a feed promotion in progress.
+concurrency:
+  group: macos-acp-runtime-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: inputs.channel != 'stable' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      PREVIEW_ARCH: arm64
+      DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
+      DISPATCH_UPDATE_CHANNEL: ${{ inputs.channel || 'preview' }}
+      DISPATCH_SPARKLE_FEED_URL: https://dispatch.berad.dev/updates/macos/${{ inputs.channel || 'preview' }}/appcast-arm64.xml
+      DISPATCH_MAC_BUILD: ${{ github.run_id }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Test release metadata and publisher
+        run: |
+          python3 scripts/test_macos_dogfood.py
+          python3 scripts/test_macos_feeds.py
+      - name: Download verified Sparkle SDK
+        run: |
+          set -euo pipefail
+          DISPATCH_SPARKLE_SDK="$RUNNER_TEMP/sparkle-sdk"
+          echo "DISPATCH_SPARKLE_SDK=$DISPATCH_SPARKLE_SDK" >> "$GITHUB_ENV"
+          mkdir -p "$DISPATCH_SPARKLE_SDK"
+          curl --fail --location --silent --show-error https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz -o "$DISPATCH_SPARKLE_SDK/sdk.tar.xz"
+          echo "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  $DISPATCH_SPARKLE_SDK/sdk.tar.xz" | shasum -a 256 -c -
+          tar -xf "$DISPATCH_SPARKLE_SDK/sdk.tar.xz" -C "$DISPATCH_SPARKLE_SDK"
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: dist/cache/postgres
+          key: macos-postgres-${{ hashFiles('scripts/download-macos-postgres.mjs') }}
+      - name: Extract verified PostgreSQL for Swift integration tests
+        run: node scripts/download-macos-postgres.mjs "$PREVIEW_ARCH" "$RUNNER_TEMP/dispatch-postgres-test"
+      - run: swift test --package-path apps/macos --jobs 1
+        env:
+          DISPATCH_TEST_POSTGRES_BUNDLE: ${{ runner.temp }}/dispatch-postgres-test
+      - run: pnpm run build:bun
+        env:
+          DISPATCH_BUN_TARGETS: bun-darwin-${{ env.PREVIEW_ARCH }}
+          NODE_OPTIONS: --max-old-space-size=2048
+      - name: Configure signing and notarization
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/dispatch-preview.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/dispatch-preview.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          printf '%s' "$CERT_BASE64" | openssl base64 -d -A -out "$CERT_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          xcrun notarytool store-credentials dispatch-preview-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" --keychain "$KEYCHAIN_PATH"
+          echo "DISPATCH_NOTARY_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+      - name: Sign, notarize, and verify app
+        run: pnpm run build:macos
+        env:
+          DISPATCH_MAC_ARCH: ${{ env.PREVIEW_ARCH }}
+          DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
+          DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-preview-notary
+          DISPATCH_NOTARIZE_MACOS_APP: "1"
+      - name: Smoke test relocated bundled PostgreSQL
+        run: node scripts/smoke-macos-postgres.mjs "dist/macos/$PREVIEW_ARCH/Dispatch.app/Contents/Helpers/Postgres"
+      - name: Sign archive and generate appcast
+        env:
+          MACOS_SPARKLE_PRIVATE_KEY: ${{ secrets.MACOS_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/sign-macos-dogfood.mjs "dist/macos/arm64/dispatch-macos-acp-$DISPATCH_MAC_BUILD-arm64.zip" dist/macos/arm64/signature.txt
+          VERSION="$(node -p 'require("./package.json").version')"
+          python3 scripts/macos_dogfood.py generate --directory dist/macos/arm64 --build "$DISPATCH_MAC_BUILD" --version "$VERSION" --channel "$DISPATCH_UPDATE_CHANNEL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dogfood-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/macos/arm64/*.zip
+            dist/macos/arm64/appcast-arm64.xml
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/dispatch-preview.p12"
+          if [ -f "$RUNNER_TEMP/dispatch-preview.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/dispatch-preview.keychain-db"
+          fi
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-dogfood-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dogfood
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pnpm install --frozen-lockfile
+      - name: Publish archive, deploy domain feeds, then update legacy bridge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOGFOOD_BUILD: ${{ github.run_id }}.${{ github.run_attempt }}
+          DOGFOOD_COMMIT: ${{ github.sha }}
+          UPDATE_CHANNEL: ${{ inputs.channel || 'preview' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/macos_dogfood.py publish --directory "$RUNNER_TEMP/dogfood" --build "$DOGFOOD_BUILD" --commit "$DOGFOOD_COMMIT" --channel "$UPDATE_CHANNEL" --deploy-feeds

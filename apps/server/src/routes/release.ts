@@ -5,6 +5,7 @@ import type {
   FastifyRequest,
 } from "fastify";
 import type { Pool } from "pg";
+import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
@@ -272,7 +273,11 @@ function emitInfoProgress(
 }
 
 async function handleAppVersion(deps: ReleaseRouteDeps) {
-  return deps.getAppVersionInfo();
+  const version = await deps.getAppVersionInfo();
+  return {
+    ...version,
+    ...(isMacAppManaged() ? { updateOwner: "macos-app" } : {}),
+  };
 }
 
 async function handleReleaseStatus() {
@@ -551,6 +556,11 @@ async function handleUpdate(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  if (isMacAppManaged()) {
+    return reply
+      .code(409)
+      .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
+  }
   const body = request.body as { tag?: unknown; force?: unknown } | undefined;
   const bearerToken = deps.getBearerToken(request);
   if (
@@ -704,6 +714,11 @@ async function handleAssistedLaunch(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  if (isMacAppManaged()) {
+    return reply
+      .code(409)
+      .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
+  }
   const body = request.body as { tag?: unknown } | undefined;
   if (
     !body?.tag ||
@@ -890,6 +905,11 @@ async function handleAssistedPhase(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  if (isMacAppManaged()) {
+    return reply
+      .code(409)
+      .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
+  }
   const body = request.body as
     | { token?: unknown; phase?: unknown; note?: unknown; error?: unknown }
     | undefined;

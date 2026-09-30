@@ -12,6 +12,7 @@ tmp-*.mjs
 !apps/web/public/icons/**/*.png
 !apps/browser-extension/public/icons/*.png
 !.dispatch/logo.png
+!apps/macos/Resources/DispatchMenuTemplate*.png
 *.jpg
 *.jpeg
 *.gif

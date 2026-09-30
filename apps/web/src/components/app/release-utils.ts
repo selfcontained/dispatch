@@ -10,6 +10,7 @@ import { formatBytes } from "../../../../server/src/shared/lib/format-bytes";
 export { formatBytes };
 
 export type AppVersionInfo = {
+  updateOwner?: "macos-app";
   releaseTag: string | null;
   version: string | null;
   gitSha: string | null;

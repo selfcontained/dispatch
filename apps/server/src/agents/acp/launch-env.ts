@@ -1,3 +1,4 @@
+import { serverOrigin } from "../../server-origin.js";
 import path from "node:path";
 
 import { createReleaseUpdateToken } from "../../auth.js";
@@ -15,7 +16,10 @@ export function buildLaunchEnv(input: {
   role: AgentRole;
   filesDir: string;
   engine: AcpEngineId;
-  config: Pick<AppConfig, "port" | "tls" | "dispatchBinDir" | "authToken">;
+  config: Pick<
+    AppConfig,
+    "port" | "tls" | "dispatchBinDir" | "authToken" | "listenHosts"
+  >;
   base?: NodeJS.ProcessEnv;
 }): { env: Record<string, string>; pathPrefix: string[] } {
   const base = input.base ?? process.env;
@@ -26,10 +30,14 @@ export function buildLaunchEnv(input: {
     DISPATCH_PORT: String(input.config.port),
     DISPATCH_SCHEME: scheme,
   };
+  if (input.config.listenHosts) {
+    env.DISPATCH_API_URL = serverOrigin(input.config);
+    env.DISPATCH_API_BASE = env.DISPATCH_API_URL;
+  }
   // The assisted-update agent drives the release API directly; its prompt
   // tells it to curl with these.
   if (input.role === "assisted_update") {
-    env.DISPATCH_API_URL = `${scheme}://127.0.0.1:${input.config.port}`;
+    env.DISPATCH_API_URL = serverOrigin(input.config);
     env.DISPATCH_RELEASE_UPDATE_TOKEN = createReleaseUpdateToken(
       input.config.authToken,
       input.agentId

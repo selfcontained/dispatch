@@ -96,6 +96,44 @@ beforeEach(async () => {
 });
 
 describe("release metadata route handling", () => {
+  it("blocks tarball and assisted updates for an app-owned server, including force", async () => {
+    vi.stubEnv("DISPATCH_UPDATE_OWNER", "macos-app");
+    try {
+      for (const endpoint of ["update", "assisted/launch", "assisted/phase"]) {
+        const response = await ctx.app.inject({
+          method: "POST",
+          url: `/api/v1/release/${endpoint}`,
+          headers: { cookie: sessionCookie },
+          payload: { tag: "v99.0.0", force: true },
+        });
+        expect(response.statusCode).toBe(409);
+        expect(response.json()).toMatchObject({ error: "MAC_APP_MANAGED" });
+      }
+      expect(evaluateMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("identifies the app instance in its health response without exposing credentials", async () => {
+    vi.stubEnv("DISPATCH_UPDATE_OWNER", "macos-app");
+    vi.stubEnv("DISPATCH_MAC_INSTANCE_ID", "preview-test-instance");
+    try {
+      const response = await ctx.app.inject({
+        method: "GET",
+        url: "/api/v1/health",
+      });
+      expect(response.json()).toMatchObject({
+        status: "ok",
+        updateOwner: "macos-app",
+        macInstanceId: "preview-test-instance",
+      });
+      expect(response.body).not.toContain("DATABASE_URL");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("returns assisted metadata in /release/info when the release body is valid", async () => {
     mockReleaseCommands({
       releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],

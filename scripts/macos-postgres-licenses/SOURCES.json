@@ -1,0 +1,11 @@
+{
+  "OpenSSL.txt": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.20/LICENSE.txt",
+  "ICU.txt": "https://raw.githubusercontent.com/unicode-org/icu/release-68-2/icu4c/LICENSE",
+  "Kerberos.txt": "https://raw.githubusercontent.com/krb5/krb5/krb5-1.21.3-final/NOTICE",
+  "LZ4.txt": "https://raw.githubusercontent.com/lz4/lz4/v1.10.0/lib/LICENSE",
+  "Zstandard.txt": "https://raw.githubusercontent.com/facebook/zstd/v1.5.7/LICENSE",
+  "libxml2.txt": "https://raw.githubusercontent.com/GNOME/libxml2/v2.14.6/Copyright",
+  "zlib.txt": "https://raw.githubusercontent.com/madler/zlib/v1.3.2/LICENSE",
+  "libedit.txt": "https://thrysoee.dk/editline/libedit-20260512-3.1.tar.gz (COPYING)",
+  "libiconv-LGPL.txt": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.19.tar.gz (COPYING.LIB)"
+}

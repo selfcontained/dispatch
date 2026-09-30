@@ -1,5 +1,7 @@
+import { serverOrigin } from "../server-origin.js";
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
+import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
 import type { Pool } from "pg";
 
@@ -236,8 +238,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   }
 
   function dispatchBaseUrl(): string {
-    const protocol = deps.config.tls ? "https" : "http";
-    return `${protocol}://127.0.0.1:${deps.config.port}`;
+    return serverOrigin(deps.config);
   }
 
   async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
@@ -546,6 +547,7 @@ Suggested workflow:
 
   async function runUpdateJob(job: ReleaseJob): Promise<void> {
     try {
+      if (isMacAppManaged()) throw new Error(MAC_APP_UPDATE_MESSAGE);
       const tag = job.tag!;
       setReleasePhase(job, "fetching");
       appendReleaseLog(job, `==> confirming release ${tag}`);

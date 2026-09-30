@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { parseListenHosts } from "./multi-listener.js";
+import { Client } from "pg";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +20,7 @@ export type TlsConfig = {
 
 export type AppConfig = {
   host: string;
+  listenHosts?: string[];
   port: number;
   databaseUrl: string;
   authToken: string;
@@ -74,8 +77,14 @@ function resolveConfiguredBin(value: string): string {
 }
 
 export function loadConfig(): AppConfig {
+  const listenHosts = parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS);
   const config: AppConfig = {
-    host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
+    host:
+      listenHosts?.[0] ??
+      process.env.DISPATCH_HOST ??
+      process.env.HOST ??
+      "127.0.0.1",
+    listenHosts,
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
@@ -150,6 +159,23 @@ export function assertSafeDatabaseConfig(
   config: Pick<AppConfig, "databaseUrl">,
   env: NodeJS.ProcessEnv = process.env
 ): void {
+  // The app preview must stay isolated even outside an agent context. Validate
+  // the effective driver database too: WHATWG dot-segment normalization can
+  // turn an apparently nonempty URL path into pg's username/database fallback.
+  if (env.DISPATCH_UPDATE_OWNER === "macos-app") {
+    const url = new URL(config.databaseUrl);
+    const database = new Client({ connectionString: config.databaseUrl })
+      .database;
+    if (
+      !url.pathname.replace(/^\/+/, "") ||
+      !database ||
+      ["dispatch", "postgres"].includes(database)
+    ) {
+      throw new Error(
+        "Dispatch Preview requires an explicit, dedicated database, not the production or maintenance database."
+      );
+    }
+  }
   if (env.DISPATCH_ALLOW_AGENT_PROD_DB === "1") return;
 
   const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
@@ -177,6 +203,9 @@ export function assertSafePortConfig(
   config: Pick<AppConfig, "port">,
   env: NodeJS.ProcessEnv = process.env
 ): void {
+  if (env.DISPATCH_UPDATE_OWNER === "macos-app" && config.port === 6767) {
+    throw new Error("Dispatch Preview cannot bind to production port 6767.");
+  }
   const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
   if (!isAgentContext) return;
 

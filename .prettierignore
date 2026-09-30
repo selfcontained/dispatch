@@ -6,6 +6,8 @@ coverage
 # machine that has run `pnpm run check` fails the later `pnpm run format` in
 # `pnpm run ci`; CI only passes it because its checkout is still fresh.
 apps/site/.astro
+# Generated Swift build products, including compiler JSON and symbol metadata.
+apps/macos/.build
 *.tsbuildinfo
 .env
 .env.local
