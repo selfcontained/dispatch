@@ -165,7 +165,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func updateSettings() {
         settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil && !updateBusy, canSave: externalURL == nil && !updateBusy, status: status, active: active,
-                         loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && PreviewPaths.testRoot == nil,
+                         loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && PreviewPaths.testRoot == nil && !updateBusy,
                          needsApproval: service.status == .requiresApproval, busy: changingService,
                          serverAtLogin: StartupPreferences.read().startServerAtLogin, stopping: stopping)
     }

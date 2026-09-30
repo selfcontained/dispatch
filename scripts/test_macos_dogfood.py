@@ -74,7 +74,8 @@ class MetadataTests(unittest.TestCase):
         self.assertIn('branches: [acp-runtime, agt_e49fa225fda7/agent-25fda7]', workflow)
         self.assertIn('workflow_dispatch:', workflow)
         self.assertIn('      - apps/**', workflow)
-        self.assertIn("      - '!**/*.md'", workflow)
+        paths = [line.strip()[2:].strip("\"' ") for line in workflow.splitlines() if line.strip().startswith("- ")]
+        self.assertIn("!**/*.md", paths)
         self.assertIn('cancel-in-progress: false', workflow)
         self.assertEqual(workflow.count('contents: write'), 1)
         self.assertIn('needs: build', workflow)
