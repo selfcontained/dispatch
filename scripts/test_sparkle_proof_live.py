@@ -16,7 +16,7 @@ class LiveProofTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='dispatch-macos-test-sparkle-service-unit-',dir='/tmp') as folder:
             root=Path(folder); fixture=root/'fake-acp.py'
             shutil.copy2(Path(__file__).parent/'fixtures/sparkle-acp.py',fixture)
-            child=subprocess.Popen([sys.executable,str(fixture)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,bufsize=0)
+            child=subprocess.Popen([sys.executable,str(fixture.resolve())],stdin=subprocess.PIPE,stdout=subprocess.PIPE,bufsize=0)
             def send(i,method,params):
                 child.stdin.write((json.dumps({'jsonrpc':'2.0','id':i,'method':method,'params':params})+'\n').encode());child.stdin.flush()
             def receive():

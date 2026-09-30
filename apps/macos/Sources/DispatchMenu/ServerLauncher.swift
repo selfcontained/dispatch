@@ -54,7 +54,8 @@ func runServer() throws -> Never {
     for (key, value) in environment { setenv(key, value, 1) }
     #if SPARKLE_PROBE
     if Bundle.main.bundleIdentifier?.hasPrefix("dev.bradharris.dispatch.sparkleprobe.") == true,
-       root.path.hasPrefix("/tmp/dispatch-macos-test-sparkle-service-"),
+       PreviewPaths.testRoot == root,
+       root.lastPathComponent.hasPrefix("dispatch-macos-test-sparkle-service-"),
        FileManager.default.fileExists(atPath: root.appendingPathComponent("live-agent-proof").path) {
         let command = ["/usr/bin/python3", root.appendingPathComponent("fake-acp.py").path]
         let encoded = try JSONEncoder().encode(command)

@@ -8,7 +8,7 @@ import time
 import uuid
 
 root = Path(os.path.abspath(__file__)).parent
-assert root.parent == Path('/tmp') and root.name.startswith('dispatch-macos-test-sparkle-service-')
+assert root.parent.resolve() == Path('/tmp').resolve() and root.name.startswith('dispatch-macos-test-sparkle-service-')
 lock = threading.Lock()
 session = 'sparkle-live-' + uuid.uuid4().hex
 
