@@ -278,7 +278,7 @@ disabled. Local validation passed type checks, the native probe build, 12 focuse
 Python tests, and 168 single-worker E2E tests (5 skipped); native lifecycle tests
 also passed in the signed CI build. Source review had no remaining findings.
 
-## Failed target startup and retry (pending notarized proof)
+## Failed target startup and retry
 
 `--case failed-startup` pauses after the old service/database stop, occupies only
 the proof API port, and releases Sparkle to install build 2. The actual bundled
@@ -293,3 +293,23 @@ intent. Existing data/settings, signature and cleanup assertions still apply.
 This proves recovery from a reversible startup conflict, not automatic downgrade,
 user-facing recovery UI, incompatible schema migration or rollback. No production
 failure hook is added; the failure is induced entirely by the isolated driver.
+
+### Failed-startup recovery passed: build 4debcdbc
+
+[CI 36669241785](https://github.com/selfcontained/dispatch/actions/runs/36669241785)
+produced the notarized pair. The case passed on macOS 15.7.7 with 2 CPUs/4 GiB:
+the replacement logged the injected `EADDRINUSE`, reached its readiness deadline,
+retained pending intent without confirming health, and stopped cleanly. After
+releasing the port, reopening the same build 2 restored running state and cleared
+pending intent only after readiness. Failed GUI PID 846 was replaced by 1415;
+the original/recovered coordinator PIDs were 791/1416.
+
+Exact settings, credentials, database port, login and stored agent-session records
+were preserved. Both app versions passed staple/Gatekeeper checks; no renewed
+background approval was required. The final verdict was `passed` with no cleanup
+errors. Evidence was exported and the disposable clone deleted; the source VM
+remains stopped. Source review approved, and local type checks, probe compilation,
+13 Python tests and 168 E2E tests (5 skipped, one worker) passed.
+
+This establishes same-version retry after a reversible startup failure. It does
+not add a product recovery dialog, automatic downgrade or schema rollback.
