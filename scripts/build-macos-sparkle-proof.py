@@ -105,4 +105,6 @@ try key.publicKey.rawRepresentation.base64EncodedString().write(to: root.appendi
     (args.output/'proof.json').write_text(json.dumps(metadata,indent=2))
     shutil.copy2(repo/'scripts/validate-macos-sparkle-proof.py',args.output/'validate.py')
     shutil.copy2(repo/'scripts/sparkle_proof_cleanup.py',args.output/'sparkle_proof_cleanup.py')
+    shutil.copy2(repo/'scripts/sparkle_proof_live.py',args.output/'sparkle_proof_live.py')
+    shutil.copy2(repo/'scripts/fixtures/sparkle-acp.py',args.output/'fake-acp.py')
 print(f'Notarized service proof artifacts ready: {args.output}')

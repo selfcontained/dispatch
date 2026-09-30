@@ -214,3 +214,19 @@ on macOS 15.7.7 in one 2-CPU/4-GiB clone:
 Remaining work includes live ACP-host survival/reattachment, earlier-crash and
 power-loss boundaries, failed-target startup/migration policy, and product feed,
 key custody and update UI integration. These results do not enable product updates.
+
+## Live ACP continuity (pending notarized proof)
+
+`--case live-agent` starts one agent using a stdlib-only fake ACP engine. The
+engine holds its turn until the driver releases a marker after the Sparkle
+upgrade. The test requires identical host/engine PIDs and process start identities,
+a preserved engine session, the original turn's successful result in the new
+server's stream, and a successful follow-up through that same host/engine.
+
+The native override is guarded by `SPARKLE_PROBE`, the unique proof bundle/root,
+and a live-case marker. No production adapter configuration changes. The helper
+and fake engine are test artifacts copied to the isolated root; no model, real
+agent CLI, or paid provider is used. The final cleanup archives the test agent and
+checks owned process exit before removing the service/database; when the API is
+unavailable, only verified owned host/engine PIDs are signaled, never a process group.
+This case retains the standard settings, signature, session and cleanup gates.

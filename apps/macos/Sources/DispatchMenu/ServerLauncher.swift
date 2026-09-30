@@ -52,6 +52,15 @@ func runServer() throws -> Never {
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     ]
     for (key, value) in environment { setenv(key, value, 1) }
+    #if SPARKLE_PROBE
+    if Bundle.main.bundleIdentifier?.hasPrefix("dev.bradharris.dispatch.sparkleprobe.") == true,
+       root.path.hasPrefix("/tmp/dispatch-macos-test-sparkle-service-"),
+       FileManager.default.fileExists(atPath: root.appendingPathComponent("live-agent-proof").path) {
+        let command = ["/usr/bin/python3", root.appendingPathComponent("fake-acp.py").path]
+        let encoded = try JSONEncoder().encode(command)
+        setenv("DISPATCH_ACP_ADAPTER_COMMAND", String(decoding: encoded, as: UTF8.self), 1)
+    }
+    #endif
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
     guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the data directory.") }
     let termination = ServerTermination()

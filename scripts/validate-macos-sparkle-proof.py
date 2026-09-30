@@ -25,13 +25,15 @@ import urllib.request
 import uuid
 from sparkle_proof_cleanup import TLS_CONFIG, read_events, assert_restore, cleanup_service, cleanup_certificate, cleanup_phases, final_verdict
 
+from sparkle_proof_live import LiveAgentProof
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--artifacts', type=Path, default=Path(__file__).resolve().parent)
-parser.add_argument('--case', choices=['running','stopped','interrupted-running','interrupted-stopped'], required=True)
+parser.add_argument('--case', choices=['running','stopped','interrupted-running','interrupted-stopped','live-agent'], required=True)
 parser.add_argument('--allow-machine-changes', action='store_true', help='Required: user has approved this disposable Mac')
 args = parser.parse_args()
 interrupted = args.case.startswith('interrupted-')
-should_run = args.case.endswith('running')
+should_run = args.case.endswith('running') or args.case=='live-agent'
 if not args.allow_machine_changes: parser.error('This test changes app installation, user certificate trust, and background service registration. Obtain approval first.')
 assert sys.platform == 'darwin' and os.getuid() != 0, 'Run as the disposable Mac GUI user'
 artifacts = args.artifacts.resolve()
@@ -56,6 +58,8 @@ evidence.mkdir(parents=True, mode=0o700)
 log = (evidence/'commands.log').open('w')
 server = None; feed_started = False; trusted = False; registered_app = False; completed = False
 lifecycle = {"lifecycle": "failed", "case": args.case}
+live = None
+live_result = None
 
 def run(*command, capture=False, check=True, capture_errors=False, **kwargs):
     return subprocess.run([str(c) for c in command], check=check, text=True, stdout=subprocess.PIPE if capture else log, stderr=subprocess.PIPE if capture_errors else log, **kwargs)
@@ -132,11 +136,16 @@ try:
     run('codesign','--verify','--deep','--strict',app)
     run('xcrun','stapler','validate',app)
     run('spctl','--assess','--type','execute','--verbose',app)
+    if args.case=='live-agent':
+        shutil.copy2(artifacts/'fake-acp.py',root/'fake-acp.py')
+        (root/'live-agent-proof').touch()
+        live = LiveAgentProof(root,app,run)
     (root/'service-proof-approved').write_text(identity)
     run('open','-n',app)
     wait_event('ready','1')
     before=service_record();assert before
     sql("INSERT INTO sessions(token,expires_at) VALUES ('sparkle-service-login',now()+interval '1 day'); INSERT INTO agents(id,name,status,cwd,cli_session_id) VALUES ('sparkle-service-agent','Service proof','archived','/tmp','service-proof-engine-session');")
+    if live: live_result = live.start()
     if not should_run: service_state(False)
     saved={name:json.loads((root/name).read_text()) for name in ['configuration.json','local-database.json','startup.json']}
     database_starts_before=(root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')
@@ -195,18 +204,20 @@ try:
         assert not (root/'postgres/postmaster.pid').exists()
         assert (root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')==database_starts_before, 'Stopped database briefly started during update'
         service_state(True)
+    if live: live_result.update(live.finish())
     assert sql("SELECT cli_session_id FROM agents WHERE id='sparkle-service-agent'")=='service-proof-engine-session'
     assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
     changed=[name for name,value in saved.items() if json.loads((root/name).read_text())!=value]
     assert not changed, 'Saved settings changed: '+', '.join(changed)
     if not should_run:service_state(False)
-    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False,'interruption':interruption}
+    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False,'interruption':interruption,'liveAgent':live_result}
     completed=True
 except BaseException as exc:
     lifecycle['error']=str(exc)
     raise
 finally:
-    phases=[('service',lambda: cleanup_service(run,app,root,label,os.getuid()))]
+    phases=[('live agent',live.cleanup)] if live else []
+    phases += [('service',lambda: cleanup_service(run,app,root,label,os.getuid()))]
     if feed_started: phases.append(('feed shutdown',lambda: server.shutdown()))
     if server: phases.append(('feed close',lambda: server.server_close()))
     if trusted:

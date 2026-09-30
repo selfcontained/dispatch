@@ -10,6 +10,10 @@ on:
       - scripts/validate-macos-sparkle-proof.py
       - scripts/sparkle_proof_cleanup.py
       - scripts/test_sparkle_proof_cleanup.py
+      - scripts/sparkle_proof_live.py
+      - scripts/fixtures/sparkle-acp.py
+      - scripts/test_sparkle_proof_live.py
+      - apps/macos/Sources/DispatchMenu/ServerLauncher.swift
       - apps/macos/Sources/DispatchCore/ServiceControl.swift
       - apps/macos/Sources/DispatchCore/LocalDatabase.swift
       - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
@@ -30,7 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Test proof driver failure handling
-        run: python3 scripts/test_sparkle_proof_cleanup.py
+        run: |
+          python3 scripts/test_sparkle_proof_cleanup.py
+          python3 scripts/test_sparkle_proof_live.py
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9
