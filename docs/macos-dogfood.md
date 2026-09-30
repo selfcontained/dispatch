@@ -75,6 +75,19 @@ local source-only tests do not establish that installation/updating works.
 
 ## Publication and recovery
 
+Before installation, the app persists the intended running/stopped state and
+stops its owned service. If saving or stopping fails, Retry Update Recovery
+finishes the same postponed Sparkle installation; it retains the installation
+callback and does not start another update cycle. Server and configuration
+controls remain locked during this handoff.
+
+After replacement or an aborted installation, restoration requires the exact
+service-request acknowledgment and, for a running server, instance-matched
+health. Successful restoration clears `app-update-recovery.json` even when the
+old app remains installed. `app-update-history.json` retains the attempted target
+and prior run state for diagnostics only; later checks and launches never replay
+that history. Unresolved restoration retains the pending record for explicit retry.
+
 `CFBundleVersion` is `github.run_id.github.run_attempt`, compared as integers rather
 than text. A rerun has a new attempt; an older run cannot replace an equal/newer
 live appcast even if GitHub schedules it later. The immutable archive's tag is
