@@ -55,6 +55,8 @@ export type PersonaLaunchOptions = {
   model?: string;
   /** Internal: pin every owner in a batch to the selected review base. */
   reviewBaseRef?: string;
+  /** Internal: launch the exact checkout-local persona validated by the batch. */
+  resolvedPersona?: PersonaDefinition;
   /** Display name; defaults to `<persona>-<parent suffix>`. */
   name?: string;
 };
@@ -140,7 +142,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         throw new Error("Parent agent is not in a git repository.");
       }
     }
-    let persona = await loadPersonaBySlug(personaRoot, opts.persona);
+    let persona =
+      opts.resolvedPersona ??
+      (await loadPersonaBySlug(personaRoot, opts.persona));
     if (!persona) {
       try {
         const repoRoot = await resolveRepoRoot(parentCwd);
@@ -253,6 +257,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (opts.dryRun) return { ...plan, launched: [], failures: [] };
     // Resolve the whole selection before launching any agent. Ownership is
     // local to this checkout, even though manual persona launches can fall back.
+    const selectedPersonas = new Map<string, PersonaDefinition>();
     for (const owner of plan.owners) {
       const persona =
         (await loadPersonaBySlug(root, owner.persona)) ??
@@ -265,6 +270,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         throw new Error(
           `Owner persona "${owner.persona}" has no instructions.`
         );
+      selectedPersonas.set(owner.persona, persona);
     }
     return launchOwnerReviewPlan(plan, opts.context, (persona, context) =>
       launchPersonaAgent(parentId, {
@@ -273,6 +279,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         agentType: opts.agentType,
         model: opts.model,
         reviewBaseRef: baseRef,
+        resolvedPersona: selectedPersonas.get(persona),
       })
     );
   }

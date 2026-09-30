@@ -9,6 +9,8 @@ import {
   refreshRemoteBaseRef,
   resolveBaseRef,
 } from "../src/shared/git/base-ref.js";
+import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+import { getBuiltInPersona } from "../src/personas/built-in.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 
 vi.mock("../src/shared/git/git-context.js", () => ({
@@ -84,6 +86,7 @@ function setup(parentChanges: Record<string, unknown> = {}) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(resolveRepoRoot).mockImplementation(async (cwd) => cwd);
   vi.mocked(loadCodeowners).mockResolvedValue({
     version: 1,
     rules: [{ paths: ["src/**"], personas: ["owner-one", "owner-two"] }],
@@ -166,6 +169,44 @@ describe("ACP code owner launches", () => {
     );
     expect(agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: "/moved" }),
+      expect.anything()
+    );
+  });
+  it("launches the validated built-in instead of another checkout override", async () => {
+    const { handlers, parent } = setup();
+    vi.mocked(resolveRepoRoot).mockResolvedValue("/main-checkout");
+    vi.mocked(loadCodeowners).mockResolvedValue({
+      version: 1,
+      rules: [{ paths: ["src/**"], personas: ["code-review"] }],
+    });
+    const override = {
+      ...getBuiltInPersona("code-review")!,
+      body: "Conflicting main checkout instructions",
+    };
+    vi.mocked(loadPersonaBySlug).mockImplementation(async (root) =>
+      root === "/main-checkout" ? override : null
+    );
+    await handlers.launchOwnerReviews("parent", { context: "Review" });
+    expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
+      getBuiltInPersona("code-review"),
+      expect.any(String),
+      expect.anything(),
+      expect.anything()
+    );
+    expect(loadPersonaBySlug).not.toHaveBeenCalledWith(
+      "/main-checkout",
+      "code-review"
+    );
+    // Ordinary manual launches retain their existing main-checkout fallback.
+    await handlers.preparePersonaLaunch(parent as any, {
+      persona: "code-review",
+      context: "Manual review",
+      includeDiff: false,
+    });
+    expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
+      override,
+      "Manual review",
+      null,
       expect.anything()
     );
   });

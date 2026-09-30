@@ -165,6 +165,7 @@ describe("code owner routing", () => {
     await writeFile(path.join(root, "unstaged.ts"), "unstaged");
     await unlink(path.join(root, "deleted.ts"));
     await writeFile(path.join(root, " leading space.ts"), "new");
+    await git(["add", " leading space.ts"]);
     await writeFile(path.join(root, "line\nbreak.ts"), "new");
     expect(await collectOwnerReviewFiles(root, "HEAD~1", runCommand)).toEqual([
       " leading space.ts",

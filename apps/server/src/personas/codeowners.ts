@@ -152,6 +152,7 @@ export async function collectOwnerReviewFiles(
     ),
     run("git", ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"], {
       cwd,
+      trimOutput: false,
     }),
     run("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
       cwd,
