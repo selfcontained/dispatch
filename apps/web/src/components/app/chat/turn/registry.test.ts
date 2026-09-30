@@ -286,3 +286,35 @@ describe("truthful live activity", () => {
     ).toBe("read");
   });
 });
+
+describe("session steps", () => {
+  const notice = step({
+    kind: "notice",
+    label: "Model fallback",
+    detail: { severity: "warning", text: "Using a   smaller model." },
+  });
+  const compacting = step({
+    kind: "compaction",
+    label: "compacting context",
+    status: "running",
+  });
+
+  it("summarizes a notice with its description and unfolds it", () => {
+    expect(stepLabel(notice)).toBe("model fallback");
+    expect(stepSummary(notice)).toBe("Using a smaller model.");
+    expect(hasDetail(notice)).toBe(true);
+    expect(hasDetail(step({ kind: "notice", label: "Heads up" }))).toBe(false);
+  });
+
+  it("reads a running compaction as the turn's current work", () => {
+    expect(runningTurnVerb([compacting])).toBe("compacting context");
+  });
+
+  it("does not count notices or compactions as tool calls", () => {
+    expect(turnLabelFromSteps([notice])).toBeUndefined();
+    expect(turnLabelFromSteps([notice, compacting])).toBe("compacting context");
+    expect(
+      turnLabelFromSteps([notice, step({ kind: "other", label: "pin" })])
+    ).toBe("pin");
+  });
+});

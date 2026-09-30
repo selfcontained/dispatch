@@ -12,6 +12,8 @@ import { isDeliberateCut } from "../agents/acp/stream-recorder.js";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
 import type {
   AssistantPayload,
+  CompactionPayload,
+  NoticePayload,
   PlanPayload,
   StreamEventRow,
   ThoughtPayload,
@@ -220,6 +222,66 @@ function noteStep(
   };
 }
 
+/** An engine advisory as a step: its title is the row, its detail unfolds. */
+function noticeStep(row: TurnSourceRow): ChatTurnStep | null {
+  const p = row.payload as Partial<NoticePayload>;
+  if (typeof p.title !== "string" || !p.title) return null;
+  return {
+    id: `stream:${row.id}`,
+    kind: "notice",
+    label: p.title,
+    status: p.severity === "error" ? "error" : "ok",
+    startedAt: row.createdAt.toISOString(),
+    endedAt: row.createdAt.toISOString(),
+    detail: {
+      severity: p.severity ?? "info",
+      ...(p.description ? { text: p.description } : {}),
+    },
+  };
+}
+
+const COMPACTION_LABELS: Record<CompactionPayload["status"], string> = {
+  in_progress: "compacting context",
+  completed: "compacted context",
+  failed: "context compaction failed",
+  cancelled: "context compaction cancelled",
+};
+
+/**
+ * A context compaction as a step: running while it is in progress, so the
+ * turn reads "compacting context" until it lands. One still in progress in
+ * a turn that has settled was cut off with it and never finishes.
+ */
+function compactionStep(
+  row: TurnSourceRow,
+  turnSettled: boolean
+): ChatTurnStep {
+  const p = row.payload as Partial<CompactionPayload>;
+  const status =
+    p.status && p.status in COMPACTION_LABELS ? p.status : "in_progress";
+  const cut = status === "in_progress" && turnSettled;
+  const running = status === "in_progress" && !cut;
+  const text = p.error || p.summary || "";
+  return {
+    id: `stream:${row.id}`,
+    kind: "compaction",
+    label: cut ? "context compaction interrupted" : COMPACTION_LABELS[status],
+    status: running ? "running" : status === "failed" || cut ? "error" : "ok",
+    startedAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    ...(running
+      ? {}
+      : {
+          endedAt: row.updatedAt.toISOString(),
+          durMs: Math.max(0, row.updatedAt.getTime() - row.createdAt.getTime()),
+        }),
+    detail: {
+      ...(text ? { text } : {}),
+      ...(p.truncated ? { truncated: true } : {}),
+    },
+  };
+}
+
 /** One turn's rows: its `turn` row (null for a pre-turn group) and the rest. */
 export type TurnGroup = { turn: TurnSourceRow | null; rows: TurnSourceRow[] };
 
@@ -383,6 +445,15 @@ export function assembleTurns(
         };
       } else if (row.kind === "plan") {
         plan = planEntriesOf(row);
+      } else if (row.kind === "notice") {
+        const step = noticeStep(row);
+        if (step) flat.push({ step, key: null, parent: null });
+      } else if (row.kind === "compaction") {
+        flat.push({
+          step: compactionStep(row, settled || !group.turn),
+          key: null,
+          parent: null,
+        });
       }
     }
     if (result && spokenBeforeTool > 0 && spokenBeforeTool < spoken.length) {
@@ -400,7 +471,8 @@ export function assembleTurns(
       (row) =>
         row.kind === "assistant" ||
         row.kind === "thought" ||
-        row.kind === "tool_call"
+        row.kind === "tool_call" ||
+        row.kind === "compaction"
     );
     const lastProgressAt = progressRows.length
       ? new Date(

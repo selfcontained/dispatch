@@ -3,6 +3,8 @@ import path from "node:path";
 import type { DriverEvent, DriverUpdate, DriverUsage } from "./driver.js";
 import { systemPromptSource, type PromptSource } from "./prompt-source.js";
 import type {
+  CompactionPayload,
+  NoticePayload,
   PlanPayload,
   StreamEventRow,
   StreamStore,
@@ -109,6 +111,83 @@ function boundTitle(title: string): string {
   return title.length > TITLE_MAX_CHARS
     ? `${title.slice(0, TITLE_MAX_CHARS)}…`
     : title;
+}
+
+/*
+ * Notices and compaction updates are UNSTABLE in the Agent Client Protocol:
+ * their shape may change or they may go away. Read them as untyped JSON,
+ * keep only what matches the shape known today, and drop the rest.
+ */
+type Untyped = Record<string, unknown>;
+
+const COMPACTION_ID_MAX_CHARS = 256;
+const COMPACTION_STATUSES = new Set<string>([
+  "in_progress",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function noticePayloadOf(update: Untyped): NoticePayload | null {
+  const title = stringField(update.title);
+  if (!title) return null;
+  const severity =
+    update.severity === "warning" || update.severity === "error"
+      ? update.severity
+      : "info";
+  const description = stringField(update.description);
+  return {
+    severity,
+    title: boundTitle(title),
+    ...(description
+      ? { description: boundOutput(description, STATUS_MAX_BYTES).text }
+      : {}),
+  };
+}
+
+function compactionIdOf(update: Untyped): string | null {
+  const id = stringField(update.compactionId);
+  return id ? id.slice(0, COMPACTION_ID_MAX_CHARS) : null;
+}
+
+/** The text of a summary's content blocks; anything but text is skipped. */
+function summaryTextOf(blocks: unknown): string {
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .map((b) => textOf(b as { type: string; text?: string } | undefined))
+    .join("");
+}
+
+/** A `compaction_update` over what is stored: summary and error are patches. */
+export function compactionPayloadOf(
+  update: Untyped,
+  prev: Partial<CompactionPayload>
+): CompactionPayload {
+  const status =
+    typeof update.status === "string" && COMPACTION_STATUSES.has(update.status)
+      ? (update.status as CompactionPayload["status"])
+      : (prev.status ?? "in_progress");
+  let summary = prev.summary ?? "";
+  let truncated = prev.truncated === true;
+  if ("summary" in update) {
+    const bounded = boundOutput(summaryTextOf(update.summary), TEXT_MAX_BYTES);
+    summary = bounded.text;
+    truncated = bounded.truncated;
+  }
+  const error =
+    "error" in update ? stringField(update.error) || undefined : prev.error;
+  return {
+    status,
+    summary,
+    ...(error && status === "failed"
+      ? { error: boundOutput(error, STATUS_MAX_BYTES).text }
+      : {}),
+    ...(truncated ? { truncated: true } : {}),
+  };
 }
 
 /**
@@ -265,7 +344,12 @@ export class StreamRecorder {
   private readonly stopping = new Set<string>();
   private turnBlocks: TurnBlocks | null = null;
 
-  constructor(private readonly store: StreamStore) {}
+  constructor(
+    private readonly store: StreamStore,
+    private readonly logger?: {
+      warn: (obj: Record<string, unknown>, msg: string) => void;
+    }
+  ) {}
 
   /**
    * The stream is blocks only: a turn is a block from the moment it opens.
@@ -673,9 +757,88 @@ export class StreamRecorder {
         return this.writePlan(agentId, []);
       case "usage_update":
         return this.writeUsage(agentId, update);
+      case "notice":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.writeNotice(agentId, update as Untyped)
+        );
+      case "compaction_update":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.writeCompaction(agentId, update as Untyped)
+        );
+      case "compaction_summary_chunk":
+        return this.unstable(agentId, update.sessionUpdate, () =>
+          this.appendCompactionSummary(agentId, update as Untyped)
+        );
       default:
         return;
     }
+  }
+
+  /**
+   * An unstable update never fails the event it came in: whatever goes
+   * wrong recording it, the rest of the stream carries on without it.
+   */
+  private async unstable(
+    agentId: string,
+    sessionUpdate: string,
+    write: () => Promise<void>
+  ): Promise<void> {
+    try {
+      await write();
+    } catch (err) {
+      this.logger?.warn(
+        { agentId, sessionUpdate, err },
+        "dropped an unstable session update"
+      );
+    }
+  }
+
+  private async writeNotice(agentId: string, update: Untyped): Promise<void> {
+    const payload = noticePayloadOf(update);
+    if (!payload) return;
+    await this.store.append(agentId, "notice", payload);
+  }
+
+  private async writeCompaction(
+    agentId: string,
+    update: Untyped
+  ): Promise<void> {
+    const id = compactionIdOf(update);
+    if (!id) return;
+    const existing = await this.store.getByKey(agentId, "compaction", id);
+    // The first update fixes the compaction's place in the stream, as a
+    // tool call's does: text before it ends there.
+    if (!existing) await this.closeText(agentId);
+    const prev = (existing?.payload ?? {}) as Partial<CompactionPayload>;
+    await this.store.upsertByKey(
+      agentId,
+      "compaction",
+      id,
+      compactionPayloadOf(update, prev)
+    );
+  }
+
+  private async appendCompactionSummary(
+    agentId: string,
+    update: Untyped
+  ): Promise<void> {
+    const id = compactionIdOf(update);
+    const text = textOf(
+      update.content as { type: string; text?: string } | undefined
+    );
+    if (!id || !text) return;
+    const existing = await this.store.getByKey(agentId, "compaction", id);
+    if (!existing) await this.closeText(agentId);
+    const prev = (existing?.payload ?? {}) as Partial<CompactionPayload>;
+    if (prev.truncated) return;
+    const bounded = boundOutput((prev.summary ?? "") + text, TEXT_MAX_BYTES);
+    const next: CompactionPayload = {
+      status: prev.status ?? "in_progress",
+      summary: bounded.text,
+      ...(prev.error ? { error: prev.error } : {}),
+      ...(bounded.truncated ? { truncated: true } : {}),
+    };
+    await this.store.upsertByKey(agentId, "compaction", id, next);
   }
 
   /** One plan row per turn, keyed by the turn row, rewritten as the list changes. */

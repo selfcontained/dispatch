@@ -342,7 +342,7 @@ export class AgentManager {
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
-    this.streamRecorder = new StreamRecorder(this.streamStore);
+    this.streamRecorder = new StreamRecorder(this.streamStore, logger);
     this.runtime =
       options.runtime ??
       createAgentRuntime(config, logger, {

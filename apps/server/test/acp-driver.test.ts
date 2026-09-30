@@ -12,6 +12,7 @@ import {
   AcpDriver,
   type DriverEvent,
   type DriverLaunch,
+  unstableSessionCapabilities,
 } from "../src/agents/acp/driver.js";
 import { selfCommand } from "../src/agents/acp/runtime.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
@@ -869,5 +870,17 @@ describe("normal prompt receipts", () => {
       finish();
       await driver.stop("agt_1");
     }
+  });
+});
+
+describe("unstableSessionCapabilities", () => {
+  it("advertises notices and compaction unless switched off", () => {
+    expect(unstableSessionCapabilities({})).toEqual({
+      notices: {},
+      compaction: {},
+    });
+    expect(
+      unstableSessionCapabilities({ DISPATCH_ACP_SESSION_NOTICES: "0" })
+    ).toBeUndefined();
   });
 });

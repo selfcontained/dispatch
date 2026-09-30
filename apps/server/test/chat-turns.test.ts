@@ -678,6 +678,104 @@ describe("assembleTurns thinking", () => {
     const think = settled[0].trace.steps[0];
     expect(think).toMatchObject({ kind: "think", status: "ok", durMs: 4000 });
   });
+
+  it("shows notices as steps in stream order, and skips one with no title", () => {
+    seq = 0;
+    const [turn] = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row(
+          "notice",
+          {
+            severity: "warning",
+            title: "Model fallback",
+            description: "Using a smaller model.",
+          },
+          1
+        ),
+        row("notice", { severity: "info" }, 2),
+        row("notice", { severity: "error", title: "Quota exhausted" }, 3),
+        row("assistant", { text: "done", streaming: false }, 4),
+      ],
+      new Map()
+    );
+    expect(turn.trace.steps).toEqual([
+      expect.objectContaining({
+        kind: "notice",
+        label: "Model fallback",
+        status: "ok",
+        detail: { severity: "warning", text: "Using a smaller model." },
+      }),
+      expect.objectContaining({
+        kind: "notice",
+        label: "Quota exhausted",
+        status: "error",
+        detail: { severity: "error" },
+      }),
+    ]);
+    expect(turn.result?.text).toBe("done");
+  });
+
+  it("runs a compaction as a live step, settles it with its summary, and marks one a settled turn cut off", () => {
+    seq = 0;
+    const running = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row("compaction", { status: "in_progress", summary: "" }, 1, 3, "c1"),
+      ],
+      new Map()
+    );
+    expect(running[0].trace.steps[0]).toMatchObject({
+      kind: "compaction",
+      label: "compacting context",
+      status: "running",
+    });
+    expect(running[0].trace.lastProgressAt).toBe(at(3).toISOString());
+
+    seq = 0;
+    const settledTurn = {
+      state: "settled",
+      prompt: { source: "system", text: "go" },
+      endedAt: at(9).toISOString(),
+    };
+    const [turn] = assembleTurns(
+      [
+        row("turn", settledTurn, 0, 9),
+        row(
+          "compaction",
+          { status: "completed", summary: "We fixed the build." },
+          1,
+          4,
+          "c1"
+        ),
+        row("compaction", { status: "in_progress", summary: "" }, 5, 5, "c2"),
+        row(
+          "compaction",
+          { status: "failed", summary: "", error: "still too large" },
+          6,
+          7,
+          "c3"
+        ),
+      ],
+      new Map()
+    );
+    expect(
+      turn.trace.steps.map((s) => [s.label, s.status, s.detail.text])
+    ).toEqual([
+      ["compacted context", "ok", "We fixed the build."],
+      ["context compaction interrupted", "error", undefined],
+      ["context compaction failed", "error", "still too large"],
+    ]);
+    expect(turn.trace.steps[0].durMs).toBe(3000);
+  });
 });
 
 describe("groupTurnRows", () => {

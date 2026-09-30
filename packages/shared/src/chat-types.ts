@@ -260,7 +260,7 @@ export type ChatTurnStepStatus = "pending" | "running" | "ok" | "error";
  */
 export type ChatTurnStep = {
   id: string;
-  /** execute | edit | read | search | fetch | think | note | other */
+  /** execute | edit | read | search | fetch | think | note | notice | compaction | other */
   kind: string;
   label: string;
   status: ChatTurnStepStatus;
@@ -277,8 +277,10 @@ export type ChatTurnStep = {
     truncated?: boolean;
     /** The tool call's raw input (the harness sends the model's arguments). */
     input?: unknown;
-    /** note and think steps: the full text. */
+    /** note and think steps: the full text; notice and compaction steps: the detail or summary. */
     text?: string;
+    /** A notice step: info | warning | error. */
+    severity?: string;
     /** A `subagent` step: the child session it started. */
     subagentSessionId?: string;
     /** A nested call: the toolCallId of the step it runs under. */
