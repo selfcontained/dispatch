@@ -11,11 +11,10 @@ final class UpdateRecoveryTests: XCTestCase {
         XCTAssertEqual(try UpdateRecovery.read(root: root), state)
         let request = ServiceRequest(start: true)
         let runtime = ServiceRuntime(phase: "running", requestID: request.id)
-        XCTAssertFalse(try state.confirm(root: root, installedBuild: "123.1", request: request, runtime: runtime, healthy: false))
-        XCTAssertFalse(try state.confirm(root: root, installedBuild: "122.1", request: request, runtime: runtime, healthy: true))
-        XCTAssertFalse(try state.confirm(root: root, installedBuild: "123.1", request: request, runtime: ServiceRuntime(phase: "running", requestID: UUID()), healthy: true))
+        XCTAssertThrowsError(try state.completeRestoration(root: root, installedBuild: "123.1", request: request, runtime: runtime, healthy: false))
+        XCTAssertThrowsError(try state.completeRestoration(root: root, installedBuild: "123.1", request: request, runtime: ServiceRuntime(phase: "running", requestID: UUID()), healthy: true))
         XCTAssertEqual(try UpdateRecovery.read(root: root), state)
-        XCTAssertTrue(try state.confirm(root: root, installedBuild: "123.1", request: request, runtime: runtime, healthy: true))
+        XCTAssertTrue(try state.completeRestoration(root: root, installedBuild: "123.1", request: request, runtime: runtime, healthy: true))
         XCTAssertNil(try UpdateRecovery.read(root: root))
     }
     func testStoppedIntentRequiresStoppedAcknowledgment() throws {
@@ -24,9 +23,9 @@ final class UpdateRecoveryTests: XCTestCase {
         let state = UpdateRecovery(wasRunning: false, targetBuild: "2")
         try state.save(root: root)
         let wrong = ServiceRequest(start: true)
-        XCTAssertFalse(try state.confirm(root: root, installedBuild: "2", request: wrong, runtime: ServiceRuntime(phase: "running", requestID: wrong.id), healthy: true))
+        XCTAssertThrowsError(try state.completeRestoration(root: root, installedBuild: "2", request: wrong, runtime: ServiceRuntime(phase: "running", requestID: wrong.id), healthy: true))
         let right = ServiceRequest(start: false)
-        XCTAssertTrue(try state.confirm(root: root, installedBuild: "2", request: right, runtime: ServiceRuntime(phase: "stopped", requestID: right.id), healthy: false))
+        XCTAssertTrue(try state.completeRestoration(root: root, installedBuild: "2", request: right, runtime: ServiceRuntime(phase: "stopped", requestID: right.id), healthy: false))
     }
     func testInvalidRecoveryRecordIsNotSilentlyDiscarded() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-update-test-\(UUID())")

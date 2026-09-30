@@ -72,7 +72,7 @@ final class UpdateHandoffTests: XCTestCase {
         try userStop.save(root: root)
         XCTAssertFalse(handoff.abort())
         XCTAssertNil(try UpdateRecovery.read(root: root))
-        XCTAssertEqual(try ServiceRequest.take(root: root)?.id, userStop.id)
+        XCTAssertEqual(ServiceRequest.take(root: root)?.id, userStop.id)
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("app-update-history.json").path))
     }
 }

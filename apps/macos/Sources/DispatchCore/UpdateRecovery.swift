@@ -16,15 +16,6 @@ public struct UpdateRecovery: Codable, Equatable {
         return value
     }
     public func save(root: URL) throws { try writePrivateJSON(self, to: Self.path(root: root)) }
-    /// Health and the exact request acknowledgment are prerequisites, even for a stopped server.
-    @discardableResult
-    public func confirm(root: URL, installedBuild: String, request: ServiceRequest, runtime: ServiceRuntime?, healthy: Bool) throws -> Bool {
-        guard request.start == wasRunning, runtime?.acknowledges(request) == true,
-              !wasRunning || healthy else { return false }
-        guard installedBuild == targetBuild else { return false }
-        try FileManager.default.removeItem(at: Self.path(root: root))
-        return true
-    }
     /// A healthy old build after an abort is also a completed restoration. Keep audit
     /// history separately so future launches/check errors cannot replay its run state.
     @discardableResult

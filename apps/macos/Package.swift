@@ -16,6 +16,10 @@ let package = Package(
         .target(name: "DispatchCore"),
         .executableTarget(name: "DispatchMenu", dependencies: ["DispatchCore"], swiftSettings: probeSwift, linkerSettings: probeLink),
         .testTarget(name: "DispatchCoreTests", dependencies: ["DispatchCore"]),
-        .testTarget(name: "DispatchMenuTests", dependencies: ["DispatchMenu", "DispatchCore"]),
+        .testTarget(name: "DispatchMenuTests", dependencies: ["DispatchMenu", "DispatchCore"],
+            swiftSettings: probeSwift,
+            // Test bundles import the executable module, including Sparkle. The
+            // packaged app uses its embedded framework; tests use the verified SDK.
+            linkerSettings: probeLink + (sparkleSDK.map { [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", $0])] } ?? [])),
     ]
 )

@@ -61,6 +61,12 @@ final class ServiceSupervisorTests: XCTestCase {
         try FileManager.default.createDirectory(at: app.appendingPathComponent("Helpers"), withIntermediateDirectories: true)
         let executable = app.appendingPathComponent("MacOS/DispatchMenu")
         try FileManager.default.copyItem(at: binary, to: executable)
+        if let sdk = ProcessInfo.processInfo.environment["DISPATCH_SPARKLE_PROBE_SDK"] ?? ProcessInfo.processInfo.environment["DISPATCH_SPARKLE_SDK"] {
+            let frameworks = app.appendingPathComponent("Frameworks")
+            try FileManager.default.createDirectory(at: frameworks, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: sdk).appendingPathComponent("Sparkle.framework"),
+                to: frameworks.appendingPathComponent("Sparkle.framework"))
+        }
         let helper = app.appendingPathComponent("Helpers/dispatch")
         try Data("#!/bin/sh\necho started >> \"$DISPATCH_STATE_DIR/starts\"\ntrap 'exit 0' TERM INT\nwhile :; do sleep 0.1; done\n".utf8).write(to: helper)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
