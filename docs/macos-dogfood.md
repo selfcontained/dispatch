@@ -119,3 +119,43 @@ Run `python3 scripts/test_macos_dogfood.py` for metadata/schema, integer orderin
 stale-run refusal, initial release, and promotion rollback tests (no external calls).
 `node --check scripts/build-macos-app.mjs` and
 `node --check scripts/sign-macos-dogfood.mjs` check JavaScript syntax.
+
+## Real product validation — 2026-09-30
+
+The normal app (not `SPARKLE_PROBE`) passed two automatic updates from the public,
+persistent-key dogfood feed in a disposable macOS 15.7.7 arm64 VM (2 CPUs, 4 GiB):
+
+| Transition                                        | Result                                                                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `36674904540.1` → `36675474533.1`, server running | Automatic download, installation, relaunch, exact-request restoration and same-instance health passed.                           |
+| `36675474533.1` → `36675474533.2`, server stopped | Automatic replacement passed; server remained stopped, with no transient PostgreSQL startup. Manual Start afterward was healthy. |
+
+Published builds came from [the initial run](https://github.com/selfcontained/dispatch/actions/runs/36674904540),
+[the second build](https://github.com/selfcontained/dispatch/actions/runs/36675474533/attempts/1),
+and [its newer attempt](https://github.com/selfcontained/dispatch/actions/runs/36675474533/attempts/2).
+All passed Developer ID signing, notarization, stapling, Gatekeeper assessment,
+archive signature verification, and publication. Both installed replacements
+also passed `codesign --verify --deep --strict` and Gatekeeper inside the VM.
+
+The test used native Save, Start/Stop, startup preference, and menu interactions.
+Automatic updates stayed enabled. To avoid waiting for the normal scheduled
+interval, it cleared Sparkle's documented `SULastCheckTime` preference before
+reopening the GUI. It did not press Check for Updates or Install, change the feed,
+inject an updater, or enable proof-only code.
+
+Configuration, database credentials, selected ports/addresses, instance identity,
+and the disabled start-at-login preference were preserved. Seeded application
+settings, a login-session row, and an agent engine-session record survived both
+updates. Pending recovery records cleared only after acknowledgment. JSON object
+key ordering can change when Swift rewrites settings; preservation checks compare
+values without exporting plaintext credentials. Live in-flight ACP continuity
+and interruption/failure scenarios remain covered by the separate notarized proof
+in `macos-sparkle-service-proof.md`.
+
+Evidence and native screenshots were exported before cleanup. The guest server
+and PostgreSQL were stopped, VNC closed, and the disposable VM deleted. The source
+VM remained stopped; the host's installed app and databases were untouched.
+
+Validation also passed 29 Sparkle-enabled native tests with real PostgreSQL,
+8 publisher tests, type checks, web finalization, unit suites, and 169 E2E tests
+with one worker (8 skipped). PR CI passed on `ae77ab83`.
