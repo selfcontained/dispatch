@@ -71,7 +71,8 @@ class MetadataTests(unittest.TestCase):
 
     def test_workflow_contract(self):
         workflow = (Path(__file__).resolve().parent.parent / '.github/workflows/macos-dogfood.yml').read_text()
-        self.assertIn('branches: [acp-runtime, agt_e49fa225fda7/agent-25fda7]', workflow)
+        self.assertIn('branches: [acp-runtime]', workflow)
+        self.assertNotIn('agt_e49fa225fda7/agent-25fda7', workflow)
         self.assertIn('workflow_dispatch:', workflow)
         self.assertIn('      - apps/**', workflow)
         paths = [line.strip()[2:].strip("\"' ") for line in workflow.splitlines() if line.strip().startswith("- ")]

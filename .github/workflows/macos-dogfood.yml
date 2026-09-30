@@ -1,10 +1,9 @@
-name: macOS ACP Dogfood
+name: macOS Releases
 
 on:
   push:
-    # Temporary, exact branch bootstrap: remove the feature branch after merge.
-    # Both branches publish real product builds to the opt-in dogfood channel.
-    branches: [acp-runtime, agt_e49fa225fda7/agent-25fda7]
+    # Preview follows this development branch until it is ready to merge to main.
+    branches: [acp-runtime]
     paths:
       - .github/workflows/macos-dogfood.yml
       - apps/**
@@ -23,7 +22,7 @@ on:
       - .npmrc
       - .nvmrc
       - "!**/*.md"
-  # Explicitly allows feature-branch bootstrap with the same dogfood channel.
+  # Manual Preview builds can select a reviewed ref; Stable requires main.
   workflow_dispatch:
     inputs:
       channel:

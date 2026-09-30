@@ -5,9 +5,19 @@ The running/stopped release gate passed on macOS 15.7.7 with build b724e87c
 **test-only CI artifacts**, not a Dispatch release, and does not enable updates
 in the installed product.
 
-## What is built
+## Retired CI workflow
 
-The `macOS Sparkle Service Proof` workflow produces:
+The one-off **macOS Sparkle Service Proof** workflow was removed after the proof
+and real-product update validation passed. Normal delivery now uses
+[macOS Releases](macos-dogfood.md). The proof builder, validation drivers,
+fixtures, tests, and results remain in the repository; they are not part of
+normal release publication. The last workflow definition can be recovered from
+commit `ff0474d0` if a future high-risk lifecycle change needs another hosted proof.
+VM use still requires explicit authorization and cleanup.
+
+## What was built
+
+The retired `macOS Sparkle Service Proof` workflow produced:
 
 - `initial.zip`: Developer ID signed, notarized, stapled build 1.
 - `update.zip`: the same isolated app identity, build 2, also notarized/stapled.
@@ -15,13 +25,11 @@ The `macOS Sparkle Service Proof` workflow produces:
 - `proof.json`: exact bundle/service identity, data root, ports, and checksums.
 - `validate.py` and `sparkle_proof_cleanup.py`: a driver and cleanup helper for an explicitly approved disposable Mac.
 
-The workflow reuses the repository's existing Apple signing/notarization secrets.
-It generates a temporary Sparkle key for the pair and destroys the private key;
-only the public key and archive signature leave the runner. Nothing is published
-to a public release feed. Normal app builds remain independent of Sparkle.
-
-Only the proof workflow auto-runs on this feature branch's proof changes. The
-older menu preview workflow is manual, avoiding duplicate signing jobs.
+The workflow reused the repository's Apple signing/notarization secrets.
+It generated a temporary Sparkle key for each pair and destroyed the private key;
+only the public key and archive signature left the runner. It never published
+to a public release feed. Production Sparkle delivery now uses its own persistent
+key and Stable/Preview feeds.
 
 ## Isolation and lifecycle
 

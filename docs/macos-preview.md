@@ -73,11 +73,10 @@ For Intel, build `bun-darwin-x64` and set `DISPATCH_MAC_ARCH=x64` when packaging
 architecture is checked before packaging. `DISPATCH_MAC_BUILD` supplies a
 numeric bundle build version (defaults to 1).
 
-The manual **macOS Menu Preview** GitHub Actions workflow builds the selected
-branch and architecture and uploads a ZIP as a workflow artifact. It does not
-publish a GitHub release. Its artifacts are ad-hoc signed development builds,
-not notarized public downloads. Do not distribute them as trusted releases or
-instruct testers to disable Gatekeeper.
+The old artifact-only **macOS Menu Preview** workflow has been retired. Use
+[macOS Releases](macos-dogfood.md) for signed, notarized downloads with Sparkle
+updates. That release workflow supports arm64 only; the local Intel build option
+above does not establish supported Intel release delivery.
 
 ## Signing for distribution
 
@@ -151,13 +150,10 @@ LaunchAgent registration, notarization, or agent survival across app upgrades.
 
 ### Signed CI previews
 
-The macOS Menu Preview workflow imports the existing production signing and
-notarization secrets into a temporary runner keychain, signs and notarizes the
-app, verifies Gatekeeper acceptance, and uploads a ZIP artifact for 14 days.
-It does not publish a release. The keychain is removed at the end of the job.
-The earlier preview branch used a narrowly scoped push trigger for workflow and
-packaging-script changes; manual runs can select arm64 or x64 after the workflow
-exists on the default branch.
+The **macOS Releases** workflow imports the existing signing and notarization
+secrets into a temporary runner keychain, verifies the app, and publishes the
+selected update channel. The old preview artifact workflow and one-off Sparkle
+proof workflow have been removed; see [the current release guide](macos-dogfood.md).
 
 For local notarization with a non-default keychain, set
 `DISPATCH_NOTARY_KEYCHAIN` to its path alongside the profile name. Credentials
@@ -226,4 +222,4 @@ schema remains compatible; otherwise use an explicit backup/recovery procedure.
 A future package-managed installation must delegate file replacement to its
 package manager rather than also running the self-updater.
 
-The next gate is documented in [the notarized SMAppService proof](macos-sparkle-service-proof.md). Its dedicated workflow now owns the temporary feature-branch push trigger; the ordinary preview workflow is manual.
+The completed gate is documented in [the notarized SMAppService proof](macos-sparkle-service-proof.md). Its one-off workflow is retired; the proof scripts and results remain for future regression investigations.

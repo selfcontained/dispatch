@@ -71,17 +71,17 @@ a new attempt can supersede its interrupted publication safely.
 
 ## Workflow and credentials
 
-`.github/workflows/macos-dogfood.yml` runs on pushes to `acp-runtime` and manual
+The **macOS Releases** workflow (`.github/workflows/macos-dogfood.yml`) runs on pushes to `acp-runtime` and manual
 dispatch. The `channel` input defaults to `preview`. Selecting `stable` requires
 an explicit manual dispatch on `main`; both the build job and publisher enforce
 this boundary. No stable build is published by source pushes or merges.
 Manual Preview dispatch may select a feature branch for initial bootstrap;
 this publishes to the same dogfood channel, so select only reviewed code. GitHub
 may require the workflow to exist on the default branch before manual dispatch
-is available. For pre-merge bootstrap, an exact push trigger also allows
-`agt_e49fa225fda7/agent-25fda7`. Pushes to this named branch publish real product
-builds to the permanent dogfood feed, using the same validation and credentials.
-Remove that temporary branch trigger after merge. Other feature branches have no
+is available. The temporary feature-branch bootstrap trigger has been removed.
+Only `acp-runtime` source pushes automatically publish Preview; merging this work
+into `main` will not switch that trigger automatically. Change it to `main` when
+that migration is ready. Other branches have no
 push trigger. Push triggers are filtered to app/server/web/shared source,
 plugins, runtime assets, migrations, dependencies, packaging, and workflow files;
 Markdown and documentation-only commits do not trigger builds. Two successive successful source pushes (or a new run attempt) produce
