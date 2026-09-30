@@ -166,7 +166,7 @@ host survival and reattachment, followed by compatible/incompatible schema
 fixtures. PostgreSQL major-version migration and automatic rollback after a
 schema change require explicit designs; restoring only an old app is insufficient.
 
-## Interrupted installation recovery (pending corrected VM proof)
+## Interrupted installation recovery
 
 The driver accepts `--case interrupted-running` and `--case interrupted-stopped`.
 These pause the isolated probe after durable intent is saved and its service
@@ -190,7 +190,27 @@ handler has not been invoked. The corrected driver waits for that installation
 instead of racing it. This also means the immediate handler is not an exclusive
 installation gate; durable recovery state must already exist before app exit.
 
-This proves only the selected crash boundary when rerun successfully. It does
+This tests only the selected crash boundary. It does
 not establish power-loss recovery during bundle replacement, automatic relaunch,
 old-version retry, new-version health rollback, or live agent continuity. The
 pause marker is compiled only into the isolated proof, never normal Dispatch.
+
+### Corrected interruption results: build 765444af
+
+Both interrupted cases passed using the notarized pair from
+[CI 36663232141](https://github.com/selfcontained/dispatch/actions/runs/36663232141)
+on macOS 15.7.7 in one 2-CPU/4-GiB clone:
+
+- Running: killed GUI 1175, recovered build-2 GUI 1245; coordinator 1176 → 1246.
+- Stopped: killed GUI 1524, recovered build-2 GUI 1581; coordinator 1525 → 1582.
+- Both installed after forced exit without the explicit install handler, restored
+  the exact requested phase, cleared pending intent only after readiness, and
+  preserved settings/credentials/port/login/stored agent-session records.
+- The stopped case had no transient PostgreSQL start. Neither case needed renewed
+  background-item approval. Both passed signatures, staples and Gatekeeper.
+- Both final results report `passed` with no cleanup errors. Evidence was exported,
+  the clone stopped/deleted, and the original VM preserved. No VM remains running.
+
+Remaining work includes live ACP-host survival/reattachment, earlier-crash and
+power-loss boundaries, failed-target startup/migration policy, and product feed,
+key custody and update UI integration. These results do not enable product updates.
