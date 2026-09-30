@@ -1,6 +1,7 @@
 # Notarized Sparkle + SMAppService proof
 
-This is the next release gate after the signed subprocess spike. It creates
+The running/stopped release gate passed on macOS 15.7.7 with build b724e87c
+(CI run 36660502739). This harness creates
 **test-only CI artifacts**, not a Dispatch release, and does not enable updates
 in the installed product.
 
@@ -129,9 +130,37 @@ is retained. These changes need another notarized VM run.
 The second clone was stopped/deleted after exporting evidence. No VM is left
 running; the original source VM remains preserved.
 
+## Third VM run: notarized build b724e87c
+
+CI run [36660502739](https://github.com/selfcontained/dispatch/actions/runs/36660502739)
+produced the reviewed fixes. Both full cases passed on a fresh macOS 15.7.7 clone
+limited to 2 CPUs and 4 GiB RAM:
+
+| Assertion                                                                             | Running | Stopped |
+| ------------------------------------------------------------------------------------- | ------- | ------- |
+| Sparkle installs notarized build 2                                                    | Passed  | Passed  |
+| Replacement launchd coordinator acknowledges restore                                  | Passed  | Passed  |
+| Settings, database credentials/port, login and stored agent-session records preserved | Passed  | Passed  |
+| No renewed background-item approval                                                   | Passed  | Passed  |
+| Server remains stopped without transient PostgreSQL startup                           | N/A     | Passed  |
+| Service, database, feed and temporary certificate cleanup                             | Passed  | Passed  |
+
+The old/new coordinator PIDs were 984/1046 (running) and 1294/1348 (stopped).
+Both versions passed staple validation and Gatekeeper. Both final result files
+report `result: passed` and empty `cleanupErrors`; evidence was exported before
+stopping and deleting the clone. The source VM was preserved and no VM remains
+running. The localhost certificate setup/removal prompts are test infrastructure;
+no production certificate trust or Dispatch installation was modified.
+
+This establishes the normal signed update/service handoff, not unattended
+production rollout, live ACP-host continuity, or schema rollback. The normal
+Dispatch app still has no enabled Sparkle feed. Local validation also passed
+23 native tests, the probe build, type checks, 168 E2E tests (5 skipped, one worker),
+and the cleanup helper's five test methods.
+
 ## Subsequent gates
 
-Once this passes, use the same fixtures for controlled shutdown/relaunch failure
+Next, use the same fixtures for controlled shutdown/relaunch failure
 and interrupted-update testing. Then add a fake ACP engine/live host to verify
 host survival and reattachment, followed by compatible/incompatible schema
 fixtures. PostgreSQL major-version migration and automatic rollback after a
