@@ -247,6 +247,13 @@ export function useStreamFeedCache(rootId: string | null): StreamEntry[] {
   );
 }
 
+// SSE is the fast path. Reconcile only visible queries with unfinished turns,
+// so a lost final update cannot leave "thinking" on screen indefinitely.
+export const ACTIVE_TURN_RECONCILE_MS = 30_000;
+function hasUnsettledTurn(block: Block): boolean {
+  return block.turn !== undefined && !block.turn.settled;
+}
+
 function feedQueryOptions(rootId: string | null) {
   return {
     queryKey: streamFeedQueryKey(rootId),
@@ -260,6 +267,14 @@ function feedQueryOptions(rootId: string | null) {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     structuralSharing: shareFeedCache,
+    refetchInterval: (query: { state: { data: FeedCache | undefined } }) =>
+      query.state.data?.pages.some((page) =>
+        page.entries.some(
+          (entry) => entry.type === "block" && hasUnsettledTurn(entry.block)
+        )
+      )
+        ? ACTIVE_TURN_RECONCILE_MS
+        : false,
   } as const;
 }
 
@@ -355,6 +370,14 @@ export function useThread(
 ): ThreadState {
   const query = useQuery<StreamThreadResponse, Error>({
     queryKey: threadQueryKey(rootId, blockId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data &&
+        ((data.root && hasUnsettledTurn(data.root)) ||
+          data.replies.some(hasUnsettledTurn))
+        ? ACTIVE_TURN_RECONCILE_MS
+        : false;
+    },
     queryFn: () =>
       api<StreamThreadResponse>(`${blockPath(rootId, blockId ?? "")}/thread`),
     enabled: !!rootId && !!blockId,
@@ -1091,8 +1114,16 @@ export function useAnswerQuestion(rootId: string | null) {
     StreamAnswerInput & { id: string },
     { previous: Block | null }
   >({
-    mutationFn: async ({ id, blockId, value, label, attachments }) => {
+    mutationFn: async ({
+      id,
+      blockId,
+      value,
+      label,
+      attachments,
+      delivery,
+    }) => {
       const body: StreamAnswerRequest = { id, value };
+      if (delivery) body.delivery = delivery;
       if (label) body.label = label;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       return api<StreamAnswerResponse>(`${blockPath(rootId, blockId)}/answer`, {

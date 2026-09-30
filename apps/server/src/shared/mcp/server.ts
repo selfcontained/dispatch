@@ -13,6 +13,7 @@ import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import {
   registerAgentLifecycleTools,
+  type AgentLifecycleContext,
   type ListedFileItem,
 } from "./agent-lifecycle-tools.js";
 import { registerUsageTools, type UsageCallbacks } from "./usage-tools.js";
@@ -60,6 +61,7 @@ export type FileResult = {
 const AGENT_TOOLS = new Set([
   "login_link",
   "rename_session",
+  "set_workspace",
   "list_files",
   "delete_file",
   "list_personas",
@@ -78,6 +80,7 @@ const AGENT_TOOLS = new Set([
   "post",
   "update",
   "react",
+  "get_review",
   "get_feedback_summary",
   "get_usage",
   "brain_get_object",
@@ -109,6 +112,7 @@ const AGENT_TOOLS = new Set([
 
 const JOB_TOOLS = new Set([
   "rename_session",
+  "set_workspace",
   "list_files",
   "delete_file",
   "job_complete",
@@ -121,6 +125,7 @@ const JOB_TOOLS = new Set([
   "post",
   "update",
   "react",
+  "get_review",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -193,7 +198,7 @@ export type McpRequestContext = UsageCallbacks & {
   /** The stream: post / update / react. */
   chat?: Pick<
     StreamService,
-    "post" | "update" | "addReaction" | "removeReaction"
+    "post" | "update" | "getReview" | "addReaction" | "removeReaction"
   >;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
@@ -201,6 +206,7 @@ export type McpRequestContext = UsageCallbacks & {
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
+  setWorkspace?: AgentLifecycleContext["setWorkspace"];
   shareFile?: (
     agentId: string,
     opts: {
@@ -382,6 +388,7 @@ export async function createDispatchMcpServer(
     registerAgentLifecycleTools(server, allowed, {
       agentId: context.agent.id,
       renameSession: context.renameSession,
+      setWorkspace: context.setWorkspace,
       sendNotify: context.sendNotify,
       listFiles: context.listFiles,
       deleteFile: context.deleteFile,

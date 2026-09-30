@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const useTurnDetailMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-stream", () => ({ useTurnDetail: useTurnDetailMock }));
 
-import { ActivityBlock } from "./activity-block";
+import { ActivityBlock, progressFreshness } from "./activity-block";
 import type { Trace } from "./contracts";
 
 const at = Date.parse("2026-09-07T10:00:00Z");
@@ -192,11 +192,11 @@ describe("ActivityBlock settle", () => {
     expect(document.querySelector('[aria-label="activity steps"]')).toBeNull();
   });
 
-  it("keeps the turn summary between reported running steps", () => {
+  it("does not present historical work as current between reported running steps", () => {
     render(<ActivityBlock trace={open} label="read a.ts" />);
     expect(
       screen.getByTestId("harness-activity-summary").textContent
-    ).toContain("read a.ts");
+    ).toContain("thinking");
   });
 
   it("does not toggle step details as the stream progresses", () => {
@@ -257,5 +257,97 @@ describe("ActivityBlock settle", () => {
       ).toContain("read a.ts");
     });
     expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
+  });
+});
+
+describe("activity progress freshness", () => {
+  // A command that printed 5s in and has been silent since: its own row
+  // times the whole command, so only this clock says how long it's been quiet.
+  const streamed = (lastProgressAt: number): Trace => ({
+    startedAt: at,
+    lastProgressAt,
+    steps: [
+      {
+        id: "cmd",
+        kind: "execute",
+        label: "pnpm test",
+        status: "running",
+        startedAt: at,
+        updatedAt: at + 5_000,
+      },
+    ],
+  });
+
+  it("keeps turn duration separate from the latest output age and marks quiet", () => {
+    const trace = streamed(at + 90_000);
+    expect(progressFreshness(trace, at + 93_700)).toBeUndefined();
+    expect(progressFreshness(trace, at + 100_000)).toBe("updated 10.0s ago");
+    expect(progressFreshness(trace, at + 120_000)).toBe(
+      "quiet · updated 30.0s ago"
+    );
+    expect(progressFreshness({ ...open, steps: [] }, at + 30_000)).toBe(
+      "quiet · no output yet · 30.0s"
+    );
+  });
+
+  it("stays out when another row already times the same silence", () => {
+    // A step that has printed nothing since it started: its timer is the age.
+    const silent = streamed(at);
+    expect(progressFreshness(silent, at + 60_000)).toBeUndefined();
+    // Between steps the thinking row times it.
+    expect(
+      progressFreshness({ ...open, lastProgressAt: at + 500 }, at + 60_000)
+    ).toBeUndefined();
+  });
+
+  it("keeps the quiet clock off the summary line and below the open list", () => {
+    render(<ActivityBlock trace={streamed(at + 5_000)} />);
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(screen.queryByTestId("harness-progress-freshness")).toBeNull();
+    expect(summary.textContent).not.toContain("updated");
+
+    fireEvent.click(summary);
+    const row = screen.getByTestId("harness-progress-freshness");
+    expect(row.textContent).toMatch(/^Activity: quiet · updated .+ ago$/);
+    expect(row.closest('[role="list"]')).toBeNull();
+    expect(summary.textContent).not.toContain("updated");
+  });
+
+  it("shows no quiet clock beside a step that has been silent since it started", () => {
+    render(<ActivityBlock trace={streamed(at)} />);
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    expect(screen.queryByTestId("harness-progress-freshness")).toBeNull();
+  });
+
+  it("shows preparation without an execution spinner or operation timer", () => {
+    render(
+      <ActivityBlock
+        trace={{
+          startedAt: at,
+          lastProgressAt: at,
+          steps: [
+            {
+              id: "pending",
+              kind: "other",
+              label: "mcp__dispatch__post",
+              status: "pending",
+              startedAt: at,
+              detail: { input: { to: "parent" } },
+            },
+          ],
+        }}
+      />
+    );
+    expect(
+      screen.getByTestId("harness-activity-summary").textContent
+    ).toContain("preparing post");
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    const row = screen.getByRole("button", {
+      name: "post, preparing; execution not confirmed",
+    });
+    expect(row.textContent).toContain("preparing post");
+    expect(row.textContent).not.toMatch(/\d+s/);
+    fireEvent.click(row);
+    expect(screen.getAllByText(/parent/).length).toBeGreaterThan(0);
   });
 });

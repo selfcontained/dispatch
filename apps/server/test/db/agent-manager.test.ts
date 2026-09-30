@@ -102,6 +102,7 @@ type SpyRuntime = AgentRuntime & {
   isAlive: ReturnType<typeof vi.fn<AgentRuntime["isAlive"]>>;
   prompt: ReturnType<typeof vi.fn<AgentRuntime["prompt"]>>;
   isBusy: ReturnType<typeof vi.fn<AgentRuntime["isBusy"]>>;
+  hasOpenTurn: ReturnType<typeof vi.fn<AgentRuntime["hasOpenTurn"]>>;
   cancel: ReturnType<typeof vi.fn<AgentRuntime["cancel"]>>;
   stop: ReturnType<typeof vi.fn<AgentRuntime["stop"]>>;
   listHosted: ReturnType<typeof vi.fn<AgentRuntime["listHosted"]>>;
@@ -127,6 +128,7 @@ function createSpyRuntime(): SpyRuntime {
       settled: Promise.resolve(),
     })),
     isBusy: vi.fn(() => false),
+    hasOpenTurn: vi.fn(() => false),
     cancel: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     listHosted: vi.fn(async () => []),
@@ -1532,9 +1534,15 @@ describe("AgentManager", () => {
 
     it("reads working while the runtime has a turn running", async () => {
       const agent = await running();
-      runtime.isBusy.mockImplementation((id) => id === agent.id);
+      runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
       expect(await activityOf(agent.id)).toBe("working");
-      runtime.isBusy.mockImplementation(() => false);
+      runtime.hasOpenTurn.mockImplementation(() => false);
+      expect(await activityOf(agent.id)).toBe("idle");
+    });
+
+    it("does not report working when prompts are queued but no turn is open", async () => {
+      const agent = await running();
+      runtime.isBusy.mockImplementation((id) => id === agent.id);
       expect(await activityOf(agent.id)).toBe("idle");
     });
 
@@ -1574,11 +1582,20 @@ describe("AgentManager", () => {
         const agent = await running();
         const block = await openTurn(agent.id);
         expect(await currentTurnOf(agent.id)).toBeNull();
-        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: null,
         });
+      });
+
+      it("clears an unsettled turn label when only queued prompts remain", async () => {
+        const agent = await running();
+        await openTurn(agent.id);
+        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        expect(await currentTurnOf(agent.id)).toBeNull();
+        expect(await activityOf(agent.id)).toBe("idle");
       });
 
       it("does not gate the ACP turn on derived activity", async () => {
@@ -1588,10 +1605,11 @@ describe("AgentManager", () => {
           `UPDATE agents SET setup_phase = 'session' WHERE id = $1`,
           [agent.id]
         );
-        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
 
         expect(await activityOf(agent.id)).toBe("starting");
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: null,
         });
@@ -1607,8 +1625,9 @@ describe("AgentManager", () => {
           text: "launch",
         });
         const block = await openTurn(agent.id, root.id);
-        runtime.isBusy.mockImplementation((id) => id === agent.id);
+        runtime.hasOpenTurn.mockImplementation((id) => id === agent.id);
         expect(await currentTurnOf(agent.id)).toEqual({
+          streamId: agent.id,
           blockId: block.id,
           threadId: root.id,
         });
@@ -1623,7 +1642,7 @@ describe("AgentManager", () => {
           [agent.id]
         );
         runtime.isBusy.mockImplementation((id) => id === agent.id);
-        expect(await activityOf(agent.id)).toBe("working");
+        expect(await activityOf(agent.id)).toBe("idle");
         expect(await currentTurnOf(agent.id)).toBeNull();
       });
     });

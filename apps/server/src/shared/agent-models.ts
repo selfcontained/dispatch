@@ -55,7 +55,10 @@ export function setLearnedAgentModels(
   options: readonly AgentModelOption[]
 ): void {
   if (options.length === 0) return;
-  learned.set(agentType, options.map((o) => ({ id: o.id, label: o.label })));
+  learned.set(
+    agentType,
+    options.map((o) => ({ id: o.id, label: o.label }))
+  );
 }
 
 /** Tests reset what earlier tests taught. */

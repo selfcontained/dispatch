@@ -1,5 +1,5 @@
 import type { AgentPermissionRequest } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import type { PromptImage, PromptSource } from "./prompt-source.js";
 import path from "node:path";
 
 import type { DriverEvent } from "./driver.js";
@@ -64,9 +64,16 @@ export type JournalEntry = {
 
 export type ClientMessage =
   | { type: "hello"; fromSeq: number; journalId?: string | null }
-  | { type: "prompt"; id: string; text: string; source?: PromptSource }
+  | {
+      type: "prompt";
+      id: string;
+      text: string;
+      source?: PromptSource;
+      images?: PromptImage[];
+    }
   | { type: "steer"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
+  | { type: "interrupt"; id: string; turnSeq: number }
   | {
       type: "answer_permission";
       id: string;
@@ -90,8 +97,10 @@ export type HostMessage =
       running: boolean;
       /** Absent on older hosts: keep queuing when they cannot steer. */
       steeringSupported?: boolean;
+      /** Targeted cancellation with an explicit completion response. */
+      interruptSupported?: boolean;
       /** The open turn, if one is running. */
-      turn: { seq: number; startedAt: string } | null;
+      turn: { seq: number; startedAt: string; source?: PromptSource } | null;
       /** The newest journal seq; replay follows up to here. */
       journalSeq: number;
       /** Identity of the journal whose sequence numbers are being reported. */
@@ -104,6 +113,7 @@ export type HostMessage =
     }
   | ({ type: "event" } & JournalEntry)
   | { type: "prompt_accepted"; id: string }
+  | { type: "interrupt_result"; id: string }
   | { type: "steer_result"; id: string; outcome: "injected" | "promptRequired" }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }

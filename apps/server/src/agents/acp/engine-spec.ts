@@ -5,7 +5,7 @@ import type { AgentType } from "@dispatch/shared";
 import { selfCommand } from "./runtime.js";
 
 /** The engines the ACP runtime can drive. `agents.type` names one of these. */
-export const ACP_ENGINE_IDS = ["claude", "codex"] as const;
+export const ACP_ENGINE_IDS = ["claude", "codex", "opencode"] as const;
 export type AcpEngineId = (typeof ACP_ENGINE_IDS)[number];
 
 export function isAcpEngine(type: AgentType | string): type is AcpEngineId {
@@ -17,19 +17,21 @@ export type EngineBins = {
   claudeBin: string;
   /** Absolute path to the host's `codex`, for `CODEX_PATH`. */
   codexBin: string | null;
+  /** OpenCode provides its own native ACP command. */
+  opencodeBin?: string | null;
   /**
    * Runs the adapter instead of this binary's own mode. Only the tests set
-   * it, to stand a fake engine in place of a real one; production always
-   * re-execs Dispatch.
+   * it, to stand a fake engine in place of a real one.
    */
   adapter?: { bin: string; args?: string[] };
 };
 
 /**
- * The adapters are modes of this binary (see main.ts), so an engine is
+ * Claude and Codex adapters are modes of this binary (see main.ts), so each is
  * spawned by re-execing Dispatch rather than by finding a globally
  * installed `claude-agent-acp` / `codex-acp` on PATH. Nothing to install,
  * and the adapter is always the version this build was tested against.
+ * OpenCode instead ships ACP in its own CLI (`opencode acp`).
  */
 export function adapterCommand(
   engine: AcpEngineId,
@@ -57,6 +59,8 @@ export function adapterCommand(
       // A malformed override runs the real adapter rather than nothing.
     }
   }
+  if (engine === "opencode")
+    return { bin: engineBin(engine, bins), args: ["acp"] };
   const [bin, ...args] = selfCommand(`${engine}-acp`);
   return { bin: bin!, args };
 }
@@ -80,8 +84,9 @@ export type EngineSpec = {
    * `_meta.systemPrompt.append`. `first_prompt`: the guidance is the leading
    * block of the first non-command prompt after launch or resume (without
    * opening a turn). Raw slash commands leave the guidance pending.
+   * `instructions_file`: the host adds a private file to OpenCode config.
    */
-  personaDelivery: "system_prompt" | "first_prompt";
+  personaDelivery: "system_prompt" | "first_prompt" | "instructions_file";
   fullAccess: FullAccess;
   /** Declare `_meta["subagent-transcript"]` at initialize and nest by parentToolUseId. */
   subagentTranscripts: boolean;
@@ -96,11 +101,16 @@ export type EngineSpec = {
  * adapter (tests) drives no CLI, so it needs none.
  */
 function engineBin(engine: AcpEngineId, bins: EngineBins): string {
-  const bin = engine === "claude" ? bins.claudeBin : bins.codexBin;
+  const bin =
+    engine === "claude"
+      ? bins.claudeBin
+      : engine === "codex"
+        ? bins.codexBin
+        : bins.opencodeBin;
   if (bins.adapter || process.env.DISPATCH_ACP_ADAPTER_COMMAND)
     return bin ?? "";
   if (!bin || !path.isAbsolute(bin)) {
-    const name = engine === "claude" ? "claude" : "codex";
+    const name = engine;
     throw new Error(
       `Could not find the ${name} CLI${bin ? ` (got "${bin}")` : ""}. Install it, or set DISPATCH_${name.toUpperCase()}_BIN to its absolute path.`
     );
@@ -115,6 +125,16 @@ export function engineSpecFor(
 ): EngineSpec {
   const bin = engineBin(engine, bins);
   switch (engine) {
+    case "opencode":
+      return {
+        id: engine,
+        ...adapterCommand(engine, bins),
+        // Default tool approvals go through ACP; full access auto-answers them.
+        env: { OPENCODE_PERMISSION: JSON.stringify({ "*": "ask" }) },
+        personaDelivery: "instructions_file",
+        fullAccess: { kind: fullAccess ? "permission_request" : "approval" },
+        subagentTranscripts: false,
+      };
     case "claude":
       return {
         id: engine,

@@ -122,7 +122,7 @@ export function AgentCardHeader({
                 />
               </span>
             </TooltipTrigger>
-            <TooltipContent>{agent.cwd}</TooltipContent>
+            <TooltipContent>{agent.workspacePath ?? agent.cwd}</TooltipContent>
           </Tooltip>
           <span
             data-testid={`agent-session-name-${agent.id}`}

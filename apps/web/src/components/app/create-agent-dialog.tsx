@@ -213,7 +213,8 @@ function CreateAgentDialogContent({
                     <span className="block text-xs text-muted-foreground">
                       Skip permission prompts. Turn off to use restricted access
                       and answer approval requests in chat. Codex uses a
-                      workspace sandbox; Claude uses its permission checks.
+                      workspace sandbox; Claude and OpenCode use their
+                      permission checks.
                     </span>
                   </span>
                 </label>

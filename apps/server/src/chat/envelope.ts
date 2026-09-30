@@ -119,6 +119,12 @@ export function buildPostEnvelope(input: {
   /** A block of the agent's this post answers (a question or form). */
   answers?: { blockId: string; kind: BlockKind } | null;
   /**
+   * A question or form this post closes without answering: the agent's
+   * own ask that the user dismissed, or another agent's ask of this agent
+   * that its author withdrew. Never combined with `answers`.
+   */
+  cancels?: { blockId: string; kind: BlockKind } | null;
+  /**
    * The review finding this thread reply is about; `opened` when the
    * recipient is the reviewer who raised it.
    */
@@ -138,6 +144,16 @@ export function buildPostEnvelope(input: {
   if (input.answers) {
     context.push(
       `This answers your ${input.answers.kind} ${input.answers.blockId}.`
+    );
+  }
+  if (input.cancels) {
+    // Spelled out so it cannot be read as an answer, or as the user
+    // stopping the agent's turn: a dismissed ask means no answer is coming
+    // and the agent decides for itself what to do next.
+    context.push(
+      input.from.kind === "user"
+        ? `The user dismissed your ${input.cancels.kind} ${input.cancels.blockId} without answering it. This is not an answer and does not stop your turn; no answer is coming, so do not wait for one. Continue on your own judgment, or ask again another way only if you truly need the input.`
+        : `${input.from.name} withdrew its ${input.cancels.kind} ${input.cancels.blockId} to you. No reply is needed.`
     );
   }
   if (input.threadId) {

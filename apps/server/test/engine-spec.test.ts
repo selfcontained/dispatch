@@ -5,6 +5,24 @@ import { engineSpecFor } from "../src/agents/acp/engine-spec.js";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("engineSpecFor", () => {
+  it("runs native OpenCode ACP and routes approvals through Dispatch", () => {
+    vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
+    const bins = { claudeBin: "", codexBin: null, opencodeBin: "/x/opencode" };
+    const spec = engineSpecFor("opencode", bins, false);
+    expect(spec).toMatchObject({
+      bin: "/x/opencode",
+      args: ["acp"],
+      personaDelivery: "instructions_file",
+      fullAccess: { kind: "approval" },
+    });
+    expect(JSON.parse(spec.env.OPENCODE_PERMISSION!)).toEqual({ "*": "ask" });
+    expect(engineSpecFor("opencode", bins, true).fullAccess.kind).toBe(
+      "permission_request"
+    );
+    expect(() =>
+      engineSpecFor("opencode", { ...bins, opencodeBin: null })
+    ).toThrow(/DISPATCH_OPENCODE_BIN/);
+  });
   it("launches restricted engines without permission bypass", () => {
     const bins = { claudeBin: "/x/claude", codexBin: "/x/codex" };
     const claude = engineSpecFor("claude", bins, false);

@@ -1,5 +1,6 @@
+import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AppConfig } from "../config.js";
@@ -47,6 +48,9 @@ export type RuntimeEventListener = (
  * implementation is behind it: `AcpRuntime` (a host process per agent) or
  * `InertRuntime` (no processes; e2e and tests).
  */
+/** What a person can do to a post still waiting in an agent's queue. */
+export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
+
 export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
@@ -93,18 +97,23 @@ export type AgentRuntime = {
      * `alone`: never combine this prompt with others waiting beside it. A
      * post sent to interrupt is the point of its own turn.
      */
-    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> };
-  /** Atomically claim an unsent post at every recipient. */
+  /**
+   * Atomically claim an unsent post at every recipient. `send-now` steers
+   * it into the running turn; `interrupt` stops that turn and gives the post
+   * its own turn next.
+   */
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): boolean;
   /** A turn is running or prompts are waiting behind one. */
   isBusy(agentId: string): boolean;
   /** A turn is actually running, excluding prompts waiting in the queue. */
   hasOpenTurn(agentId: string): boolean;
+  inputState?(agentId: string): AgentInputState;
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;

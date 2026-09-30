@@ -22,7 +22,8 @@ the same stream; the rows differ in what the user can _do_ with it.
 
 | What you have                                                 | Send it as                                                      | Depth       |
 | ------------------------------------------------------------- | --------------------------------------------------------------- | ----------- |
-| An explanation, an answer, a short result                     | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A short explanation, answer, or result                        | your ordinary reply — it streams; do not repeat it with `post`  | —           |
+| A plan, design, or analysis longer than a screen              | `post` with a `.md` file attachment, summary in the reply       | `sharing`   |
 | A question with a finite set of answers                       | `post` with `question`                                          | below       |
 | Several related values, or anything they must fill in         | `post` with `form`                                              | below       |
 | A file, screenshot, log, or report                            | `post` with a file attachment                                   | `sharing`   |
@@ -31,12 +32,13 @@ the same stream; the rows differ in what the user can _do_ with it.
 | A value they will copy — an id, a command, an env var, a port | `post` with a `code` attachment                                 | —           |
 | A checklist they will watch you work through                  | `post` with `tasks`, ticked with `update`                       | below       |
 | Something worth reaching them away from the session           | `post` with `notify: true` (browser, and Slack when configured) | —           |
-| State that keeps changing over a long task                    | one `post`, revised with `update`                               | below       |
+| Progress during a long task                                   | ordinary replies; `tasks` for a persistent checklist            | below       |
 | A message to another agent                                    | `post` with `to: <agentId>`                                     | `subagents` |
 
 Take the narrowest row that fits. A `code` attachment is not a substitute for a
 form, and a `tasks` block is overkill for one URL. When two rows could work, the
-plainer one wins: the user is already reading the stream.
+plainer one wins: the user is already reading the stream. The one exception is
+length: anything longer than a screen goes in a file, however plain it is.
 
 ## Asking
 
@@ -53,22 +55,38 @@ prose:
   a form.
 - **One obvious next move** — a `question` with one option is fine.
 
-You do not need to say you are stopped. An open `question` or `form` addressed
-to the user is what shows you as Waiting; answering it is what clears it. Ask
-with a control and the status follows.
+Dispatch derives activity from the runtime and open questions or forms; do not
+emit status events or claim a status yourself. Continue independent work while
+an answer is pending. Treat the actual answer as input, not the posting receipt
+or a delivery indicator. Cancel an obsolete ask with `update` and
+`state: { cancellation: "<reason>" }`; do not invent an answer to close it.
 
 Do not ask what you can determine yourself. A question costs the user a context
 switch; reading one more file costs you a tool call.
 
 ## Reporting
 
-When work will run long, `post` once, then keep revising that same block with
-`update` as it progresses. One block that ends up describing the result beats a
-trail of notes that are each stale a minute after they land. A `tasks` block
-does the same for a checklist: post the items, tick them as you go.
+Give concise progress updates and the final result in ordinary replies. They
+stream automatically; do not duplicate them with `post`. For a persistent
+checklist, post a `tasks` block and tick its items with `update`.
+
+With automatic delivery, a new user message in the same conversation may steer
+the running turn; user messages for a different conversation queue. Incorporate
+steering into the active task and continue authorized work. Automatic and queued
+messages do not cancel running work. A user may explicitly choose Interrupt in
+the composer to request cancellation, then start a new turn where they posted.
+Cancellation is cooperative: a request is not proof a tool stopped. Receipt,
+pickup, and an answer are distinct:
+an interim reply or response
+segment is not automatically a completed answer to every pending request.
 
 Keep the prose and the evidence separate: the reply says what happened, the
-file or link carries the bulk.
+file or link carries the bulk. The same split applies to a plan or design
+write-up: a few sentences on the approach and the decisions it needs in the
+reply, the sections themselves in a markdown file the user can open, forward,
+and see revised with `update` as the plan changes. An `update` changes the
+block where it was posted, which may be several screens up by then, so say in
+your reply what changed.
 
 ## Not this skill's job
 

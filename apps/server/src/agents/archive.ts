@@ -1,6 +1,9 @@
+import { realpath } from "node:fs/promises";
+
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
+import { normalizePath } from "../shared/git/git-context.js";
 import { cleanupGitWorktree } from "../shared/git/worktree.js";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
@@ -107,15 +110,23 @@ async function cleanupAgentWorktree(
 
   const run = async () => {
     // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work.
+    // worktree; removing it would take the other agent's work. Another agent
+    // that moved its workspace into this worktree counts too. Workspaces are
+    // stored as real paths while worktree_path keeps the path it was created
+    // under, so match both spellings (/tmp vs /private/tmp, symlinked roots).
+    const worktreeSpellings = [
+      ...new Set([worktreePath, await realpathOrSelf(worktreePath)]),
+    ];
     const coOwner = await pool.query<{ id: string }>(
       `SELECT id
        FROM agents
        WHERE deleted_at IS NULL
          AND id <> $1
-         AND (worktree_path = $2 OR ($3::text IS NOT NULL AND worktree_branch = $3))
+         AND (worktree_path = $2
+              OR workspace_path = ANY($4::text[])
+              OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
-      [id, worktreePath, agent.worktreeBranch]
+      [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
     );
     if ((coOwner.rowCount ?? 0) > 0) {
       logger.warn(
@@ -464,4 +475,12 @@ export async function deleteAgentDirect(
   logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
 
   return deletedIds;
+}
+
+async function realpathOrSelf(dir: string): Promise<string> {
+  try {
+    return normalizePath(await realpath(dir));
+  } catch {
+    return dir;
+  }
 }

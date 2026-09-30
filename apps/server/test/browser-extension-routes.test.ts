@@ -130,6 +130,19 @@ async function createSubmissionTestApp(
   return Object.assign(app, { feedbackStream: stream });
 }
 
+// The route acknowledges pending work before asynchronous delivery settles.
+// Screenshot tests assert the final outcome instead of racing that acknowledgement.
+async function expectDeliveredSubmission(
+  app: Awaited<ReturnType<typeof createSubmissionTestApp>>,
+  response: { statusCode: number; json(): { blockId: string } }
+) {
+  expect([200, 202]).toContain(response.statusCode);
+  expect(await app.feedbackStream.waitForInFlightDeliveries(5_000)).toBe(true);
+  expect(
+    await app.feedbackStream.store.getById(response.json().blockId)
+  ).toMatchObject({ delivered: true });
+}
+
 // Smallest valid 1x1 PNG; its bytes start with the PNG signature the route checks.
 const ONE_PIXEL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -859,7 +872,7 @@ describe("browser extension scoped API", () => {
         headers: { authorization: `Bearer ${token}` },
         payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
       });
-      expect(response.statusCode).toBe(200);
+      await expectDeliveredSubmission(app, response);
 
       const stored = await ctx.pool.query<{
         file_name: string;
@@ -917,7 +930,7 @@ describe("browser extension scoped API", () => {
           screenshot: Buffer.from("not a png").toString("base64"),
         },
       });
-      expect(response.statusCode).toBe(200);
+      await expectDeliveredSubmission(app, response);
       const stored = await ctx.pool.query(
         `SELECT 1 FROM files WHERE agent_id = $1 AND source = 'screenshot'`,
         ["agt_running"]
@@ -959,8 +972,8 @@ describe("browser extension scoped API", () => {
           payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
         }),
       ]);
-      expect(first.statusCode).toBe(200);
-      expect(second.statusCode).toBe(200);
+      await expectDeliveredSubmission(app, first);
+      await expectDeliveredSubmission(app, second);
 
       const stored = await ctx.pool.query<{ file_name: string }>(
         `SELECT file_name FROM files WHERE agent_id = $1 AND source = 'screenshot' ORDER BY id`,

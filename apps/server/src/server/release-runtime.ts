@@ -505,8 +505,11 @@ Suggested workflow:
 
     // A force override of release migrations must never override agent
     // process survival. Refuse before replacing the live executable.
-    await (deps.checkHostSurvival?.() ??
-      assertHostSurvivalOnRestart(process.platform, deps.runCommand));
+    // An injected check replaces the real one outright; `??` would fall
+    // through to systemctl whenever a stub returns undefined.
+    await (deps.checkHostSurvival
+      ? deps.checkHostSurvival()
+      : assertHostSurvivalOnRestart(process.platform, deps.runCommand));
 
     await deployFromArtifact(job, tag);
 

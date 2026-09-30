@@ -43,20 +43,29 @@ import {
   type Reconciler,
   createReconciler,
 } from "./reconciler.js";
-import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
+import {
+  type AgentRuntime,
+  type QueuedPromptAction,
+  createAgentRuntime,
+} from "./runtime.js";
 import {
   buildStartupTurn,
   type ChatLaunchPost,
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
 import { prepareWorkspace } from "./workspace.js";
+import { resolveWorkspace } from "./workspace-target.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { DriverEvent } from "./acp/driver.js";
 import { recordEngineModels } from "./engine-models.js";
 import { syncTurnUsage } from "./usage-recorder.js";
-import type { PromptSource } from "./acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptOptions,
+  PromptImage,
+} from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -115,6 +124,7 @@ function statusLine(text: string): string {
 const ENGINE_LABELS: Record<AgentType, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  opencode: "OpenCode",
 };
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
@@ -212,6 +222,10 @@ export type LaunchContextInput = {
 };
 
 export type LaunchContextRecorder = {
+  resolvePromptSource?: (
+    agentId: string,
+    source: PromptSource
+  ) => Promise<PromptSource>;
   prepareLaunchContext: (input: LaunchContextInput) => Promise<{
     /** The launch card the briefing is written onto; the first turn names it. */
     id: string;
@@ -221,6 +235,7 @@ export type LaunchContextRecorder = {
      * has to name all of the context the agent was launched with.
      */
     attachmentLines: string[];
+    images?: PromptImage[];
     /** Rejects when the post was not written, including an id collision. */
     record: () => Promise<unknown>;
   } | null>;
@@ -423,6 +438,13 @@ export class AgentManager {
       // ACP activity can change the worktree; the refresher throttles Git reads.
       void this.diffStatsRefresher?.signal(agentId);
     }
+    if (event.type === "turn" && event.state === "settled") {
+      // The turn may have switched branches; the sidebar reads git_context.
+      void this.populateGitContext(agentId, { publishIfChanged: true }).catch(
+        (err) =>
+          this.logger.warn({ err, agentId }, "Git context refresh failed")
+      );
+    }
     if (seq > 0) {
       await this.pool.query(
         "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
@@ -571,7 +593,7 @@ export class AgentManager {
     id: string,
     text: string,
     source?: PromptSource,
-    opts?: { alone?: boolean; delivery?: "auto" | "queue" }
+    opts?: PromptOptions
   ): { accepted: Promise<void>; settled: Promise<void> } {
     return this.runtime.prompt(id, text, source, opts);
   }
@@ -660,7 +682,7 @@ export class AgentManager {
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): boolean {
     return this.runtime.controlQueuedPrompt(agentIds, blockId, action);
   }
@@ -670,8 +692,23 @@ export class AgentManager {
     await this.runtime.cancel(id);
   }
 
-  private sendPromptDetached(id: string, text: string, what: string): void {
-    const { accepted, settled } = this.runtime.prompt(id, text);
+  private async sendPromptDetached(
+    id: string,
+    text: string,
+    what: string,
+    opts?: PromptOptions,
+    source?: PromptSource
+  ): Promise<void> {
+    const resolved = await this.launchContextRecorder?.resolvePromptSource?.(
+      id,
+      source ?? { source: "system", text: what }
+    );
+    const { accepted, settled } = this.runtime.prompt(
+      id,
+      text,
+      resolved ?? source,
+      opts
+    );
     accepted.catch((err: unknown) =>
       this.logger.warn({ err, agentId: id }, `${what} was not accepted`)
     );
@@ -698,7 +735,7 @@ export class AgentManager {
     const lost: string[] = [];
     const pending: string[] = [];
     const result = await this.pool.query<{ id: string; cwd: string }>(
-      `SELECT id, cwd FROM agents
+      `SELECT id, COALESCE(workspace_path, cwd) AS cwd FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
@@ -824,7 +861,16 @@ export class AgentManager {
 
   /** The stream is blocks only: every turn gets a block through these. */
   attachTurnBlocks(turnBlocks: TurnBlocks): void {
-    this.streamRecorder.setTurnBlocks(turnBlocks);
+    this.streamRecorder.setTurnBlocks({
+      ...turnBlocks,
+      responseSplit: async (input) => {
+        await turnBlocks.responseSplit?.(input);
+        // A new response is still the same execution turn, but its deep link
+        // changed. Publish that pointer without inventing a new turn event.
+        const agent = await this.getAgent(input.agentId);
+        if (agent) this.eventBus.publish(agent);
+      },
+    });
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -857,10 +903,14 @@ export class AgentManager {
             nextRetryAt: this.nextReconcileAt,
           })
         : null;
-    const live = this.liveActivity({ ...agent, reconnect });
+    const live = this.liveActivity({
+      ...agent,
+      reconnect,
+      inputState: this.runtime.inputState?.(agent.id),
+    });
     // The open turn comes from the stream; only ACP's live turn state decides
     // whether it is still current. Derived activity is a separate UI summary.
-    if (agent.status === "running" && this.runtime.isBusy(agent.id))
+    if (agent.status === "running" && this.runtime.hasOpenTurn(agent.id))
       return live;
     return live.currentTurn === null ? live : { ...live, currentTurn: null };
   }
@@ -878,7 +928,7 @@ export class AgentManager {
     if (
       agent.status === "running" &&
       resting &&
-      this.runtime.isBusy(agent.id)
+      this.runtime.hasOpenTurn(agent.id)
     ) {
       return { ...agent, activity: "working" };
     }
@@ -906,19 +956,41 @@ export class AgentManager {
    * call to resolve the parent repo root; for other agents (no
    * `worktree_path`) we run a full probe against `cwd`. Probe failures
    * are logged and persisted as `stale = true` so the existing value
-   * (if any) stays visible in the UI rather than disappearing.
+   * (if any) stays visible in the UI rather than disappearing. A moved
+   * workspace is probed in place of either.
+   *
+   * With `publishIfChanged`, an unchanged probe writes nothing, and a
+   * changed one is published — for refreshes between lifecycle boundaries,
+   * where the agent may have switched branches.
    */
-  async populateGitContext(id: string): Promise<void> {
+  async populateGitContext(
+    id: string,
+    opts: { publishIfChanged?: boolean } = {}
+  ): Promise<void> {
     const agent = await this.getAgent(id);
     if (!agent) return;
 
-    const result =
-      agent.worktreePath && agent.worktreeBranch
+    const result = agent.workspacePath
+      ? await probeGitContext(agent.workspacePath)
+      : agent.worktreePath && agent.worktreeBranch
         ? await buildGitContextForWorktree({
             worktreePath: agent.worktreePath,
             worktreeBranch: agent.worktreeBranch,
           })
         : await probeGitContext(agent.cwd);
+
+    if (
+      opts.publishIfChanged &&
+      result.status === "ok" &&
+      !agent.gitContextStale &&
+      sameGitContext(agent.gitContext, result.value)
+    ) {
+      return;
+    }
+
+    // The probe ran against the workspace read above; a set_workspace that
+    // landed meanwhile has probed its own, so this result no longer applies.
+    const probedWorkspace = agent.workspacePath;
 
     if (result.status === "error") {
       this.logger.warn(
@@ -926,22 +998,58 @@ export class AgentManager {
         "Git context probe failed; marking stale and continuing."
       );
       await this.pool.query(
-        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW() WHERE id = $1`,
-        [id]
+        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW()
+         WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $2`,
+        [id, probedWorkspace]
       );
       return;
     }
 
-    await this.pool.query(
+    const written = await this.pool.query(
       `
       UPDATE agents
       SET git_context = $2::jsonb,
           git_context_stale = false,
           git_context_updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND workspace_path IS NOT DISTINCT FROM $3
       `,
-      [id, result.value ? JSON.stringify(result.value) : null]
+      [id, result.value ? JSON.stringify(result.value) : null, probedWorkspace]
     );
+    if (opts.publishIfChanged && (written.rowCount ?? 0) > 0) {
+      const updated = await this.getAgent(id);
+      if (updated) this.eventBus.publish(updated);
+    }
+  }
+
+  /**
+   * Point the agent's workspace at the directory it now works in, or back at
+   * its launch worktree/cwd with `path: null`. Everything that reads its
+   * files follows the workspace; the engine's cwd (resume) and the managed
+   * worktree (archive cleanup) are left as they were.
+   */
+  async setWorkspace(
+    id: string,
+    input: { path: string | null; baseBranch?: string | null }
+  ): Promise<AgentRecord> {
+    const agent = await this.getRequiredAgent(id);
+    const resolved = await resolveWorkspace(agent, input);
+
+    await this.pool.query(
+      `UPDATE agents
+       SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+       WHERE id = $1`,
+      [id, resolved.path, resolved.baseBranch]
+    );
+    await this.populateGitContext(id);
+    this.diffStatsRefresher?.clear(id);
+    void this.diffStatsRefresher?.signal(id);
+
+    // Read back rather than trusting `resolved`: an overlapping call may
+    // have landed after this one's UPDATE, and the recorder follows the row.
+    const updated = await this.getRequiredAgent(id);
+    this.streamRecorder.setCwd(id, updated.workspacePath ?? updated.cwd);
+    this.eventBus.publish(updated);
+    return updated;
   }
 
   /**
@@ -1134,6 +1242,7 @@ export class AgentManager {
     return {
       messageId: prepared.id,
       attachmentLines: prepared.attachmentLines,
+      ...(prepared.images?.length ? { images: prepared.images } : {}),
     };
   }
 
@@ -1395,7 +1504,18 @@ export class AgentManager {
         },
         { jobRunId: opts.jobRunId }
       );
-      if (firstTurn) this.sendPromptDetached(id, firstTurn, "first turn");
+      if (firstTurn)
+        await this.sendPromptDetached(
+          id,
+          firstTurn,
+          "first turn",
+          chatLaunchPost?.images?.length
+            ? { images: chatLaunchPost.images }
+            : undefined,
+          chatLaunchPost
+            ? { source: "chat", chatMessageId: chatLaunchPost.messageId }
+            : undefined
+        );
     } catch (error) {
       if (error instanceof GitWorktreeError) {
         const lastError = `Worktree creation failed: ${error.message}`;
@@ -1521,6 +1641,7 @@ export class AgentManager {
           await engineStatuses({
             claude: this.config.claudeBin,
             codex: this.config.codexBin ?? undefined,
+            opencode: this.config.opencodeBin,
           })
         ).find((status) => status.id === agent.type)
       : undefined;
@@ -1530,6 +1651,10 @@ export class AgentManager {
     // The engine this agent runs takes the path we just resolved (a
     // service's PATH rarely has it); the other keeps its configured value.
     const bins: EngineBins = {
+      opencodeBin:
+        agent.type === "opencode"
+          ? (engine?.path ?? this.config.opencodeBin ?? "opencode")
+          : this.config.opencodeBin,
       claudeBin:
         agent.type === "claude"
           ? (engine?.path ?? this.config.claudeBin)
@@ -1548,7 +1673,7 @@ export class AgentManager {
         "launching agent on engine CLI"
       );
     }
-    this.streamRecorder.setCwd(agent.id, agent.cwd);
+    this.streamRecorder.setCwd(agent.id, agent.workspacePath ?? agent.cwd);
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
@@ -1620,7 +1745,7 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
-      this.streamRecorder.setCwd(id, agent.cwd);
+      this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
       await this.setAgentStatus(id, "running", null);
 
       return (await this.getAgent(id)) as AgentRecord;
@@ -1849,6 +1974,8 @@ export class AgentManager {
         launch_cwd AS "launchCwd",
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
+        workspace_path AS "workspacePath",
+        workspace_base_branch AS "workspaceBaseBranch",
         simulator_udid AS "simulatorUdid",
         files_dir AS "filesDir",
         agent_args AS "agentArgs",
@@ -1946,7 +2073,7 @@ export class AgentManager {
  * withLiveActivity.
  */
 const CURRENT_TURN_SQL = `(
-          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id)
+          SELECT json_build_object('blockId', b.id, 'threadId', b.thread_id, 'streamId', b.stream_id)
             FROM (
               SELECT t.payload FROM agent_stream_events t
                WHERE t.agent_id = agents.id AND t.kind = 'turn'
@@ -1973,3 +2100,18 @@ const ACTIVITY_SQL = `CASE
           ) NOT IN ('${INTERRUPTED_BY_RESTART}', '${STOPPED_ON_REQUEST}'), false) THEN 'blocked'
           ELSE 'idle'
         END`;
+
+function sameGitContext(
+  a: AgentGitContext | null,
+  b: AgentGitContext | null
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.repoRoot === b.repoRoot &&
+    a.branch === b.branch &&
+    a.worktreePath === b.worktreePath &&
+    a.worktreeName === b.worktreeName &&
+    a.isWorktree === b.isWorktree &&
+    (a.repoIconPath ?? null) === (b.repoIconPath ?? null)
+  );
+}

@@ -5,6 +5,7 @@ import {
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
+import { agentDiffTarget } from "../../agents/workspace-target.js";
 import { StreamServiceError } from "../../chat/service.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
@@ -64,6 +65,36 @@ export async function registerAgentLifecycleRoutes(
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
+      });
+      return { agent: deps.withStreamFlag(agent) };
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
+  app.patch("/api/v1/agents/:id/workspace", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const body = request.body as {
+      path?: unknown;
+      baseBranch?: unknown;
+    } | null;
+
+    const path = body?.path ?? null;
+    const baseBranch = body?.baseBranch ?? null;
+    if (path !== null && typeof path !== "string") {
+      return reply.code(400).send({ error: "path must be a string or null." });
+    }
+    if (baseBranch !== null && typeof baseBranch !== "string") {
+      return reply
+        .code(400)
+        .send({ error: "baseBranch must be a string or null." });
+    }
+
+    try {
+      const agent = await deps.agentManager.setWorkspace(id, {
+        path,
+        baseBranch,
       });
       return { agent: deps.withStreamFlag(agent) };
     } catch (error) {
@@ -256,18 +287,10 @@ export async function registerAgentLifecycleRoutes(
       "false";
 
     if (!includeUncommitted) {
-      const gitContextWorktreePath = agent.gitContext?.isWorktree
-        ? agent.gitContext.worktreePath
-        : null;
-      const worktreePath =
-        agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-      if (!worktreePath) return { diffStats: null };
-
-      const baseRef =
-        agent.baseBranch ??
-        (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+      const target = agentDiffTarget(agent);
+      if (!target) return { diffStats: null };
       return {
-        diffStats: await getDiffStats(worktreePath, baseRef, {
+        diffStats: await getDiffStats(target.path, target.baseRef, {
           includeUncommitted: false,
         }),
       };
@@ -292,20 +315,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     try {
       const query = request.query as {
@@ -351,20 +367,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     try {
       const ignoreWhitespace = query.ignoreWhitespace !== "false";
@@ -417,20 +426,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
     const includeUncommitted = query.includeUncommitted !== "false";
 
     try {
@@ -507,20 +509,13 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const gitContextWorktreePath = agent.gitContext?.isWorktree
-      ? agent.gitContext.worktreePath
-      : null;
-    const worktreePath =
-      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
-    if (!worktreePath) {
+    const target = agentDiffTarget(agent);
+    if (!target) {
       return reply
         .code(404)
         .send({ error: "Agent has no associated worktree." });
     }
-
-    const baseRef =
-      agent.baseBranch ??
-      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const { path: worktreePath, baseRef } = target;
 
     let fileDiff;
     try {

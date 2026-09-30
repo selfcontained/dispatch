@@ -863,14 +863,25 @@ describe("PATCH /api/v1/streams/:rootId/blocks/:blockId/state (inert runtime)", 
       block: expect.objectContaining({
         id: q.id,
         state: {
-          cancellation: { by: { kind: "user" }, at: expect.any(String) },
+          cancellation: {
+            by: { kind: "user" },
+            at: expect.any(String),
+            blockId: expect.any(String),
+          },
         },
       }),
     });
     const thread = await store.listThread(q.id);
     expect(thread?.replies).toMatchObject([
-      { author: { kind: "user" }, text: "Canceled.", replyTo: q.id },
+      {
+        author: { kind: "user" },
+        text: "Dismissed without answering.",
+        replyTo: q.id,
+      },
     ]);
+    expect(res.json().block.state.cancellation.blockId).toBe(
+      thread?.replies[0].id
+    );
     // Retrying is a no-op: same block, no second note.
     const again = await authedInject("PATCH", url, {
       state: { cancellation: true },
@@ -1400,6 +1411,31 @@ describe("stream routes with a deliverable engine", () => {
     await app.close();
   });
 
+  it("accepts interrupt delivery on user posts and question answers", async () => {
+    const { app, ready, streams } = buildApp({});
+    await ready;
+    try {
+      const post = await app.inject({
+        method: "POST",
+        url: `/api/v1/streams/${agentId}/blocks`,
+        payload: { text: "Urgent", delivery: "interrupt" },
+      });
+      expect(post.statusCode).toBe(200);
+      expect(post.json().block.data).toMatchObject({ delivery: "interrupt" });
+      const q = await question(agentId, { options: [{ label: "Yes" }] });
+      const answer = await app.inject({
+        method: "POST",
+        url: `/api/v1/streams/${agentId}/blocks/${q.id}/answer`,
+        payload: { value: "Yes", delivery: "interrupt" },
+      });
+      expect(answer.statusCode).toBe(200);
+      expect(answer.json().reply.data).toMatchObject({ delivery: "interrupt" });
+      await streams.waitForInFlightDeliveries(1_000);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("stores user attachments and lists them in the injected envelope", async () => {
     const inserted = await ctx.pool.query<{ id: number }>(
       `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
@@ -1814,7 +1850,7 @@ describe("stream routes with a deliverable engine", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().reactions).toEqual([
-      expect.objectContaining({ delivered: null }),
+      expect.objectContaining({ emoji: "🎉", delivered: null }),
     ]);
     release();
     await streams.waitForInFlightDeliveries(1_000);

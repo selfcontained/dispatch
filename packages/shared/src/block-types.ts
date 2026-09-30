@@ -67,6 +67,11 @@ export type BlockActor = { by: BlockAuthor; at: string };
 export type BlockCancellation = BlockActor & {
   /** Short, optional: why it was pulled. */
   reason?: string;
+  /**
+   * The thread note that recorded the cancellation and carried it to the
+   * other side. Absent on cancellations recorded before notes were tracked.
+   */
+  blockId?: string;
 };
 
 export type BlockQuestionState = {
@@ -214,6 +219,10 @@ export type BlockTextData = {
   acpCommand?: true;
   /** Turn blocks: the `agent_stream_events` row that opened the turn. */
   turnEventId?: number;
+  /** User messages picked up before this visible response began. */
+  responseTo?: string[];
+  /** Stored location of the referenced message, including structured answers. */
+  responseToThreadId?: string | null;
   /**
    * A person's post that named its recipients with `@name`: every agent it
    * was delivered to, in order of mention. `toAgentId` is the first.
@@ -242,7 +251,7 @@ export type BlockLaunchState = BlockShows & {
 };
 
 /** Stored with the post so failed-delivery retries keep its scheduling intent. */
-export type BlockDeliveryIntent = { delivery?: "auto" | "queue" };
+export type BlockDeliveryIntent = { delivery?: "auto" | "queue" | "interrupt" };
 
 /** `kind` with its `data` and `state`, so a switch on kind types both. */
 export type BlockBody =
@@ -503,17 +512,18 @@ export type StreamPostRequest = {
   replyTo?: string;
   attachments?: ChatUserAttachmentInput[];
   /**
-   * Legacy compatibility only. Sending never cancels a running turn.
+   * Legacy compatibility only. Use delivery: "interrupt" to request cancellation.
    */
   interrupt?: boolean;
-  /** Default: steer a running turn, or start one when idle. */
-  delivery?: "auto" | "queue";
+  /** Auto steers the same conversation; interrupt cancels then opens a priority turn. */
+  delivery?: "auto" | "queue" | "interrupt";
   /** A review left by hand (the Changes tab): the block becomes a `review`. */
   review?: BlockReviewInput;
 };
 
 /** Body of `POST /streams/:rootId/blocks/:id/answer` (question blocks). */
 export type StreamAnswerRequest = {
+  delivery?: "auto" | "queue" | "interrupt";
   id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */

@@ -4,6 +4,7 @@ import type { AgentManager } from "../agents/manager.js";
 import {
   systemPromptSource,
   type PromptSource,
+  type PromptOptions,
 } from "../agents/acp/prompt-source.js";
 
 /**
@@ -16,12 +17,7 @@ import {
 export type EnqueueAgentPrompt = (
   agentId: string,
   prompt: string,
-  opts?: {
-    gate?: boolean;
-    source?: PromptSource;
-    alone?: boolean;
-    delivery?: "auto" | "queue";
-  }
+  opts?: PromptOptions & { gate?: boolean; source?: PromptSource }
 ) => Promise<{ held: boolean; delivery: Promise<void> }>;
 
 export type InjectAgentPrompt = (
@@ -32,7 +28,11 @@ export type InjectAgentPrompt = (
 
 export function createPromptInjector(
   agentManager: AgentManager,
-  appLog: FastifyBaseLogger
+  appLog: FastifyBaseLogger,
+  resolveSource?: (
+    agentId: string,
+    source: PromptSource
+  ) => Promise<PromptSource>
 ): {
   enqueueAgentPrompt: EnqueueAgentPrompt;
   injectAgentPrompt: InjectAgentPrompt;
@@ -51,10 +51,16 @@ export function createPromptInjector(
     const { accepted, settled } = agentManager.promptAgent(
       agentId,
       prompt,
-      opts?.source,
-      opts?.alone || opts?.delivery
+      resolveSource
+        ? await resolveSource(
+            agentId,
+            opts?.source ?? systemPromptSource(prompt)
+          )
+        : opts?.source,
+      opts?.alone || opts?.images?.length || opts?.delivery
         ? {
             ...(opts?.alone ? { alone: true } : {}),
+            ...(opts.images?.length ? { images: opts.images } : {}),
             ...(opts?.delivery ? { delivery: opts.delivery } : {}),
           }
         : undefined

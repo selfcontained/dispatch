@@ -129,7 +129,7 @@ describe("engineStatuses", () => {
     const statuses = await engineStatuses({}, { PATH: dir, HOME: home }, [
       path.join(home, ".local", "bin"),
     ]);
-    expect(statuses.map((s) => s.id)).toEqual(["claude", "codex"]);
+    expect(statuses.map((s) => s.id)).toEqual(["claude", "codex", "opencode"]);
     const claude = statuses.find((s) => s.id === "claude")!;
     expect(claude).toMatchObject({
       label: "Claude Code",

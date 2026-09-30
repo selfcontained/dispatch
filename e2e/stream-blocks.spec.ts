@@ -313,7 +313,7 @@ test.describe("Stream blocks", () => {
     await expect(questionThread).toHaveAttribute("data-reply-count", "1");
     await questionThread.click();
     await expect(page.getByTestId("chat-thread-panel")).toContainText(
-      "Canceled."
+      "Dismissed without answering."
     );
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });

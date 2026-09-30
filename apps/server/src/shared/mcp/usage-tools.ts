@@ -64,7 +64,10 @@ export function registerUsageTools(
                 plan: null,
                 observedAt: null,
                 windows: [],
-                unavailableReason: "No usage report available.",
+                unavailableReason:
+                  engine === "opencode"
+                    ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
+                    : "No usage report available.",
               }),
               type: engine,
               models: getAgentModelOptions(engine),

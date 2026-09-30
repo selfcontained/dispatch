@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
@@ -34,7 +35,10 @@ import {
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { resolveFilesDir } from "../shared/files.js";
-import type { ListedFileItem } from "../shared/mcp/agent-lifecycle-tools.js";
+import type {
+  ListedFileItem,
+  SetWorkspaceResult,
+} from "../shared/mcp/agent-lifecycle-tools.js";
 import type {
   LaunchAgentInput,
   LaunchAgentResult,
@@ -148,6 +152,7 @@ async function addressableAgents<
   T extends {
     id: string;
     cwd: string;
+    workspacePath?: string | null;
     parentAgentId?: string | null;
     launchedByAgentId?: string | null;
   },
@@ -181,7 +186,7 @@ async function addressableAgents<
       continue;
     }
     try {
-      const aRoot = await resolveRepoRoot(a.cwd);
+      const aRoot = await resolveRepoRoot(a.workspacePath ?? a.cwd);
       if (aRoot === senderRepoRoot) result.push(a);
     } catch {
       // agent cwd not in a git repo — skip
@@ -272,6 +277,23 @@ async function handleRenameSession(
     agent: deps.withStreamFlag(agent),
   });
   return { id: agent.id, name: agent.name };
+}
+
+async function handleSetWorkspace(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: { path: string | null; baseBranch?: string | null }
+): Promise<SetWorkspaceResult> {
+  const agent = await deps.agentManager.setWorkspace(agentId, input);
+  return {
+    workspacePath: agentWorkspaceDir(agent) ?? agent.cwd,
+    moved: agent.workspacePath !== null,
+    repoRoot: agent.gitContext?.repoRoot ?? null,
+    branch: agent.gitContext?.branch ?? null,
+    baseBranch: agent.workspacePath
+      ? agent.workspaceBaseBranch
+      : agent.baseBranch,
+  };
 }
 
 async function handleJobComplete(
@@ -397,7 +419,7 @@ async function handleLaunchAgent(
 
   const fromTemplate = templateWorktreeConfig(template);
 
-  const parentCwd = parent.worktreePath ?? parent.cwd;
+  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
   const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
   // Templates have no createNewBranch column, so the decision keys off where
   // the worktree came from: a template-supplied one follows the template's
@@ -915,6 +937,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     renameSession: (agentId: string, name: string) =>
       handleRenameSession(deps, agentId, name),
+
+    setWorkspace: (
+      agentId: string,
+      input: { path: string | null; baseBranch?: string | null }
+    ) => handleSetWorkspace(deps, agentId, input),
 
     jobComplete: (agentId: string, report: unknown) =>
       handleJobComplete(deps, agentId, report),

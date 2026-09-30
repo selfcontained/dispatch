@@ -21,35 +21,35 @@ if (process.argv[2] === "agent-host") {
 }
 
 async function serve(): Promise<void> {
-const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
+  const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
-const { app, shutdown, start } = await import("./server.js");
+  const { app, shutdown, start } = await import("./server.js");
 
-if (shellEnvironment.state === "resolved") {
-  app.log.info({ shellEnvironment }, "Shell environment restored");
-}
+  if (shellEnvironment.state === "resolved") {
+    app.log.info({ shellEnvironment }, "Shell environment restored");
+  }
 
-// Global error handlers — prevent silent crashes from background tasks
-process.on("unhandledRejection", (reason) => {
-  app.log.error({ err: reason }, "Unhandled promise rejection");
-});
+  // Global error handlers — prevent silent crashes from background tasks
+  process.on("unhandledRejection", (reason) => {
+    app.log.error({ err: reason }, "Unhandled promise rejection");
+  });
 
-process.on("uncaughtException", async (err) => {
-  setTimeout(() => process.exit(1), 5_000).unref();
-  app.log.error({ err }, "Uncaught exception — shutting down");
-  await shutdown(1);
-});
+  process.on("uncaughtException", async (err) => {
+    setTimeout(() => process.exit(1), 5_000).unref();
+    app.log.error({ err }, "Uncaught exception — shutting down");
+    await shutdown(1);
+  });
 
-start().catch(async (error) => {
-  app.log.error(error);
-  await shutdown(1);
-});
+  start().catch(async (error) => {
+    app.log.error(error);
+    await shutdown(1);
+  });
 
-process.on("SIGINT", async () => {
-  await shutdown(0);
-});
+  process.on("SIGINT", async () => {
+    await shutdown(0);
+  });
 
-process.on("SIGTERM", async () => {
-  await shutdown(0);
-});
+  process.on("SIGTERM", async () => {
+    await shutdown(0);
+  });
 }

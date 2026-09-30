@@ -48,7 +48,7 @@ const CHIP_CLASS =
   "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
 
 /**
- * The strip under the composer: which model the session runs (a picker)
+ * Controls beside the recipients under the composer: which model the session runs (a picker)
  * and what it has used (context, cost, tokens, and the plan's limits).
  */
 export function ComposerMeta({
@@ -74,7 +74,7 @@ export function ComposerMeta({
   if (!agent) return null;
   return (
     <div
-      className="mt-1 flex min-w-0 items-center justify-between gap-2"
+      className="flex min-w-0 items-center gap-1"
       data-testid="composer-meta"
     >
       <ModelChip agentId={agentId} agent={agent} active={active} />
@@ -242,6 +242,7 @@ function UsageChip({
   const [open, setOpen] = useState(false);
   const percent = contextPercent(usage);
   const cost = usage?.sessionCost;
+  const usageLabel = percent === null ? "Usage" : `${percent}% context`;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -249,13 +250,23 @@ function UsageChip({
           type="button"
           className={cn(CHIP_CLASS, "shrink-0 tabular-nums")}
           title="Usage"
+          aria-label={
+            cost
+              ? `${usageLabel} · ${formatCost(cost.amount, cost.currency)}`
+              : usageLabel
+          }
           data-testid="composer-usage-chip"
         >
           <Gauge className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>
-            {percent === null ? "Usage" : `${percent}% context`}
-            {cost ? ` · ${formatCost(cost.amount, cost.currency)}` : ""}
+          <span className="max-[360px]:hidden">{usageLabel}</span>
+          <span className="hidden max-[360px]:inline">
+            {percent === null ? "Usage" : `${percent}% ctx`}
           </span>
+          {cost ? (
+            <span className="max-[360px]:hidden">
+              · {formatCost(cost.amount, cost.currency)}
+            </span>
+          ) : null}
         </button>
       </PopoverTrigger>
       <PopoverContent

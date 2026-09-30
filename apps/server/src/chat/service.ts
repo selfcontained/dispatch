@@ -42,6 +42,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
+import type { QueuedPromptAction } from "../agents/runtime.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { agentTree, parentAgentId, rootAgentId } from "../agents/tree.js";
 import {
@@ -65,7 +66,11 @@ import {
   turnAnchorOf,
 } from "./turns.js";
 import { findMentions, type Mentionable } from "./mentions.js";
-import type { PromptSource } from "../agents/acp/prompt-source.js";
+import type {
+  PromptSource,
+  PromptOptions,
+  PromptImage,
+} from "../agents/acp/prompt-source.js";
 import {
   StreamStore,
   type StreamEventRow,
@@ -112,7 +117,7 @@ export type PostInput = {
   attachments?: BlockAttachmentInput[];
   /** Also send the browser/Slack notification. */
   notify?: boolean;
-  delivery?: "auto" | "queue";
+  delivery?: "auto" | "queue" | "interrupt";
 };
 
 export type UpdateInput = {
@@ -151,12 +156,7 @@ export type StreamDeliveryAdapter = {
   inject: (
     agentId: string,
     text: string,
-    opts?: {
-      blockId?: string;
-      source?: PromptSource;
-      alone?: boolean;
-      delivery?: "auto" | "queue";
-    }
+    opts?: PromptOptions & { blockId?: string; source?: PromptSource }
   ) => Promise<void>;
   /** Whether a turn is holding deliveries for this agent right now. */
   held: (agentId: string) => boolean;
@@ -167,7 +167,7 @@ export type StreamDeliveryAdapter = {
   controlQueuedPrompt?: (
     agentIds: string[],
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ) => boolean;
   /** Names of commands this agent's ACP session currently accepts. */
   commands?: (agentId: string) => readonly string[];
@@ -286,6 +286,7 @@ export type PreparedLaunchContext = {
    * describe all the startup files and links.
    */
   attachmentLines: string[];
+  images?: PromptImage[];
   /** Exactly what the row will store. */
   postText: string;
   /** Write the block and announce the feed change. */
@@ -328,6 +329,7 @@ export function buildLaunchPostText(
 }
 
 export type AnswerInput = {
+  delivery?: "auto" | "queue" | "interrupt";
   /** Client-minted id for the reply block. */
   id?: string;
   value: string;
@@ -359,6 +361,20 @@ function requireText(text: string | undefined): string {
  * `state.cancellation` as given to `update`/`PATCH …/state`: `true` (no
  * reason), a reason string, or `{ reason }`. Anything else is malformed.
  */
+/**
+ * The thread note a cancellation leaves. It reads the same to the person
+ * in the stream and to the agent in its prompt, so it names the act: a
+ * person dismisses an ask put to them, an agent withdraws its own.
+ * "Canceled" alone was read as the turn being stopped.
+ */
+export function cancellationNoteText(
+  by: BlockAuthor,
+  reason: string | undefined
+): string {
+  const verb = by.kind === "user" ? "Dismissed without answering" : "Withdrawn";
+  return reason ? `${verb}: ${reason}` : `${verb}.`;
+}
+
 function parseCancelReason(raw: unknown): string | undefined {
   if (raw === true) return undefined;
   if (typeof raw === "string") {
@@ -806,7 +822,7 @@ export class StreamService {
       /** A review left by hand: the block is a `review` with these findings. */
       review?: BlockReviewInput | null;
       allowInert?: boolean;
-      delivery?: "auto" | "queue";
+      delivery?: "auto" | "queue" | "interrupt";
       /** Legacy clients: sending no longer cancels the running turn. */
       interrupt?: boolean;
     }
@@ -891,10 +907,17 @@ export class StreamService {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
     }
     const linesFor = new Map(
-      recipientAgents.map((agent) => [
-        agent.id,
-        resolved.length > 0 ? this.describeAttachments(agent, resolved) : [],
-      ])
+      await Promise.all(
+        recipientAgents.map(
+          async (agent) =>
+            [
+              agent.id,
+              resolved.length > 0
+                ? await this.describeAttachments(agent, resolved)
+                : [],
+            ] as const
+        )
+      )
     );
     const liveFor = new Map(
       await Promise.all(
@@ -950,7 +973,12 @@ export class StreamService {
                   .map((id) => nameOf.get(id) ?? id),
               }
             : null,
-        delivery: rawCommand ? "queue" : (input.delivery ?? "auto"),
+        delivery:
+          input.delivery === "interrupt"
+            ? "interrupt"
+            : rawCommand
+              ? "queue"
+              : (input.delivery ?? "auto"),
       })
     );
     return { block, delivered: null, held };
@@ -992,7 +1020,7 @@ export class StreamService {
     toAgentId: string | null;
     text: string;
     review: BlockReviewInput;
-    delivery?: "auto" | "queue";
+    delivery?: "auto" | "queue" | "interrupt";
     host: { threadId: string; replyTo: string } | null;
     live: boolean;
     attachments?: ChatAttachment[];
@@ -1113,7 +1141,7 @@ export class StreamService {
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
       resolved = await this.resolveAttachmentsFor(recipient, attachments);
-      attachmentLines = this.describeAttachments(recipient, resolved);
+      attachmentLines = await this.describeAttachments(recipient, resolved);
     }
     const live = await this.canDeliver(toAgentId, true);
 
@@ -1132,6 +1160,7 @@ export class StreamService {
         replyTo: question.id,
         text,
         attachments: resolved,
+        ...(input.delivery ? { data: { delivery: input.delivery } } : {}),
         delivered: live ? null : false,
       };
       const inserted = input.id
@@ -1165,6 +1194,7 @@ export class StreamService {
     if (live) {
       await this.deliverBlock(reply, { kind: "user" }, attachmentLines, {
         answers: { blockId: question.id, kind: "question" },
+        delivery: input.delivery,
       });
     }
     return { block: answered, reply, delivered: live ? null : false };
@@ -1330,24 +1360,26 @@ export class StreamService {
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
+      // The note first, so the cancellation can record which block carried
+      // it (as an answer records its reply); a lost race rolls both back.
+      note = await tx.insert({
+        streamId: block.streamId,
+        author: by,
+        toAgentId: notifyAgentId,
+        kind: "text",
+        threadId: block.threadId ?? block.id,
+        replyTo: block.id,
+        text: cancellationNoteText(by, reason),
+        delivered: notifyAgentId ? (live ? null : false) : null,
+      });
       canceled = await tx.recordCancellation(block.id, {
         by,
         at: new Date().toISOString(),
+        blockId: note.id,
         ...(reason ? { reason } : {}),
       });
-      if (canceled) {
-        note = await tx.insert({
-          streamId: block.streamId,
-          author: by,
-          toAgentId: notifyAgentId,
-          kind: "text",
-          threadId: block.threadId ?? block.id,
-          replyTo: block.id,
-          text: reason ? `Canceled: ${reason}` : "Canceled.",
-          delivered: notifyAgentId ? (live ? null : false) : null,
-        });
-      }
       await client.query(canceled ? "COMMIT" : "ROLLBACK");
+      if (!canceled) note = null;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -1377,7 +1409,7 @@ export class StreamService {
     if (notifyAgentId && live && note) {
       const from = await this.senderOf(by);
       await this.deliverBlock(note, from, [], {
-        answers: { blockId: canceled.id, kind: canceled.kind },
+        cancels: { blockId: canceled.id, kind: canceled.kind },
       });
     }
     return canceled;
@@ -1436,16 +1468,9 @@ export class StreamService {
     // recipient (the one whose work it is) when the author does.
     const sides = new Set(sidesOf(updated));
     if (by.kind === "agent") sides.delete(by.agentId);
-    // A finding settled by its reviewer asks nothing of the agent whose
-    // work it is: only a reopen gives that agent something to do.
-    if (
-      updated.kind === "finding" &&
-      updated.state.status === "resolved" &&
-      updated.toAgentId &&
-      sameAuthor(updated.author, by)
-    ) {
-      sides.delete(updated.toAgentId);
-    }
+    // Verification results must reach the requester too: otherwise it can
+    // wait forever after asking the reviewer to check a fix. The resolved
+    // hint makes clear that no acknowledgement is needed.
     const summary = describeStateChange(updated, stamped);
     const from = await this.senderOf(by);
     for (const agentId of sides) {
@@ -1616,6 +1641,48 @@ export class StreamService {
   // Agents (MCP)
   // -------------------------------------------------------------------------
 
+  /** Read a review without delivering a prompt or changing unread state. */
+  async getReview(agentId: string, id?: string) {
+    await this.requireAgent(agentId);
+    const review = id
+      ? await this.store.getById(id)
+      : await this.store.latestReviewFor(agentId);
+    if (
+      !review ||
+      review.kind !== "review" ||
+      (review.toAgentId !== agentId &&
+        !sameAuthor(review.author, { kind: "agent", agentId }))
+    ) {
+      throw new StreamNotFoundError("Review not found.");
+    }
+    const entry = await loadBlockEntry(
+      this.store.db,
+      review.streamId,
+      review.id,
+      this.heldCheck()
+    );
+    if (!entry) throw new StreamNotFoundError("Review not found.");
+    const findings = reviewFindings(entry.block).map((finding) => ({
+      id: finding.id,
+      ...finding.data,
+      state: finding.state,
+    }));
+    const open = findings.filter(
+      (finding) => finding.state.status === "open"
+    ).length;
+    return {
+      id: review.id,
+      author: review.author,
+      toAgentId: review.toAgentId,
+      summary: review.data.summary,
+      text: review.text,
+      createdAt: review.createdAt,
+      status: open > 0 ? "open" : "complete",
+      openFindings: open,
+      findings,
+    };
+  }
+
   /** An agent's `post`. */
   async post(agentId: string, input: PostInput): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
@@ -1659,7 +1726,7 @@ export class StreamService {
       attachmentInputs
     );
     const from: EnvelopeSender = { kind: "agent", agentId, name: agent.name };
-    const attachmentLines = this.describeAttachments(agent, attachments);
+    const attachmentLines = await this.describeAttachments(agent, attachments);
     if (kind === "review") {
       // A review is its own record, not a reply: a child's goes on its
       // launch card, which shows it; anyone else's goes in the stream.
@@ -1974,7 +2041,7 @@ export class StreamService {
     if (inputs.length > 0) {
       const agent = await this.requireAgent(input.agentId);
       attachments = await this.resolveAttachmentsFor(agent, inputs);
-      attachmentLines = this.describeAttachments(agent, attachments);
+      attachmentLines = await this.describeAttachments(agent, attachments);
     }
     const stored =
       attachments.length > BLOCK_ATTACHMENTS_MAX
@@ -1990,6 +2057,7 @@ export class StreamService {
     return {
       id,
       attachmentLines,
+      images: await this.promptImages(attachments, input.agentId),
       postText,
       record: async () => {
         const block = await this.store.writeLaunchBriefing({
@@ -2274,7 +2342,16 @@ export class StreamService {
     const streamId = await this.streamOf(input.agentId);
     let thread: { threadId: string | null; replyTo: string | null } | null =
       null;
-    if (input.prompt.source === "chat" && input.prompt.answerIn) {
+    if (input.prompt.conversation?.streamId === streamId) {
+      const threadId = input.prompt.conversation.threadId;
+      thread = {
+        threadId,
+        replyTo:
+          threadId && input.prompt.source === "chat"
+            ? input.prompt.chatMessageId
+            : threadId,
+      };
+    } else if (input.prompt.source === "chat" && input.prompt.answerIn) {
       // The prompt said where its answer goes.
       const host = await this.store.getById(input.prompt.answerIn);
       if (host && host.streamId === streamId) {
@@ -2353,6 +2430,73 @@ export class StreamService {
   }
 
   /** A turn settled or was cut: its block takes the answer as its text. */
+  async recordResponseStarted(input: {
+    agentId: string;
+    turnRow: StreamEventRow;
+    prompt: PromptSource;
+    receiptId: string;
+  }): Promise<string | null> {
+    if (input.prompt.source !== "chat") return null;
+    const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
+    const messages = await Promise.all(ids.map((id) => this.store.getById(id)));
+    if (!messages.length || !messages.every((b) => b?.author.kind === "user"))
+      return null;
+    const previousId = input.turnRow.payload.blockId;
+    if (typeof previousId !== "string") return null;
+    const previous = await this.store.getById(previousId);
+    if (
+      !previous ||
+      previous.author.kind !== "agent" ||
+      previous.author.agentId !== input.agentId
+    )
+      return null;
+    // Cross-conversation input must wait for a separate execution turn. This
+    // guard also protects older hosts and delayed pickup receipts.
+    const conversation = input.prompt.conversation;
+    const samePlace = conversation
+      ? conversation.streamId === previous.streamId &&
+        conversation.threadId === previous.threadId
+      : messages.every(
+          (b) =>
+            b?.streamId === previous.streamId &&
+            b.threadId === previous.threadId
+        );
+    if (!samePlace) return null;
+    const id = derivedBlockId(
+      `response:${input.agentId}:${input.turnRow.id}:${input.receiptId}`
+    );
+    if (id === previousId) return id;
+    // Freeze just this response before the turn's current-block pointer moves.
+    await this.recordTurnSettled(input);
+    await this.store.insertIfAbsent({
+      id,
+      streamId: previous.streamId,
+      author: { kind: "agent", agentId: input.agentId },
+      kind: "text",
+      origin: "turn",
+      data: {
+        turnEventId: input.turnRow.id,
+        responseTo: ids,
+        responseToThreadId: messages[messages.length - 1]!.threadId,
+      },
+      text: "",
+      threadId: previous.threadId,
+      replyTo: previous.threadId ? ids[ids.length - 1]! : null,
+    });
+    return id;
+  }
+
+  async recordResponseSplit(input: {
+    agentId: string;
+    previousBlockId: string;
+  }): Promise<void> {
+    const streamId = await this.streamOf(input.agentId);
+    // Re-publish the old response without its live turn, so a reader already
+    // looking at it stops seeing a spinner. The new response streams normally.
+    await this.publishEntry(streamId, input.previousBlockId);
+  }
+
+  /** A turn settled or was cut: its current response takes its own text. */
   async recordTurnSettled(input: {
     agentId: string;
     turnRow: StreamEventRow;
@@ -2425,6 +2569,26 @@ export class StreamService {
     return false;
   }
 
+  /** Resolve once before enqueueing; runtime compares again at actual submission. */
+  async resolvePromptSource(
+    agentId: string,
+    source: PromptSource
+  ): Promise<PromptSource> {
+    if (source.conversation) return source;
+    const streamId = await this.streamOf(agentId);
+    const place =
+      source.source === "chat"
+        ? source.answerIn
+          ? { threadId: source.answerIn }
+          : await this.turnPlaceFor(source.chatMessageId)
+        : null;
+    const home = place ?? (await this.homeOf(agentId));
+    return {
+      ...source,
+      conversation: { streamId, threadId: home?.threadId ?? null },
+    };
+  }
+
   private delivery(): StreamDeliveryAdapter {
     if (!this.deps.delivery) {
       throw new Error("StreamService: no delivery adapter configured.");
@@ -2454,7 +2618,8 @@ export class StreamService {
     attachmentLines: string[] = [],
     extra: {
       answers?: { blockId: string; kind: BlockKind } | null;
-      delivery?: "auto" | "queue";
+      cancels?: { blockId: string; kind: BlockKind } | null;
+      delivery?: "auto" | "queue" | "interrupt";
     } = {}
   ): Promise<{ held: boolean }> {
     const toAgentId = block.toAgentId;
@@ -2462,6 +2627,7 @@ export class StreamService {
     return this.deliverBlockTo(block, [toAgentId], from, () => ({
       attachmentLines,
       answers: extra.answers ?? null,
+      cancels: extra.cancels ?? null,
       delivery: extra.delivery,
     }));
   }
@@ -2478,8 +2644,9 @@ export class StreamService {
     perRecipient: (agentId: string) => {
       attachmentLines?: string[];
       answers?: { blockId: string; kind: BlockKind } | null;
+      cancels?: { blockId: string; kind: BlockKind } | null;
       mention?: { alsoTo: string[] } | null;
-      delivery?: "auto" | "queue";
+      delivery?: "auto" | "queue" | "interrupt";
       /** Never combined with other posts. */
       alone?: boolean;
       /** ACP slash command, sent without the Dispatch envelope. */
@@ -2487,6 +2654,7 @@ export class StreamService {
     }
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
+    const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
     // recipient that never took it can be seen, and sent again, without
@@ -2498,8 +2666,32 @@ export class StreamService {
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
+      // A cancellation closes the ask the same way an answer does: it
+      // resumes the work the ask came from rather than opening a thread.
+      const closes = own.answers ?? own.cancels;
+      const structuredAnswer =
+        closes?.kind === "question" || closes?.kind === "form";
+      const interrupts = (own.delivery ?? block.data?.delivery) === "interrupt";
+      const source: PromptSource = {
+        source: "chat",
+        chatMessageId: block.id,
+        userMessage: from.kind === "user",
+        ...(from.kind === "user" && !structuredAnswer
+          ? {
+              conversation: {
+                streamId: block.streamId,
+                threadId: block.threadId,
+              },
+            }
+          : {}),
+      };
       const result = this.injectDetached({
         agentId,
+        // Structured answers are stored with the ask but resume its work.
+        // Plain messages explicitly choose the location they were posted in.
+        source: structuredAnswer
+          ? await this.resolvePromptSource(agentId, source)
+          : source,
         envelope:
           own.rawPrompt ??
           buildPostEnvelope({
@@ -2516,6 +2708,7 @@ export class StreamService {
                 }
               : null,
             answers: own.answers ?? null,
+            cancels: own.cancels ?? null,
             mention: own.mention ?? null,
           }),
         record: async (delivered) => {
@@ -2545,9 +2738,12 @@ export class StreamService {
         },
         logContext: { blockId: block.id },
         ...(own.alone ? { alone: true } : {}),
-        delivery: own.rawPrompt
-          ? "queue"
-          : (own.delivery ?? block.data?.delivery ?? "auto"),
+        ...(images.length && !own.rawPrompt ? { images } : {}),
+        delivery: interrupts
+          ? "interrupt"
+          : own.rawPrompt
+            ? "queue"
+            : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
       held = held || result.held;
     }
@@ -2571,18 +2767,22 @@ export class StreamService {
     logContext: Record<string, string>;
     /** What the prompt is, for a prompt that is not a block being delivered. */
     source?: PromptSource;
+    images?: PromptImage[];
     alone?: boolean;
-    delivery?: "auto" | "queue";
+    delivery?: "auto" | "queue" | "interrupt";
   }): { held: boolean } {
     const { agentId, logContext } = input;
     const delivery = this.delivery();
     let accepted = false;
     const settlement = delivery
       .inject(agentId, input.envelope, {
-        ...(input.source
-          ? { source: input.source }
-          : { blockId: input.logContext.blockId }),
+        ...(input.logContext.blockId &&
+        (!input.source || input.source.source === "chat")
+          ? { blockId: input.logContext.blockId }
+          : {}),
+        ...(input.source ? { source: input.source } : {}),
         ...(input.alone ? { alone: true } : {}),
+        ...(input.images?.length ? { images: input.images } : {}),
         ...(input.delivery ? { delivery: input.delivery } : {}),
       })
       .then(
@@ -2750,7 +2950,7 @@ export class StreamService {
   async controlQueuedMessage(
     streamId: string,
     blockId: string,
-    action: "delete" | "send-now"
+    action: QueuedPromptAction
   ): Promise<{ ok: true }> {
     const block = await this.store.getById(blockId);
     if (
@@ -2763,7 +2963,7 @@ export class StreamService {
       throw new StreamValidationError("Queued user message not found.");
     }
     if (
-      action === "send-now" &&
+      action !== "delete" &&
       block.kind === "text" &&
       block.data?.acpCommand
     ) {
@@ -2780,10 +2980,21 @@ export class StreamService {
       )
     ) {
       throw new StreamConflictError(
-        "This message is no longer queued. Refresh and try again."
+        action === "interrupt"
+          ? "This message cannot interrupt now: it is no longer queued, or the agent cannot stop its turn. Refresh and try again."
+          : "This message is no longer queued. Refresh and try again."
       );
     }
     if (action === "delete") await this.store.deleteQueuedMessage(blockId);
+    // The post now carries the intent it was given, the same as one sent
+    // as an interrupt from the composer: the row reads "Stop requested",
+    // and a retry after a failed stop asks to interrupt again.
+    if (action === "interrupt") {
+      await this.store.update(blockId, {
+        data: { ...(block.data ?? {}), delivery: "interrupt" },
+      });
+      await this.publishEntry(streamId, blockId);
+    }
     this.publishChanged(streamId);
     if (block.threadId) await this.publishEntry(streamId, block.threadId);
     return { ok: true };
@@ -2834,12 +3045,17 @@ export class StreamService {
     // wake something that is not running.
     for (const id of recipients) await this.canDeliver(id, false);
     const lines = new Map(
-      agents.map((agent) => [
-        agent.id,
-        block.attachments.length > 0
-          ? this.describeAttachments(agent, block.attachments)
-          : [],
-      ])
+      await Promise.all(
+        agents.map(
+          async (agent) =>
+            [
+              agent.id,
+              block.attachments.length > 0
+                ? await this.describeAttachments(agent, block.attachments)
+                : [],
+            ] as const
+        )
+      )
     );
     // The ask this post answers, from the ask's own record of who answered
     // it — not from the fact that the post replies to a question, which a
@@ -2848,13 +3064,18 @@ export class StreamService {
       ? await this.store.getById(block.replyTo)
       : null;
     let answers: { blockId: string; kind: BlockKind } | null = null;
+    let cancels: { blockId: string; kind: BlockKind } | null = null;
     if (answered?.kind === "question") {
       if (answered.state?.answer?.blockId === block.id) {
         answers = { blockId: answered.id, kind: "question" };
+      } else if (answered.state?.cancellation?.blockId === block.id) {
+        cancels = { blockId: answered.id, kind: "question" };
       }
     } else if (answered?.kind === "form") {
       if (answered.state?.submission?.blockId === block.id) {
         answers = { blockId: answered.id, kind: "form" };
+      } else if (answered.state?.cancellation?.blockId === block.id) {
+        cancels = { blockId: answered.id, kind: "form" };
       }
     }
     const names = new Map(agents.map((agent) => [agent.id, agent.name]));
@@ -2872,6 +3093,7 @@ export class StreamService {
         ...(rawCommand ? { rawPrompt: block.text, alone: true } : {}),
         attachmentLines: lines.get(agentId) ?? [],
         answers,
+        cancels,
         // "also to" names everyone the post was addressed to, not just the
         // ones being sent again: that is who is in the conversation.
         mention:
@@ -3011,25 +3233,56 @@ export class StreamService {
     return out;
   }
 
-  /**
-   * One envelope line per resolved attachment: `file: <abs path> (<mime>,
-   * <size>)`, `link: <url>`, `code: …`. File paths use the
-   * recipient agent's files directory when the file is its own; otherwise
-   * the file is described by name and the agent fetches it by URL.
-   */
-  private describeAttachments(
+  /** Native image references come only from resolved attachment metadata. */
+  private async promptImages(
+    attachments: ChatAttachment[],
+    fallbackOwnerId: string
+  ): Promise<PromptImage[]> {
+    const images: PromptImage[] = [];
+    for (const attachment of attachments) {
+      if (
+        attachment.type !== "file" ||
+        !attachment.mimeType ||
+        !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+          attachment.mimeType
+        )
+      )
+        continue;
+      // Attachment metadata was resolved against the file registry on posting.
+      // Use its owner, even when the post is addressed to another agent.
+      if (path.basename(attachment.fileName) !== attachment.fileName) continue;
+      const owner = await this.requireAgent(
+        attachment.ownerAgentId ?? fallbackOwnerId
+      );
+      images.push({
+        path: path.join(
+          resolveFilesDir(owner.id, owner.filesDir, this.deps.filesRoot),
+          attachment.fileName
+        ),
+        mimeType: attachment.mimeType,
+      });
+    }
+    return images;
+  }
+
+  /** Keep file-tool fallback paths aligned with the actual attachment owner. */
+  private async describeAttachments(
     agent: StreamAgent,
     attachments: ChatAttachment[]
-  ): string[] {
-    const filesDir = resolveFilesDir(
-      agent.id,
-      agent.filesDir,
-      this.deps.filesRoot
-    );
+  ): Promise<string[]> {
     const lines: string[] = [];
     for (const attachment of attachments) {
       switch (attachment.type) {
         case "file": {
+          const owner =
+            attachment.ownerAgentId && attachment.ownerAgentId !== agent.id
+              ? await this.requireAgent(attachment.ownerAgentId)
+              : agent;
+          const filesDir = resolveFilesDir(
+            owner.id,
+            owner.filesDir,
+            this.deps.filesRoot
+          );
           const mime = attachment.mimeType ?? "application/octet-stream";
           lines.push(
             `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`

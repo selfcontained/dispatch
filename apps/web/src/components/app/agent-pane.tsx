@@ -91,6 +91,7 @@ export function ChatFiltersButton({
 export type AgentPaneProps = {
   agentId: string | null;
   agent: Agent | null;
+  agents?: Agent[];
   /** The pane is on screen (its tab is active, or it sits in a split). */
   active: boolean;
   showChildAgents: boolean;
@@ -110,6 +111,7 @@ export type AgentPaneProps = {
 export function AgentPane({
   agentId,
   agent,
+  agents,
   active,
   showChildAgents,
   onShowChildAgentsChange,
@@ -142,7 +144,7 @@ export function AgentPane({
       data-testid="agent-pane"
     >
       {header ? (
-        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-1.5 pl-3 pr-2">
+        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5">
           <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
             <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{agent?.name ?? "Agent"}</span>
@@ -173,6 +175,7 @@ export function AgentPane({
             key={agentId ?? "none"}
             agentId={agentId}
             agent={agent}
+            agents={agents}
             active={active}
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}

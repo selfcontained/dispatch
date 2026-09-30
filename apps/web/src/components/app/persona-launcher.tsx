@@ -54,7 +54,7 @@ export function PersonaLauncher({
   label?: string;
 }): JSX.Element {
   const queryClient = useQueryClient();
-  const cwd = agent.worktreePath ?? agent.cwd;
+  const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);

@@ -19,7 +19,7 @@ export type StreamToolsContext = {
   agentId: string;
   streams?: Pick<
     StreamService,
-    "post" | "update" | "addReaction" | "removeReaction"
+    "post" | "update" | "getReview" | "addReaction" | "removeReaction"
   >;
 };
 
@@ -176,7 +176,7 @@ const textSchema = z
 
 const POST_DESCRIPTION =
   "Post a block into a stream. Without `to` it goes where your current turn is answering; outside a turn, a child agent's posts go to its launch-card thread. " +
-  "With `to: <agentId>` it is delivered to that agent as a prompt (any agent, any time); the user still sees it in the stream. " +
+  "With `to: <agentId>` it is addressed to that agent for prompt delivery; the user still sees it in the stream. A successful post records the block, not proof of pickup or an answer. " +
   "Your ordinary replies already appear in the stream as you write them, so use post for what plain text cannot do: " +
   'a question with options (`question`), a form (`form`), a file (`attachments: [{ type: "file", path }]`), a link (`link`), a review of another agent\'s work (`review`, with `to`), a checklist (`tasks`), ' +
   "or a message to another agent (`to`). `replyTo` threads the block under another (use the id from a DISPATCH POST envelope or a post result). " +
@@ -190,9 +190,9 @@ const UPDATE_DESCRIPTION =
 
 const REACT_DESCRIPTION =
   "Put an emoji reaction on a block someone else posted on your stream (the user's message, another agent's post), by the id from its DISPATCH POST envelope. " +
-  "A reaction does not count as an unread message for the user, so anything they need to read still belongs in a post. Pass remove: true to take it off.";
+  "A reaction does not count as an unread message for the user. Explain in an ordinary reply, or use post for structured content. Pass remove: true to take it off.";
 
-/** `post`, `update`, `react`: the whole stream surface an agent has. */
+/** Stream posting, review retrieval, updates, and reactions. */
 export function registerStreamTools(
   server: McpServer,
   allowed: ReadonlySet<string>,
@@ -201,6 +201,35 @@ export function registerStreamTools(
   if (!context.streams) return;
   const streams = context.streams;
   const agentId = context.agentId;
+
+  if (allowed.has("get_review")) {
+    server.registerTool(
+      "get_review",
+      {
+        description:
+          "Fetch a review's summary, findings (with ids), and current resolution states and notes. " +
+          "Omit id for the latest review addressed to you, or provide an id for a review you authored or received. " +
+          "Use for on-demand inspection or recovering context; review results are also delivered as prompts, so do not poll while waiting.",
+        inputSchema: {
+          id: z
+            .uuid()
+            .optional()
+            .describe("Review block id; omit for your latest received review."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await streams.getReview(agentId, args.id);
+          return {
+            content: [{ type: "text", text: jsonText(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   if (allowed.has("post")) {
     server.registerTool(
@@ -226,7 +255,7 @@ export function registerStreamTools(
             .enum(["auto", "queue"])
             .optional()
             .describe(
-              "Default auto: deliver during the running turn, or start a turn if idle. Choose queue to wait for the current turn to finish."
+              "Agent-to-agent posts wait for active work to finish, or start a turn if the recipient is idle. Both auto (default) and queue follow this rule; only actual user messages can steer an active conversation. Sending does not cancel a running tool; the receipt is not confirmation of pickup or an answer."
             ),
         },
       },

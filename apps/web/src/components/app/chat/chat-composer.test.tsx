@@ -305,7 +305,7 @@ describe("ChatComposer @mentions", () => {
     });
   };
 
-  it("shows numbered recipient icons above the input, updating mentions and restoring defaults", () => {
+  it("shows numbered recipient icons below the input, updating mentions and restoring defaults", () => {
     const { input } = renderComposer({
       mentionables,
       // Defaults can come from the server without seat metadata.
@@ -315,6 +315,11 @@ describe("ChatComposer @mentions", () => {
       screen
         .getAllByTestId("chat-composer-recipient")
         .map((badge) => badge.getAttribute("data-agent-id"));
+    expect(
+      input.compareDocumentPosition(
+        screen.getByTestId("chat-composer-routing")
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(recipientIds()).toEqual(["agt_1"]);
     expect(screen.getByLabelText("orchestrator, agent 1")).toBeTruthy();
     type(input, "@reviewer @builder @reviewer check this");
@@ -590,5 +595,314 @@ describe("ChatComposer slash commands", () => {
     expect(input.value).toBe("/ski");
     expect(screen.getByTestId("slash-picker")).toBeTruthy();
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("compact conversation timing", () => {
+  const recipients = [
+    { id: "a", name: "Builder" },
+    { id: "b", name: "Reviewer" },
+  ];
+  const conversation = { streamId: "root", threadId: null };
+  const agents = [
+    {
+      id: "a",
+      activity: "working",
+      currentTurn: { blockId: "turn-a", streamId: "root", threadId: null },
+      inputState: {
+        active: true,
+        interruptSupported: true,
+        steeringSupported: true,
+        conversation,
+      },
+    },
+    {
+      id: "b",
+      activity: "working",
+      currentTurn: { blockId: "turn-b", streamId: "root", threadId: "review" },
+      inputState: {
+        active: true,
+        interruptSupported: true,
+        steeringSupported: true,
+        conversation: { streamId: "root", threadId: "review" },
+      },
+    },
+  ] as NonNullable<Parameters<typeof ChatComposer>[0]["deliveryAgents"]>;
+
+  it("uses the latest Automatic selection when retrying a failed queued send with Enter", async () => {
+    const onSend = vi
+      .fn<Parameters<typeof ChatComposer>[0]["onSend"]>()
+      .mockRejectedValueOnce(new Error("Try later"))
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({
+      onSend,
+      canQueue: true,
+      conversation,
+      defaultRecipients: [recipients[0]!],
+      deliveryAgents: agents,
+    });
+    fireEvent.change(input, { target: { value: "follow-up" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    const error = await screen.findByTestId("chat-composer-error");
+    expect(error.textContent).toContain("press Enter to queue again");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Queued" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Automatic" }));
+    expect(
+      screen.getByRole("button", { name: "Message timing: Now" })
+    ).toBeTruthy();
+    expect(error.textContent).toContain("press Enter to try again");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenNthCalledWith(1, "follow-up", [], {
+      delivery: "queue",
+    });
+    expect(onSend).toHaveBeenNthCalledWith(2, "follow-up", []);
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("selects Interrupt without sending, sends on Enter, and resets on success", async () => {
+    const { input, onSend } = renderComposer({
+      canQueue: true,
+      conversation,
+      defaultRecipients: recipients,
+      deliveryAgents: agents,
+    });
+    fireEvent.change(input, { target: { value: "change direction" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Interrupt current work" })
+    );
+    expect(onSend).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getByRole("button", { name: "Interrupt current work" })
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Message timing: Interrupt" })
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText("Stop current turn, then respond here.")
+    ).toHaveLength(2);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("change direction", [], {
+      delivery: "interrupt",
+    });
+    await waitFor(() => expect(input.value).toBe(""));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Automatic" })
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    ).toBeTruthy();
+  });
+
+  it("keeps Interrupt on failure and retries it with the send button", async () => {
+    const onSend = vi
+      .fn<Parameters<typeof ChatComposer>[0]["onSend"]>()
+      .mockRejectedValueOnce(new Error("Try later"))
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({
+      onSend,
+      canQueue: true,
+      conversation,
+      defaultRecipients: [recipients[0]!],
+      deliveryAgents: agents,
+    });
+    fireEvent.change(input, { target: { value: "change direction" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Now" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Interrupt current work" })
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(
+      (await screen.findByTestId("chat-composer-error")).textContent
+    ).toContain("interrupt and retry");
+    expect(input.value).toBe("change direction");
+    fireEvent.click(screen.getByTestId("chat-composer-send"));
+    expect(onSend).toHaveBeenNthCalledWith(2, "change direction", [], {
+      delivery: "interrupt",
+    });
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it.each(["mentions", "capability", "conversation"] as const)(
+    "blocks selected Interrupt after %s changes, preserving a visible choice",
+    async (change) => {
+      const onSend = vi.fn(async () => undefined);
+      const props: Parameters<typeof ChatComposer>[0] = {
+        agentId: null,
+        onSend,
+        disabledReason: null,
+        canQueue: true,
+        conversation,
+        defaultRecipients: [recipients[0]!],
+        mentionables: recipients,
+        deliveryAgents: agents.map((agent) => ({
+          ...agent,
+          inputState: {
+            ...agent.inputState!,
+            interruptSupported: agent.id === "a",
+          },
+        })),
+      };
+      const { rerender } = render(<ChatComposer {...props} />);
+      const input = screen.getByTestId(
+        "chat-composer-input"
+      ) as HTMLTextAreaElement;
+      fireEvent.change(input, { target: { value: "follow-up" } });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Message timing: Now" })
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Interrupt current work" })
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Message timing: Interrupt" })
+      );
+      if (change === "mentions") {
+        fireEvent.change(input, {
+          target: { value: "@Builder @Reviewer follow-up" },
+        });
+      } else if (change === "capability") {
+        rerender(
+          <ChatComposer
+            {...props}
+            deliveryAgents={agents.map((agent) => ({
+              ...agent,
+              inputState: { ...agent.inputState!, interruptSupported: false },
+            }))}
+          />
+        );
+      } else {
+        rerender(<ChatComposer {...props} conversation={undefined} />);
+      }
+      expect(
+        screen.getByTestId("chat-composer-delivery-blocked").textContent
+      ).toContain("Interrupt is unavailable");
+      expect(
+        screen.getByRole("button", { name: "Message timing: Unavailable" })
+      ).toBeTruthy();
+      const sendButton = screen.getByTestId(
+        "chat-composer-send"
+      ) as HTMLButtonElement;
+      expect(sendButton.disabled).toBe(true);
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.click(sendButton);
+      expect(onSend).not.toHaveBeenCalled();
+      expect(input.value).toContain("follow-up");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Message timing: Unavailable" })
+      );
+      expect(
+        screen
+          .getByRole("button", { name: "Interrupt current work" })
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Automatic" }));
+      expect(screen.queryByTestId("chat-composer-delivery-blocked")).toBeNull();
+      expect(sendButton.disabled).toBe(false);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onSend).toHaveBeenCalledOnce();
+      await waitFor(() => expect(input.value).toBe(""));
+    }
+  );
+
+  it("disables Interrupt if any busy recipient has an older host", () => {
+    renderComposer({
+      canQueue: true,
+      conversation,
+      defaultRecipients: recipients,
+      deliveryAgents: agents.map((agent) => ({
+        ...agent,
+        inputState: {
+          ...agent.inputState!,
+          interruptSupported: agent.id === "a",
+        },
+      })),
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Interrupt current work",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+    expect(screen.getByText(/Interrupt is unavailable/)).toBeTruthy();
+  });
+
+  it("hides timing when recipients are idle", () => {
+    renderComposer({
+      canQueue: true,
+      conversation,
+      defaultRecipients: recipients,
+      deliveryAgents: [],
+    });
+    expect(screen.queryByTestId("chat-composer-delivery")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send options" })).toBeNull();
+  });
+
+  it("shows Mixed beside recipients, with reasons only in the click popover", async () => {
+    const { input, onSend } = renderComposer({
+      canQueue: true,
+      conversation,
+      defaultRecipients: recipients,
+      deliveryAgents: agents,
+    });
+    expect(
+      screen
+        .getByTestId("chat-composer-routing")
+        .contains(screen.getByRole("button", { name: "Message timing: Mixed" }))
+    ).toBe(true);
+    expect(screen.queryByText(/Working in another conversation/)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    );
+    expect(screen.getByText(/Working in another conversation/)).toBeTruthy();
+    expect(screen.getByText("Continues the active conversation.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Queue for next turn" })
+    );
+    expect(
+      screen.getByRole("button", { name: "Message timing: Queued" })
+    ).toBeTruthy();
+    fireEvent.change(input, { target: { value: "follow-up" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("follow-up", [], { delivery: "queue" });
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(
+      screen.getByRole("button", { name: "Message timing: Mixed" })
+    ).toBeTruthy();
+  });
+
+  it("updates actual recipients when mentions replace the defaults", () => {
+    const { input } = renderComposer({
+      canQueue: true,
+      conversation,
+      defaultRecipients: [recipients[0]!],
+      mentionables: recipients,
+      deliveryAgents: agents,
+    });
+    expect(
+      screen.getByRole("button", { name: "Message timing: Now" })
+    ).toBeTruthy();
+    fireEvent.change(input, { target: { value: "@Reviewer hello" } });
+    expect(
+      screen.getByRole("button", { name: "Message timing: Queued" })
+    ).toBeTruthy();
   });
 });

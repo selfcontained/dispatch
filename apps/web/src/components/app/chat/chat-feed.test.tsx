@@ -17,7 +17,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -134,6 +134,13 @@ function makeCtx(
 
 let queryClient = new QueryClient();
 
+function JumpLocation() {
+  const location = useLocation();
+  return (
+    <output data-testid="jump-location">{JSON.stringify(location)}</output>
+  );
+}
+
 function feedElement(
   entries: StreamEntry[],
   ctx: FeedContext,
@@ -143,6 +150,7 @@ function feedElement(
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
+        <JumpLocation />
         <ChatFeed
           entries={entries}
           ctx={ctx}
@@ -1125,7 +1133,7 @@ describe("ChatFeed", () => {
         type: "codex",
         parentAgentId: "agt_root",
       },
-      { id: "agt_far", name: "far", type: "claude", parentAgentId: null },
+      { id: "agt_far", name: "far", type: "opencode", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const from = (id: string, senderAgentId: string, minute: string) =>
@@ -1168,7 +1176,7 @@ describe("ChatFeed", () => {
           post.querySelector('[data-testid="chat-author-engine"]')
             ?.textContent ?? null
       )
-    ).toEqual(["Codex", "Claude", "Codex", "Claude", null]);
+    ).toEqual(["Codex", "Claude", "Codex", "OpenCode", null]);
     const modelChip = posts[0]!.querySelector(
       '[data-testid="chat-author-model"]'
     );
@@ -1360,16 +1368,22 @@ describe("ChatFeed", () => {
     expect(action?.className).toContain("max-sm:-mt-2");
   });
 
-  it("gives the agent a bot avatar and names its engine under it", () => {
-    renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType: "codex" });
-    const post = screen.getByTestId("chat-message");
-    expect(
-      post.querySelector("[data-testid='chat-avatar-agent']")
-    ).toBeTruthy();
-    expect(
-      post.querySelector("[data-testid='chat-author-engine']")?.textContent
-    ).toBe("Codex");
-  });
+  it.each([
+    ["codex", "Codex"],
+    ["opencode", "OpenCode"],
+  ] as const)(
+    "gives a %s agent a bot avatar and engine badge",
+    (agentType, label) => {
+      renderFeed([blockEntry(block({ id: "a1" }))], {}, { agentType });
+      const post = screen.getByTestId("chat-message");
+      expect(
+        post.querySelector("[data-testid='chat-avatar-agent']")
+      ).toBeTruthy();
+      expect(
+        post.querySelector("[data-testid='chat-author-engine']")?.textContent
+      ).toBe(label);
+    }
+  );
 
   it("shows a sending hint while delivery is pending, and nothing once delivered", async () => {
     renderFeed([
@@ -1406,6 +1420,27 @@ describe("ChatFeed", () => {
       "Queued until the turn ends"
     );
     expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+  });
+
+  it("keeps a held interrupt waiting for stop without offering Send now", () => {
+    renderFeed([
+      blockEntry(
+        block({
+          id: "urgent",
+          authorKind: "user",
+          text: "Urgent",
+          threadId: null,
+          body: { kind: "text", data: { delivery: "interrupt" }, state: null },
+          delivered: null,
+          delivery: [{ agentId: "agt_1", state: "held" }],
+        })
+      ),
+    ]);
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Stop requested"
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
   it("shows the hold hint on the queued message only", () => {
@@ -2738,5 +2773,167 @@ describe("delivery receipts in the feed", () => {
     expect(
       screen.queryByRole("button", { name: "Message delivery details" })
     ).toBeNull();
+  });
+});
+
+describe("response backlinks", () => {
+  it("gives repeated clicks a fresh jump nonce and keeps the child view", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "response",
+            streamId: AGENT_ID,
+            author: { kind: "agent", agentId: "agt_child" },
+            body: {
+              kind: "text",
+              state: null,
+              data: {
+                responseTo: ["source-message"],
+                responseToThreadId: null,
+              },
+            },
+            text: "Answer",
+          })
+        ),
+      ],
+      {},
+      { agentId: "agt_child" }
+    );
+    const link = screen.getByRole("link", {
+      name: "In response to your message",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "/agents/agt_child?block=source-message"
+    );
+    fireEvent.click(link);
+    const first = JSON.parse(screen.getByTestId("jump-location").textContent!);
+    expect(first.pathname).toBe("/agents/agt_child");
+    expect(first.state.blockJump).toBeTruthy();
+    fireEvent.click(link);
+    const second = JSON.parse(screen.getByTestId("jump-location").textContent!);
+    expect(second.state.blockJump).not.toBe(first.state.blockJump);
+  });
+
+  it("offers Send now for held recipients regardless of delivered recipients' work", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "mixed-held",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [
+              { agentId: "agt_done", state: "delivered" },
+              { agentId: "agt_held", state: "held" },
+            ],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: "agt_done",
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: "elsewhere" },
+          },
+        } as Agent,
+        {
+          id: "agt_held",
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: null },
+          },
+        } as Agent,
+      ]
+    );
+    expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
+  });
+
+  it("offers Send now as an interrupt when the post cannot steer into the turn", async () => {
+    const { api } = await import("@/lib/api");
+    vi.mocked(api).mockClear();
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "elsewhere",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [{ agentId: AGENT_ID, state: "held" }],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: AGENT_ID,
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: true,
+            interruptSupported: true,
+            conversation: { streamId: AGENT_ID, threadId: "other-thread" },
+          },
+        } as Agent,
+      ]
+    );
+    const button = screen.getByRole("button", { name: "Send now" });
+    expect(button.getAttribute("data-send-now")).toBe("interrupt");
+    expect(button.getAttribute("title")).toContain("Stop the current turn");
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        `/api/v1/streams/${AGENT_ID}/blocks/elsewhere/send-now`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ interrupt: true }),
+        })
+      )
+    );
+  });
+
+  it("withholds Send now when the post can neither steer nor interrupt", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "stuck",
+            authorKind: "user",
+            delivered: null,
+            streamId: AGENT_ID,
+            threadId: null,
+            delivery: [{ agentId: AGENT_ID, state: "held" }],
+          })
+        ),
+      ],
+      {},
+      {},
+      [
+        {
+          id: AGENT_ID,
+          activity: "working",
+          inputState: {
+            active: true,
+            steeringSupported: false,
+            interruptSupported: false,
+            conversation: { streamId: AGENT_ID, threadId: null },
+          },
+        } as Agent,
+      ]
+    );
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 });

@@ -73,10 +73,11 @@ const postBodySchema = z.object({
     .max(BLOCK_ATTACHMENTS_MAX)
     .optional(),
   interrupt: z.boolean().optional(),
-  delivery: z.enum(["auto", "queue"]).optional(),
+  delivery: z.enum(["auto", "queue", "interrupt"]).optional(),
 }) satisfies z.ZodType<StreamPostRequest, unknown>;
 
 const answerBodySchema = z.object({
+  delivery: z.enum(["auto", "queue", "interrupt"]).optional(),
   id: z.uuid().optional(),
   value: z.string("value is required."),
   label: z.string("label must be a string.").optional(),
@@ -90,6 +91,11 @@ const submitBodySchema = z.object({
   id: z.uuid().optional(),
   values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
 }) satisfies z.ZodType<StreamSubmitRequest, unknown>;
+
+const sendNowBodySchema = z.object({
+  /** Stop the running turn and give the queued post its own turn next. */
+  interrupt: z.boolean().optional(),
+});
 
 const stateBodySchema = z.object({
   state: z.record(z.string(), z.unknown()),
@@ -255,13 +261,14 @@ export async function registerStreamRoutes(
       if (!parsed.success) {
         return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
       }
-      const { value, label, attachments, id } = parsed.data;
+      const { value, label, attachments, id, delivery } = parsed.data;
       try {
         return await streams.answerQuestion(
           params.rootId ?? "",
           params.blockId ?? "",
           {
             value,
+            ...(delivery !== undefined ? { delivery } : {}),
             ...(id !== undefined ? { id } : {}),
             ...(label !== undefined ? { label } : {}),
             ...(attachments && attachments.length > 0 ? { attachments } : {}),
@@ -291,17 +298,28 @@ export async function registerStreamRoutes(
     }
   );
 
+  // Send now steers the post into the running turn; with `interrupt: true`
+  // it stops that turn and the post opens the next one.
   for (const action of ["delete", "send-now"] as const) {
     app.route({
       method: action === "delete" ? "DELETE" : "POST",
       url: `/api/v1/streams/:rootId/blocks/:blockId${action === "delete" ? "" : "/send-now"}`,
       handler: async (request, reply) => {
         const params = request.params as { rootId: string; blockId: string };
+        const parsed =
+          action === "send-now"
+            ? sendNowBodySchema.safeParse(request.body ?? {})
+            : null;
+        if (parsed && !parsed.success) {
+          return reply
+            .code(400)
+            .send({ error: bodyIssueMessage(parsed.error) });
+        }
         try {
           return await streams.controlQueuedMessage(
             params.rootId,
             params.blockId,
-            action
+            parsed?.data.interrupt ? "interrupt" : action
           );
         } catch (error) {
           return sendError(reply, error);

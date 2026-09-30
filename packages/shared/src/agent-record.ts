@@ -1,3 +1,4 @@
+import type { AgentInputState } from "./conversation-delivery.js";
 /**
  * The agent row as it goes over the wire.
  *
@@ -54,6 +55,7 @@ export type AgentGitContext = {
 };
 
 export type AgentCurrentTurn = {
+  streamId?: string;
   blockId: string;
   threadId: string | null;
 };
@@ -69,6 +71,13 @@ export type AgentRecord = {
   launchCwd?: string | null;
   worktreePath: string | null;
   worktreeBranch: string | null;
+  /**
+   * Where the agent is working now, set when it moved after launch (a worktree
+   * it created, another repo). Null means it is still in its worktree or cwd.
+   */
+  workspacePath: string | null;
+  /** The branch a moved workspace diffs against. */
+  workspaceBaseBranch: string | null;
   simulatorUdid: string | null;
   filesDir: string | null;
   agentArgs: string[];
@@ -90,6 +99,8 @@ export type AgentRecord = {
    * is in the main column). Null otherwise.
    */
   currentTurn: AgentCurrentTurn | null;
+  /** Live per-recipient delivery capability and conversation. */
+  inputState?: AgentInputState;
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;

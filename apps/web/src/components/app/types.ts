@@ -38,6 +38,8 @@ type LenientAgentField =
   | "personaContext"
   | "reviewAgentType"
   | "baseBranch"
+  | "workspacePath"
+  | "workspaceBaseBranch"
   | "templateId"
   | "cliSessionId";
 

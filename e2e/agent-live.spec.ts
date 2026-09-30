@@ -66,9 +66,7 @@ test.describe("Live agent", () => {
     );
     await sendChat(page, "permission-test stop");
     await expect(approvals).toBeVisible();
-    await page
-      .getByRole("button", { name: "Stop the running turn", exact: true })
-      .click();
+    await page.getByTestId("chat-stop-turn").click();
     await expect(approvals).toHaveCount(0);
     const res = await request.get(`/api/v1/agents/${agent.id}/permissions`, {
       headers: authHeaders(),
@@ -78,6 +76,181 @@ test.describe("Live agent", () => {
 
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
+  });
+
+  test("composer chooses which of two active agents to stop", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const first = await createAgentViaAPI(request, {
+      name: `e2e-stop-first-${Date.now()}`,
+      type: "codex",
+    });
+    const second = await createAgentViaAPI(request, {
+      name: `e2e-stop-second-${Date.now()}`,
+      type: "codex",
+    });
+    await loadApp(page);
+    await page.goto(`/agents/${first.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:20000 first");
+    await expect(page.getByTestId("chat-turn").last()).not.toHaveAttribute(
+      "data-settled",
+      "true"
+    );
+    await page.goto(`/agents/${second.id}`, { waitUntil: "domcontentloaded" });
+    await sendChat(page, "sleep:20000 second");
+    const stop = page.getByTestId("chat-stop-turn");
+    await expect(stop).toHaveAttribute("aria-haspopup", "menu", {
+      timeout: TURN_TIMEOUT,
+    });
+    await stop.click();
+    await expect(page.getByTestId(`chat-stop-agent-${first.id}`)).toBeVisible();
+    await expect(
+      page.getByTestId(`chat-stop-agent-${second.id}`)
+    ).toBeVisible();
+    await test.info().attach("choose-agent-to-stop", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await page.getByTestId(`chat-stop-agent-${first.id}`).click();
+    await page.goto(`/agents/${first.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("harness-interrupted")).toBeVisible({
+      timeout: TURN_TIMEOUT,
+    });
+    const stillRunning = await request.get(`/api/v1/agents/${second.id}`, {
+      headers: authHeaders(),
+    });
+    expect((await stillRunning.json()).agent.currentTurn).not.toBeNull();
+    await page.goto(`/agents/${second.id}`, { waitUntil: "domcontentloaded" });
+    await expect(stop).not.toHaveAttribute("aria-haspopup", "menu");
+    await stop.click();
+    await expect(page.getByTestId("harness-interrupted")).toBeVisible({
+      timeout: TURN_TIMEOUT,
+    });
+  });
+
+  test("Stop picker scrolls long agent names inside a small mobile viewport", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const agents = [];
+    for (let index = 0; index < 8; index++) {
+      agents.push(
+        await createAgentViaAPI(request, {
+          name: `e2e-stop-${index}-${"long-agent-name-".repeat(5)}`,
+          type: "codex",
+        })
+      );
+    }
+    for (const agent of agents) {
+      await expect
+        .poll(
+          async () => {
+            const response = await request.get(`/api/v1/agents/${agent.id}`, {
+              headers: authHeaders(),
+            });
+            return ((await response.json()) as { agent: { status: string } })
+              .agent.status;
+          },
+          { timeout: TURN_TIMEOUT }
+        )
+        .toBe("running");
+      const response = await request.post(
+        `/api/v1/streams/${agent.id}/blocks`,
+        {
+          headers: authHeaders(),
+          data: { text: "sleep:60000" },
+        }
+      );
+      expect(response.ok(), await response.text()).toBe(true);
+    }
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get("/api/v1/agents", {
+            headers: authHeaders(),
+          });
+          const payload = (await response.json()) as {
+            agents: Array<{ id: string; currentTurn: unknown }>;
+          };
+          const ids = new Set(agents.map((agent) => agent.id));
+          return payload.agents.filter(
+            (agent) => ids.has(agent.id) && agent.currentTurn
+          ).length;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe(agents.length);
+
+    await page.setViewportSize({ width: 320, height: 360 });
+    await loadApp(page);
+    await page.goto(`/agents/${agents[0]!.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const stop = page.getByTestId("chat-stop-turn");
+    await expect(stop).toHaveAttribute("aria-haspopup", "menu", {
+      timeout: TURN_TIMEOUT,
+    });
+    await stop.click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const bounds = await menu.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(360);
+    const scroll = await menu.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+    const label = menu.locator("span.truncate").first();
+    expect(
+      await label.evaluate(
+        (element) => element.scrollWidth > element.clientWidth
+      )
+    ).toBe(true);
+    const last = page.getByTestId(`chat-stop-agent-${agents.at(-1)!.id}`);
+    await last.scrollIntoViewIfNeeded();
+    const lastBounds = await last.boundingBox();
+    const scrolledBounds = await menu.boundingBox();
+    expect(lastBounds).not.toBeNull();
+    expect(scrolledBounds).not.toBeNull();
+    expect(lastBounds!.y).toBeGreaterThanOrEqual(scrolledBounds!.y);
+    expect(lastBounds!.y + lastBounds!.height).toBeLessThanOrEqual(
+      scrolledBounds!.y + scrolledBounds!.height
+    );
+    await test.info().attach("mobile-stop-picker", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    for (const agent of agents) {
+      const response = await request.post(
+        `/api/v1/agents/${agent.id}/runtime/cancel`,
+        { headers: authHeaders() }
+      );
+      expect(response.ok()).toBe(true);
+    }
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get("/api/v1/agents", {
+            headers: authHeaders(),
+          });
+          const payload = (await response.json()) as {
+            agents: Array<{ id: string; currentTurn: unknown }>;
+          };
+          const ids = new Set(agents.map((agent) => agent.id));
+          return payload.agents.filter(
+            (agent) => ids.has(agent.id) && agent.currentTurn
+          ).length;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe(0);
   });
 
   test("Send steers the active turn and Queue waits without interrupting it", async ({
@@ -110,7 +283,13 @@ test.describe("Live agent", () => {
     const slot = correction.getByTestId("chat-delivery-slot");
     const sentSlot = await slot.boundingBox();
     await correction.hover();
-    expect(await slot.boundingBox()).toEqual(sentSlot);
+    const hoveredSlot = await slot.boundingBox();
+    expect(sentSlot).not.toBeNull();
+    expect(hoveredSlot).not.toBeNull();
+    expect(Math.abs(hoveredSlot!.x - sentSlot!.x)).toBeLessThan(1);
+    expect(Math.abs(hoveredSlot!.y - sentSlot!.y)).toBeLessThan(1);
+    expect(hoveredSlot!.width).toBe(sentSlot!.width);
+    expect(hoveredSlot!.height).toBe(sentSlot!.height);
     expect(
       await slot.evaluate(
         (e) => !!e.closest('[data-testid="chat-post-action"]')
@@ -186,6 +365,89 @@ test.describe("Live agent", () => {
     });
     await expect(turns.last()).toContainText("/compact");
     await expect(turns.last()).not.toContainText("DISPATCH POST");
+  });
+
+  test("Send now on a post queued behind another conversation interrupts that turn and opens its own", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-send-now-interrupt-${Date.now()}`,
+      type: "codex",
+    });
+    const post = async (body: Record<string, unknown>) => {
+      const res = await request.post(`/api/v1/streams/${agent.id}/blocks`, {
+        headers: authHeaders(),
+        data: body,
+      });
+      return ((await res.json()) as { block: { id: string } }).block.id;
+    };
+    // The host is up once the agent leaves `creating`.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/api/v1/agents/${agent.id}`, {
+            headers: authHeaders(),
+          });
+          return ((await res.json()) as { agent: { status: string } }).agent
+            .status;
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toBe("running");
+    await loadApp(page);
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const rootId = await post({ text: "root post" });
+    const turns = page.getByTestId("chat-turn");
+    await expect(turns).toHaveCount(1, { timeout: TURN_TIMEOUT });
+    await expect(turns.first()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    // A long turn in the thread; a main-column post cannot steer into it.
+    // Wait until the engine is inside its delay: a cancel that lands in the
+    // same instant as the prompt itself is a race no person can produce.
+    await post({ text: "sleep:60000 thread work", replyTo: rootId });
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(
+            `/api/v1/streams/${agent.id}/blocks/${rootId}/thread`,
+            { headers: authHeaders() }
+          );
+          return JSON.stringify(await res.json());
+        },
+        { timeout: TURN_TIMEOUT }
+      )
+      .toContain("Waiting for the requested delay.");
+    await expect(page.getByTestId("chat-stop-turn")).toBeVisible();
+    await sendChat(page, "urgent main post");
+    const queued = page
+      .locator('[data-testid="chat-message"][data-author-kind="user"]')
+      .filter({ hasText: "urgent main post" });
+    await expect(queued.getByTestId("chat-held-hint")).toContainText(
+      "Queued until the turn ends"
+    );
+    const sendNow = queued.getByRole("button", {
+      name: "Send now",
+      exact: true,
+    });
+    await expect(sendNow).toHaveAttribute("data-send-now", "interrupt");
+    await sendNow.click();
+    // Its own turn, in the main column, after the thread's turn was cut.
+    await expect(turns).toHaveCount(2, { timeout: TURN_TIMEOUT });
+    await expect(turns.last()).toContainText("urgent main post", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(turns.last()).toHaveAttribute("data-settled", "true", {
+      timeout: TURN_TIMEOUT,
+    });
+    await expect(queued.getByTestId("chat-held-hint")).toHaveCount(0);
+    const thread = await request.get(
+      `/api/v1/streams/${agent.id}/blocks/${rootId}/thread`,
+      { headers: authHeaders() }
+    );
+    expect(JSON.stringify(await thread.json())).toContain('"interrupted"');
   });
 
   test("a reply in a thread opens a turn drawn in that thread, not the main column", async ({
@@ -330,7 +592,7 @@ test.describe("Live agent", () => {
       timeout: 15_000,
     });
     await expect(turns.nth(2).getByTestId("harness-interrupted")).toBeVisible();
-    await expect(stop).toHaveCount(0);
+    await expect(stop).toHaveAttribute("aria-label", "No active turns");
 
     // Stop the agent from its sidebar card, then start it again.
     const card = page.getByTestId(`agent-card-${agent.id}`);

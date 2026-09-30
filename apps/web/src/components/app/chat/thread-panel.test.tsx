@@ -40,7 +40,9 @@ vi.mock("@/lib/api", () => ({
   api: (url: string, ...args: unknown[]) =>
     url.endsWith("/permissions")
       ? Promise.resolve({ connected: false, requests: [] })
-      : apiMock(url, ...args),
+      : url === "/api/v1/agents"
+        ? Promise.resolve({ agents: [] })
+        : apiMock(url, ...args),
 }));
 vi.mock("@/components/ui/markdown", () => ({
   Markdown: ({ children }: { children: string }) => (

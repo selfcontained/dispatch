@@ -48,7 +48,7 @@ type SystemRouteDeps = {
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
   /** The configured engine CLIs, so this reports what a launch would run. */
-  engineBins: { claude: string; codex: string };
+  engineBins: { claude: string; codex: string; opencode?: string };
 };
 
 export async function registerSystemRoutes(

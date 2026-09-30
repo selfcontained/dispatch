@@ -6,6 +6,7 @@ import {
   CheckCheck,
   Hourglass,
   Loader2,
+  Zap,
 } from "lucide-react";
 
 /** The recipients of a post in one of the states worth reporting. */
@@ -52,6 +53,8 @@ function DeliveryStatus({
 }: DeliveryMetaProps): JSX.Element | null {
   if (block.toAgentId === null || !block.delivery?.length) return null;
   const several = block.delivery.length > 1;
+  const interrupt =
+    block.kind === "text" && block.data?.delivery === "interrupt";
   const failed = inState(block, "failed");
   const held = inState(block, "held");
 
@@ -59,13 +62,21 @@ function DeliveryStatus({
     return (
       <div
         className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-destructive [overflow-wrap:anywhere]"
-        title="The message was not taken: the agent had no session, or its engine stopped responding."
+        title={
+          interrupt
+            ? "The stop request or message delivery failed. Your message is saved; retry to request interruption again."
+            : "The message was not taken: the agent had no session, or its engine stopped responding."
+        }
         data-testid="chat-delivery-failed"
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
-        {several
-          ? `Not delivered to ${nameList(failed, recipientName)}`
-          : "Not delivered"}
+        {interrupt
+          ? several
+            ? `Interrupt failed for ${nameList(failed, recipientName)}`
+            : "Interrupt failed"
+          : several
+            ? `Not delivered to ${nameList(failed, recipientName)}`
+            : "Not delivered"}
         {/* The same post, sent again, and only to whoever missed it:
             nothing new lands in the stream and nobody reads it twice. Not
             "Retry", which on a failed turn runs the agent again. */}
@@ -77,7 +88,11 @@ function DeliveryStatus({
             onClick={() => onRetryDelivery?.(block.id)}
             data-testid="chat-delivery-retry"
           >
-            {retrying ? "Sending…" : "Send again"}
+            {retrying
+              ? "Sending…"
+              : interrupt
+                ? "Try interrupt again"
+                : "Send again"}
           </button>
         ) : null}
       </div>
@@ -88,16 +103,28 @@ function DeliveryStatus({
       <div
         className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
         title={
-          block.kind === "text" && block.data?.acpCommand
-            ? "This command will run after the current turn."
-            : "Your message will be delivered after the current turn. Send now delivers during the turn when supported."
+          interrupt
+            ? `Stop requested${several ? ` for ${nameList(held, recipientName)}` : ""}. Delivery waits for the current turn to stop; running tools may take time to cancel.`
+            : block.kind === "text" && block.data?.acpCommand
+              ? "This command will run after the current turn."
+              : "Your message will be delivered in its own conversation after the current turn."
         }
         data-testid="chat-held-hint"
       >
-        <Hourglass className="h-3 w-3 shrink-0" />
-        {several
-          ? `Queued for ${nameList(held, recipientName)}, until the turn ends`
-          : "Queued until the turn ends"}
+        {interrupt ? (
+          <Zap className="h-3 w-3 shrink-0" aria-hidden="true" />
+        ) : (
+          <Hourglass className="h-3 w-3 shrink-0" aria-hidden="true" />
+        )}
+        <span className="min-w-0 truncate">
+          {interrupt
+            ? several
+              ? `Stop requested · ${held.length} agents`
+              : "Stop requested"
+            : several
+              ? `Queued for ${nameList(held, recipientName)}, until the turn ends`
+              : "Queued until the turn ends"}
+        </span>
       </div>
     );
   }
@@ -152,8 +179,8 @@ function useReceiptFlash(block: Block): boolean {
   return received.some((entry) => !!flashes[entry.agentId]);
 }
 
-/** Non-interactive receipt mark. The parent reserves its own fixed margin;
- * this subtree never participates in the action toolbar or message flow. */
+/** Non-interactive receipt mark. Its fixed-size slot stays in place after
+ * the confirmation fades, so message content and actions never shift. */
 export function DeliveryIndicator({
   block,
 }: Pick<DeliveryMetaProps, "block">): JSX.Element {
@@ -190,6 +217,13 @@ export function DeliveryIndicator({
           : freshReceipt && received === deliveries.length
             ? "Received"
             : undefined;
+  // Keep the success color after the flash expires so the double check
+  // fades out in green instead of changing back to gray during its exit.
+  const confirmed =
+    !needsAction &&
+    !pendingKey &&
+    received > 0 &&
+    received === deliveries.length;
   const Icon =
     status === "Sending…" ? Loader2 : status === "Sent" ? Check : CheckCheck;
   const label =
@@ -198,7 +232,7 @@ export function DeliveryIndicator({
       : status;
   return (
     <span
-      className={`flex h-4 w-4 items-center justify-center text-muted-foreground transition-opacity duration-200 motion-reduce:transition-none ${status ? "opacity-100" : "opacity-0"}`}
+      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-green-700 [[data-theme-mode=dark]_&]:text-green-500" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
       data-testid="chat-delivery-indicator"
       data-status={status}
       role="status"

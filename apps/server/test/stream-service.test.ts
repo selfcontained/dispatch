@@ -24,6 +24,8 @@ import {
   launchBlockId,
 } from "../src/chat/service.js";
 import type { PromptSource } from "../src/agents/acp/prompt-source.js";
+import { StreamRecorder } from "../src/agents/acp/stream-recorder.js";
+import { StreamStore } from "../src/agents/acp/stream-store.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { composeStreamFeed } from "../src/chat/feed.js";
@@ -199,6 +201,28 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("StreamService.recordLaunchContext", () => {
+  it("delivers native image references from the file owner to another agent and on startup", async () => {
+    const fileId = await seedFiles(A, "native.png");
+    const { svc, injectedOpts } = build();
+    const posted = await svc.post(A, {
+      to: B,
+      text: "Inspect this image",
+      attachments: [{ type: "file", fileId }],
+    });
+    await settled(svc, posted.id);
+    expect(injectedOpts[0]).toMatchObject({
+      images: [{ path: `/files-root/${A}/native.png`, mimeType: "image/png" }],
+    });
+    const prepared = await svc.prepareLaunchContext({
+      agentId: A,
+      text: "Inspect",
+      files: [{ fileId }],
+    });
+    expect(prepared?.images).toEqual([
+      { path: `/files-root/${A}/native.png`, mimeType: "image/png" },
+    ]);
+  });
+
   it("records one delivered user block with file and link attachments", async () => {
     const fileId = await seedFiles(A, "brief-2026.md", 300);
     const block = await service.recordLaunchContext({
@@ -1800,8 +1824,8 @@ describe("StreamService.sendUserPost", () => {
       threadId: findings[0]!.id,
       toAgentId: null,
     });
-    // The person is its reviewer: resolving it asks nothing of the agent,
-    // so the agent is not told; reopening it is the agent's move again.
+    // The person is its reviewer: both verification and reopening reach
+    // the agent whose work was reviewed.
     injected.length = 0;
     await svc.setState(
       A,
@@ -1810,7 +1834,9 @@ describe("StreamService.sendUserPost", () => {
       { kind: "user" }
     );
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "Guard" fixed.');
+    injected.length = 0;
     await svc.setState(
       A,
       findings[0]!.id,
@@ -2271,20 +2297,21 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     const canceled = await svc.update(A, q.id, {
       state: { cancellation: true },
     });
-    expect(canceled.kind === "question" && canceled.state.cancellation).toEqual(
-      {
-        by: { kind: "agent", agentId: A },
-        at: expect.any(String),
-      }
-    );
     const thread = await svc.store.listThread(q.id);
     expect(thread?.replies).toHaveLength(1);
     expect(thread?.replies[0]).toMatchObject({
       author: { kind: "agent", agentId: A },
-      text: "Canceled.",
+      text: "Withdrawn.",
       replyTo: q.id,
       toAgentId: null,
     });
+    expect(canceled.kind === "question" && canceled.state.cancellation).toEqual(
+      {
+        by: { kind: "agent", agentId: A },
+        at: expect.any(String),
+        blockId: thread?.replies[0].id,
+      }
+    );
     // Addressed to the user: no agent to notify.
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toEqual([]);
@@ -2304,7 +2331,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       canceled.kind === "question" && canceled.state.cancellation?.reason
     ).toBe("Switched approaches.");
     const thread = await svc.store.listThread(q.id);
-    expect(thread?.replies[0].text).toBe("Canceled: Switched approaches.");
+    expect(thread?.replies[0].text).toBe("Withdrawn: Switched approaches.");
     // A bare reason string works the same way.
     const q2 = await ask(svc);
     const canceled2 = await svc.update(A, q2.id, {
@@ -2324,6 +2351,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
     expect(canceled.kind === "form" && canceled.state.cancellation).toEqual({
       by: { kind: "agent", agentId: A },
       at: expect.any(String),
+      blockId: expect.any(String),
     });
     expect((await svc.store.listThread(f.id))?.replies).toHaveLength(1);
   });
@@ -2336,10 +2364,14 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       state: { cancellation: { reason: "handled elsewhere" } },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toContainEqual({
-      agentId: B,
-      text: expect.stringContaining("Canceled: handled elsewhere"),
-    });
+    // The question itself went to B first; the withdrawal follows it.
+    const notice = injected.at(-1);
+    expect(notice).toMatchObject({ agentId: B });
+    expect(notice!.text).toContain("Withdrawn: handled elsewhere");
+    expect(notice!.text).toContain(
+      `withdrew its question ${q.id} to you. No reply is needed.`
+    );
+    expect(notice!.text).not.toContain("This answers");
     const thread = await svc.store.listThread(canceled.id);
     expect(thread?.replies[0].toAgentId).toBe(B);
   });
@@ -2377,10 +2409,15 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       canceled.kind === "question" && canceled.state.cancellation?.by
     ).toEqual({ kind: "user" });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toContainEqual({
-      agentId: A,
-      text: expect.stringContaining("Canceled."),
-    });
+    // The prompt says what happened and what it means: not an answer, not
+    // the turn being stopped, and nothing to wait for.
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toMatchObject({ agentId: A });
+    expect(injected[0]!.text).toContain("Dismissed without answering.");
+    expect(injected[0]!.text).toContain(
+      `The user dismissed your question ${q.id} without answering it. This is not an answer and does not stop your turn; no answer is coming, so do not wait for one.`
+    );
+    expect(injected[0]!.text).not.toContain("This answers");
     const f = await form(svc);
     const canceledForm = await svc.setState(
       A,
@@ -2512,7 +2549,7 @@ describe("StreamService cancellation (question/form state.cancellation)", () => 
       expect(final?.state?.answer).toBeUndefined();
       expect((await svc.store.listThread(q.id))?.replies).toHaveLength(1);
       expect((await svc.store.listThread(q.id))?.replies[0].text).toBe(
-        "Canceled."
+        "Withdrawn."
       );
       await svc.waitForInFlightDeliveries(1_000);
       expect(injected.some((entry) => entry.text.includes("Yes"))).toBe(false);
@@ -2723,10 +2760,15 @@ describe("StreamService.setState", () => {
       by: { kind: "agent", agentId: B },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    // The reviewer settling its own finding asks nothing of the builder:
-    // no notification (each one would cost the builder a turn).
-    expect(injected).toEqual([]);
-    // Dismissed by the reviewer: the same.
+    // The builder receives the verification result without being asked
+    // to acknowledge it.
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "c" fixed.');
+    expect(injected[0]!.text).toContain(
+      "Nothing to do on your side unless it is reopened."
+    );
+    injected.length = 0;
+    // Dismissals also carry the reviewer's explanation.
     await svc.setState(
       B,
       f2.id,
@@ -2734,7 +2776,10 @@ describe("StreamService.setState", () => {
       { kind: "agent", agentId: B }
     );
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      'Finding "c" dismissed: On reflection, fine.'
+    );
     // The reviewer reopening tells the builder it is its move.
     injected.length = 0;
     await svc.setState(
@@ -2934,6 +2979,93 @@ describe("StreamService review threads", () => {
     );
     expect(injected[0]!.text).toContain(`(id: ${f1.id}, open)`);
     expect(injected[0]!.text).toContain(`(id: ${f2.id}, open)`);
+  });
+
+  it("delivers a clean review and its summary to the requesting agent", async () => {
+    const { svc, injected } = build();
+    await launchChild(svc);
+    const review = await svc.post(B, {
+      to: A,
+      review: {
+        summary: "Checked the changes; no issues found.",
+        findings: [],
+      },
+    });
+    await settled(svc, review.id);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain(
+      `Review (id: ${review.id}): no findings.`
+    );
+    expect(injected[0]!.text).toContain(
+      "Checked the changes; no issues found."
+    );
+  });
+
+  it("fetches current review findings for the requester and reviewer without sending a prompt", async () => {
+    const { svc, injected } = build();
+    const { r, f1, f2 } = await reviewed(svc);
+    await svc.update(B, f1.id, {
+      state: { status: "fixed", note: "Verified the fix." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    injected.length = 0;
+    const latest = await svc.getReview(A);
+    expect(latest).toMatchObject({
+      id: r.id,
+      summary: "s",
+      status: "open",
+      openFindings: 1,
+      findings: [
+        {
+          id: f1.id,
+          title: "a",
+          state: {
+            status: "resolved",
+            resolution: "fixed",
+            note: "Verified the fix.",
+          },
+        },
+        { id: f2.id, title: "c", state: { status: "open" } },
+      ],
+    });
+    expect(await svc.getReview(B, r.id)).toEqual(latest);
+    expect(injected).toEqual([]);
+    await svc.update(B, f2.id, {
+      state: { status: "dismissed", note: "Not applicable." },
+    });
+    expect(await svc.getReview(A, r.id)).toMatchObject({
+      status: "complete",
+      openFindings: 0,
+    });
+    const clean = await svc.post(B, {
+      to: A,
+      review: { summary: "Follow-up is clean.", findings: [] },
+    });
+    expect(await svc.getReview(A)).toMatchObject({
+      id: clean.id,
+      status: "complete",
+      findings: [],
+    });
+    expect((await svc.getReview(A, r.id)).findings).toHaveLength(2);
+    await svc.waitForInFlightDeliveries(1_000);
+  });
+
+  it("does not expose unrelated reviews, non-review blocks, or missing reviews", async () => {
+    const { svc } = build();
+    await expect(svc.getReview(A)).rejects.toThrow("Review not found.");
+    const own = await svc.post(B, {
+      review: { summary: "Private", findings: [] },
+    });
+    await expect(svc.getReview(A, own.id)).rejects.toThrow("Review not found.");
+    expect(await svc.getReview(B, own.id)).toMatchObject({ id: own.id });
+    const text = await svc.post(A, { text: "Not a review" });
+    await expect(svc.getReview(A, text.id)).rejects.toThrow(
+      "Review not found."
+    );
+    await expect(svc.getReview(A, NIL)).rejects.toThrow("Review not found.");
+    await expect(svc.getReview(A, "invalid")).rejects.toThrow(
+      "Review not found."
+    );
   });
 
   it("reads the card with the review and its findings attached, and counts none of them as replies", async () => {
@@ -3441,16 +3573,24 @@ describe("StreamService review threads", () => {
     await svc.waitForInFlightDeliveries(1_000);
   });
 
-  it("tells the builder only when the reviewer reopens a finding, and the reviewer when the builder resolves one", async () => {
+  it("tells the builder when the reviewer verifies or reopens a finding, and the reviewer when the builder resolves one", async () => {
     const { svc, injected, injectedOpts } = build();
     const { f1, f2 } = await reviewed(svc);
     injected.length = 0;
-    // The reviewer resolving its own finding: nothing asked of the builder.
+    // The reviewer resolving its own finding delivers the verification note.
     await svc.update(B, f1.id, {
       state: { status: "fixed", note: "Verified." },
     });
     await svc.waitForInFlightDeliveries(1_000);
-    expect(injected).toEqual([]);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "a" fixed: Verified.');
+    expect(injected[0]!.text).toContain(
+      "Nothing to do on your side unless it is reopened."
+    );
+    expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
+      source: { source: "chat", chatMessageId: f1.id, answerIn: f1.id },
+    });
+    injected.length = 0;
     // Reopening it is the builder's move: the builder is told, on the finding.
     await svc.update(B, f1.id, {
       state: { status: "open", note: "Regressed." },
@@ -4148,6 +4288,187 @@ describe("StreamService turn blocks", () => {
     });
   });
 
+  it.each(["question", "form"] as const)(
+    "routes a structured %s answer back to root work through delivery and turn creation",
+    async (kind) => {
+      const { svc, injectedOpts } = build();
+      const ask = await svc.post(
+        A,
+        kind === "question"
+          ? { text: "Continue?", question: { options: [{ label: "Yes" }] } }
+          : {
+              form: {
+                title: "Details",
+                fields: [{ id: "name", label: "Name", type: "text" }],
+              },
+            }
+      );
+      const answer =
+        kind === "question"
+          ? await svc.answerQuestion(A, ask.id, { value: "Yes" })
+          : await svc.submitForm(A, ask.id, { values: { name: "Ada" } });
+      await svc.waitForInFlightDeliveries(1_000);
+      expect(answer.reply.threadId).toBe(ask.id);
+      const source = injectedOpts[0]!.source!;
+      expect(source).toMatchObject({
+        source: "chat",
+        userMessage: true,
+        conversation: { streamId: A, threadId: null },
+      });
+      const resolved = await svc.resolvePromptSource(A, source);
+      const blockId = await svc.recordTurnStarted({
+        agentId: A,
+        turnRow: turnRow(701, source),
+        prompt: resolved,
+      });
+      expect(await svc.store.getById(blockId!)).toMatchObject({
+        threadId: null,
+        origin: "turn",
+      });
+      // A plain reply in that same ask's thread still explicitly chooses it.
+      await svc.sendUserPost(A, {
+        text: "Discuss this question separately",
+        replyTo: ask.id,
+      });
+      await svc.waitForInFlightDeliveries(1_000);
+      expect(injectedOpts[1]!.source).toMatchObject({
+        conversation: { streamId: A, threadId: ask.id },
+      });
+    }
+  );
+
+  it.each(["question", "form"] as const)(
+    "routes a child's structured %s answer back to its home work",
+    async (kind) => {
+      await pool.query("UPDATE agents SET parent_agent_id = $1 WHERE id = $2", [
+        A,
+        B,
+      ]);
+      try {
+        const { svc, injectedOpts } = build();
+        const ask = await svc.post(
+          B,
+          kind === "question"
+            ? { text: "Continue?", question: { options: [{ label: "Yes" }] } }
+            : {
+                form: {
+                  title: "Details",
+                  fields: [{ id: "name", label: "Name", type: "text" }],
+                },
+              }
+        );
+        const answer =
+          kind === "question"
+            ? await svc.answerQuestion(A, ask.id, { value: "Yes" })
+            : await svc.submitForm(A, ask.id, { values: { name: "Ada" } });
+        await svc.waitForInFlightDeliveries(1_000);
+        const source = injectedOpts[0]!.source!;
+        expect(source).toMatchObject({
+          chatMessageId: answer.reply.id,
+          userMessage: true,
+          conversation: { streamId: A, threadId: launchBlockId(B) },
+        });
+        const resolved = await svc.resolvePromptSource(B, source);
+        const blockId = await svc.recordTurnStarted({
+          agentId: B,
+          turnRow: { ...turnRow(702, source), agentId: B },
+          prompt: resolved,
+        });
+        expect(await svc.store.getById(blockId!)).toMatchObject({
+          threadId: launchBlockId(B),
+          origin: "turn",
+        });
+      } finally {
+        await pool.query(
+          "UPDATE agents SET parent_agent_id = NULL WHERE id = $1",
+          [B]
+        );
+      }
+    }
+  );
+
+  it("passes exact user conversation identity to every recipient and keeps agent events non-user", async () => {
+    const { svc, injectedOpts } = build();
+    const root = await svc.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: A },
+      text: "Discuss",
+    });
+    const message = await svc.sendUserPost(A, {
+      text: "Same discussion",
+      replyTo: root.id,
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injectedOpts[0]?.source).toEqual({
+      source: "chat",
+      chatMessageId: message.block.id,
+      userMessage: true,
+      conversation: { streamId: A, threadId: root.id },
+    });
+    expect(await svc.resolvePromptSource(A, injectedOpts[0]!.source!)).toEqual(
+      injectedOpts[0]?.source
+    );
+    await svc.post(A, { to: B, text: "Background review event" });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injectedOpts[1]?.source).toMatchObject({
+      source: "chat",
+      userMessage: false,
+    });
+    expect(
+      await svc.resolvePromptSource(A, { source: "system", text: "continue" })
+    ).toMatchObject({ conversation: { streamId: A, threadId: null } });
+  });
+
+  it("persists explicit interrupt intent and sends its origin to the runtime", async () => {
+    const { svc, injectedOpts } = build();
+    const root = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      text: "Urgent discussion",
+    });
+    const result = await svc.sendUserPost(A, {
+      text: "Stop and handle this",
+      replyTo: root.id,
+      delivery: "interrupt",
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(result.block.data).toMatchObject({ delivery: "interrupt" });
+    expect(injectedOpts[0]).toMatchObject({
+      delivery: "interrupt",
+      source: { conversation: { streamId: A, threadId: root.id } },
+    });
+  });
+
+  it("interrupting a structured answer preserves root work location and retry intent", async () => {
+    const { svc, injectedOpts } = build({ fail: true });
+    const ask = await svc.post(A, {
+      text: "Continue?",
+      question: { options: [{ label: "Yes" }], allowFreeform: true },
+    });
+    const answer = await svc.answerQuestion(A, ask.id, {
+      value: "Urgent answer",
+      delivery: "interrupt",
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect((await settled(svc, answer.reply.id)).delivered).toBe(false);
+    expect(answer.reply.threadId).toBe(ask.id);
+    expect(answer.reply.data).toMatchObject({ delivery: "interrupt" });
+    expect(injectedOpts[0]).toMatchObject({
+      delivery: "interrupt",
+      source: {
+        userMessage: true,
+        conversation: { streamId: A, threadId: null },
+      },
+    });
+    const retry = build();
+    await retry.svc.retryDelivery(A, answer.reply.id);
+    await settled(retry.svc, answer.reply.id);
+    expect(retry.injectedOpts[0]).toMatchObject({
+      delivery: "interrupt",
+      source: { conversation: { streamId: A, threadId: null } },
+    });
+  });
+
   it("Send and legacy Send now steer without cancellation; explicit queue waits", async () => {
     const { svc, injectedOpts, cancelled } = build();
     const plain = await svc.sendUserPost(A, { text: "a note" });
@@ -4159,9 +4480,16 @@ describe("StreamService turn blocks", () => {
     await svc.waitForInFlightDeliveries(1_000);
     expect(cancelled).toEqual([]);
     expect(injectedOpts).toEqual([
-      { blockId: plain.block.id, delivery: "auto" },
-      { blockId: cut.block.id, delivery: "auto" },
-      { blockId: queued.block.id, delivery: "queue" },
+      ...[plain, cut, queued].map((post, index) => ({
+        blockId: post.block.id,
+        delivery: index === 2 ? "queue" : "auto",
+        source: {
+          source: "chat",
+          chatMessageId: post.block.id,
+          userMessage: true,
+          conversation: { streamId: A, threadId: null },
+        },
+      })),
     ]);
   });
 
@@ -4524,6 +4852,34 @@ describe("StreamService.retryDelivery", () => {
     expect(injected[0]!.text).toContain(
       `This answers your question ${asked.id}.`
     );
+  });
+
+  it("rebuilds the cancellation envelope, so the agent still learns its ask was dismissed", async () => {
+    const asked = await service.post(A, {
+      text: "Ship it?",
+      question: { options: [{ label: "Yes" }, { label: "No" }] },
+    });
+    const { svc: failing } = build({ fail: true });
+    const canceled = await failing.setState(
+      A,
+      asked.id,
+      { cancellation: true },
+      { kind: "user" }
+    );
+    const noteId =
+      canceled.kind === "question" ? canceled.state.cancellation?.blockId : "";
+    expect(noteId).toBeTruthy();
+    const note = await settled(failing, noteId!);
+    expect(note.delivered).toBe(false);
+
+    const { svc, injected } = build();
+    await svc.retryDelivery(A, note.id);
+    await settled(svc, note.id);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain(
+      `The user dismissed your question ${asked.id} without answering it.`
+    );
+    expect(injected[0]!.text).not.toContain("This answers");
   });
 
   it("does not claim a plain comment in a question's thread is the answer", async () => {
@@ -5143,6 +5499,83 @@ describe("StreamService queued message controls", () => {
     release();
     await svc.waitForInFlightDeliveries(1000);
   });
+
+  it("marks a queued post as an interrupt once the runtime has claimed it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const control = vi.fn(() => false);
+    const { svc } = build({ gate, held: true, controlQueuedPrompt: control });
+    const { block } = await svc.sendUserPost(A, { text: "Queued" });
+    // A refused claim (the host cannot stop its turn) leaves the post as it was.
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "interrupt")
+    ).rejects.toThrow("cannot interrupt now");
+    expect((await svc.store.getById(block.id))?.data).not.toMatchObject({
+      delivery: "interrupt",
+    });
+    control.mockReturnValue(true);
+    await svc.controlQueuedMessage(A, block.id, "interrupt");
+    expect(control).toHaveBeenLastCalledWith([A], block.id, "interrupt");
+    // The row now reads as a stop request, and a retry would interrupt again.
+    expect((await svc.store.getById(block.id))?.data).toMatchObject({
+      delivery: "interrupt",
+    });
+    release();
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("retries an interrupted queued review with its interrupt intent", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { svc } = build({
+      gate,
+      held: true,
+      fail: true,
+      controlQueuedPrompt: () => true,
+    });
+    const { block } = await svc.sendUserPost(A, {
+      text: "Review is ready",
+      review: { summary: "Review is ready", findings: [] },
+      delivery: "queue",
+    });
+    expect(block.kind).toBe("review");
+    await svc.controlQueuedMessage(A, block.id, "interrupt");
+    release();
+    const failed = await settled(svc, block.id);
+    expect(failed).toMatchObject({
+      delivered: false,
+      data: { delivery: "interrupt", summary: "Review is ready" },
+    });
+
+    const retry = build({ held: true });
+    expect((await retry.svc.retryDelivery(A, block.id)).held).toBe(true);
+    await settled(retry.svc, block.id);
+    expect(retry.injectedOpts).toEqual([
+      expect.objectContaining({ blockId: block.id, delivery: "interrupt" }),
+    ]);
+  });
+
+  it("rejects interrupting a queued ACP command", async () => {
+    const control = vi.fn(() => true);
+    const { svc } = build({ controlQueuedPrompt: control });
+    const block = await svc.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      kind: "text",
+      text: "/compact",
+      data: { acpCommand: true },
+      delivered: null,
+    });
+    await expect(
+      svc.controlQueuedMessage(A, block.id, "interrupt")
+    ).rejects.toThrow("ACP commands must wait");
+    expect(control).not.toHaveBeenCalled();
+  });
 });
 
 describe("steering pickup receipts", () => {
@@ -5245,4 +5678,364 @@ describe("steering pickup receipts", () => {
       ]);
     }
   );
+});
+
+describe("steering response boundaries", () => {
+  beforeEach(async () => {
+    await pool.query("DELETE FROM agent_stream_events WHERE agent_id = $1", [
+      A,
+    ]);
+  });
+  function recorder(store = new StreamStore(pool)) {
+    const rec = new StreamRecorder(store);
+    rec.setTurnBlocks({
+      started: (input) => service.recordTurnStarted(input),
+      settled: (input) => service.recordTurnSettled(input),
+      steering: (event) => service.recordSteering(event),
+      responseStarted: (input) => service.recordResponseStarted(input),
+      responseSplit: (input) => service.recordResponseSplit(input),
+    });
+    return rec;
+  }
+  async function say(rec: StreamRecorder, text: string) {
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    });
+    await rec.flush(A);
+  }
+  async function user(text: string, threadId: string | null = null) {
+    return service.store.insert({
+      streamId: A,
+      author: { kind: "user" },
+      toAgentId: A,
+      text,
+      threadId,
+      replyTo: threadId,
+    });
+  }
+  function source(id: string): PromptSource {
+    return { source: "chat", chatMessageId: id, userMessage: true };
+  }
+  async function pickup(rec: StreamRecorder, id: string, receiptId: string) {
+    await rec.handle({
+      type: "steered",
+      agentId: A,
+      text: "followup",
+      source: source(id),
+      receiptId,
+    });
+    await rec.handle({
+      type: "steering_picked_up",
+      agentId: A,
+      source: source(id),
+      receiptId,
+      at: new Date().toISOString(),
+    });
+  }
+
+  it("starts a visible response on confirmed pickup, survives reconnect, and keeps one execution trace", async () => {
+    let rec = recorder();
+    const original = await user("work");
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "work",
+      source: source(original.id),
+    });
+    await say(rec, "Original output.");
+    const before = await service.turnEntry(A);
+    const question = await user("What happened?");
+    const followup = source(question.id);
+    await rec.handle({
+      type: "steered",
+      agentId: A,
+      text: question.text,
+      source: followup,
+      receiptId: "receipt-1",
+    });
+    await say(rec, " Still before pickup.");
+    expect((await service.turnEntry(A))?.id).toBe(before?.id);
+    await rec.handle({
+      type: "steering_picked_up",
+      agentId: A,
+      source: followup,
+      receiptId: "receipt-1",
+      at: new Date().toISOString(),
+    });
+    // Pickup by itself is not an answer and creates no empty response.
+    expect((await service.turnEntry(A))?.id).toBe(before?.id);
+    rec = recorder();
+    await say(rec, "Here is the answer.");
+    const after = await service.turnEntry(A);
+    expect(after?.id).not.toBe(before?.id);
+    expect(after?.block).toMatchObject({
+      data: { responseTo: [question.id] },
+      turn: {
+        prompt: { chatMessageId: question.id },
+        result: { text: "Here is the answer." },
+        settled: false,
+      },
+    });
+    const feed = await service.feed(A);
+    const frozen = feed.entries.find((entry) => entry.id === before?.id);
+    expect(frozen?.type === "block" && frozen.block.text).toBe(
+      "Original output. Still before pickup."
+    );
+    expect(frozen?.type === "block" && frozen.block.turn).toBeUndefined();
+    const turns = await pool.query(
+      "SELECT id FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'",
+      [A]
+    );
+    expect(turns.rows).toHaveLength(1);
+    // Replayed receipt must not manufacture another response.
+    await rec.handle({
+      type: "steering_picked_up",
+      agentId: A,
+      source: followup,
+      receiptId: "receipt-1",
+      at: new Date().toISOString(),
+    });
+    await say(rec, " More detail.");
+    expect((await service.turnEntry(A))?.id).toBe(after?.id);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    expect((await service.store.getById(after!.id))?.text).toBe(
+      "Here is the answer. More detail."
+    );
+  });
+
+  it.each(["question", "form"] as const)(
+    "splits a structured %s answer in its resolved work conversation",
+    async (kind) => {
+      const built = build();
+      service = built.svc;
+      const rec = recorder();
+      const initial = await user("Work");
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "Work",
+        source: source(initial.id),
+      });
+      await say(rec, "Before answer.");
+      const before = await service.turnEntry(A);
+      const ask = await service.post(
+        A,
+        kind === "question"
+          ? { text: "Continue?", question: { options: [{ label: "Yes" }] } }
+          : {
+              form: {
+                title: "Details",
+                fields: [{ id: "name", label: "Name", type: "text" }],
+              },
+            }
+      );
+      const answer =
+        kind === "question"
+          ? await service.answerQuestion(A, ask.id, { value: "Yes" })
+          : await service.submitForm(A, ask.id, { values: { name: "Ada" } });
+      await service.waitForInFlightDeliveries(1000);
+      const resolved = built.injectedOpts[0]!.source!;
+      expect(resolved.conversation).toEqual({ streamId: A, threadId: null });
+      await rec.handle({
+        type: "steered",
+        agentId: A,
+        text: answer.reply.text,
+        source: resolved,
+        receiptId: "structured",
+      });
+      await rec.handle({
+        type: "steering_picked_up",
+        agentId: A,
+        source: resolved,
+        receiptId: "structured",
+        at: new Date().toISOString(),
+      });
+      await say(rec, "Continuing after your answer.");
+      const after = await service.turnEntry(A);
+      expect(after?.id).not.toBe(before?.id);
+      expect(after?.block).toMatchObject({
+        threadId: null,
+        data: { responseTo: [answer.reply.id], responseToThreadId: ask.id },
+        turn: { result: { text: "Continuing after your answer." } },
+      });
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "settled",
+        stopReason: "end_turn",
+      });
+    }
+  );
+
+  it.each([false, true])(
+    "retries a failed response pointer write (reconnect=%s)",
+    async (reconnect) => {
+      const store = new StreamStore(pool);
+      let rec = recorder(store);
+      const original = await user("work");
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "started",
+        text: "work",
+        source: source(original.id),
+      });
+      await say(rec, "Original response.");
+      const before = await service.turnEntry(A);
+      const question = await user("Question");
+      await pickup(rec, question.id, "retry-boundary");
+      const update = store.updatePayload.bind(store);
+      let failed = false;
+      vi.spyOn(store, "updatePayload").mockImplementation(
+        async (id, payload) => {
+          if (
+            !failed &&
+            payload.responseStartSeq !== undefined &&
+            !payload.pendingResponse
+          ) {
+            failed = true;
+            throw new Error("injected pointer failure");
+          }
+          return update(id, payload);
+        }
+      );
+      await expect(say(rec, "Uncommitted chunk")).rejects.toThrow(
+        "injected pointer failure"
+      );
+      const persisted = await pool.query(
+        "SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn'",
+        [A]
+      );
+      expect(persisted.rows[0].payload).toMatchObject({
+        blockId: before!.id,
+        pendingResponse: { receiptId: "retry-boundary" },
+      });
+      if (reconnect) rec = recorder();
+      await say(rec, "Recovered answer.");
+      const after = await service.turnEntry(A);
+      expect(after?.id).not.toBe(before?.id);
+      expect(after?.block.turn?.result?.text).toBe("Recovered answer.");
+      const feed = await service.feed(A);
+      const replies = feed.entries.filter(
+        (entry) => entry.block.origin === "turn"
+      );
+      expect(replies).toHaveLength(2);
+      const prior = replies.find((entry) => entry.id === before!.id)!;
+      expect(prior.block.text).toBe("Original response.");
+      expect(prior.block.turn).toBeUndefined();
+      await rec.handle({
+        type: "steering_picked_up",
+        agentId: A,
+        source: source(question.id),
+        receiptId: "retry-boundary",
+        at: new Date().toISOString(),
+      });
+      await say(rec, " More.");
+      expect((await service.turnEntry(A))?.id).toBe(after?.id);
+      await rec.handle({
+        type: "turn",
+        agentId: A,
+        state: "settled",
+        stopReason: "end_turn",
+      });
+      expect((await service.store.getById(after!.id))?.text).toBe(
+        "Recovered answer. More."
+      );
+    }
+  );
+
+  it("coalesces same-thread pickups before output without moving the earlier response", async () => {
+    const rec = recorder();
+    const root = await user("Topic");
+    const opener = await user("Work here", root.id);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "work",
+      source: source(opener.id),
+    });
+    await say(rec, "Earlier thread response.");
+    const first = await user("Question", root.id);
+    const second = await user("Clarification", root.id);
+    await pickup(rec, first.id, "receipt-a");
+    await pickup(rec, second.id, "receipt-b");
+    await say(rec, "Answer to both.");
+    expect((await service.turnEntry(A))?.block).toMatchObject({
+      threadId: root.id,
+      data: { responseTo: [first.id, second.id] },
+      turn: { result: { text: "Answer to both." } },
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+  });
+
+  it("does not split for initial prompt receipts, background notices, or a pickup without later output", async () => {
+    const rec = recorder();
+    const original = await user("work");
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "work",
+      source: source(original.id),
+    });
+    await rec.handle({
+      type: "steering_picked_up",
+      agentId: A,
+      source: source(original.id),
+      receiptId: "initial",
+      at: new Date().toISOString(),
+    });
+    await say(rec, "Response.");
+    const before = await service.turnEntry(A);
+    const peer = await service.store.insert({
+      streamId: A,
+      author: { kind: "agent", agentId: B },
+      toAgentId: A,
+      text: "Background update",
+    });
+    const peerSource: PromptSource = { source: "chat", chatMessageId: peer.id };
+    await rec.handle({
+      type: "steered",
+      agentId: A,
+      source: peerSource,
+      text: peer.text,
+      receiptId: "peer",
+    });
+    await rec.handle({
+      type: "steering_picked_up",
+      agentId: A,
+      source: peerSource,
+      receiptId: "peer",
+      at: new Date().toISOString(),
+    });
+    await say(rec, " More work.");
+    expect((await service.turnEntry(A))?.id).toBe(before?.id);
+    const question = await user("Question with no answer yet");
+    await pickup(rec, question.id, "no-answer");
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    expect((await service.turnEntry(A))?.id).toBe(before?.id);
+  });
 });

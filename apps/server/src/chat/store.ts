@@ -476,7 +476,7 @@ export class BlockStore {
    */
   async recordCancellation(
     blockId: string,
-    cancellation: BlockActor & { reason?: string }
+    cancellation: BlockActor & { reason?: string; blockId?: string }
   ): Promise<Block | null> {
     if (!isBlockId(blockId)) return null;
     const result = await this.db.query<BlockRow>(
@@ -731,6 +731,16 @@ export class BlockStore {
       `UPDATE block_reactions SET delivered = $2 WHERE id = $1`,
       [id, delivered]
     );
+  }
+
+  /** Latest review addressed to an agent, including a clean review. */
+  async latestReviewFor(agentId: string): Promise<Block | null> {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks WHERE kind = 'review' AND to_agent_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [agentId]
+    );
+    return result.rows[0] ? toBlock(result.rows[0]) : null;
   }
 
   async getById(id: string): Promise<Block | null> {

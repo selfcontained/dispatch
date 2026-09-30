@@ -1,9 +1,16 @@
+import type { PromptConversation } from "@dispatch/shared";
+
 /**
  * What a prompt sent to the harness was, for the prompt a turn entry
  * renders. The wire text is an envelope Dispatch built; the feed wants the
  * human-facing source behind it, not the envelope.
  */
-export type PromptSource =
+export type PromptSource = {
+  /** Server-resolved answer location, retained through the host journal. */
+  conversation?: PromptConversation;
+  /** Only an actual user message can steer the active conversation. */
+  userMessage?: boolean;
+} & (
   | {
       source: "chat";
       /** The post that opened the turn: the first, when there were several. */
@@ -17,12 +24,13 @@ export type PromptSource =
        * The block whose thread this prompt's answer belongs in, when the
        * prompt says so rather than leaving it to what the post is: a
        * notice that a finding changed is answered under the finding.
-       * Dropped when prompts are delivered together.
+       * Retained when prompts from this conversation are delivered together.
        */
       answerIn?: string;
     }
   | { source: "agent"; senderId: string; senderName: string; text: string }
-  | { source: "system"; text: string };
+  | { source: "system"; text: string }
+);
 
 const SYSTEM_MAX = 500;
 
@@ -37,4 +45,12 @@ export type QueuedPrompt = {
   id: string;
   source: PromptSource;
   createdAt: string;
+};
+
+/** Server-resolved files, kept out of turn journals and encoded only for ACP. */
+export type PromptImage = { path: string; mimeType: string };
+export type PromptOptions = {
+  alone?: boolean;
+  images?: PromptImage[];
+  delivery?: "auto" | "queue" | "interrupt";
 };

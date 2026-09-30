@@ -1,3 +1,4 @@
+import type { PromptImage } from "./acp/prompt-source.js";
 import { buildPostEnvelope } from "../chat/envelope.js";
 
 /** A startup file as `seedInitialFiles` reports it, for the first turn. */
@@ -17,6 +18,7 @@ export type StartupFile = {
 export type ChatLaunchPost = {
   messageId: string;
   attachmentLines: string[];
+  images?: PromptImage[];
 };
 
 export type StartupTurnInput = {
@@ -144,7 +146,7 @@ export function buildLaunchGuidance(
       "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
     );
     rules.push(
-      "Keep the user informed. Your replies stream live: briefly explain your approach before substantial work and give concise progress updates as you work. Continue within the user's authorized scope; ask when a missing decision or permission prevents progress. Dispatch tracks turn activity automatically."
+      "Keep the user informed. Your replies stream live: briefly explain your approach before substantial work and give concise progress updates as you work. Continue within the user's authorized scope; ask when a missing decision or permission prevents progress. Dispatch tracks turn activity automatically; do not report synthetic statuses. A posting receipt or pickup indicator is not an answer or proof of completion."
     );
     if (suggestSessionRename) {
       rules.push(
@@ -152,7 +154,7 @@ export function buildLaunchGuidance(
       );
     }
     rules.push(
-      "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports). A path or URL pasted into prose is easy to lose; an attachment is not."
+      "Values the user needs — dev server URLs, PR links, branch names, IDs, tokens, commands — go in the stream as attachments on a post: link (URLs), pr (pull requests), code (snippets, env vars, IDs), file (screenshots, logs, reports, plans, design docs). A path or URL pasted into prose is easy to lose; an attachment is not. A plan, design, or analysis longer than a screen goes in a markdown file attachment, with the approach and any decision you need from the user in the reply; revise it with update as it evolves and say in the reply what changed."
     );
     rules.push(
       "When you need a decision, post a question block (a row of options, freeform allowed when useful) or a form block for several fields. Waiting on an answer is visible to the user; a question buried in prose is not."
@@ -169,7 +171,7 @@ export function buildLaunchGuidance(
   }
 
   rules.push(
-    "The Dispatch MCP connection is scoped to this session. Use the provided tools and repo tools where relevant. DISPATCH_AGENT_ID identifies this agent and DISPATCH_FILES_DIR is its shared-file directory. Use list_files for shared-file discovery and post with file attachments to share artifacts. Work from the assigned working directory, including its worktree when present."
+    "The Dispatch MCP connection is scoped to this session. Use the provided tools and repo tools where relevant. DISPATCH_AGENT_ID identifies this agent and DISPATCH_FILES_DIR is its shared-file directory. Use list_files for shared-file discovery and post with file attachments to share artifacts. Work from the assigned working directory, including its worktree when present; if you move to another worktree or repo, call set_workspace so Dispatch follows."
   );
 
   const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");

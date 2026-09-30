@@ -15,7 +15,6 @@ import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
 import {
   AtSign,
-  ChevronDown,
   CornerDownRight,
   Plus,
   SquareSlash,
@@ -59,11 +58,11 @@ import {
 } from "@/components/app/chat/slash-commands";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ComposerDelivery,
+  recipientTimings,
+  type DeliveryAgent,
+} from "./composer-delivery";
+import type { PromptConversation } from "@dispatch/shared";
 import {
   ComposerInput,
   type ComposerInputHandle,
@@ -98,6 +97,8 @@ export type ChatComposerProps = {
    * is the one spot that never moves and has room on a phone.
    */
   action?: ReactNode;
+  /** Controls beside the recipients beneath the input. */
+  footer?: ReactNode;
   /**
    * Resolves once the message is accepted; rejects when it is not. The draft
    * — text and attachments — is cleared only on success so a failed send
@@ -106,10 +107,12 @@ export type ChatComposerProps = {
   onSend: (
     text: string,
     attachments: ChatUserAttachmentInput[],
-    options?: { delivery?: "auto" | "queue" }
+    options?: { delivery?: "auto" | "queue" | "interrupt" }
   ) => Promise<void>;
   /** Offer an explicit alternative to delivery during the current turn. */
   canQueue?: boolean;
+  deliveryAgents?: readonly DeliveryAgent[];
+  conversation?: PromptConversation;
   /**
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
@@ -205,7 +208,6 @@ type DraftFileView = {
 type ComposerError = {
   text: string;
   retryable: boolean;
-  retryDelivery?: "auto" | "queue";
 };
 
 /**
@@ -247,11 +249,14 @@ export function ChatComposer({
   replyContext = null,
   pendingQuestion = null,
   action,
+  footer,
   mentionables,
   defaultRecipients,
   slashCommands,
   onDispatchCommand,
   canQueue = false,
+  deliveryAgents = [],
+  conversation,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -280,6 +285,9 @@ export function ChatComposer({
     [updateDraft]
   );
 
+  const [deliveryMode, setDeliveryMode] = useState<
+    "auto" | "queue" | "interrupt"
+  >("auto");
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<ComposerInputHandle>(null);
@@ -755,7 +763,25 @@ export function ChatComposer({
     [addFiles, disabled]
   );
 
-  const canSend =
+  const deliveryTimings = conversation
+    ? recipientTimings(
+        recipients,
+        deliveryAgents,
+        conversation,
+        deliveryMode,
+        advertisedCommand ||
+          fileViews.some((view) => view.file && isImageAttachment(view.file))
+      )
+    : [];
+  const interruptUnavailableReason =
+    !canQueue || !conversation || recipients.length === 0
+      ? "Interrupt is unavailable until the recipients' work conversation is known. Choose Automatic or Queue to continue."
+      : deliveryTimings.some((item) => item.busy && !item.interruptSupported)
+        ? "Interrupt is unavailable for a busy recipient. Choose Automatic or Queue to continue."
+        : null;
+  const deliveryBlockedReason =
+    deliveryMode === "interrupt" ? interruptUnavailableReason : null;
+  const sendReady =
     !disabled &&
     !slashBlockedReason &&
     !sending &&
@@ -763,13 +789,23 @@ export function ChatComposer({
     placeholders.length === 0 &&
     (trimmed.length > 0 || attachmentCount > 0);
 
+  const canSend = sendReady && !deliveryBlockedReason;
+
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
   const submit = useCallback(
-    (options?: { delivery?: "auto" | "queue" }) => {
-      if (!canSend) return;
+    (options?: { delivery?: "auto" | "queue" | "interrupt" }) => {
+      if (!sendReady) return;
+      const selectedMode = options?.delivery ?? deliveryMode;
+      if (selectedMode === "interrupt" && interruptUnavailableReason) return;
+      options ??=
+        canQueue && deliveryMode !== "auto"
+          ? { delivery: deliveryMode }
+          : undefined;
+      // One preference drives the selector, shortcut, retry hint, and every send.
+      setDeliveryMode(options?.delivery ?? "auto");
       setError(null);
       setInFlight(true);
       // Only what was sent gets cleared: anything typed or attached while the
@@ -825,6 +861,7 @@ export function ChatComposer({
 
       run()
         .then(() => {
+          setDeliveryMode("auto");
           // What was sent leaves the draft in one write — text, links and
           // file entries together — so no render, remount or other tab ever
           // sees a draft that still lists a sent file.
@@ -845,7 +882,6 @@ export function ChatComposer({
           setError({
             text: err instanceof Error ? err.message : "Message not sent.",
             retryable: !(err instanceof UploadRefused),
-            retryDelivery: options?.delivery,
           });
         })
         .finally(() => {
@@ -854,7 +890,10 @@ export function ChatComposer({
         });
     },
     [
-      canSend,
+      sendReady,
+      interruptUnavailableReason,
+      canQueue,
+      deliveryMode,
       fileViews,
       forgetFile,
       links,
@@ -927,19 +966,12 @@ export function ChatComposer({
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       event.preventDefault();
-      // Enter is the advertised retry; retain an explicit queue choice.
-      // The Send button/menu still lets the user choose immediate delivery.
-      submit(
-        error?.retryable && error.retryDelivery === "queue"
-          ? { delivery: "queue" }
-          : undefined
-      );
+      submit();
     },
     [
       activeMention,
       activeSlash,
       canQueue,
-      error,
       mentionCandidates,
       mentionOpen,
       pickMention,
@@ -955,15 +987,10 @@ export function ChatComposer({
     (view) => fileStatus[view.key] === "uploading"
   )?.entry.name;
   const hasAttachments = attachmentCount > 0;
-  const queueShortcut =
-    typeof navigator !== "undefined" &&
-    /Mac|iPod|iPhone|iPad/.test(navigator.platform)
-      ? "⌘⇧Enter"
-      : "Ctrl+Shift+Enter";
 
   return (
     <form
-      className="flex flex-col gap-1"
+      className="chat-composer flex flex-col gap-1"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -972,49 +999,20 @@ export function ChatComposer({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       data-testid="chat-composer"
+      data-mobile-idle={
+        !text &&
+        !hasAttachments &&
+        !replyContext &&
+        !pendingQuestion &&
+        !error &&
+        !disabledReason &&
+        !draggingFiles &&
+        !inFlight
+          ? "true"
+          : undefined
+      }
       data-dragging={draggingFiles ? "true" : undefined}
     >
-      {defaultRecipients ? (
-        <TooltipProvider delayDuration={150}>
-          <div
-            className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-2 px-1 pb-1 text-[11px] text-muted-foreground"
-            data-testid="chat-composer-routing"
-            role="group"
-            aria-label="Message recipients"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <span>To:</span>
-            {recipients.map((agent) => (
-              <Tooltip key={agent.id}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    data-testid="chat-composer-recipient"
-                    data-agent-id={agent.id}
-                  >
-                    <AgentSeatBadge
-                      seat={agent.seat ?? null}
-                      name={agent.name}
-                      size="sm"
-                    />
-                    {agent.seat === undefined ? (
-                      <span>{agent.name}</span>
-                    ) : null}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {agent.seat === undefined
-                    ? agent.name
-                    : `@${agent.seat} · ${agent.name}`}
-                </TooltipContent>
-              </Tooltip>
-            ))}
-            {recipients.length === 0 ? <span>Loading recipients…</span> : null}
-          </div>
-        </TooltipProvider>
-      ) : null}
       <div
         className={cn(
           "rounded-2xl border bg-card/70 transition-colors",
@@ -1154,162 +1152,109 @@ export function ChatComposer({
             activeSlash={activeSlash}
           />
 
-          <div
-            className="flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
-            data-testid="chat-composer-controls"
-          >
-            <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={STARTUP_FILE_ACCEPT}
-                className="hidden"
-                onChange={onFileChange}
-                data-testid="chat-composer-file-input"
-              />
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={disabled || attachmentsFull}
-                onClick={() => fileInputRef.current?.click()}
-                title="Attach a file"
-                aria-label="Attach a file"
-                data-testid="chat-composer-attach-button"
-                className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={disabled || !mentionables?.length}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={openMentions}
-                title={
-                  mentionables?.length
-                    ? "Mention an agent (@)"
-                    : "No agents available to mention"
-                }
-                aria-label="Mention an agent"
-                aria-haspopup="listbox"
-                aria-expanded={mentionOpen}
-                data-testid="chat-composer-mention-button"
-                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <AtSign className="h-[18px] w-[18px]" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={Boolean(slashUnavailableReason)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={openCommands}
-                title={slashUnavailableReason ?? "Slash commands (/)"}
-                aria-label="Slash commands"
-                aria-haspopup="listbox"
-                aria-expanded={slashOpen}
-                aria-controls={slashOpen ? slashListId : undefined}
-                data-testid="chat-composer-command-button"
-                className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              >
-                <SquareSlash className="h-[18px] w-[18px]" />
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-1 pointer-coarse:gap-0">
-              {action ? (
-                <>
-                  {action}
-                  <span
-                    className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
-                    aria-hidden="true"
-                  />
-                </>
-              ) : null}
-              <div
-                className="inline-flex items-center"
-                role="group"
-                aria-label="Send message actions"
-              >
+          <div className="chat-composer-details">
+            <div
+              className="min-h-0 overflow-hidden flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
+              data-testid="chat-composer-controls"
+            >
+              <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={STARTUP_FILE_ACCEPT}
+                  className="hidden"
+                  onChange={onFileChange}
+                  data-testid="chat-composer-file-input"
+                />
                 <Button
-                  type="submit"
+                  type="button"
                   size="icon"
-                  variant={canSend ? "success" : "ghost"}
-                  disabled={!canSend}
-                  title="Send (Enter)"
-                  aria-label="Send message"
-                  data-testid="chat-composer-send"
-                  className={cn(
-                    "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
-                    canQueue && "rounded-r-none"
-                  )}
+                  variant="ghost"
+                  disabled={disabled || attachmentsFull}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach a file"
+                  aria-label="Attach a file"
+                  data-testid="chat-composer-attach-button"
+                  className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
                 >
-                  <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  <Plus className="h-5 w-5" />
                 </Button>
-                {canQueue ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant={canSend ? "success" : "ghost"}
-                        disabled={!canSend}
-                        aria-label="Send options"
-                        title="Send options"
-                        data-testid="chat-composer-send-options"
-                        className="h-9 w-7 rounded-l-none border-l border-l-background/20 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      side="top"
-                      align="end"
-                      className="w-72"
-                      onEscapeKeyDown={(event) => event.stopPropagation()}
-                    >
-                      <DropdownMenuItem
-                        disabled={!canSend}
-                        onSelect={() => submit()}
-                        className="text-foreground"
-                      >
-                        <span className="flex justify-between gap-3">
-                          Send{" "}
-                          <span className="text-muted-foreground">Enter</span>
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Deliver while the agent works
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!canSend}
-                        onSelect={() => submit({ delivery: "queue" })}
-                        data-testid="chat-composer-queue"
-                        className="text-foreground"
-                      >
-                        <span className="flex justify-between gap-3">
-                          Queue for next turn{" "}
-                          <span className="text-muted-foreground">
-                            {queueShortcut}
-                          </span>
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Send after the current turn finishes
-                        </span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={disabled || !mentionables?.length}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openMentions}
+                  title={
+                    mentionables?.length
+                      ? "Mention an agent (@)"
+                      : "No agents available to mention"
+                  }
+                  aria-label="Mention an agent"
+                  aria-haspopup="listbox"
+                  aria-expanded={mentionOpen}
+                  data-testid="chat-composer-mention-button"
+                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                >
+                  <AtSign className="h-[18px] w-[18px]" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={Boolean(slashUnavailableReason)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openCommands}
+                  title={slashUnavailableReason ?? "Slash commands (/)"}
+                  aria-label="Slash commands"
+                  aria-haspopup="listbox"
+                  aria-expanded={slashOpen}
+                  aria-controls={slashOpen ? slashListId : undefined}
+                  data-testid="chat-composer-command-button"
+                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                >
+                  <SquareSlash className="h-[18px] w-[18px]" />
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-1 pointer-coarse:gap-0">
+                {action ? (
+                  <>
+                    {action}
+                    <span
+                      className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
+                      aria-hidden="true"
+                    />
+                  </>
                 ) : null}
+                <div
+                  className="inline-flex items-center"
+                  role="group"
+                  aria-label="Send message actions"
+                >
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant={canSend ? "success" : "ghost"}
+                    disabled={!canSend}
+                    title="Send (Enter)"
+                    aria-label="Send message"
+                    data-testid="chat-composer-send"
+                    className={cn(
+                      "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    )}
+                  >
+                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <div className="px-1 text-[10px] text-muted-foreground">
+      <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
         {disabledReason ? (
           <span data-testid="chat-composer-disabled-reason">
             {disabledReason}
@@ -1317,6 +1262,10 @@ export function ChatComposer({
         ) : slashBlockedReason ? (
           <span role="alert" data-testid="chat-composer-slash-hint">
             {slashBlockedReason}
+          </span>
+        ) : deliveryBlockedReason ? (
+          <span role="alert" data-testid="chat-composer-delivery-blocked">
+            {deliveryBlockedReason}
           </span>
         ) : error ? (
           <span
@@ -1326,7 +1275,7 @@ export function ChatComposer({
             data-retryable={error.retryable ? "true" : undefined}
           >
             {error.retryable
-              ? `${error.text} — your message is still here; press Enter to ${error.retryDelivery === "queue" ? "queue again" : "try again"}.`
+              ? `${error.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
               : error.text}
           </span>
         ) : placeholders.length > 0 ? (
@@ -1342,14 +1291,70 @@ export function ChatComposer({
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
         ) : (
-          <span>
-            Enter to send · Shift+Enter for a new line
-            {canQueue
-              ? ` · ${queueShortcut} to queue`
-              : " · paste or drop files"}
+          <span className="hidden md:inline">
+            Enter to send · Shift+Enter for new line
           </span>
         )}
       </div>
+      {defaultRecipients || footer ? (
+        <div className="chat-composer-details">
+          <div className="min-h-0 overflow-hidden flex min-w-0 items-center justify-between gap-2 px-1">
+            {defaultRecipients ? (
+              <TooltipProvider delayDuration={150}>
+                <div
+                  className="flex min-w-12 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground max-[360px]:min-w-20"
+                  data-testid="chat-composer-routing"
+                  role="group"
+                  aria-label="Message recipients"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <span className="shrink-0">To:</span>
+                  {recipients.map((agent) => (
+                    <Tooltip key={agent.id}>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          className="inline-flex items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          data-testid="chat-composer-recipient"
+                          data-agent-id={agent.id}
+                        >
+                          <AgentSeatBadge
+                            seat={agent.seat ?? null}
+                            name={agent.name}
+                            size="sm"
+                          />
+                          {agent.seat === undefined ? (
+                            <span>{agent.name}</span>
+                          ) : null}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {agent.seat === undefined
+                          ? agent.name
+                          : `@${agent.seat} · ${agent.name}`}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                  {(canQueue && conversation) ||
+                  deliveryMode === "interrupt" ? (
+                    <ComposerDelivery
+                      timings={deliveryTimings}
+                      mode={deliveryMode}
+                      onMode={setDeliveryMode}
+                      unavailableReason={deliveryBlockedReason}
+                    />
+                  ) : null}
+                  {recipients.length === 0 ? (
+                    <span>Loading recipients…</span>
+                  ) : null}
+                </div>
+              </TooltipProvider>
+            ) : null}
+            {footer}
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }

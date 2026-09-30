@@ -6,6 +6,7 @@ import type { SharedUiEvent } from "@dispatch/shared";
 
 import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { AgentManager } from "../agents/manager.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
@@ -68,6 +69,7 @@ type McpRouteDeps = {
   ) => boolean;
   mcpSendNotify: unknown;
   mcpRenameSession: unknown;
+  mcpSetWorkspace: unknown;
   mcpShareFile: unknown;
   mcpListFiles: unknown;
   mcpDeleteFile: unknown;
@@ -176,9 +178,11 @@ export async function registerMcpRoutes(
 
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
+    // Repo tools, brain and job defaults follow a moved workspace.
+    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      repoRoot = await resolveRepoRoot(agent.cwd);
-      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(workspaceDir);
+      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
     } catch {}
 
     const jobTools = run
@@ -210,7 +214,7 @@ export async function registerMcpRoutes(
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
-        cwd: agent.cwd,
+        cwd: workspaceDir,
         type: agent.type,
         role: agent.role,
         persona: agent.persona,
@@ -221,6 +225,7 @@ export async function registerMcpRoutes(
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
+      setWorkspace: deps.mcpSetWorkspace,
       shareFile: deps.mcpShareFile,
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
@@ -275,9 +280,11 @@ export async function registerMcpRoutes(
 
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
+    // Repo tools, brain and job defaults follow a moved workspace.
+    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      repoRoot = await resolveRepoRoot(agent.cwd);
-      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(workspaceDir);
+      worktreeRoot = await resolveWorktreeRoot(workspaceDir);
     } catch {}
 
     reply.hijack();
@@ -289,7 +296,7 @@ export async function registerMcpRoutes(
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
-        cwd: agent.cwd,
+        cwd: workspaceDir,
         type: agent.type,
         role: agent.role,
         persona: agent.persona,
@@ -300,6 +307,7 @@ export async function registerMcpRoutes(
       worktreeRoot,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
+      setWorkspace: deps.mcpSetWorkspace,
       shareFile: deps.mcpShareFile,
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,

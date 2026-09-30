@@ -43,7 +43,11 @@ import {
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { useDescendantAgentIds, useRootAgentId } from "@/hooks/use-agent-tree";
+import {
+  useDescendantAgentIds,
+  useRootAgentId,
+  useDeliveryAgents,
+} from "@/hooks/use-agent-tree";
 import { useAgentCommands } from "@/hooks/use-agent-commands";
 import {
   useAnswerQuestion,
@@ -71,6 +75,7 @@ import { cn } from "@/lib/utils";
 export type ChatPaneProps = {
   agentId: string | null;
   agent: Agent | null;
+  agents?: Agent[];
   /**
    * The pane is on screen: its tab is active (or it sits in a split). While false the
    * pane stays mounted — feed, scroll position and draft intact — but does
@@ -404,6 +409,7 @@ export function questionExcerpt(text: string, max = 80): string {
 export function ChatPane({
   agentId,
   agent,
+  agents = [],
   active,
   showChildAgents,
   onShowChildAgentsChange,
@@ -414,6 +420,7 @@ export function ChatPane({
   // The stream is the root's: a child agent's page reads its root's feed
   // and filters it down to the child (see `entryOwner`).
   const rootId = useRootAgentId(agentId);
+  const deliveryAgents = useDeliveryAgents();
   const slashCommands = useAgentCommands(agentId, active);
   const descendants = useDescendantAgentIds(agentId);
   const feed = useStreamFeed(rootId);
@@ -488,6 +495,23 @@ export function ChatPane({
         : null,
     [ownEntries, answeringQuestionId]
   );
+
+  // Structured answers resume work: a main-stream ask resumes the root;
+  // a child's threaded ask resumes its launch-card home. Never use the ask's
+  // storage thread as a guess when the child's launch card is not loaded.
+  const answerAtChildHome = Boolean(
+    replyTarget?.threadId && agentId !== rootId
+  );
+  const childHome = answerAtChildHome
+    ? entries.find(
+        (entry) =>
+          entry.block.kind === "launch" && entry.block.toAgentId === agentId
+      )?.block.id
+    : null;
+  const composerConversation =
+    rootId && (!answerAtChildHome || childHome)
+      ? { streamId: rootId, threadId: childHome ?? null }
+      : undefined;
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -880,7 +904,7 @@ export function ChatPane({
     async (
       text: string,
       attachments: ChatUserAttachmentInput[],
-      options?: { delivery?: "auto" | "queue" }
+      options?: { delivery?: "auto" | "queue" | "interrupt" }
     ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
@@ -889,6 +913,7 @@ export function ChatPane({
           blockId: replyTarget.id,
           value: text,
           attachments,
+          ...(options?.delivery ? { delivery: options.delivery } : {}),
         });
         return;
       }
@@ -1055,7 +1080,7 @@ export function ChatPane({
 
   const mentionables = useMemo(() => mentionablesOf(ctx), [ctx]);
   const newestTurn = useMemo(() => newestTurnEntry(ownEntries), [ownEntries]);
-  const turnRunning = newestTurn !== null && !newestTurn.block.turn?.settled;
+  const turnRunning = Boolean(agent?.currentTurn);
   const tasks = useMemo(() => latestTurnPlan(ownEntries), [ownEntries]);
   const tasksOpen = tasks.some((t) => t.status !== "completed");
   const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
@@ -1203,7 +1228,7 @@ export function ChatPane({
 
           <div
             className={cn(
-              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-4 pt-3",
+              "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >
@@ -1256,22 +1281,28 @@ export function ChatPane({
                   : undefined
               }
               slashCommands={slashCommands}
-              canQueue={Boolean(agentId) && !replyTarget}
+              canQueue={Boolean(agentId)}
+              deliveryAgents={deliveryAgents}
+              conversation={composerConversation}
               action={
-                agentId && turnRunning ? (
-                  <StopTurnButton agentId={agentId} onError={setSendError} />
-                ) : undefined
+                <StopTurnButton
+                  agents={agents.length ? agents : agent ? [agent] : []}
+                  selectedAgentId={agentId}
+                  onError={setSendError}
+                />
+              }
+              footer={
+                agentId && agent ? (
+                  <ComposerMeta
+                    agentId={agentId}
+                    agent={agent}
+                    active={active}
+                    turnRunning={turnRunning}
+                    turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
+                  />
+                ) : null
               }
             />
-            {agentId && agent ? (
-              <ComposerMeta
-                agentId={agentId}
-                agent={agent}
-                active={active}
-                turnRunning={turnRunning}
-                turnKey={`${newestTurn?.block.id ?? ""}:${turnRunning}`}
-              />
-            ) : null}
           </div>
         </div>
       </div>

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, act, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  act,
+  render,
+  screen,
+  fireEvent,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockDelivery } from "@dispatch/shared";
 import { block } from "@/test-utils/blocks";
@@ -31,6 +37,46 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("quiet delivery status", () => {
+  it("distinguishes requested interruption from confirmation and offers explicit retry on failure", () => {
+    const retry = vi.fn();
+    const post = block({
+      id: "urgent",
+      authorKind: "user",
+      body: { kind: "text", data: { delivery: "interrupt" }, state: null },
+      delivery: [{ agentId: "agt_1", state: "held" }],
+    });
+    const view = render(
+      <DeliveryMeta block={post} recipientName={name} onRetryDelivery={retry} />
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Stop requested"
+    );
+    expect(screen.getByTestId("chat-held-hint").title).toContain(
+      "may take time to cancel"
+    );
+    view.rerender(
+      <DeliveryMeta
+        block={{ ...post, delivery: [{ agentId: "agt_1", state: "failed" }] }}
+        recipientName={name}
+        onRetryDelivery={retry}
+      />
+    );
+    expect(screen.getByTestId("chat-delivery-failed").textContent).toContain(
+      "Interrupt failed"
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try interrupt again" })
+    );
+    expect(retry).toHaveBeenCalledWith("urgent");
+    view.rerender(
+      <DeliveryMeta
+        block={{ ...post, delivery: [waiting] }}
+        recipientName={name}
+      />
+    );
+    expect(screen.queryByTestId("chat-held-hint")).toBeNull();
+  });
+
   it("shows waiting, briefly confirms a new receipt, and keeps reload quiet", () => {
     vi.useFakeTimers();
     const view = render(ui([waiting]));
