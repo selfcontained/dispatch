@@ -16,6 +16,9 @@ class LiveProofTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='dispatch-macos-test-sparkle-service-unit-',dir='/tmp') as folder:
             root=Path(folder); fixture=root/'fake-acp.py'
             shutil.copy2(Path(__file__).parent/'fixtures/sparkle-acp.py',fixture)
+            fixture.chmod(0o700)
+            version=subprocess.run([str(fixture),'--version'],capture_output=True,text=True,check=True,timeout=5)
+            self.assertEqual(version.stdout.strip(),'1.0.0 (Sparkle proof fixture)')
             child=subprocess.Popen([sys.executable,str(fixture.resolve())],stdin=subprocess.PIPE,stdout=subprocess.PIPE,bufsize=0)
             def send(i,method,params):
                 child.stdin.write((json.dumps({'jsonrpc':'2.0','id':i,'method':method,'params':params})+'\n').encode());child.stdin.flush()
@@ -40,6 +43,16 @@ class LiveProofTests(unittest.TestCase):
                 self.assertEqual(receive()['id'],4)
             finally:
                 child.stdin.close();child.wait(timeout=5);child.stdout.close()
+
+    def test_bodyless_archive_does_not_claim_json_body(self):
+        from io import BytesIO
+        proof=LiveAgentProof(Path('/tmp/proof'),None,None)
+        with patch('sparkle_proof_live.urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value.__enter__.return_value=BytesIO(b'{}')
+            proof.api('/agents/agt_test?cleanupWorktree=keep','DELETE')
+            request=opener.return_value.open.call_args.args[0]
+            self.assertIsNone(request.data)
+            self.assertFalse(request.has_header('Content-type'))
 
     def test_settled_rejects_partial_and_failed_turns(self):
         proof=LiveAgentProof(Path('/tmp/proof'),None,None);proof.agent_id='agt_test'

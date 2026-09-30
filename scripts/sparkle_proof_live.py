@@ -18,7 +18,7 @@ class LiveAgentProof:
     def api(self, path, method='GET', body=None):
         request = urllib.request.Request('http://127.0.0.1:56789/api/v1'+path, method=method,
             data=json.dumps(body).encode() if body is not None else None,
-            headers={'Content-Type':'application/json'})
+            headers={'Content-Type':'application/json'} if body is not None else {})
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request,timeout=5) as response:
             return json.load(response)
 

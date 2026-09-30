@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 """Tiny ACP engine for the isolated Mac update proof; no model or workspace IO."""
 import json
 import os
@@ -9,6 +10,9 @@ import uuid
 
 root = Path(os.path.abspath(__file__)).parent
 assert root.parent.resolve() == Path('/tmp').resolve() and root.name.startswith('dispatch-macos-test-sparkle-service-')
+if '--version' in sys.argv:
+    print('1.0.0 (Sparkle proof fixture)')
+    sys.exit(0)
 lock = threading.Lock()
 session = 'sparkle-live-' + uuid.uuid4().hex
 

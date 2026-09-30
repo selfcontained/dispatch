@@ -233,3 +233,20 @@ quiet scan confirms none remain. Only verified owned PIDs are signaled, never a
 process group. Producer shutdown or process-cleanup failure fails the overall
 verdict and retains recovery artifacts.
 This case retains the standard settings, signature, session and cleanup gates.
+
+### First live-case attempt: build ec5a7ac3
+
+[CI 36666617084](https://github.com/selfcontained/dispatch/actions/runs/36666617084)
+produced the notarized pair. The clean VM registered and started the service,
+but agent creation failed its CLI availability check before reaching the fake
+ACP adapter. No update was attempted; live continuity remains unproven. Cleanup
+passed with no errors, evidence was exported, and the disposable clone was
+stopped/deleted. The source VM remains stopped.
+
+The proof-only launch environment now points the Claude CLI override at the
+executable fake fixture as well as selecting that fixture as the ACP adapter.
+The fixture answers `--version` without starting a session. Normal builds retain
+their real CLI checks. The driver also omits JSON content type on bodyless DELETE
+requests, correcting an archive request rejected during this run. Focused tests
+cover executable version discovery and the bodyless request. A fresh notarized
+run is still required.

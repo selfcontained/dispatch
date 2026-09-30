@@ -138,6 +138,7 @@ try:
     run('spctl','--assess','--type','execute','--verbose',app)
     if args.case=='live-agent':
         shutil.copy2(artifacts/'fake-acp.py',root/'fake-acp.py')
+        (root/'fake-acp.py').chmod(0o700)
         (root/'live-agent-proof').touch()
         live = LiveAgentProof(root,app,run)
     (root/'service-proof-approved').write_text(identity)

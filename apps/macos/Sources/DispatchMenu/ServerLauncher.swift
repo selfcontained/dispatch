@@ -60,6 +60,8 @@ func runServer() throws -> Never {
         let command = ["/usr/bin/python3", root.appendingPathComponent("fake-acp.py").path]
         let encoded = try JSONEncoder().encode(command)
         setenv("DISPATCH_ACP_ADAPTER_COMMAND", String(decoding: encoded, as: UTF8.self), 1)
+        // Agent creation also checks the CLI path before the ACP adapter runs.
+        setenv("DISPATCH_CLAUDE_BIN", root.appendingPathComponent("fake-acp.py").path, 1)
     }
     #endif
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
