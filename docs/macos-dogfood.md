@@ -1,4 +1,4 @@
-# macOS acp-runtime dogfood
+# macOS Stable and Preview updates
 
 This is an opt-in delivery channel for the real Dispatch app, initially **arm64
 only**. It keeps `Dispatch.app`, bundle ID `dev.bradharris.dispatch.preview`, the
@@ -11,11 +11,27 @@ prerelease in [selfcontained/dispatch](https://github.com/selfcontained/dispatch
 Quit the existing app before replacing `Dispatch.app`. The dogfood build opts into
 Sparkle checks, automatic downloads, and automatic installation. Sparkle and the
 native app coordinate installation with the managed service. The app's version
-UI identifies its version, numeric build, and `acp-runtime` channel.
+UI identifies its version, numeric build, and `Preview` channel.
 
-The permanent arm64 appcast is:
+The permanent arm64 appcasts are:
 
-`https://github.com/selfcontained/dispatch/releases/download/macos-acp-runtime/appcast-arm64.xml`
+- Preview: `https://dispatch.berad.dev/updates/macos/preview/appcast-arm64.xml`
+- Stable: `https://dispatch.berad.dev/updates/macos/stable/appcast-arm64.xml`
+
+Preview follows `acp-runtime` during development. Stable is an explicit release,
+not a consequence of merging a branch. Both contain the latest build published
+**within that channel**; there is no third "latest" channel. The stable feed starts
+as a valid empty RSS channel and does not offer a preview as its first release.
+
+The app embeds its channel and corresponding feed at build time. There is no
+in-app channel selector yet. Install a build of the desired channel to change
+channels; do not downgrade to an older stable build over a newer preview database.
+A stable archive is not promoted into Preview because that archive follows the
+Stable feed. Preview continues to receive separately built preview releases.
+
+Existing installations still follow the GitHub `macos-acp-runtime` feed. Publication
+keeps that feed updated as a compatibility bridge. Their next update installs an
+app that follows the domain's Preview feed, preserving bundle identity and data.
 
 Do not install an x64 build from this workflow: Intel delivery and cross-architecture
 validation are not implemented. The workflow builds an arm64 server, Swift app,
@@ -23,10 +39,43 @@ and PostgreSQL runtime on the arm64 macOS runner; this is not a universal app an
 does not provide a supported Intel/Rosetta runtime path. Separate `appcast-x64.xml` delivery must be added
 and tested before enabling it. The ordinary preview workflow remains separate.
 
+## Domain hosting
+
+`apps/update-feeds/wrangler.jsonc` deploys a separate static-assets Worker named
+`dispatch-update-feeds` on `dispatch.berad.dev/updates/*`. This narrow route sits
+in front of the site's existing custom domain. No website source is deployed by
+an app release, and normal site deployments do not overwrite update feeds.
+The app ZIPs remain immutable GitHub Release assets.
+
+CI stages **both** channel feeds and deploys them together as one Worker version;
+there is no delete/reupload gap on the domain. Cache headers require revalidation.
+The publisher verifies the public bytes before changing the old GitHub feed.
+The existing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets are reused
+only in the publish job. That token must allow Worker script deployments and
+Worker Routes editing on the `berad.dev` zone; successful site deployment alone
+does not establish the route permission. Wrangler and the public-URL verification
+must succeed before the compatibility bridge advertises the new build.
+
+Recovery feeds remain on GitHub: Preview uses `macos-acp-runtime`; Stable uses
+`macos-stable`. A missing stable release bootstraps an empty feed. An existing
+release with a missing canonical feed is an error. Every deployment compares
+both proposed feeds against the domain and refuses to regress either channel
+or change metadata for an equal build. Network/authentication/schema failures
+fail closed. All channel publishers share the same workflow concurrency group.
+
+If deployment succeeds but verification or GitHub promotion fails, the domain
+may already serve the newer build. Its archive and staged appcast remain on
+GitHub. Repair the recovery feed from that retained candidate before publishing
+the other channel. Do not roll the domain back. Rerunning the failed channel as
+a new attempt can supersede its interrupted publication safely.
+
 ## Workflow and credentials
 
 `.github/workflows/macos-dogfood.yml` runs on pushes to `acp-runtime` and manual
-dispatch. Manual dispatch may select a feature branch for initial bootstrap;
+dispatch. The `channel` input defaults to `preview`. Selecting `stable` requires
+an explicit manual dispatch on `main`; both the build job and publisher enforce
+this boundary. No stable build is published by source pushes or merges.
+Manual Preview dispatch may select a feature branch for initial bootstrap;
 this publishes to the same dogfood channel, so select only reviewed code. GitHub
 may require the workflow to exist on the default branch before manual dispatch
 is available. For pre-merge bootstrap, an exact push trigger also allows
@@ -58,7 +107,8 @@ output on errors, and never uploads the key. It verifies Sparkle's signature
 against the final archive before producing the feed.
 
 Build controls are `DISPATCH_SPARKLE_SDK`, `DISPATCH_SPARKLE_PUBLIC_KEY`, and
-`DISPATCH_SPARKLE_FEED_URL` (HTTPS required). Normal builds do not opt into Sparkle
+`DISPATCH_SPARKLE_FEED_URL` (HTTPS required), and `DISPATCH_UPDATE_CHANNEL`
+(`preview` or `stable`). Normal builds do not opt into Sparkle
 unless the SDK is supplied. `DISPATCH_SPARKLE_PROBE_SDK` is rejected by production
 packaging. The SDK archive is Sparkle **2.10.0**, pinned to SHA-256
 `c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`.
@@ -91,19 +141,19 @@ that history. Unresolved restoration retains the pending record for explicit ret
 `CFBundleVersion` is `github.run_id.github.run_attempt`, compared as integers rather
 than text. A rerun has a new attempt; an older run cannot replace an equal/newer
 live appcast even if GitHub schedules it later. The immutable archive's tag is
-`macos-acp-<run-id>-<attempt>`; reusing an existing release is rejected. Both version
-releases and the mutable `macos-acp-runtime` feed release are prereleases with
-`--latest=false`; neither the stable release nor GitHub's latest release is changed.
+`macos-acp-<run-id>-<attempt>`; reusing an existing release is rejected. Preview version releases and the mutable recovery-feed releases are prereleases.
+Explicit Stable version releases are not prereleases. All use `--latest=false` so
+the existing standalone/Linux "latest release" remains untouched.
 
 All refs share one workflow concurrency group with cancellation disabled. The
 publisher checks the live feed before publishing, uploads the immutable archive,
 downloads and compares its SHA-256, then stages and verifies the new appcast.
-Only then does it rename the old feed to `appcast-arm64-before-<build>.xml` and
+It deploys and verifies both domain feeds first. Only then does it rename the old recovery feed to `appcast-arm64-before-<build>.xml` and
 rename the candidate to `appcast-arm64.xml`. Old feeds are retained for recovery.
 Lookup/auth/network errors fail closed; a confirmed 404 supports initial release
 creation. Failures before promotion leave the live feed untouched.
 
-GitHub release assets offer **no atomic content replacement**. There is a brief
+The compatibility/recovery feed on GitHub still offers **no atomic content replacement**. There is a brief
 interval between the two renames when the feed URL can return 404. A failed
 promotion attempts to restore the previous canonical name. If GitHub is unavailable
 or the process is terminated during these renames, restoration may also fail;
@@ -115,7 +165,8 @@ be retried as a new workflow attempt, never by overwriting its archive.
 
 ## Local source tests
 
-Run `python3 scripts/test_macos_dogfood.py` for metadata/schema, integer ordering,
+Run `python3 scripts/test_macos_feeds.py` for domain/channel separation, preservation,
+stale-feed refusal, and bridge failure behavior. Run `python3 scripts/test_macos_dogfood.py` for metadata/schema, integer ordering,
 stale-run refusal, initial release, and promotion rollback tests (no external calls).
 `node --check scripts/build-macos-app.mjs` and
 `node --check scripts/sign-macos-dogfood.mjs` check JavaScript syntax.

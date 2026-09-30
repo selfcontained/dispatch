@@ -4,6 +4,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -12,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 REPO = 'selfcontained/dispatch'
 FEED_TAG = 'macos-acp-runtime'
+FEED_TAGS = {'preview': FEED_TAG, 'stable': 'macos-stable'}
 NS = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 ET.register_namespace('sparkle', NS)
 
@@ -32,7 +34,9 @@ def tag(build):
     return 'macos-acp-' + build.replace('.', '-')
 
 
-def feed(build, short_version, signature, length):
+def feed(build, short_version, signature, length, channel_name='preview'):
+    if channel_name not in FEED_TAGS:
+        raise ValueError('Unknown update channel')
     version(build)
     if len(base64.b64decode(signature, validate=True)) != 64 or length <= 0:
         raise ValueError('Invalid signature or archive length')
@@ -40,9 +44,9 @@ def feed(build, short_version, signature, length):
         raise ValueError('Invalid display version')
     rss = ET.Element('rss', version='2.0')
     channel = ET.SubElement(rss, 'channel')
-    ET.SubElement(channel, 'title').text = 'Dispatch acp-runtime (arm64)'
+    ET.SubElement(channel, 'title').text = f'Dispatch {channel_name.title()} (arm64)'
     item = ET.SubElement(channel, 'item')
-    ET.SubElement(item, 'title').text = f'Dispatch {short_version} ({build}, acp-runtime)'
+    ET.SubElement(item, 'title').text = f'Dispatch {short_version} ({build}, {channel_name})'
     for key, value in [('version', build), ('shortVersionString', short_version), ('minimumSystemVersion', '13.0')]:
         ET.SubElement(item, f'{{{NS}}}{key}').text = value
     ET.SubElement(item, 'enclosure', {'url': f'https://github.com/{REPO}/releases/download/{tag(build)}/{archive_name(build)}', f'{{{NS}}}edSignature': signature, 'length': str(length), 'type': 'application/octet-stream'})
@@ -85,18 +89,30 @@ def rename(asset, name):
     api(f'repos/{REPO}/releases/assets/{asset["id"]}', '-X', 'PATCH', '-f', f'name={name}')
 
 
-def publish(directory, build, commit):
+def authorize_channel(channel):
+    if channel not in FEED_TAGS:
+        raise ValueError('Unknown update channel')
+    if channel == 'stable' and (os.environ.get('GITHUB_REF') != 'refs/heads/main' or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'):
+        raise ValueError('Stable publication requires an explicit dispatch from main')
+
+
+def publish(directory, build, commit, channel='preview', deploy_feeds=None):
+    authorize_channel(channel)
+    feed_tag = FEED_TAGS[channel]
     version(build)
     archive = directory / archive_name(build)
     candidate = (directory / 'appcast-arm64.xml').read_bytes()
     if feed_version(candidate) != version(build):
         raise ValueError('Candidate build mismatch')
-    item = ET.fromstring(candidate).find('./channel/item')
+    document = ET.fromstring(candidate)
+    if document.findtext('./channel/title') != f'Dispatch {channel.title()} (arm64)':
+        raise ValueError('Candidate channel mismatch')
+    item = document.find('./channel/item')
     enclosure = item.find('enclosure')
     expected_url = f'https://github.com/{REPO}/releases/download/{tag(build)}/{archive.name}'
     if enclosure.get('url') != expected_url or int(enclosure.get('length')) != archive.stat().st_size:
         raise ValueError('Archive metadata mismatch')
-    current = release(FEED_TAG)
+    current = release(feed_tag)
     old = next((a for a in current['assets'] if a['name'] == 'appcast-arm64.xml'), None) if current else None
     if current and not old and any(a['name'].startswith('appcast-arm64-before-') for a in current['assets']):
         raise RuntimeError('Interrupted promotion: restore the retained feed before publishing')
@@ -105,23 +121,27 @@ def publish(directory, build, commit):
     # Immutable release assets: never clobber or reuse an existing version tag.
     if release(tag(build)):
         raise ValueError('Immutable version release already exists; rerun with a new attempt')
-    gh('release', 'create', tag(build), archive, '--repo', REPO, '--target', commit, '--prerelease', '--latest=false', '--title', f'Dispatch acp-runtime {build}', '--notes', 'Opt-in arm64 dogfood build. See docs/macos-dogfood.md.')
+    gh('release', 'create', tag(build), archive, '--repo', REPO, '--target', commit, *(['--prerelease'] if channel == 'preview' else []), '--latest=false', '--title', f'Dispatch {channel.title()} {build}', '--notes', f'Arm64 {channel} channel. See docs/macos-dogfood.md.')
     uploaded = release(tag(build))
     remote = next(a for a in uploaded['assets'] if a['name'] == archive.name)
     if hashlib.sha256(asset_data(remote)).digest() != hashlib.sha256(archive.read_bytes()).digest():
         raise RuntimeError('Uploaded archive verification failed; feed untouched')
     if not current:
-        gh('release', 'create', FEED_TAG, '--repo', REPO, '--target', commit, '--prerelease', '--latest=false', '--title', 'Dispatch acp-runtime update feeds', '--notes', 'Mutable opt-in Sparkle feeds; version archives live in separate prereleases.')
+        gh('release', 'create', feed_tag, '--repo', REPO, '--target', commit, '--prerelease', '--latest=false', '--title', f'Dispatch {channel.title()} update feeds', '--notes', 'Mutable opt-in Sparkle feeds; version archives live in separate prereleases.')
     # Upload and verify before changing the live asset. GitHub offers no atomic
     # asset replacement: retain the old asset and restore its name on failure.
     with tempfile.TemporaryDirectory() as scratch:
         staged = Path(scratch) / f'appcast-arm64-{build}.xml'
         staged.write_bytes(candidate)
-        gh('release', 'upload', FEED_TAG, staged, '--repo', REPO)
-        current = release(FEED_TAG)
+        gh('release', 'upload', feed_tag, staged, '--repo', REPO)
+        current = release(feed_tag)
         new = next(a for a in current['assets'] if a['name'] == staged.name)
         if asset_data(new) != candidate:
             raise RuntimeError('Staged feed verification failed; live feed untouched')
+        # Retain the candidate for recovery, then verify the domain before
+        # advertising the bridge to existing GitHub-feed installations.
+        if deploy_feeds:
+            deploy_feeds(channel, candidate)
         if old:
             rename(old, f'appcast-arm64-before-{build}.xml')
         try:
@@ -139,15 +159,20 @@ def main():
     parser.add_argument('--build', required=True)
     parser.add_argument('--version')
     parser.add_argument('--commit')
+    parser.add_argument('--channel', choices=FEED_TAGS, default='preview')
+    parser.add_argument('--deploy-feeds', action='store_true')
     args = parser.parse_args()
     if args.action == 'generate':
         archive = args.directory / archive_name(args.build)
         signature = (args.directory / 'signature.txt').read_text().strip()
-        (args.directory / 'appcast-arm64.xml').write_bytes(feed(args.build, args.version, signature, archive.stat().st_size))
+        (args.directory / 'appcast-arm64.xml').write_bytes(feed(args.build, args.version, signature, archive.stat().st_size, args.channel))
     else:
         if not args.commit or not re.fullmatch('[0-9a-f]{40}', args.commit):
             raise ValueError('Exact source commit required')
-        publish(args.directory, args.build, args.commit)
+        deploy = None
+        if args.deploy_feeds:
+            from macos_feeds import deploy
+        publish(args.directory, args.build, args.commit, args.channel, deploy)
 
 
 if __name__ == '__main__':

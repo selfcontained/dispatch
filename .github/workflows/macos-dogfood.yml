@@ -25,6 +25,12 @@ on:
       - "!**/*.md"
   # Explicitly allows feature-branch bootstrap with the same dogfood channel.
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Stable requires main; preview is opt-in prerelease delivery"
+        type: choice
+        options: [preview, stable]
+        default: preview
 
 permissions:
   contents: read
@@ -36,12 +42,14 @@ concurrency:
 
 jobs:
   build:
+    if: inputs.channel != 'stable' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: macos-15
     timeout-minutes: 60
     env:
       PREVIEW_ARCH: arm64
       DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
-      DISPATCH_SPARKLE_FEED_URL: https://github.com/selfcontained/dispatch/releases/download/macos-acp-runtime/appcast-arm64.xml
+      DISPATCH_UPDATE_CHANNEL: ${{ inputs.channel || 'preview' }}
+      DISPATCH_SPARKLE_FEED_URL: https://dispatch.berad.dev/updates/macos/${{ inputs.channel || 'preview' }}/appcast-arm64.xml
       DISPATCH_MAC_BUILD: ${{ github.run_id }}.${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v6
@@ -55,7 +63,9 @@ jobs:
         with:
           node-version: "22"
       - name: Test release metadata and publisher
-        run: python3 scripts/test_macos_dogfood.py
+        run: |
+          python3 scripts/test_macos_dogfood.py
+          python3 scripts/test_macos_feeds.py
       - name: Download verified Sparkle SDK
         run: |
           set -euo pipefail
@@ -120,7 +130,7 @@ jobs:
           set -euo pipefail
           node scripts/sign-macos-dogfood.mjs "dist/macos/arm64/dispatch-macos-acp-$DISPATCH_MAC_BUILD-arm64.zip" dist/macos/arm64/signature.txt
           VERSION="$(node -p 'require("./package.json").version')"
-          python3 scripts/macos_dogfood.py generate --directory dist/macos/arm64 --build "$DISPATCH_MAC_BUILD" --version "$VERSION"
+          python3 scripts/macos_dogfood.py generate --directory dist/macos/arm64 --build "$DISPATCH_MAC_BUILD" --version "$VERSION" --channel "$DISPATCH_UPDATE_CHANNEL"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dogfood-${{ github.run_id }}-${{ github.run_attempt }}
@@ -149,9 +159,19 @@ jobs:
         with:
           name: macos-dogfood-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/dogfood
-      - name: Publish immutable archive, then promote verified feed
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pnpm install --frozen-lockfile
+      - name: Publish archive, deploy domain feeds, then update legacy bridge
         env:
           GH_TOKEN: ${{ github.token }}
           DOGFOOD_BUILD: ${{ github.run_id }}.${{ github.run_attempt }}
           DOGFOOD_COMMIT: ${{ github.sha }}
-        run: python3 scripts/macos_dogfood.py publish --directory "$RUNNER_TEMP/dogfood" --build "$DOGFOOD_BUILD" --commit "$DOGFOOD_COMMIT"
+          UPDATE_CHANNEL: ${{ inputs.channel || 'preview' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/macos_dogfood.py publish --directory "$RUNNER_TEMP/dogfood" --build "$DOGFOOD_BUILD" --commit "$DOGFOOD_COMMIT" --channel "$UPDATE_CHANNEL" --deploy-feeds

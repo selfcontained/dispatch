@@ -63,6 +63,12 @@ const sparkleSDK = process.env.DISPATCH_SPARKLE_SDK;
 if (process.env.DISPATCH_SPARKLE_PROBE_SDK)
   throw new Error("Production packaging cannot use DISPATCH_SPARKLE_PROBE_SDK");
 if (sparkleSDK) {
+  if (
+    !["stable", "preview"].includes(
+      process.env.DISPATCH_UPDATE_CHANNEL ?? "preview"
+    )
+  )
+    throw new Error("Unknown update channel");
   const digest = createHash("sha256")
     .update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz")))
     .digest("hex");
@@ -175,7 +181,7 @@ try {
     for (const [key, value] of Object.entries({
       SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
       SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
-      DispatchUpdateChannel: "acp-runtime",
+      DispatchUpdateChannel: process.env.DISPATCH_UPDATE_CHANNEL ?? "preview",
     }))
       run("plutil", ["-insert", key, "-string", value, plist]);
     for (const key of [
