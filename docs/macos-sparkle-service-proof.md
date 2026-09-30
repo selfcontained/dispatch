@@ -277,3 +277,19 @@ schema rollback, or production unattended rollout. Production Sparkle remains
 disabled. Local validation passed type checks, the native probe build, 12 focused
 Python tests, and 168 single-worker E2E tests (5 skipped); native lifecycle tests
 also passed in the signed CI build. Source review had no remaining findings.
+
+## Failed target startup and retry (pending notarized proof)
+
+`--case failed-startup` pauses after the old service/database stop, occupies only
+the proof API port, and releases Sparkle to install build 2. The actual bundled
+server must log `EADDRINUSE`; the probe must hit its 60-second monotonic readiness
+deadline without acknowledging health or confirming the upgrade. The installed
+target and durable running intent must remain, and the failed GUI must stop its
+owned service/database and exit without changing saved settings.
+
+The driver then releases the port and reopens the same installed target. It must
+acknowledge a fresh restore request, become healthy, and only then clear pending
+intent. Existing data/settings, signature and cleanup assertions still apply.
+This proves recovery from a reversible startup conflict, not automatic downgrade,
+user-facing recovery UI, incompatible schema migration or rollback. No production
+failure hook is added; the failure is induced entirely by the isolated driver.

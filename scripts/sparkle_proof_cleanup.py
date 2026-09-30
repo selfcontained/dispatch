@@ -40,6 +40,17 @@ def assert_restore(rows, runtime, start, build='2', pid=None):
     assert runtime['phase'] == ('running' if start else 'stopped'), 'Incorrect restored state'
     return {'requestID': requested[-1], 'phase': runtime['phase']}
 
+def assert_failed_startup(rows, pending, installed_build):
+    """A failed target must retain intent and must never be recorded healthy."""
+    target = [row for row in rows if row.get('build') == '2']
+    assert installed_build == '2', 'Failed target was silently replaced'
+    assert pending == {'wasRunning': True, 'targetBuild': '2'}, 'Recovery intent was lost'
+    assert not any(row.get('event') in ['ready','restore-acknowledged','upgrade-confirmed'] for row in target), 'Unhealthy target was confirmed'
+    failures = [row for row in target if row.get('event') == 'error']
+    assert len(failures) == 1 and failures[0].get('details') == 'Probe service failed readiness', 'Expected one readiness failure'
+    assert any(row.get('event') == 'service-registered' for row in target), 'Target never attempted startup'
+    return failures[0]
+
 def cleanup_service(run, app, root, label, uid, kill=os.kill, clock=time.monotonic, sleep=time.sleep):
     # Event parsing and vanished GUI processes cannot prevent native fallback.
     errors = []

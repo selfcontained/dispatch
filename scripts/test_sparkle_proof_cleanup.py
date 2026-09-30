@@ -5,9 +5,25 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
-from sparkle_proof_cleanup import TLS_CONFIG, assert_restore, cleanup_certificate, cleanup_phases, cleanup_service, final_verdict
+from sparkle_proof_cleanup import TLS_CONFIG, assert_restore, assert_failed_startup, cleanup_certificate, cleanup_phases, cleanup_service, final_verdict
 
 class CleanupTests(unittest.TestCase):
+    def test_failed_target_retains_intent_without_health_confirmation(self):
+        pending={'wasRunning':True,'targetBuild':'2'}
+        rows=[{'build':'1','event':'ready'},
+              {'build':'2','event':'service-registered'},
+              {'build':'2','event':'error','details':'Probe service failed readiness','pid':20}]
+        self.assertEqual(assert_failed_startup(rows,pending,'2')['pid'],20)
+        for event in ['ready','restore-acknowledged','upgrade-confirmed']:
+            with self.assertRaises(AssertionError):
+                assert_failed_startup(rows+[{'build':'2','event':event}],pending,'2')
+        for wrong in [{},{'wasRunning':False,'targetBuild':'2'},{'wasRunning':True,'targetBuild':'1'}]:
+            with self.assertRaises(AssertionError): assert_failed_startup(rows,wrong,'2')
+        with self.assertRaises(AssertionError): assert_failed_startup(rows,pending,'1')
+        with self.assertRaises(AssertionError): assert_failed_startup(rows[:-1],pending,'2')
+        with self.assertRaises(AssertionError): assert_failed_startup(rows+[rows[-1]],pending,'2')
+        with self.assertRaises(AssertionError): assert_failed_startup(rows[2:],pending,'2')
+
     def test_stale_restore_rejected(self):
         rows=[{'build':'2','event':'restore-requested','details':'new'}, {'build':'2','event':'restore-acknowledged','details':'new'}]
         for runtime in [{'requestID':'old','phase':'stopped'}, {'requestID':'new','phase':'running'}]:

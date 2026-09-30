@@ -23,17 +23,18 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
-from sparkle_proof_cleanup import TLS_CONFIG, read_events, assert_restore, cleanup_service, cleanup_certificate, cleanup_phases, final_verdict
+from sparkle_proof_cleanup import TLS_CONFIG, read_events, assert_restore, assert_failed_startup, cleanup_service, cleanup_certificate, cleanup_phases, final_verdict
 
 from sparkle_proof_live import LiveAgentProof
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--artifacts', type=Path, default=Path(__file__).resolve().parent)
-parser.add_argument('--case', choices=['running','stopped','interrupted-running','interrupted-stopped','live-agent'], required=True)
+parser.add_argument('--case', choices=['running','stopped','interrupted-running','interrupted-stopped','live-agent','failed-startup'], required=True)
 parser.add_argument('--allow-machine-changes', action='store_true', help='Required: user has approved this disposable Mac')
 args = parser.parse_args()
 interrupted = args.case.startswith('interrupted-')
-should_run = args.case.endswith('running') or args.case=='live-agent'
+failed_startup = args.case == 'failed-startup'
+should_run = args.case.endswith('running') or args.case in ['live-agent','failed-startup']
 if not args.allow_machine_changes: parser.error('This test changes app installation, user certificate trust, and background service registration. Obtain approval first.')
 assert sys.platform == 'darwin' and os.getuid() != 0, 'Run as the disposable Mac GUI user'
 artifacts = args.artifacts.resolve()
@@ -60,6 +61,8 @@ server = None; feed_started = False; trusted = False; registered_app = False; co
 lifecycle = {"lifecycle": "failed", "case": args.case}
 live = None
 live_result = None
+port_blocker = None
+startup_failure = None
 
 def run(*command, capture=False, check=True, capture_errors=False, **kwargs):
     return subprocess.run([str(c) for c in command], check=check, text=True, stdout=subprocess.PIPE if capture else log, stderr=subprocess.PIPE if capture_errors else log, **kwargs)
@@ -74,7 +77,7 @@ def wait_event(name, build, timeout=600, after=0):
         rows=events()[after:]
         if not told_approval and any(e['event']=='approval-required' for e in rows):
             print('Approve ONLY the Dispatch Sparkle Proof background item in the disposable Mac System Settings.',flush=True);told_approval=True
-        errors=[e for e in rows if e['event'] in ['error','update-aborted']]
+        errors=[e for e in rows if e['event'] in ['error','update-aborted'] and not (name=='error' and e['build']==build and e.get('details')=='Probe service failed readiness')]
         if errors: raise RuntimeError(str(errors))
         matches=[e for e in rows if e['event']==name and e['build']==build]
         if matches: return matches[-1]
@@ -151,8 +154,31 @@ try:
     saved={name:json.loads((root/name).read_text()) for name in ['configuration.json','local-database.json','startup.json']}
     database_starts_before=(root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')
     interruption = None
-    if interrupted: (root/'pause-before-install').touch()
+    if interrupted or failed_startup: (root/'pause-before-install').touch()
     (root/'begin-update').touch()
+    if failed_startup:
+        wait_event('installation-paused','1')
+        assert service_record() is None and not (root/'postgres/postmaster.pid').exists()
+        # Occupy only the proof API port after the old service has released it.
+        # The actual new server must fail bind; no production failure hook.
+        port_blocker=socket.socket()
+        port_blocker.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+        port_blocker.bind(('127.0.0.1',56789));port_blocker.listen()
+        (root/'pause-before-install').unlink()
+        failure=wait_event('error','2',timeout=100)
+        with (app/'Contents/Info.plist').open('rb') as f: installed=plistlib.load(f)['CFBundleVersion']
+        assert_failed_startup(events(),json.loads((root/'probe-update-state.json').read_text()),installed)
+        assert 'EADDRINUSE' in (root/'server.log').read_text(), 'Target did not report the injected port conflict'
+        # Let the failed GUI finish its own service cleanup before retrying.
+        deadline=time.monotonic()+65
+        while run('ps','-p',str(failure['pid']),capture=True,check=False).returncode==0 or service_record() is not None or (root/'postgres/postmaster.pid').exists():
+            assert time.monotonic()<deadline, 'Failed target did not stop cleanly'
+            time.sleep(.2)
+        assert all(json.loads((root/name).read_text())==value for name,value in saved.items()), 'Failure changed saved settings'
+        startup_failure={'reason':'API port occupied','failedAppPID':failure['pid'],'pendingIntentPreserved':True,'unhealthyTargetConfirmed':False}
+        port_blocker.close();port_blocker=None
+        recovery_after=len(events())
+        run('open',app)
     if interrupted:
         paused = wait_event('installation-paused','1')
         assert service_record() is None and not (root/'postgres/postmaster.pid').exists(), 'Service was not stopped at interruption boundary'
@@ -183,7 +209,11 @@ try:
         # Reuse an existing app if Sparkle already relaunched it.
         run('open',app)
         interruption = {'boundary':'after-service-stop-before-explicit-install','oldAppPID':paused['pid'],'installedAfterCrash':'2'}
-    confirmed = wait_event('upgrade-confirmed','2')
+    confirmed = wait_event('upgrade-confirmed','2',after=recovery_after if failed_startup else 0)
+    if failed_startup:
+        assert confirmed['pid'] != startup_failure['failedAppPID']
+        assert not (root/'probe-update-state.json').exists(), 'Healthy retry did not clear pending intent'
+        startup_failure['recoveredAppPID']=confirmed['pid']
     restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), should_run, pid=confirmed['pid'])
     if interruption:
         assert confirmed['pid'] != interruption['oldAppPID']
@@ -211,7 +241,7 @@ try:
     changed=[name for name,value in saved.items() if json.loads((root/name).read_text())!=value]
     assert not changed, 'Saved settings changed: '+', '.join(changed)
     if not should_run:service_state(False)
-    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False,'interruption':interruption,'liveAgent':live_result}
+    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False,'interruption':interruption,'liveAgent':live_result,'startupFailure':startup_failure}
     completed=True
 except BaseException as exc:
     lifecycle['error']=str(exc)
@@ -223,6 +253,7 @@ finally:
     phases=[('archive request',live.request_archive)] if live else []
     phases += [('service',stop_service)]
     if live: phases.append(('live agent processes',live.cleanup))
+    if port_blocker: phases.append(('port blocker',port_blocker.close))
     if feed_started: phases.append(('feed shutdown',lambda: server.shutdown()))
     if server: phases.append(('feed close',lambda: server.server_close()))
     if trusted:

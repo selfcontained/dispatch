@@ -104,7 +104,8 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 try await startOwnedService()
                 let config = try Configuration.read(from: PreviewPaths.configuration)
                 var ready = false
-                for _ in 0..<600 {
+                let readinessDeadline = ContinuousClock.now.advanced(by: .seconds(60))
+                while ContinuousClock.now < readinessDeadline {
                     if let restoreRequest, ServiceRuntime.read()?.acknowledges(restoreRequest) == true {
                         if restoreRequest.start {
                             var request = URLRequest(url: config.serverURL.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1
