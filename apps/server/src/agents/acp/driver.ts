@@ -13,6 +13,19 @@ import { isPackageBinDir } from "./package-bin-dir.js";
 export type DriverUpdate = acp.SessionUpdate;
 export type DriverUsage = acp.Usage;
 
+/**
+ * Advertise the UNSTABLE session notices and compaction updates. Without
+ * them the adapters fold the same information into agent text, as they did
+ * before; DISPATCH_ACP_SESSION_NOTICES=0 restores that should the protocol
+ * change under us.
+ */
+export function unstableSessionCapabilities(
+  env: NodeJS.ProcessEnv = process.env
+): acp.ClientSessionCapabilities | undefined {
+  if (env.DISPATCH_ACP_SESSION_NOTICES === "0") return undefined;
+  return { notices: {}, compaction: {} };
+}
+
 export type DriverLaunch = {
   agentId: string;
   cwd: string;
@@ -487,11 +500,13 @@ export class AcpDriver {
     let steeringSupported = false;
     let pickupReceiptsSupported = false;
     let promptReceiptsSupported = false;
+    const sessionCapabilities = unstableSessionCapabilities();
     const handshake = (async () => {
       const initialized = await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
+          ...(sessionCapabilities ? { session: sessionCapabilities } : {}),
           ...(engine.subagentTranscripts
             ? { _meta: { "subagent-transcript": true } }
             : {}),

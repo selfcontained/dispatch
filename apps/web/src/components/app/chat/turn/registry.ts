@@ -24,6 +24,8 @@ export type StepDetailData = {
   clipStart?: boolean;
   /** A nested call: the toolCallId of the step it runs under. */
   parentToolCallId?: string;
+  /** A notice step: info | warning | error. */
+  severity?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -36,7 +38,13 @@ const LABELS: Record<string, string> = {
   note: "",
   /** A workspace setup phase; its own label always says which. */
   setup: "setup",
+  /** An engine advisory; its own label is the notice's title. */
+  notice: "notice",
+  compaction: "compacting context",
 };
+
+/** Steps the engine reports about the session rather than tools it ran. */
+const SESSION_KINDS = ["think", "note", "notice", "compaction"];
 
 const SUMMARY_MAX = 96;
 
@@ -207,7 +215,12 @@ export function stepSummary(step: Step): string | undefined {
     }
     case "think":
     case "note":
+    case "compaction":
       return undefined;
+    case "notice": {
+      const text = d.text?.replace(/\s+/g, " ").trim();
+      return text ? clip(text) : undefined;
+    }
     // A setup step carries its own aside: the worktree it made, or why it
     // failed. There is nothing to unfold under it, so the row itself clips
     // the aside to whatever room it has rather than a count of characters.
@@ -269,11 +282,11 @@ export function turnLabelFromSteps(steps: Step[]): string | undefined {
   const fetches = of("fetch");
   if (fetches.length)
     return `fetched ${fetches.length} page${fetches.length === 1 ? "" : "s"}`;
-  const tools = steps.filter(
-    (s) => !["think", "note"].includes(s.kind) && s.label
-  );
+  const tools = steps.filter((s) => !SESSION_KINDS.includes(s.kind) && s.label);
   if (tools.length === 1) return toolName(tools[0].label ?? "").name;
   if (tools.length > 1) return `${tools.length} tool calls`;
+  const compaction = of("compaction").pop();
+  if (compaction?.label) return compaction.label;
   if (steps.some((s) => s.kind === "think")) return "thought it over";
   return undefined;
 }
@@ -316,6 +329,8 @@ export function hasSettledDetail(step: Step): boolean {
       return output || locations;
     case "think":
     case "note":
+    case "notice":
+    case "compaction":
       return !!d.text?.trim();
     case "setup":
       return false;

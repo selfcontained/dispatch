@@ -673,6 +673,220 @@ describe("StreamRecorder", () => {
   });
 });
 
+/** Unstable updates arrive as whatever the adapter sent; tests send the same. */
+const unstable = (update: Record<string, unknown>): DriverEvent =>
+  ({ type: "update", agentId: A, update }) as unknown as DriverEvent;
+
+async function rowsOf(kind: string) {
+  const result = await pool.query(
+    `SELECT key, payload FROM agent_stream_events
+      WHERE agent_id = $1 AND kind = $2 ORDER BY seq`,
+    [A, kind]
+  );
+  return result.rows as { key: string | null; payload: unknown }[];
+}
+
+describe("StreamRecorder session notices", () => {
+  it("records a notice with its severity, title and description", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(
+      unstable({
+        sessionUpdate: "notice",
+        severity: "warning",
+        title: "Model fallback",
+        description: "Switched to a smaller model.",
+      })
+    );
+    expect(await rowsOf("notice")).toEqual([
+      {
+        key: null,
+        payload: {
+          severity: "warning",
+          title: "Model fallback",
+          description: "Switched to a smaller model.",
+        },
+      },
+    ]);
+  });
+
+  it("reads an unknown severity as info and drops a notice with no title", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(
+      unstable({ sessionUpdate: "notice", severity: "loud", title: "Heads up" })
+    );
+    await rec.handle(unstable({ sessionUpdate: "notice", severity: "info" }));
+    await rec.handle(
+      unstable({ sessionUpdate: "notice", title: { text: "not a string" } })
+    );
+    expect(await rowsOf("notice")).toEqual([
+      { key: null, payload: { severity: "info", title: "Heads up" } },
+    ]);
+  });
+
+  it("does not split the reply a notice arrives in the middle of", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(chunk("Hello "));
+    await rec.handle(
+      unstable({ sessionUpdate: "notice", severity: "info", title: "FYI" })
+    );
+    await rec.handle(chunk("world"));
+    await rec.flush(A);
+    expect(await rowsOf("assistant")).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ text: "Hello world" }),
+      }),
+    ]);
+  });
+
+  it("logs and drops an unstable update it fails to record", async () => {
+    const warn = vi.fn();
+    const failing = new StreamStore(pool);
+    vi.spyOn(failing, "append").mockRejectedValue(new Error("db down"));
+    const rec = new StreamRecorder(failing, { warn });
+    await expect(
+      rec.handle(
+        unstable({ sessionUpdate: "notice", severity: "info", title: "FYI" })
+      )
+    ).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: A, sessionUpdate: "notice" }),
+      "dropped an unstable session update"
+    );
+  });
+});
+
+describe("StreamRecorder context compactions", () => {
+  it("tracks one compaction under its id: in progress, summary chunks, completed", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c1",
+        status: "in_progress",
+      })
+    );
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_summary_chunk",
+        compactionId: "c1",
+        content: { type: "text", text: "Earlier we " },
+      })
+    );
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_summary_chunk",
+        compactionId: "c1",
+        content: { type: "text", text: "fixed the build." },
+      })
+    );
+    expect(await rowsOf("compaction")).toEqual([
+      {
+        key: "c1",
+        payload: {
+          status: "in_progress",
+          summary: "Earlier we fixed the build.",
+        },
+      },
+    ]);
+    // A terminal update without a summary leaves the streamed one in place.
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c1",
+        status: "completed",
+      })
+    );
+    expect(await rowsOf("compaction")).toEqual([
+      {
+        key: "c1",
+        payload: {
+          status: "completed",
+          summary: "Earlier we fixed the build.",
+        },
+      },
+    ]);
+  });
+
+  it("applies summary and error as patches: a value replaces, null clears", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c2",
+        status: "in_progress",
+        summary: [{ type: "text", text: "draft" }],
+      })
+    );
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c2",
+        status: "failed",
+        summary: null,
+        error: "context still too large",
+      })
+    );
+    expect(await rowsOf("compaction")).toEqual([
+      {
+        key: "c2",
+        payload: {
+          status: "failed",
+          summary: "",
+          error: "context still too large",
+        },
+      },
+    ]);
+  });
+
+  it("keeps the last known status when one it does not know arrives, and ignores updates with no id", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c3",
+        status: "in_progress",
+      })
+    );
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c3",
+        status: "paused",
+      })
+    );
+    await rec.handle(
+      unstable({ sessionUpdate: "compaction_update", status: "completed" })
+    );
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_summary_chunk",
+        content: { type: "text", text: "orphan" },
+      })
+    );
+    expect(await rowsOf("compaction")).toEqual([
+      { key: "c3", payload: { status: "in_progress", summary: "" } },
+    ]);
+  });
+
+  it("ends the reply text before a compaction, as a tool call does", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle(chunk("before"));
+    await rec.handle(
+      unstable({
+        sessionUpdate: "compaction_update",
+        compactionId: "c4",
+        status: "in_progress",
+      })
+    );
+    await rec.handle(chunk("after"));
+    await rec.flush(A);
+    const texts = (await rowsOf("assistant")).map(
+      (r) => (r.payload as { text: string }).text
+    );
+    expect(texts).toEqual(["before", "after"]);
+  });
+});
+
 describe("StreamRecorder interrupted turns", () => {
   it("settles the open turn with an error when the child dies mid-turn", async () => {
     const rec = new StreamRecorder(store);

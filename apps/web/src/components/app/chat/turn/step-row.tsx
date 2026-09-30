@@ -1,7 +1,14 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { motion } from "framer-motion";
-import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -59,7 +66,14 @@ export function StepRow({
   const setup = step.kind === "setup";
   const inner = (
     <>
-      <StatusGlyph status={step.status} maskClass={maskClass} />
+      {step.kind === "notice" ? (
+        <NoticeGlyph
+          severity={stepDetailData(step).severity}
+          maskClass={maskClass}
+        />
+      ) : (
+        <StatusGlyph status={step.status} maskClass={maskClass} />
+      )}
       <span
         className={cn(
           "truncate text-[12px]",
@@ -231,6 +245,39 @@ export function StatusGlyph({
         </span>
       );
   }
+}
+
+/** A notice is advice, not a finished step: its glyph says how loud. */
+function NoticeGlyph({
+  severity,
+  maskClass,
+}: {
+  severity: string | undefined;
+  maskClass: string;
+}): JSX.Element {
+  const base = cn(
+    "z-10 flex w-3 shrink-0 items-center justify-center leading-none",
+    maskClass
+  );
+  if (severity === "error") {
+    return (
+      <span className={cn(base, "text-status-blocked")} aria-hidden="true">
+        <X className="h-3 w-3" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (severity === "warning") {
+    return (
+      <span className={cn(base, "text-status-waiting")} aria-hidden="true">
+        <TriangleAlert className="h-3 w-3" strokeWidth={2.25} />
+      </span>
+    );
+  }
+  return (
+    <span className={cn(base, "text-muted-foreground")} aria-hidden="true">
+      <Info className="h-3 w-3" strokeWidth={2.25} />
+    </span>
+  );
 }
 
 export function LiveDuration({

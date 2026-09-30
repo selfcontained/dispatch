@@ -7,7 +7,9 @@ export type StreamEventKind =
   | "tool_call"
   | "status"
   | "turn"
-  | "plan";
+  | "plan"
+  | "notice"
+  | "compaction";
 
 export type AssistantPayload = {
   text: string;
@@ -33,6 +35,21 @@ export type ToolPayload = {
 };
 export type PlanPayload = {
   entries: { content: string; status: string; priority: string }[];
+};
+/** An engine advisory (a model fallback, a config warning): shown, never acted on. */
+export type NoticePayload = {
+  severity: "info" | "warning" | "error";
+  title: string;
+  description?: string;
+};
+/** A context compaction, rewritten in place under its id as it runs. */
+export type CompactionPayload = {
+  status: "in_progress" | "completed" | "failed" | "cancelled";
+  /** The summary the compaction retained, as text; streams in while it runs. */
+  summary: string;
+  error?: string;
+  /** Set when the summary hit the per-row size bound. */
+  truncated?: boolean;
 };
 /**
  * Where a failed turn's retry stands. `open` is offered on the turn; it
