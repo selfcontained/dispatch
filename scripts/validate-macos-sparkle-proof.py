@@ -216,8 +216,12 @@ except BaseException as exc:
     lifecycle['error']=str(exc)
     raise
 finally:
-    phases=[('live agent',live.cleanup)] if live else []
-    phases += [('service',lambda: cleanup_service(run,app,root,label,os.getuid()))]
+    def stop_service():
+        cleanup_service(run,app,root,label,os.getuid())
+        if live: live.confirm_service_stopped()
+    phases=[('archive request',live.request_archive)] if live else []
+    phases += [('service',stop_service)]
+    if live: phases.append(('live agent processes',live.cleanup))
     if feed_started: phases.append(('feed shutdown',lambda: server.shutdown()))
     if server: phases.append(('feed close',lambda: server.server_close()))
     if trusted:

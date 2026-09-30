@@ -10,6 +10,8 @@ class LiveAgentProof:
     def __init__(self, root, app, run):
         self.root, self.app, self.run = root, app, run
         self.agent_id = None
+        self.creation_attempted = False
+        self.quiesced = False
         self.processes = {}
         self.engine = None
 
@@ -32,6 +34,7 @@ class LiveAgentProof:
         return self.run('ps','-p',str(pid),'-o','lstart=','-o','command=',capture=True,check=False).stdout.strip()
 
     def start(self):
+        self.creation_attempted = True
         agent = self.api('/agents','POST',{'name':'Sparkle live proof','type':'claude','cwd':str(self.root),'useWorktree':False})['agent']
         self.agent_id = agent['id']
         assert self.agent_id.startswith('agt_') and '/' not in self.agent_id
@@ -74,33 +77,66 @@ class LiveAgentProof:
         self.assert_alive()
         return {'inFlightTurnCompleted':True,'followupCompleted':True,'sameHostAndEngine':True}
 
-    def cleanup(self):
-        if not self.agent_id: return
-        # Also discover a host/engine created just before start() failed.
-        directory = self.root/'agents'/self.agent_id
-        listing = self.run('ps','-axo','pid=,command=',capture=True).stdout
-        for line in listing.splitlines():
+    def request_archive(self):
+        if not self.creation_attempted: return
+        ids = {self.agent_id} if self.agent_id else set()
+        try:
+            # The create may have committed even if its response was lost.
+            for agent in self.api('/agents')['agents']:
+                if agent.get('name') == 'Sparkle live proof' and Path(agent.get('cwd','')).resolve() == self.root.resolve():
+                    ids.add(agent['id'])
+        except Exception: pass
+        for agent_id in ids:
+            if not agent_id.startswith('agt_') or '/' in agent_id: continue
+            try: self.api('/agents/'+agent_id+'?cleanupWorktree=keep','DELETE')
+            except Exception: pass
+        # A 202 is only a request, never evidence that launch has quiesced.
+
+    def listing(self):
+        rows = []
+        for line in self.run('ps','-axo','pid=,command=',capture=True).stdout.splitlines():
             fields = line.strip().split(None,1)
-            if len(fields)!=2: continue
-            pid, command = fields
-            if ('agent-host' in command and str(directory) in command) or str(self.root/'fake-acp.py') in command:
-                identity = self.process(int(pid))
-                if identity: self.processes.setdefault(int(pid),identity)
-        try: self.api('/agents/'+self.agent_id+'?cleanupWorktree=keep','DELETE')
-        except Exception:
-            # With no captured identity, we cannot prove a pending launch stopped.
-            if not self.processes: raise RuntimeError('Could not archive or identify the proof agent')
-            # Server may be down; verified PID fallback below.
-        for pid, identity in self.processes.items():
-            if self.process(pid) == identity:
-                try: os.kill(pid,signal.SIGTERM)
-                except ProcessLookupError: pass
-        deadline = time.monotonic()+10
+            if len(fields)==2: rows.append((int(fields[0]),fields[1]))
+        return rows
+
+    def confirm_service_stopped(self):
+        # Called only AFTER native service/database cleanup succeeds. Reject a
+        # surviving API/worker/coordinator which could still launch a host.
+        roots = {str(self.root),str(self.root.resolve())}
+        for _, command in self.listing():
+            producer = any(root in command for root in roots) and ('--server' in command or '--worker' in command)
+            api = str(self.app/'Contents/Helpers/dispatch') in command and 'agent-host' not in command
+            if producer or api: raise RuntimeError('Proof launch producer survived service cleanup')
+        self.quiesced = True
+
+    def cleanup(self):
+        if not self.creation_attempted: return
+        if not self.quiesced: raise RuntimeError('Cannot prove live cleanup before launch producers stop')
+        roots = {str(self.root),str(self.root.resolve())}
+        deadline = time.monotonic()+15
+        quiet_since = None
+        first_seen = {}
         while time.monotonic() < deadline:
-            if all(self.process(pid) != identity for pid, identity in self.processes.items()): return
+            owned = {}
+            # Fresh discovery each time catches a launch missed by the first
+            # snapshot, including when no create response/agent ID arrived.
+            for pid, command in self.listing():
+                if any(('agent-host' in command and root+'/agents/' in command) or root+'/fake-acp.py' in command for root in roots):
+                    identity = self.process(pid)
+                    if identity: owned[pid] = identity
+            for pid, identity in self.processes.items():
+                if self.process(pid) == identity: owned[pid] = identity
+            now = time.monotonic()
+            if not owned:
+                if quiet_since is None: quiet_since = now
+                if now-quiet_since >= 1: return
+            else:
+                quiet_since = None
+                for pid, identity in owned.items():
+                    first_seen.setdefault((pid,identity),now)
+                    sig = signal.SIGKILL if now-first_seen[(pid,identity)] >= 10 else signal.SIGTERM
+                    if self.process(pid) == identity:
+                        try: os.kill(pid,sig)
+                        except ProcessLookupError: pass
             time.sleep(.2)
-        for pid, identity in self.processes.items():
-            if self.process(pid) == identity:
-                try: os.kill(pid,signal.SIGKILL)
-                except ProcessLookupError: pass
-        self.until(lambda: all(self.process(pid) != identity for pid, identity in self.processes.items()),timeout=5)
+        raise RuntimeError('Owned live agent processes did not stop')

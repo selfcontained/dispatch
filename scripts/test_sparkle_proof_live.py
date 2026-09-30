@@ -49,20 +49,45 @@ class LiveProofTests(unittest.TestCase):
         entries.append({'block':{'turn':{'settled':True,'result':{'text':'done'}}}})
         self.assertTrue(proof.settled('done'))
 
-    def test_cleanup_discovers_partial_launch_and_targets_only_owned_pids(self):
+    def test_lost_create_response_and_late_process_are_cleaned(self):
         root=Path('/tmp/dispatch-macos-test-sparkle-service-unit-cleanup')
-        proof=LiveAgentProof(root,None,None);proof.agent_id='agt_owned'
-        owned={123:'start agent-host --state '+str(root/'agents/agt_owned'),456:'start python '+str(root/'fake-acp.py')}
-        listing='123 agent-host --state '+str(root/'agents/agt_owned')+'\n456 python '+str(root/'fake-acp.py')+'\n789 unrelated-process'
-        proof.run=lambda *args,**kwargs: SimpleNamespace(stdout=listing)
-        proof.process=lambda pid: owned.get(pid,'')
-        def offline(*args): raise OSError('API offline')
-        proof.api=offline
-        killed=[]
+        proof=LiveAgentProof(root,Path('/Applications/Proof.app'),None)
+        archived=[]
+        def api(path,method='GET',body=None):
+            if method=='POST': raise TimeoutError('committed create, lost response')
+            if method=='DELETE': archived.append(path);return {'status':'archiving'}
+            return {'agents':[{'id':'agt_owned','name':'Sparkle live proof','cwd':str(root)},
+                              {'id':'agt_unrelated','name':'Sparkle live proof','cwd':'/elsewhere'}]}
+        proof.api=api
+        with self.assertRaises(TimeoutError): proof.start()
+        self.assertTrue(proof.creation_attempted);self.assertIsNone(proof.agent_id)
+        proof.request_archive()
+        self.assertEqual(archived,['/agents/agt_owned?cleanupWorktree=keep'])
+        # A 202 and an empty process set do not establish producer shutdown.
+        with self.assertRaises(RuntimeError): proof.cleanup()
+        clock=[0.0];scans=[0];owned={};killed=[]
+        def listing():
+            scans[0]+=1
+            # confirm_service_stopped and first cleanup scan see no processes.
+            if scans[0]==3:
+                owned.update({123:'start agent-host --state '+str(root/'agents/agt_owned'),
+                              456:'start python '+str(root/'fake-acp.py')})
+            return list(owned.items())+[(789,'unrelated-process')]
+        proof.listing=listing;proof.process=lambda pid: owned.get(pid,'')
+        proof.confirm_service_stopped()
         def kill(pid,sig): killed.append(pid);owned.pop(pid)
-        with patch('sparkle_proof_live.os.kill',side_effect=kill): proof.cleanup()
-        self.assertEqual(killed,[123,456])
-        proof.processes={};proof.run=lambda *args,**kwargs: SimpleNamespace(stdout='')
+        with patch('sparkle_proof_live.os.kill',side_effect=kill), \
+             patch('sparkle_proof_live.time.monotonic',side_effect=lambda:clock[0]), \
+             patch('sparkle_proof_live.time.sleep',side_effect=lambda seconds:clock.__setitem__(0,clock[0]+seconds)):
+            proof.cleanup()
+        self.assertEqual(killed,[123,456]);self.assertGreater(scans[0],3)
+
+    def test_surviving_launch_producer_prevents_cleanup_success(self):
+        root=Path('/tmp/dispatch-macos-test-sparkle-service-unit-cleanup')
+        proof=LiveAgentProof(root,Path('/Applications/Proof.app'),None)
+        proof.creation_attempted=True
+        proof.listing=lambda: [(123,'DispatchMenu --server --isolated-test '+str(root))]
+        with self.assertRaises(RuntimeError): proof.confirm_service_stopped()
         with self.assertRaises(RuntimeError): proof.cleanup()
 
     def test_replaced_process_fails_continuity(self):

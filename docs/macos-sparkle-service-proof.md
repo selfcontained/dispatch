@@ -226,7 +226,10 @@ server's stream, and a successful follow-up through that same host/engine.
 The native override is guarded by `SPARKLE_PROBE`, the unique proof bundle/root,
 and a live-case marker. No production adapter configuration changes. The helper
 and fake engine are test artifacts copied to the isolated root; no model, real
-agent CLI, or paid provider is used. The final cleanup archives the test agent and
-checks owned process exit before removing the service/database; when the API is
-unavailable, only verified owned host/engine PIDs are signaled, never a process group.
+agent CLI, or paid provider is used. Cleanup requests archival (recovering an agent by its unique root if the create
+response was lost), then stops the service/database to quiesce launch producers.
+Only afterward does it repeatedly scan and stop owned hosts/engines until a fresh
+quiet scan confirms none remain. Only verified owned PIDs are signaled, never a
+process group. Producer shutdown or process-cleanup failure fails the overall
+verdict and retains recovery artifacts.
 This case retains the standard settings, signature, session and cleanup gates.
