@@ -232,7 +232,7 @@ Dispatch's built-in personas are appended after the repo's own, so the list is n
 
 ```json
 {
-  "personas": ["backend-security-review", "frontend-ux-review"],
+  "personas": ["mcp-contract-owner", "review-lifecycle-owner"],
   "agentType": "claude",
   "includeDiff": true,
   "model": "opus",

@@ -303,6 +303,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("get_review");
     expect(response.body).toContain("list_personas");
     expect(response.body).toContain("launch_agent");
+    expect(response.body).toContain("launch_owner_reviews");
     expect(response.body).not.toContain("launch_persona");
     expect(response.body).not.toContain("review_submit");
     expect(response.body).not.toContain("dispatch_submit_resolution");
@@ -356,6 +357,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain('"post"');
     expect(response.body).not.toContain("share_file");
     expect(response.body).toContain("launch_agent");
+    expect(response.body).toContain("launch_owner_reviews");
     expect(response.body).not.toContain("job_complete");
     expect(response.body).not.toContain("job_log");
     expect(response.body).not.toContain("job_failed");

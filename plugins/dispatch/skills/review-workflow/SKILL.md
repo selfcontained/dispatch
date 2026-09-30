@@ -27,25 +27,33 @@ overridden base is the usual cause of a PR containing someone else's commits.
 
 ## Getting it reviewed
 
+For code changes in a repo with `.dispatch/codeowners.json`, use:
+
 ```
-list_personas — what reviewers exist here, with their descriptions
-launch_agent  persona: <slug>, name, prompt, includeDiff?, type?, model?
+launch_owner_reviews context, dryRun?, agentType?, model?
 ```
 
-Call `list_personas` first and **launch one reviewer per distinct scope the
-change touches** — a change spanning backend and frontend gets both; anything
-cross-cutting or introducing a new module also gets an architecture pass.
-Reviewers with different lenses barely overlap in what they find, and the one you
-almost skipped is often the one that finds the real defect. Launch them in the
-same turn rather than serially.
+Dispatch collects committed changes against the review base, uncommitted changes,
+and untracked files, then launches every matching code owner once. Each owner
+gets your briefing and its matched files through the ordinary ACP persona launch.
+The result includes uncovered files, selected owners, launched agents, and any
+launch failures. Use `dryRun: true` to preview selection without launching.
+Fix invalid configuration or launch failures before treating a pass as complete.
+After a partial failure, retry failed personas individually with `launch_agent`
+rather than duplicating successful launches.
 
-If nothing matches well, launch the closest persona anyway and say so plainly in
-the briefing. Skipping review because the fit is imperfect is worse than an
-imperfect reviewer. To write a better-fitting one, see the `personas` skill.
+If the repo has no ownership map, or you need an explicitly requested additional
+perspective, use `list_personas` and `launch_agent` with a specific `persona`.
+Prefer subsystem experts with concrete invariants over generic role labels.
+The built-in `code-review` is available when no specialized persona fits.
+
+Ownership configuration is documented in `docs/code-owner-reviews.md` in the
+Dispatch repository. After launching all reviewers for a pass, end the turn;
+Dispatch delivers their review blocks automatically. Do not poll or wait.
 
 ### The briefing is the whole game
 
-`prompt` is the reviewer's briefing, and it is what separates a review that
+`context` on `launch_owner_reviews` (or `prompt` on a manual launch) is the reviewer's briefing, and it is what separates a review that
 finds defects from one that returns a summary. Include:
 
 - **What changed**, and the key files — actual paths.

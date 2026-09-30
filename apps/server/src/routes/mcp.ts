@@ -74,6 +74,7 @@ type McpRouteDeps = {
   mcpListFiles: unknown;
   mcpDeleteFile: unknown;
   mcpListPersonas: unknown;
+  mcpLaunchOwnerReviews?: unknown;
   mcpListPersonalities: unknown;
   mcpCreatePersonality: unknown;
   mcpUpdatePersonality: unknown;
@@ -230,6 +231,7 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
+      launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,
@@ -312,6 +314,7 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
+      launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
       updatePersonality: deps.mcpUpdatePersonality,

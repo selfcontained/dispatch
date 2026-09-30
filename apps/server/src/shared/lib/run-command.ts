@@ -5,6 +5,8 @@ type RunCommandOptions = {
   env?: NodeJS.ProcessEnv;
   allowedExitCodes?: number[];
   timeoutMs?: number;
+  /** Preserve NUL-delimited filenames and other whitespace-sensitive output. */
+  trimOutput?: boolean;
 };
 
 export type RunCommandResult = {
@@ -17,7 +19,12 @@ export type RunCommandResult = {
 export type CommandRunner = (
   command: string,
   args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
+  options?: {
+    cwd?: string;
+    allowedExitCodes?: number[];
+    timeoutMs?: number;
+    trimOutput?: boolean;
+  }
 ) => Promise<RunCommandResult>;
 
 export async function runCommand(
@@ -127,7 +134,7 @@ export async function runCommand(
 
       succeed({
         exitCode,
-        stdout: stdout.trim(),
+        stdout: options.trimOutput === false ? stdout : stdout.trim(),
         stderr: stderr.trim(),
       });
     });

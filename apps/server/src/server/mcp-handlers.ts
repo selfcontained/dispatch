@@ -891,6 +891,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
   return {
     listPersonas: personaHandlers.listPersonas,
     launchPersonaAgent: personaHandlers.launchPersonaAgent,
+    launchOwnerReviews: personaHandlers.launchOwnerReviews,
 
     listPersonalities: async () => {
       const [personalities, activeId] = await Promise.all([

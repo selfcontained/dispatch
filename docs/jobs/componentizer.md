@@ -111,7 +111,7 @@ This phase is not done until **CI is green and the PR is merged**. `job_complete
 1. Run `pnpm run format:write` to fix formatting in files you touched.
 2. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was split, why it was a candidate, what the new file structure looks like, and what's queued for the next run.
-4. **Launch a reviewer.** After the PR is open, launch **one** review persona with `launch_agent` (`persona: <slug>`, `prompt`: the briefing). Use `architecture-review` for structural splits or `frontend-ux-review` if the extraction touches interaction logic or layout. Brief it thoroughly: what was extracted, why, and that behavior should be identical. The reviewer posts a `review` block to you; address each finding, then resolve it with `update` on that block's state before proceeding.
+4. **Launch a reviewer.** After the PR is open, call `launch_owner_reviews` so the owners of the extracted subsystem review it. Brief them thoroughly in `context`: what was extracted, why, and that behavior should be identical. The reviewer posts a `review` block to you; address each finding, then resolve it with `update` on that block's state before proceeding.
 5. **Wait for CI.** Poll `gh pr checks <num>` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge the PR via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.

@@ -105,3 +105,32 @@ right. Run `persona_validate` afterward either way.
 Personas resolve from the agent's worktree first, then the repo root, then the
 built-ins. A persona edited inside a worktree takes effect for that agent
 immediately — which is how you iterate on one before committing it.
+
+## Code ownership
+
+Prefer personas that own a subsystem across its server code, client behavior,
+shared contracts, and tests. Name the subsystem and write its concrete invariants,
+known failure modes, and dependency boundaries. A generic job title is not a
+substitute for repository knowledge.
+
+Map repo-relative paths to persona slugs in `.dispatch/codeowners.json`:
+
+```json
+{
+  "version": 1,
+  "rules": [
+    {
+      "paths": ["src/payments/**", "test/payments*"],
+      "personas": ["payments-owner"]
+    }
+  ],
+  "fallback": ["code-review"]
+}
+```
+
+All matching rules contribute owners; each persona launches once. Patterns
+support `*`, `**`, and `?`, and optional rule-local `exclude` patterns. Fallback
+personas receive paths without an explicit owner. `launch_owner_reviews` selects
+and launches owners with the caller's context; `dryRun: true` previews routing.
+Keep paths aligned with the subsystem as files move. Existing manual persona
+launches remain available for an additional review perspective.
