@@ -150,7 +150,13 @@ export async function collectOwnerReviewFiles(
       ["diff", "--name-only", "--no-renames", "-z", `${baseRef}...HEAD`, "--"],
       { cwd, trimOutput: false }
     ),
-    run("git", ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"], {
+    // Index and working-tree edits can cancel in diff HEAD. Collect both.
+    run(
+      "git",
+      ["diff", "--cached", "--name-only", "--no-renames", "-z", "HEAD", "--"],
+      { cwd, trimOutput: false }
+    ),
+    run("git", ["diff", "--name-only", "--no-renames", "-z", "--"], {
       cwd,
       trimOutput: false,
     }),

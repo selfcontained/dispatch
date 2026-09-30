@@ -180,6 +180,33 @@ describe("code owner routing", () => {
       collectOwnerReviewFiles(root, "missing-base", runCommand)
     ).rejects.toThrow("Command failed");
   });
+  it("includes opposing index edits and tracked whitespace-prefixed working edits", async () => {
+    const root = await workspace();
+    const git = (args: string[]) => runCommand("git", args, { cwd: root });
+    await git(["init", "-b", "main"]);
+    await git(["config", "user.name", "Test"]);
+    await git(["config", "user.email", "test@example.com"]);
+    await writeFile(path.join(root, "staged.ts"), "base");
+    await writeFile(path.join(root, " leading.ts"), "base");
+    await git(["add", "."]);
+    await git(["commit", "-m", "base"]);
+    await writeFile(path.join(root, "staged.ts"), "index change");
+    await git(["add", "staged.ts"]);
+    await writeFile(path.join(root, "staged.ts"), "base");
+    await writeFile(path.join(root, " leading.ts"), "working change");
+    const files = await collectOwnerReviewFiles(root, "HEAD", runCommand);
+    expect(files).toEqual([" leading.ts", "staged.ts"]);
+    expect(
+      resolveCodeowners(
+        {
+          version: 1,
+          rules: [{ paths: ["staged.ts", " leading.ts"], personas: ["owner"] }],
+        },
+        files,
+        "HEAD"
+      ).owners
+    ).toEqual([{ persona: "owner", files: [" leading.ts", "staged.ts"] }]);
+  });
   it("keeps successful launches visible when another owner fails, and passes scope before context", async () => {
     const plan = resolveCodeowners(
       config,
