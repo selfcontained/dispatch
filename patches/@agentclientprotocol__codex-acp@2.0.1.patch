@@ -1,11 +1,11 @@
 diff --git a/dist/index.js b/dist/index.js
-index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699ed900ddd 100755
+index 746f33e..caf4a1c 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -25094,9 +25094,13 @@ ${event.details}` : event.summary;
-         return createContextCompactionStartUpdate(event.item);
+@@ -30651,9 +30651,13 @@ ${event.details}` : event.summary;
+         ) : this.renderer.render(CompactionReporter.started(event.item));
        case "subAgentActivity":
-         return this.subagents.legacyActivityStarted(event.item);
+         return this.renderer.render(this.subagents.legacyActivityStarted(event.item));
 +      case "userMessage":
 +        return typeof event.item.clientId === "string" ? {
 +          sessionUpdate: "session_info_update",
@@ -17,15 +17,15 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699
        case "hookPrompt":
        case "reasoning":
        case "enteredReviewMode":
-@@ -28851,6 +28855,7 @@ var CodexAcpClient = class {
+@@ -34236,6 +34240,7 @@ var CodexAcpClient = class {
      }
      return await this.codexClient.runTurn({
        threadId: request.sessionId,
 +      ...(typeof request._meta?.["dispatch/steering"]?.id === "string" ? { clientUserMessageId: request._meta["dispatch/steering"].id } : {}),
-       input,
+       input: input2,
        approvalPolicy: agentMode.approvalPolicy,
        approvalsReviewer: agentMode.approvalsReviewer,
-@@ -28982,6 +28987,7 @@ var CodexAcpClient = class {
+@@ -34364,6 +34369,7 @@ var CodexAcpClient = class {
      return await this.codexClient.turnSteer({
        threadId: params.threadId,
        expectedTurnId: params.turnId,
@@ -33,7 +33,7 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699
        input: buildPromptItems(params.prompt)
      });
    }
-@@ -32353,6 +32359,7 @@ var CodexAcpServer = class {
+@@ -37356,6 +37362,7 @@ var CodexAcpServer = class {
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities),
        _meta: {
@@ -41,7 +41,7 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699
          steering: {
            supported: true
          },
-@@ -33387,6 +33394,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38427,6 +38434,9 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return { outcome: "injected" };
        }
      }
@@ -51,7 +51,7 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699
      return await this.startNewTurnFromSteering(params);
    }
    /**
-@@ -33415,7 +33425,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38455,7 +38465,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
        await this.runWithProcessCheck(() => this.codexAcpClient.steerTurn({
          threadId: params.sessionId,
          turnId,
@@ -61,7 +61,7 @@ index c134fd36ed44f4dccb510f8ac7971f0f7e26aba4..06b9851c496ba7b618211198db878699
        }));
        return true;
      } catch (err) {
-@@ -33525,7 +33536,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -38565,7 +38576,8 @@ Check ${configPath} and project .codex directories, especially their config.toml
      }
      return {
        sessionId,
