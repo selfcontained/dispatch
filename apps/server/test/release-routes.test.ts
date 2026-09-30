@@ -1041,6 +1041,10 @@ function mockReleaseCommands({
       if (cmd === "gh" && args[0] === "--version") {
         return { exitCode: 0, stdout: "gh 2.0.0\n", stderr: "" };
       }
+      // The Linux pre-deploy check that a restart keeps agent hosts alive.
+      if (cmd === "systemctl" && args.includes("KillMode")) {
+        return { exitCode: 0, stdout: "KillMode=process\n", stderr: "" };
+      }
       if (
         cmd === "git" &&
         args.includes("fetch") &&
