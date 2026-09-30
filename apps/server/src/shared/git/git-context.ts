@@ -190,10 +190,10 @@ export async function probeGitContext(
 }
 
 /**
- * Compose a gitContext from row columns we already populated at creation,
- * deriving repoRoot via a single git call. Falls through to a full probe
- * when the row is missing the worktree fields (non-worktree agents) or
- * when repoRoot resolution itself fails.
+ * Compose a gitContext for a Dispatch-managed worktree, deriving repoRoot
+ * via a single git call. The branch is read live, since the agent may have
+ * switched it; the recorded branch stands in when HEAD is detached or the
+ * read fails.
  */
 export async function buildGitContextForWorktree(input: {
   worktreePath: string;
@@ -205,11 +205,14 @@ export async function buildGitContextForWorktree(input: {
     const repoRoot = await resolveRepoRoot(worktreePath, opts);
     const normalizedWorktreePath = normalizePath(worktreePath);
     const repoIconPath = await detectRepoIcon(normalizedWorktreePath);
+    const liveBranch = await resolveCurrentBranch(worktreePath, runCommand, {
+      timeoutMs: opts?.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+    }).catch(() => null);
     return {
       status: "ok",
       value: {
         repoRoot,
-        branch: worktreeBranch,
+        branch: liveBranch ?? worktreeBranch,
         worktreePath: normalizedWorktreePath,
         worktreeName: path.basename(normalizedWorktreePath),
         isWorktree: normalizedWorktreePath !== repoRoot,

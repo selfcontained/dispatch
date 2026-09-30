@@ -54,6 +54,7 @@ import {
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
 import { prepareWorkspace } from "./workspace.js";
+import { resolveWorkspace } from "./workspace-target.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
@@ -437,6 +438,13 @@ export class AgentManager {
       // ACP activity can change the worktree; the refresher throttles Git reads.
       void this.diffStatsRefresher?.signal(agentId);
     }
+    if (event.type === "turn" && event.state === "settled") {
+      // The turn may have switched branches; the sidebar reads git_context.
+      void this.populateGitContext(agentId, { publishIfChanged: true }).catch(
+        (err) =>
+          this.logger.warn({ err, agentId }, "Git context refresh failed")
+      );
+    }
     if (seq > 0) {
       await this.pool.query(
         "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
@@ -727,7 +735,7 @@ export class AgentManager {
     const lost: string[] = [];
     const pending: string[] = [];
     const result = await this.pool.query<{ id: string; cwd: string }>(
-      `SELECT id, cwd FROM agents
+      `SELECT id, COALESCE(workspace_path, cwd) AS cwd FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
@@ -948,19 +956,37 @@ export class AgentManager {
    * call to resolve the parent repo root; for other agents (no
    * `worktree_path`) we run a full probe against `cwd`. Probe failures
    * are logged and persisted as `stale = true` so the existing value
-   * (if any) stays visible in the UI rather than disappearing.
+   * (if any) stays visible in the UI rather than disappearing. A moved
+   * workspace is probed in place of either.
+   *
+   * With `publishIfChanged`, an unchanged probe writes nothing, and a
+   * changed one is published — for refreshes between lifecycle boundaries,
+   * where the agent may have switched branches.
    */
-  async populateGitContext(id: string): Promise<void> {
+  async populateGitContext(
+    id: string,
+    opts: { publishIfChanged?: boolean } = {}
+  ): Promise<void> {
     const agent = await this.getAgent(id);
     if (!agent) return;
 
-    const result =
-      agent.worktreePath && agent.worktreeBranch
+    const result = agent.workspacePath
+      ? await probeGitContext(agent.workspacePath)
+      : agent.worktreePath && agent.worktreeBranch
         ? await buildGitContextForWorktree({
             worktreePath: agent.worktreePath,
             worktreeBranch: agent.worktreeBranch,
           })
         : await probeGitContext(agent.cwd);
+
+    if (
+      opts.publishIfChanged &&
+      result.status === "ok" &&
+      !agent.gitContextStale &&
+      sameGitContext(agent.gitContext, result.value)
+    ) {
+      return;
+    }
 
     if (result.status === "error") {
       this.logger.warn(
@@ -984,6 +1010,39 @@ export class AgentManager {
       `,
       [id, result.value ? JSON.stringify(result.value) : null]
     );
+    if (opts.publishIfChanged) {
+      const updated = await this.getAgent(id);
+      if (updated) this.eventBus.publish(updated);
+    }
+  }
+
+  /**
+   * Point the agent's workspace at the directory it now works in, or back at
+   * its launch worktree/cwd with `path: null`. Everything that reads its
+   * files follows the workspace; the engine's cwd (resume) and the managed
+   * worktree (archive cleanup) are left as they were.
+   */
+  async setWorkspace(
+    id: string,
+    input: { path: string | null; baseBranch?: string | null }
+  ): Promise<AgentRecord> {
+    const agent = await this.getRequiredAgent(id);
+    const resolved = await resolveWorkspace(agent, input);
+
+    await this.pool.query(
+      `UPDATE agents
+       SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+       WHERE id = $1`,
+      [id, resolved.path, resolved.baseBranch]
+    );
+    await this.populateGitContext(id);
+    this.streamRecorder.setCwd(id, resolved.path ?? agent.cwd);
+    this.diffStatsRefresher?.clear(id);
+    void this.diffStatsRefresher?.signal(id);
+
+    const updated = await this.getRequiredAgent(id);
+    this.eventBus.publish(updated);
+    return updated;
   }
 
   /**
@@ -1607,7 +1666,7 @@ export class AgentManager {
         "launching agent on engine CLI"
       );
     }
-    this.streamRecorder.setCwd(agent.id, agent.cwd);
+    this.streamRecorder.setCwd(agent.id, agent.workspacePath ?? agent.cwd);
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
@@ -1679,7 +1738,7 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
-      this.streamRecorder.setCwd(id, agent.cwd);
+      this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
       await this.setAgentStatus(id, "running", null);
 
       return (await this.getAgent(id)) as AgentRecord;
@@ -1908,6 +1967,8 @@ export class AgentManager {
         launch_cwd AS "launchCwd",
         worktree_path AS "worktreePath",
         worktree_branch AS "worktreeBranch",
+        workspace_path AS "workspacePath",
+        workspace_base_branch AS "workspaceBaseBranch",
         simulator_udid AS "simulatorUdid",
         files_dir AS "filesDir",
         agent_args AS "agentArgs",
@@ -2032,3 +2093,18 @@ const ACTIVITY_SQL = `CASE
           ) NOT IN ('${INTERRUPTED_BY_RESTART}', '${STOPPED_ON_REQUEST}'), false) THEN 'blocked'
           ELSE 'idle'
         END`;
+
+function sameGitContext(
+  a: AgentGitContext | null,
+  b: AgentGitContext | null
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.repoRoot === b.repoRoot &&
+    a.branch === b.branch &&
+    a.worktreePath === b.worktreePath &&
+    a.worktreeName === b.worktreeName &&
+    a.isWorktree === b.isWorktree &&
+    (a.repoIconPath ?? null) === (b.repoIconPath ?? null)
+  );
+}

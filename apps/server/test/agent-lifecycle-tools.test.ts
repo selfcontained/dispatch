@@ -143,6 +143,88 @@ describe("registerAgentLifecycleTools", () => {
     });
   });
 
+  describe("set_workspace handler", () => {
+    it("passes the path and base through and reports where it landed", async () => {
+      const ctx = baseContext();
+      ctx.setWorkspace = vi.fn(async () => ({
+        workspacePath: "/repos/other",
+        moved: true,
+        repoRoot: "/repos/other",
+        branch: "fix/x",
+        baseBranch: "main",
+      }));
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["set_workspace"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({ path: "/repos/other" });
+
+      expect(ctx.setWorkspace).toHaveBeenCalledWith(AGENT_ID, {
+        path: "/repos/other",
+        baseBranch: null,
+      });
+      expect(result).toMatchObject({
+        content: [
+          {
+            type: "text",
+            text: "Workspace set to /repos/other (fix/x vs main).",
+          },
+        ],
+      });
+    });
+
+    it("resets to the launch directory when path is omitted", async () => {
+      const ctx = baseContext();
+      ctx.setWorkspace = vi.fn(async () => ({
+        workspacePath: "/wt",
+        moved: false,
+        repoRoot: "/repo",
+        branch: "agt/x",
+        baseBranch: "main",
+      }));
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["set_workspace"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({});
+
+      expect(ctx.setWorkspace).toHaveBeenCalledWith(AGENT_ID, {
+        path: null,
+        baseBranch: null,
+      });
+      expect(result).toMatchObject({
+        content: [
+          {
+            type: "text",
+            text: "Workspace is back on the launch directory /wt (agt/x vs main).",
+          },
+        ],
+      });
+    });
+
+    it("returns the validation error as a tool error", async () => {
+      const ctx = baseContext();
+      ctx.setWorkspace = vi.fn(async () => {
+        throw new Error("/nope does not exist.");
+      });
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["set_workspace"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({ path: "/nope" });
+      expect(result).toEqual({
+        content: [{ type: "text", text: "/nope does not exist." }],
+        isError: true,
+      });
+    });
+  });
+
   it("never registers notify: post carries notify: true instead", () => {
     registerAgentLifecycleTools(
       server as never,

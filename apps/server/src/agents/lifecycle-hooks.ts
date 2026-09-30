@@ -14,7 +14,8 @@ export type LifecycleHookName = "stop";
 
 /**
  * Run a repo-defined lifecycle hook for `agent`. Best-effort:
- *   - No-op when the agent has no `worktreePath` / `cwd` to anchor on.
+ *   - Runs once per checkout: the launch worktree/cwd, and the moved
+ *     workspace when there is one.
  *   - No-op when the repo's `.dispatch/tools.json` doesn't define this
  *     hook.
  *   - Non-zero exit codes are logged at `warn` level but never thrown
@@ -34,16 +35,32 @@ export async function runLifecycleHook(
   agent: AgentRecord,
   logger: FastifyBaseLogger
 ): Promise<void> {
-  const repoRoot = agent.worktreePath ?? agent.cwd;
-  if (!repoRoot) return;
+  // An agent that moved runs the hook in both places: what it started in
+  // the launch checkout and what it started in its workspace (a dev stack,
+  // say) each belong to that checkout's own hook.
+  const roots = new Set(
+    [agent.worktreePath ?? agent.cwd, agent.workspacePath].filter(
+      (root): root is string => Boolean(root)
+    )
+  );
+  for (const root of roots) {
+    await runLifecycleHookIn(hookName, agent, root, logger);
+  }
+}
 
+async function runLifecycleHookIn(
+  hookName: LifecycleHookName,
+  agent: AgentRecord,
+  repoRoot: string,
+  logger: FastifyBaseLogger
+): Promise<void> {
   const hooks = await loadRepoHooks(repoRoot);
   const hook = hooks[hookName];
   if (!hook) return;
 
   const [command, ...args] = hook.command;
   logger.info(
-    { agentId: agent.id, hook: hookName, command: hook.command },
+    { agentId: agent.id, hook: hookName, command: hook.command, repoRoot },
     "Running lifecycle hook"
   );
 
@@ -60,6 +77,7 @@ export async function runLifecycleHook(
       {
         agentId: agent.id,
         hook: hookName,
+        repoRoot,
         exitCode: result.exitCode,
         stderr: result.stderr,
       },

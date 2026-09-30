@@ -19,12 +19,24 @@ export type ListedFileItem = {
   createdAt: string;
 };
 
+export type SetWorkspaceResult = {
+  workspacePath: string;
+  moved: boolean;
+  repoRoot: string | null;
+  branch: string | null;
+  baseBranch: string | null;
+};
+
 export type AgentLifecycleContext = {
   agentId: string;
   renameSession?: (
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
+  setWorkspace?: (
+    agentId: string,
+    input: { path: string | null; baseBranch?: string | null }
+  ) => Promise<SetWorkspaceResult>;
   sendNotify?: (
     agentId: string,
     input: NotifyInput
@@ -69,6 +81,59 @@ export function registerAgentLifecycleTools(
           return {
             content: [
               { type: "text", text: `Renamed session to \"${result.name}\".` },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── set_workspace ────────────────────────────────────────
+  if (allowed.has("set_workspace") && context.setWorkspace) {
+    const setWorkspace = context.setWorkspace;
+
+    server.registerTool(
+      "set_workspace",
+      {
+        description:
+          "Tell Dispatch which directory you are working in when it is no longer the one you launched in — for example a git worktree you created yourself, or a different repo. Dispatch's diff view, branch, repo tools and brain follow it; your shell's working directory does not change. Omit path to return to the launch directory.",
+        inputSchema: {
+          path: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Absolute path of the directory you now work in. Inside a git checkout, its root is used."
+            ),
+          baseBranch: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await setWorkspace(agentId, {
+            path: args.path ?? null,
+            baseBranch: args.baseBranch ?? null,
+          });
+          const where = result.branch
+            ? `${result.workspacePath} (${result.branch}${result.baseBranch ? ` vs ${result.baseBranch}` : ""})`
+            : result.workspacePath;
+          return {
+            content: [
+              {
+                type: "text",
+                text: result.moved
+                  ? `Workspace set to ${where}.`
+                  : `Workspace is back on the launch directory ${where}.`,
+              },
             ],
             structuredContent: result,
           };

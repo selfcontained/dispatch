@@ -182,7 +182,8 @@ export function AgentsView({
               id: agent.id,
               name: agent.name,
               status: agent.status,
-              workspaceRoot: agent.worktreePath ?? agent.cwd ?? null,
+              workspaceRoot:
+                agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null,
             }))
         : [],
     [agents, focusedAgentId]

@@ -107,13 +107,16 @@ async function cleanupAgentWorktree(
 
   const run = async () => {
     // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work.
+    // worktree; removing it would take the other agent's work. Another agent
+    // that moved its workspace into this worktree counts too.
     const coOwner = await pool.query<{ id: string }>(
       `SELECT id
        FROM agents
        WHERE deleted_at IS NULL
          AND id <> $1
-         AND (worktree_path = $2 OR ($3::text IS NOT NULL AND worktree_branch = $3))
+         AND (worktree_path = $2
+              OR workspace_path = $2
+              OR ($3::text IS NOT NULL AND worktree_branch = $3))
        LIMIT 1`,
       [id, worktreePath, agent.worktreeBranch]
     );

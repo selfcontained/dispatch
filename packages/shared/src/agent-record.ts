@@ -71,6 +71,13 @@ export type AgentRecord = {
   launchCwd?: string | null;
   worktreePath: string | null;
   worktreeBranch: string | null;
+  /**
+   * Where the agent is working now, set when it moved after launch (a worktree
+   * it created, another repo). Null means it is still in its worktree or cwd.
+   */
+  workspacePath: string | null;
+  /** The branch a moved workspace diffs against. */
+  workspaceBaseBranch: string | null;
   simulatorUdid: string | null;
   filesDir: string | null;
   agentArgs: string[];

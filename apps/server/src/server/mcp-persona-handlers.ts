@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -90,7 +91,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     }
     const model = validateAgentModel(agentType, opts.model);
 
-    const parentCwd = parent.worktreePath ?? parent.cwd;
+    const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
     let personaRoot: string;
     try {
       personaRoot = await resolveWorktreeRoot(parentCwd);
@@ -122,9 +123,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const includeDiff = opts.includeDiff !== false;
     let diffResult = null;
     if (includeDiff) {
-      let reviewBaseBranch: string | null =
-        parent.baseBranch ??
-        (parent.worktreePath && parent.worktreeBranch ? "main" : null);
+      let reviewBaseBranch: string | null = parent.workspacePath
+        ? parent.workspaceBaseBranch
+        : (parent.baseBranch ??
+          (parent.worktreePath && parent.worktreeBranch ? "main" : null));
       if (reviewBaseBranch == null) {
         try {
           const pr = await getPrStatus({ cwd: parentCwd }, runCommand);

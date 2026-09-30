@@ -171,7 +171,7 @@ export function buildLaunchGuidance(
   }
 
   rules.push(
-    "The Dispatch MCP connection is scoped to this session. Use the provided tools and repo tools where relevant. DISPATCH_AGENT_ID identifies this agent and DISPATCH_FILES_DIR is its shared-file directory. Use list_files for shared-file discovery and post with file attachments to share artifacts. Work from the assigned working directory, including its worktree when present."
+    "The Dispatch MCP connection is scoped to this session. Use the provided tools and repo tools where relevant. DISPATCH_AGENT_ID identifies this agent and DISPATCH_FILES_DIR is its shared-file directory. Use list_files for shared-file discovery and post with file attachments to share artifacts. Work from the assigned working directory, including its worktree when present; if you move to another worktree or repo, call set_workspace so Dispatch follows."
   );
 
   const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");

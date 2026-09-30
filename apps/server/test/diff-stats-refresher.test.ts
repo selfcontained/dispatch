@@ -544,4 +544,57 @@ describe("DiffStatsRefresher", () => {
       lastError: "Operation failed",
     });
   });
+
+  it("diffs a moved workspace against its recorded base", async () => {
+    const agents = setupAgents([
+      [
+        "a1",
+        {
+          worktreePath: "/tmp/wt",
+          cwd: "/tmp/wt",
+          baseBranch: "main",
+          workspacePath: "/repos/other",
+          workspaceBaseBranch: "develop",
+        },
+      ],
+    ]);
+    const compute = vi.fn(async () => null);
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: () => {},
+      computeDiffStats: compute,
+    });
+
+    await refresher.signal("a1");
+
+    expect(compute).toHaveBeenCalledWith("/repos/other", "develop");
+  });
+
+  it("recomputes right away after clear, even mid-flight", async () => {
+    const agents = setupAgents([
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
+    ]);
+    const releases: Array<() => void> = [];
+    const compute = vi.fn(
+      () => new Promise<null>((resolve) => releases.push(() => resolve(null)))
+    );
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: () => {},
+      computeDiffStats: compute,
+    });
+
+    const first = refresher.signal("a1");
+    await vi.waitFor(() => expect(compute).toHaveBeenCalledTimes(1));
+    refresher.clear("a1");
+    const second = refresher.signal("a1");
+    await vi.waitFor(() => expect(compute).toHaveBeenCalledTimes(2));
+    releases[0]!();
+    await first;
+    // The first refresh settling must not free the second's slot.
+    expect(refresher.getMetrics().inFlight).toBe(1);
+    releases[1]!();
+    await second;
+    expect(refresher.getMetrics().inFlight).toBe(0);
+  });
 });

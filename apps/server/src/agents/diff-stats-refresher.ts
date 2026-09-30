@@ -5,18 +5,12 @@ import {
   type GetDiffStatsOptions,
 } from "../shared/git/diff-stats.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
+import {
+  agentDiffTarget,
+  type WorkspaceTargetAgent,
+} from "./workspace-target.js";
 
-export type DiffStatsAgent = {
-  worktreePath: string | null;
-  cwd: string | null;
-  baseBranch: string | null;
-  gitContext?: {
-    worktreePath: string;
-    isWorktree: boolean;
-  } | null;
-};
-
-const DEFAULT_WORKTREE_BASE_BRANCH = "main";
+export type DiffStatsAgent = WorkspaceTargetAgent;
 
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";
@@ -113,8 +107,9 @@ export class DiffStatsRefresher {
     }
     this.lastSignaledAt.set(agentId, now);
 
-    const promise = this.refresh(agentId).finally(() => {
-      this.inFlight.delete(agentId);
+    const promise: Promise<void> = this.refresh(agentId).finally(() => {
+      // A clear() mid-flight may have let a newer refresh take the slot.
+      if (this.inFlight.get(agentId) === promise) this.inFlight.delete(agentId);
     });
     this.inFlight.set(agentId, promise);
     return promise;
@@ -159,28 +154,12 @@ export class DiffStatsRefresher {
     let computation: DiffStatsComputation = { kind: "no-data", stats: null };
     try {
       const agent = await this.getAgent(agentId);
-      // Prefer the dispatch-managed worktreePath. Older rows can be missing
-      // that column while still having a populated gitContext from a prior
-      // probe, so use the probed worktree path before falling back to cwd.
       // `getDiffStats` returns null when the path isn't inside a repo.
-      const gitContextWorktreePath = agent?.gitContext?.isWorktree
-        ? agent.gitContext.worktreePath
-        : null;
-      const path =
-        agent?.worktreePath ?? gitContextWorktreePath ?? agent?.cwd ?? null;
-      if (!path) {
+      const target = agent ? agentDiffTarget(agent) : null;
+      if (!target) {
         nextStats = null;
       } else {
-        // Managed worktree agents default to `main` elsewhere in Dispatch,
-        // but older rows may still have a null baseBranch persisted. Keep
-        // non-worktree agents on the shared resolver fallback chain while
-        // forcing worktree-backed agents onto the intended default base.
-        const baseRef =
-          agent?.baseBranch ??
-          (agent?.worktreePath || gitContextWorktreePath
-            ? DEFAULT_WORKTREE_BASE_BRANCH
-            : null);
-        computation = await this.computeDiffStats(path, baseRef);
+        computation = await this.computeDiffStats(target.path, target.baseRef);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }

@@ -13,6 +13,7 @@ import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import {
   registerAgentLifecycleTools,
+  type AgentLifecycleContext,
   type ListedFileItem,
 } from "./agent-lifecycle-tools.js";
 import { registerUsageTools, type UsageCallbacks } from "./usage-tools.js";
@@ -60,6 +61,7 @@ export type FileResult = {
 const AGENT_TOOLS = new Set([
   "login_link",
   "rename_session",
+  "set_workspace",
   "list_files",
   "delete_file",
   "list_personas",
@@ -110,6 +112,7 @@ const AGENT_TOOLS = new Set([
 
 const JOB_TOOLS = new Set([
   "rename_session",
+  "set_workspace",
   "list_files",
   "delete_file",
   "job_complete",
@@ -203,6 +206,7 @@ export type McpRequestContext = UsageCallbacks & {
     agentId: string,
     name: string
   ) => Promise<{ id: string; name: string }>;
+  setWorkspace?: AgentLifecycleContext["setWorkspace"];
   shareFile?: (
     agentId: string,
     opts: {
@@ -384,6 +388,7 @@ export async function createDispatchMcpServer(
     registerAgentLifecycleTools(server, allowed, {
       agentId: context.agent.id,
       renameSession: context.renameSession,
+      setWorkspace: context.setWorkspace,
       sendNotify: context.sendNotify,
       listFiles: context.listFiles,
       deleteFile: context.deleteFile,
