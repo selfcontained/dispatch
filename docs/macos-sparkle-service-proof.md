@@ -118,6 +118,9 @@ CI run 36657837007 produced the next signed/notarized pair. On macOS 15.7.7:
 
 The fixes now queue restore intent before registration, refresh it while awaiting
 approval, and match PostgreSQL's SO_REUSEADDR behavior when checking a saved port.
+Restore refreshes retain one logical request ID: a coordinator that reads the old
+file before removing its replacement can still acknowledge that same intent.
+A deterministic read/write/remove interleaving regression covers both states.
 A real TCP TIME_WAIT regression failed before the socket fix and passes afterward;
 the occupied-listener recovery test still passes. The driver now also rejects any
 transient PostgreSQL start during a stopped upgrade. The exact settings assertion

@@ -36,12 +36,12 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
     }
 
     private func startOwnedService() async throws {
-        let requestedStart = shouldRun
+        restoreRequest = ServiceRequest(start: shouldRun)
         if let service {
             // launchd can start the coordinator synchronously during register().
             // Queue intent first so login preference cannot briefly start a
             // server which was stopped before the update.
-            try queueRestore(start: requestedStart)
+            try queueRestore()
             event("service-status-before-registration", String(service.status.rawValue))
             if service.status.needsRegistration { try service.register() }
             if service.status == .requiresApproval {
@@ -51,14 +51,14 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
             for _ in 0..<300 {
                 if service.status == .enabled { break }
                 // Keep the request fresh while the user considers approval.
-                try queueRestore(start: requestedStart)
+                try queueRestore()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
             guard service.status == .enabled else { throw ConfigurationError("Approve the isolated Sparkle test background item, then retry.") }
-            try queueRestore(start: requestedStart)
+            try queueRestore()
             event("service-registered", Bundle.main.object(forInfoDictionaryKey: "DispatchProbeServiceLabel") as! String)
         } else {
-            try queueRestore(start: requestedStart)
+            try queueRestore()
             let process = Process(); process.executableURL = Bundle.main.executableURL
             process.arguments = ["--server", "--isolated-test", root.path]
             try process.run(); supervisor = process
@@ -67,8 +67,10 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
         stopped = false
     }
 
-    private func queueRestore(start: Bool) throws {
-        let request = ServiceRequest(start: start)
+    private func queueRestore() throws {
+        // Refresh the same intent: a consumer may have read the prior file
+        // before removing this replacement. Its acknowledgment remains valid.
+        guard let request = restoreRequest?.refreshed() else { return }
         restoreRequest = request
         try request.save()
         event("restore-requested", request.id.uuidString)

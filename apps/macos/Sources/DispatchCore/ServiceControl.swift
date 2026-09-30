@@ -12,8 +12,11 @@ public struct StartupPreferences: Codable {
 public struct ServiceRequest: Codable {
     public let id: UUID
     public let start: Bool
-    public let created: Date
+    public private(set) var created: Date
     public init(start: Bool) { id = UUID(); self.start = start; created = Date() }
+    public func refreshed(at date: Date = Date()) -> Self {
+        var request = self; request.created = date; return request
+    }
     public func save(root: URL = PreviewPaths.root) throws { try writePrivateJSON(self, to: root.appendingPathComponent("service-request.json")) }
     public static func take(root: URL = PreviewPaths.root) -> Self? {
         let path = root.appendingPathComponent("service-request.json")
