@@ -165,3 +165,19 @@ and interrupted-update testing. Then add a fake ACP engine/live host to verify
 host survival and reattachment, followed by compatible/incompatible schema
 fixtures. PostgreSQL major-version migration and automatic rollback after a
 schema change require explicit designs; restoring only an old app is insufficient.
+
+## Interrupted pre-install recovery (pending VM proof)
+
+The driver also accepts `--case interrupted-running` and `--case interrupted-stopped`.
+These cases pause the isolated probe after durable intent is saved and its service
+and database have stopped, but before invoking Sparkle's installation handler.
+The driver verifies the owned GUI executable before killing that one process,
+confirms build 1 is still installed, and relaunches it. Recovery must acknowledge
+a fresh request from that new process and preserve the original running/stopped
+intent. The driver then retries the update and applies the same build-2 state,
+data, signature and cleanup assertions as the normal cases.
+
+This is recovery on relaunch from one specific crash boundary. It does not claim
+power-loss recovery during bundle replacement, automatic relaunch after a crash,
+new-version health rollback, or live agent continuity. The pause marker is compiled
+only into the isolated proof and cannot affect normal Dispatch app builds.

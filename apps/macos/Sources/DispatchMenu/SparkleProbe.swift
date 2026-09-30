@@ -119,9 +119,15 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 event("restore-acknowledged", restoreRequest!.id.uuidString)
                 event("ready", shouldRun ? "running" : "stopped")
                 if let data = try? Data(contentsOf: updateStatePath),
-                   let state = try? JSONDecoder().decode(ProbeUpdateState.self, from: data), state.targetBuild == build {
-                    try FileManager.default.removeItem(at: updateStatePath)
-                    event("upgrade-confirmed")
+                   let state = try? JSONDecoder().decode(ProbeUpdateState.self, from: data) {
+                    if state.targetBuild == build {
+                        try FileManager.default.removeItem(at: updateStatePath)
+                        event("upgrade-confirmed")
+                    } else {
+                        // The old bundle survived an interrupted installation.
+                        // Keep the durable intent until the target is healthy.
+                        event("interrupted-update-restored")
+                    }
                 }
                 updater = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
                 try updater.updater.start()
@@ -174,7 +180,21 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 let phase = ServiceRuntime.read()?.phase
                 let state = ProbeUpdateState(wasRunning: phase == "running" || phase == "starting", targetBuild: item.versionString)
                 try writePrivateJSON(state, to: updateStatePath)
-                if await stopOwnedService() { event("installing"); handler() }
+                if await stopOwnedService() {
+                    // Test-only crash boundary, absent from normal builds.
+                    let pause = root.appendingPathComponent("pause-before-install")
+                    if FileManager.default.fileExists(atPath: pause.path) {
+                        event("installation-paused")
+                        for _ in 0..<600 {
+                            if !FileManager.default.fileExists(atPath: pause.path) { break }
+                            try await Task.sleep(nanoseconds: 100_000_000)
+                        }
+                        guard !FileManager.default.fileExists(atPath: pause.path) else {
+                            throw ConfigurationError("Interrupted-update fixture did not release installation")
+                        }
+                    }
+                    event("installing"); handler()
+                }
             } catch { event("error", error.localizedDescription) }
         }
         return true

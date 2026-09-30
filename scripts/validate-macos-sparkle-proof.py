@@ -27,9 +27,11 @@ from sparkle_proof_cleanup import TLS_CONFIG, read_events, assert_restore, clean
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--artifacts', type=Path, default=Path(__file__).resolve().parent)
-parser.add_argument('--case', choices=['running','stopped'], required=True)
+parser.add_argument('--case', choices=['running','stopped','interrupted-running','interrupted-stopped'], required=True)
 parser.add_argument('--allow-machine-changes', action='store_true', help='Required: user has approved this disposable Mac')
 args = parser.parse_args()
+interrupted = args.case.startswith('interrupted-')
+should_run = args.case.endswith('running')
 if not args.allow_machine_changes: parser.error('This test changes app installation, user certificate trust, and background service registration. Obtain approval first.')
 assert sys.platform == 'darwin' and os.getuid() != 0, 'Run as the disposable Mac GUI user'
 artifacts = args.artifacts.resolve()
@@ -62,15 +64,16 @@ def events():
     path=root/'sparkle-events.jsonl'
     return read_events(path)
 
-def wait_event(name, build, timeout=600):
+def wait_event(name, build, timeout=600, after=0):
     deadline=time.monotonic()+timeout; told_approval=False
     while time.monotonic()<deadline:
-        rows=events()
+        rows=events()[after:]
         if not told_approval and any(e['event']=='approval-required' for e in rows):
             print('Approve ONLY the Dispatch Sparkle Proof background item in the disposable Mac System Settings.',flush=True);told_approval=True
         errors=[e for e in rows if e['event'] in ['error','update-aborted']]
         if errors: raise RuntimeError(str(errors))
-        if any(e['event']==name and e['build']==build for e in rows): return
+        matches=[e for e in rows if e['event']==name and e['build']==build]
+        if matches: return matches[-1]
         time.sleep(.25)
     raise TimeoutError(f'Waiting for {name} build {build}')
 
@@ -134,13 +137,50 @@ try:
     wait_event('ready','1')
     before=service_record();assert before
     sql("INSERT INTO sessions(token,expires_at) VALUES ('sparkle-service-login',now()+interval '1 day'); INSERT INTO agents(id,name,status,cwd,cli_session_id) VALUES ('sparkle-service-agent','Service proof','archived','/tmp','service-proof-engine-session');")
-    if args.case=='stopped': service_state(False)
+    if not should_run: service_state(False)
     saved={name:json.loads((root/name).read_text()) for name in ['configuration.json','local-database.json','startup.json']}
     database_starts_before=(root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')
+    interruption = None
+    if interrupted: (root/'pause-before-install').touch()
     (root/'begin-update').touch()
+    if interrupted:
+        paused = wait_event('installation-paused','1')
+        assert service_record() is None and not (root/'postgres/postmaster.pid').exists(), 'Service was not stopped at interruption boundary'
+        pending = json.loads((root/'probe-update-state.json').read_text())
+        assert pending == {'wasRunning': should_run, 'targetBuild': '2'}
+        # Never kill a PID based only on an event record: verify its executable.
+        current = run('ps','-p',str(paused['pid']),'-o','command=',capture=True).stdout.strip()
+        assert Path(current).resolve() == (app/'Contents/MacOS/DispatchMenu').resolve(), 'Crash target is not the owned app'
+        (root/'begin-update').unlink()
+        os.kill(paused['pid'], signal.SIGKILL)
+        deadline = time.monotonic()+10
+        while run('ps','-p',str(paused['pid']),capture=True,check=False).returncode == 0:
+            assert time.monotonic() < deadline, 'Interrupted GUI did not exit'
+            time.sleep(.1)
+        (root/'pause-before-install').unlink()
+        with (app/'Contents/Info.plist').open('rb') as f: assert plistlib.load(f)['CFBundleVersion']=='1'
+        cursor = len(events())
+        run('open','-n',app)
+        recovered = wait_event('interrupted-update-restored','1',after=cursor)
+        assert recovered['pid'] != paused['pid']
+        recovery = assert_restore(events()[cursor:], json.loads((root/'service-runtime.json').read_text()), should_run, build='1', pid=recovered['pid'])
+        recovered_service = service_record()
+        assert recovered_service and recovered_service['pid'] != before['pid'], 'Relaunch did not restore registration'
+        assert not any(e['event']=='approval-required' for e in events()[cursor:]), 'Recovery required renewed background approval'
+        assert json.loads((root/'probe-update-state.json').read_text()) == pending, 'Recovery lost durable update intent'
+        if not should_run:
+            assert not (root/'postgres/postmaster.pid').exists()
+            assert (root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')==database_starts_before, 'Stopped database started during recovery'
+        else:
+            assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
+        interruption = {'boundary':'after-service-stop-before-install','oldAppPID':paused['pid'],'recoveredAppPID':recovered['pid'],'recoveredService':recovered_service,'restore':recovery}
+        (root/'begin-update').touch()
     wait_event('upgrade-confirmed','2')
-    restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), args.case=='running')
+    restore=assert_restore(events(), json.loads((root/'service-runtime.json').read_text()), should_run)
     after=service_record();assert after and after['pid']!=before['pid']
+    if interruption:
+        assert after['pid'] != interruption['recoveredService']['pid']
+        assert run('ps','-p',str(interruption['recoveredService']['pid']),capture=True,check=False).returncode!=0
     # Any surviving old PID is a failure, even if the new service is healthy.
     assert run('ps','-p',str(before['pid']),capture=True,check=False).returncode!=0
     rows=events()
@@ -150,7 +190,7 @@ try:
     run('codesign','--verify','--deep','--strict',app)
     run('xcrun','stapler','validate',app)
     run('spctl','--assess','--type','execute','--verbose',app)
-    if args.case=='stopped':
+    if not should_run:
         assert json.loads((root/'service-runtime.json').read_text())['phase']=='stopped'
         assert not (root/'postgres/postmaster.pid').exists()
         assert (root/'postgres.log').read_text().count('LOG:  starting PostgreSQL')==database_starts_before, 'Stopped database briefly started during update'
@@ -159,8 +199,8 @@ try:
     assert sql("SELECT count(*) FROM sessions WHERE token='sparkle-service-login'")=='1'
     changed=[name for name,value in saved.items() if json.loads((root/name).read_text())!=value]
     assert not changed, 'Saved settings changed: '+', '.join(changed)
-    if args.case=='stopped':service_state(False)
-    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False}
+    if not should_run:service_state(False)
+    lifecycle={'lifecycle':'passed','case':args.case,'before':before,'after':after,'restore':restore,'notarization':'staples and Gatekeeper verified for both versions','statePreserved':True,'repeatApprovalRequired':False,'interruption':interruption}
     completed=True
 except BaseException as exc:
     lifecycle['error']=str(exc)

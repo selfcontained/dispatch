@@ -15,6 +15,17 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(assert_restore(rows,{'requestID':'new','phase':'stopped'},False)['requestID'],'new')
         with self.assertRaises(AssertionError): assert_restore(rows[:1],{'requestID':'new','phase':'stopped'},False)
 
+    def test_recovery_requires_fresh_process_acknowledgment(self):
+        rows=[{'build':'1','pid':10,'event':'restore-requested','details':'old'},
+              {'build':'1','pid':10,'event':'restore-acknowledged','details':'old'},
+              {'build':'1','pid':20,'event':'restore-requested','details':'new'}]
+        with self.assertRaises(AssertionError):
+            assert_restore(rows,{'requestID':'old','phase':'stopped'},False,build='1',pid=20)
+        rows.append({'build':'1','pid':20,'event':'restore-acknowledged','details':'new'})
+        self.assertEqual(assert_restore(rows,{'requestID':'new','phase':'stopped'},False,build='1',pid=20)['requestID'],'new')
+        with self.assertRaises(AssertionError):
+            assert_restore(rows,{'requestID':'new','phase':'stopped'},False)
+
     def test_certificate_generation(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); (root/'tls.cnf').write_text(TLS_CONFIG)

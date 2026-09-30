@@ -31,9 +31,10 @@ def read_events(path):
             continue
     return rows
 
-def assert_restore(rows, runtime, start):
-    requested = [e['details'] for e in rows if e.get('build') == '2' and e.get('event') == 'restore-requested']
-    acknowledged = [e['details'] for e in rows if e.get('build') == '2' and e.get('event') == 'restore-acknowledged']
+def assert_restore(rows, runtime, start, build='2', pid=None):
+    rows = [e for e in rows if e.get('build') == build and (pid is None or e.get('pid') == pid)]
+    requested = [e['details'] for e in rows if e.get('event') == 'restore-requested']
+    acknowledged = [e['details'] for e in rows if e.get('event') == 'restore-acknowledged']
     assert requested and acknowledged and requested[-1] == acknowledged[-1], 'Replacement restore was not acknowledged'
     assert runtime.get('requestID', '').lower() == requested[-1].lower(), 'Stale coordinator state'
     assert runtime['phase'] == ('running' if start else 'stopped'), 'Incorrect restored state'
