@@ -13,19 +13,17 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     private let root: URL
     private let build: String
     private var recovery: UpdateRecovery?
-    private var unsavedIntent: UpdateRecovery?
-    private var prepared = false
-    private var installationPending = false
+    private let handoff = UpdateHandoff()
     private var started = false
     private(set) var busy = false
     private(set) var needsRecovery = false
     var onChange: (() -> Void)?
     var onError: ((String) -> Void)?
     var wasRunning: () -> Bool = { ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping" }
-    var controlsLocked: Bool { busy || installationPending }
+    var controlsLocked: Bool { busy || handoff.active }
     var canCheck: Bool { !controlsLocked && !needsRecovery && controller?.updater.canCheckForUpdates == true }
     var automatic: Bool { controller.updater.automaticallyChecksForUpdates && controller.updater.automaticallyDownloadsUpdates }
-    var requiresTerminationHandoff: Bool { installationPending && !prepared }
+    var requiresTerminationHandoff: Bool { handoff.active && !handoff.prepared }
 
     init(service: SMAppService, root: URL = PreviewPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
@@ -49,9 +47,9 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     func retry() async {
         guard !busy else { return }
         do {
-            if let unsavedIntent {
-                try unsavedIntent.save(root: root)
-                self.unsavedIntent = nil
+            if handoff.active {
+                if await prepareTermination() { handoff.resume() }
+                return
             }
             recovery = try UpdateRecovery.read(root: root)
             guard recovery != nil else { throw ConfigurationError("No saved update recovery state was found. Inspect the Dispatch data folder before retrying.") }
@@ -60,7 +58,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         } catch { fail(error) }
     }
     private func fail(_ error: Error) {
-        needsRecovery = needsRecovery || recovery != nil || installationPending
+        needsRecovery = needsRecovery || recovery != nil || handoff.active
         onChange?(); onError?(error.localizedDescription)
     }
     private func startUpdater() throws {
@@ -80,16 +78,11 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         try? file.write(contentsOf: Data("\(Date().ISO8601Format()) build=\(build) \(message)\n".utf8))
     }
     private func retainIntent(_ item: SUAppcastItem) throws {
-        let alreadyPending = installationPending
-        installationPending = true
-        if !alreadyPending {
-            let value = UpdateRecovery(wasRunning: wasRunning(), targetBuild: item.versionString)
-            unsavedIntent = value
-            try value.save(root: root)
-            recovery = value
-            unsavedIntent = nil
-            log("installation pending target=\(value.targetBuild) running=\(value.wasRunning)")
-        }
+        handoff.begin(UpdateRecovery(wasRunning: wasRunning(), targetBuild: item.versionString))
+        guard let value = handoff.intent else { return }
+        try value.save(root: root)
+        recovery = value
+        log("installation pending target=\(value.targetBuild) running=\(value.wasRunning)")
     }
     private func leaseReleased() -> Bool {
         let file = root.appendingPathComponent("service.lock")
@@ -109,22 +102,24 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         throw ConfigurationError("Dispatch could not stop its server for the update. Your data is unchanged. Try again or open the data folder to inspect server.log.")
     }
     func prepareTermination() async -> Bool {
-        if prepared { return true }
+        if handoff.prepared { return true }
         guard !busy else { return false }
         busy = true; onChange?()
         defer { busy = false; onChange?() }
         do {
-            guard recovery != nil else { throw ConfigurationError("Update recovery state could not be saved. The update was stopped.") }
-            try await stopService()
-            prepared = true
+            try await handoff.prepare(save: { value in
+                try value.save(root: root)
+                recovery = value
+            }, stop: { try await stopService() })
+            needsRecovery = false
             log("service stopped for installation")
             return true
         } catch { fail(error); return false }
     }
     private func install(_ item: SUAppcastItem, handler: @escaping () -> Void) {
-        do { try retainIntent(item) }
-        catch { fail(error); return }
-        Task { if await prepareTermination() { handler() } }
+        handoff.begin(UpdateRecovery(wasRunning: wasRunning(), targetBuild: item.versionString))
+        handoff.postpone(handler)
+        Task { if await prepareTermination() { handoff.resume() } }
     }
     private func restore() async throws {
         guard let recovery else { return }
@@ -154,10 +149,10 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                     }
                 }
                 if healthy {
-                    if try recovery.confirm(root: root, installedBuild: build, request: command, runtime: runtime, healthy: healthy) { self.recovery = nil }
-                    // If installation aborted, the old app is usable; retain intent for a later retry.
-                    prepared = false; needsRecovery = false; installationPending = false
-                    log("restored request=\(command.id) running=\(recovery.wasRunning) target=\(recovery.targetBuild) confirmed=\(self.recovery == nil)")
+                    let confirmed = try recovery.completeRestoration(root: root, installedBuild: build, request: command, runtime: runtime, healthy: healthy)
+                    self.recovery = nil
+                    needsRecovery = false
+                    log("restored request=\(command.id) running=\(recovery.wasRunning) target=\(recovery.targetBuild) confirmed=\(confirmed)")
                     return
                 }
             }
@@ -180,10 +175,14 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         install(item, handler: handler); return true
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        guard recovery != nil else { onChange?(); return }
+        guard handoff.abort() else { onChange?(); return }
         Task {
             while busy { try? await Task.sleep(for: .milliseconds(100)) }
-            do { try await restore() } catch { fail(error) }
+            do {
+                // A save failure never stopped the service; there is nothing to replay.
+                if recovery != nil { try await restore() }
+                else { needsRecovery = false; onChange?() }
+            } catch { fail(error) }
         }
     }
 }

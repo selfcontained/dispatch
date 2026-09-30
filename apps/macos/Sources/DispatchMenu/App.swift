@@ -100,7 +100,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let automatic = item("Install Updates Automatically", #selector(toggleAutomaticUpdates), enabled: !updateBusy)
             automatic.state = updater.automatic ? .on : .off
             menu.addItem(automatic)
-            if updater.needsRecovery { menu.addItem(item("Retry Update Recovery", #selector(retryUpdate), enabled: !updateBusy)) }
+            if updater.needsRecovery { menu.addItem(item("Retry Update Recovery", #selector(retryUpdate), enabled: !updater.busy)) }
         }
         #endif
         menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !updateBusy))

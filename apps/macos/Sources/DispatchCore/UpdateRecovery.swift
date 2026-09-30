@@ -25,4 +25,15 @@ public struct UpdateRecovery: Codable, Equatable {
         try FileManager.default.removeItem(at: Self.path(root: root))
         return true
     }
+    /// A healthy old build after an abort is also a completed restoration. Keep audit
+    /// history separately so future launches/check errors cannot replay its run state.
+    @discardableResult
+    public func completeRestoration(root: URL, installedBuild: String, request: ServiceRequest, runtime: ServiceRuntime?, healthy: Bool) throws -> Bool {
+        guard request.start == wasRunning, runtime?.acknowledges(request) == true,
+              !wasRunning || healthy else { throw ConfigurationError("The server has not acknowledged update recovery.") }
+        try writePrivateJSON(self, to: root.appendingPathComponent("app-update-history.json"))
+        try FileManager.default.removeItem(at: Self.path(root: root))
+        return installedBuild == targetBuild
+    }
+
 }
