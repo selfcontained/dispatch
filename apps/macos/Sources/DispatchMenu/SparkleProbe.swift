@@ -38,7 +38,8 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
     private func startOwnedService() async throws {
         let requestedStart = shouldRun
         if let service {
-            if service.status == .notRegistered { try service.register() }
+            event("service-status-before-registration", String(service.status.rawValue))
+            if service.status.needsRegistration { try service.register() }
             if service.status == .requiresApproval {
                 event("approval-required")
                 SMAppService.openSystemSettingsLoginItems()
@@ -132,7 +133,7 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
         event("stopping-supervisor")
         if let service {
             do {
-                if service.status != .notRegistered { try await service.unregister() }
+                if !service.status.needsRegistration { try await service.unregister() }
                 event("service-unregistered")
                 var clean = false
                 for _ in 0..<550 {

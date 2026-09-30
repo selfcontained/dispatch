@@ -46,7 +46,9 @@ The Mac needs a logged-in GUI user, Python 3, and Apple command-line tools. Do n
 run this on a working installation as an ad-hoc test. Repository instructions
 require user approval before using a VM.
 
-Download the CI artifact, extract it, and run one case at a time:
+Download the CI artifact, extract it, and run one case at a time from Terminal
+in the logged-in desktop session. An SSH-only launch cannot authorize user trust
+changes. Approve the temporary certificate trust prompts during setup and cleanup:
 
 ```sh
 python3 validate.py --case running --allow-machine-changes
@@ -86,8 +88,18 @@ background-item approval, private database, and temporary localhost certificate.
 Export the evidence, then stop/delete only the disposable clone. Preserve the
 source VM. If no usable base image exists, report that before downloading one.
 
-This exercise is not yet performed. Artifact creation and local compile/tests
-must not be presented as passing SMAppService installation/update validation.
+The first disposable-VM attempt used the notarized artifacts from CI run 36648062365. The initial app passed staple validation and Gatekeeper. Fresh
+service status returned `notFound` (BTM had no registration record), exposing a
+probe startup condition that waited instead of registering. No update completed.
+The startup condition now treats both `notFound` and `notRegistered` as requiring
+registration, including the normal menu app's first launch. A regression covers
+all four documented statuses.
+
+The failed run's diagnostics were exported, and the disposable clone was stopped
+and deleted. The source VM remains stopped and unchanged. Certificate cleanup
+required a desktop authorization prompt; teardown ultimately removed the entire
+clone, so this attempt does not establish successful in-guest cleanup. The next
+artifact pair still needs the full running/stopped update and cleanup proof.
 
 ## Subsequent gates
 

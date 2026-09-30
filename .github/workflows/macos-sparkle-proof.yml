@@ -12,6 +12,7 @@ on:
       - scripts/test_sparkle_proof_cleanup.py
       - apps/macos/Sources/DispatchCore/ServiceControl.swift
       - apps/macos/Sources/DispatchMenu/SparkleProbe.swift
+      - apps/macos/Sources/DispatchMenu/ServiceRegistration.swift
   workflow_dispatch:
 
 permissions:

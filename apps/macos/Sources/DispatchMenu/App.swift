@@ -44,7 +44,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.mainMenu = main
         // Register an idle service once, so choosing login startup later only
         // changes a preference. It does not start a server on this launch.
-        if externalURL == nil && PreviewPaths.testRoot == nil && service.status == .notRegistered {
+        if externalURL == nil && PreviewPaths.testRoot == nil && service.status.needsRegistration {
             do {
                 try requireInstalledApp()
                 try ServiceRequest(start: false).save()
