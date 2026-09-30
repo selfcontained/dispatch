@@ -17,6 +17,16 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var changingService = false
     private var validationServer: Process?
     private var status = "Checking…"
+    #if SPARKLE_UPDATES
+    private var appUpdater: AppUpdater?
+    #endif
+    private var updateBusy: Bool {
+        #if SPARKLE_UPDATES
+        return appUpdater?.controlsLocked == true
+        #else
+        return false
+        #endif
+    }
     private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.preview.server.plist")
     private var stopping: Bool { runtime?.phase == "stopping" }
     private var active: Bool { runtime?.isActive == true || ready }
@@ -44,13 +54,23 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.mainMenu = main
         // Register an idle service once, so choosing login startup later only
         // changes a preference. It does not start a server on this launch.
-        if externalURL == nil && PreviewPaths.testRoot == nil && service.status.needsRegistration {
+        if externalURL == nil && PreviewPaths.testRoot == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: PreviewPaths.root).path) {
             do {
                 try requireInstalledApp()
                 try ServiceRequest(start: false).save()
                 try service.register()
             } catch { configurationError = error.localizedDescription }
         }
+        #if SPARKLE_UPDATES
+        if externalURL == nil && PreviewPaths.testRoot == nil {
+            let updater = AppUpdater(service: service)
+            updater.wasRunning = { [weak self] in self?.ready == true || (ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping") }
+            updater.onChange = { [weak self] in self?.rebuildMenu() }
+            updater.onError = { [weak self] message in self?.showError(message) }
+            appUpdater = updater
+            Task { await updater.start(); refresh() }
+        }
+        #endif
     }
     func menuWillOpen(_ menu: NSMenu) { rebuildMenuContents(menu); refresh() }
     private func item(_ title: String, _ action: Selector?, enabled: Bool = true) -> NSMenuItem {
@@ -70,11 +90,20 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         address.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")
         address.toolTip = "Copy address"
         menu.addItem(address)
-        if externalURL == nil { menu.addItem(item(stopping ? "Stopping…" : active ? "Stop Server" : "Start Server", active ? #selector(stopServer) : #selector(startServer), enabled: !changingService && !stopping)) }
+        if externalURL == nil { menu.addItem(item(stopping ? "Stopping…" : active ? "Stop Server" : "Start Server", active ? #selector(stopServer) : #selector(startServer), enabled: !changingService && !stopping && !updateBusy)) }
         menu.addItem(.separator())
         let settingsItem = item("Settings…", #selector(showSettings)); settingsItem.keyEquivalent = ","
         menu.addItem(settingsItem)
-        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService))
+        #if SPARKLE_UPDATES
+        if let updater = appUpdater {
+            menu.addItem(item(updater.busy ? "Updating…" : "Check for Updates…", #selector(checkForUpdates), enabled: updater.canCheck))
+            let automatic = item("Install Updates Automatically", #selector(toggleAutomaticUpdates), enabled: !updateBusy)
+            automatic.state = updater.automatic ? .on : .off
+            menu.addItem(automatic)
+            if updater.needsRecovery { menu.addItem(item("Retry Update Recovery", #selector(retryUpdate), enabled: !updateBusy)) }
+        }
+        #endif
+        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !updateBusy))
     }
     private func refresh() {
         guard !checking else { return }
@@ -135,13 +164,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateSettings(); settings?.showWindow(nil); NSApp.activate(ignoringOtherApps: true); settings?.window?.makeKeyAndOrderFront(nil)
     }
     private func updateSettings() {
-        settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil, canSave: externalURL == nil, status: status, active: active,
+        settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil && !updateBusy, canSave: externalURL == nil && !updateBusy, status: status, active: active,
                          loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && PreviewPaths.testRoot == nil,
                          needsApproval: service.status == .requiresApproval, busy: changingService,
                          serverAtLogin: StartupPreferences.read().startServerAtLogin, stopping: stopping)
     }
     private func saveConfiguration(_ fields: SetupFields) {
-        guard externalURL == nil, !changingService else { return }
+        guard externalURL == nil, !changingService, !updateBusy else { return }
         do {
             guard let port = Int(fields.port.stringValue) else { throw ConfigurationError("Enter a valid port number.") }
             var candidate: Configuration
@@ -167,12 +196,12 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc private func startServer() {
-        guard !changingService, !stopping, externalURL == nil else { return }
+        guard !changingService, !stopping, !updateBusy, externalURL == nil else { return }
         if configuration.databaseURL.isEmpty { showSettings(); return }
         sendServiceCommand(start: true)
     }
     @objc private func stopServer() {
-        guard !changingService, !stopping, externalURL == nil else { return }
+        guard !changingService, !stopping, !updateBusy, externalURL == nil else { return }
         sendServiceCommand(start: false)
     }
     private func sendServiceCommand(start: Bool) {
@@ -205,7 +234,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc private func toggleLogin() {
-        guard PreviewPaths.testRoot == nil, externalURL == nil, !changingService else { return }
+        guard PreviewPaths.testRoot == nil, externalURL == nil, !changingService, !updateBusy else { return }
         changingService = true; rebuildMenu()
         Task {
             defer { changingService = false; rebuildMenu() }
@@ -220,6 +249,18 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let process = validationServer, process.isRunning { process.terminate(); process.waitUntilExit() }
         NSApp.terminate(nil)
     }
+    #if SPARKLE_UPDATES
+    @objc private func checkForUpdates() { appUpdater?.check() }
+    @objc private func toggleAutomaticUpdates() {
+        if let updater = appUpdater { updater.setAutomatic(!updater.automatic) }
+    }
+    @objc private func retryUpdate() { Task { await appUpdater?.retry(); refresh() } }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let updater = appUpdater, updater.requiresTerminationHandoff else { return .terminateNow }
+        Task { NSApp.reply(toApplicationShouldTerminate: await updater.prepareTermination()) }
+        return .terminateLater
+    }
+    #endif
     private func showError(_ message: String) {
         let alert = NSAlert(); alert.messageText = "Dispatch"; alert.informativeText = message; alert.alertStyle = .warning
         NSApp.activate(ignoringOtherApps: true); alert.runModal()

@@ -123,10 +123,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           <CardHeader>
             <CardTitle>Updates are managed by the Mac app</CardTitle>
             <CardDescription>
-              This preview uses manual app updates. Finish active agents, choose
-              Stop Server from the Dispatch Preview menu, then quit the menu and
-              replace the app. Open the new app and start its server to
-              continue.
+              Use Check for Updates in the Dispatch menu bar menu. You can also
+              enable automatic updates there. If your app has no update
+              controls, install the latest Mac app first. App updates keep your
+              settings and database.
             </CardDescription>
           </CardHeader>
         </Card>

@@ -58,8 +58,9 @@ final class SettingsWindowController: NSWindowController {
             card("Configuration", [fields.databaseView, saveButton()]),
         ])
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
         addTab("Support", to: tabs, views: [
-            card("Dispatch", [heading("Version \(version)")]),
+            card("Dispatch", [heading("Version \(version)"), note("Build \(build)")]),
             card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(PreviewPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
         ])
         updateDetails(configuration)
