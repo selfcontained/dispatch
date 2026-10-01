@@ -263,12 +263,18 @@ describe("ReleasesAdmin — unreleased changes", () => {
 });
 
 describe("ReleasesAdmin — recent releases", () => {
-  it("promotes a prerelease and flips the row to stable", async () => {
-    const promote = vi.fn(() => okJson({}));
+  it("promotes a prerelease and flips the row once GitHub reports it stable", async () => {
+    let promoted = false;
+    const promote = vi.fn(() => {
+      promoted = true;
+      return okJson({ ok: true, workflowUrl: "https://example.test/run" });
+    });
     const fetchMock = await renderAdmin({
       "/api/v1/releases": () =>
         okJson({
-          releases: [makeRelease({ tag: "v2.0.0-rc.1", isPrerelease: true })],
+          releases: [
+            makeRelease({ tag: "v2.0.0-rc.1", isPrerelease: !promoted }),
+          ],
         }),
       "/api/v1/release/promote": promote,
     });
@@ -291,6 +297,30 @@ describe("ReleasesAdmin — recent releases", () => {
     expect(body).toEqual({ tag: "v2.0.0-rc.1" });
     expect(await within(row).findByText("stable")).toBeTruthy();
     expect(within(row).queryByRole("button", { name: "Promote" })).toBeNull();
+  });
+
+  it("shows the promotion in progress until the release stops being a prerelease", async () => {
+    await renderAdmin({
+      "/api/v1/releases": () =>
+        okJson({
+          releases: [makeRelease({ tag: "v2.0.0-rc.1", isPrerelease: true })],
+        }),
+      "/api/v1/release/promote": () =>
+        okJson({ ok: true, workflowUrl: "https://example.test/run" }),
+    });
+
+    const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Confirm" }));
+    });
+
+    expect(await within(row).findByText(/Promoting/)).toBeTruthy();
+    expect(within(row).getByText("pre-release")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Promote" })).toBeNull();
+    expect(
+      within(row).getByRole("link", { name: "workflow" }).getAttribute("href")
+    ).toBe("https://example.test/run");
   });
 
   it("cancelling the promote confirmation leaves the release alone", async () => {

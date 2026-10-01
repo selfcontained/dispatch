@@ -286,7 +286,12 @@ describe("release metadata route handling", () => {
     });
     vi.unstubAllEnvs();
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      tag: "v1.0.0",
+      workflowUrl:
+        "https://github.com/selfcontained/dispatch/actions/workflows/promote-release.yml",
+    });
     const run = runCommandMock.mock.calls.find(
       ([cmd, args]) => cmd === "gh" && args[0] === "workflow"
     );

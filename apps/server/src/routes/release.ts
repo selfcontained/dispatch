@@ -401,7 +401,13 @@ async function handlePromote(
       "--field",
       `tag=${body.tag}`,
     ]);
-    return { ok: true, tag: body.tag };
+    // Started, not finished: the client watches the release list for the
+    // prerelease flag to clear.
+    return reply.code(202).send({
+      ok: true,
+      tag: body.tag,
+      workflowUrl: `https://github.com/${repo}/actions/workflows/promote-release.yml`,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return reply.code(500).send({ error: message });

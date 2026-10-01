@@ -259,4 +259,4 @@ fi
 INSTALL_SUCCEEDED=1
 echo "Dispatch $TAG installed at $RUNTIME_PATH"
 echo "  channel: $CHANNEL (change it in Settings → Updates)"
-[ "$NO_SERVICE" = 0 ] && echo "  open: http://127.0.0.1:$PORT"
+if [ "$NO_SERVICE" = 0 ]; then echo "  open: http://127.0.0.1:$PORT"; fi

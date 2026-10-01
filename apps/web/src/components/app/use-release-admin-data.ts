@@ -12,12 +12,16 @@ export type UseReleaseAdminDataResult = {
   releases: GitHubRelease[];
   releasesLoading: boolean;
   promotingTag: string | null;
+  promotionUrl: string | null;
   confirmPromoteTag: string | null;
   promoteError: string | null;
   setConfirmPromoteTag: (tag: string | null) => void;
   refresh: () => void;
   promote: (tag: string) => Promise<void>;
 };
+
+const PROMOTION_POLL_MS = 10_000;
+const PROMOTION_TIMEOUT_MS = 10 * 60_000;
 
 /**
  * Data layer for the admin Releases page: the unreleased-commit info, the
@@ -43,6 +47,13 @@ export function useReleaseAdminData(
     null
   );
   const [promoteError, setPromoteError] = useState<string | null>(null);
+  // Promotion runs as a workflow: the request only starts it, and the row
+  // turns stable once GitHub reports the release is no longer a prerelease.
+  const [promotion, setPromotion] = useState<{
+    tag: string;
+    url: string | null;
+    startedAt: number;
+  } | null>(null);
 
   const fetchInfo = useCallback(async () => {
     setInfoLoading(true);
@@ -72,19 +83,23 @@ export function useReleaseAdminData(
     }
   }, [streamClientId]);
 
-  const fetchReleases = useCallback(async () => {
+  const fetchReleases = useCallback(async (): Promise<
+    GitHubRelease[] | null
+  > => {
     setReleasesLoading(true);
     try {
       const res = await fetch("/api/v1/releases");
       if (res.ok) {
         const data = (await res.json()) as { releases: GitHubRelease[] };
         setReleases(data.releases);
+        return data.releases;
       }
     } catch {
       /* ignore */
     } finally {
       setReleasesLoading(false);
     }
+    return null;
   }, []);
 
   const refresh = useCallback(() => {
@@ -114,23 +129,53 @@ export function useReleaseAdminData(
         body: JSON.stringify({ tag }),
       });
       if (res.ok) {
-        setReleases((prev) =>
-          prev.map((r) => (r.tag === tag ? { ...r, isPrerelease: false } : r))
-        );
-      } else {
-        const err = (await res.json()) as { error?: string };
-        setPromoteError(cleanError(err.error ?? `Failed to promote ${tag}`));
+        const body = (await res.json()) as { workflowUrl?: string };
+        setPromotion({
+          tag,
+          url: body.workflowUrl ?? null,
+          startedAt: Date.now(),
+        });
+        return;
       }
+      const err = (await res.json()) as { error?: string };
+      setPromoteError(cleanError(err.error ?? `Failed to promote ${tag}`));
     } catch (err) {
       setPromoteError(
         err instanceof Error
           ? cleanError(err.message)
           : `Failed to promote ${tag}`
       );
-    } finally {
-      setPromotingTag(null);
     }
+    setPromotingTag(null);
   }, []);
+
+  useEffect(() => {
+    if (!promotion) return;
+    let cancelled = false;
+    const check = async () => {
+      const latest = await fetchReleases();
+      if (cancelled) return;
+      const release = latest?.find((r) => r.tag === promotion.tag);
+      if (release && !release.isPrerelease) {
+        setPromotion(null);
+        setPromotingTag(null);
+      } else if (Date.now() - promotion.startedAt > PROMOTION_TIMEOUT_MS) {
+        setPromotion(null);
+        setPromotingTag(null);
+        setPromoteError(
+          `${promotion.tag} is still a prerelease. Check the Promote Release workflow${
+            promotion.url ? `: ${promotion.url}` : "."
+          }`
+        );
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), PROMOTION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [promotion, fetchReleases]);
 
   return {
     info,
@@ -141,6 +186,7 @@ export function useReleaseAdminData(
     releases,
     releasesLoading,
     promotingTag,
+    promotionUrl: promotion?.url ?? null,
     confirmPromoteTag,
     promoteError,
     setConfirmPromoteTag,

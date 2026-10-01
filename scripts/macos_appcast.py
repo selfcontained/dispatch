@@ -108,7 +108,14 @@ def add(items, item):
     if build_version(item['build']) <= newest:
         raise ValueError('Refusing to publish a build that is not newer than the live appcast')
     kept = [i for i in items if i['version'] != item['version']]
-    return sorted([item, *kept], key=lambda i: build_version(i['build']), reverse=True)[:KEEP]
+    ordered = sorted([item, *kept], key=lambda i: build_version(i['build']), reverse=True)
+    recent = ordered[:KEEP]
+    # Stable apps only see untagged entries: however many previews follow,
+    # the newest promoted release must stay in the appcast.
+    stable = next((i for i in ordered if i['channel'] is None), None)
+    if stable is not None and stable not in recent:
+        recent.append(stable)
+    return recent
 
 
 def promote(items, version):

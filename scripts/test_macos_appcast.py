@@ -68,6 +68,15 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(len(items), appcast.KEEP)
         self.assertEqual(items[0]['build'], f'{100 + appcast.KEEP + 2}.1')
 
+    def test_pruning_keeps_the_newest_stable_release(self):
+        items = promote(add(add([], item('100.1', '1.0.0')), item('101.1', '1.0.1')), '1.0.1')
+        items = promote(items, '1.0.0')
+        for n in range(appcast.KEEP + 2):
+            items = add(items, item(f'{200 + n}.1', f'1.1.{n}'))
+        stable = [i for i in items if i['channel'] is None]
+        self.assertEqual([i['version'] for i in stable], ['1.0.1'])
+        self.assertEqual(len(items), appcast.KEEP + 1)
+
     def test_promote_untags_only_that_release(self):
         items = add(add([], item('100.1', '1.0.0')), item('101.1', '1.0.1'))
         promoted = promote(items, '1.0.0')
