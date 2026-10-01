@@ -12,6 +12,10 @@ reviewer launch settings. `dryRun: true` returns the selection without starting
 agents. This tool is available to parent agents and jobs; child agents ask their
 parent to launch reviews.
 
+From the UI, the Review dialog's **Code owners** option (offered when the
+checkout has a `.dispatch/codeowners.json`) asks the agent to make this call
+with its own briefing, alone or alongside hand-picked personas.
+
 Dispatch resolves the normal review base once and selects owners for the union
 of committed changes against that base, staged/unstaged changes against HEAD,
 and non-ignored untracked files. Deleted paths count; both old and new paths of

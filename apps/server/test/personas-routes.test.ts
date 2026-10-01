@@ -16,6 +16,10 @@ vi.mock("../src/personas/loader.js", () => ({
   loadPersonasFromRoots: vi.fn(async () => []),
 }));
 
+vi.mock("../src/personas/codeowners.js", () => ({
+  hasCodeowners: vi.fn(async () => false),
+}));
+
 vi.mock("../src/shared/git/git-context.js", () => ({
   resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
   resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
@@ -90,10 +94,23 @@ describe("GET /api/v1/personas", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().personas[0].slug).toBe("security-review");
+    expect(response.json().codeowners).toBe(false);
     expect(loadPersonasFromRoots).toHaveBeenCalledWith({
       worktreeRoot: "/tmp",
       repoRoot: "/tmp",
     });
+  });
+
+  it("reports an ownership map found in the worktree", async () => {
+    const { hasCodeowners } = await import("../src/personas/codeowners.js");
+    vi.mocked(hasCodeowners).mockResolvedValueOnce(true);
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/personas?cwd=/tmp",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().codeowners).toBe(true);
+    expect(hasCodeowners).toHaveBeenCalledWith("/tmp");
   });
 });
 
@@ -105,6 +122,8 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
       { persona: "security-review", agentType: "invalid" },
       { persona: "security-review", agentType: "codex", includeDiff: "yes" },
       { personas: [], agentType: "codex" },
+      { personas: [], codeowners: false, agentType: "codex" },
+      { codeowners: "yes", agentType: "codex" },
     ];
     for (const payload of invalidPayloads) {
       const response = await app.inject({
@@ -160,6 +179,78 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(input.text).toContain("prompt: <your briefing>");
     expect(input.text).toContain("From the user: Focus on the auth changes.");
     expect(input.text).toContain("its reviewer resolves it");
+  });
+
+  it("asks the agent to launch the code owners with no personas picked", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: {
+        personas: [],
+        codeowners: true,
+        agentType: "claude",
+        model: "opus",
+        includeDiff: false,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+    expect(input.description).toBe("Review requested: code owners");
+    expect(input.text).toContain("Please launch the code owners on your");
+    // The owner tool's runtime arg is `agentType`, unlike launch_agent's `type`.
+    expect(input.text).toContain(
+      'launch_owner_reviews({ agentType: "claude", model: "opus", context: <your briefing> })'
+    );
+    expect(input.text).not.toContain('type: "claude", ');
+    expect(input.text).not.toContain("launch_agent(");
+    // Owner reviews always carry the change map; the flag only applies to
+    // hand-picked personas.
+    expect(input.text).not.toContain("includeDiff");
+  });
+
+  it("lists the code owners ahead of hand-picked personas", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: {
+        personas: ["security-review"],
+        codeowners: true,
+        agentType: "codex",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+    expect(input.description).toBe(
+      "Review requested: code owners, security-review"
+    );
+    expect(input.text).toContain(
+      "Please launch the code owners and the security-review persona on your"
+    );
+    expect(input.text.indexOf("launch_owner_reviews(")).toBeLessThan(
+      input.text.indexOf('launch_agent({ persona: "security-review"')
+    );
+    // A picked persona can also be an owner; the agent must not launch it
+    // twice, but may still launch one the owner pass failed on.
+    expect(input.text).toContain("Run launch_owner_reviews first");
+    expect(input.text).toContain("skip the launch_agent line");
+    expect(input.text).toContain("`failures`");
+  });
+
+  it("omits the overlap rule when nothing can overlap", async () => {
+    for (const payload of [
+      { personas: [], codeowners: true, agentType: "codex" },
+      { personas: ["security-review"], agentType: "codex" },
+    ]) {
+      deps.streams.promptAgent.mockClear();
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/agt_parent/launch-persona",
+        payload,
+      });
+      expect(response.statusCode).toBe(200);
+      const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+      expect(input.text).not.toContain("Run launch_owner_reviews first");
+    }
   });
 
   it("reports a prompt held behind the agent's running turn", async () => {
