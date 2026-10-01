@@ -4,6 +4,7 @@ import { AgentActivityLabel } from "@/components/app/agent-activity";
 import { type Agent } from "@/components/app/types";
 import { agentProjectRoot } from "@/components/app/agents-view-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { cn } from "@/lib/utils";
 
 function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
   const [iconError, setIconError] = React.useState(false);
@@ -35,12 +36,19 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
  */
 export function AgentCardPhaseStatus({
   agent,
+  className,
 }: {
   agent: Agent;
+  className?: string;
 }): JSX.Element | null {
   if (agent.status === "creating" || agent.setupPhase) {
     return (
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
+      <div
+        className={cn(
+          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working",
+          className
+        )}
+      >
         <ActivityBars size={12} className="shrink-0" />
         <span className="truncate font-medium">Starting…</span>
       </div>
@@ -49,7 +57,12 @@ export function AgentCardPhaseStatus({
 
   if (agent.status === "archiving") {
     return (
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
+      <div
+        className={cn(
+          "mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400",
+          className
+        )}
+      >
         <ActivityBars size={12} className="shrink-0" />
         <span className="truncate font-medium">
           {agent.archivePhase === "stopping"
@@ -69,9 +82,20 @@ export function AgentCardPhaseStatus({
   return null;
 }
 
+/** Whether AgentCardPhaseStatus has a lifecycle line to show. */
+function hasPhaseStatus(agent: Agent): boolean {
+  return (
+    agent.status === "creating" ||
+    Boolean(agent.setupPhase) ||
+    agent.status === "archiving"
+  );
+}
+
 /**
- * The current turn's reported step above the repo it works in. Archive
- * progress has its own line.
+ * The agent's status line above the repo it works in: a lifecycle phase
+ * (starting, archiving) when one is under way, otherwise the current turn's
+ * reported step. The line keeps its height when there is nothing to say, so
+ * the card does not grow and shrink as turns start and end.
  */
 export function AgentCardActivity({
   agent,
@@ -80,18 +104,26 @@ export function AgentCardActivity({
   agent: Agent;
   /** Called as the running-turn link navigates. */
   onNavigate?: () => void;
-}): JSX.Element | null {
-  if (agent.status === "archiving") return null;
+}): JSX.Element {
   const repoName = agentProjectRoot(agent)?.split("/").pop() ?? null;
 
   return (
     <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
-      <AgentActivityLabel
-        agent={agent}
-        className="w-full"
-        linkToTurn
-        onNavigate={onNavigate}
-      />
+      <div
+        className="flex min-h-4 min-w-0 items-center"
+        data-testid={`agent-status-line-${agent.id}`}
+      >
+        {hasPhaseStatus(agent) ? (
+          <AgentCardPhaseStatus agent={agent} className="mt-0" />
+        ) : (
+          <AgentActivityLabel
+            agent={agent}
+            className="w-full"
+            linkToTurn
+            onNavigate={onNavigate}
+          />
+        )}
+      </div>
       {repoName && !agent.reconnect ? (
         <RepoLabel agentId={agent.id} name={repoName} />
       ) : null}

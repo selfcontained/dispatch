@@ -512,6 +512,22 @@ describe("AgentCardStatus wiring", () => {
     expect(activity()).toBeNull();
   });
 
+  it("keeps the status line's slot when there is nothing to show", () => {
+    // The slot stays mounted (with a minimum height) so the card does not
+    // grow and shrink as turns start and end.
+    const { rerender } = renderCard({
+      agent: makeAgent({ activity: "idle" }),
+    });
+    const slot = screen.getByTestId(`agent-status-line-${AGENT_ID}`);
+    expect(slot.className).toContain("min-h-4");
+    expect(activity()).toBeNull();
+
+    rerender({ agent: makeAgent({ status: "creating", setupPhase: "deps" }) });
+    expect(
+      screen.getByTestId(`agent-status-line-${AGENT_ID}`).textContent
+    ).toContain("Starting…");
+  });
+
   it("shows what a running turn is doing, from its stream entry", async () => {
     const client = new QueryClient();
     const agent = makeAgent({

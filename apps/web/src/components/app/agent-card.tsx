@@ -4,10 +4,7 @@ import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
-import {
-  AgentCardActivity,
-  AgentCardPhaseStatus,
-} from "@/components/app/agent-card-status";
+import { AgentCardActivity } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
@@ -169,8 +166,6 @@ function AgentCardImpl({
           startAgent={startAgent}
           toggleAgentDetails={toggleAgentDetails}
         />
-
-        <AgentCardPhaseStatus agent={agent} />
 
         <AgentCardActivity
           agent={agent}
