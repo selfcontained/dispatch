@@ -65,6 +65,13 @@ export function personaLaunchRequest(input: {
   return [
     `Please launch ${subject} on your current work:`,
     ...lines,
+    // A hand-picked persona may also be an owner; neither tool knows about
+    // the other's launches, so the agent has to keep them from overlapping.
+    ...(input.codeowners && input.personas.length > 0
+      ? [
+          "Run launch_owner_reviews first and read its `launched` list; skip the launch_agent line for any persona it already launched (a persona in `failures` is still yours to launch).",
+        ]
+      : []),
     "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
     ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
   ].join("\n");

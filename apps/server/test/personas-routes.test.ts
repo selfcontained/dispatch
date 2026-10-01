@@ -229,6 +229,28 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(input.text.indexOf("launch_owner_reviews(")).toBeLessThan(
       input.text.indexOf('launch_agent({ persona: "security-review"')
     );
+    // A picked persona can also be an owner; the agent must not launch it
+    // twice, but may still launch one the owner pass failed on.
+    expect(input.text).toContain("Run launch_owner_reviews first");
+    expect(input.text).toContain("skip the launch_agent line");
+    expect(input.text).toContain("`failures`");
+  });
+
+  it("omits the overlap rule when nothing can overlap", async () => {
+    for (const payload of [
+      { personas: [], codeowners: true, agentType: "codex" },
+      { personas: ["security-review"], agentType: "codex" },
+    ]) {
+      deps.streams.promptAgent.mockClear();
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/agents/agt_parent/launch-persona",
+        payload,
+      });
+      expect(response.statusCode).toBe(200);
+      const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+      expect(input.text).not.toContain("Run launch_owner_reviews first");
+    }
   });
 
   it("reports a prompt held behind the agent's running turn", async () => {
