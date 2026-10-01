@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 import base64
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
 
 import macos_appcast as appcast
-from macos_appcast import NS, add, archive_name, build_version, legacy, new_item, parse, promote, render
+from macos_appcast import NS, add, archive_name, build_version, new_item, parse, promote, render
 
 SIGNATURE = base64.b64encode(bytes(64)).decode()
 
@@ -85,13 +87,6 @@ class ChannelTests(unittest.TestCase):
         self.assertIsNone(element.find(f'{{{NS}}}channel'))
         with self.assertRaisesRegex(ValueError, 'not in the appcast'): promote(items, '2.0.0')
 
-    def test_legacy_feed_offers_the_newest_build_untagged(self):
-        items = add(add([], item('100.1', '1.0.0')), item('101.1', '1.0.1'))
-        entries = ET.fromstring(legacy(items)).findall('./channel/item')
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0].findtext(f'{{{NS}}}version'), '101.1')
-        self.assertIsNone(entries[0].find(f'{{{NS}}}channel'))
-
 
 class PublicationTests(unittest.TestCase):
     def test_only_a_confirmed_404_starts_empty(self):
@@ -104,17 +99,24 @@ class PublicationTests(unittest.TestCase):
     def test_verification_is_required(self):
         with patch.object(appcast, 'fetch_public', return_value=None), patch.object(appcast.time, 'sleep'):
             with self.assertRaisesRegex(RuntimeError, 'verification failed'):
-                appcast.verify({appcast.FEED_PATH: render([item('100.1')])})
+                appcast.verify(render([item('100.1')]))
 
-    def test_deploy_writes_both_paths_before_verifying(self):
-        items = [item('100.1')]
-        with patch.object(appcast.subprocess, 'run') as run, patch.object(appcast, 'verify') as verify:
-            appcast.deploy(items)
-        run.assert_called_once()
-        feeds = verify.call_args.args[0]
-        self.assertEqual(set(feeds), {appcast.FEED_PATH, appcast.LEGACY_PATH})
-        built = appcast.ROOT / 'apps/update-feeds/dist' / appcast.FEED_PATH.lstrip('/')
-        self.assertEqual(built.read_bytes(), render(items))
+    def test_deploy_replaces_generated_assets_with_the_current_feed(self):
+        items = promote([item('100.1'), item('101.1', '1.0.1')], '1.0.0')
+        with tempfile.TemporaryDirectory(prefix='dispatch-appcast-', dir='/tmp') as directory:
+            root = Path(directory)
+            dist = root / 'apps/update-feeds/dist'
+            retired = dist / 'updates/macos/preview/appcast-arm64.xml'
+            retired.parent.mkdir(parents=True)
+            retired.write_bytes(b'old feed')
+            with patch.object(appcast, 'ROOT', root), patch.object(appcast.subprocess, 'run') as run, patch.object(appcast, 'verify') as verify:
+                appcast.deploy(items)
+            run.assert_called_once()
+            verify.assert_called_once_with(render(items))
+            built = dist / appcast.FEED_PATH.lstrip('/')
+            self.assertEqual(parse(built.read_bytes()), sorted(items, key=lambda i: build_version(i['build']), reverse=True))
+            self.assertEqual({str(path.relative_to(dist)) for path in dist.rglob('*') if path.is_file()},
+                             {appcast.FEED_PATH.lstrip('/'), '_headers'})
 
     def test_release_workflow_contract(self):
         workflow = (appcast.ROOT / '.github/workflows/release.yml').read_text()
