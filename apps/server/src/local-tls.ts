@@ -42,12 +42,11 @@ function atomicWrite(file: string, data: string | Buffer) {
 /** Preserve public roots and an existing custom trust bundle for agent tools. */
 export function localAgentCaBundle(
   caPath: string,
-  existingBundle?: string
+  existingBundle: string | undefined,
+  output: string
 ): string {
-  const output = path.join(path.dirname(caPath), "agent-ca.pem");
   const certificates = [...rootCertificates];
-  if (existingBundle && existingBundle !== output)
-    certificates.push(readFileSync(existingBundle, "utf8"));
+  if (existingBundle) certificates.push(readFileSync(existingBundle, "utf8"));
   certificates.push(readFileSync(caPath, "utf8"));
   atomicWrite(output, certificates.join("\n"));
   return output;

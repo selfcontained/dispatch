@@ -64,7 +64,10 @@ describe("Mac local certificate trust", () => {
     const root = directory();
     ensureLocalTls(root, ["127.0.0.1"]);
     const caPath = path.join(root, "ca/cert.pem");
-    const bundle = readFileSync(localAgentCaBundle(caPath, caPath), "utf8");
+    const bundle = readFileSync(
+      localAgentCaBundle(caPath, caPath, path.join(root, "agent-ca.pem")),
+      "utf8"
+    );
     expect(bundle).toContain(readFileSync(caPath, "utf8"));
     expect(bundle.match(/BEGIN CERTIFICATE/g)!.length).toBeGreaterThan(10);
     expect(bundle).not.toContain("PRIVATE KEY");

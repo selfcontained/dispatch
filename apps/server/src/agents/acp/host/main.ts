@@ -24,6 +24,7 @@ import {
   TEARDOWN_STEP_MS,
 } from "../driver.js";
 import { openCodeInstructionsEnv } from "../opencode-instructions.js";
+import { buildHostEnv } from "../host-env.js";
 import { engineSpecFor } from "../engine-spec.js";
 import { engineVersion } from "../../engine-availability.js";
 import {
@@ -167,13 +168,7 @@ async function main(): Promise<void> {
 
   // The engine child's environment: the host's own (a login shell's), the
   // launch's additions, and Dispatch's bin directories ahead on PATH.
-  const childEnv: NodeJS.ProcessEnv = { ...process.env, ...launch.env };
-  const basePath = process.env.PATH ?? "";
-  childEnv.PATH = Array.from(
-    new Set([...launch.pathPrefix, ...basePath.split(path.delimiter)])
-  )
-    .filter(Boolean)
-    .join(path.delimiter);
+  const childEnv = buildHostEnv(launch, stateDir);
 
   const driver = new AcpDriver({
     logger,
