@@ -41,9 +41,10 @@ stable only promoted ones (see the installer's `--channel`).
 ## Workflows
 
 **Release** (`.github/workflows/release.yml`) runs on a manual dispatch
-(bump `patch`/`minor`/`major`, commit, tag main) or on a pushed `vX.Y.Z` tag
-that points at main and matches `package.json`. It verifies, builds the Bun
-binaries and the Mac app, smoke-tests both, creates one GitHub **prerelease**
+(bump `patch`/`minor`/`major`, commit, tag the selected branch) or on a pushed
+`vX.Y.Z` tag that points at `main` or `acp-runtime` and matches `package.json`. Select
+`acp-runtime` in the Actions branch dropdown to release it before merging.
+It verifies, builds the Bun binaries and the Mac app, smoke-tests both, creates one GitHub **prerelease**
 with both assets, and only then adds the Mac build to the appcast on the
 preview channel. The Mac build number is `github.run_id.github.run_attempt`;
 a rerun of the same release replaces that release's older build.

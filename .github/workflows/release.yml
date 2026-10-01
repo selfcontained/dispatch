@@ -1,8 +1,8 @@
 name: Release
 
 # One release, one tag, both platforms. Cutting a release (manual dispatch)
-# bumps the version and tags main; pushing a vX.Y.Z tag yourself does the
-# same build. Every release publishes as a GitHub prerelease and enters the
+# bumps the version and tags the selected release branch; pushing a vX.Y.Z
+# tag yourself does the same build. Every release publishes as a GitHub prerelease and enters the
 # macOS appcast on the Sparkle "preview" channel. promote-release.yml moves a
 # tested release to stable without rebuilding it.
 on:
@@ -68,11 +68,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch origin main --tags --prune
-
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            git checkout main
-            git reset --hard origin/main
+            RELEASE_BRANCH="$GITHUB_REF_NAME"
+            case "$RELEASE_BRANCH" in
+              main|acp-runtime) ;;
+              *)
+                echo "error: releases must be dispatched from main or acp-runtime" >&2
+                exit 1
+                ;;
+            esac
+            git fetch origin "$RELEASE_BRANCH" --tags --prune
+            git checkout -B "$RELEASE_BRANCH" "origin/$RELEASE_BRANCH"
 
             mkdir -p release-notes
             PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
@@ -90,14 +96,14 @@ jobs:
               gh api "repos/${{ github.repository }}/releases/generate-notes" \
                 -X POST \
                 -f tag_name="$NEW_VERSION" \
-                -f target_commitish="main" \
+                -f target_commitish="$RELEASE_BRANCH" \
                 -f previous_tag_name="$PREV_TAG" \
                 --jq '.body' > release-notes/current.md
             else
               gh api "repos/${{ github.repository }}/releases/generate-notes" \
                 -X POST \
                 -f tag_name="$NEW_VERSION" \
-                -f target_commitish="main" \
+                -f target_commitish="$RELEASE_BRANCH" \
                 --jq '.body' > release-notes/current.md
             fi
 
@@ -121,8 +127,8 @@ jobs:
               exit 1
             fi
 
-            git pull --rebase origin main
-            git push origin HEAD:main
+            git pull --rebase origin "$RELEASE_BRANCH"
+            git push origin "HEAD:$RELEASE_BRANCH"
 
             TAG="$NEW_VERSION"
             git tag -a "$TAG" -m "Dispatch $TAG"
@@ -135,8 +141,10 @@ jobs:
           else
             TAG="$GITHUB_REF_NAME"
             git checkout --detach "$GITHUB_SHA"
-            if ! git merge-base --is-ancestor HEAD origin/main; then
-              echo "error: $TAG must point at a commit on main" >&2
+            git fetch origin '+refs/heads/*:refs/remotes/origin/*' --tags --prune
+            if ! git merge-base --is-ancestor HEAD origin/main &&
+               ! git merge-base --is-ancestor HEAD origin/acp-runtime; then
+              echo "error: $TAG must point at a commit on main or acp-runtime" >&2
               exit 1
             fi
             # Binaries are named from package.json; the installer and update

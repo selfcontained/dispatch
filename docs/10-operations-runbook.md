@@ -85,9 +85,22 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
   -d '{"versionType":"patch"}'
 ```
 
-The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch or on a pushed `vX.Y.Z` tag (which must point at `main` and match `package.json`):
+To release the unmerged `acp-runtime` branch, open GitHub Actions → Release →
+Run workflow, select `acp-runtime` in the branch dropdown, and choose a version
+bump. Equivalently:
 
-- **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to `main` and tags it.
+```bash
+gh workflow run release.yml --repo selfcontained/dispatch --ref acp-runtime -f version=patch
+```
+
+The workflow must be pushed to `acp-runtime` before running it. The Settings
+release button uses GitHub's default branch; use Actions or the CLI for this
+branch release. Releases from either branch publish to preview; promotion to
+stable remains a separate action.
+
+The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch or on a pushed `vX.Y.Z` tag (which must point at `main` or `acp-runtime` and match `package.json`):
+
+- **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to the selected branch (`main` or `acp-runtime`) and tags it.
 - **Verify**: type check, web lint, and unit tests against an ephemeral Postgres (the full `pnpm run ci` runs on the PRs that feed `main`).
 - **Build**: Bun binaries for every platform/arch packed into `dispatch-server.tar.gz`, plus the signed, notarized Mac app (`dispatch-macos-<build>-arm64.zip`).
 - **Smoke test**: boots the packed binary on Linux and macOS runners against an ephemeral Postgres.
