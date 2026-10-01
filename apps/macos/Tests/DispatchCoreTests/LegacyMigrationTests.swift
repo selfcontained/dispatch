@@ -59,6 +59,25 @@ final class LegacyMigrationTests: XCTestCase {
         XCTAssertFalse(migration.pending)
     }
 
+    func testInterruptedUpdateRecoveryOwnsTheRestart() throws {
+        let migration = LegacyMigration(legacy: legacy, root: root)
+        XCTAssertFalse(try migration.run(wasRunning: false, stopService: { _ in }, renameDatabase: { _ in nil }))
+        XCTAssertEqual(try migration.restoreRequest(wasRunning: false)?.start, false, "Without update recovery, migration replays its own state")
+        // The old Sparkle handoff stopped a running server and kept its intent.
+        try UpdateRecovery(wasRunning: true, targetBuild: "41").save(root: root)
+        XCTAssertNil(try migration.restoreRequest(wasRunning: false))
+        XCTAssertEqual(try UpdateRecovery.read(root: root), UpdateRecovery(wasRunning: true, targetBuild: "41"))
+        XCTAssertFalse(migration.pending, "Update recovery took ownership; migration must not replay a competing request")
+    }
+
+    func testMigratedRunningStateIsFoldedIntoUpdateRecovery() throws {
+        let migration = LegacyMigration(legacy: legacy, root: root)
+        XCTAssertTrue(try migration.run(wasRunning: true, stopService: { _ in }, renameDatabase: { _ in nil }))
+        try UpdateRecovery(wasRunning: false, targetBuild: "41").save(root: root)
+        XCTAssertNil(try migration.restoreRequest(wasRunning: true))
+        XCTAssertEqual(try UpdateRecovery.read(root: root)?.wasRunning, true)
+    }
+
     func testFreshInstallIsNotPending() {
         XCTAssertFalse(LegacyMigration(legacy: base.appendingPathComponent("missing"), root: root).pending)
     }

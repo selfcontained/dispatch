@@ -65,6 +65,19 @@ public struct LegacyMigration: Sendable {
         return (try? JSONDecoder().decode(Marker.self, from: Data(contentsOf: marker)))?.wasRunning ?? wasRunning
     }
 
+    /// The request that restores the old server's state, or nil when an interrupted
+    /// Sparkle update owns the restart: its recovery record already replays a request,
+    /// so this folds the migrated state into it and finishes, leaving one request producer.
+    public func restoreRequest(wasRunning: Bool) throws -> ServiceRequest? {
+        guard let recovery = try UpdateRecovery.read(root: root) else { return ServiceRequest(start: wasRunning) }
+        // The handoff stops the server before installing, so a running server is the stronger signal.
+        if wasRunning && !recovery.wasRunning {
+            try UpdateRecovery(wasRunning: true, targetBuild: recovery.targetBuild).save(root: root)
+        }
+        complete()
+        return nil
+    }
+
     /// Call once the new service has acknowledged the restored running state.
     public func complete() { try? FileManager.default.removeItem(at: marker) }
 

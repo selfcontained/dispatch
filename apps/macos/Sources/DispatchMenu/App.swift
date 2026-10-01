@@ -50,7 +50,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             do {
                 try requireInstalledApp()
-                pendingRestore = ServiceRequest(start: try await LegacyInstall.migrate())
+                pendingRestore = try LegacyMigration().restoreRequest(wasRunning: try await LegacyInstall.migrate())
             } catch { migrationError = error.localizedDescription }
             migrating = false
             finishLaunching()
@@ -82,6 +82,8 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Register an idle service once, so choosing login startup later only
         // changes a preference. It does not start a server on this launch; a migrated
         // pre-release install restores its previous state through `replayRestore`.
+        // Save a migrated restore before registering, so the new supervisor's first loop sees it.
+        replayRestore()
         if externalURL == nil && AppPaths.testRoot == nil && migrationError == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: AppPaths.root).path) {
             do {
                 try requireInstalledApp()
@@ -89,7 +91,6 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try service.register()
             } catch { configurationError = error.localizedDescription }
         }
-        replayRestore()
         #if SPARKLE_UPDATES
         if externalURL == nil && AppPaths.testRoot == nil {
             let updater = AppUpdater(service: service)

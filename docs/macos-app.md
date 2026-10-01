@@ -87,7 +87,8 @@ On first launch the app:
 4. Registers the new LaunchAgent and restores whether the server was running, so
    agents reattach. That state is kept on disk and replayed (including after a
    relaunch or a slow Login Items approval) until the new service acknowledges it.
-   Choosing Start or Stop yourself replaces it.
+   Choosing Start or Stop yourself replaces it. If the old app was interrupted
+   mid-update, its update recovery record owns the restart instead.
 
 Each step is safe to repeat; if one fails, the app reports it and blocks setup so
 it cannot create a second database. Quit and reopen Dispatch to retry. The old
