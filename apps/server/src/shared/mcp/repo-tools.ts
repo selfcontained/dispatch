@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
 
+import { repoCommandEnvironment } from "../lib/tool-environment.js";
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
@@ -101,9 +102,7 @@ export async function loadRepoTools(
 
         const result = await runCommand(command, args, {
           cwd: currentRepoRoot,
-          env: {
-            DISPATCH_AGENT_ID: agentId,
-          },
+          env: repoCommandEnvironment(agentId),
           // Allow all exit codes — the agent decides how to handle failures.
           // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).
           allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),
