@@ -26,14 +26,7 @@ export function useTip(id: string) {
       : false;
 
   const shouldShowInline =
-    tip !== null &&
-    enabled &&
-    !isDismissed &&
-    tip.surfaces.includes("inline") &&
-    isInReleaseWindow;
-
-  const shouldShowAmbient =
-    tip !== null && enabled && !isDismissed && tip.surfaces.includes("ambient");
+    tip !== null && enabled && !isDismissed && isInReleaseWindow;
 
   const dismiss = useCallback(() => {
     setDismissed((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -43,5 +36,5 @@ export function useTip(id: string) {
     setEnabled(false);
   }, [setEnabled]);
 
-  return { tip, shouldShowInline, shouldShowAmbient, dismiss, disableAll };
+  return { tip, shouldShowInline, dismiss, disableAll };
 }

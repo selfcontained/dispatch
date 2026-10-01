@@ -18,10 +18,6 @@ describe("tips registry", () => {
       expect(tip.title).toBeTruthy();
       expect(tip.body).toBeTruthy();
       expect(tip.since).toMatch(/^\d+\.\d+\.\d+$/);
-      expect(tip.surfaces.length).toBeGreaterThan(0);
-      for (const s of tip.surfaces) {
-        expect(["inline", "ambient"]).toContain(s);
-      }
     }
   });
 });

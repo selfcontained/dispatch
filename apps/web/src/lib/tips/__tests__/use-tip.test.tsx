@@ -30,23 +30,22 @@ describe("useTip", () => {
     const { result } = renderUseTip("nonexistent", store);
     expect(result.current.tip).toBeNull();
     expect(result.current.shouldShowInline).toBe(false);
-    expect(result.current.shouldShowAmbient).toBe(false);
   });
 
   it("shouldShowInline is true when tip version is newer than lastSeenVersion", () => {
-    store.set(lastSeenVersionAtom, "0.21.0");
-    const { result } = renderUseTip("personas", store); // since: "0.22.0"
+    store.set(lastSeenVersionAtom, "0.22.0");
+    const { result } = renderUseTip("quick-phrases", store); // since: "0.23.0"
     expect(result.current.shouldShowInline).toBe(true);
   });
 
   it("shouldShowInline is false when tip version is older than lastSeenVersion", () => {
-    store.set(lastSeenVersionAtom, "0.23.0");
-    const { result } = renderUseTip("personas", store); // since: "0.22.0"
+    store.set(lastSeenVersionAtom, "0.24.0");
+    const { result } = renderUseTip("quick-phrases", store); // since: "0.23.0"
     expect(result.current.shouldShowInline).toBe(false);
   });
 
   it("shouldShowInline is false when lastSeenVersion is null (first-time user)", () => {
-    const { result } = renderUseTip("personas", store);
+    const { result } = renderUseTip("quick-phrases", store);
     expect(result.current.shouldShowInline).toBe(false);
   });
 
@@ -56,32 +55,19 @@ describe("useTip", () => {
     expect(result.current.shouldShowInline).toBe(true);
   });
 
-  it("shouldShowAmbient is true for undismissed tips regardless of version", () => {
-    store.set(lastSeenVersionAtom, "0.23.0");
-    const { result } = renderUseTip("personas", store); // since: "0.22.0"
-    expect(result.current.shouldShowAmbient).toBe(true);
-  });
-
-  it("shouldShowAmbient is false when tips are disabled", () => {
-    store.set(tipsEnabledAtom, false);
-    const { result } = renderUseTip("personas", store);
-    expect(result.current.shouldShowAmbient).toBe(false);
-  });
-
   it("dismiss marks the tip as dismissed", () => {
-    store.set(lastSeenVersionAtom, "0.21.0");
-    const { result } = renderUseTip("personas", store);
-    expect(result.current.shouldShowAmbient).toBe(true);
+    store.set(lastSeenVersionAtom, "0.22.0");
+    const { result } = renderUseTip("quick-phrases", store);
+    expect(result.current.shouldShowInline).toBe(true);
 
     act(() => result.current.dismiss());
 
-    expect(result.current.shouldShowAmbient).toBe(false);
     expect(result.current.shouldShowInline).toBe(false);
-    expect(store.get(dismissedTipsAtom)).toContain("personas");
+    expect(store.get(dismissedTipsAtom)).toContain("quick-phrases");
   });
 
   it("disableAll sets tipsEnabled to false", () => {
-    const { result } = renderUseTip("personas", store);
+    const { result } = renderUseTip("quick-phrases", store);
     act(() => result.current.disableAll());
     expect(store.get(tipsEnabledAtom)).toBe(false);
   });
