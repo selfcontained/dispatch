@@ -274,34 +274,6 @@ describe("release metadata route handling", () => {
     });
   });
 
-  it("rejects a second /release/update while one is in flight", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({ body: "notes" }),
-      },
-    });
-    ensureCachedTarballMock.mockImplementation(() => new Promise(() => {}));
-
-    const first = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-    expect(first.statusCode).toBe(202);
-
-    const second = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-    expect(second.statusCode).toBe(409);
-    expect(second.json()).toMatchObject({
-      error: "An update is already in progress.",
-    });
-  });
-
   it("stores the preview channel and rejects unknown channels", async () => {
     const set = await ctx.app.inject({
       method: "POST",
@@ -397,6 +369,17 @@ describe("release metadata route handling", () => {
       expect(createResp.statusCode).toBe(409);
       expect(createResp.json()).toMatchObject({
         error: "An update is in progress; the server is about to restart.",
+      });
+
+      const secondUpdate = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(secondUpdate.statusCode).toBe(409);
+      expect(secondUpdate.json()).toMatchObject({
+        error: "An update is already in progress.",
       });
     });
   });
