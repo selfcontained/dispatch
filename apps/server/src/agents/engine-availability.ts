@@ -5,6 +5,7 @@ import { defaultSearchDirs } from "../shared/lib/tool-environment.js";
 export { defaultSearchDirs } from "../shared/lib/tool-environment.js";
 
 import { runCommand } from "../shared/lib/run-command.js";
+import { withEngineBinDir } from "./acp/engine-bin-dir.js";
 import { ACP_ENGINE_IDS, type AcpEngineId } from "./acp/engine-spec.js";
 import { isPackageBinDir } from "./acp/package-bin-dir.js";
 
@@ -185,6 +186,7 @@ async function readVersion(bin: string): Promise<string | null> {
   try {
     const { stdout } = await runCommand(bin, ["--version"], {
       timeoutMs: 5_000,
+      env: { PATH: withEngineBinDir(process.env.PATH, bin) },
     });
     const line = stdout.trim().split("\n")[0]?.trim() ?? "";
     if (!line) return null;

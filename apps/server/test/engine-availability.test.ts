@@ -171,6 +171,16 @@ describe("engineVersion", () => {
     );
   });
 
+  it("runs a CLI whose interpreter is only beside it", async () => {
+    const interpreter = path.join(dir, "beside-node");
+    writeFileSync(interpreter, "#!/bin/sh\necho 'codex-cli 0.160.0'\n");
+    chmodSync(interpreter, 0o755);
+    const file = path.join(dir, "v-nvm-codex");
+    writeFileSync(file, "#!/usr/bin/env beside-node\n");
+    chmodSync(file, 0o755);
+    expect(await engineVersion(file)).toBe("0.160.0");
+  });
+
   it("is null when the CLI fails or is not there", async () => {
     expect(await engineVersion(cli("v-broken", "boom", 1))).toBeNull();
     expect(await engineVersion(path.join(dir, "nope"))).toBeNull();

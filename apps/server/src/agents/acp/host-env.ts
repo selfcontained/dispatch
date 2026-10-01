@@ -1,10 +1,13 @@
 import path from "node:path";
 import { localAgentCaBundle } from "../../local-tls.js";
+import { withEngineBinDir } from "./engine-bin-dir.js";
+import type { AcpEngineId, EngineBins } from "./engine-spec.js";
 import type { HostLaunch } from "./host-protocol.js";
 
 /** Called in the host, after the login shell and ~/.dispatch/env are loaded. */
 export function buildHostEnv(
-  launch: Pick<HostLaunch, "env" | "engine" | "pathPrefix">,
+  launch: Pick<HostLaunch, "env" | "engine" | "pathPrefix"> &
+    Partial<Pick<HostLaunch, "bins">>,
   stateDir: string,
   shellEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
@@ -32,13 +35,15 @@ export function buildHostEnv(
       path.join(stateDir, "curl-ca.pem")
     );
   }
-  env.PATH = Array.from(
-    new Set([
-      ...launch.pathPrefix,
-      ...(shellEnv.PATH ?? "").split(path.delimiter),
-    ])
-  )
-    .filter(Boolean)
-    .join(path.delimiter);
+  env.PATH = withEngineBinDir(
+    [...launch.pathPrefix, shellEnv.PATH ?? ""].join(path.delimiter),
+    launch.bins && launchedBin(launch.engine, launch.bins)
+  );
   return env;
+}
+
+function launchedBin(engine: AcpEngineId, bins: EngineBins): string | null {
+  if (engine === "claude") return bins.claudeBin;
+  if (engine === "codex") return bins.codexBin;
+  return bins.opencodeBin ?? null;
 }
