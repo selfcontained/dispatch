@@ -63,6 +63,170 @@ async function seedAgentPosts(streamId: string, n: number, from = 0) {
   return ids;
 }
 
+describe("BlockStore.reviewSummary", () => {
+  it("ignores malformed shown IDs and findings outside the review's stream", async () => {
+    const review = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "review",
+    });
+    const finding = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "finding",
+    });
+    const foreign = await store.insert({
+      streamId: B,
+      author: agent(B),
+      kind: "finding",
+    });
+    const text = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "text",
+    });
+    await store.update(review.id, {
+      state: {
+        blocks: [
+          finding.id,
+          finding.id,
+          foreign.id,
+          text.id,
+          NIL,
+          "invalid",
+          7,
+          null,
+          { id: finding.id },
+        ],
+      },
+    });
+    expect((await store.reviewSummary()).agents[A].openFindings).toBe(1);
+    for (const blocks of [null, "invalid", {}, 7]) {
+      await store.update(review.id, { state: { blocks } });
+      expect((await store.reviewSummary()).agents[A]).toMatchObject({
+        status: "resolved",
+        openFindings: 0,
+      });
+    }
+  });
+
+  it("uses the latest agent-authored review and derives state from its shown findings", async () => {
+    expect(await store.reviewSummary()).toEqual({ agents: {} });
+    const review = await store.insert({
+      streamId: A,
+      author: agent(B),
+      kind: "review",
+      state: {},
+    });
+    const f1 = await store.insert({
+      streamId: A,
+      author: agent(B),
+      kind: "finding",
+      threadId: review.id,
+      replyTo: review.id,
+      state: {},
+    });
+    const f2 = await store.insert({
+      streamId: A,
+      author: agent(B),
+      kind: "finding",
+      threadId: review.id,
+      replyTo: review.id,
+      state: {},
+    });
+    await store.update(review.id, { state: { blocks: [f1.id, f2.id] } });
+    // The author, not the recipient or stream owner, owns the sidebar signal.
+    expect(await store.reviewSummary()).toEqual({
+      agents: {
+        [B]: {
+          streamId: A,
+          threadId: review.id,
+          status: "open",
+          openFindings: 2,
+        },
+      },
+    });
+    await store.update(f1.id, {
+      state: { status: "resolved", resolution: "fixed" },
+    });
+    expect(await store.reviewSummary()).toEqual({
+      agents: {
+        [B]: {
+          streamId: A,
+          threadId: review.id,
+          status: "partially_resolved",
+          openFindings: 1,
+        },
+      },
+    });
+    await store.update(f2.id, {
+      state: { status: "resolved", resolution: "dismissed" },
+    });
+    expect(await store.reviewSummary()).toEqual({
+      agents: {
+        [B]: {
+          streamId: A,
+          threadId: review.id,
+          status: "resolved",
+          openFindings: 0,
+        },
+      },
+    });
+    await stamp(review.id, 1);
+    const newer = await store.insert({
+      streamId: A,
+      author: agent(B),
+      kind: "review",
+      state: {},
+    });
+    await stamp(newer.id, 2);
+    const finding = await store.insert({
+      streamId: A,
+      author: agent(B),
+      kind: "finding",
+      threadId: newer.id,
+      replyTo: newer.id,
+      state: {},
+    });
+    await store.update(newer.id, { state: { blocks: [finding.id] } });
+    await store.insert({ streamId: A, author: USER, kind: "review" });
+    await store.insert({ streamId: A, author: agent(GONE), kind: "review" });
+    // Unrelated posts and findings cannot change which review is selected.
+    await seedAgentPosts(A, 105);
+    expect(await store.reviewSummary()).toEqual({
+      agents: {
+        [B]: {
+          streamId: A,
+          threadId: newer.id,
+          status: "open",
+          openFindings: 1,
+        },
+      },
+    });
+    await store.update(newer.id, { state: { blocks: [] } });
+    expect(await store.reviewSummary()).toEqual({
+      agents: {
+        [B]: {
+          streamId: A,
+          threadId: newer.id,
+          status: "resolved",
+          openFindings: 0,
+        },
+      },
+    });
+    const launch = await store.insert({
+      streamId: A,
+      author: agent(A),
+      kind: "launch",
+    });
+    await pool.query(
+      "UPDATE blocks SET thread_id = $2, reply_to = $2 WHERE id = $1",
+      [newer.id, launch.id]
+    );
+    expect((await store.reviewSummary()).agents[B].threadId).toBe(launch.id);
+  });
+});
+
 describe("isBlockId / authorOf / sameAuthor", () => {
   it("accepts only well-formed uuids", () => {
     expect(isBlockId("7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5")).toBe(true);

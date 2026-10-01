@@ -144,6 +144,8 @@ export async function registerStreamRoutes(
     return store.unreadSummary();
   });
 
+  app.get("/api/v1/chat/reviews", async () => store.reviewSummary());
+
   app.get("/api/v1/agents/:id/turn", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     if (!(await agentExists(id))) {

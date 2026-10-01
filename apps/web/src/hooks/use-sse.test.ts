@@ -616,6 +616,7 @@ describe("useSSE message handling", () => {
       ["agent-models"],
       CACHED_RELEASE_INFO_QUERY_KEY,
       ["chat-unread"],
+      ["agent-reviews"],
       ["stream"],
     ]);
   });

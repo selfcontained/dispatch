@@ -63,6 +63,7 @@ export type {
   ChatSendRequest,
   ChatSendResponse,
   ChatUnreadSummary,
+  AgentReviewSummary,
   ChatUserAttachmentInput,
 } from "./chat-types.js";
 export {

@@ -1,4 +1,4 @@
-import type { BlockKind } from "./block-types.js";
+import type { BlockKind, BlockReviewStatus } from "./block-types.js";
 /**
  * Runtime-free wire contract for the chat surface — the Chat tab that sits
  * above an agent's terminal. See docs/design/blocks.md.
@@ -407,6 +407,20 @@ export type ChatFeedResponse = {
  */
 export type ChatUnreadSummary = {
   agents: Record<string, { unread: number; pendingQuestions: number }>;
+};
+
+/** Latest submitted review by each non-deleted agent, across all feed pages. */
+export type AgentReviewSummary = {
+  agents: Record<
+    string,
+    {
+      status: BlockReviewStatus;
+      openFindings: number;
+      streamId: string;
+      /** The launch thread when embedded in a launch card, otherwise the review itself. */
+      threadId: string;
+    }
+  >;
 };
 
 export type ChatSendResponse = {

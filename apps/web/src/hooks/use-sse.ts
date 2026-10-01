@@ -36,6 +36,7 @@ import {
 import { isTurnEntry } from "@/components/app/chat/turn/trace";
 import { isOpenInput } from "@/hooks/use-inbox";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
+import { AGENT_REVIEWS_QUERY_KEY } from "@/hooks/use-agent-review-summary";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
@@ -310,6 +311,9 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
+          void queryClient.invalidateQueries({
+            queryKey: AGENT_REVIEWS_QUERY_KEY,
+          });
           // `stream.changed` is not replayed after a gap, so every mounted
           // feed (and open thread) refetches on (re)connect — otherwise an
           // open Chat tab keeps missing whatever landed while the stream was
@@ -360,6 +364,16 @@ export function useSSE(authState: AuthState): void {
           // its first appearance adds to the count.
           const block =
             payload.entry.type === "block" ? payload.entry.block : null;
+          if (
+            block &&
+            (block.kind === "review" ||
+              block.kind === "finding" ||
+              block.blocks?.some((shown) => shown.kind === "review"))
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: AGENT_REVIEWS_QUERY_KEY,
+            });
+          }
           // Closing an ask changes the agent's derived Waiting activity.
           // The stream row updates the card, but the sidebar agent cache
           // needs a fresh agent projection to clear that status immediately.

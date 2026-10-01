@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { AgentReviewSummary } from "@dispatch/shared";
 import type { ComponentProps } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,15 @@ const chatUnread = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/use-chat-unread-summary", () => ({
   useAgentChatUnread: () => chatUnread.value,
+}));
+
+const reviewSummary = vi.hoisted(() => ({
+  data: { agents: {} } as AgentReviewSummary,
+  isLoading: false,
+  isError: false,
+}));
+vi.mock("@/hooks/use-agent-review-summary", () => ({
+  useAgentReviewSummary: () => reviewSummary,
 }));
 
 // The running turn's verb comes from the app-wide React Query cache.
@@ -47,7 +57,18 @@ afterEach(() => {
   cleanup();
   chatUnread.value = { unread: 0, pendingQuestions: 0 };
   turnLabel.value = null;
+  reviewSummary.data = { agents: {} };
 });
+
+function RowLocation() {
+  const location = useLocation();
+  return (
+    <span data-testid="row-location">
+      {location.pathname}
+      {location.search}
+    </span>
+  );
+}
 
 function renderRow(
   agent: Agent,
@@ -66,6 +87,7 @@ function renderRow(
   ) => (
     <MemoryRouter>
       <TooltipProvider>
+        <RowLocation />
         <ChildAgentRow
           agent={agent}
           seat={2}
@@ -134,7 +156,9 @@ describe("ChildAgentRow", () => {
   it("labels review agents and chases before their initial review is submitted", () => {
     renderRow(baseAgent);
 
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
     expect(indicator.className).toContain("text-muted-foreground");
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("min-h-11");
@@ -146,7 +170,9 @@ describe("ChildAgentRow", () => {
   it("groups the review indicator with the overflow menu control, not the truncating name label", () => {
     renderRow(baseAgent);
 
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
     const menuButton = screen.getByTestId("child-agent-menu-agt_child");
     // The indicator and the overflow menu button should share an immediate
     // parent (the right-side action cluster) rather than living inside the
@@ -157,24 +183,96 @@ describe("ChildAgentRow", () => {
   });
 
   it("stops chasing after the initial review is submitted", () => {
-    renderRow(baseAgent, { isInitialReviewActive: false });
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 2,
+    };
+    renderRow(baseAgent);
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("shows the muted clipboard-list indicator for a reviewer", () => {
+  it("shows the muted clipboard indicator for a reviewer", () => {
     renderRow(baseAgent);
 
-    const indicator = screen.getByRole("img", { name: "Review in progress" });
-    expect(indicator.querySelector("svg.lucide-clipboard-list")).not.toBeNull();
+    const indicator = screen.getByRole("img", {
+      name: "No review submitted — Review in progress",
+    });
+    expect(indicator.querySelector("svg.lucide-clipboard")).not.toBeNull();
     // The review itself lands in the parent's stream; the row has no
     // "open review" action of its own.
     openMenu();
     expect(
       screen.queryByTestId("child-agent-open-review-agt_child")
     ).toBeNull();
+  });
+
+  it("opens a submitted review thread from the menu without attaching the reviewer", () => {
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      openFindings: 2,
+      streamId: "agt_parent",
+      threadId: "review-thread",
+    };
+    const onRequestClose = vi.fn();
+    const { openAgent, closeAgent } = renderRow(baseAgent, {
+      closeOnSessionAction: true,
+      onRequestClose,
+    });
+    openMenu();
+    fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
+    expect(screen.getByTestId("row-location").textContent).toBe(
+      "/agents/agt_parent?thread=review-thread"
+    );
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(closeAgent).not.toHaveBeenCalled();
+    expect(onRequestClose).toHaveBeenCalledOnce();
+  });
+
+  it("updates the submitted state, finding count and icon as findings settle", () => {
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "open",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 2,
+    };
+    const { rerenderWith } = renderRow(baseAgent);
+    const indicator = screen.getByTestId(
+      `agent-review-indicator-${baseAgent.id}`
+    );
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "changes requested (2 open findings)"
+    );
+    expect(indicator.className).toContain("text-status-blocked");
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "partially_resolved",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 1,
+    };
+    rerenderWith({});
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "partially resolved (1 open finding)"
+    );
+    expect(indicator.className).toContain("text-status-waiting");
+    reviewSummary.data.agents[baseAgent.id] = {
+      status: "resolved",
+      streamId: "agt_parent",
+      threadId: "review-thread",
+      openFindings: 0,
+    };
+    rerenderWith({});
+    expect(indicator.getAttribute("aria-label")).toContain(
+      "approved (no open findings)"
+    );
+    expect(indicator.className).toContain("text-status-done");
+    expect(
+      indicator.querySelector("svg.lucide-clipboard-check")
+    ).not.toBeNull();
   });
 
   describe("keyboard/screen-reader open access (the overflow menu's Open / Close item)", () => {
@@ -246,17 +344,23 @@ describe("ChildAgentRow", () => {
     );
 
     expect(
-      screen.queryByRole("img", { name: "Review in progress" })
+      screen.queryByRole("img", {
+        name: "No review submitted — Review in progress",
+      })
     ).toBeNull();
     // Throws (failing the test) if not found — this is the assertion.
-    screen.getByRole("img", { name: "Review agent — paused" });
+    screen.getByRole("img", {
+      name: "No review submitted — Review agent — paused",
+    });
   });
 
   it("does not infer review purpose from a persona", () => {
     renderRow({ ...baseAgent, role: "standard" });
 
     expect(
-      screen.queryByRole("img", { name: "Review in progress" })
+      screen.queryByRole("img", {
+        name: "No review submitted — Review in progress",
+      })
     ).toBeNull();
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
