@@ -4635,11 +4635,401 @@ describe("StreamService @mentions", () => {
     expect(injected[0]!.text).not.toContain("do not pass it along");
   });
 
-  it("a name outside the tree is just text", async () => {
+  it("delivers mentions to running parents outside the tree", async () => {
+    const { svc, injected } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, { text: "@Peer please help" });
+    expect(res.block).toMatchObject({
+      streamId: A,
+      toAgentId: B,
+      data: { mentions: [B] },
+    });
+    await settled(svc, res.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+  });
+
+  it("keeps external responses and posts in the user's top-level or threaded conversation", async () => {
+    const external = "agt_response_external";
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status)
+      VALUES ($1, 'Response peer', '/tmp', 'running')`,
+      [external]
+    );
+    AGENTS[external] = {
+      id: external,
+      name: "Response peer",
+      filesDir: null,
+      status: "running",
+    };
+    const { svc, events, injectedOpts } = build({ withDelivery: true });
+    const main = await svc.sendUserPost(A, { text: "@Response peer help" });
+    await settled(svc, main.block.id);
+    const reply = await svc.sendUserPost(A, {
+      text: "@Response peer more detail",
+      replyTo: main.block.id,
+    });
+    await settled(svc, reply.block.id);
+    for (const opener of [main.block, reply.block]) {
+      const prompt: PromptSource = { source: "chat", chatMessageId: opener.id };
+      const resolved = await svc.resolvePromptSource(external, prompt);
+      expect(resolved.conversation).toEqual({
+        streamId: A,
+        threadId: opener.threadId,
+      });
+      const event = await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+        VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1), 'turn', $2) RETURNING *`,
+        [external, JSON.stringify({ state: "started", prompt: resolved })]
+      );
+      const row = {
+        id: Number(event.rows[0].id),
+        agentId: external,
+        seq: Number(event.rows[0].seq),
+        kind: "turn" as const,
+        key: null,
+        payload: { state: "started", prompt: resolved },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const turnId = await svc.recordTurnStarted({
+        agentId: external,
+        turnRow: row,
+        prompt: resolved,
+      });
+      expect(await svc.store.getById(turnId!)).toMatchObject({
+        streamId: A,
+        threadId: opener.threadId,
+        replyTo: opener.threadId ? opener.id : null,
+      });
+      await pool.query(
+        `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+        [row.id, JSON.stringify({ blockId: turnId })]
+      );
+      expect(await svc.turnEntry(external)).toMatchObject({
+        block: { id: turnId, streamId: A },
+      });
+      await svc.publishTurnEntry(external);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "stream.entry",
+          agentId: A,
+          entry: expect.objectContaining({ id: turnId }),
+        })
+      );
+      await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+        VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1), 'assistant', '{"text":"External streamed answer","streaming":false}')`,
+        [external]
+      );
+      // Stream publication follows the stored turn location, including settlement.
+      await svc.recordTurnSettled({
+        agentId: external,
+        turnRow: { ...row, payload: { ...row.payload, blockId: turnId } },
+      });
+      expect(await svc.store.getById(turnId!)).toMatchObject({
+        streamId: A,
+        threadId: opener.threadId,
+        text: "External streamed answer",
+      });
+      expect(events).toContainEqual({ type: "stream.changed", agentId: A });
+      const post = await svc.post(external, { text: "Here is my answer" });
+      expect(post).toMatchObject({ streamId: A, threadId: opener.threadId });
+      const explicit = await svc.post(external, {
+        text: "Explicit reply",
+        replyTo: opener.id,
+      });
+      expect(explicit).toMatchObject({
+        streamId: A,
+        threadId: opener.threadId ?? opener.id,
+      });
+      const review = await svc.post(external, {
+        text: "Review result",
+        review: { summary: "Looks good", findings: [] },
+      });
+      expect(review).toMatchObject({ streamId: A, threadId: opener.threadId });
+      const question = await svc.post(external, {
+        text: "More info?",
+        question: { options: [{ label: "Yes" }] },
+      });
+      expect(question).toMatchObject({
+        streamId: A,
+        threadId: opener.threadId,
+      });
+      await pool.query(
+        `UPDATE agent_stream_events SET payload = payload || '{"state":"settled"}'::jsonb WHERE id = $1`,
+        [row.id]
+      );
+    }
+    expect(injectedOpts[0].source?.conversation).toEqual({
+      streamId: A,
+      threadId: null,
+    });
+    // Explicit addressed replies retain their location even without an open turn.
+    const later = await svc.post(external, {
+      text: "Later reply",
+      replyTo: reply.block.id,
+    });
+    expect(later).toMatchObject({ streamId: A, threadId: main.block.id });
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("allows an external parent to delegate in the source stream and its own child to answer", async () => {
+    const parent = "agt_foreign_delegate_parent";
+    const child = "agt_foreign_delegate_child";
+    const outsider = "agt_foreign_delegate_outsider";
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+      VALUES ($1, 'Delegating parent', '/tmp', 'running', NULL),
+             ($2, 'Delegated child', '/tmp', 'running', $1),
+             ($3, 'Unrelated parent', '/tmp', 'running', NULL)`,
+      [parent, child, outsider]
+    );
+    for (const [id, name] of [
+      [parent, "Delegating parent"],
+      [child, "Delegated child"],
+      [outsider, "Unrelated parent"],
+    ]) {
+      AGENTS[id] = { id, name, filesDir: null, status: "running" };
+    }
+    const { svc, injectedOpts } = build({ withDelivery: true });
+    const main = await svc.sendUserPost(A, {
+      text: "@Delegating parent ask your reviewer",
+    });
+    const reply = await svc.sendUserPost(A, {
+      text: "@Delegating parent check this detail",
+      replyTo: main.block.id,
+    });
+    for (const opener of [main.block, reply.block]) {
+      const prompt: PromptSource = { source: "chat", chatMessageId: opener.id };
+      const rowResult = await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+        VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_stream_events WHERE agent_id = $1), 'turn', $2) RETURNING id, seq`,
+        [parent, JSON.stringify({ state: "started", prompt })]
+      );
+      const row = {
+        id: Number(rowResult.rows[0].id),
+        agentId: parent,
+        seq: Number(rowResult.rows[0].seq),
+        kind: "turn" as const,
+        key: null,
+        payload: { state: "started", prompt },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const parentTurn = await svc.recordTurnStarted({
+        agentId: parent,
+        turnRow: row,
+        prompt,
+      });
+      await pool.query(
+        `UPDATE agent_stream_events SET payload = payload || $2::jsonb WHERE id = $1`,
+        [row.id, JSON.stringify({ blockId: parentTurn })]
+      );
+      const delegated = await svc.post(parent, {
+        to: child,
+        text: "Review this",
+      });
+      expect(delegated).toMatchObject({
+        streamId: A,
+        threadId: opener.threadId,
+        toAgentId: child,
+      });
+      await settled(svc, delegated.id);
+      // The delegated child can explicitly reply without an active foreign turn.
+      const answer = await svc.post(child, {
+        text: "Reviewed",
+        replyTo: delegated.id,
+      });
+      expect(answer).toMatchObject({
+        streamId: A,
+        threadId: delegated.threadId ?? delegated.id,
+        replyTo: delegated.id,
+        toAgentId: parent,
+      });
+      const childPrompt: PromptSource = {
+        source: "chat",
+        chatMessageId: delegated.id,
+      };
+      const resolved = await svc.resolvePromptSource(child, childPrompt);
+      expect(resolved.conversation).toEqual({
+        streamId: A,
+        threadId: delegated.threadId,
+      });
+      const childTurn = await svc.recordTurnStarted({
+        agentId: child,
+        turnRow: { ...row, agentId: child },
+        prompt: resolved,
+      });
+      expect(await svc.store.getById(childTurn!)).toMatchObject({
+        streamId: A,
+        threadId: delegated.threadId,
+      });
+      // A different child wasn't addressed and cannot use this foreign block.
+      await expect(
+        svc.post(outsider, { text: "Uninvited", replyTo: delegated.id })
+      ).rejects.toThrow("replyTo must name a block on this stream");
+      await pool.query(
+        `UPDATE agent_stream_events SET payload = payload || '{"state":"settled"}'::jsonb WHERE id = $1`,
+        [row.id]
+      );
+    }
+    expect(
+      injectedOpts.some((options) => options.source?.source === "chat")
+    ).toBe(true);
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("rejects unrelated foreign replies and never mixes streams with another stream's thread", async () => {
+    const external = "agt_response_guard";
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status)
+      VALUES ($1, 'Guard peer', '/tmp', 'running')`,
+      [external]
+    );
+    AGENTS[external] = {
+      id: external,
+      name: "Guard peer",
+      filesDir: null,
+      status: "running",
+    };
+    const { svc } = build({ withDelivery: true });
+    const unrelated = await svc.sendUserPost(A, {
+      text: "For the original agent",
+    });
+    await expect(
+      svc.post(external, { text: "Foreign reply", replyTo: unrelated.block.id })
+    ).rejects.toThrow("replyTo must name a block on this stream");
+    const host = await svc.sendUserPost(A, { text: "@Guard peer hello" });
+    const foreign = await svc.sendUserPost(A, {
+      text: "@Guard peer threaded",
+      replyTo: host.block.id,
+    });
+    const own = await svc.sendUserPost(external, { text: "local work" });
+    const row = {
+      id: 900001,
+      agentId: external,
+      seq: 1,
+      kind: "turn" as const,
+      key: null,
+      payload: { state: "started" },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const turn = await svc.recordTurnStarted({
+      agentId: external,
+      turnRow: row,
+      prompt: {
+        source: "chat",
+        chatMessageId: foreign.block.id,
+        chatMessageIds: [foreign.block.id, own.block.id],
+      },
+    });
+    expect(await svc.store.getById(turn!)).toMatchObject({
+      streamId: external,
+      threadId: null,
+      replyTo: null,
+    });
+    const unauthorized = await svc.recordTurnStarted({
+      agentId: external,
+      turnRow: row,
+      prompt: {
+        source: "chat",
+        chatMessageId: unrelated.block.id,
+        conversation: { streamId: A, threadId: host.block.id },
+      },
+    });
+    expect(await svc.store.getById(unauthorized!)).toMatchObject({
+      streamId: external,
+      threadId: null,
+    });
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
+  it("preserves the selected identity for same-name external parents", async () => {
+    const ids = ["agt_duplicate_old", "agt_duplicate_new"];
+    for (const id of ids) {
+      await pool.query(
+        `INSERT INTO agents (id, name, cwd, status)
+        VALUES ($1, 'Duplicate session', '/tmp', 'running')`,
+        [id]
+      );
+      AGENTS[id] = {
+        id,
+        name: "Duplicate session",
+        filesDir: null,
+        status: "running",
+      };
+    }
+    for (const id of ids) {
+      const { svc, injected } = build({ withDelivery: true });
+      const res = await svc.sendUserPost(A, {
+        text: `@Duplicate session [${id}] help`,
+      });
+      expect(res.block.toAgentId).toBe(id);
+      await settled(svc, res.block.id);
+      expect(injected.map((i) => i.agentId)).toEqual([id]);
+    }
+    const { svc } = build({ withDelivery: true });
+    const plain = await svc.sendUserPost(A, {
+      text: "@Duplicate session help",
+    });
+    expect(plain.block.toAgentId).toBe(A);
+  });
+
+  it("preserves tree-name prefixes while allowing a qualified external mention", async () => {
+    const own = "agt_prefix_own";
+    const other = "agt_prefix_other";
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+      VALUES ($1, 'Review', '/tmp', 'running', $3),
+             ($2, 'Review fix', '/tmp', 'running', NULL)`,
+      [own, other, A]
+    );
+    AGENTS[own] = {
+      id: own,
+      name: "Review",
+      filesDir: null,
+      status: "running",
+    };
+    AGENTS[other] = {
+      id: other,
+      name: "Review fix",
+      filesDir: null,
+      status: "running",
+    };
+    const { svc, injected } = build({ withDelivery: true });
+    const plain = await svc.sendUserPost(A, {
+      text: "@Review fix the flaky test",
+    });
+    expect(plain.block.toAgentId).toBe(own);
+    await settled(svc, plain.block.id);
+    const qualified = await svc.sendUserPost(A, {
+      text: `@Review fix [${other}] help`,
+    });
+    expect(qualified.block.toAgentId).toBe(other);
+    await settled(svc, qualified.block.id);
+    expect(injected.map((i) => i.agentId)).toEqual([own, other]);
+  });
+
+  it("a stopped parent outside the tree is just text", async () => {
+    await pool.query("UPDATE agents SET status = 'stopped' WHERE id = $1", [B]);
     const { svc } = build({ withDelivery: true });
     const res = await svc.sendUserPost(A, {
-      text: "@Peer is not in this tree",
+      text: "@Peer is stopped",
     });
+    expect(res.block.toAgentId).toBe(A);
+    expect(
+      res.block.kind === "text" && res.block.data?.mentions
+    ).toBeUndefined();
+    await pool.query("UPDATE agents SET status = 'running' WHERE id = $1", [B]);
+  });
+  it("does not resolve another parent's children", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, parent_agent_id)
+      VALUES ('agt_external_child', 'external child', '/tmp', 'running', $1)`,
+      [B]
+    );
+    const { svc } = build({ withDelivery: true });
+    const res = await svc.sendUserPost(A, { text: "@external child hello" });
     expect(res.block.toAgentId).toBe(A);
     expect(
       res.block.kind === "text" && res.block.data?.mentions

@@ -209,9 +209,7 @@ export const ComposerInput = forwardRef<
                 Decoration.inline(position, position + span.text.length, {
                   class: cn(
                     "box-decoration-clone rounded-full border px-1 py-0 text-xs",
-                    span.agent.seat !== undefined
-                      ? seatClasses(span.agent.seat).face
-                      : "border-border bg-muted text-foreground"
+                    seatClasses(span.agent.seat ?? 1).face
                   ),
                   "data-testid": "chat-composer-mention",
                   "data-agent-id": span.agent.id,

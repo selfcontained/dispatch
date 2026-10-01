@@ -18,14 +18,18 @@ export function AgentSeatBadge({
   type,
   size = "md",
   className,
+  title,
   "data-testid": testId = "chat-avatar-agent",
+  "aria-label": ariaLabel,
 }: {
   seat: number | null;
   name: string;
   type?: string | null;
   size?: "md" | "sm";
   className?: string;
+  title?: string;
   "data-testid"?: string;
+  "aria-label"?: string;
 }): JSX.Element {
   const { face, chip } = seatClasses(seat ?? 1);
   return (
@@ -36,8 +40,10 @@ export function AgentSeatBadge({
         !type && ["border", face],
         className
       )}
-      aria-label={seat === null ? name : `${name}, agent ${seat}`}
-      title={seat === null ? undefined : `${name} · agent ${seat}`}
+      aria-label={
+        ariaLabel ?? (seat === null ? name : `${name}, agent ${seat}`)
+      }
+      title={title ?? (seat === null ? undefined : `${name} · agent ${seat}`)}
       data-testid={testId}
       data-seat={seat ?? undefined}
     >
