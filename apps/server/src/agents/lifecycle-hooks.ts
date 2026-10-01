@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 
+import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 
@@ -66,9 +67,7 @@ async function runLifecycleHookIn(
 
   const result = await runCommand(command, args, {
     cwd: repoRoot,
-    env: {
-      DISPATCH_AGENT_ID: agent.id,
-    },
+    env: repoCommandEnvironment(agent.id),
     timeoutMs: 15_000,
   });
 
