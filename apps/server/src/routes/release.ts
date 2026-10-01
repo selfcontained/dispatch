@@ -383,19 +383,23 @@ async function handlePromote(
     !/^v\d+\.\d+\.\d+$/.test(body.tag)
   ) {
     return reply.code(400).send({
-      error: "tag is required and must be a semver tag (e.g. v0.11.18)",
+      error: "tag is required and must be a semver tag (e.g. v1.0.0)",
     });
   }
   try {
     const repo = await deps.getGitHubRepo();
+    // Promotion also moves the macOS appcast entry to stable, which needs the
+    // workflow's Cloudflare credentials; it clears the prerelease flag last.
     await runCommand("gh", [
-      "release",
-      "edit",
-      body.tag,
+      "workflow",
+      "run",
+      "promote-release.yml",
       "--repo",
       repo,
-      "--prerelease=false",
-      "--latest",
+      "--ref",
+      "main",
+      "--field",
+      `tag=${body.tag}`,
     ]);
     return { ok: true, tag: body.tag };
   } catch (err) {

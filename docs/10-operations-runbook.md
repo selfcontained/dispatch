@@ -93,13 +93,15 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
   -d '{"versionType":"patch"}'
 ```
 
-The **release workflow** (GitHub Actions):
+The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch or on a pushed `vX.Y.Z` tag (which must point at `main` and match `package.json`):
 
-- **Prepare**: bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), the browser-extension manifest, and the lockfile; generates `release-notes/current.md` from GitHub's auto-generated notes commits and pushes to `main`. No tag is created yet.
-- **Verify**: runs type check, web lint, and unit tests against an ephemeral Postgres container (the full `pnpm run ci` — format, build, e2e — runs on the PRs that feed `main`, not here)
-- **Build**: builds Bun binaries for each host platform/arch (macOS binaries are Developer ID signed and notarized) and packs them into `dispatch-release.tar.gz` via `bin/pack-release`
-- **Smoke test**: boots the packed binary on both Linux and macOS runners against an ephemeral Postgres (macOS also verifies the code signature)
-- **Publish**: confirms `main` hasn't advanced past the release commit and the tag doesn't already exist, then runs `gh release create` — this is what creates the git tag — publishing a **pre-release** GitHub Release with the tarball attached. Releases are promoted to non-prerelease (the "stable" channel) via `POST /api/v1/release/promote` once they soak.
+- **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to `main` and tags it.
+- **Verify**: type check, web lint, and unit tests against an ephemeral Postgres (the full `pnpm run ci` runs on the PRs that feed `main`).
+- **Build**: Bun binaries for every platform/arch packed into `dispatch-release.tar.gz`, plus the signed, notarized Mac app (`dispatch-macos-<build>-arm64.zip`).
+- **Smoke test**: boots the packed binary on Linux and macOS runners against an ephemeral Postgres.
+- **Publish**: one GitHub **prerelease** for the tag with both assets, then the Mac build enters the macOS appcast on the Sparkle `preview` channel.
+
+**Promoting** a release to stable (`.github/workflows/promote-release.yml`, or Settings → Releases → Promote, which dispatches it) removes the appcast entry's channel tag and marks the GitHub release non-prerelease and latest. Nothing is rebuilt. Linux installs and the standalone updater follow the GitHub prerelease flag; see [macOS releases](macos-releases.md) for the app side.
 
 ## Update To A Tag
 

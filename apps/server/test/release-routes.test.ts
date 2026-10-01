@@ -274,6 +274,40 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("promotes through the workflow that also moves the macOS appcast", async () => {
+    vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
+    mockReleaseCommands({});
+
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/release/promote",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v1.0.0" },
+    });
+    vi.unstubAllEnvs();
+
+    expect(response.statusCode).toBe(200);
+    const run = runCommandMock.mock.calls.find(
+      ([cmd, args]) => cmd === "gh" && args[0] === "workflow"
+    );
+    expect(run?.[1]).toEqual([
+      "workflow",
+      "run",
+      "promote-release.yml",
+      "--repo",
+      "selfcontained/dispatch",
+      "--ref",
+      "main",
+      "--field",
+      "tag=v1.0.0",
+    ]);
+    expect(
+      runCommandMock.mock.calls.some(
+        ([cmd, args]) => cmd === "gh" && args[0] === "release"
+      )
+    ).toBe(false);
+  });
+
   it("stores the preview channel and rejects unknown channels", async () => {
     const set = await ctx.app.inject({
       method: "POST",
@@ -533,6 +567,13 @@ function mockReleaseCommands({
         args.includes("--sort=-version:refname")
       ) {
         return { exitCode: 0, stdout: "v0.19.0\nv0.18.0\n", stderr: "" };
+      }
+      if (
+        cmd === "gh" &&
+        args[0] === "workflow" &&
+        args[2] === "promote-release.yml"
+      ) {
+        return { exitCode: 0, stdout: "", stderr: "" };
       }
       if (opts?.allowedExitCodes?.includes(128)) {
         return { exitCode: 128, stdout: "", stderr: "" };

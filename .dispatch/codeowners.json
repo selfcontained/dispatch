@@ -124,6 +124,8 @@
         "release-notes/**",
         "bin/**",
         "scripts/*release*",
+        "scripts/*macos*",
+        ".github/workflows/*release*",
         "scripts/*build-bun*",
         "apps/web/src/components/app/release*",
         "apps/server/test/*release*",

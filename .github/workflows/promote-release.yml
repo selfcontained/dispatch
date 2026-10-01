@@ -1,0 +1,66 @@
+name: Promote Release
+
+# Moves a tested release from preview to stable on both platforms, without
+# rebuilding: the macOS appcast entry loses its Sparkle "preview" channel tag
+# and the GitHub release stops being a prerelease (what Linux installs and
+# the standalone updater follow). Rerunning is safe.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to promote (vX.Y.Z)"
+        required: true
+        type: string
+
+concurrency:
+  group: dispatch-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+            echo "error: tag must be vX.Y.Z with X >= 1" >&2
+            exit 1
+          fi
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' > assets.txt
+          grep -qx 'dispatch-release.tar.gz' assets.txt || { echo "error: $TAG has no Linux artifact" >&2; exit 1; }
+          grep -Eq '^dispatch-macos-.+-arm64\.zip$' assets.txt || { echo "error: $TAG has no macOS app" >&2; exit 1; }
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Promote the macOS appcast entry
+        run: python3 scripts/macos_appcast.py promote --version "${TAG#v}"
+        env:
+          TAG: ${{ inputs.tag }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Mark the GitHub release stable
+        run: gh release edit "$TAG" --repo "${{ github.repository }}" --prerelease=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}

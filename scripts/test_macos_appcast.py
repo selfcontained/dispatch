@@ -109,7 +109,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_release_workflow_contract(self):
         workflow = (appcast.ROOT / '.github/workflows/release.yml').read_text()
-        self.assertIn("tags: ['v*.*.*']", workflow)
+        self.assertIn('tags: ["v*.*.*"]', workflow)
         self.assertIn('group: dispatch-release', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
         self.assertIn('${{ github.run_id }}.${{ github.run_attempt }}', workflow)
