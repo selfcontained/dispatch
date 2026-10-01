@@ -123,7 +123,6 @@ vi.mock(
   stubModule("Drawer", "DrawerContent", "DrawerFrame")
 );
 vi.mock("@/components/app/thread-drawer", stubModule("ThreadDrawer"));
-vi.mock("@/components/app/bottom-bar", stubModule("BottomBar"));
 vi.mock("@/components/app/sidebar-shell", stubWrapper("SidebarShell"));
 // Recorded rather than left real: the mobile slide-over can only ever call
 // onOpenChange(false) from its backdrop, so the open branch of AgentsView's
@@ -766,16 +765,6 @@ describe("AgentsView dialogs", () => {
 });
 
 describe("AgentsView mobile chrome", () => {
-  it("leaves the bottom bar off on mobile", () => {
-    Object.assign(H.state, {
-      agents: [makeAgent({ id: "a1" })],
-      validatedSelectedAgentId: "a1",
-    });
-    mount({ isMobile: true });
-
-    expect(renderedChildren()).not.toContain("BottomBar");
-  });
-
   it("mounts the desktop chrome on a wide screen", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
@@ -783,7 +772,6 @@ describe("AgentsView mobile chrome", () => {
     });
     mount({ isMobile: false });
 
-    expect(renderedChildren()).toContain("BottomBar");
     expect(renderedChildren()).not.toContain("DrawerContent");
   });
 

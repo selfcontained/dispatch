@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom } from "jotai";
 
-import {
-  bottomBarCollapsedAtom,
-  chatShowChildAgentsAtom,
-  type CenterTab,
-} from "@/lib/store";
+import { chatShowChildAgentsAtom, type CenterTab } from "@/lib/store";
 
 import { AgentPane, ChatFiltersButton } from "@/components/app/agent-pane";
 import { ChangesTab } from "@/components/app/changes-tab";
@@ -30,7 +26,6 @@ import {
 } from "@/components/app/drawer-constants";
 import { ThreadDrawer } from "@/components/app/thread-drawer";
 import { glassPanel } from "@/lib/glass";
-import { BottomBar } from "@/components/app/bottom-bar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
@@ -148,8 +143,6 @@ export function AgentsView({
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
   const activeTab: CenterTab = changesMatch ? "changes" : "agent";
-
-  const bottomBarCollapsed = useAtomValue(bottomBarCollapsedAtom);
 
   const {
     splitState,
@@ -563,10 +556,7 @@ export function AgentsView({
                 openInputCount={inbox.inputs.length}
               />
               <div
-                className={cn(
-                  "relative min-h-0 flex-1",
-                  !isMobile && !bottomBarCollapsed && "pb-14"
-                )}
+                className="relative min-h-0 flex-1"
                 onDragOver={handleContentDragOver}
                 onDragLeave={handleContentDragLeave}
                 onDrop={handleContentDrop}
@@ -603,7 +593,6 @@ export function AgentsView({
                   visible={isDraggingTab && !isMobile}
                   onDrop={handleDropOnZone}
                 />
-                {!isMobile ? <BottomBar /> : null}
               </div>
             </div>
           </div>

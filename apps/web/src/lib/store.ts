@@ -140,13 +140,6 @@ export const drawerWidthAtom = atomWithLocalStorage<number | null>(
   }
 );
 
-// Collapsed state for the desktop-only bar under the center pane. Default
-// expanded: on iPad-with-keyboard setups the bar buffers iPadOS's floating
-// keyboard control, which can't be dismissed, so it must stay opt-out.
-export const bottomBarCollapsedAtom = atomWithLocalStorage<boolean>(
-  "dispatch:bottomBarCollapsed",
-  false
-);
 export const soundCuesEnabledAtom = atomWithLocalStorage(
   "dispatch:soundCuesEnabled",
   true
