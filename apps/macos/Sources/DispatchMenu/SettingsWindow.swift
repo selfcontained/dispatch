@@ -62,7 +62,7 @@ final class SettingsWindowController: NSWindowController {
         let channel = Bundle.main.object(forInfoDictionaryKey: "DispatchUpdateChannel") as? String
         addTab("Support", to: tabs, views: [
             card("Dispatch", [heading("Version \(version)"), note("Build \(build)" + (channel.map { " · \($0)" } ?? ""))]),
-            card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(PreviewPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
+            card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(AppPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
         ])
         updateDetails(configuration)
         if configuration.databaseURL.isEmpty { tabs.selectTabViewItem(at: 1) }
@@ -181,6 +181,6 @@ final class SettingsWindowController: NSWindowController {
     @objc private func showData() { onDataFolder?() }
     @objc private func copyURL() { copy(displayedURL.absoluteString) }
     @objc private func copyDatabaseURL() { copy(displayedDatabaseURL) }
-    @objc private func copyDataPath() { copy(PreviewPaths.root.path) }
+    @objc private func copyDataPath() { copy(AppPaths.root.path) }
 }
 private final class SettingsDocumentView: NSView { override var isFlipped: Bool { true } }

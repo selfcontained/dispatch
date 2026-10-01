@@ -67,7 +67,7 @@ public struct Configuration: Codable, Equatable {
         if usesManagedDatabase {
             guard url.host == "127.0.0.1", let databasePort = url.port,
                   (1024...65535).contains(databasePort), databasePort != 6767, databasePort != port,
-                  url.user == "dispatch_preview", url.path == "/dispatch_preview",
+                  url.user == LocalDatabase.role, url.path == "/\(LocalDatabase.role)",
                   let password = url.password, password.count == 64,
                   password.allSatisfy({ $0.isHexDigit }), (url.queryItems ?? []).isEmpty else {
                 throw ConfigurationError("The managed database configuration is invalid. Run local setup again.")
@@ -110,7 +110,7 @@ public struct ConfigurationError: LocalizedError {
     public var errorDescription: String? { message }
 }
 
-public enum PreviewPaths {
+public enum AppPaths {
     /// Explicit test mode is confined to a fresh temporary directory, never user state.
     public static var testRoot: URL?
     public static func enableIsolatedTest(root: String) throws {
@@ -122,7 +122,12 @@ public enum PreviewPaths {
         testRoot = url
     }
     public static var root: URL {
-        testRoot ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dispatch-mac-preview", isDirectory: true)
+        testRoot ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dispatch-mac", isDirectory: true)
+    }
+    /// Where builds before the release rename kept their data. Left as a symlink to
+    /// `root` after migration: running agents and stored file paths still use it.
+    public static var legacyRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dispatch-mac-preview", isDirectory: true)
     }
     public static var configuration: URL { root.appendingPathComponent("configuration.json") }
     public static var log: URL { root.appendingPathComponent("server.log") }

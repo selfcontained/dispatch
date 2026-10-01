@@ -1,9 +1,8 @@
 # macOS Stable and Preview updates
 
-This is an opt-in delivery channel for the real Dispatch app, initially **arm64
-only**. It keeps `Dispatch.app`, bundle ID `dev.bradharris.dispatch.preview`, the
-existing launch service, and existing Dispatch data paths. Installing this app
-uses the same service/data as the preview app; it is not an isolated proof fixture.
+This is how the Dispatch macOS app is delivered, initially **arm64 only**. The app
+is `Dispatch.app` with bundle ID `dev.bradharris.dispatch.mac`; see
+[macOS app](macos-app.md) for its service, data folder, and processes.
 No existing installation is enrolled merely by publishing this workflow.
 
 Download the initial signed/notarized ZIP from an immutable `macos-acp-<run-id>-<attempt>`
@@ -29,15 +28,17 @@ channels; do not downgrade to an older stable build over a newer preview databas
 A stable archive is not promoted into Preview because that archive follows the
 Stable feed. Preview continues to receive separately built preview releases.
 
-Existing installations still follow the GitHub `macos-acp-runtime` feed. Publication
-keeps that feed updated as a compatibility bridge. Their next update installs an
-app that follows the domain's Preview feed, preserving bundle identity and data.
+Pre-release installations (bundle ID `dev.bradharris.dispatch.preview`) cannot
+update through Sparkle, which refuses a bundle ID change. Install a current build
+manually once; its first launch migrates the old service, data folder, and database
+([details](macos-app.md#migrating-a-pre-release-install)). The GitHub
+`macos-acp-runtime` feed is still published, but only for recovery.
 
 Do not install an x64 build from this workflow: Intel delivery and cross-architecture
 validation are not implemented. The workflow builds an arm64 server, Swift app,
 and PostgreSQL runtime on the arm64 macOS runner; this is not a universal app and
 does not provide a supported Intel/Rosetta runtime path. Separate `appcast-x64.xml` delivery must be added
-and tested before enabling it. The ordinary preview workflow remains separate.
+and tested before enabling it.
 
 ## Domain hosting
 
@@ -89,7 +90,7 @@ increasing builds for real install/update validation; this workflow does not
 provision or modify a VM.
 
 The build job uses read-only repository permissions. Only the publish job has
-`contents: write`. Repository secrets are the existing preview Apple credentials:
+`contents: write`. Repository secrets are the existing Apple credentials:
 
 - `APPLE_DEVELOPER_ID_CERT_P12`
 - `APPLE_DEVELOPER_ID_CERT_PASSWORD`

@@ -96,8 +96,8 @@ def wait_event(name, build=None, timeout=90):
 def sql(statement):
     config=json.loads((root/'configuration.json').read_text())
     url=urllib.parse.urlsplit(config['databaseURL'])
-    assert url.hostname=='127.0.0.1' and url.path=='/dispatch_preview' and url.port!=6767
-    env=os.environ.copy();env.update(PGPASSWORD=urllib.parse.unquote(url.password), PGHOST=url.hostname, PGPORT=str(url.port), PGUSER=url.username, PGDATABASE='dispatch_preview')
+    assert url.hostname=='127.0.0.1' and url.path=='/dispatch_mac' and url.port!=6767
+    env=os.environ.copy();env.update(PGPASSWORD=urllib.parse.unquote(url.password), PGHOST=url.hostname, PGPORT=str(url.port), PGUSER=url.username, PGDATABASE='dispatch_mac')
     return run(installed/'Contents/Helpers/Postgres/bin/psql', '-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', statement, capture=True, env=env).strip()
 
 def set_running(start):
