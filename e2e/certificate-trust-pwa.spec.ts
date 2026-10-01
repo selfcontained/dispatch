@@ -48,6 +48,7 @@ test("in-app trust links reach the server with a controlling production service 
         response.writeHead(502);
         response.end();
       });
+      response.on("close", () => upstream.destroy());
       request.pipe(upstream);
     }
   });
