@@ -121,7 +121,6 @@
         "apps/server/src/server/release-*.ts",
         "apps/server/src/routes/release.ts",
         "apps/server/src/db/migrations/**",
-        "update-migrations/**",
         "release-notes/**",
         "bin/**",
         "scripts/*release*",

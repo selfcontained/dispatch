@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseGhJson,
   compareSemver,
-  defaultServiceRestartCommand,
   getGitHubRepo,
   createCheckIsAdmin,
   fetchReleaseMetadata,
@@ -157,17 +156,6 @@ describe("compareSemver", () => {
     expect(compareSemver("v1.2.3-rc1", "v1.2.3")).toBe(0);
     expect(compareSemver("v1.2.4-rc1", "v1.2.3")).toBeGreaterThan(0);
     expect(compareSemver("v1.2.3-rc1", "v1.2.4")).toBeLessThan(0);
-  });
-});
-
-describe("defaultServiceRestartCommand", () => {
-  it("returns a platform-specific restart command", () => {
-    const cmd = defaultServiceRestartCommand();
-    if (process.platform === "linux") {
-      expect(cmd).toBe("systemctl --user restart dispatch");
-    } else {
-      expect(cmd).toContain("launchctl kickstart");
-    }
   });
 });
 

@@ -24,7 +24,6 @@ import {
   validateSession,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
-  getReleaseUpdateAgentId,
   isScopedMcpRoute,
   LoginLinkStore,
   shouldAcceptApiBearerToken,
@@ -45,44 +44,10 @@ import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
 import {
-  inspectAssistedUpdateMetadata,
-  isAssistedUpdateRequired,
-  type AssistedUpdateMetadata,
-} from "./release-metadata.js";
-import {
-  buildAssistedUpdateContext,
-  applyAssistedPhase,
-  attachAssistedAgent,
-  runAndRecordChecks,
-} from "./assisted-update.js";
-import {
-  readAssistedUpdateState,
-  clearAssistedUpdateState,
-  isTerminalPhase,
-  type AssistedPhase,
-  type AssistedUpdateState,
-} from "./assisted-update-store.js";
-import {
   ensureCachedTarball,
   pruneCacheExcept,
-  readCachedTarball,
-  readMigrationsFromTarball,
   unlinkCachedTarball,
 } from "./release-tarball-cache.js";
-import {
-  loadUpdateMigrations,
-  type UpdateMigrationManifest,
-} from "./update-migrations.js";
-import {
-  appliedIdSet,
-  readAppliedMigrationsState,
-} from "./applied-migrations-store.js";
-import {
-  clearEvaluatorCache,
-  evaluatePendingMigrations,
-  toSummary,
-  type PendingMigrationSummary,
-} from "./update-migrations-evaluator.js";
 import { StreamManager } from "./stream-manager.js";
 import {
   SlackNotifier,
@@ -263,14 +228,10 @@ const serverDir = resolveConfiguredPath(
   process.env.DISPATCH_SERVER_DIR ?? statePath("server")
 );
 const releaseRuntime = createReleaseRuntime({
-  pool,
-  config,
   serverDir,
   runCommand,
   readReleaseStore: () => readReleaseStore(),
   writeReleaseStore: (record) => writeReleaseStore(record),
-  readAssistedUpdateState: () => readAssistedUpdateState(),
-  isTerminalPhase,
   ensureCachedTarball,
   pruneCacheExcept,
   unlinkCachedTarball,
@@ -281,8 +242,6 @@ const autoCheckRuntime = createAutoCheckRuntime({
   pool,
   computeDeps: {
     pool,
-    serverDir,
-    getGitHubRepo: releaseRuntime.getGitHubRepo,
     compareSemver: releaseRuntime.compareSemver,
     fetchGitHubReleases: releaseRuntime.fetchGitHubReleases,
     getAppVersionInfo: async () => {
@@ -568,12 +527,6 @@ async function registerRoutes() {
     // bearer shortcut so the server auth token is never accepted as an
     // extension credential.
     if (request.routeOptions.config.browserExtensionBearer) return;
-    // The assisted-update phase endpoint authenticates via a per-job nonce
-    // embedded in the launched agent's prompt — see assisted-update.ts. The
-    // agent runs as a separate process and does not share the server's
-    // session cookie or bearer token.
-    if (url === "/api/v1/release/assisted/phase") return;
-
     // If no password is set, all routes are open (first-run mode).
     if (!(await authRuntime.isPasswordSetCached())) return;
 
@@ -581,7 +534,7 @@ async function registerRoutes() {
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      if (shouldAcceptApiBearerToken(url, token, config.authToken)) {
+      if (shouldAcceptApiBearerToken(token, config.authToken)) {
         return;
       }
       if (isScopedMcpRoute(url)) {
@@ -712,9 +665,7 @@ async function registerRoutes() {
   await registerReleaseRoutes(app, {
     pool,
     appLog: app.log,
-    config,
     serverDir,
-    agentManager,
     getActiveCreateJob: releaseRuntime.getActiveCreateJob,
     setActiveCreateJob: releaseRuntime.setActiveCreateJob,
     getActiveUpdateJob: releaseRuntime.getActiveUpdateJob,
@@ -729,8 +680,6 @@ async function registerRoutes() {
     },
     hasActiveCreateJob: releaseRuntime.hasActiveCreateJob,
     hasActiveUpdateJob: releaseRuntime.hasActiveUpdateJob,
-    getActiveAssistedUpdateLaunch: releaseRuntime.getActiveAssistedUpdateLaunch,
-    setActiveAssistedUpdateLaunch: releaseRuntime.setActiveAssistedUpdateLaunch,
     releaseCreateStreamClients: releaseRuntime.releaseCreateStreamClients,
     releaseUpdateStreamClients: releaseRuntime.releaseUpdateStreamClients,
     getAppVersionInfo: releaseRuntime.getAppVersionInfo,
@@ -738,23 +687,11 @@ async function registerRoutes() {
     compareSemver: releaseRuntime.compareSemver,
     fetchGitHubReleases: releaseRuntime.fetchGitHubReleases,
     checkIsAdmin: releaseRuntime.checkIsAdmin,
-    fetchReleaseMetadata: releaseRuntime.fetchReleaseMetadata,
     fetchLatestReleaseMetadata: releaseRuntime.fetchLatestReleaseMetadata,
-    dispatchBaseUrl: releaseRuntime.dispatchBaseUrl,
-    dispatchHealthUrl: releaseRuntime.dispatchHealthUrl,
-    defaultServiceRestartCommand: releaseRuntime.defaultServiceRestartCommand,
-    buildAssistedUpdatePrompt: releaseRuntime.buildAssistedUpdatePrompt,
-    hasActiveAssistedUpdateAgent: releaseRuntime.hasActiveAssistedUpdateAgent,
     broadcastReleaseEvent: releaseRuntime.broadcastReleaseEvent,
     sendReleaseEventToClient: releaseRuntime.sendReleaseEventToClient,
-    appendReleaseLog: releaseRuntime.appendReleaseLog,
-    rehydrateActiveAssistedJob: releaseRuntime.rehydrateActiveAssistedJob,
     runReleaseJob: releaseRuntime.runReleaseJob,
     runUpdateJob: releaseRuntime.runUpdateJob,
-    getBearerToken,
-    publishUiEvent: (event) => uiEventBroker.publish(event),
-    withStreamFlag,
-    handleAgentError,
     autoCheck: autoCheckRuntime,
   });
 
@@ -872,10 +809,6 @@ export async function initializeApp(options?: {
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
-    // If we crashed/restarted mid-assisted-update, repopulate the
-    // in-memory job from the on-disk state file so the operator UI
-    // surfaces the in-flight phase right away.
-    await releaseRuntime.rehydrateActiveAssistedJob();
     // Warm the diff-stats cache so the first sidebar expand doesn't get a
     // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
     // freshness window dedupes any overlap with SSE-driven signals from

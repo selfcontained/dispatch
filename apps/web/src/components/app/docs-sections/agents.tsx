@@ -107,10 +107,6 @@ export function AgentsContent() {
             instead, and its tooltip names the current iteration (and the run
             limit, if one is set).
           </li>
-          <li>
-            <strong>Update</strong> — the agent is performing an assisted
-            Dispatch update.
-          </li>
         </ul>
       </Section>
 

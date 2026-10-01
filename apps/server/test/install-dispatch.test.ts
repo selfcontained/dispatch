@@ -21,17 +21,4 @@ describe("install-dispatch systemd unit", () => {
     );
     expect(script).not.toContain("DISPATCH_SHELL_ENV");
   });
-
-  it("requires existing Linux services to adopt the safe kill mode before update", async () => {
-    const migration = await readFile(
-      path.join(
-        REPO_ROOT,
-        "update-migrations",
-        "0011-agent-restart-safety.yaml"
-      ),
-      "utf8"
-    );
-    expect(migration).toContain("KillMode=process");
-    expect(migration).toContain("Before invoking the managed update");
-  });
 });

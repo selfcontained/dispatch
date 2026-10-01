@@ -13,7 +13,6 @@ on:
       - plugins/**
       - public/**
       - patches/**
-      - update-migrations/**
       - release-notes/**
       - package.json
       - pnpm-lock.yaml

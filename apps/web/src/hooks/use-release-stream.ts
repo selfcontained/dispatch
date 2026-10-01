@@ -6,7 +6,6 @@ import { noteServerVersion } from "@/lib/version";
 // Wire types are defined once on the server and imported type-only — esbuild
 // erases these imports, so nothing from the server reaches the web bundle.
 import type {
-  AssistedReleasePhase,
   CreatePhase,
   ReleaseJob,
   ReleasePhase,
@@ -15,34 +14,17 @@ import type {
   ReleaseVersionType,
   UpdatePhase,
 } from "../../../server/src/server/release-wire";
-import type { AssistedUpdateState } from "../../../server/src/assisted-update-store";
-import type {
-  AssistedUpdateMetadata,
-  AssistedUpdateMode,
-} from "../../../server/src/release-metadata";
-import type { CheckResult } from "../../../server/src/release-checks";
-import type { UpdateMigrationManifest } from "../../../server/src/update-migrations";
-import type { PendingMigrationSummary } from "../../../server/src/update-migrations-evaluator";
 import type { ReleaseChannel } from "../../../server/src/release-info";
 
 export type {
-  AssistedReleasePhase,
-  AssistedUpdateMetadata,
-  AssistedUpdateMode,
-  AssistedUpdateState,
   CreatePhase,
   ReleaseChannel,
   ReleaseJob,
   ReleasePhase,
   ReleaseProgress,
   ReleaseVersionType,
-  UpdateMigrationManifest,
   UpdatePhase,
 };
-
-// These server types carry different names; keep the names web code uses.
-export type AssistedCheckResult = CheckResult;
-export type PendingMigration = PendingMigrationSummary;
 
 export type ReleaseInfo = {
   currentTag: string | null;
@@ -59,16 +41,6 @@ export type ReleaseInfo = {
    * unreleased-commit info is unknown, not zero.
    */
   unreleasedFetchError?: string | null;
-  assisted?: AssistedUpdateMetadata | null;
-  assistedRequired?: boolean;
-  /**
-   * Ordered, install-specific list of migrations the target tag declares
-   * that the local install hasn't applied yet. When non-empty, one-click
-   * update is gated and the operator must use the assisted-update flow.
-   */
-  pendingMigrations?: PendingMigration[];
-  /** Joined per-file load errors when the migration evaluator hit issues. */
-  migrationsError?: string | null;
 };
 
 export type ReleaseStatus = {
@@ -112,10 +84,7 @@ export function applyStreamEvent(
       if (prev.jobType === "create") {
         return { ...prev, phase: event.phase as CreatePhase, error };
       }
-      if (prev.jobType === "update") {
-        return { ...prev, phase: event.phase as UpdatePhase, error };
-      }
-      return { ...prev, phase: event.phase as AssistedReleasePhase, error };
+      return { ...prev, phase: event.phase as UpdatePhase, error };
     }
     case "progress":
       return { ...prev, progress: event.progress };
@@ -123,12 +92,6 @@ export function applyStreamEvent(
       return { ...prev, runUrl: event.url };
     case "tag":
       return { ...prev, tag: event.tag };
-    case "assisted":
-      // Only the assisted variant has a place to put this; ignore for
-      // any other in-flight job. (The server only emits this for
-      // `update-assisted` jobs in practice.)
-      if (prev.jobType !== "update-assisted") return prev;
-      return { ...prev, assisted: event.state };
   }
 }
 

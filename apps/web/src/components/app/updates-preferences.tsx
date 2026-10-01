@@ -37,7 +37,8 @@ export function UpdatesPreferences({
           Release channel
         </div>
         <p className="mb-3 text-sm text-muted-foreground">
-          Choose which releases this instance follows.
+          Stable gets promoted releases. Preview gets every release as soon as
+          it ships.
         </p>
         <div
           className={cn(
@@ -45,7 +46,7 @@ export function UpdatesPreferences({
             channelSaving && "opacity-50 pointer-events-none"
           )}
         >
-          {(["stable", "latest"] as ReleaseChannel[]).map((ch) => (
+          {(["stable", "preview"] as ReleaseChannel[]).map((ch) => (
             <Button
               key={ch}
               size="sm"
@@ -54,7 +55,8 @@ export function UpdatesPreferences({
               className={cn(
                 "capitalize",
                 ch === "stable" && "rounded-r-none border-r-0",
-                ch === "latest" && "rounded-l-none border-l border-white/[0.12]"
+                ch === "preview" &&
+                  "rounded-l-none border-l border-white/[0.12]"
               )}
             >
               {ch}

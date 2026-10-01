@@ -149,12 +149,6 @@ export function fixedRuntimePath(serverDir: string): string {
     : path.join(serverDir, "dispatch");
 }
 
-export function defaultServiceRestartCommand(): string {
-  return process.platform === "linux"
-    ? "systemctl --user restart dispatch"
-    : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
-}
-
 export function createCheckIsAdmin(
   runCommand: RunCommand,
   serverDir: string
@@ -218,7 +212,7 @@ export async function fetchReleaseMetadata(
 export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
   const repo = await getGitHubRepo();
   const data = (await githubApi(
-    `/repos/${repo}/releases?per_page=20`
+    `/repos/${repo}/releases?per_page=100`
   )) as Array<{
     tag_name: string;
     published_at: string;

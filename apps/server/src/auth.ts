@@ -34,8 +34,7 @@ function validateMcpScopeToken(
 
 /**
  * Constant-time string equality. Used by the MCP scope-token check
- * above and by the per-job nonce guards in the assisted-update
- * framework. Falls back to a length-mismatch fail before
+ * above and by browser-extension pairing. Falls back to a length-mismatch fail before
  * timingSafeEqual to avoid the throw-on-different-length contract.
  */
 export function tokensEqual(a: string, b: string): boolean {
@@ -205,15 +204,10 @@ export function isScopedMcpRoute(url: string): boolean {
 }
 
 export function shouldAcceptApiBearerToken(
-  url: string,
   token: string,
   serverAuthToken: string
 ): boolean {
-  return (
-    token === serverAuthToken ||
-    (url === "/api/v1/release/update" &&
-      getReleaseUpdateAgentId(serverAuthToken, token) !== null)
-  );
+  return token === serverAuthToken;
 }
 
 export function createAgentMcpToken(secret: string, agentId: string): string {
@@ -243,31 +237,6 @@ export function validateJobMcpToken(
   agentId: string
 ): boolean {
   return validateMcpScopeToken(secret, token, `job:${runId}:${agentId}`);
-}
-
-export function createReleaseUpdateToken(
-  secret: string,
-  agentId: string
-): string {
-  return createMcpScopeToken(secret, `release-update:${agentId}`);
-}
-
-export function validateReleaseUpdateToken(
-  secret: string,
-  token: string,
-  agentId: string
-): boolean {
-  return validateMcpScopeToken(secret, token, `release-update:${agentId}`);
-}
-
-export function getReleaseUpdateAgentId(
-  secret: string,
-  token: string
-): string | null {
-  const scope = getValidMcpScope(secret, token);
-  if (!scope?.startsWith("release-update:")) return null;
-  const agentId = scope.slice("release-update:".length);
-  return agentId.length > 0 ? agentId : null;
 }
 
 /**

@@ -20,7 +20,7 @@ export type AgentStatus =
   | "error"
   | "unknown";
 
-export type AgentRole = "standard" | "review" | "assisted_update";
+export type AgentRole = "standard" | "review";
 
 /**
  * What the agent is doing now, derived by the server each time the record is
