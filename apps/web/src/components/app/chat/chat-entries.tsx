@@ -1,3 +1,4 @@
+import { qualifyExternalMentions } from "@dispatch/shared";
 import { Link } from "react-router-dom";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
 import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
@@ -12,7 +13,6 @@ import {
   fileMedia,
 } from "@dispatch/shared";
 import {
-  Bot,
   Check,
   ChevronRight,
   Copy,
@@ -92,6 +92,8 @@ export type PeerInfo = {
   relation: AgentRelation;
   /** Its number in the tree (the root is 1); absent outside this tree. */
   seat?: number;
+  /** A running root in another session can also receive a mention. */
+  mentionable?: boolean;
 };
 
 /** Peers by id, from this agent's point of view. */
@@ -105,7 +107,7 @@ export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
 export function peerDirectory(
   agentId: string,
   agents: readonly (Pick<Agent, "id" | "name" | "type" | "parentAgentId"> &
-    Partial<Pick<Agent, "model" | "createdAt">>)[]
+    Partial<Pick<Agent, "model" | "createdAt" | "status">>)[]
 ): PeerDirectory {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const seats = lineageSeats(agentId, agents);
@@ -117,6 +119,9 @@ export function peerDirectory(
       agentType: agent.type ?? null,
       model: agent.model ?? null,
       relation: agentRelation(agentId, agent.id, byId),
+      ...(agent.parentAgentId == null && agent.status === "running"
+        ? { mentionable: true }
+        : {}),
       ...(seats[agent.id] !== undefined ? { seat: seats[agent.id] } : {}),
     };
   }
@@ -377,7 +382,7 @@ export function blockRecipients(block: Block): string[] {
   return block.toAgentId ? [block.toAgentId] : [];
 }
 
-/** The agents a person can name with `@` on this page: the tree, by seat. */
+/** This tree by seat, followed by running roots from other sessions. */
 export function mentionablesOf(ctx: FeedContext): Mentionable[] {
   const list: Mentionable[] = [];
   if (ctx.agentId) {
@@ -388,10 +393,49 @@ export function mentionablesOf(ctx: FeedContext): Mentionable[] {
     });
   }
   for (const [id, peer] of Object.entries(ctx.peers ?? {})) {
-    if (peer.seat === undefined) continue;
-    list.push({ id, name: peer.name, seat: peer.seat });
+    if (peer.seat === undefined && !peer.mentionable) continue;
+    list.push({
+      id,
+      name: peer.name,
+      seat: peer.seat,
+      agentType: peer.agentType,
+    });
   }
-  return list.sort((a, b) => (a.seat ?? 99) - (b.seat ?? 99));
+  const tree = list.filter((agent) => agent.seat !== undefined);
+  const external = list.filter((agent) => agent.seat === undefined);
+  return [
+    ...tree.sort((a, b) => a.seat! - b.seat!),
+    ...qualifyExternalMentions(tree, external),
+  ];
+}
+
+/** Sent user posts paint their recorded recipients, independent of live eligibility. */
+export function historicalMentionablesOf(
+  block: Block,
+  ctx: FeedContext
+): Mentionable[] {
+  const ids =
+    block.author.kind === "user" && block.kind === "text"
+      ? block.data?.mentions
+      : undefined;
+  if (ids?.length) {
+    return ids.map((id) => {
+      const name = agentDisplayName(id, ctx);
+      const peer = ctx.peers?.[id];
+      return {
+        id,
+        name,
+        seat: id === ctx.agentId ? ctx.agentSeat : peer?.seat,
+        agentType: id === ctx.agentId ? ctx.agentType : peer?.agentType,
+        qualifiedMentionName: `${name.trim()} [${id}]`,
+      };
+    });
+  }
+  // Prose without routing metadata retains tree highlighting; unrelated
+  // sessions starting later must not change what a historical post means.
+  return mentionablesOf(ctx).filter(
+    (agent) => agent.id === ctx.agentId || agent.seat !== undefined
+  );
 }
 
 export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
@@ -408,21 +452,17 @@ export function Avatar({ author }: { author: PostAuthor }): JSX.Element {
     );
   }
   if (author.kind === "user") return <UserAvatar />;
-  // An agent in the tree wears its number in its own colour; one the list
-  // no longer knows wears a plain face. The engine and model are said in
-  // the chips under the name, not guessed from a logo.
-  if (author.seat !== undefined) {
-    return <AgentSeatBadge seat={author.seat} name={author.name} />;
-  }
+  // Tree numbers describe this session only; external agents share the bot
+  // badge and root accent without borrowing a number from another tree.
   return (
-    <span
-      className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted/50 text-foreground/80"
-      aria-label={`${author.name}, agent`}
-      title={author.name}
-      data-testid="chat-avatar-agent"
-    >
-      <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
-    </span>
+    <AgentSeatBadge
+      seat={author.seat ?? null}
+      name={author.name}
+      title={author.seat === undefined ? author.name : undefined}
+      aria-label={
+        author.seat === undefined ? `${author.name}, agent` : undefined
+      }
+    />
   );
 }
 
@@ -837,28 +877,15 @@ function ReplierFace({
   const peer = own ? undefined : ctx.peers?.[who.agentId];
   const seat = own ? ctx.agentSeat : peer?.seat;
   const name = own ? (ctx.agentName ?? "Agent") : (peer?.name ?? "Agent");
-  if (seat !== undefined) {
-    return (
-      <AgentSeatBadge
-        seat={seat}
-        name={name}
-        size="sm"
-        className={ring}
-        data-testid="chat-thread-replier"
-      />
-    );
-  }
   return (
-    <span
-      className={cn(
-        "flex h-5 w-5 items-center justify-center rounded border border-border bg-muted/50 text-foreground/80",
-        ring
-      )}
-      title={name}
+    <AgentSeatBadge
+      seat={seat ?? null}
+      name={name}
+      title={seat === undefined ? name : undefined}
+      size="sm"
+      className={ring}
       data-testid="chat-thread-replier"
-    >
-      <Bot className="h-3 w-3" aria-hidden="true" />
-    </span>
+    />
   );
 }
 
@@ -1169,7 +1196,9 @@ function LaunchCardBody({
         >
           <Markdown
             renderText={(text) => (
-              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+              <MentionText
+                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
+              />
             )}
           >
             {block.text}
@@ -1365,7 +1394,9 @@ export const BlockView = memo(function BlockView({
           <Markdown
             className="prose-p:whitespace-pre-line prose-li:whitespace-pre-line"
             renderText={(text) => (
-              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+              <MentionText
+                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
+              />
             )}
           >
             {block.text}
@@ -1431,14 +1462,15 @@ export const BlockView = memo(function BlockView({
         turn={block.turn}
         name={author.name}
         avatar={
-          author.seat !== undefined ? (
-            <AgentSeatBadge seat={author.seat} name={author.name} size="sm" />
-          ) : (
-            <Bot
-              className="h-4 w-4 text-muted-foreground"
-              aria-label={`${author.name}, agent`}
-            />
-          )
+          <AgentSeatBadge
+            seat={author.seat ?? null}
+            name={author.name}
+            title={author.seat === undefined ? author.name : undefined}
+            aria-label={
+              author.seat === undefined ? `${author.name}, agent` : undefined
+            }
+            size="sm"
+          />
         }
       />
     );
@@ -1509,7 +1541,9 @@ export const BlockView = memo(function BlockView({
       ) : block.text && block.kind !== "launch" ? (
         <Markdown
           renderText={(text) => (
-            <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+            <MentionText
+              spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
+            />
           )}
         >
           {block.text}

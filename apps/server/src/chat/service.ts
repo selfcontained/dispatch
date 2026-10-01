@@ -1,3 +1,4 @@
+import { qualifyExternalMentions } from "@dispatch/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { DriverEvent } from "../agents/acp/driver.js";
 import path from "node:path";
@@ -865,11 +866,11 @@ export class StreamService {
       return { block: created, delivered: created.delivered, held };
     }
     const thread = await this.resolveThread(streamId, input.replyTo ?? null);
-    // `@name` in the text names the recipients, in the stream's tree; it
+    // `@name` names recipients in this tree or running parent sessions; it
     // wins over the page's default. Otherwise a reply in a thread goes to
     // the agents on its sides, and a top-level post to the stream's agent
     // unless addressed elsewhere.
-    const tree = await this.treeAgents(streamId);
+    const tree = await this.mentionAgents(streamId);
     const mentioned =
       input.resolveMentions === false ? [] : findMentions(text, tree);
     const sides =
@@ -1678,7 +1679,7 @@ export class StreamService {
   async post(agentId: string, input: PostInput): Promise<Block> {
     const author: BlockAuthor = { kind: "agent", agentId };
     const agent = await this.requireAgent(agentId);
-    const streamId = await this.streamOf(agentId);
+    let streamId = await this.streamOf(agentId);
     const resolved = resolveKindAndData(input);
     const kind = resolved.kind;
     const data = resolved.data;
@@ -1701,16 +1702,19 @@ export class StreamService {
     }
     if (toAgentId !== null) await this.requireAgent(toAgentId);
     let home = await this.homeOf(agentId);
-    if (kind !== "review") {
-      const active = await this.turns.openTurn(agentId);
-      const turnId = active?.payload.blockId;
-      const turn =
-        typeof turnId === "string" ? await this.store.getById(turnId) : null;
-      if (turn) {
-        home = turn.threadId
-          ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
-          : null;
-      }
+    const active = await this.turns.openTurn(agentId);
+    const turnId = active?.payload.blockId;
+    const turn =
+      typeof turnId === "string" ? await this.store.getById(turnId) : null;
+    if (
+      turn?.author.kind === "agent" &&
+      turn.author.agentId === agentId &&
+      (kind !== "review" || turn.streamId !== streamId)
+    ) {
+      streamId = turn.streamId;
+      home = turn.threadId
+        ? { threadId: turn.threadId, replyTo: turn.replyTo ?? turn.threadId }
+        : null;
     }
     const attachments = await this.resolveAgentAttachments(
       agent,
@@ -1743,6 +1747,12 @@ export class StreamService {
     // active turn's location, falling back to the agent's own place. Only
     // an explicit reply routes to the thread's other side; otherwise the
     // post is delivered only to whoever it names.
+    if (replyTo) {
+      const target = await this.store.getById(replyTo);
+      if (target && addressedTo(target).includes(agentId)) {
+        streamId = target.streamId;
+      }
+    }
     const thread = replyTo ? await this.resolveThread(streamId, replyTo) : home;
     const sides =
       toAgentId === null && replyTo && thread
@@ -2237,11 +2247,25 @@ export class StreamService {
     return state.done;
   }
 
+  /** Turn blocks may answer in a user conversation outside the agent's tree. */
+  private async turnStreamOf(
+    agentId: string,
+    blockId: string
+  ): Promise<string | null> {
+    const block = await this.store.getById(blockId);
+    return block?.origin === "turn" &&
+      block.author.kind === "agent" &&
+      block.author.agentId === agentId
+      ? block.streamId
+      : null;
+  }
+
   /** The agent's newest turn as its feed row, the one `publishTurnEntry` sends. */
   async turnEntry(agentId: string): Promise<StreamBlockEntry | null> {
     const blockId = await loadNewestTurnBlockId(this.store.db, agentId);
     if (!blockId) return null;
-    const streamId = await this.streamOf(agentId);
+    const streamId = await this.turnStreamOf(agentId, blockId);
+    if (!streamId) return null;
     const entry = await loadBlockEntry(
       this.store.db,
       streamId,
@@ -2256,8 +2280,8 @@ export class StreamService {
     try {
       const blockId = await loadNewestTurnBlockId(this.store.db, agentId);
       if (blockId) {
-        const streamId = await this.streamOf(agentId);
-        await this.publishBlockEntry(streamId, blockId);
+        const streamId = await this.turnStreamOf(agentId, blockId);
+        if (streamId) await this.publishBlockEntry(streamId, blockId);
       }
     } catch (error) {
       this.log.warn(
@@ -2330,7 +2354,7 @@ export class StreamService {
     turnRow: StreamEventRow;
     prompt: PromptSource;
   }): Promise<string | null> {
-    const streamId = await this.streamOf(input.agentId);
+    const streamId = await this.promptStreamOf(input.agentId, input.prompt);
     let thread: { threadId: string | null; replyTo: string | null } | null =
       null;
     if (input.prompt.conversation?.streamId === streamId) {
@@ -2354,7 +2378,9 @@ export class StreamService {
       // Any main-stream user post keeps the combined answer in the stream;
       // other disagreements fall back to the agent's background work.
       const ids = input.prompt.chatMessageIds ?? [input.prompt.chatMessageId];
-      const places = await Promise.all(ids.map((id) => this.turnPlaceFor(id)));
+      const places = await Promise.all(
+        ids.map((id) => this.turnPlaceFor(id, streamId))
+      );
       const [first] = places;
       if (places.some((place) => place?.threadId === null)) {
         // A batched main-stream message must not have its answer buried.
@@ -2363,7 +2389,9 @@ export class StreamService {
         thread = places[places.length - 1]!;
       }
     }
-    thread ??= await this.homeOf(input.agentId);
+    if (!thread && streamId === (await this.streamOf(input.agentId))) {
+      thread = await this.homeOf(input.agentId);
+    }
     const block = await this.store.insert({
       streamId,
       author: { kind: "agent", agentId: input.agentId },
@@ -2375,6 +2403,31 @@ export class StreamService {
       replyTo: thread?.replyTo ?? null,
     });
     return block.id;
+  }
+
+  /** An addressed prompt answers in its originating conversation. */
+  private async promptStreamOf(
+    agentId: string,
+    prompt: PromptSource
+  ): Promise<string> {
+    const ownStream = await this.streamOf(agentId);
+    if (prompt.source !== "chat") return ownStream;
+    const ids = prompt.chatMessageIds ?? [prompt.chatMessageId];
+    const blocks = await Promise.all(
+      ids.map((id) => (isBlockId(id) ? this.store.getById(id) : null))
+    );
+    const first = blocks[0];
+    if (
+      first &&
+      blocks.every(
+        (block) =>
+          block?.streamId === first.streamId &&
+          addressedTo(block).includes(agentId)
+      )
+    ) {
+      return first.streamId;
+    }
+    return ownStream;
   }
 
   /**
@@ -2391,12 +2444,16 @@ export class StreamService {
    * an agent's question is usually itself a reply inside some other thread,
    * so the root is rarely the question.
    */
-  private async turnPlaceFor(blockId: string): Promise<{
+  private async turnPlaceFor(
+    blockId: string,
+    streamId: string
+  ): Promise<{
     threadId: string | null;
     replyTo: string | null;
   } | null> {
     if (!isBlockId(blockId)) return null;
     const opener = await this.store.getById(blockId);
+    if (!opener || opener.streamId !== streamId) return null;
     // A block another shows (a review delivered to the agent whose work it
     // is) opens work, which belongs in the agent's own place. A prompt
     // about such a block that belongs under it says so (`answerIn`).
@@ -2481,7 +2538,11 @@ export class StreamService {
     agentId: string;
     previousBlockId: string;
   }): Promise<void> {
-    const streamId = await this.streamOf(input.agentId);
+    const streamId = await this.turnStreamOf(
+      input.agentId,
+      input.previousBlockId
+    );
+    if (!streamId) return;
     // Re-publish the old response without its live turn, so a reader already
     // looking at it stops seeing a spinner. The new response streams normally.
     await this.publishEntry(streamId, input.previousBlockId);
@@ -2494,12 +2555,13 @@ export class StreamService {
   }): Promise<void> {
     const blockId = input.turnRow.payload.blockId;
     if (typeof blockId !== "string") return;
+    const streamId = await this.turnStreamOf(input.agentId, blockId);
+    if (!streamId) return;
     const turns = await loadTurnEntries(this.store.db, input.agentId, [
       input.turnRow.id,
     ]);
     const text = turns.get(input.turnRow.id)?.result?.text ?? "";
     await this.store.update(blockId, { text });
-    const streamId = await this.streamOf(input.agentId);
     await this.publishBlockEntry(streamId, blockId);
     this.deps.publishUiEvent({ type: "stream.changed", agentId: streamId });
   }
@@ -2566,14 +2628,18 @@ export class StreamService {
     source: PromptSource
   ): Promise<PromptSource> {
     if (source.conversation) return source;
-    const streamId = await this.streamOf(agentId);
+    const streamId = await this.promptStreamOf(agentId, source);
     const place =
       source.source === "chat"
         ? source.answerIn
           ? { threadId: source.answerIn }
-          : await this.turnPlaceFor(source.chatMessageId)
+          : await this.turnPlaceFor(source.chatMessageId, streamId)
         : null;
-    const home = place ?? (await this.homeOf(agentId));
+    const home =
+      place ??
+      (streamId === (await this.streamOf(agentId))
+        ? await this.homeOf(agentId)
+        : null);
     return {
       ...source,
       conversation: { streamId, threadId: home?.threadId ?? null },
@@ -2763,14 +2829,19 @@ export class StreamService {
     return { held };
   }
 
-  /** The agents a person can name with `@` in this stream: its tree. */
-  private async treeAgents(streamId: string): Promise<Mentionable[]> {
+  /** This tree plus running roots from other sessions; never their children. */
+  private async mentionAgents(streamId: string): Promise<Mentionable[]> {
     const ids = await agentTree(this.deps.pool, streamId);
     const result = await this.deps.pool.query<{ id: string; name: string }>(
-      `SELECT id, name FROM agents WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      `SELECT id, name FROM agents
+       WHERE deleted_at IS NULL
+         AND (id = ANY($1::text[]) OR (parent_agent_id IS NULL AND status = 'running'))
+       ORDER BY CASE WHEN id = ANY($1::text[]) THEN 0 ELSE 1 END, created_at, id`,
       [ids]
     );
-    return result.rows;
+    const tree = result.rows.filter((agent) => ids.includes(agent.id));
+    const external = result.rows.filter((agent) => !ids.includes(agent.id));
+    return [...tree, ...qualifyExternalMentions(tree, external)];
   }
 
   private injectDetached(input: {

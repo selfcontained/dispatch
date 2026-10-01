@@ -56,18 +56,33 @@ export function MentionPicker({
           onClick={() => onPick(agent)}
           data-testid="mention-option"
           data-agent-id={agent.id}
+          title={agent.mentionName ?? agent.name}
         >
           {agent.seat !== undefined ? (
             <AgentSeatBadge seat={agent.seat} name={agent.name} size="sm" />
           ) : (
-            <span className="h-5 w-5 shrink-0 rounded border border-border bg-muted/50" />
+            <AgentSeatBadge
+              seat={null}
+              name={agent.name}
+              size="sm"
+              data-testid="mention-session-icon"
+            />
           )}
           <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+          {agent.mentionName ? (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              {agent.id.slice(-6)}
+            </span>
+          ) : null}
           {agent.seat !== undefined ? (
             <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
               @{agent.seat}
             </span>
-          ) : null}
+          ) : (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              Session
+            </span>
+          )}
         </button>
       ))}
     </div>,
@@ -89,9 +104,7 @@ export function MentionText({
             key={index}
             className={cn(
               "box-decoration-clone rounded-full border px-1 py-0 text-[0.8em] font-medium",
-              span.agent.seat !== undefined
-                ? seatClasses(span.agent.seat).face
-                : "border-border bg-muted text-foreground"
+              seatClasses(span.agent.seat ?? 1).face
             )}
             data-testid="chat-mention"
             data-agent-id={span.agent.id}

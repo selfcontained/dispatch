@@ -1,11 +1,14 @@
 /**
- * `@name` in a message names an agent in the stream's tree. The server is
+ * `@name` names an agent in this tree or another running parent session. The server is
  * the authority on who a post reaches; this is the client's half: the
  * picker's candidates, the token under the caret, and the spans to paint.
  */
 export type Mentionable = {
   id: string;
   name: string;
+  mentionName?: string;
+  qualifiedMentionName?: string;
+  agentType?: string | null;
   /** Its number in the tree, drawn beside the name. */
   seat?: number;
 };
@@ -48,7 +51,7 @@ export function insertMention(
   caret: number,
   agent: Mentionable
 ): { text: string; caret: number } {
-  const token = `@${agent.name} `;
+  const token = `@${agent.mentionName ?? agent.name} `;
   // Reuse a following space rather than adding a second one after the token.
   const suffix = text.slice(caret);
   const next =
@@ -72,18 +75,28 @@ export function mentionSpans(
   if (!text.includes("@") || agents.length === 0) {
     return text ? [{ kind: "text", text }] : [];
   }
-  const byLength = [...agents]
-    .filter((a) => a.name.trim().length > 0)
+  const byLength = agents
+    .flatMap((agent) => {
+      const name = (agent.mentionName ?? agent.name).trim();
+      const qualified = agent.qualifiedMentionName;
+      return [
+        { agent, name },
+        ...(qualified && qualified !== name
+          ? [{ agent, name: qualified }]
+          : []),
+      ];
+    })
+    .filter(({ name }) => name.length > 0)
     .sort((a, b) => b.name.length - a.name.length);
   const hits: Array<{ start: number; end: number; agent: Mentionable }> = [];
-  for (const agent of byLength) {
+  for (const { agent, name } of byLength) {
     const re = new RegExp(
-      `(^|[\\s([{"'])@${escapeRegExp(agent.name.trim())}(?=$|[^\\p{L}\\p{N}_])`,
+      `(^|[\\s([{"'])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
       "giu"
     );
     for (const match of text.matchAll(re)) {
       const start = match.index + match[1]!.length;
-      const end = start + 1 + agent.name.trim().length;
+      const end = start + 1 + name.length;
       if (hits.some((h) => start < h.end && end > h.start)) continue;
       hits.push({ start, end, agent });
     }

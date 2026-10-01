@@ -2,7 +2,7 @@ import { memo, type ReactNode, useMemo } from "react";
 import type { Block, ChatTurnEntry } from "@dispatch/shared";
 import {
   BlockView,
-  mentionablesOf,
+  historicalMentionablesOf,
   type FeedContext,
   POST_BODY_MEASURE,
 } from "@/components/app/chat/chat-entries";
@@ -149,7 +149,9 @@ export function TurnAnswer({
             turn={result}
             retry={retry}
             renderText={(text) => (
-              <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+              <MentionText
+                spans={mentionSpans(text, historicalMentionablesOf(block, ctx))}
+              />
             )}
           />
         ) : result.content ? (
@@ -163,7 +165,12 @@ export function TurnAnswer({
               muted
               streaming
               renderText={(text) => (
-                <MentionText spans={mentionSpans(text, mentionablesOf(ctx))} />
+                <MentionText
+                  spans={mentionSpans(
+                    text,
+                    historicalMentionablesOf(block, ctx)
+                  )}
+                />
               )}
             />
           </div>

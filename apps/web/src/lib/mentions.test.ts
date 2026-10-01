@@ -1,3 +1,4 @@
+import { qualifyExternalMentions } from "@dispatch/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -70,4 +71,57 @@ describe("mentionSpans", () => {
       { kind: "text", text: "@nobody" },
     ]);
   });
+});
+
+describe("qualified external mentions", () => {
+  it("keeps duplicate selections distinct in insertion and preview", () => {
+    const external = qualifyExternalMentions(
+      [],
+      [
+        { id: "agt_old", name: "Duplicate" },
+        { id: "agt_new", name: "duplicate" },
+      ]
+    );
+    for (const agent of external) {
+      const draft = insertMention("@", 0, 1, agent).text;
+      expect(mentionSpans(draft, external)).toEqual([
+        { kind: "mention", text: `@${agent.mentionName}`, agent },
+        { kind: "text", text: " " },
+      ]);
+    }
+    expect(mentionSpans("@Duplicate help", external)).toEqual([
+      { kind: "text", text: "@Duplicate help" },
+    ]);
+  });
+
+  it("protects a tree name at word boundaries and allows explicit external selection", () => {
+    const tree = [{ id: "own", name: "Review" }];
+    const external = qualifyExternalMentions(tree, [
+      { id: "other", name: "Review fix" },
+      { id: "unrelated", name: "Reviewer" },
+    ]);
+    expect(external[1]!.mentionName).toBeUndefined();
+    const candidates = [...tree, ...external];
+    expect(mentionSpans("@Review fix the test", candidates)[0]).toMatchObject({
+      agent: tree[0],
+    });
+    const draft = insertMention("@", 0, 1, external[0]!).text;
+    expect(mentionSpans(draft, candidates)[0]).toMatchObject({
+      agent: external[0],
+    });
+  });
+});
+
+it("keeps qualified identity valid after another same-name session disappears", () => {
+  const before = qualifyExternalMentions(
+    [],
+    [
+      { id: "old", name: "Duplicate" },
+      { id: "new", name: "Duplicate" },
+    ]
+  );
+  const draft = insertMention("@", 0, 1, before[1]!).text;
+  const after = qualifyExternalMentions([], [{ id: "new", name: "Duplicate" }]);
+  expect(after[0]!.mentionName).toBeUndefined();
+  expect(mentionSpans(draft, after)[0]).toMatchObject({ agent: { id: "new" } });
 });

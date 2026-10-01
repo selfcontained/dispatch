@@ -176,3 +176,5 @@ export type {
   PromptConversation,
   AgentInputState,
 } from "./conversation-delivery.js";
+
+export { qualifyExternalMentions } from "./agent-mentions.js";
