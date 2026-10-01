@@ -93,4 +93,20 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertEqual(existing.selectedHosts, ["::1"], "Do not silently change existing explicitly saved IPv6 bindings")
     }
 
+
+    @MainActor func testUpdateChannelPickerShowsAndSavesTheChoice() throws {
+        _ = NSApplication.shared
+        let controller = SettingsWindowController(configuration: Configuration())
+        var stored = UpdateChannel.preview
+        controller.updateChannels = (get: { stored }, set: { stored = $0 })
+        controller.refreshChannel()
+        let view = try XCTUnwrap(controller.window?.contentView)
+        try XCTUnwrap(view.subviews.first as? NSTabView).selectTabViewItem(withIdentifier: "Support")
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let picker = try XCTUnwrap(descendants(view).compactMap { $0 as? NSPopUpButton }.first { $0.accessibilityLabel() == "Update channel" })
+        XCTAssertEqual(picker.titleOfSelectedItem, "Preview")
+        picker.selectItem(withTitle: "Stable")
+        _ = picker.target?.perform(picker.action, with: picker)
+        XCTAssertEqual(stored, .stable)
+    }
 }
