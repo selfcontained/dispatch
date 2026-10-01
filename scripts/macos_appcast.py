@@ -13,6 +13,7 @@ import base64
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import time
 from urllib.error import HTTPError
@@ -22,10 +23,6 @@ import xml.etree.ElementTree as ET
 REPO = 'selfcontained/dispatch'
 ORIGIN = 'https://dispatch.berad.dev'
 FEED_PATH = '/updates/macos/appcast-arm64.xml'
-# Apps built before 1.0 follow this path and know nothing of channels. It
-# serves only the newest build, untagged, so they update once onto an app
-# that follows FEED_PATH.
-LEGACY_PATH = '/updates/macos/preview/appcast-arm64.xml'
 PREVIEW = 'preview'
 KEEP = 10
 NS = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
@@ -126,13 +123,6 @@ def promote(items, version):
     return [{**i, 'channel': None} if i['version'] == version else i for i in items]
 
 
-def legacy(items):
-    if not items:
-        raise ValueError('Appcast is empty')
-    newest = max(items, key=lambda i: build_version(i['build']))
-    return render([{**newest, 'channel': None}])
-
-
 def fetch_public(path):
     try:
         request = Request(ORIGIN + path, headers={'Cache-Control': 'no-cache', 'User-Agent': 'Dispatch-Update-Publisher/1.0'})
@@ -151,10 +141,10 @@ def current_items():
     return [] if data is None else parse(data)
 
 
-def verify(feeds):
+def verify(data):
     for attempt in range(12):
         try:
-            if all(fetch_public(path) == data for path, data in feeds.items()):
+            if fetch_public(FEED_PATH) == data:
                 return
         except (OSError, HTTPError):
             pass
@@ -164,16 +154,17 @@ def verify(feeds):
 
 
 def deploy(items):
-    feeds = {FEED_PATH: render(items), LEGACY_PATH: legacy(items)}
+    data = render(items)
     directory = ROOT / 'apps/update-feeds/dist'
-    directory.mkdir(parents=True, exist_ok=True)
-    for path, data in feeds.items():
-        target = directory / path.lstrip('/')
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    # This is a generated asset bundle; never carry retired feeds into a deploy.
+    if directory.exists():
+        shutil.rmtree(directory)
+    target = directory / FEED_PATH.lstrip('/')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
     (directory / '_headers').write_text('/updates/*\n  Cache-Control: no-cache, max-age=0, must-revalidate\n  Content-Type: application/xml; charset=utf-8\n  X-Content-Type-Options: nosniff\n')
     subprocess.run(['pnpm', '--filter', '@dispatch/site', 'exec', 'wrangler', 'deploy', '--config', str(ROOT / 'apps/update-feeds/wrangler.jsonc')], cwd=ROOT, check=True)
-    verify(feeds)
+    verify(data)
 
 
 def main():

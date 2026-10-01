@@ -26,14 +26,14 @@ follows the build's `DispatchDefaultUpdateChannel` Info.plist value, set from
 the repository variable `MACOS_DEFAULT_UPDATE_CHANNEL` (default `preview`).
 Set that variable to `stable` once 1.0 is promoted.
 
-Apps built before 1.0 follow `/updates/macos/preview/appcast-arm64.xml` and
-know nothing of channels. That path serves only the newest build, untagged, so
-they update once onto an app that follows the main appcast. Pre-release
-installs with bundle ID `dev.bradharris.dispatch.preview` cannot update through
-Sparkle at all, since Sparkle refuses a bundle ID change: install a current
-build manually once, and its first launch migrates the old service, data folder
-and database ([details](macos-app.md#migrating-a-pre-release-install)). The
-GitHub `macos-acp-runtime` feed is no longer updated.
+The retired `/updates/macos/preview/appcast-arm64.xml` compatibility feed is
+no longer published. Older builds using it need a manual installation of the
+current app. The GitHub `macos-acp-runtime` feed is also retired.
+
+Pre-release installs with bundle ID `dev.bradharris.dispatch.preview` require
+manual installation too, since Sparkle refuses a bundle ID change. The current
+app's first launch migrates the old service, data folder and database
+([details](macos-app.md#migrating-a-pre-release-install)).
 
 Linux uses the same two channels: preview follows every GitHub release,
 stable only promoted ones (see the installer's `--channel`).
@@ -58,7 +58,7 @@ Both share the `dispatch-release` concurrency group and never cancel each
 other. The appcast is read back from the domain before every change; a
 network, auth, or schema failure stops publication, and only a confirmed 404
 starts an empty appcast. The publisher refuses a build that is not newer than
-everything live, writes both feed paths as one Worker deployment, and verifies
+everything live, writes the current appcast as one Worker deployment, and verifies
 the public bytes afterwards.
 
 ## Hosting and credentials
@@ -92,7 +92,7 @@ restoration retains `app-update-recovery.json` for explicit retry.
 ## Local tests
 
 - `python3 scripts/test_macos_appcast.py` — appcast schema, channel tagging,
-  promotion, the pre-1.0 bridge feed, and publication safety.
+  promotion, removal of retired assets, and publication safety.
 - `swift test --package-path apps/macos` — app and core tests; set
   `DISPATCH_SPARKLE_SDK` to compile the Sparkle updater too.
 
