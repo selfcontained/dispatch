@@ -97,7 +97,7 @@ The **release workflow** (`.github/workflows/release.yml`) runs on that dispatch
 
 - **Prepare** (dispatch only): bumps the version in every workspace manifest, the browser-extension manifest and the lockfile; generates `release-notes/current.md`; commits to `main` and tags it.
 - **Verify**: type check, web lint, and unit tests against an ephemeral Postgres (the full `pnpm run ci` runs on the PRs that feed `main`).
-- **Build**: Bun binaries for every platform/arch packed into `dispatch-release.tar.gz`, plus the signed, notarized Mac app (`dispatch-macos-<build>-arm64.zip`).
+- **Build**: Bun binaries for every platform/arch packed into `dispatch-server.tar.gz`, plus the signed, notarized Mac app (`dispatch-macos-<build>-arm64.zip`).
 - **Smoke test**: boots the packed binary on Linux and macOS runners against an ephemeral Postgres.
 - **Publish**: one GitHub **prerelease** for the tag with both assets, then the Mac build enters the macOS appcast on the Sparkle `preview` channel.
 
@@ -116,7 +116,7 @@ The server update flow operates on `~/.dispatch/server/` and:
 
 1. **Confirms** the tag exists in GitHub Releases.
 2. **Checks agent survival (Linux).** Refuses to continue unless `systemctl --user show dispatch.service -p KillMode` reports `KillMode=process`, so the restart leaves agent hosts running.
-3. **Deploys from the release artifact.** Downloads `dispatch-release.tar.gz` via direct HTTPS into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `~/.dispatch/server/dispatch`. The previous executable is retained as `dispatch.previous`.
+3. **Deploys from the release artifact.** Downloads `dispatch-server.tar.gz` via direct HTTPS into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `~/.dispatch/server/dispatch`. The previous executable is retained as `dispatch.previous`.
 4. **Records a candidate** for the newly restarted process to promote into `~/.dispatch/release.json` after it is healthy.
 5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
 
@@ -278,7 +278,7 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 | `bin/dispatch-dev`        | Dev environment manager (isolated Docker Postgres + API server + Vite frontend)                    |
 | `bin/dispatch-stream`     | Agent-side CLI for managing browser streams (`start --playwright <port>` / `stop "<description>"`) |
 | `bin/install-dispatch.sh` | Fresh artifact-only installer for macOS and Linux                                                  |
-| `bin/pack-release`        | Packs `dispatch-release.tar.gz` from pre-built Bun binaries; used by the release workflow          |
+| `bin/pack-release`        | Packs `dispatch-server.tar.gz` from pre-built Bun binaries; used by the release workflow           |
 
 ## File Locations
 

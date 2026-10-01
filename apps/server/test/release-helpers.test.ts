@@ -8,6 +8,7 @@ import {
   fetchReleaseMetadata,
   resolveAuthoringRepoDir,
   createAuthoringRemoteRefresher,
+  serviceName,
 } from "../src/server/release-helpers.js";
 
 describe("createAuthoringRemoteRefresher", () => {
@@ -418,5 +419,16 @@ describe("fetchReleaseMetadata", () => {
       "https://api.github.com/repos/selfcontained/dispatch/releases/tags/v2.5.0",
       expect.any(Object)
     );
+  });
+});
+
+describe("serviceName", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("uses the installer's name, else the 0.x defaults", () => {
+    expect(serviceName("linux")).toBe("dispatch");
+    expect(serviceName("darwin")).toBe("com.dispatch.server");
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
+    expect(serviceName("linux")).toBe("dispatch-server");
   });
 });

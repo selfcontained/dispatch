@@ -113,6 +113,24 @@ describe("agent host survival gate", () => {
     ).rejects.toThrow(/Cannot verify/);
   });
 
+  it("checks the unit the installer named, not the 0.x one", async () => {
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
+    const runCommand = vi.fn().mockResolvedValue({
+      stdout: "KillMode=process\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    await assertHostSurvivalOnRestart("linux", runCommand);
+    expect(runCommand).toHaveBeenCalledWith("systemctl", [
+      "--user",
+      "show",
+      "dispatch-server.service",
+      "-p",
+      "KillMode",
+    ]);
+    vi.unstubAllEnvs();
+  });
+
   it("leaves macOS launchd restarts to their detached process groups", async () => {
     const runCommand = vi.fn();
     await assertHostSurvivalOnRestart("darwin", runCommand);

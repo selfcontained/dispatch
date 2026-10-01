@@ -313,7 +313,7 @@ jobs:
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
-        run: bin/pack-release --output dispatch-release.tar.gz
+        run: bin/pack-release --output dispatch-server.tar.gz
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v7
@@ -322,7 +322,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/bun/
-            dispatch-release.tar.gz
+            dispatch-server.tar.gz
             release-notes/current.md
           retention-days: 7
 
@@ -667,7 +667,7 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes/current.md \
             --prerelease \
-            dispatch-release.tar.gz \
+            dispatch-server.tar.gz \
             macos/dispatch-macos-*-arm64.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

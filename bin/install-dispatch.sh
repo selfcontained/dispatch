@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Fresh, artifact-only Dispatch installer. It intentionally refuses to
 # overwrite an existing installation.
+#
+# Dispatch 1.x keeps its state, service and database apart from a 0.x
+# install (~/.dispatch, dispatch.service / com.dispatch.server, the
+# `dispatch` database), which it never reads or changes.
 set -euo pipefail
 
 REPO="${DISPATCH_GITHUB_REPO:-selfcontained/dispatch}"
 HOME_DIR="${HOME:?HOME must be set}"
-INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$HOME_DIR/.dispatch/server}"
+STATE_DIR="${DISPATCH_STATE_DIR:-${XDG_DATA_HOME:-$HOME_DIR/.local/share}/dispatch}"
+INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$STATE_DIR/server}"
 RUNTIME_PATH=""
 PORT="6767"
 TAG=""
@@ -28,7 +33,7 @@ Installs the newest Dispatch release on a channel for the current platform.
                         Default: stable, or preview while no stable release exists
   --tag TAG             Install this release tag instead of the channel's newest
   --release-url URL     Artifact URL (testing/air-gapped installs)
-  --install-dir PATH    Install directory (default: ~/.dispatch/server)
+  --install-dir PATH    Install directory (default: ~/.local/share/dispatch/server)
   --runtime-path PATH   Fixed executable path (default: INSTALL_DIR/dispatch)
   --database-url URL    Use an existing PostgreSQL database
   --port PORT           HTTP port (default: 6767)
@@ -57,13 +62,16 @@ case "$(uname -s)" in Darwin) PLATFORM=darwin;; Linux) PLATFORM=linux;; *) echo 
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64;; x86_64|amd64) ARCH=x64;; *) echo "unsupported architecture" >&2; exit 1;; esac
 
 RUNTIME_PATH="${RUNTIME_PATH:-$INSTALL_DIR/dispatch}"
-STATE_DIR="$HOME_DIR/.dispatch"
 ENV_FILE="$INSTALL_DIR/.env"
-LABEL="com.dispatch.server"
-UNIT="$HOME_DIR/.config/systemd/user/dispatch.service"
+# Not the 0.x names (dispatch.service, com.dispatch.server), so both can exist.
+SERVICE="dispatch-server"
+LABEL="dev.dispatch.server"
+UNIT="$HOME_DIR/.config/systemd/user/$SERVICE.service"
 PLIST="$HOME_DIR/Library/LaunchAgents/$LABEL.plist"
+OLD_UNIT="$HOME_DIR/.config/systemd/user/dispatch.service"
+OLD_PLIST="$HOME_DIR/Library/LaunchAgents/com.dispatch.server.plist"
 
-for service_path in "$INSTALL_DIR" "$RUNTIME_PATH" "$ENV_FILE"; do
+for service_path in "$STATE_DIR" "$INSTALL_DIR" "$RUNTIME_PATH" "$ENV_FILE"; do
   case "$service_path" in
     *" "*|*$'\t'*|*$'\n'*|*'&'*|*'<'*|*'>'*|*'"'*|*"'"*)
       echo "error: install and runtime paths cannot contain whitespace or XML-special characters" >&2
@@ -73,8 +81,11 @@ done
 
 for command in curl tar; do command -v "$command" >/dev/null || { echo "error: $command is required" >&2; exit 1; }; done
 if [ -e "$RUNTIME_PATH" ] || [ -e "$ENV_FILE" ] || { [ "$PLATFORM" = linux ] && [ -e "$UNIT" ]; } || { [ "$PLATFORM" = darwin ] && [ -e "$PLIST" ]; }; then
-  echo "error: an existing Dispatch installation or service was found; remove it before installing" >&2
+  echo "error: Dispatch is already installed at $INSTALL_DIR; update it from Settings → Updates" >&2
   exit 1
+fi
+if [ -e "$OLD_UNIT" ] || [ -e "$OLD_PLIST" ] || [ -d "$HOME_DIR/.dispatch/server" ]; then
+  echo "==> found Dispatch 0.x (~/.dispatch); it is left untouched and keeps its own data"
 fi
 
 github_api() {
@@ -89,7 +100,7 @@ newest_artifact_tag() {
   case "$1" in
     stable) github_api releases/latest ;;
     preview) github_api 'releases?per_page=100' ;;
-  esac | { grep -oE "releases/download/v[1-9][0-9]*\.[0-9]+\.[0-9]+/dispatch-release\.tar\.gz" || true; } |
+  esac | { grep -oE "releases/download/v[1-9][0-9]*\.[0-9]+\.[0-9]+/dispatch-server\.tar\.gz" || true; } |
     awk -F/ 'NR == 1 { print $3 }'
 }
 if [ -n "$RELEASE_URL" ] && [ -z "$TAG" ]; then
@@ -115,7 +126,7 @@ elif [ -z "$RELEASE_URL" ]; then
 fi
 CHANNEL="${CHANNEL:-stable}"
 MEMBER="dist/bun/dispatch-${TAG#v}-bun-$PLATFORM-$ARCH"
-RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/dispatch-release.tar.gz}"
+RELEASE_URL="${RELEASE_URL:-https://github.com/$REPO/releases/download/$TAG/dispatch-server.tar.gz}"
 
 PARENT="$(dirname "$RUNTIME_PATH")"
 mkdir -p "$PARENT" "$INSTALL_DIR" "$STATE_DIR"
@@ -132,7 +143,7 @@ cleanup() {
   if [ "$status" -ne 0 ] && [ "$INSTALL_SUCCEEDED" = 0 ]; then
     if [ "$SERVICE_REGISTERED" = 1 ]; then
       if [ "$PLATFORM" = linux ]; then
-        systemctl --user disable --now dispatch.service >/dev/null 2>&1 || true
+        systemctl --user disable --now "$SERVICE.service" >/dev/null 2>&1 || true
         rm -f "$UNIT"
         systemctl --user daemon-reload >/dev/null 2>&1 || true
       else
@@ -191,7 +202,7 @@ EOF
 fi
 
 umask 077
-printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=127.0.0.1" "DISPATCH_PORT=$PORT" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_RELEASE_STORE_PATH=$STATE_DIR/release.json" "DISPATCH_RELEASE_CANDIDATE_STORE_PATH=$STATE_DIR/release-candidate.json" "DISPATCH_UPDATE_CHANNEL=$CHANNEL" > "$ENV_FILE"
+printf '%s\n' "DATABASE_URL=$DATABASE_URL" "DISPATCH_HOST=127.0.0.1" "DISPATCH_PORT=$PORT" "DISPATCH_STATE_DIR=$STATE_DIR" "DISPATCH_SERVER_DIR=$INSTALL_DIR" "DISPATCH_RUNTIME_PATH=$RUNTIME_PATH" "DISPATCH_SERVICE_NAME=$([ "$PLATFORM" = linux ] && echo "$SERVICE" || echo "$LABEL")" "DISPATCH_UPDATE_CHANNEL=$CHANNEL" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
 if [ "$NO_SERVICE" = 0 ]; then
@@ -203,7 +214,7 @@ if [ "$NO_SERVICE" = 0 ]; then
     mkdir -p "$(dirname "$UNIT")"
     printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep agent host processes alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$RUNTIME_PATH" > "$UNIT"
     SERVICE_REGISTERED=1
-    systemctl --user daemon-reload; systemctl --user enable --now dispatch.service
+    systemctl --user daemon-reload; systemctl --user enable --now "$SERVICE.service"
     if command -v loginctl >/dev/null && ! loginctl show-user "$USER" -p Linger --value 2>/dev/null | grep -qx yes; then
       if loginctl enable-linger "$USER" 2>/dev/null; then
         echo "==> enabled systemd lingering so Dispatch starts without a login"

@@ -111,7 +111,7 @@ describe("release-tarball-cache helpers", () => {
   it("releaseDownloadUrl points at the GitHub asset URL", async () => {
     const { releaseDownloadUrl } = await importCache();
     expect(releaseDownloadUrl("owner/repo", "v0.18.13")).toBe(
-      "https://github.com/owner/repo/releases/download/v0.18.13/dispatch-release.tar.gz"
+      "https://github.com/owner/repo/releases/download/v0.18.13/dispatch-server.tar.gz"
     );
   });
 

@@ -466,7 +466,7 @@ function mockReleaseCommands({
               published_at: "2026-04-26T00:00:00Z",
               html_url: `https://github.com/selfcontained/dispatch/releases/tag/${release.tagName}`,
               prerelease: release.isPrerelease,
-              assets: [{ name: "dispatch-release.tar.gz" }],
+              assets: [{ name: "dispatch-server.tar.gz" }],
             }))
           )
         );

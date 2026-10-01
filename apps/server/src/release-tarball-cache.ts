@@ -22,7 +22,7 @@ import { statePath } from "./state-dir.js";
  * tarball that isn't ahead of the current install."
  */
 
-export const RELEASE_ARTIFACT_NAME = "dispatch-release.tar.gz";
+export const RELEASE_ARTIFACT_NAME = "dispatch-server.tar.gz";
 
 // Resolved per call so tests can rebind the env var between runs without
 // reloading the module. Production hosts only set the env var at boot, so

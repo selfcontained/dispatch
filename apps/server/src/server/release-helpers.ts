@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { RELEASE_ARTIFACT_NAME } from "../release-tarball-cache.js";
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 // Re-exported for existing importers — the implementation lives in
 // shared/lib so non-release code (plugin-status.ts) can use it without
@@ -149,6 +150,17 @@ export function fixedRuntimePath(serverDir: string): string {
     : path.join(serverDir, "dispatch");
 }
 
+/**
+ * The service manager's name for this install: the systemd user unit on
+ * Linux, the LaunchAgent label on macOS. The installer writes
+ * DISPATCH_SERVICE_NAME; the defaults are the 0.x names.
+ */
+export function serviceName(platform: string = process.platform): string {
+  const configured = process.env.DISPATCH_SERVICE_NAME?.trim();
+  if (configured) return configured;
+  return platform === "linux" ? "dispatch" : "com.dispatch.server";
+}
+
 export function createCheckIsAdmin(
   runCommand: RunCommand,
   serverDir: string
@@ -227,7 +239,9 @@ export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
     prerelease: release.prerelease,
     hasDispatchArtifact:
       release.assets?.some(
-        (asset) => asset.name === "dispatch-release.tar.gz"
+        // Deliberately not 0.x's `dispatch-release.tar.gz`: 0.x servers look
+        // only for that name, so they never offer 1.x as an in-place update.
+        (asset) => asset.name === RELEASE_ARTIFACT_NAME
       ) ?? false,
   }));
 }

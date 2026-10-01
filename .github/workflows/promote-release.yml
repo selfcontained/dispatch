@@ -39,7 +39,7 @@ jobs:
             exit 1
           fi
           gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' > assets.txt
-          grep -qx 'dispatch-release.tar.gz' assets.txt || { echo "error: $TAG has no Linux artifact" >&2; exit 1; }
+          grep -qx 'dispatch-server.tar.gz' assets.txt || { echo "error: $TAG has no Linux artifact" >&2; exit 1; }
           grep -Eq '^dispatch-macos-.+-arm64\.zip$' assets.txt || { echo "error: $TAG has no macOS app" >&2; exit 1; }
 
       - uses: pnpm/action-setup@v6

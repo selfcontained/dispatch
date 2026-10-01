@@ -1,7 +1,7 @@
 # macOS releases and updates
 
 The Mac app ships from the same release as Linux: every `vX.Y.Z` GitHub
-release carries `dispatch-release.tar.gz` (Linux and standalone binaries) and
+release carries `dispatch-server.tar.gz` (Linux and standalone binaries) and
 the signed, notarized `dispatch-macos-<build>-arm64.zip`. Builds are **arm64
 only**; Intel delivery is not implemented. The app is `Dispatch.app` with bundle
 ID `dev.bradharris.dispatch.mac`; see [macOS app](macos-app.md) for its service,

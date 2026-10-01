@@ -23,6 +23,7 @@ import {
   fixedRuntimePath,
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
+  serviceName,
 } from "./release-helpers.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { verifyAndStageRuntime } from "./release-artifact.js";
@@ -105,20 +106,15 @@ export async function assertHostSurvivalOnRestart(
   runCommand: RunCommand
 ): Promise<void> {
   if (platform !== "linux") return;
+  const unit = `${serviceName(platform)}.service`;
   let loaded: string;
   try {
     loaded = (
-      await runCommand("systemctl", [
-        "--user",
-        "show",
-        "dispatch.service",
-        "-p",
-        "KillMode",
-      ])
+      await runCommand("systemctl", ["--user", "show", unit, "-p", "KillMode"])
     ).stdout.trim();
   } catch {
     throw new Error(
-      "Cannot verify that the Dispatch service preserves agent hosts. Add KillMode=process to the dispatch.service unit before updating."
+      `Cannot verify that the Dispatch service preserves agent hosts. Add KillMode=process to ${unit} before updating.`
     );
   }
   if (loaded !== "KillMode=process") {
@@ -147,21 +143,17 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
     deps.restartService ??
     (() => {
       if (process.platform === "linux") {
-        spawn("systemctl", ["--user", "restart", "dispatch"], {
+        spawn("systemctl", ["--user", "restart", serviceName()], {
           detached: true,
           stdio: "ignore",
         }).unref();
         return;
       }
       const uid = process.getuid?.() ?? 501;
-      spawn(
-        "launchctl",
-        ["kickstart", "-k", `gui/${uid}/com.dispatch.server`],
-        {
-          detached: true,
-          stdio: "ignore",
-        }
-      ).unref();
+      spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${serviceName()}`], {
+        detached: true,
+        stdio: "ignore",
+      }).unref();
     });
   const recordReleaseCandidate =
     deps.writeReleaseCandidate ?? writeReleaseCandidate;

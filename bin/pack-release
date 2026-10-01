@@ -25,7 +25,7 @@ Packs a release tarball from the already-built Bun binaries.
 Requires that 'pnpm run build:bun' has already been run.
 
 Options:
-  --output <path>  Output tarball path (default: dispatch-release.tar.gz in repo root)
+  --output <path>  Output tarball path (default: dispatch-server.tar.gz in repo root)
 USAGE
 }
 
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-release.tar.gz}"
+OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-server.tar.gz}"
 
 # Validate that builds exist
 missing=()
