@@ -25,6 +25,31 @@ const LONG_POST =
   "or scope the change to charts only. ".repeat(4);
 
 describe("buildPostEnvelope", () => {
+  it("names the other recipients of a fanned-out post and says not to relay it", () => {
+    const envelope = (addressed: { mention: boolean; alsoTo: string[] }) =>
+      buildPostEnvelope({
+        blockId: ID,
+        from: { kind: "user" },
+        text: "hello",
+        threadId: THREAD,
+        addressed,
+      });
+    expect(envelope({ mention: false, alsoTo: ["designer"] })).toContain(
+      `In the thread under ${THREAD}. Also sent to designer. It has it already; do not pass it along.`
+    );
+    expect(
+      envelope({ mention: true, alsoTo: ["designer", "reviewer"] })
+    ).toContain(
+      "Addressed to you by @mention, and also to designer, reviewer. They have it already; do not pass it along."
+    );
+    const alone = envelope({ mention: true, alsoTo: [] });
+    expect(alone).toContain("Addressed to you by @mention.");
+    expect(alone).not.toContain("pass it along");
+    expect(envelope({ mention: false, alsoTo: [] })).not.toContain(
+      "Also sent to"
+    );
+  });
+
   it("frames a person's post with the id and the user routing line", () => {
     expect(
       buildPostEnvelope({ blockId: ID, from: { kind: "user" }, text: "hello" })

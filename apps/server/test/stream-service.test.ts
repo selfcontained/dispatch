@@ -3168,6 +3168,14 @@ describe("StreamService review threads", () => {
     });
     await settled(svc, both.block.id);
     expect(injected.map((i) => i.agentId).sort()).toEqual([A, B].sort());
+    // Each side is told the other has it too, so neither passes it along.
+    const toSide = (id: string) => injected.find((i) => i.agentId === id)!.text;
+    expect(toSide(A)).toContain(
+      "Also sent to Peer. It has it already; do not pass it along."
+    );
+    expect(toSide(B)).toContain(
+      "Also sent to Svc. It has it already; do not pass it along."
+    );
     // Each recipient's outcome is recorded on its own, and read back as a
     // delivery per recipient, in the order the post went to them.
     const outcomes = await pool.query<{ deliveries: Record<string, boolean> }>(
@@ -3197,6 +3205,7 @@ describe("StreamService review threads", () => {
     await settled(svc, answer.block.id);
     expect(injected.map((i) => i.agentId)).toEqual([A]);
     expect(injected[0]?.text).toContain('About the finding "a".');
+    expect(injected[0]?.text).not.toContain("Also sent to");
   });
 
   it("closes a question asked of an agent with that agent's reply, in the finding's thread", async () => {
@@ -4606,7 +4615,7 @@ describe("StreamService @mentions", () => {
     ]);
     const toBuilder = injected.find((i) => i.agentId === "agt_m_kid2")!.text;
     expect(toBuilder).toContain(
-      "Addressed to you by @mention, and also to reviewer."
+      "Addressed to you by @mention, and also to reviewer. It has it already; do not pass it along."
     );
     expect(await svc.store.getById(res.block.id)).toMatchObject({
       delivered: true,
@@ -4623,6 +4632,7 @@ describe("StreamService @mentions", () => {
     await settled(svc, res.block.id);
     expect(injected.map((i) => i.agentId)).toEqual(["agt_m_kid1"]);
     expect(injected[0]!.text).toContain("Addressed to you by @mention.");
+    expect(injected[0]!.text).not.toContain("do not pass it along");
   });
 
   it("a name outside the tree is just text", async () => {
