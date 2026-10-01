@@ -88,7 +88,7 @@ describe("the current step card", () => {
         progress: {
           step: "download",
           label: "Downloading release",
-          detail: "dispatch-release.tar.gz",
+          detail: "dispatch-server.tar.gz",
           bytesReceived: 512 * 1024,
           totalBytes: 1024 * 1024,
         },
@@ -97,7 +97,7 @@ describe("the current step card", () => {
 
     expect(screen.getByText("Current step")).toBeTruthy();
     expect(screen.getByText("Downloading release")).toBeTruthy();
-    expect(screen.getByText("dispatch-release.tar.gz")).toBeTruthy();
+    expect(screen.getByText("dispatch-server.tar.gz")).toBeTruthy();
     expect(screen.getByText("50% · 512 KB / 1.0 MB")).toBeTruthy();
   });
 

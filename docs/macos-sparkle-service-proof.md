@@ -9,7 +9,7 @@ in the installed product.
 
 The one-off **macOS Sparkle Service Proof** workflow was removed after the proof
 and real-product update validation passed. Normal delivery now uses
-[macOS Releases](macos-dogfood.md). The proof builder, validation drivers,
+[macOS Releases](macos-releases.md). The proof builder, validation drivers,
 fixtures, tests, and results remain in the repository; they are not part of
 normal release publication. The last workflow definition can be recovered from
 commit `ff0474d0` if a future high-risk lifecycle change needs another hosted proof.

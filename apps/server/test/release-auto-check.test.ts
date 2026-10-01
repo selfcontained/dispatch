@@ -55,10 +55,6 @@ const baseSnapshot = {
   absoluteLatestTag: "v0.18.42",
   updateAvailable: true,
   latestRelease: null,
-  assisted: null,
-  assistedRequired: false,
-  pendingMigrations: [],
-  migrationsError: null,
   computedAt: "2026-05-03T00:00:00Z",
 };
 

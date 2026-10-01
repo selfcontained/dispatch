@@ -7,29 +7,20 @@ import type {
 import type { Pool } from "pg";
 import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
-import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import {
-  getEnabledAgentTypes,
-  isCliAgentType,
-} from "../agent-type-settings.js";
-import { getReleaseUpdateAgentId } from "../auth.js";
 import {
   createAuthoringRemoteRefresher,
-  GitHubApiError,
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
 } from "../server/release-helpers.js";
-import { getSetting, setSetting } from "../db/settings.js";
-import { getWorktreeLocation } from "../worktree-location-settings.js";
+import { setSetting } from "../db/settings.js";
 import { readReleaseStore } from "../release-store.js";
-import { errorMessage } from "../shared/lib/error-message.js";
-import {
-  inspectAssistedUpdateMetadata,
-  isAssistedUpdateRequired,
-} from "../release-metadata.js";
 import {
   computeReleaseInfo,
+  readReleaseChannel,
+  RELEASE_CHANNEL_KEY,
+  RELEASE_CHANNELS,
   type ComputeReleaseInfoDeps,
+  type ReleaseChannel,
 } from "../release-info.js";
 import {
   AUTOMATIC_UPDATE_MODES,
@@ -38,27 +29,7 @@ import {
   writeAutomaticUpdateMode,
   type AutoCheckRuntime,
 } from "../release-auto-check.js";
-import {
-  buildAssistedUpdateContext,
-  applyAssistedPhase,
-  attachAssistedAgent,
-  runAndRecordChecks,
-} from "../assisted-update.js";
-import {
-  readAssistedUpdateState,
-  clearAssistedUpdateState,
-  isTerminalPhase,
-  type AssistedPhase,
-  type AssistedUpdateState,
-} from "../assisted-update-store.js";
-import type { UpdateMigrationManifest } from "../update-migrations.js";
 import type { GitHubReleaseListItem } from "../server/release-helpers.js";
-import {
-  evaluatePendingMigrations,
-  toSummary,
-  type PendingMigrationSummary,
-} from "../update-migrations-evaluator.js";
-
 /**
  * Per-viewer admin enrichment for /api/v1/release/info. Excluded from the
  * shared snapshot because it depends on the requesting user's GitHub repo
@@ -177,26 +148,19 @@ import type {
   UpdateJob,
 } from "../server/release-runtime.js";
 import { RELEASE_VERSION_TYPES } from "../server/release-runtime.js";
+import { isTerminalReleasePhase } from "../server/release-wire.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
-
-const RELEASE_CHANNEL_KEY = "release_channel";
-const VALID_CHANNELS = ["stable", "latest"] as const;
-type ReleaseChannel = (typeof VALID_CHANNELS)[number];
 
 type ReleaseRouteDeps = {
   pool: Pool;
   appLog: FastifyBaseLogger;
-  config: { authToken: string };
   serverDir: string;
-  agentManager: AgentManager;
   getActiveCreateJob: () => CreateJob | null;
   setActiveCreateJob: (job: CreateJob | null) => void;
   getActiveUpdateJob: () => UpdateJob | null;
   setActiveUpdateJob: (job: UpdateJob | null) => void;
   hasActiveCreateJob: () => boolean;
   hasActiveUpdateJob: () => boolean;
-  getActiveAssistedUpdateLaunch: () => boolean;
-  setActiveAssistedUpdateLaunch: (active: boolean) => void;
   releaseCreateStreamClients: Set<ReleaseStreamClient>;
   releaseUpdateStreamClients: Set<ReleaseStreamClient>;
   getAppVersionInfo: () => Promise<{
@@ -210,26 +174,12 @@ type ReleaseRouteDeps = {
   compareSemver: (a: string, b: string) => number;
   fetchGitHubReleases: () => Promise<GitHubReleaseListItem[]>;
   checkIsAdmin: () => Promise<boolean>;
-  fetchReleaseMetadata: (tag: string) => Promise<{
-    tag: string;
-    publishedAt: string;
-    url: string;
-    body?: string | null;
-  } | null>;
   fetchLatestReleaseMetadata: (tag: string) => Promise<{
     tag: string;
     publishedAt: string;
     url: string;
     body?: string | null;
   } | null>;
-  dispatchBaseUrl: () => string;
-  dispatchHealthUrl: () => string;
-  defaultServiceRestartCommand: () => string;
-  buildAssistedUpdatePrompt: (input: {
-    tag: string;
-    currentTag: string | null;
-  }) => string;
-  hasActiveAssistedUpdateAgent: () => Promise<boolean>;
   broadcastReleaseEvent: (
     kind: ReleaseJobKind,
     event: ReleaseStreamEvent
@@ -238,18 +188,8 @@ type ReleaseRouteDeps = {
     clientId: string,
     event: ReleaseStreamEvent
   ) => void;
-  appendReleaseLog: (job: ReleaseJob, line: string) => void;
-  rehydrateActiveAssistedJob: () => Promise<void>;
   runReleaseJob: (job: ReleaseJob) => Promise<void>;
   runUpdateJob: (job: ReleaseJob) => Promise<void>;
-  getBearerToken: (request: {
-    headers: { authorization?: string };
-  }) => string | null;
-  publishUiEvent: PublishUiEvent;
-  withStreamFlag: <T extends AgentRecord>(
-    agent: T
-  ) => T & { hasStream: boolean };
-  handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
   autoCheck: AutoCheckRuntime;
 };
 
@@ -292,8 +232,6 @@ async function handleReleaseInfo(
 ) {
   const computeDeps: ComputeReleaseInfoDeps = {
     pool: deps.pool,
-    serverDir: deps.serverDir,
-    getGitHubRepo: deps.getGitHubRepo,
     compareSemver: deps.compareSemver,
     fetchGitHubReleases: deps.fetchGitHubReleases,
     getAppVersionInfo: async () => {
@@ -336,7 +274,7 @@ async function handleReleaseInfo(
     activeUpdateJob !== null &&
     activeUpdateJob.tag !== null &&
     activeUpdateJob.tag === snapshot.latestTag &&
-    !isTerminalPhase(activeUpdateJob.phase as AssistedPhase);
+    !isTerminalReleasePhase(activeUpdateJob.phase);
   if (!isApplyingSnapshotTag) {
     deps.autoCheck.setSnapshotForWriteThrough(snapshot);
   }
@@ -360,10 +298,6 @@ async function handleReleaseInfo(
     commits: extras.commits,
     refMissing: extras.refMissing,
     unreleasedFetchError: extras.fetchError,
-    assisted: snapshot.assisted,
-    assistedRequired: snapshot.assistedRequired,
-    pendingMigrations: snapshot.pendingMigrations,
-    migrationsError: snapshot.migrationsError,
   };
 }
 
@@ -401,9 +335,7 @@ async function handleAutoUpdateModeSet(
 }
 
 async function handleChannelGet(deps: ReleaseRouteDeps) {
-  const raw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
-  const channel: ReleaseChannel = raw === "latest" ? "latest" : "stable";
-  return { channel };
+  return { channel: await readReleaseChannel(deps.pool) };
 }
 
 async function handleChannelSet(
@@ -414,10 +346,10 @@ async function handleChannelSet(
   const body = request.body as { channel?: unknown } | undefined;
   if (
     !body?.channel ||
-    !VALID_CHANNELS.includes(body.channel as ReleaseChannel)
+    !RELEASE_CHANNELS.includes(body.channel as ReleaseChannel)
   ) {
     return reply.code(400).send({
-      error: `channel must be one of: ${VALID_CHANNELS.join(", ")}`,
+      error: `channel must be one of: ${RELEASE_CHANNELS.join(", ")}`,
     });
   }
   await setSetting(deps.pool, RELEASE_CHANNEL_KEY, body.channel as string);
@@ -451,21 +383,31 @@ async function handlePromote(
     !/^v\d+\.\d+\.\d+$/.test(body.tag)
   ) {
     return reply.code(400).send({
-      error: "tag is required and must be a semver tag (e.g. v0.11.18)",
+      error: "tag is required and must be a semver tag (e.g. v1.0.0)",
     });
   }
   try {
     const repo = await deps.getGitHubRepo();
+    // Promotion also moves the macOS appcast entry to stable, which needs the
+    // workflow's Cloudflare credentials; it clears the prerelease flag last.
     await runCommand("gh", [
-      "release",
-      "edit",
-      body.tag,
+      "workflow",
+      "run",
+      "promote-release.yml",
       "--repo",
       repo,
-      "--prerelease=false",
-      "--latest",
+      "--ref",
+      "main",
+      "--field",
+      `tag=${body.tag}`,
     ]);
-    return { ok: true, tag: body.tag };
+    // Started, not finished: the client watches the release list for the
+    // prerelease flag to clear.
+    return reply.code(202).send({
+      ok: true,
+      tag: body.tag,
+      workflowUrl: `https://github.com/${repo}/actions/workflows/promote-release.yml`,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return reply.code(500).send({ error: message });
@@ -561,136 +503,19 @@ async function handleUpdate(
       .code(409)
       .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
   }
-  const body = request.body as { tag?: unknown; force?: unknown } | undefined;
-  const bearerToken = deps.getBearerToken(request);
+  const body = request.body as { tag?: unknown } | undefined;
   if (
     !body?.tag ||
     typeof body.tag !== "string" ||
     !/^v\d+\.\d+\.\d+$/.test(body.tag)
   ) {
     return reply.code(400).send({
-      error: "tag is required and must be a semver tag (e.g. v0.2.31)",
+      error: "tag is required and must be a semver tag (e.g. v1.0.0)",
     });
   }
   const tag = body.tag;
-  const force = body.force === true;
-  const releaseUpdateAgentId = bearerToken
-    ? getReleaseUpdateAgentId(deps.config.authToken, bearerToken)
-    : null;
-
-  if (releaseUpdateAgentId) {
-    const agent = await deps.agentManager.getAgent(releaseUpdateAgentId);
-    if (
-      !agent ||
-      agent.role !== "assisted_update" ||
-      agent.cwd !== deps.serverDir
-    ) {
-      return reply.code(403).send({ error: "Invalid assisted update token." });
-    }
-    const assistedState = await readAssistedUpdateState().catch(() => null);
-    if (assistedState && assistedState.tag !== tag) {
-      return reply.code(403).send({
-        error:
-          "Assisted update token is bound to a different tag. Launch a fresh assisted update for this tag.",
-      });
-    }
-  }
-
-  const activeUpdateJob = deps.getActiveUpdateJob();
-  if (
-    activeUpdateJob &&
-    !isTerminalPhase(activeUpdateJob.phase as AssistedPhase)
-  ) {
-    const isAssistedTakeover =
-      releaseUpdateAgentId !== null &&
-      activeUpdateJob.jobType === "update-assisted" &&
-      activeUpdateJob.assisted?.agentId === releaseUpdateAgentId &&
-      activeUpdateJob.tag === tag;
-    if (!isAssistedTakeover) {
-      return reply
-        .code(409)
-        .send({ error: "An update is already in progress." });
-    }
-  }
-
-  if (!releaseUpdateAgentId) {
-    const installed = await readReleaseStore().catch(() => null);
-    let pendingMigrationsForGate: PendingMigrationSummary[];
-    try {
-      const repo = await deps.getGitHubRepo();
-      const evaluation = await evaluatePendingMigrations(tag, { repo });
-      pendingMigrationsForGate = evaluation.pending.map((m) =>
-        toSummary(m.manifest)
-      );
-    } catch (err) {
-      const message = errorMessage(err);
-      request.log.warn(
-        { err, tag, force },
-        "release/update: migration evaluation failed"
-      );
-      if (!force) {
-        return reply.code(503).send({
-          error: "MIGRATION_EVALUATION_UNAVAILABLE",
-          message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears, or pass force=true to skip the check.`,
-        });
-      }
-      pendingMigrationsForGate = [];
-    }
-    if (pendingMigrationsForGate.length > 0 && !force) {
-      return reply.code(409).send({
-        error: "ASSISTED_UPDATE_REQUIRED",
-        message:
-          "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
-        pendingMigrations: pendingMigrationsForGate,
-      });
-    }
-
-    let targetMeta;
-    try {
-      targetMeta = await deps.fetchReleaseMetadata(tag);
-    } catch (err) {
-      if (err instanceof GitHubApiError) {
-        return reply.code(503).send({
-          error: "GITHUB_API_UNAVAILABLE",
-          message: `GitHub API unavailable (status ${err.status}); set GITHUB_TOKEN or retry later.`,
-        });
-      }
-      throw err;
-    }
-    const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
-    if (inspected.state === "invalid") {
-      return reply.code(409).send({
-        error: "ASSISTED_UPDATE_METADATA_INVALID",
-        message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
-      });
-    }
-    const targetAssisted =
-      inspected.state === "valid" ? inspected.metadata : null;
-    if (
-      isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null) &&
-      !force
-    ) {
-      return reply.code(409).send({
-        error: "ASSISTED_UPDATE_REQUIRED",
-        message:
-          "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
-        assisted: targetAssisted,
-      });
-    }
-    if (
-      force &&
-      (pendingMigrationsForGate.length > 0 ||
-        isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null))
-    ) {
-      request.log.warn(
-        {
-          tag,
-          pendingMigrationCount: pendingMigrationsForGate.length,
-          assistedMode: targetAssisted?.mode ?? null,
-        },
-        "release/update: force=true bypassing assisted-update gate"
-      );
-    }
+  if (deps.hasActiveUpdateJob()) {
+    return reply.code(409).send({ error: "An update is already in progress." });
   }
 
   const job: UpdateJob = {
@@ -707,287 +532,6 @@ async function handleUpdate(
   deps.setActiveUpdateJob(job);
   void deps.runUpdateJob(job);
   return reply.code(202).send({ ok: true });
-}
-
-async function handleAssistedLaunch(
-  deps: ReleaseRouteDeps,
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
-  if (isMacAppManaged()) {
-    return reply
-      .code(409)
-      .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
-  }
-  const body = request.body as { tag?: unknown } | undefined;
-  if (
-    !body?.tag ||
-    typeof body.tag !== "string" ||
-    !/^v\d+\.\d+\.\d+$/.test(body.tag)
-  ) {
-    return reply.code(400).send({
-      error: "tag is required and must be a semver tag (e.g. v0.2.31)",
-    });
-  }
-
-  const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-  const assistedType = enabledAgentTypes.find(isCliAgentType);
-  if (!assistedType) {
-    return reply.code(422).send({
-      error:
-        "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first.",
-    });
-  }
-
-  if (deps.hasActiveUpdateJob()) {
-    return reply.code(409).send({ error: "An update is already in progress." });
-  }
-  if (deps.getActiveAssistedUpdateLaunch()) {
-    return reply.code(409).send({
-      error:
-        "An assisted update agent is already being created for the production checkout.",
-    });
-  }
-
-  deps.setActiveAssistedUpdateLaunch(true);
-  try {
-    if (await deps.hasActiveAssistedUpdateAgent()) {
-      return reply.code(409).send({
-        error:
-          "An assisted update agent is already active for the production checkout.",
-      });
-    }
-
-    const record = await readReleaseStore().catch(() => null);
-    const worktreeLocation = await getWorktreeLocation(deps.pool);
-
-    let pendingMigrationManifests: UpdateMigrationManifest[] = [];
-    try {
-      const repo = await deps.getGitHubRepo();
-      const evaluation = await evaluatePendingMigrations(body.tag, { repo });
-      if (evaluation.errors.length > 0) {
-        return reply.code(409).send({
-          error: "ASSISTED_UPDATE_MIGRATIONS_INVALID",
-          message: `Target release has malformed migration manifests: ${evaluation.errors
-            .map((e) => `${e.filename}: ${e.error}`)
-            .join("; ")}`,
-        });
-      }
-      pendingMigrationManifests = evaluation.pending.map((m) => m.manifest);
-    } catch (err) {
-      request.log.warn(
-        { tag: body.tag, err },
-        "Migration evaluation failed, falling back to legacy metadata"
-      );
-    }
-
-    let targetMeta;
-    try {
-      targetMeta = await deps.fetchReleaseMetadata(body.tag);
-    } catch (err) {
-      if (err instanceof GitHubApiError) {
-        return reply.code(503).send({
-          error: "GITHUB_API_UNAVAILABLE",
-          message: `GitHub API unavailable (status ${err.status}); set GITHUB_TOKEN or retry later.`,
-        });
-      }
-      throw err;
-    }
-    const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
-    if (
-      pendingMigrationManifests.length === 0 &&
-      inspected.state === "invalid"
-    ) {
-      return reply.code(409).send({
-        error: "ASSISTED_UPDATE_METADATA_INVALID",
-        message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
-      });
-    }
-
-    const assistedMeta =
-      inspected.state === "valid" ? inspected.metadata : null;
-    let assistedState: AssistedUpdateState | null = null;
-    let assistedToken: string | null = null;
-    let initialPrompt: string;
-    if (pendingMigrationManifests.length > 0 || assistedMeta) {
-      const ctx = await buildAssistedUpdateContext(
-        {
-          tag: body.tag,
-          fromTag: record?.tag ?? null,
-          migrations:
-            pendingMigrationManifests.length > 0
-              ? pendingMigrationManifests
-              : undefined,
-          metadata:
-            pendingMigrationManifests.length === 0 && assistedMeta
-              ? assistedMeta
-              : undefined,
-          serverDir: deps.serverDir,
-          recovery: {
-            serviceCommand: deps.defaultServiceRestartCommand(),
-            healthEndpoint: deps.dispatchHealthUrl(),
-            serviceLogPath: "~/.dispatch/logs/dispatch.log",
-            failureLogPath: "~/.dispatch/logs/last-release-failure.log",
-          },
-        },
-        deps.dispatchBaseUrl()
-      );
-      assistedState = ctx.state;
-      assistedToken = ctx.state.token;
-      initialPrompt = ctx.prompt;
-    } else {
-      initialPrompt = deps.buildAssistedUpdatePrompt({
-        tag: body.tag,
-        currentTag: record?.tag ?? null,
-      });
-    }
-
-    const agent = await deps.agentManager.createAgent({
-      name: `update-${body.tag}`,
-      type: assistedType,
-      role: "assisted_update",
-      cwd: deps.serverDir,
-      fullAccess: true,
-      useWorktree: false,
-      worktreeLocation,
-      initialPrompt,
-    });
-
-    if (assistedState && assistedToken) {
-      await attachAssistedAgent(assistedState, agent.id);
-      const launchLog = [
-        `==> assisted update launched for ${body.tag}`,
-        `==> agent: ${agent.id}`,
-      ];
-      if (pendingMigrationManifests.length > 0) {
-        launchLog.push(
-          `==> migrations: ${pendingMigrationManifests
-            .map((m) => m.id)
-            .join(", ")}`
-        );
-      } else if (assistedMeta) {
-        launchLog.push(`==> mode: ${assistedMeta.mode}`);
-      }
-      deps.setActiveUpdateJob({
-        jobType: "update-assisted",
-        versionType: null,
-        phase: "inspect",
-        startedAt: new Date().toISOString(),
-        log: launchLog,
-        runUrl: null,
-        tag: body.tag,
-        error: null,
-        progress: null,
-        assisted: { ...assistedState, agentId: agent.id },
-      });
-      deps.broadcastReleaseEvent("update", {
-        type: "assisted",
-        state: { ...assistedState, agentId: agent.id },
-      });
-    }
-
-    deps.publishUiEvent({
-      type: "agent.upsert",
-      agent: deps.withStreamFlag(agent),
-    });
-    return reply
-      .code(201)
-      .send({ agent: deps.withStreamFlag(agent), assisted: assistedState });
-  } catch (error) {
-    return deps.handleAgentError(reply, error);
-  } finally {
-    deps.setActiveAssistedUpdateLaunch(false);
-  }
-}
-
-async function handleAssistedPhase(
-  deps: ReleaseRouteDeps,
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
-  if (isMacAppManaged()) {
-    return reply
-      .code(409)
-      .send({ error: "MAC_APP_MANAGED", message: MAC_APP_UPDATE_MESSAGE });
-  }
-  const body = request.body as
-    | { token?: unknown; phase?: unknown; note?: unknown; error?: unknown }
-    | undefined;
-  if (!body?.token || typeof body.token !== "string") {
-    return reply.code(400).send({ error: "token is required" });
-  }
-  if (!body.phase || typeof body.phase !== "string") {
-    return reply.code(400).send({ error: "phase is required" });
-  }
-  const result = await applyAssistedPhase({
-    token: body.token,
-    phase: body.phase as AssistedPhase,
-    note: typeof body.note === "string" ? body.note : undefined,
-    error: typeof body.error === "string" ? body.error : undefined,
-  });
-  if (!result.ok) {
-    return reply.code(409).send({ error: result.reason });
-  }
-
-  const activeUpdateJob = deps.getActiveUpdateJob();
-  if (activeUpdateJob && activeUpdateJob.jobType === "update-assisted") {
-    activeUpdateJob.phase = result.state.phase;
-    activeUpdateJob.assisted = result.state;
-    if (result.state.error) activeUpdateJob.error = result.state.error;
-    const persistedNote = result.state.notes[result.state.phase];
-    const summary = persistedNote
-      ? `==> phase ${result.state.phase}: ${persistedNote}`
-      : `==> phase ${result.state.phase}`;
-    deps.appendReleaseLog(activeUpdateJob, summary);
-    deps.broadcastReleaseEvent("update", {
-      type: "phase",
-      phase: activeUpdateJob.phase,
-    });
-    deps.broadcastReleaseEvent("update", {
-      type: "assisted",
-      state: result.state,
-    });
-  }
-
-  if (result.state.phase === "validate") {
-    const post = await runAndRecordChecks(result.state, {
-      serverDir: deps.serverDir,
-      targetTag: result.state.tag,
-      healthUrl: deps.dispatchHealthUrl(),
-    });
-    const activeJob = deps.getActiveUpdateJob();
-    if (activeJob && activeJob.jobType === "update-assisted") {
-      activeJob.phase = post.phase;
-      activeJob.assisted = post;
-      if (post.error) activeJob.error = post.error;
-      for (const check of post.checks) {
-        deps.appendReleaseLog(
-          activeJob,
-          `  - ${check.ok ? "✓" : "✗"} ${check.name}: ${check.message}`
-        );
-      }
-      deps.broadcastReleaseEvent("update", {
-        type: "phase",
-        phase: activeJob.phase,
-      });
-      deps.broadcastReleaseEvent("update", { type: "assisted", state: post });
-    }
-  }
-
-  return reply.code(200).send({ ok: true, state: result.state });
-}
-
-async function handleAssistedStateGet() {
-  return { state: await readAssistedUpdateState() };
-}
-
-async function handleAssistedStateClear(deps: ReleaseRouteDeps) {
-  await clearAssistedUpdateState();
-  const activeUpdateJob = deps.getActiveUpdateJob();
-  if (activeUpdateJob?.jobType === "update-assisted") {
-    deps.setActiveUpdateJob(null);
-  }
-  return { ok: true };
 }
 
 async function handleReleaseStream(
@@ -1025,14 +569,7 @@ async function handleReleaseStream(
   if (kind === "create") {
     snapshotJob = deps.getActiveCreateJob();
   } else {
-    await deps.rehydrateActiveAssistedJob();
     snapshotJob = deps.getActiveUpdateJob();
-    if (snapshotJob && snapshotJob.jobType === "update-assisted") {
-      const persisted = await readAssistedUpdateState();
-      if (persisted) {
-        snapshotJob = { ...snapshotJob, assisted: persisted };
-      }
-    }
   }
   const snapshot: ReleaseStreamEvent = { type: "snapshot", job: snapshotJob };
   stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
@@ -1075,16 +612,6 @@ export async function registerReleaseRoutes(
   );
   app.post("/api/v1/release/update", (req, reply) =>
     handleUpdate(deps, req, reply)
-  );
-  app.post("/api/v1/release/assisted/launch", (req, reply) =>
-    handleAssistedLaunch(deps, req, reply)
-  );
-  app.post("/api/v1/release/assisted/phase", (req, reply) =>
-    handleAssistedPhase(deps, req, reply)
-  );
-  app.get("/api/v1/release/assisted/state", () => handleAssistedStateGet());
-  app.delete("/api/v1/release/assisted/state", () =>
-    handleAssistedStateClear(deps)
   );
   app.get("/api/v1/release/create/stream", (req, reply) =>
     handleReleaseStream(deps, req, reply, "create")

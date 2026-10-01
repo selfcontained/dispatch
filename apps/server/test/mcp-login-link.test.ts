@@ -113,7 +113,7 @@ describe("MCP login-link tool", () => {
     });
     expect(exchanged.statusCode).toBe(200);
     expect(exchanged.json()).toEqual({ ok: true });
-    expect(exchanged.headers["set-cookie"]).toContain("dispatch_session=");
+    expect(exchanged.headers["set-cookie"]).toContain("dispatch_session_");
 
     const reused = await ctx.app.inject({
       method: "POST",

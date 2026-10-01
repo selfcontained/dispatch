@@ -15,7 +15,7 @@ lifecycle contract the server implements on top of it.
 - `stopped` — the host is gone, agent row preserved (resumable via `start`)
 - `archiving` — async cleanup during deletion (worktree check, cleanup, finalization)
 - `error` — unrecoverable failure during launch / start / stop / archive, or the engine died on its own
-- `unknown` — reserved/transitional. The `AgentStatus` type permits it but no code path currently sets it; the assisted-update queries treat it as a possible "in-flight" status defensively.
+- `unknown` — reserved/transitional. The `AgentStatus` type permits it but no code path currently sets it.
 
 ## Roles
 
@@ -23,7 +23,6 @@ lifecycle contract the server implements on top of it.
 
 - `standard` — every agent created via the normal Create dialog or a job launch.
 - `review` — persona agents launched via `launch_agent` with `persona` (or the UI's launch-persona action); see [Persona Agent Lifecycle](#persona-agent-lifecycle).
-- `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
 Role is orthogonal to `AgentType`, which names the engine: `claude` or `codex`.
 
@@ -172,23 +171,12 @@ The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs 
 
 ## Phase Axes — Don't Confuse Them
 
-There are three independent state axes attached to an agent. Code that talks about "phase" should always name the axis:
+There are two independent state axes attached to an agent. Code that talks about "phase" should always name the axis:
 
-| Axis                  | Values                                                                                                   | Set by                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `setup_phase`         | `worktree` / `env` / `deps` / `session` / `null`                                                         | the manager's workspace step                                 |
-| `archive_phase`       | `stopping` / `worktree-check` / `worktree-cleanup` / `finalizing` / `null`                               | `executeArchive` in agent manager                            |
-| Assisted-update phase | `inspect` / `prepare` / `apply` / `restarting` / `validate` / `done` / `rollback` / `blocked` / `failed` | the assisted-update agent via `POST /release/assisted/phase` |
-
-## Assisted-Update Phase Axis
-
-The assisted-update agent (role `assisted_update`) drives a separate state machine stored in `~/.dispatch/assisted-update.json` and managed by `apps/server/src/assisted-update-store.ts`. Phase order is:
-
-`inspect → prepare → apply → restarting → validate → done`
-
-Terminal phases: `done`, `rollback`, `blocked`, `failed`. The forward-only guard rejects backward transitions except into a terminal phase, which is reachable from any earlier phase.
-
-On server startup, `rehydrateActiveAssistedJob` reads the on-disk state and resumes tracking the active job if the persisted phase is non-terminal — this lets the in-app Updates pane keep showing progress across a Dispatch restart that the assisted update itself triggered.
+| Axis            | Values                                                                     | Set by                            |
+| --------------- | -------------------------------------------------------------------------- | --------------------------------- |
+| `setup_phase`   | `worktree` / `env` / `deps` / `session` / `null`                           | the manager's workspace step      |
+| `archive_phase` | `stopping` / `worktree-check` / `worktree-cleanup` / `finalizing` / `null` | `executeArchive` in agent manager |
 
 ## Persona Agent Lifecycle
 

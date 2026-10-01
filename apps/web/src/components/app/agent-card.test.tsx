@@ -430,10 +430,6 @@ describe("AgentCardHeader wiring", () => {
     });
     expect(screen.getByText("Job")).toBeTruthy();
     expect(screen.queryByText("Attention")).toBeNull();
-
-    rerender({ agent: makeAgent({ role: "assisted_update" }) });
-    expect(screen.getByText("Update")).toBeTruthy();
-    expect(screen.queryByText("Job")).toBeNull();
   });
 
   it("labels loop-job agents and describes their iteration cap", async () => {

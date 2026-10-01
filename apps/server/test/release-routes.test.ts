@@ -15,28 +15,14 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
-const { runCommandMock, evaluateMock, ensureCachedTarballMock } = vi.hoisted(
-  () => ({
-    runCommandMock: vi.fn(),
-    evaluateMock: vi.fn(),
-    ensureCachedTarballMock: vi.fn(),
-  })
-);
+const { runCommandMock, ensureCachedTarballMock } = vi.hoisted(() => ({
+  runCommandMock: vi.fn(),
+  ensureCachedTarballMock: vi.fn(),
+}));
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: runCommandMock,
 }));
-
-vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/update-migrations-evaluator.js")
-    >();
-  return {
-    ...actual,
-    evaluatePendingMigrations: evaluateMock,
-  };
-});
 
 vi.mock("../src/release-tarball-cache.js", async (importOriginal) => {
   const actual =
@@ -75,13 +61,6 @@ afterAll(async () => {
 
 beforeEach(async () => {
   runCommandMock.mockReset();
-  evaluateMock.mockReset();
-  evaluateMock.mockResolvedValue({
-    pending: [],
-    all: [],
-    appliedIds: new Set(),
-    errors: [],
-  });
   ensureCachedTarballMock.mockRejectedValue(
     new Error("artifact download disabled in route test")
   );
@@ -96,20 +75,18 @@ beforeEach(async () => {
 });
 
 describe("release metadata route handling", () => {
-  it("blocks tarball and assisted updates for an app-owned server, including force", async () => {
+  it("blocks tarball updates for an app-owned server", async () => {
     vi.stubEnv("DISPATCH_UPDATE_OWNER", "macos-app");
     try {
-      for (const endpoint of ["update", "assisted/launch", "assisted/phase"]) {
-        const response = await ctx.app.inject({
-          method: "POST",
-          url: `/api/v1/release/${endpoint}`,
-          headers: { cookie: sessionCookie },
-          payload: { tag: "v99.0.0", force: true },
-        });
-        expect(response.statusCode).toBe(409);
-        expect(response.json()).toMatchObject({ error: "MAC_APP_MANAGED" });
-      }
-      expect(evaluateMock).not.toHaveBeenCalled();
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: { cookie: sessionCookie },
+        payload: { tag: "v99.0.0" },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: "MAC_APP_MANAGED" });
+      expect(ensureCachedTarballMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();
     }
@@ -132,120 +109,6 @@ describe("release metadata route handling", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-  });
-
-  it("returns assisted metadata in /release/info when the release body is valid", async () => {
-    mockReleaseCommands({
-      releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: ["service_restarted"],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/release/info",
-      headers: { cookie: sessionCookie },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      latestTag: "v0.19.0",
-      updateAvailable: true,
-      assistedRequired: true,
-      assisted: {
-        mode: "required",
-        title: "Bun runtime migration",
-        requiredChecks: ["service_restarted"],
-        appliesFrom: "v0.18.0",
-      },
-    });
-  });
-
-  it("fails closed in /release/info when release metadata is malformed", async () => {
-    mockReleaseCommands({
-      releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody("{ not valid json }"),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/release/info",
-      headers: { cookie: sessionCookie },
-    });
-
-    expect(response.statusCode).toBe(500);
-    expect(response.json()).toMatchObject({
-      error: expect.stringContaining(
-        "Latest release has malformed assisted-update metadata"
-      ),
-    });
-  });
-
-  it("evaluates pending migrations on /release/info for authenticated viewers without repo admin access", async () => {
-    evaluateMock.mockResolvedValueOnce({
-      pending: [
-        {
-          filename: "001-example.yaml",
-          order: 1,
-          manifest: {
-            id: "example",
-            title: "Example migration",
-            summary: "Requires a manual follow-up step.",
-          },
-        },
-      ],
-      all: [],
-      appliedIds: new Set(),
-      errors: [],
-    });
-    mockReleaseCommands({
-      viewerPermission: "WRITE",
-      releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
-      releaseViews: {
-        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/release/info",
-      headers: { cookie: sessionCookie },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      isAdmin: false,
-      latestTag: "v0.19.0",
-      updateAvailable: true,
-      pendingMigrations: [
-        {
-          id: "example",
-          title: "Example migration",
-          summary: "Requires a manual follow-up step.",
-        },
-      ],
-      migrationsError: null,
-      assistedRequired: true,
-    });
-    expect(evaluateMock).toHaveBeenCalledWith(
-      "v0.19.0",
-      expect.objectContaining({ repo: "selfcontained/dispatch" })
-    );
   });
 
   describe("admin unreleased-commit enrichment", () => {
@@ -411,502 +274,67 @@ describe("release metadata route handling", () => {
     });
   });
 
-  it("rejects /release/update when the target release requires assisted flow", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: [],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
+  it("promotes through the workflow that also moves the macOS appcast", async () => {
+    vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
+    mockReleaseCommands({});
 
     const response = await ctx.app.inject({
       method: "POST",
-      url: "/api/v1/release/update",
+      url: "/api/v1/release/promote",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
+      payload: { tag: "v1.0.0" },
     });
+    vi.unstubAllEnvs();
 
-    expect(response.statusCode).toBe(409);
+    expect(response.statusCode).toBe(202);
     expect(response.json()).toMatchObject({
-      error: "ASSISTED_UPDATE_REQUIRED",
-      assisted: {
-        mode: "required",
-        title: "Bun runtime migration",
-      },
+      tag: "v1.0.0",
+      workflowUrl:
+        "https://github.com/selfcontained/dispatch/actions/workflows/promote-release.yml",
     });
-  });
-
-  it("rejects /release/update when the target release metadata is malformed", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody("{ not valid json }"),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      error: "ASSISTED_UPDATE_METADATA_INVALID",
-    });
-  });
-
-  it("creates structured assisted-update state for valid metadata on /release/assisted/launch", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: ["service_restarted"],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/assisted/launch",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({
-      agent: {
-        role: "assisted_update",
-      },
-      assisted: {
-        tag: "v0.19.0",
-        metadata: {
-          title: "Bun runtime migration",
-          mode: "required",
-        },
-        phase: "inspect",
-      },
-    });
-
-    const stateResponse = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
-    });
-    expect(stateResponse.statusCode).toBe(200);
-    expect(stateResponse.json()).toMatchObject({
-      state: {
-        tag: "v0.19.0",
-        metadata: {
-          title: "Bun runtime migration",
-        },
-      },
-    });
-
-    await ctx.app.inject({
-      method: "DELETE",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
-    });
-  });
-
-  it("rejects /release/assisted/launch when the target release metadata is malformed", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody("{ not valid json }"),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/assisted/launch",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      error: "ASSISTED_UPDATE_METADATA_INVALID",
-    });
-  });
-
-  it("allows /release/update when called with the assisted agent's bearer (takeover)", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: [],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    // 1. Launch sets the active update job to update-assisted for v0.19.0
-    //    and creates the agent that will own the bearer token.
-    const launchResp = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/assisted/launch",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-    expect(launchResp.statusCode).toBe(201);
-    const { agent } = launchResp.json() as { agent: { id: string } };
-
-    // 2. Without the takeover carve-out, the agent's own /release/update
-    //    call would 409 against its own active job. With the fix, it
-    //    proceeds as a normal update kick-off (202).
-    const auth = await import("../src/auth.js");
-    const authToken = await auth.getOrCreateAuthToken(ctx.pool);
-    const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
-
-    const updateResp = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: {
-        authorization: `Bearer ${bearer}`,
-        "content-type": "application/json",
-      },
-      payload: { tag: "v0.19.0" },
-    });
-
-    expect(updateResp.statusCode).toBe(202);
-    expect(updateResp.json()).toMatchObject({ ok: true });
-
-    // 3. Assisted state on disk survives the takeover so the agent's
-    //    later phase reports continue to update the canonical record.
-    const stateResp = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
-    });
-    expect(stateResp.json()).toMatchObject({
-      state: { tag: "v0.19.0", metadata: { mode: "required" } },
-    });
-
-    await ctx.app.inject({
-      method: "DELETE",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
-    });
-  });
-
-  it("rejects /release/update when bearer's tag does not match the active assisted job", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: [],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    const launchResp = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/assisted/launch",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-    expect(launchResp.statusCode).toBe(201);
-    const { agent } = launchResp.json() as { agent: { id: string } };
-
-    const auth = await import("../src/auth.js");
-    const authToken = await auth.getOrCreateAuthToken(ctx.pool);
-    const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
-
-    // The bearer token resolves to an active assisted-update agent, but
-    // the request asks to deploy a different tag than the one the agent
-    // was launched for. The token is bound to the assisted run's tag
-    // (CRU-146 review feedback #1235) — mismatched tags fail with 403
-    // before reaching the takeover guard. This keeps a stale token from
-    // bypassing the migration gate for an arbitrary tag once the
-    // assisted job has terminated.
-    let updateResp;
-    try {
-      updateResp = await ctx.app.inject({
-        method: "POST",
-        url: "/api/v1/release/update",
-        headers: {
-          authorization: `Bearer ${bearer}`,
-          "content-type": "application/json",
-        },
-        payload: { tag: "v0.20.0" },
-      });
-
-      expect(updateResp.statusCode).toBe(403);
-      expect(updateResp.json()).toMatchObject({
-        error: expect.stringContaining(
-          "Assisted update token is bound to a different tag"
-        ),
-      });
-    } finally {
-      // Always tear down the assisted job so a failed assertion doesn't
-      // leak the active update job into the next test (which then 409s
-      // on an unrelated active-job conflict).
-      await ctx.app.inject({
-        method: "DELETE",
-        url: "/api/v1/release/assisted/state",
-        headers: { cookie: sessionCookie },
-      });
-    }
-  });
-
-  it("fails closed with 503 when the migration evaluator throws", async () => {
-    // Round-1 review #1239: the migration gate must NOT silently fall
-    // through to the legacy path on evaluator failure — that inverts
-    // the security posture once the legacy fence is removed. The
-    // operator should see a clear "couldn't evaluate" error and retry.
-    evaluateMock.mockRejectedValueOnce(
-      new Error("simulated network failure fetching tarball")
+    const run = runCommandMock.mock.calls.find(
+      ([cmd, args]) => cmd === "gh" && args[0] === "workflow"
     );
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "normal",
-              title: "x",
-              summary: "x",
-              requiredChecks: [],
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
-    });
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({
-      error: "MIGRATION_EVALUATION_UNAVAILABLE",
-    });
+    expect(run?.[1]).toEqual([
+      "workflow",
+      "run",
+      "promote-release.yml",
+      "--repo",
+      "selfcontained/dispatch",
+      "--ref",
+      "main",
+      "--field",
+      "tag=v1.0.0",
+    ]);
+    expect(
+      runCommandMock.mock.calls.some(
+        ([cmd, args]) => cmd === "gh" && args[0] === "release"
+      )
+    ).toBe(false);
   });
 
-  it("rejects /release/update with ASSISTED_UPDATE_REQUIRED when migrations are pending", async () => {
-    evaluateMock.mockResolvedValueOnce({
-      pending: [
-        {
-          filename: "0001-bun-cutover.yaml",
-          order: 1,
-          manifest: {
-            id: "bun-cutover",
-            title: "Bun runtime cutover",
-            summary: "Switch runtime from Node to Bun.",
-            alreadySatisfied: { description: "x" },
-            instructions: ["x"],
-            validation: { requiredChecks: [] },
-            rollback: [],
-          },
-        },
-      ],
-      all: [],
-      appliedIds: new Set(),
-      errors: [],
-    });
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
-      },
-    });
-
-    const response = await ctx.app.inject({
+  it("stores the preview channel and rejects unknown channels", async () => {
+    const set = await ctx.app.inject({
       method: "POST",
-      url: "/api/v1/release/update",
+      url: "/api/v1/release/channel",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
+      payload: { channel: "preview" },
     });
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      error: "ASSISTED_UPDATE_REQUIRED",
-      pendingMigrations: [expect.objectContaining({ id: "bun-cutover" })],
+    expect(set.statusCode).toBe(200);
+    const get = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/release/channel",
+      headers: { cookie: sessionCookie },
     });
-  });
+    expect(get.json()).toEqual({ channel: "preview" });
 
-  it("allows /release/update when the installed version is below appliesFrom", async () => {
-    await writeReleaseStore({
-      tag: "v0.17.5",
-      deployedAt: "2026-04-01T00:00:00Z",
-    });
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: [],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
+    const bad = await ctx.app.inject({
       method: "POST",
-      url: "/api/v1/release/update",
+      url: "/api/v1/release/channel",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0" },
+      payload: { channel: "latest" },
     });
-
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({ ok: true });
-  });
-
-  it("allows /release/update with force=true to bypass mode=required gate", async () => {
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "required",
-              title: "Bun runtime migration",
-              summary: "Switch runtime from Node to Bun.",
-              requiredChecks: [],
-              appliesFrom: "v0.18.0",
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0", force: true },
-    });
-
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({ ok: true });
-  });
-
-  it("allows /release/update with force=true to bypass pending-migrations gate", async () => {
-    evaluateMock.mockResolvedValueOnce({
-      pending: [
-        {
-          filename: "0001-bun-cutover.yaml",
-          order: 1,
-          manifest: {
-            id: "bun-cutover",
-            title: "Bun runtime cutover",
-            summary: "Switch runtime from Node to Bun.",
-            alreadySatisfied: { description: "x" },
-            instructions: ["x"],
-            validation: { requiredChecks: [] },
-            rollback: [],
-          },
-        },
-      ],
-      all: [],
-      appliedIds: new Set(),
-      errors: [],
-    });
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0", force: true },
-    });
-
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({ ok: true });
-  });
-
-  it("allows /release/update with force=true to bypass migration evaluator failure", async () => {
-    evaluateMock.mockRejectedValueOnce(
-      new Error("simulated network failure fetching tarball")
-    );
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody(
-            JSON.stringify({
-              mode: "normal",
-              title: "x",
-              summary: "x",
-              requiredChecks: [],
-            })
-          ),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0", force: true },
-    });
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({ ok: true });
-  });
-
-  it("rejects /release/update with force=true when target metadata is malformed", async () => {
-    // force=true should not bypass the malformed-metadata error — that's a
-    // real correctness signal, not a "we couldn't check" signal.
-    mockReleaseCommands({
-      releaseViews: {
-        "v0.19.0": validReleaseView({
-          body: releaseBody("{ not valid json }"),
-        }),
-      },
-    });
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { tag: "v0.19.0", force: true },
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({
-      error: "ASSISTED_UPDATE_METADATA_INVALID",
-    });
+    expect(bad.statusCode).toBe(400);
   });
 
   describe("release-creation / update independence", () => {
@@ -981,6 +409,17 @@ describe("release metadata route handling", () => {
       expect(createResp.json()).toMatchObject({
         error: "An update is in progress; the server is about to restart.",
       });
+
+      const secondUpdate = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(secondUpdate.statusCode).toBe(409);
+      expect(secondUpdate.json()).toMatchObject({
+        error: "An update is already in progress.",
+      });
     });
   });
 });
@@ -994,16 +433,6 @@ async function writeReleaseStore(record: {
     JSON.stringify(record, null, 2) + "\n",
     "utf8"
   );
-}
-
-function releaseBody(block: string): string {
-  return `Notes before.
-
-\`\`\`dispatch-update
-${block}
-\`\`\`
-
-Notes after.`;
 }
 
 function validReleaseView({
@@ -1034,7 +463,7 @@ function mockReleaseCommands({
     "fetch",
     vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("/releases?per_page=20")) {
+      if (url.includes("/releases?per_page=")) {
         return new Response(
           JSON.stringify(
             releaseList.map((release) => ({
@@ -1042,7 +471,7 @@ function mockReleaseCommands({
               published_at: "2026-04-26T00:00:00Z",
               html_url: `https://github.com/selfcontained/dispatch/releases/tag/${release.tagName}`,
               prerelease: release.isPrerelease,
-              assets: [{ name: "dispatch-release.tar.gz" }],
+              assets: [{ name: "dispatch-server.tar.gz" }],
             }))
           )
         );
@@ -1143,6 +572,13 @@ function mockReleaseCommands({
         args.includes("--sort=-version:refname")
       ) {
         return { exitCode: 0, stdout: "v0.19.0\nv0.18.0\n", stderr: "" };
+      }
+      if (
+        cmd === "gh" &&
+        args[0] === "workflow" &&
+        args[2] === "promote-release.yml"
+      ) {
+        return { exitCode: 0, stdout: "", stderr: "" };
       }
       if (opts?.allowedExitCodes?.includes(128)) {
         return { exitCode: 128, stdout: "", stderr: "" };

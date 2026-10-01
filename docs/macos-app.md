@@ -4,7 +4,7 @@ Dispatch for macOS 13+ is a menu bar app. It bundles the same Bun server used by
 the binary release, a private PostgreSQL 17 cluster, and Sparkle for updates, and
 opens the web app in the default browser. There is no embedded webview. Linux
 installation and release artifacts are unchanged. Release channels, feeds, and
-publishing are described in [macOS Releases](macos-dogfood.md).
+publishing are described in [macOS Releases](macos-releases.md).
 
 ## What ships
 
@@ -116,7 +116,7 @@ For Intel, build `bun-darwin-x64` and set `DISPATCH_MAC_ARCH=x64` when packaging
 `DISPATCH_MAC_SERVER_BINARY` can select an already-built executable; its
 architecture is checked before packaging. `DISPATCH_MAC_BUILD` supplies a
 numeric bundle build version (defaults to 1). Local builds do not include Sparkle
-unless `DISPATCH_SPARKLE_SDK` is set; see [macOS Releases](macos-dogfood.md).
+unless `DISPATCH_SPARKLE_SDK` is set; see [macOS Releases](macos-releases.md).
 
 ## Signing for distribution
 
@@ -141,9 +141,8 @@ set `DISPATCH_NOTARY_KEYCHAIN` to its path alongside the profile name.
 
 ## Updates and removal
 
-Sparkle owns app updates. The server sets `DISPATCH_UPDATE_OWNER=macos-app`; web
-tarball updates and assisted-update launch/phase routes reject requests, including
-forced updates. Before Sparkle replaces the bundle, the app records whether the
+Sparkle owns app updates. The server sets `DISPATCH_UPDATE_OWNER=macos-app`; the web
+tarball update route rejects requests. Before Sparkle replaces the bundle, the app records whether the
 server was running and stops the service; after relaunch it re-registers the
 service, restores that state, and confirms health before clearing the recovery
 record. If that fails, **Retry Update Recovery** appears in the menu.

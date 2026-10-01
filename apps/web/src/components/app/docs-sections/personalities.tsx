@@ -82,10 +82,6 @@ export function PersonalitiesContent() {
             <strong>Job runs</strong> spawned by the scheduler or a manual{" "}
             <strong>Run now</strong>.
           </li>
-          <li>
-            <strong>Agent-assisted update</strong> agents created from the
-            Updates pane.
-          </li>
         </ul>
       </Section>
     </>

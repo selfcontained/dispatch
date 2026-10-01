@@ -65,10 +65,10 @@ if (process.env.DISPATCH_SPARKLE_PROBE_SDK)
 if (sparkleSDK) {
   if (
     !["stable", "preview"].includes(
-      process.env.DISPATCH_UPDATE_CHANNEL ?? "preview"
+      process.env.DISPATCH_DEFAULT_UPDATE_CHANNEL ?? "stable"
     )
   )
-    throw new Error("Unknown update channel");
+    throw new Error("Unknown default update channel");
   const digest = createHash("sha256")
     .update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz")))
     .digest("hex");
@@ -185,7 +185,10 @@ try {
     for (const [key, value] of Object.entries({
       SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
       SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
-      DispatchUpdateChannel: process.env.DISPATCH_UPDATE_CHANNEL ?? "preview",
+      // The channel a fresh install follows until the person picks one in
+      // Settings; Sparkle reads the choice through allowedChannels.
+      DispatchDefaultUpdateChannel:
+        process.env.DISPATCH_DEFAULT_UPDATE_CHANNEL ?? "stable",
     }))
       run("plutil", ["-insert", key, "-string", value, plist]);
     for (const key of [
@@ -248,7 +251,7 @@ try {
   run("codesign", [...signing, app]);
   run("codesign", ["--verify", "--deep", "--strict", app]);
   const zipName = sparkleSDK
-    ? `dispatch-macos-acp-${build}-${arch}.zip`
+    ? `dispatch-macos-${build}-${arch}.zip`
     : `dispatch-macos-${version}-${arch}.zip`;
   const zip = path.join(temporary, zipName);
   run("ditto", ["-c", "-k", "--keepParent", app, zip]);

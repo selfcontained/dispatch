@@ -1,10 +1,8 @@
 import type {
-  ReleaseInfo,
   ReleaseJob,
   ReleaseProgress,
   ReleaseVersionType,
 } from "@/hooks/use-release-stream";
-import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
 import { formatBytes } from "../../../../server/src/shared/lib/format-bytes";
 
 export { formatBytes };
@@ -157,41 +155,4 @@ export function progressPercent(
     return null;
   }
   return Math.min(100, (progress.bytesReceived / progress.totalBytes) * 100);
-}
-
-/**
- * True when the standard updater would need an explicit force to run — the
- * release either demands the assisted flow or carries pending migrations.
- */
-export function isForceRequired(
-  info: ReleaseInfo | ReleaseInfoSnapshot
-): boolean {
-  return (
-    info.assistedRequired === true || (info.pendingMigrations?.length ?? 0) > 0
-  );
-}
-
-/** True when the agent-assisted update should be the primary offered action. */
-export function isAssistedPreferred(
-  info: ReleaseInfo | ReleaseInfoSnapshot
-): boolean {
-  return isForceRequired(info) || info.assisted?.mode === "recommended";
-}
-
-export function describeForceTriggers(
-  info: ReleaseInfo | ReleaseInfoSnapshot
-): string {
-  const migrationCount = info.pendingMigrations?.length ?? 0;
-  if (migrationCount > 0) {
-    return `has ${migrationCount} complex update step${
-      migrationCount === 1 ? "" : "s"
-    }; safer with the agent`;
-  }
-  if (info.assisted?.mode === "required") {
-    return "needs the agent for a safe update";
-  }
-  if (info.migrationsError) {
-    return "couldn't be checked for complex update steps";
-  }
-  return "is gated by the assisted-update flow";
 }

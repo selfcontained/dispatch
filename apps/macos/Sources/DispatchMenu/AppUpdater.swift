@@ -163,6 +163,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         log("recovery failed readiness; pending intent retained")
         throw ConfigurationError("The updated server could not start. Your settings and database are preserved. Resolve the problem in server.log, then choose Retry Update Recovery.")
     }
+    /// Read per check, so a channel picked in Settings applies to the next one.
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
     }

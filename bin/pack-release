@@ -25,7 +25,7 @@ Packs a release tarball from the already-built Bun binaries.
 Requires that 'pnpm run build:bun' has already been run.
 
 Options:
-  --output <path>  Output tarball path (default: dispatch-release.tar.gz in repo root)
+  --output <path>  Output tarball path (default: dispatch-server.tar.gz in repo root)
 USAGE
 }
 
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-release.tar.gz}"
+OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-server.tar.gz}"
 
 # Validate that builds exist
 missing=()
@@ -75,13 +75,6 @@ if [[ -f "release-notes/current.md" ]]; then
   echo "release-notes/current.md" >> "$MANIFEST"
 fi
 
-# Conditionally include update migrations if any exist. The runtime opens
-# the tarball at "Check for Updates" time and extracts only update-migrations/
-# to determine whether assisted update is required for the target tag.
-if [[ -d "update-migrations" ]]; then
-  echo "update-migrations" >> "$MANIFEST"
-fi
-
 # BSD tar on macOS otherwise stores Finder/xattr metadata (e.g. the
 # com.apple.provenance xattr) as LIBARCHIVE.xattr.*/SCHILY.xattr.* pax headers
 # in the tar stream. --no-xattrs stops that (modern bsdtar routes Finder/mac
@@ -90,7 +83,7 @@ fi
 # GNU tar on a Linux host prints an "Ignoring unknown extended header keyword"
 # warning per entry when it extracts or verifies an otherwise perfectly valid
 # release. COPYFILE_DISABLE=1 separately stops ._ AppleDouble sidecar files.
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" -T "$MANIFEST"
 
 # Print summary
 SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')

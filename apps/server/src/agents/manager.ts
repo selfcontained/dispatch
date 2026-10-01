@@ -1597,7 +1597,7 @@ export class AgentManager {
     );
     await mkdir(filesDir, { recursive: true });
     const personality =
-      agent.persona || opts.jobRunId || agent.role === "assisted_update"
+      agent.persona || opts.jobRunId
         ? null
         : await getActivePersonality(this.pool);
     const systemPrompt = buildSystemPrompt({
@@ -1627,7 +1627,6 @@ export class AgentManager {
     }
     const { env, pathPrefix } = buildLaunchEnv({
       agentId: agent.id,
-      role: agent.role,
       filesDir,
       engine: agent.type,
       config: this.config,

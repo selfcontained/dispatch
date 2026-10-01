@@ -25,6 +25,8 @@ final class SettingsWindowController: NSWindowController {
     private let databaseDetails = NSTextField(wrappingLabelWithString: "")
     private let savedMessage = NSTextField(wrappingLabelWithString: "")
     private let approval = NSButton(title: "Allow in System Settings…", target: nil, action: nil)
+    private let channel = NSPopUpButton(frame: .zero, pullsDown: false)
+    var updateChannels: (get: () -> UpdateChannel, set: (UpdateChannel) -> Void) = (get: { UpdateChannel.current() }, set: { $0.save() })
     private var saveButtons: [NSButton] = []
 
     init(configuration: Configuration) {
@@ -59,12 +61,16 @@ final class SettingsWindowController: NSWindowController {
         ])
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
-        let channel = Bundle.main.object(forInfoDictionaryKey: "DispatchUpdateChannel") as? String
+        channel.addItems(withTitles: UpdateChannel.allCases.map(\.title))
+        channel.target = self; channel.action = #selector(changeChannel)
+        channel.setAccessibilityLabel("Update channel")
         addTab("Support", to: tabs, views: [
-            card("Dispatch", [heading("Version \(version)"), note("Build \(build)" + (channel.map { " · \($0)" } ?? ""))]),
+            card("Dispatch", [heading("Version \(version)"), note("Build \(build)")]),
+            card("Updates", [row([NSTextField(labelWithString: "Channel"), channel]), note("Stable gets promoted releases. Preview gets every release as soon as it ships.")]),
             card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(AppPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
         ])
         updateDetails(configuration)
+        refreshChannel()
         if configuration.databaseURL.isEmpty { tabs.selectTabViewItem(at: 1) }
         window.center()
     }
@@ -173,6 +179,8 @@ final class SettingsWindowController: NSWindowController {
         tabs.addTabViewItem(tab)
     }
     private func copy(_ text: String) { copyText(text) }
+    func refreshChannel() { channel.selectItem(at: UpdateChannel.allCases.firstIndex(of: updateChannels.get()) ?? 0) }
+    @objc private func changeChannel() { updateChannels.set(UpdateChannel.allCases[max(channel.indexOfSelectedItem, 0)]) }
     @objc private func changeLogin() { onLoginChange?() }
     @objc private func changeServerLogin() { onServerLoginChange?(serverLogin.state == .on) }
     @objc private func saveSettings() { onSave?(fields) }

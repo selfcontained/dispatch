@@ -1,9 +1,7 @@
 import { serverOrigin } from "../../server-origin.js";
 import path from "node:path";
 
-import { createReleaseUpdateToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
-import type { AgentRole } from "../types.js";
 import type { AcpEngineId } from "./engine-spec.js";
 
 /**
@@ -13,13 +11,9 @@ import type { AcpEngineId } from "./engine-spec.js";
  */
 export function buildLaunchEnv(input: {
   agentId: string;
-  role: AgentRole;
   filesDir: string;
   engine: AcpEngineId;
-  config: Pick<
-    AppConfig,
-    "port" | "tls" | "dispatchBinDir" | "authToken" | "listenHosts"
-  >;
+  config: Pick<AppConfig, "port" | "tls" | "dispatchBinDir" | "listenHosts">;
   base?: NodeJS.ProcessEnv;
 }): { env: Record<string, string>; pathPrefix: string[] } {
   const base = input.base ?? process.env;
@@ -33,15 +27,6 @@ export function buildLaunchEnv(input: {
   if (input.config.listenHosts) {
     env.DISPATCH_API_URL = serverOrigin(input.config);
     env.DISPATCH_API_BASE = env.DISPATCH_API_URL;
-  }
-  // The assisted-update agent drives the release API directly; its prompt
-  // tells it to curl with these.
-  if (input.role === "assisted_update") {
-    env.DISPATCH_API_URL = serverOrigin(input.config);
-    env.DISPATCH_RELEASE_UPDATE_TOKEN = createReleaseUpdateToken(
-      input.config.authToken,
-      input.agentId
-    );
   }
   // Under TLS the MCP URL is loopback https; the child needs the CA or
   // every Dispatch tool call fails verification.

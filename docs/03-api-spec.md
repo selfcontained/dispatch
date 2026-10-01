@@ -382,26 +382,22 @@ The Chrome extension (developer preview) pairs with Dispatch and submits page fe
 
 ## Release Management
 
-| Method | Path                        | Description                                                                          |
-| ------ | --------------------------- | ------------------------------------------------------------------------------------ |
-| GET    | `/release/status`           | Current deployed release tag and timestamp                                           |
-| GET    | `/release/info`             | Latest available version and unreleased commits                                      |
-| GET    | `/release/cached-info`      | Return the latest auto-check snapshot (or `null` if no check has run yet)            |
-| GET    | `/release/auto-update-mode` | Get automatic update-check mode (`off` or `check`)                                   |
-| POST   | `/release/auto-update-mode` | Set automatic update-check mode                                                      |
-| GET    | `/release/channel`          | Get current release channel (`stable` or `latest`)                                   |
-| POST   | `/release/channel`          | Set release channel                                                                  |
-| GET    | `/release/admin-check`      | Check if current instance is a release admin                                         |
-| POST   | `/release/promote`          | Promote a pre-release to stable (admin only)                                         |
-| GET    | `/releases`                 | List recent GitHub releases                                                          |
-| POST   | `/release`                  | Trigger new release (`versionType`: major/minor/patch)                               |
-| POST   | `/release/update`           | One-click update to a specific tag (gated — see below)                               |
-| POST   | `/release/assisted/launch`  | Launch a full-access agent on the production checkout to perform an assisted update  |
-| POST   | `/release/assisted/phase`   | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
-| GET    | `/release/assisted/state`   | Read the current assisted-update state (tag, phase, notes, checks)                   |
-| DELETE | `/release/assisted/state`   | Clear the persisted assisted-update state                                            |
-| GET    | `/release/create/stream`    | SSE stream for release-creation progress (backs the admin Releases page)             |
-| GET    | `/release/update/stream`    | SSE stream for update-apply progress (backs the all-users Updates page)              |
+| Method | Path                        | Description                                                               |
+| ------ | --------------------------- | ------------------------------------------------------------------------- |
+| GET    | `/release/status`           | Current deployed release tag and timestamp                                |
+| GET    | `/release/info`             | Latest available version and unreleased commits                           |
+| GET    | `/release/cached-info`      | Return the latest auto-check snapshot (or `null` if no check has run yet) |
+| GET    | `/release/auto-update-mode` | Get automatic update-check mode (`off` or `check`)                        |
+| POST   | `/release/auto-update-mode` | Set automatic update-check mode                                           |
+| GET    | `/release/channel`          | Get current release channel (`stable` or `preview`)                       |
+| POST   | `/release/channel`          | Set release channel                                                       |
+| GET    | `/release/admin-check`      | Check if current instance is a release admin                              |
+| POST   | `/release/promote`          | Promote a pre-release to stable (admin only)                              |
+| GET    | `/releases`                 | List recent GitHub releases                                               |
+| POST   | `/release`                  | Trigger new release (`versionType`: major/minor/patch)                    |
+| POST   | `/release/update`           | One-click update to a specific tag                                        |
+| GET    | `/release/create/stream`    | SSE stream for release-creation progress (backs the admin Releases page)  |
+| GET    | `/release/update/stream`    | SSE stream for update-apply progress (backs the all-users Updates page)   |
 
 ### `POST /release/auto-update-mode`
 
@@ -414,49 +410,18 @@ The Chrome extension (developer preview) pairs with Dispatch and submits page fe
 ### `POST /release/update`
 
 ```json
-{ "tag": "v0.18.16" }
+{ "tag": "v1.0.1" }
 ```
 
-Returns `202 Accepted` and runs the update asynchronously. Returns `409 Conflict` with a structured error code when the path is gated:
+Returns `202 Accepted` and runs the update asynchronously: download and verify the release artifact, atomically replace the fixed executable (keeping `.previous`), then restart the service. Returns `409` if an update is already in progress, and `409 MAC_APP_MANAGED` on a Mac app install, which updates through the app instead. On Linux the job fails before replacing anything unless `dispatch.service` has `KillMode=process` loaded, so running agents survive the restart.
 
-| Error code                         | Reason                                                                                                     |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `ASSISTED_UPDATE_REQUIRED`         | Target release ships unapplied migrations or declares `mode: required` — caller must use `assisted/launch` |
-| `ASSISTED_UPDATE_METADATA_INVALID` | Target release's `dispatch-update` metadata block is malformed                                             |
-
-Also returns `503` with `MIGRATION_EVALUATION_UNAVAILABLE` when the target tarball can't be downloaded or parsed (transient — retry later).
-
-The assisted-update agent itself bypasses the gate by sending a bearer token (`Authorization: Bearer <token>`) bound to a specific tag.
-
-### `POST /release/assisted/launch`
+### `POST /release/channel`
 
 ```json
-{ "tag": "v0.18.16" }
+{ "channel": "preview" }
 ```
 
-Creates a full-access agent on the server's own checkout, attaches an assisted-update state record, and returns `201` with `{ agent, assisted }`. Subject to several conflict checks:
-
-- `409` if a release/update job is already in progress, if another assisted launch is racing, or if an assisted-update agent is already active on the production checkout.
-- `409 ASSISTED_UPDATE_MIGRATIONS_INVALID` if the target tarball's `update-migrations/*.yaml` manifests fail to parse.
-- `409 ASSISTED_UPDATE_METADATA_INVALID` if there are no migrations and the `dispatch-update` metadata block is malformed.
-- `422` if no CLI agent type is enabled in settings.
-
-### `POST /release/assisted/phase`
-
-```json
-{
-  "token": "<assisted-state token>",
-  "phase": "apply",
-  "note": "Running migration 0001-bun-cutover.",
-  "error": null
-}
-```
-
-Token-authenticated callback used only by the launched assisted-update agent to advance its phase machine. Phases: `inspect → prepare → apply → restarting → validate → done`, plus `blocked` and `rollback` for failure paths. When the agent reports `validate`, the server runs the metadata-declared `requiredChecks` and gates the success transition.
-
-### `GET /release/assisted/state`
-
-Returns `{ "state": <AssistedUpdateState> | null }`.
+`stable` follows promoted releases; `preview` follows every published release, prereleases included. When nothing has been saved, the installer's `DISPATCH_UPDATE_CHANNEL` decides, then `stable`. A saved pre-1.0 value of `latest` reads as `preview`.
 
 ## Jobs
 

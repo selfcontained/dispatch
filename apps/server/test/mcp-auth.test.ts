@@ -25,7 +25,7 @@ async function buildApp(): Promise<FastifyInstance> {
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      if (shouldAcceptApiBearerToken(url, token, SERVER_AUTH_TOKEN)) {
+      if (shouldAcceptApiBearerToken(token, SERVER_AUTH_TOKEN)) {
         return;
       }
       if (isScopedMcpRoute(url)) {
