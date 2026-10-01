@@ -5,12 +5,12 @@ import XCTest
 
 final class LocalDatabaseTests: XCTestCase {
     func testIsolatedModeCannotUseUserState() throws {
-        defer { PreviewPaths.testRoot = nil }
-        for path in ["/Users/brad/.dispatch-mac-preview", "/tmp", "/tmp/something-else", "/tmp/dispatch-macos-test-a/nested"] {
-            XCTAssertThrowsError(try PreviewPaths.enableIsolatedTest(root: path))
+        defer { AppPaths.testRoot = nil }
+        for path in ["/Users/brad/.dispatch-mac", "/tmp", "/tmp/something-else", "/tmp/dispatch-macos-test-a/nested"] {
+            XCTAssertThrowsError(try AppPaths.enableIsolatedTest(root: path))
         }
-        try PreviewPaths.enableIsolatedTest(root: "/tmp/dispatch-macos-test-unit")
-        XCTAssertEqual(PreviewPaths.root.lastPathComponent, "dispatch-macos-test-unit")
+        try AppPaths.enableIsolatedTest(root: "/tmp/dispatch-macos-test-unit")
+        XCTAssertEqual(AppPaths.root.lastPathComponent, "dispatch-macos-test-unit")
     }
 
     func testOldConfigurationStillUsesExternalDatabase() throws {
@@ -35,6 +35,45 @@ final class LocalDatabaseTests: XCTestCase {
         var invalid = config
         invalid.databaseURL = config.databaseURL.replacingOccurrences(of: "127.0.0.1", with: "example.com")
         XCTAssertThrowsError(try invalid.validate())
+    }
+
+    func testPreReleaseRoleAndDatabaseAreRenamedWithDataKept() throws {
+        guard let path = ProcessInfo.processInfo.environment["DISPATCH_TEST_POSTGRES_BUNDLE"] else {
+            throw XCTSkip("Set DISPATCH_TEST_POSTGRES_BUNDLE to exercise the real bundled PostgreSQL.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-rename-test-\(UUID().uuidString)")
+        let binaries = URL(fileURLWithPath: path)
+        var database: LocalDatabase? = LocalDatabase(root: root, binaries: binaries)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Set up a cluster the way pre-release builds did, then use the current code path to fill it.
+        let current = try database!.configuration(port: 6768, instanceID: UUID().uuidString)
+        try database!.start(current)
+        XCTAssertEqual(try sql("CREATE TABLE kept (value text); INSERT INTO kept VALUES ('agents');", configuration: current, binaries: binaries).0, 0)
+        let legacyURL = current.databaseURL.replacingOccurrences(of: LocalDatabase.role, with: "dispatch_preview")
+        // Build the legacy identity from the current one: rename via a helper superuser.
+        let password = URLComponents(string: current.databaseURL)!.password!
+        XCTAssertEqual(try sql("CREATE ROLE helper SUPERUSER LOGIN PASSWORD '\(password)'", configuration: current, binaries: binaries, database: "postgres").0, 0)
+        var helper = URLComponents(string: current.databaseURL)!; helper.user = "helper"
+        var asHelper = current; asHelper.databaseURL = helper.string!
+        XCTAssertEqual(try sql("ALTER ROLE \(LocalDatabase.role) RENAME TO dispatch_preview", configuration: asHelper, binaries: binaries, database: "postgres").0, 0)
+        XCTAssertEqual(try sql("ALTER DATABASE \(LocalDatabase.role) RENAME TO dispatch_preview", configuration: asHelper, binaries: binaries, database: "postgres").0, 0)
+        var legacy = current; legacy.databaseURL = legacyURL
+        XCTAssertEqual(try sql("DROP ROLE helper", configuration: legacy, binaries: binaries, database: "postgres").0, 0)
+        try database!.stop()
+        database = nil // Releases the setup lock for the migration.
+        try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent("local-database.json"))
+
+        let renamed = try XCTUnwrap(try LocalDatabase(root: root, binaries: binaries).migrateLegacyRole())
+        XCTAssertEqual(URLComponents(string: renamed)?.user, LocalDatabase.role)
+        XCTAssertNil(try LocalDatabase(root: root, binaries: binaries).migrateLegacyRole(), "A second run has nothing to rename")
+        var migrated = current; migrated.databaseURL = renamed
+        XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("local-database.json")), migrated)
+        let after = LocalDatabase(root: root, binaries: binaries)
+        defer { try? after.stop() }
+        try after.start(migrated)
+        XCTAssertEqual(try sql("SELECT value FROM kept", configuration: migrated, binaries: binaries).1.trimmingCharacters(in: .whitespacesAndNewlines), "agents")
+        XCTAssertEqual(try sql("SELECT count(*) FROM pg_roles WHERE rolname IN ('dispatch_preview', 'dispatch_mac_migration')", configuration: migrated, binaries: binaries).1.trimmingCharacters(in: .whitespacesAndNewlines), "0")
+        XCTAssertNotEqual(try sql("SELECT 1", configuration: legacy, binaries: binaries, database: "postgres").0, 0)
     }
 
     func testBundledDatabaseCreationRestartAuthenticationAndRetry() throws {
@@ -136,12 +175,12 @@ final class LocalDatabaseTests: XCTestCase {
         XCTAssertEqual(try database.configuration(port: config.port, instanceID: config.instanceID), config)
     }
 
-    private func sql(_ statement: String, configuration: Configuration, binaries: URL, password: String? = nil) throws -> (Int32, String) {
+    private func sql(_ statement: String, configuration: Configuration, binaries: URL, password: String? = nil, database: String = LocalDatabase.role) throws -> (Int32, String) {
         let url = URLComponents(string: configuration.databaseURL)!
         let process = Process()
         process.executableURL = binaries.appendingPathComponent("bin/psql")
         process.arguments = ["-X", "-A", "-t", "-w", "-v", "ON_ERROR_STOP=1", "-c", statement]
-        process.environment = ["PGHOST": "127.0.0.1", "PGPORT": String(url.port!), "PGUSER": url.user!, "PGPASSWORD": password ?? url.password!, "PGDATABASE": "dispatch_preview", "PGCONNECT_TIMEOUT": "5"]
+        process.environment = ["PGHOST": "127.0.0.1", "PGPORT": String(url.port!), "PGUSER": url.user!, "PGPASSWORD": password ?? url.password!, "PGDATABASE": database, "PGCONNECT_TIMEOUT": "5"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

@@ -20,6 +20,11 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     #if SPARKLE_UPDATES
     private var appUpdater: AppUpdater?
     #endif
+    /// A pre-release install is being moved to the release identity.
+    private var migrating = false
+    /// Blocks setup until a failed migration is retried, so it never creates a second database.
+    private var migrationError: String?
+    private var migratedServerRunning = false
     private var updateBusy: Bool {
         #if SPARKLE_UPDATES
         return appUpdater?.controlsLocked == true
@@ -27,21 +32,41 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return false
         #endif
     }
-    private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.preview.server.plist")
+    private var controlsLocked: Bool { migrating || migrationError != nil || updateBusy }
+    private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.mac.server.plist")
     private var stopping: Bool { runtime?.phase == "stopping" }
     private var active: Bool { runtime?.isActive == true || ready }
     private var serverURL: URL { externalURL ?? runtime?.configuration?.serverURL ?? legacyActiveConfiguration?.serverURL ?? configuration.serverURL }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        do {
-            if let value = ProcessInfo.processInfo.environment["DISPATCH_MENU_VALIDATION_URL"] { externalURL = try validationURL(value) }
-            else if FileManager.default.fileExists(atPath: PreviewPaths.configuration.path) { configuration = try Configuration.read(from: PreviewPaths.configuration) }
-        } catch { configurationError = error.localizedDescription }
+        guard ProcessInfo.processInfo.environment["DISPATCH_MENU_VALIDATION_URL"] == nil, AppPaths.testRoot == nil, LegacyMigration().pending else {
+            finishLaunching(); return
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = dispatchStatusIcon()
+        migrating = true; status = "Moving your data…"; rebuildMenu()
+        Task {
+            do {
+                try requireInstalledApp()
+                migratedServerRunning = try await LegacyInstall.migrate()
+            } catch { migrationError = error.localizedDescription }
+            migrating = false
+            finishLaunching()
+        }
+    }
+    private func finishLaunching() {
+        do {
+            if let value = ProcessInfo.processInfo.environment["DISPATCH_MENU_VALIDATION_URL"] { externalURL = try validationURL(value) }
+            else if FileManager.default.fileExists(atPath: AppPaths.configuration.path) { configuration = try Configuration.read(from: AppPaths.configuration) }
+        } catch { configurationError = error.localizedDescription }
+        if let migrationError { configurationError = migrationError }
+        if statusItem == nil {
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            statusItem.button?.image = dispatchStatusIcon()
+        }
         rebuildMenu()
         refresh()
-        if externalURL == nil && configuration.databaseURL.isEmpty { DispatchQueue.main.async { self.showSettings() } }
+        if externalURL == nil && configuration.databaseURL.isEmpty && migrationError == nil { DispatchQueue.main.async { self.showSettings() } }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
         // Standard responder actions support copying/pasting in native settings fields.
         let main = NSMenu()
@@ -53,16 +78,17 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         main.addItem(edit)
         NSApp.mainMenu = main
         // Register an idle service once, so choosing login startup later only
-        // changes a preference. It does not start a server on this launch.
-        if externalURL == nil && PreviewPaths.testRoot == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: PreviewPaths.root).path) {
+        // changes a preference. It does not start a server on this launch, unless it
+        // restores the state of a migrated pre-release install.
+        if externalURL == nil && AppPaths.testRoot == nil && migrationError == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: AppPaths.root).path) {
             do {
                 try requireInstalledApp()
-                try ServiceRequest(start: false).save()
+                try ServiceRequest(start: migratedServerRunning).save()
                 try service.register()
             } catch { configurationError = error.localizedDescription }
         }
         #if SPARKLE_UPDATES
-        if externalURL == nil && PreviewPaths.testRoot == nil {
+        if externalURL == nil && AppPaths.testRoot == nil {
             let updater = AppUpdater(service: service)
             updater.wasRunning = { [weak self] in self?.ready == true || (ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping") }
             updater.onChange = { [weak self] in self?.rebuildMenu() }
@@ -90,25 +116,25 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         address.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")
         address.toolTip = "Copy address"
         menu.addItem(address)
-        if externalURL == nil { menu.addItem(item(stopping ? "Stopping…" : active ? "Stop Server" : "Start Server", active ? #selector(stopServer) : #selector(startServer), enabled: !changingService && !stopping && !updateBusy)) }
+        if externalURL == nil { menu.addItem(item(stopping ? "Stopping…" : active ? "Stop Server" : "Start Server", active ? #selector(stopServer) : #selector(startServer), enabled: !changingService && !stopping && !controlsLocked)) }
         menu.addItem(.separator())
         let settingsItem = item("Settings…", #selector(showSettings)); settingsItem.keyEquivalent = ","
         menu.addItem(settingsItem)
         #if SPARKLE_UPDATES
         if let updater = appUpdater {
             menu.addItem(item(updater.busy ? "Updating…" : "Check for Updates…", #selector(checkForUpdates), enabled: updater.canCheck))
-            let automatic = item("Install Updates Automatically", #selector(toggleAutomaticUpdates), enabled: !updateBusy)
+            let automatic = item("Install Updates Automatically", #selector(toggleAutomaticUpdates), enabled: !controlsLocked)
             automatic.state = updater.automatic ? .on : .off
             menu.addItem(automatic)
             if updater.needsRecovery { menu.addItem(item("Retry Update Recovery", #selector(retryUpdate), enabled: !updater.busy)) }
         }
         #endif
-        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !updateBusy))
+        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !migrating && !updateBusy))
     }
     private func refresh() {
-        guard !checking else { return }
+        guard !checking, !migrating else { return }
         if externalURL == nil {
-            if let saved = try? Configuration.read(from: PreviewPaths.configuration) { configuration = saved; configurationError = nil }
+            if let saved = try? Configuration.read(from: AppPaths.configuration) { configuration = saved; configurationError = nil }
             runtime = ServiceRuntime.read()
             if runtime != nil { legacyActiveConfiguration = nil }
         }
@@ -155,7 +181,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             settings?.onSave = { [weak self] fields in self?.saveConfiguration(fields) }
             settings?.onApproval = { SMAppService.openSystemSettingsLoginItems() }
-            settings?.onDataFolder = { NSWorkspace.shared.open(PreviewPaths.root) }
+            settings?.onDataFolder = { NSWorkspace.shared.open(AppPaths.root) }
             settings?.onStartStop = { [weak self] in
                 guard let self else { return }
                 if self.active { self.stopServer() } else { self.startServer() }
@@ -164,44 +190,44 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateSettings(); settings?.showWindow(nil); NSApp.activate(ignoringOtherApps: true); settings?.window?.makeKeyAndOrderFront(nil)
     }
     private func updateSettings() {
-        settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil && !updateBusy, canSave: externalURL == nil && !updateBusy, status: status, active: active,
-                         loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && PreviewPaths.testRoot == nil && !updateBusy,
+        settings?.update(configuration: configuration, runningConfiguration: runtime?.configuration ?? legacyActiveConfiguration, displayURL: serverURL, canControlServer: externalURL == nil && !controlsLocked, canSave: externalURL == nil && !controlsLocked, status: status, active: active,
+                         loginEnabled: SMAppService.mainApp.status == .enabled, canChangeLogin: externalURL == nil && AppPaths.testRoot == nil && !controlsLocked,
                          needsApproval: service.status == .requiresApproval, busy: changingService,
                          serverAtLogin: StartupPreferences.read().startServerAtLogin, stopping: stopping)
     }
     private func saveConfiguration(_ fields: SetupFields) {
-        guard externalURL == nil, !changingService, !updateBusy else { return }
+        guard externalURL == nil, !changingService, !controlsLocked else { return }
         do {
             guard let port = Int(fields.port.stringValue) else { throw ConfigurationError("Enter a valid port number.") }
             var candidate: Configuration
             if fields.external.state == .on {
                 candidate = Configuration(port: port, databaseURL: fields.database.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: configuration.instanceID)
-            } else if let local = try? Configuration.read(from: PreviewPaths.root.appendingPathComponent("local-database.json")) {
+            } else if let local = try? Configuration.read(from: AppPaths.root.appendingPathComponent("local-database.json")) {
                 candidate = local; candidate.port = port; candidate.instanceID = configuration.instanceID
             } else {
                 let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
                 candidate = try database.configuration(port: port, instanceID: configuration.instanceID)
             }
             candidate.hosts = fields.selectedHosts
-            try candidate.save(to: PreviewPaths.configuration)
+            try candidate.save(to: AppPaths.configuration)
             configuration = candidate; configurationError = nil
             settings?.didSave(candidate)
             refresh()
         } catch { showError(error.localizedDescription) }
     }
     private func requireInstalledApp() throws {
-        if PreviewPaths.testRoot != nil { return }
+        if AppPaths.testRoot != nil { return }
         guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") || Bundle.main.bundleURL.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path + "/") else {
             throw ConfigurationError("Move Dispatch to Applications and open it there.")
         }
     }
     @objc private func startServer() {
-        guard !changingService, !stopping, !updateBusy, externalURL == nil else { return }
+        guard !changingService, !stopping, !controlsLocked, externalURL == nil else { return }
         if configuration.databaseURL.isEmpty { showSettings(); return }
         sendServiceCommand(start: true)
     }
     @objc private func stopServer() {
-        guard !changingService, !stopping, !updateBusy, externalURL == nil else { return }
+        guard !changingService, !stopping, !controlsLocked, externalURL == nil else { return }
         sendServiceCommand(start: false)
     }
     private func sendServiceCommand(start: Bool) {
@@ -212,14 +238,14 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try requireInstalledApp()
                 let command = ServiceRequest(start: start)
                 try command.save()
-                if let root = PreviewPaths.testRoot {
+                if let root = AppPaths.testRoot {
                     if validationServer?.isRunning != true {
-                        let process = Process(); process.executableURL = Bundle.main.executableURL
+                        let process = Process(); process.executableURL = roleExecutable("Dispatch Service")
                         process.arguments = ["--server", "--isolated-test", root.path]
                         try process.run(); validationServer = process
                     }
                 } else if ServiceRuntime.read() == nil {
-                    // Migrate the earlier preview service once. Its running agents
+                    // Migrate an earlier service registration. Its running agents
                     // remain detached; only the owned API/database are stopped.
                     if service.status == .enabled { try await service.unregister() }
                     try service.register()
@@ -234,7 +260,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc private func toggleLogin() {
-        guard PreviewPaths.testRoot == nil, externalURL == nil, !changingService, !updateBusy else { return }
+        guard AppPaths.testRoot == nil, externalURL == nil, !changingService, !controlsLocked else { return }
         changingService = true; rebuildMenu()
         Task {
             defer { changingService = false; rebuildMenu() }
@@ -273,7 +299,7 @@ struct DispatchMenuApp {
         if let index = CommandLine.arguments.firstIndex(of: "--isolated-test") {
             do {
                 guard CommandLine.arguments.indices.contains(index + 1) else { throw ConfigurationError("Missing isolated test directory.") }
-                try PreviewPaths.enableIsolatedTest(root: CommandLine.arguments[index + 1])
+                try AppPaths.enableIsolatedTest(root: CommandLine.arguments[index + 1])
             } catch { fputs("Dispatch: \(error.localizedDescription)\n", stderr); exit(1) }
         }
         if CommandLine.arguments.contains("--worker") {

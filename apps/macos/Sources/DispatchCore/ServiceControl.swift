@@ -3,10 +3,10 @@ import Foundation
 public struct StartupPreferences: Codable {
     public var startServerAtLogin: Bool
     public init(startServerAtLogin: Bool = true) { self.startServerAtLogin = startServerAtLogin }
-    public static func read(root: URL = PreviewPaths.root) -> Self {
+    public static func read(root: URL = AppPaths.root) -> Self {
         (try? JSONDecoder().decode(Self.self, from: Data(contentsOf: root.appendingPathComponent("startup.json")))) ?? Self()
     }
-    public func save(root: URL = PreviewPaths.root) throws { try writePrivateJSON(self, to: root.appendingPathComponent("startup.json")) }
+    public func save(root: URL = AppPaths.root) throws { try writePrivateJSON(self, to: root.appendingPathComponent("startup.json")) }
 }
 
 public struct ServiceRequest: Codable {
@@ -17,8 +17,8 @@ public struct ServiceRequest: Codable {
     public func refreshed(at date: Date = Date()) -> Self {
         var request = self; request.created = date; return request
     }
-    public func save(root: URL = PreviewPaths.root) throws { try writePrivateJSON(self, to: root.appendingPathComponent("service-request.json")) }
-    public static func take(root: URL = PreviewPaths.root) -> Self? {
+    public func save(root: URL = AppPaths.root) throws { try writePrivateJSON(self, to: root.appendingPathComponent("service-request.json")) }
+    public static func take(root: URL = AppPaths.root) -> Self? {
         let path = root.appendingPathComponent("service-request.json")
         guard let data = try? Data(contentsOf: path) else { return nil }
         try? FileManager.default.removeItem(at: path)
@@ -36,7 +36,7 @@ public struct ServiceRuntime: Codable {
     public init(phase: String, configuration: Configuration? = nil, requestID: UUID? = nil) {
         self.phase = phase; self.configuration = configuration; self.requestID = requestID
     }
-    public static func read(root: URL = PreviewPaths.root) -> Self? {
+    public static func read(root: URL = AppPaths.root) -> Self? {
         guard let data = try? Data(contentsOf: root.appendingPathComponent("service-runtime.json")),
               let state = try? JSONDecoder().decode(Self.self, from: data),
               abs(state.updated.timeIntervalSinceNow) < 10 else { return nil }
@@ -45,7 +45,7 @@ public struct ServiceRuntime: Codable {
     public func acknowledges(_ request: ServiceRequest) -> Bool {
         requestID == request.id && phase == (request.start ? "running" : "stopped")
     }
-    public func save(root: URL = PreviewPaths.root) throws {
+    public func save(root: URL = AppPaths.root) throws {
         var current = self; current.updated = Date()
         try writePrivateJSON(current, to: root.appendingPathComponent("service-runtime.json"))
     }

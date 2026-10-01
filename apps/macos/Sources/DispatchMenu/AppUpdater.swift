@@ -25,7 +25,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     var automatic: Bool { controller.updater.automaticallyChecksForUpdates && controller.updater.automaticallyDownloadsUpdates }
     var requiresTerminationHandoff: Bool { handoff.active && !handoff.prepared }
 
-    init(service: SMAppService, root: URL = PreviewPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
+    init(service: SMAppService, root: URL = AppPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
         super.init()
         controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
@@ -153,6 +153,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                     self.recovery = nil
                     needsRecovery = false
                     log("restored request=\(command.id) running=\(recovery.wasRunning) target=\(recovery.targetBuild) confirmed=\(confirmed)")
+                    if confirmed { UpdateNotifier.shared.notifyUpdated(serverRunning: recovery.wasRunning) }
                     return
                 }
             }

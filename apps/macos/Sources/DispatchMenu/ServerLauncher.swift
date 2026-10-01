@@ -5,15 +5,15 @@ import Foundation
 /// launchd starts this mode; managed databases are supervised with the server.
 /// ACP hosts have their own sessions and are not stopped with the menu app.
 func runServer() throws -> Never {
-    let root = PreviewPaths.root
+    let root = AppPaths.root
     let serverDirectory = root.appendingPathComponent("server", isDirectory: true)
     try FileManager.default.createDirectory(at: serverDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let log = open(PreviewPaths.log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+    let log = open(AppPaths.log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
     guard log >= 0 else { throw ConfigurationError("Cannot open the server log.") }
     _ = dup2(log, STDOUT_FILENO)
     _ = dup2(log, STDERR_FILENO)
     if log > STDERR_FILENO { close(log) }
-    var config = try Configuration.read(from: PreviewPaths.configuration)
+    var config = try Configuration.read(from: AppPaths.configuration)
     let requested = config
     let managedDatabase: LocalDatabase?
     if config.usesManagedDatabase {
@@ -25,8 +25,8 @@ func runServer() throws -> Never {
     } else { managedDatabase = nil }
     // Persist first-time database reconciliation only if the user has not saved
     // a newer configuration while this worker was starting.
-    if (try? Configuration.read(from: PreviewPaths.configuration)) == requested {
-        try config.save(to: PreviewPaths.configuration)
+    if (try? Configuration.read(from: AppPaths.configuration)) == requested {
+        try config.save(to: AppPaths.configuration)
     }
     try config.save(to: root.appendingPathComponent("running-configuration.json"))
     let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/dispatch")
@@ -54,7 +54,7 @@ func runServer() throws -> Never {
     for (key, value) in environment { setenv(key, value, 1) }
     #if SPARKLE_PROBE
     if Bundle.main.bundleIdentifier?.hasPrefix("dev.bradharris.dispatch.sparkleprobe.") == true,
-       PreviewPaths.testRoot == root,
+       AppPaths.testRoot == root,
        root.lastPathComponent.hasPrefix("dispatch-macos-test-sparkle-service-"),
        FileManager.default.fileExists(atPath: root.appendingPathComponent("live-agent-proof").path) {
         let command = ["/usr/bin/python3", root.appendingPathComponent("fake-acp.py").path]

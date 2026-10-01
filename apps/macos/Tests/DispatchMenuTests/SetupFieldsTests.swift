@@ -22,7 +22,7 @@ final class SetupFieldsTests: XCTestCase {
         // Render the actual AppKit controls after exercising both toggle directions.
         if let path = ProcessInfo.processInfo.environment["DISPATCH_TEST_SETUP_SCREENSHOT"] {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-            window.title = "Set up Dispatch Preview"
+            window.title = "Set up Dispatch"
             window.contentView?.addSubview(fields.view)
             fields.view.frame.origin = NSPoint(x: 24, y: 40)
             fields.view.layoutSubtreeIfNeeded()

@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 final class ConfigurationTests: XCTestCase {
-    func testPreviewCannotTargetProductionOrOverrideDatabase() throws {
+    func testCannotTargetProductionOrOverrideDatabase() throws {
         for url in [
             "postgres://localhost/dispatch", "postgres://localhost/%64ispatch",
             "postgres://localhost/postgres", "postgres://localhost/preview?dbname=dispatch",
