@@ -138,3 +138,28 @@ describe("ACP host environment", () => {
     });
   });
 });
+
+it("lets an engine CLI found off PATH run the node installed beside it", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-path-"));
+  roots.push(root);
+  // An nvm layout: `codex` is a script whose interpreter is only in its own dir.
+  const bin = path.join(root, ".nvm/versions/node/v23.7.0/bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(path.join(bin, "fakenode"), "#!/bin/sh\necho ran\n", {
+    mode: 0o755,
+  });
+  const codex = path.join(bin, "codex");
+  writeFileSync(codex, "#!/usr/bin/env fakenode\n", { mode: 0o755 });
+  const env = buildHostEnv(
+    {
+      env: {},
+      engine: "codex",
+      pathPrefix: ["/dispatch/bin"],
+      bins: { claudeBin: "/elsewhere/claude", codexBin: codex },
+    },
+    root,
+    { PATH: "/usr/bin:/bin" }
+  );
+  expect(env.PATH).toBe(`/dispatch/bin:/usr/bin:/bin:${bin}`);
+  expect(execFileSync(codex, { env, encoding: "utf8" }).trim()).toBe("ran");
+});
