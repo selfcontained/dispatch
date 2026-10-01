@@ -240,6 +240,22 @@ export function validateJobMcpToken(
 }
 
 /**
+ * The login cookie's name, unique per install. Browsers don't scope cookies
+ * by port, so two Dispatch servers on one host (a 0.x install beside 1.x, or
+ * the Mac app beside a standalone server) would otherwise overwrite each
+ * other's session. Derived from the install's cookie secret, so it is stable
+ * for that install.
+ */
+export function sessionCookieName(cookieSecret: string): string {
+  const id = crypto
+    .createHash("sha256")
+    .update(cookieSecret)
+    .digest("hex")
+    .slice(0, 12);
+  return `dispatch_session_${id}`;
+}
+
+/**
  * Returns a stable cookie-signing secret, persisted in the settings table.
  * Generated automatically on first run and reused across restarts.
  */

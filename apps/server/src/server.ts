@@ -24,6 +24,7 @@ import {
   validateSession,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  sessionCookieName,
   isScopedMcpRoute,
   LoginLinkStore,
   shouldAcceptApiBearerToken,
@@ -448,11 +449,11 @@ jobService.onRunStateChange((run) => {
     });
 });
 
-const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
 
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
+  const SESSION_COOKIE = sessionCookieName(cookieSecret);
   await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart, {
     limits: {

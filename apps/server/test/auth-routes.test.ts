@@ -37,12 +37,27 @@ describe("GET /api/v1/auth/status", () => {
   });
 
   it("returns authenticated=false with invalid cookie", async () => {
+    const name = ctx.auth.sessionCookieName(
+      await ctx.auth.getOrCreateCookieSecret(ctx.pool)
+    );
     const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/auth/status",
-      headers: { cookie: "dispatch_session=s:bogus.invalidsig" },
+      headers: { cookie: `${name}=s:bogus.invalidsig` },
     });
     expect(res.statusCode).toBe(200);
+    expect(res.json().authenticated).toBe(false);
+  });
+
+  it("ignores another server's session cookie on the same host", async () => {
+    // A 0.x install (or any second server) on another port sets its own
+    // cookie; browsers send it here too because cookies ignore the port.
+    const valid = (await ctx.sessionCookie()).split("=").slice(1).join("=");
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/auth/status",
+      headers: { cookie: `dispatch_session=${valid}` },
+    });
     expect(res.json().authenticated).toBe(false);
   });
 });
@@ -104,7 +119,7 @@ describe("POST /api/v1/auth/login", () => {
     expect(res.json().ok).toBe(true);
     expect(res.headers["set-cookie"]).toBeTruthy();
     const cookie = res.headers["set-cookie"] as string;
-    expect(cookie).toMatch(/dispatch_session=/);
+    expect(cookie).toMatch(/dispatch_session_[0-9a-f]{12}=/);
   });
 });
 
@@ -162,7 +177,7 @@ describe("POST /api/v1/auth/login-links/exchange", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
     const cookie = res.headers["set-cookie"] as string;
-    expect(cookie).toMatch(/dispatch_session=/);
+    expect(cookie).toMatch(/dispatch_session_[0-9a-f]{12}=/);
 
     const statusRes = await ctx.app.inject({
       method: "GET",
