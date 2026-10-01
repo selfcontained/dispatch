@@ -4,6 +4,7 @@ import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
+import { hasCodeowners } from "../personas/codeowners.js";
 import { loadPersonasFromRoots } from "../personas/loader.js";
 import {
   resolveRepoRoot,
@@ -27,24 +28,42 @@ type PersonaRouteDeps = {
  */
 export function personaLaunchRequest(input: {
   personas: string[];
+  /** Also route reviewers by .dispatch/codeowners.json and the changed files. */
+  codeowners?: boolean;
   agentType: string;
   model?: string;
   includeDiff?: boolean;
   note?: string;
 }): string {
+  const typeArgs = [
+    `type: "${input.agentType}"`,
+    ...(input.model ? [`model: "${input.model}"`] : []),
+  ];
   const lines = input.personas.map((persona) => {
     const args = [
       `persona: "${persona}"`,
-      `type: "${input.agentType}"`,
-      ...(input.model ? [`model: "${input.model}"`] : []),
+      ...typeArgs,
       ...(input.includeDiff === false ? ["includeDiff: false"] : []),
     ];
     return `- launch_agent({ ${args.join(", ")}, prompt: <your briefing> })`;
   });
+  if (input.codeowners) {
+    // Owner reviews always carry the change map; includeDiff has no say.
+    lines.unshift(
+      `- launch_owner_reviews({ ${typeArgs.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
+    );
+  }
+  const subject = input.codeowners
+    ? input.personas.length === 0
+      ? "the code owners"
+      : input.personas.length === 1
+        ? `the code owners and the ${input.personas[0]} persona`
+        : "the code owners and these personas"
+    : input.personas.length === 1
+      ? `the ${input.personas[0]} persona`
+      : "these personas";
   return [
-    input.personas.length === 1
-      ? `Please launch the ${input.personas[0]} persona on your current work:`
-      : `Please launch these personas on your current work:`,
+    `Please launch ${subject} on your current work:`,
     ...lines,
     "Write the briefing yourself: what you changed and why, the files that matter, what to scrutinize, and what is out of scope. Each reviewer posts one review back to you; answer every finding under it, and its reviewer resolves it.",
     ...(input.note?.trim() ? ["", `From the user: ${input.note.trim()}`] : []),
@@ -61,7 +80,7 @@ const PERSONA_SLUG_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
 const MAX_LAUNCH_PERSONAS = 20;
 
 const PERSONAS_REQUIRED_ERROR =
-  "persona (string) or personas (non-empty array of strings) is required.";
+  "persona (string), personas (non-empty array of strings), or codeowners: true is required.";
 
 async function resolveOptionalWorktreeRoot(
   cwd: string
@@ -96,9 +115,14 @@ export async function registerPersonaRoutes(
       const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
       const repoRoot = await resolveOptionalRepoRoot(query.cwd);
       const personas = await loadPersonasFromRoots({ worktreeRoot, repoRoot });
-      return { personas };
+      // Owner reviews read the map from the checkout being reviewed, so only
+      // the worktree decides whether the option is offered.
+      const codeowners = worktreeRoot
+        ? await hasCodeowners(worktreeRoot)
+        : false;
+      return { personas, codeowners };
     } catch {
-      return { personas: [] };
+      return { personas: [], codeowners: false };
     }
   });
 
@@ -107,6 +131,7 @@ export async function registerPersonaRoutes(
     const body = request.body as {
       persona?: unknown;
       personas?: unknown;
+      codeowners?: unknown;
       agentType?: unknown;
       includeDiff?: unknown;
       model?: unknown;
@@ -120,12 +145,19 @@ export async function registerPersonaRoutes(
     if (body.personas !== undefined && !Array.isArray(body.personas)) {
       return reply.code(400).send({ error: PERSONAS_REQUIRED_ERROR });
     }
+    if (body.codeowners !== undefined && typeof body.codeowners !== "boolean") {
+      return reply
+        .code(400)
+        .send({ error: "codeowners must be a boolean when provided." });
+    }
+    const codeowners = body.codeowners === true;
 
     // `persona` is the pre-multi-select field. Deprecated: it only covers a
     // browser tab still running an older bundle; remove after 0.33.
-    const rawPersonas: unknown[] = body.personas ?? [body.persona];
+    const rawPersonas: unknown[] =
+      body.personas ?? (body.persona !== undefined ? [body.persona] : []);
     if (
-      rawPersonas.length === 0 ||
+      (rawPersonas.length === 0 && !codeowners) ||
       rawPersonas.some(
         (entry) => typeof entry !== "string" || entry.trim().length === 0
       )
@@ -208,6 +240,7 @@ export async function registerPersonaRoutes(
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
       const text = personaLaunchRequest({
         personas,
+        codeowners,
         agentType: body.agentType as string,
         ...(model !== undefined ? { model } : {}),
         ...(body.includeDiff !== undefined
@@ -219,7 +252,10 @@ export async function registerPersonaRoutes(
       // shows the agent's response as a normal turn.
       const { held } = await deps.streams.promptAgent(agentId, {
         text,
-        description: `Review requested: ${personas.join(", ")}`,
+        description: `Review requested: ${[
+          ...(codeowners ? ["code owners"] : []),
+          ...personas,
+        ].join(", ")}`,
       });
       return { ok: true, held };
     } catch (error) {
