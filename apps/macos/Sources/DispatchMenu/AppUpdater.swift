@@ -25,7 +25,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     var automatic: Bool { controller.updater.automaticallyChecksForUpdates && controller.updater.automaticallyDownloadsUpdates }
     var requiresTerminationHandoff: Bool { handoff.active && !handoff.prepared }
 
-    init(service: SMAppService, root: URL = PreviewPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
+    init(service: SMAppService, root: URL = AppPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
         super.init()
         controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
@@ -147,6 +147,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
                     self.recovery = nil
                     needsRecovery = false
                     log("restored request=\(command.id) running=\(recovery.wasRunning) target=\(recovery.targetBuild) confirmed=\(confirmed)")
+                    if confirmed { UpdateNotifier.shared.notifyUpdated(serverRunning: recovery.wasRunning) }
                     return
                 }
             }
@@ -156,6 +157,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         log("recovery failed readiness; pending intent retained")
         throw ConfigurationError("The updated server could not start. Your settings and database are preserved. Resolve the problem in server.log, then choose Retry Update Recovery.")
     }
+    /// Read per check, so a channel picked in Settings applies to the next one.
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> { UpdateChannel.current().sparkleChannels }
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
     }

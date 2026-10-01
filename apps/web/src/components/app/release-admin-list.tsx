@@ -10,6 +10,7 @@ type RecentReleasesProps = {
   releasesLoading: boolean;
   promoteError: string | null;
   promotingTag: string | null;
+  promotionUrl: string | null;
   confirmPromoteTag: string | null;
   onConfirmPromoteTagChange: (tag: string | null) => void;
   onPromote: (tag: string) => void;
@@ -24,6 +25,7 @@ export function RecentReleases({
   releasesLoading,
   promoteError,
   promotingTag,
+  promotionUrl,
   confirmPromoteTag,
   onConfirmPromoteTagChange,
   onPromote,
@@ -71,20 +73,34 @@ export function RecentReleases({
                 {formatShortDateTime(r.publishedAt)}
               </span>
               <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-                {r.isPrerelease && confirmPromoteTag !== r.tag && (
-                  <Button
-                    size="sm"
-                    variant="ghost-primary"
-                    onClick={() => onConfirmPromoteTagChange(r.tag)}
-                    disabled={promotingTag === r.tag}
-                  >
-                    {promotingTag === r.tag ? (
-                      <ActivityBars size={12} />
-                    ) : (
-                      "Promote"
+                {r.isPrerelease && promotingTag === r.tag && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ActivityBars size={12} />
+                    Promoting…
+                    {promotionUrl && (
+                      <a
+                        href={promotionUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        workflow
+                      </a>
                     )}
-                  </Button>
+                  </span>
                 )}
+                {r.isPrerelease &&
+                  promotingTag !== r.tag &&
+                  confirmPromoteTag !== r.tag && (
+                    <Button
+                      size="sm"
+                      variant="ghost-primary"
+                      onClick={() => onConfirmPromoteTagChange(r.tag)}
+                      disabled={promotingTag !== null}
+                    >
+                      Promote
+                    </Button>
+                  )}
                 {r.isPrerelease && confirmPromoteTag === r.tag && (
                   <>
                     <span className="text-xs text-muted-foreground">

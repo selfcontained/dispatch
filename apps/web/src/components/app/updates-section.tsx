@@ -1,7 +1,5 @@
-import { AssistedUpdateProgress } from "@/components/app/assisted-update-progress";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { UpdatesCheckPanel } from "@/components/app/updates-check-panel";
-import { UpdatesForceConfirmDialog } from "@/components/app/updates-force-confirm-dialog";
 import { UpdatesPreferences } from "@/components/app/updates-preferences";
 import { UpdatesReloadCard } from "@/components/app/updates-reload-card";
 import { UpdatesVersionCard } from "@/components/app/updates-version-card";
@@ -38,15 +36,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     infoLoading,
     infoError,
     updateError,
-    assistedUpdateLaunching,
-    forceConfirmOpen,
-    setForceConfirmOpen,
     lastCheckMessage,
 
     displayInfo,
 
     updateJob,
-    assistedJob,
     isDone,
     isFailed,
     isRestarting,
@@ -56,21 +50,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     handleChannelChange,
     handleCheckForUpdates,
     handleUpdate,
-    handleAssistedUpdate,
     handleReload,
     handleClearCacheAndReload,
     handleDismiss,
-    handleAssistedDismiss,
   } = useReleaseUpdates(stream);
-
-  if (assistedJob) {
-    return (
-      <AssistedUpdateProgress
-        job={assistedJob}
-        onDismiss={handleAssistedDismiss}
-      />
-    );
-  }
 
   if (showTakeover) {
     return (
@@ -150,11 +133,8 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             lastCheckMessage={lastCheckMessage}
             displayInfo={displayInfo}
             updateError={updateError}
-            assistedUpdateLaunching={assistedUpdateLaunching}
             onCheckForUpdates={() => void handleCheckForUpdates()}
-            onStandardUpdate={(tag) => void handleUpdate(tag)}
-            onAssistedUpdate={(tag) => void handleAssistedUpdate(tag)}
-            onForceStandardUpdate={() => setForceConfirmOpen(true)}
+            onUpdate={(tag) => void handleUpdate(tag)}
           />
         </>
       )}
@@ -164,13 +144,6 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       <UpdatesReloadCard
         onReload={handleReload}
         onClearCacheAndReload={() => void handleClearCacheAndReload()}
-      />
-
-      <UpdatesForceConfirmDialog
-        open={forceConfirmOpen}
-        onOpenChange={setForceConfirmOpen}
-        displayInfo={displayInfo}
-        onConfirm={(tag) => void handleUpdate(tag, { force: true })}
       />
     </div>
   );

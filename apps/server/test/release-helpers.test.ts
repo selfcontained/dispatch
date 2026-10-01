@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseGhJson,
   compareSemver,
-  defaultServiceRestartCommand,
   getGitHubRepo,
   createCheckIsAdmin,
   fetchReleaseMetadata,
   resolveAuthoringRepoDir,
   createAuthoringRemoteRefresher,
+  serviceName,
 } from "../src/server/release-helpers.js";
 
 describe("createAuthoringRemoteRefresher", () => {
@@ -157,17 +157,6 @@ describe("compareSemver", () => {
     expect(compareSemver("v1.2.3-rc1", "v1.2.3")).toBe(0);
     expect(compareSemver("v1.2.4-rc1", "v1.2.3")).toBeGreaterThan(0);
     expect(compareSemver("v1.2.3-rc1", "v1.2.4")).toBeLessThan(0);
-  });
-});
-
-describe("defaultServiceRestartCommand", () => {
-  it("returns a platform-specific restart command", () => {
-    const cmd = defaultServiceRestartCommand();
-    if (process.platform === "linux") {
-      expect(cmd).toBe("systemctl --user restart dispatch");
-    } else {
-      expect(cmd).toContain("launchctl kickstart");
-    }
   });
 });
 
@@ -430,5 +419,16 @@ describe("fetchReleaseMetadata", () => {
       "https://api.github.com/repos/selfcontained/dispatch/releases/tags/v2.5.0",
       expect.any(Object)
     );
+  });
+});
+
+describe("serviceName", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("uses the installer's name, else the 0.x defaults", () => {
+    expect(serviceName("linux")).toBe("dispatch");
+    expect(serviceName("darwin")).toBe("com.dispatch.server");
+    vi.stubEnv("DISPATCH_SERVICE_NAME", "dispatch-server");
+    expect(serviceName("linux")).toBe("dispatch-server");
   });
 });

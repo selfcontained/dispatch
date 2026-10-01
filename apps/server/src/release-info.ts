@@ -5,21 +5,32 @@ import type { GitHubReleaseListItem } from "./server/release-helpers.js";
 import { getSetting } from "./db/settings.js";
 import { readReleaseStore } from "./release-store.js";
 import { errorMessage } from "./shared/lib/error-message.js";
-import {
-  inspectAssistedUpdateMetadata,
-  isAssistedUpdateRequired,
-  type AssistedUpdateMetadata,
-} from "./release-metadata.js";
-import {
-  evaluatePendingMigrations,
-  toSummary,
-  type PendingMigrationSummary,
-} from "./update-migrations-evaluator.js";
 import type { ReleaseProgress } from "./server/release-wire.js";
 
-const RELEASE_CHANNEL_KEY = "release_channel";
+export const RELEASE_CHANNEL_KEY = "release_channel";
+export const RELEASE_CHANNELS = ["stable", "preview"] as const;
+export type ReleaseChannel = (typeof RELEASE_CHANNELS)[number];
 
-export type ReleaseChannel = "stable" | "latest";
+/**
+ * Preview follows every published release (GitHub prereleases included);
+ * stable follows only promoted ones. The saved setting wins; otherwise the
+ * installer's DISPATCH_UPDATE_CHANNEL picks the default. "latest" is the
+ * pre-1.0 name for preview.
+ */
+export function resolveReleaseChannel(
+  saved: string | null,
+  envDefault: string | undefined = process.env.DISPATCH_UPDATE_CHANNEL
+): ReleaseChannel {
+  for (const value of [saved, envDefault?.trim()]) {
+    if (value === "stable") return "stable";
+    if (value === "preview" || value === "latest") return "preview";
+  }
+  return "stable";
+}
+
+export async function readReleaseChannel(pool: Pool): Promise<ReleaseChannel> {
+  return resolveReleaseChannel(await getSetting(pool, RELEASE_CHANNEL_KEY));
+}
 
 /**
  * Snapshot returned by computeReleaseInfo. Subset of the legacy
@@ -35,17 +46,11 @@ export type ReleaseInfoSnapshot = {
   absoluteLatestTag: string | null;
   updateAvailable: boolean;
   latestRelease: { tag: string; publishedAt: string; url: string } | null;
-  assisted: AssistedUpdateMetadata | null;
-  assistedRequired: boolean;
-  pendingMigrations: PendingMigrationSummary[];
-  migrationsError: string | null;
   computedAt: string;
 };
 
 export type ComputeReleaseInfoDeps = {
   pool: Pool;
-  serverDir: string;
-  getGitHubRepo: () => Promise<string>;
   compareSemver: (a: string, b: string) => number;
   fetchGitHubReleases: () => Promise<GitHubReleaseListItem[]>;
   getAppVersionInfo: () => Promise<{
@@ -80,9 +85,7 @@ export type ComputeReleaseInfoResult =
 
 /**
  * Pure-ish core of /api/v1/release/info. Fetches the channel-filtered latest
- * tag, classifies the release (assisted required/recommended/normal +
- * pending migrations), and returns a snapshot. Heavy: includes a tarball
- * download for migration evaluation when an update is available.
+ * tag and returns a snapshot.
  *
  * The route handler wraps this with admin-only enrichment (unreleased
  * commits, refMissing) and per-client progress streaming. The auto-checker
@@ -100,9 +103,7 @@ export async function computeReleaseInfo(
 
   try {
     const currentTag = await deriveCurrentTag(deps);
-    const channelRaw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
-    const channel: ReleaseChannel =
-      channelRaw === "latest" ? "latest" : "stable";
+    const channel = await readReleaseChannel(deps.pool);
 
     let latestTag: string | null = null;
     let absoluteLatestTag: string | null = null;
@@ -114,7 +115,8 @@ export async function computeReleaseInfo(
       });
       const allReleases = await deps.fetchGitHubReleases();
       const artifactReleases = allReleases.filter(
-        (release) => release.hasDispatchArtifact
+        (release) =>
+          release.hasDispatchArtifact && /^v\d+\.\d+\.\d+$/.test(release.tag)
       );
       absoluteLatestTag = artifactReleases[0]?.tag ?? null;
       latestTag =
@@ -136,13 +138,11 @@ export async function computeReleaseInfo(
       publishedAt: string;
       url: string;
     } | null = null;
-    let assisted: AssistedUpdateMetadata | null = null;
-    let assistedMetadataError: string | null = null;
     if (latestTag && updateAvailable) {
       emit({
         step: "loading-release-notes",
         label: `Inspecting ${latestTag}`,
-        detail: "Loading release metadata and assisted-update requirements.",
+        detail: "Loading release metadata.",
       });
       const fullRelease = await deps.fetchLatestReleaseMetadata(latestTag);
       latestRelease = fullRelease
@@ -152,72 +152,7 @@ export async function computeReleaseInfo(
             url: fullRelease.url,
           }
         : null;
-      const inspected = inspectAssistedUpdateMetadata(
-        fullRelease?.body ?? null
-      );
-      if (inspected.state === "invalid") {
-        assistedMetadataError = inspected.error;
-      } else if (inspected.state === "valid") {
-        assisted = inspected.metadata;
-      }
     }
-
-    if (assistedMetadataError) {
-      return {
-        ok: false,
-        error: `Latest release has malformed assisted-update metadata: ${assistedMetadataError}`,
-      };
-    }
-
-    let pendingMigrations: PendingMigrationSummary[] = [];
-    let migrationsError: string | null = null;
-    if (latestTag && updateAvailable) {
-      log?.info?.(
-        { tag: latestTag },
-        "release-info: evaluating pending migrations"
-      );
-      try {
-        const repo = await deps.getGitHubRepo();
-        const evaluation = await evaluatePendingMigrations(latestTag, {
-          repo,
-          onProgress: ({ message, bytesReceived, totalBytes }) => {
-            emit({
-              step:
-                bytesReceived !== undefined
-                  ? "downloading-release-package"
-                  : "inspecting-release-package",
-              label:
-                bytesReceived !== undefined
-                  ? "Downloading release package"
-                  : "Inspecting release package",
-              detail: message,
-              bytesReceived: bytesReceived ?? null,
-              totalBytes: totalBytes ?? null,
-            });
-          },
-        });
-        pendingMigrations = evaluation.pending.map((m) =>
-          toSummary(m.manifest)
-        );
-        if (evaluation.errors.length > 0) {
-          migrationsError = evaluation.errors
-            .map((e) => `${e.filename}: ${e.error}`)
-            .join("; ");
-        }
-      } catch (err) {
-        migrationsError =
-          err instanceof Error ? err.message : "migration evaluation failed";
-        log?.error?.(
-          { err, tag: latestTag },
-          "release-info: migration evaluation failed; falling back to assisted recommendation"
-        );
-      }
-    }
-
-    const assistedRequired =
-      pendingMigrations.length > 0 ||
-      (migrationsError !== null && updateAvailable) ||
-      isAssistedUpdateRequired(assisted, currentTag);
 
     return {
       ok: true,
@@ -228,10 +163,6 @@ export async function computeReleaseInfo(
         absoluteLatestTag,
         updateAvailable,
         latestRelease,
-        assisted,
-        assistedRequired,
-        pendingMigrations,
-        migrationsError,
         computedAt: new Date().toISOString(),
       },
     };

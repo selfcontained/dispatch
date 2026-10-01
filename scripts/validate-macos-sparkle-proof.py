@@ -113,8 +113,8 @@ def service_state(start):
 
 def sql(statement):
     config=json.loads((root/'configuration.json').read_text());url=urllib.parse.urlsplit(config['databaseURL'])
-    assert url.hostname=='127.0.0.1' and url.path=='/dispatch_preview' and url.port not in [6767,5432]
-    env=os.environ.copy();env.update(PGHOST=url.hostname,PGPORT=str(url.port),PGUSER=url.username,PGPASSWORD=urllib.parse.unquote(url.password),PGDATABASE='dispatch_preview',PGCONNECT_TIMEOUT='3')
+    assert url.hostname=='127.0.0.1' and url.path=='/dispatch_mac' and url.port not in [6767,5432]
+    env=os.environ.copy();env.update(PGHOST=url.hostname,PGPORT=str(url.port),PGUSER=url.username,PGPASSWORD=urllib.parse.unquote(url.password),PGDATABASE='dispatch_mac',PGCONNECT_TIMEOUT='3')
     return run(app/'Contents/Helpers/Postgres/bin/psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-c',statement,capture=True,env=env).stdout.strip()
 
 try:

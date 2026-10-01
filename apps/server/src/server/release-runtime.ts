@@ -1,15 +1,7 @@
-import { serverOrigin } from "../server-origin.js";
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 
-import type { Pool } from "pg";
-
-import type { AppConfig } from "../config.js";
-import type {
-  AssistedPhase,
-  AssistedUpdateState,
-} from "../assisted-update-store.js";
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
 import {
   writeReleaseCandidate,
@@ -25,13 +17,13 @@ import {
   type RunCommand,
   parseGhJson,
   compareSemver,
-  defaultServiceRestartCommand,
   getGitHubRepo as getGitHubRepoImpl,
   createCheckIsAdmin,
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
   fixedRuntimePath,
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
+  serviceName,
 } from "./release-helpers.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { verifyAndStageRuntime } from "./release-artifact.js";
@@ -41,6 +33,7 @@ import { verifyAndStageRuntime } from "./release-artifact.js";
 // dependency graph. Re-exported here for server-side importers.
 import {
   RELEASE_VERSION_TYPES,
+  isTerminalReleasePhase,
   type ReleasePhase,
   type ReleaseProgress,
   type ReleaseJob,
@@ -52,7 +45,6 @@ export { RELEASE_VERSION_TYPES };
 export type {
   CreatePhase,
   UpdatePhase,
-  AssistedReleasePhase,
   ReleasePhase,
   ReleaseProgress,
   ReleaseJob,
@@ -68,8 +60,6 @@ export type ReleaseStreamClient = {
 };
 
 type CreateReleaseRuntimeDeps = {
-  pool: Pool;
-  config: AppConfig;
   serverDir: string;
   runCommand: RunCommand;
   readReleaseStore: () => Promise<{ tag: string; deployedAt: string } | null>;
@@ -77,8 +67,6 @@ type CreateReleaseRuntimeDeps = {
     tag: string;
     deployedAt: string;
   }) => Promise<void>;
-  readAssistedUpdateState: () => Promise<AssistedUpdateState | null>;
-  isTerminalPhase: (phase: AssistedPhase) => boolean;
   ensureCachedTarball: (input: {
     tag: string;
     repo: string;
@@ -106,10 +94,7 @@ type CreateReleaseRuntimeDeps = {
 };
 
 export type CreateJob = Extract<ReleaseJob, { jobType: "create" }>;
-export type UpdateJob = Extract<
-  ReleaseJob,
-  { jobType: "update" | "update-assisted" }
->;
+export type UpdateJob = Extract<ReleaseJob, { jobType: "update" }>;
 
 function kindOf(job: ReleaseJob): ReleaseJobKind {
   return job.jobType === "create" ? "create" : "update";
@@ -121,20 +106,15 @@ export async function assertHostSurvivalOnRestart(
   runCommand: RunCommand
 ): Promise<void> {
   if (platform !== "linux") return;
+  const unit = `${serviceName(platform)}.service`;
   let loaded: string;
   try {
     loaded = (
-      await runCommand("systemctl", [
-        "--user",
-        "show",
-        "dispatch.service",
-        "-p",
-        "KillMode",
-      ])
+      await runCommand("systemctl", ["--user", "show", unit, "-p", "KillMode"])
     ).stdout.trim();
   } catch {
     throw new Error(
-      "Cannot verify that the Dispatch service preserves agent hosts. Complete the assisted service migration before updating."
+      `Cannot verify that the Dispatch service preserves agent hosts. Add KillMode=process to ${unit} before updating.`
     );
   }
   if (loaded !== "KillMode=process") {
@@ -152,7 +132,6 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   // the other — see the "kind"-scoped broadcast helpers below.
   let activeCreateJob: CreateJob | null = null;
   let activeUpdateJob: UpdateJob | null = null;
-  let activeAssistedUpdateLaunch = false;
   const releaseCreateStreamClients = new Set<ReleaseStreamClient>();
   const releaseUpdateStreamClients = new Set<ReleaseStreamClient>();
   const clientsForKind = (kind: ReleaseJobKind): Set<ReleaseStreamClient> =>
@@ -164,21 +143,17 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
     deps.restartService ??
     (() => {
       if (process.platform === "linux") {
-        spawn("systemctl", ["--user", "restart", "dispatch"], {
+        spawn("systemctl", ["--user", "restart", serviceName()], {
           detached: true,
           stdio: "ignore",
         }).unref();
         return;
       }
       const uid = process.getuid?.() ?? 501;
-      spawn(
-        "launchctl",
-        ["kickstart", "-k", `gui/${uid}/com.dispatch.server`],
-        {
-          detached: true,
-          stdio: "ignore",
-        }
-      ).unref();
+      spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${serviceName()}`], {
+        detached: true,
+        stdio: "ignore",
+      }).unref();
     });
   const recordReleaseCandidate =
     deps.writeReleaseCandidate ?? writeReleaseCandidate;
@@ -213,103 +188,6 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
       releaseNotes,
       releaseUrl,
     };
-  }
-
-  async function rehydrateActiveAssistedJob(): Promise<void> {
-    if (activeUpdateJob) return;
-    const state = await deps.readAssistedUpdateState().catch(() => null);
-    if (!state || deps.isTerminalPhase(state.phase)) return;
-    activeUpdateJob = {
-      jobType: "update-assisted",
-      versionType: null,
-      phase: state.phase,
-      startedAt: state.startedAt,
-      log: [`==> resumed from on-disk state at phase ${state.phase}`],
-      runUrl: null,
-      tag: state.tag,
-      error: state.error,
-      progress: null,
-      assisted: state,
-    };
-  }
-
-  function dispatchHealthUrl(): string {
-    return `${dispatchBaseUrl()}/api/v1/health`;
-  }
-
-  function dispatchBaseUrl(): string {
-    return serverOrigin(deps.config);
-  }
-
-  async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
-    const result = await deps.pool.query<{ count: string }>(
-      `
-        SELECT COUNT(*)::text AS count
-        FROM agents
-        WHERE deleted_at IS NULL
-          AND role = 'assisted_update'
-          AND cwd = $1
-          AND status IN ('creating', 'running', 'stopping', 'unknown')
-      `,
-      [deps.serverDir]
-    );
-    return Number(result.rows[0]?.count ?? "0") > 0;
-  }
-
-  function buildAssistedUpdatePrompt(input: {
-    tag: string;
-    currentTag: string | null;
-  }): string {
-    const serviceCommand = defaultServiceRestartCommand();
-
-    return `
-You are running an assisted Dispatch update on the host machine.
-
-Primary objective:
-1. Update Dispatch to ${input.tag}.
-2. If restart or health fails, restore the Dispatch service first.
-3. After service is healthy again, diagnose what went wrong and leave a concise report in the terminal.
-
-Update details:
-- Current recorded tag in release.json: ${input.currentTag ?? "unknown"}
-- Target tag: ${input.tag}
-- Production installation root: ${deps.serverDir}
-- Health endpoint: ${dispatchHealthUrl()}
-- Dispatch API base URL: $DISPATCH_API_URL
-- Dispatch API update token env: $DISPATCH_RELEASE_UPDATE_TOKEN
-- Main service log: ~/.dispatch/logs/dispatch.log
-- Failure log path: ~/.dispatch/logs/last-release-failure.log
-- Service restart command: ${serviceCommand}
-
-Guardrails:
-- Operate on ${deps.serverDir}, not the user's development worktree.
-- Do not edit secrets or .env unless explicitly required to restore service and you can explain why.
-- Do not make source-code changes as part of the recovery path unless absolutely necessary.
-- Treat release.json as the last confirmed healthy release; inspect release-candidate.json when an activation was interrupted.
-- Prefer rollback to the last confirmed healthy tag over speculative fixes if the service does not come back.
-- Restore service availability before deeper diagnosis.
-
-Service architecture and recovery model:
-- Dispatch runs from one fixed compiled binary at ${fixedRuntimePath(deps.serverDir)}.
-- Updates extract and verify a release artifact, atomically replace that path, retain ${fixedRuntimePath(deps.serverDir)}.previous for rollback, then restart.
-- A newly healthy target promotes release-candidate.json into release.json.
-
-Rollback recovery:
-- Prefer the managed endpoint first. Use manual recovery only after it fails or the service does not restart cleanly.
-- Manual rollback sequence: atomically replace ${fixedRuntimePath(deps.serverDir)} with ${fixedRuntimePath(deps.serverDir)}.previous, then run the service restart command.
-- Validate service health with ${dispatchHealthUrl()} before reporting success.
-
-Suggested workflow:
-1. Capture the current repo/tag/service state.
-2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
-   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{"tag":"${input.tag}"}'\`
-3. Monitor restart and health until success or failure is clear.
-4. If the managed flow request fails or the service does not come back, inspect launchd/systemd state and recent logs before deciding on recovery.
-5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; do not manually reproduce the normal update sequence unless the managed path has already failed and you are in explicit recovery mode.
-6. Retry one clean restart if that is the safest next step.
-7. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
-8. Summarize outcome, root cause, commands run, and any remaining risk.
-`.trim();
   }
 
   function broadcastReleaseEvent(
@@ -503,10 +381,9 @@ Suggested workflow:
     setReleasePhase(job, "deploying");
     appendReleaseLog(job, `==> deploying ${tag}`);
 
-    // A force override of release migrations must never override agent
-    // process survival. Refuse before replacing the live executable.
-    // An injected check replaces the real one outright; `??` would fall
-    // through to systemctl whenever a stub returns undefined.
+    // Refuse before replacing the live executable if a restart would kill
+    // agent hosts. An injected check replaces the real one outright; `??`
+    // would fall through to systemctl whenever a stub returns undefined.
     await (deps.checkHostSurvival
       ? deps.checkHostSurvival()
       : assertHostSurvivalOnRestart(process.platform, deps.runCommand));
@@ -684,12 +561,12 @@ Suggested workflow:
 
   function hasActiveUpdateJob(): boolean {
     if (!activeUpdateJob) return false;
-    return !deps.isTerminalPhase(activeUpdateJob.phase as AssistedPhase);
+    return !isTerminalReleasePhase(activeUpdateJob.phase);
   }
 
   function hasActiveCreateJob(): boolean {
     if (!activeCreateJob) return false;
-    return !deps.isTerminalPhase(activeCreateJob.phase as AssistedPhase);
+    return !isTerminalReleasePhase(activeCreateJob.phase);
   }
 
   return {
@@ -705,18 +582,8 @@ Suggested workflow:
     },
     hasActiveUpdateJob,
     hasActiveCreateJob,
-    getActiveAssistedUpdateLaunch: () => activeAssistedUpdateLaunch,
-    setActiveAssistedUpdateLaunch: (active: boolean) => {
-      activeAssistedUpdateLaunch = active;
-    },
     releaseCreateStreamClients,
     releaseUpdateStreamClients,
-    rehydrateActiveAssistedJob,
-    dispatchHealthUrl,
-    dispatchBaseUrl,
-    defaultServiceRestartCommand,
-    hasActiveAssistedUpdateAgent,
-    buildAssistedUpdatePrompt,
     broadcastReleaseEvent,
     sendReleaseEventToClient,
     appendReleaseLog,

@@ -129,8 +129,12 @@ export function buildPostEnvelope(input: {
    * recipient is the reviewer who raised it.
    */
   finding?: { id: string; title: string; opened: boolean } | null;
-  /** A person named the agent with `@`; `alsoTo` names the others it went to. */
-  mention?: { alsoTo: string[] } | null;
+  /**
+   * How the post was addressed: `mention` when a person named the agent
+   * with `@`; `alsoTo` names the other agents it went to directly, whether
+   * by mention or because a thread reply reaches every side of the thread.
+   */
+  addressed?: { mention: boolean; alsoTo: string[] } | null;
 }): string {
   const body: string[] = [];
   if (input.text.trim().length > 0) body.push(input.text);
@@ -159,11 +163,21 @@ export function buildPostEnvelope(input: {
   if (input.threadId) {
     context.push(`In the thread under ${input.threadId}.`);
   }
-  if (input.mention) {
+  const alsoTo = input.addressed?.alsoTo ?? [];
+  if (input.addressed?.mention) {
     context.push(
-      input.mention.alsoTo.length > 0
-        ? `Addressed to you by @mention, and also to ${input.mention.alsoTo.join(", ")}.`
+      alsoTo.length > 0
+        ? `Addressed to you by @mention, and also to ${alsoTo.join(", ")}.`
         : "Addressed to you by @mention."
+    );
+  } else if (alsoTo.length > 0) {
+    context.push(`Also sent to ${alsoTo.join(", ")}.`);
+  }
+  if (alsoTo.length > 0) {
+    // Without this an agent that coordinates the others (a parent, a
+    // launcher) reads the post as meant for it alone and passes it on.
+    context.push(
+      `${alsoTo.length === 1 ? "It has" : "They have"} it already; do not pass it along.`
     );
   }
   if (input.finding) {

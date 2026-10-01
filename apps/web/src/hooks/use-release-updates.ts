@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import type {
   ReleaseChannel,
@@ -7,7 +6,6 @@ import type {
   UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
-import { agentRoute } from "@/lib/agent-routes";
 import {
   useCachedReleaseInfo,
   type ReleaseInfoSnapshot,
@@ -27,7 +25,6 @@ import {
  * settings-pane.tsx.
  */
 export function useReleaseUpdates(stream: UseReleaseStreamResult) {
-  const navigate = useNavigate();
   const {
     status,
     job,
@@ -55,8 +52,6 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
-  const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
-  const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
 
@@ -115,7 +110,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       });
       setInfo(null);
     } catch {
-      setChannel((prev) => (prev === "stable" ? "latest" : "stable"));
+      setChannel((prev) => (prev === "stable" ? "preview" : "stable"));
     } finally {
       setChannelSaving(false);
     }
@@ -161,12 +156,12 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     return () => window.clearTimeout(timeout);
   }, [lastCheckMessage]);
 
-  const handleUpdate = async (tag: string, options?: { force?: boolean }) => {
+  const handleUpdate = async (tag: string) => {
     setUpdateError(null);
     const res = await fetch("/api/v1/release/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag, force: options?.force === true }),
+      body: JSON.stringify({ tag }),
     });
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
@@ -191,32 +186,6 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     connectStream();
   };
 
-  const handleAssistedUpdate = useCallback(
-    async (tag: string) => {
-      setUpdateError(null);
-      setAssistedUpdateLaunching(true);
-      try {
-        const payload = await api<{ agent: { id: string } }>(
-          "/api/v1/release/assisted/launch",
-          {
-            method: "POST",
-            body: JSON.stringify({ tag }),
-          }
-        );
-        navigate(agentRoute(payload.agent.id));
-      } catch (err) {
-        setUpdateError(
-          err instanceof Error
-            ? cleanError(err.message)
-            : "Failed to start assisted update"
-        );
-      } finally {
-        setAssistedUpdateLaunching(false);
-      }
-    },
-    [navigate]
-  );
-
   const handleReload = useCallback(() => {
     if (reloadingRef.current) return;
     reloadingRef.current = true;
@@ -235,17 +204,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     setUpdateError(null);
   }, [setJob]);
 
-  const handleAssistedDismiss = useCallback(() => {
-    void fetch("/api/v1/release/assisted/state", {
-      method: "DELETE",
-    }).catch(() => {});
-    setJob(null);
-    setInfo(null);
-    setUpdateError(null);
-  }, [setJob]);
-
   const updateJob = job?.jobType === "update" ? job : null;
-  const assistedJob = job?.jobType === "update-assisted" ? job : null;
   const isDone =
     updateJob?.phase === "done" ||
     (!postRestartPolling &&
@@ -274,15 +233,11 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     infoLoading,
     infoError,
     updateError,
-    assistedUpdateLaunching,
-    forceConfirmOpen,
-    setForceConfirmOpen,
     lastCheckMessage,
 
     displayInfo,
 
     updateJob,
-    assistedJob,
     isDone,
     isFailed,
     isRestarting,
@@ -292,10 +247,8 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     handleChannelChange,
     handleCheckForUpdates,
     handleUpdate,
-    handleAssistedUpdate,
     handleReload,
     handleClearCacheAndReload,
     handleDismiss,
-    handleAssistedDismiss,
   };
 }

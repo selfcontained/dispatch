@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Assemble the optional macOS preview without changing the Linux release pipeline.
+// Assemble the macOS app without changing the Linux release pipeline.
 import {
   cpSync,
   existsSync,
@@ -65,10 +65,10 @@ if (process.env.DISPATCH_SPARKLE_PROBE_SDK)
 if (sparkleSDK) {
   if (
     !["stable", "preview"].includes(
-      process.env.DISPATCH_UPDATE_CHANNEL ?? "preview"
+      process.env.DISPATCH_DEFAULT_UPDATE_CHANNEL ?? "stable"
     )
   )
-    throw new Error("Unknown update channel");
+    throw new Error("Unknown default update channel");
   const digest = createHash("sha256")
     .update(readFileSync(path.join(sparkleSDK, "sdk.tar.xz")))
     .digest("hex");
@@ -115,10 +115,14 @@ try {
   });
   for (const directory of ["MacOS", "Helpers", "Library/LaunchAgents"])
     mkdirSync(path.join(contents, directory), { recursive: true });
-  cpSync(
-    path.join(buildPath, "DispatchMenu"),
-    path.join(contents, "MacOS/DispatchMenu")
-  );
+  // One binary per role: macOS names processes after the executable file, so
+  // the menu app, launchd service, and server worker stay distinguishable.
+  const roleExecutables = ["Dispatch Service", "Dispatch Worker"];
+  for (const name of ["Dispatch", ...roleExecutables])
+    cpSync(
+      path.join(buildPath, "DispatchMenu"),
+      path.join(contents, "MacOS", name)
+    );
   cpSync(binary, path.join(contents, "Helpers/dispatch"));
   const postgres = await downloadPostgres(
     arch,
@@ -152,11 +156,11 @@ try {
   cpSync(
     path.join(
       root,
-      "apps/macos/Resources/dev.bradharris.dispatch.preview.server.plist"
+      "apps/macos/Resources/dev.bradharris.dispatch.mac.server.plist"
     ),
     path.join(
       contents,
-      "Library/LaunchAgents/dev.bradharris.dispatch.preview.server.plist"
+      "Library/LaunchAgents/dev.bradharris.dispatch.mac.server.plist"
     )
   );
   const build = process.env.DISPATCH_MAC_BUILD ?? "1";
@@ -181,7 +185,10 @@ try {
     for (const [key, value] of Object.entries({
       SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
       SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
-      DispatchUpdateChannel: process.env.DISPATCH_UPDATE_CHANNEL ?? "preview",
+      // The channel a fresh install follows until the person picks one in
+      // Settings; Sparkle reads the choice through allowedChannels.
+      DispatchDefaultUpdateChannel:
+        process.env.DISPATCH_DEFAULT_UPDATE_CHANNEL ?? "stable",
     }))
       run("plutil", ["-insert", key, "-string", value, plist]);
     for (const key of [
@@ -217,7 +224,7 @@ try {
   run("codesign", [
     ...signing,
     "--identifier",
-    "dev.bradharris.dispatch.preview.runtime",
+    "dev.bradharris.dispatch.mac.runtime",
     "--entitlements",
     path.join(root, "scripts/dispatch-bun.entitlements.plist"),
     path.join(contents, "Helpers/dispatch"),
@@ -233,11 +240,19 @@ try {
     ])
       run("codesign", [...signing, path.join(framework, code)]);
   }
+  // Role executables are nested code; the app signature only covers "Dispatch".
+  for (const name of roleExecutables)
+    run("codesign", [
+      ...signing,
+      "--identifier",
+      "dev.bradharris.dispatch.mac",
+      path.join(contents, "MacOS", name),
+    ]);
   run("codesign", [...signing, app]);
   run("codesign", ["--verify", "--deep", "--strict", app]);
   const zipName = sparkleSDK
-    ? `dispatch-macos-acp-${build}-${arch}.zip`
-    : `dispatch-macos-preview-${version}-${arch}.zip`;
+    ? `dispatch-macos-${build}-${arch}.zip`
+    : `dispatch-macos-${version}-${arch}.zip`;
   const zip = path.join(temporary, zipName);
   run("ditto", ["-c", "-k", "--keepParent", app, zip]);
   if (notarize) {
@@ -264,7 +279,7 @@ try {
   renameSync(app, finalApp);
   renameSync(zip, path.join(output, zipName));
   console.log(
-    `${notarize ? "Notarized" : identity ? "Signed, not notarized" : "Local ad-hoc"} preview: ${finalApp}`
+    `${notarize ? "Notarized" : identity ? "Signed, not notarized" : "Local ad-hoc"} app: ${finalApp}`
   );
   console.log(`Archive: ${path.join(output, zipName)}`);
 } finally {

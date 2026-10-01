@@ -22,16 +22,24 @@ describe("install-dispatch systemd unit", () => {
     expect(script).not.toContain("DISPATCH_SHELL_ENV");
   });
 
-  it("requires existing Linux services to adopt the safe kill mode before update", async () => {
-    const migration = await readFile(
-      path.join(
-        REPO_ROOT,
-        "update-migrations",
-        "0011-agent-restart-safety.yaml"
-      ),
+  it("records the chosen update channel and never auto-selects a 0.x release", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
       "utf8"
     );
-    expect(migration).toContain("KillMode=process");
-    expect(migration).toContain("Before invoking the managed update");
+    expect(script).toContain('"DISPATCH_UPDATE_CHANNEL=$CHANNEL"');
+    expect(script).toContain("releases/download/v[1-9][0-9]*");
+    expect(script).not.toContain("applied-migrations");
+  });
+
+  it("stays apart from a Dispatch 0.x install", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).toContain('SERVICE="dispatch-server"');
+    expect(script).toContain('"DISPATCH_STATE_DIR=$STATE_DIR"');
+    expect(script).toContain("/dispatch-server\\.tar\\.gz");
+    expect(script).not.toMatch(/STATE_DIR="\$HOME_DIR\/\.dispatch"/);
   });
 });

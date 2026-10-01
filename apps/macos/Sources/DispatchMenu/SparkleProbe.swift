@@ -19,7 +19,7 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
     private var stopping = false
     private var stopped = false
     private var restoreRequest: ServiceRequest?
-    private var root: URL { PreviewPaths.root }
+    private var root: URL { AppPaths.root }
     private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as! String }
     private var initialRunPreference: Bool { Bundle.main.object(forInfoDictionaryKey: "DispatchProbeRunning") as? Bool ?? true }
     private var service: SMAppService? {
@@ -95,14 +95,14 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                     return
                 }
                 let port = Bundle.main.object(forInfoDictionaryKey: "DispatchProbePort") as! Int
-                if !FileManager.default.fileExists(atPath: PreviewPaths.configuration.path) {
+                if !FileManager.default.fileExists(atPath: AppPaths.configuration.path) {
                     let database = LocalDatabase(binaries: Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Postgres"))
                     let config = try database.configuration(port: port, instanceID: UUID().uuidString)
-                    try config.save(to: PreviewPaths.configuration)
+                    try config.save(to: AppPaths.configuration)
                     try StartupPreferences(startServerAtLogin: initialRunPreference).save()
                 }
                 try await startOwnedService()
-                let config = try Configuration.read(from: PreviewPaths.configuration)
+                let config = try Configuration.read(from: AppPaths.configuration)
                 var ready = false
                 let readinessDeadline = ContinuousClock.now.advanced(by: .seconds(60))
                 while ContinuousClock.now < readinessDeadline {
@@ -219,17 +219,17 @@ func runSparkleProbe() {
     do {
         guard let path = Bundle.main.object(forInfoDictionaryKey: "DispatchSparkleProbeRoot") as? String,
               Bundle.main.bundleIdentifier?.hasPrefix("dev.bradharris.dispatch.sparkleprobe.") == true else { throw ConfigurationError("Invalid probe identity") }
-        try PreviewPaths.enableIsolatedTest(root: path)
+        try AppPaths.enableIsolatedTest(root: path)
         if let label = Bundle.main.object(forInfoDictionaryKey: "DispatchProbeServiceLabel") as? String {
             let identity = Bundle.main.bundleIdentifier!
-            let marker = PreviewPaths.root.appendingPathComponent("service-proof-approved")
+            let marker = AppPaths.root.appendingPathComponent("service-proof-approved")
             guard label == identity + ".server",
                   Bundle.main.bundleURL.path.hasPrefix("/Applications/Dispatch Sparkle Proof"),
                   (try? String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) == identity else {
                 throw ConfigurationError("Service proof requires an explicitly approved isolated test installation.")
             }
         }
-        try FileManager.default.createDirectory(at: PreviewPaths.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: AppPaths.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let app = NSApplication.shared
         let delegate = SparkleProbe()
         app.delegate = delegate; app.setActivationPolicy(.accessory)

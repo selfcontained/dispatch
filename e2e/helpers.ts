@@ -181,26 +181,6 @@ export async function uploadTextFileViaAPI(
   }
 }
 
-export async function setAgentRoleViaDB(
-  agentId: string,
-  role: "standard" | "assisted_update"
-): Promise<void> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required to seed agent roles.");
-  }
-
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
-    await pool.query(
-      "UPDATE agents SET role = $2, updated_at = NOW() WHERE id = $1",
-      [agentId, role]
-    );
-  } finally {
-    await pool.end();
-  }
-}
-
 /**
  * Insert a block straight into `blocks`, bypassing the send route (which
  * needs a live agent). `streamId` is the root agent; the author defaults

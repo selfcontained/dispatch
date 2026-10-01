@@ -4,24 +4,37 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 ## Quick Install
 
-Install and start PostgreSQL 14+ first, then run this on macOS or Linux:
+**macOS:** download the Dispatch app ZIP (`dispatch-macos-*-arm64.zip`) from the
+newest [release](https://github.com/selfcontained/dispatch/releases), unzip it,
+and move `Dispatch.app` to Applications. The app bundles its own PostgreSQL and
+updates itself from the menu bar.
+
+**Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
 ```
 
-The installer selects the latest stable release, creates a private local
-database and credentials when it can administer PostgreSQL, installs the
-platform-matched binary at `~/.dispatch/server/dispatch`, and registers a
-user service. For a managed database, pass its URL instead:
+The installer picks the newest release on a channel: **stable** (promoted
+releases) or **preview** (every release as soon as it ships). It uses stable,
+or preview while no stable release exists; pass `--channel preview` or
+`--channel stable` to choose. It creates a private database and credentials
+when it can administer PostgreSQL, installs the platform-matched binary under
+`~/.local/share/dispatch`, and registers a `dispatch-server` systemd user
+service. For a managed database, pass its URL instead:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
 ```
 
-The service listens on `127.0.0.1:6767`. Verify with
-`curl http://127.0.0.1:6767/api/v1/health`. Normal UI updates atomically
-replace the fixed executable and restart the service.
+The service listens on `127.0.0.1:6767`, or the next free port above it (the
+installer prints the URL; `--port` picks one). Updates come from
+**Settings → Updates**, which follows the same channel: they atomically replace
+the executable and restart the service without stopping running agents.
+
+An existing Dispatch 0.x install (`~/.dispatch`, `dispatch.service`) is left
+alone: 1.x uses its own directory, service and database, and never reads or
+upgrades 0.x data. Remove 0.x yourself once you no longer need it.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
@@ -104,9 +117,7 @@ For day-to-day backend work, the server itself runs under Bun. `pnpm` is still u
 Source installs and builds use **pnpm 9.15.9**, pinned in `package.json`, because
 the ACP adapter patch's lockfile hash depends on the pnpm version. Install
 Corepack if your Node installation does not include it (`npm install -g corepack`),
-then use `corepack pnpm` for repo commands. `bin/dispatch-server build` and
-`update` select this version through Corepack; without Corepack they require
-pnpm 9.15.9 on PATH and fail before installation if another version is present.
+then use `corepack pnpm` for repo commands.
 
 > **Important:** Docker Desktop must be running (not just installed). If you see
 > _"Error: docker compose is not available"_, open Docker.app first.
@@ -248,9 +259,8 @@ See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill
 
 - Update production from the Dispatch UI: **Settings → Updates**
 - Cut releases from the Dispatch UI: **Settings → Releases** (release admin only)
-- CLI/API path for updates and releases: `bin/dispatch-server update`
-- Service management: `bin/dispatch-server start|stop|restart|status|logs|build`
-- Production runtime note: the launchd/systemd service runs the compiled Bun binary, so Node/npx is not required on the host just to run Dispatch.
+- Service management on Linux: `systemctl --user status|restart|stop dispatch-server` and `journalctl --user -u dispatch-server`
+- Production runtime note: the service runs the compiled Bun binary, so Node/npx is not required on the host just to run Dispatch.
 
 ## Docs
 

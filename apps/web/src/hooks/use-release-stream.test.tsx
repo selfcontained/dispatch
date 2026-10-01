@@ -2,8 +2,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AssistedUpdateState } from "../../../server/src/assisted-update-store";
-
 import {
   applyStreamEvent,
   useReleaseStream,
@@ -65,39 +63,6 @@ function createJob(overrides: Partial<ReleaseJob> = {}): ReleaseJob {
   } as ReleaseJob;
 }
 
-function assistedState(
-  overrides: Partial<AssistedUpdateState> = {}
-): AssistedUpdateState {
-  return {
-    tag: "v1.2.3",
-    fromTag: "v1.2.2",
-    metadata: null,
-    migrations: null,
-    requiredChecks: [],
-    phase: "inspect",
-    token: "tok",
-    agentId: null,
-    startedAt: "2026-08-02T00:00:00.000Z",
-    updatedAt: "2026-08-02T00:00:00.000Z",
-    completedAt: null,
-    error: null,
-    checks: [],
-    notes: {},
-    ...overrides,
-  };
-}
-
-function assistedJob(overrides: Partial<ReleaseJob> = {}): ReleaseJob {
-  return {
-    ...commonFields,
-    jobType: "update-assisted",
-    versionType: null,
-    phase: "inspect",
-    assisted: assistedState(),
-    ...overrides,
-  } as ReleaseJob;
-}
-
 const progress: ReleaseProgress = {
   step: "download",
   label: "Downloading",
@@ -146,7 +111,6 @@ describe("applyStreamEvent", () => {
   it.each([
     ["create", createJob(), "watching"],
     ["update", updateJob(), "deploying"],
-    ["update-assisted", assistedJob(), "apply"],
   ] as const)("phase updates the %s job's phase", (_jobType, prev, phase) => {
     const next = applyStreamEvent(prev, { type: "phase", phase });
     expect(next?.phase).toBe(phase);
@@ -190,21 +154,6 @@ describe("applyStreamEvent", () => {
     expect(
       applyStreamEvent(updateJob(), { type: "tag", tag: "v2.0.0" })?.tag
     ).toBe("v2.0.0");
-  });
-
-  it("assisted is ignored for jobs that are not update-assisted", () => {
-    const prev = updateJob();
-    const next = applyStreamEvent(prev, {
-      type: "assisted",
-      state: assistedState(),
-    });
-    expect(next).toBe(prev);
-  });
-
-  it("assisted replaces the state on update-assisted jobs", () => {
-    const state = assistedState({ phase: "validate" });
-    const next = applyStreamEvent(assistedJob(), { type: "assisted", state });
-    expect(next).toMatchObject({ assisted: state });
   });
 });
 
@@ -342,9 +291,6 @@ describe("useReleaseStream", () => {
 
   it.each([
     ["create", createJob({ phase: "watching" }), "watching"],
-    // An assisted job can sit in "restarting" too — only plain update
-    // jobs may hand off to the health poll.
-    ["update-assisted", assistedJob({ phase: "restarting" }), "restarting"],
     // An update job outside deploying/restarting must not poll either.
     ["update", updateJob({ phase: "fetching" }), "fetching"],
   ] as const)("stream error leaves %s jobs alone", (jobType, job, phase) => {

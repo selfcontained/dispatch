@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, GitBranch } from "lucide-react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
@@ -51,6 +51,9 @@ export function PersonaLauncherDialog({
   personas,
   selectedPersonas,
   setSelectedPersonas,
+  codeownersAvailable,
+  codeownersSelected,
+  setCodeownersSelected,
   note,
   setNote,
   includeDiff,
@@ -77,6 +80,11 @@ export function PersonaLauncherDialog({
   personas: PersonaSummary[];
   selectedPersonas: string[];
   setSelectedPersonas: Dispatch<SetStateAction<string[]>>;
+  /** The checkout has a .dispatch/codeowners.json to route reviewers by. */
+  codeownersAvailable: boolean;
+  /** Ask the agent to launch the code owners of its changed files. */
+  codeownersSelected: boolean;
+  setCodeownersSelected: (selected: boolean) => void;
   note: string;
   setNote: Dispatch<SetStateAction<string>>;
   /** Hand each persona the agent's current diff in its briefing. */
@@ -91,6 +99,17 @@ export function PersonaLauncherDialog({
   /** Submits the currently selected personas for launch. */
   onSubmit: () => void;
 }): JSX.Element {
+  const selectedCount = selectedPersonas.length + (codeownersSelected ? 1 : 0);
+  const hasSelection = selectedCount > 0;
+  const submitLabel = codeownersSelected
+    ? selectedPersonas.length === 0
+      ? "Launch code owners"
+      : `Launch code owners + ${selectedPersonas.length} ${
+          selectedPersonas.length > 1 ? "personas" : "persona"
+        }`
+    : selectedPersonas.length > 1
+      ? `Launch ${selectedPersonas.length} personas`
+      : "Launch persona";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open ? (
@@ -106,10 +125,10 @@ export function PersonaLauncherDialog({
           <DialogHeader>
             <DialogTitle>Launch personas</DialogTitle>
             <DialogDescription>
-              Pick one or more personas and an agent type. Each one runs as a
-              child of this agent and posts what it produces into its stream — a
-              reviewer posts a review block whose findings you and the agent
-              resolve in threads.
+              Let the code owners of the changed files review, pick personas by
+              hand, or both. Each one runs as a child of this agent and posts
+              what it produces into its stream — a reviewer posts a review block
+              whose findings you and the agent resolve in threads.
             </DialogDescription>
           </DialogHeader>
 
@@ -242,9 +261,7 @@ export function PersonaLauncherDialog({
                       className="text-xs text-muted-foreground"
                       data-testid="launch-reviewer-selected-count"
                     >
-                      {selectedPersonas.length > 0
-                        ? `${selectedPersonas.length} selected`
-                        : ""}
+                      {selectedCount > 0 ? `${selectedCount} selected` : ""}
                     </span>
                   </div>
                   <div
@@ -252,6 +269,55 @@ export function PersonaLauncherDialog({
                     aria-labelledby="launch-reviewer-personas-label"
                     className="space-y-2"
                   >
+                    {/* Owner routing leads the list: it is the repo's own
+                        answer to "who should look at this". */}
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={codeownersSelected}
+                      disabled={!codeownersAvailable}
+                      onClick={() => {
+                        setCodeownersSelected(!codeownersSelected);
+                        onResetLaunchError();
+                      }}
+                      className={cn(
+                        "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
+                        codeownersSelected
+                          ? "border-primary bg-primary/10"
+                          : "border-border/70 bg-muted/20 hover:bg-muted/35",
+                        !codeownersAvailable &&
+                          "cursor-not-allowed opacity-60 hover:bg-muted/20"
+                      )}
+                      data-testid="launch-reviewer-codeowners"
+                    >
+                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/80" />
+                      <span className="min-w-0 flex-1 space-y-1">
+                        <span className="block text-sm font-medium">
+                          Code owners
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {codeownersAvailable
+                            ? "Route reviewers by the files this agent changed, using .dispatch/codeowners.json. Each matching owner launches once."
+                            : "No .dispatch/codeowners.json in this checkout. Add ownership rules to route reviewers by changed files."}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                          codeownersSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border/80 bg-transparent"
+                        )}
+                      >
+                        <Check
+                          className={cn(
+                            "h-3 w-3",
+                            codeownersSelected ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                      </span>
+                    </button>
                     {personas.map((persona, index) => {
                       const colorVar = `var(--chart-${(index % 4) + 1})`;
                       const isSelected = selectedPersonas.includes(
@@ -378,21 +444,19 @@ export function PersonaLauncherDialog({
                 type="button"
                 variant="primary"
                 disabled={
-                  selectedPersonas.length === 0 ||
+                  !hasSelection ||
                   isLaunching ||
                   // Launching mid-load would send model: null and silently
                   // drop the stored preference the select is about to show.
                   modelCatalogLoading
                 }
                 onClick={() => {
-                  if (selectedPersonas.length === 0) return;
+                  if (!hasSelection) return;
                   onSubmit();
                 }}
                 data-testid="launch-reviewer-submit"
               >
-                {selectedPersonas.length > 1
-                  ? `Launch ${selectedPersonas.length} personas`
-                  : "Launch persona"}
+                {submitLabel}
               </Button>
             </div>
           </div>

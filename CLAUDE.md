@@ -33,7 +33,7 @@ dispatch/
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── plugins/
 │   └── dispatch/              # official Dispatch plugin (skills for Claude Code + Codex)
-├── release-notes/             # release notes + assisted-update metadata
+├── release-notes/             # release notes for the next release
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
 │   ├── job-state/             # persistent state files for recurring jobs
@@ -139,9 +139,8 @@ Before marking any task as done, run the following checks and fix any failures:
 
 ## Optional VM Release Validation
 
-VMs are for high-risk installation, service-manager, release-artifact,
-assisted-update, or update-migration changes—not ordinary development or the
-default test suite. Follow [docs/vm-release-validation.md](docs/vm-release-validation.md)
+VMs are for high-risk installation, service-manager, or release-artifact
+changes—not ordinary development or the default test suite. Follow [docs/vm-release-validation.md](docs/vm-release-validation.md)
 when that validation is warranted.
 
 **Always ask the user before provisioning, starting, resetting, modifying, or
@@ -155,15 +154,6 @@ unrelated changes or CI.
 - Ordinary replies and progress updates stream automatically; do not repeat them through `post`. Use `post` for structured content: a `link` for a dev URL or doc, a `pr` attachment for a pull request, a `code` attachment for IDs, commands and env values, a `file` attachment for screenshots and reports, a `question` or `form` block for a decision.
 - Activity is derived from the runtime and open questions or forms; do not emit status events. A posting receipt or pickup indicator is not an answer or proof that work is complete.
 - `post` with `to: <agentId>` reaches another agent; children post into their parent's stream. Revise a block with `update`.
-
-## Assisted Update Release Notes
-
-- When the user indicates that a release should require or recommend assisted update handling, create or update `release-notes/next-assisted-update.json`.
-- Follow `release-notes/AUTHORING.md` for the schema, merge rules, and authoring guidance. Do not invent a parallel format.
-- If `release-notes/next-assisted-update.json` already exists, merge your change into that file instead of creating a second metadata file.
-- Validate the file before finishing with:
-
-  `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
 
 ## Personas
 

@@ -510,37 +510,6 @@ describe("AgentManager", () => {
       expect(agent.type).toBe("claude");
     });
 
-    it("should persist assisted update role when provided", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        role: "assisted_update",
-        useWorktree: false,
-      });
-      expect(agent.role).toBe("assisted_update");
-    });
-
-    it("should give assisted update agents the update API URL and a release token", async () => {
-      const agent = await manager.createAgent({
-        cwd: "/tmp",
-        role: "assisted_update",
-        type: "codex",
-        useWorktree: false,
-      });
-
-      const { env } = lastLaunch();
-      expect(env.DISPATCH_API_URL).toBe("http://127.0.0.1:6767");
-      expect(env.DISPATCH_RELEASE_UPDATE_TOKEN).toBeTruthy();
-      expect(env.DISPATCH_RELEASE_UPDATE_TOKEN).not.toBe(
-        createAgentMcpToken("test-token", agent.id)
-      );
-    });
-
-    it("should not hand a release token to standard agents", async () => {
-      await manager.createAgent({ cwd: "/tmp", useWorktree: false });
-      expect(lastLaunch().env.DISPATCH_RELEASE_UPDATE_TOKEN).toBeUndefined();
-      expect(lastLaunch().env.DISPATCH_API_URL).toBeUndefined();
-    });
-
     it("should persist reviewAgentType when provided", async () => {
       const agent = await manager.createAgent({
         type: "codex",

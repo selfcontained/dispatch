@@ -29,14 +29,12 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
   writeFileSync(local, "local installation root");
   const launch = buildLaunchEnv({
     agentId: "test",
-    role: "standard",
     filesDir: root,
     engine: "codex",
     config: {
       port: 7000,
       tls: { cert: Buffer.from(""), key: Buffer.from("") },
       dispatchBinDir: "",
-      authToken: "test",
     },
     base: {
       TLS_CA: local,

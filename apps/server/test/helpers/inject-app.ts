@@ -129,7 +129,8 @@ export function useInjectApp(opts?: InjectAppOptions): InjectAppContext {
       const signed = (
         app as FastifyInstance & { signCookie: (value: string) => string }
       ).signCookie(session);
-      return `dispatch_session=${signed}`;
+      const secret = await auth.getOrCreateCookieSecret(pool);
+      return `${auth.sessionCookieName(secret)}=${signed}`;
     };
   });
 

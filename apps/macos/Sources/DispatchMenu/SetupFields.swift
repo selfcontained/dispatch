@@ -50,7 +50,7 @@ final class SetupFields: NSObject {
     }
     @objc private func addAddress() {
         let value = customAddress.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        var config = Configuration(databaseURL: "postgres://localhost/dispatch_preview", hosts: [value])
+        var config = Configuration(databaseURL: "postgres://localhost/dispatch_mac", hosts: [value])
         // All-interface bindings are supported for older saved settings but not
         // offered as an alternative to selecting explicit addresses.
         config.host = nil

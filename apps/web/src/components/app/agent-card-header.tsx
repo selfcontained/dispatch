@@ -1,12 +1,5 @@
 import React from "react";
-import {
-  AlarmClock,
-  ArrowDownToLine,
-  ChevronDown,
-  Play,
-  Repeat2,
-  Tag,
-} from "lucide-react";
+import { AlarmClock, ChevronDown, Play, Repeat2, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
@@ -67,7 +60,6 @@ export function AgentCardHeader({
   const loopTooltip = agent.jobRun?.maxIterations
     ? `Loop iteration ${loopIteration} of ${agent.jobRun.maxIterations}`
     : `Loop iteration ${loopIteration}`;
-  const isAssistedUpdateAgent = agent.role === "assisted_update";
   const canPromptRename =
     agent.status === "running" && hasDefaultSessionName(agent);
 
@@ -195,16 +187,6 @@ export function AgentCardHeader({
             {isLoopJob ? loopTooltip : "Job-spawned agent"}
           </TooltipContent>
         </Tooltip>
-      ) : null}
-
-      {isAssistedUpdateAgent ? (
-        <Badge
-          className="border-blue-500/35 bg-blue-500/10 text-blue-400"
-          title="Agent-assisted Dispatch update"
-        >
-          <ArrowDownToLine className="mr-1 h-3 w-3" />
-          Update
-        </Badge>
       ) : null}
 
       {isStopped && agent.status !== "archiving" ? (

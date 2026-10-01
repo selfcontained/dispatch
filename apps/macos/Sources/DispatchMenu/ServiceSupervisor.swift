@@ -2,10 +2,18 @@ import Darwin
 import DispatchCore
 import Foundation
 
+/// The packaged app ships this binary under one name per role so Activity Monitor can
+/// tell them apart. Unpackaged builds (tests, `swift run`) fall back to the main executable.
+func roleExecutable(_ name: String) -> URL? {
+    guard let main = Bundle.main.executableURL else { return nil }
+    let sibling = main.deletingLastPathComponent().appendingPathComponent(name)
+    return FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling : main
+}
+
 /// An idle login service accepts explicit commands; the server runs in a separate
 /// owned worker. Startup preference changes never signal either process.
 func runServiceSupervisor(
-    root: URL = PreviewPaths.root,
+    root: URL = AppPaths.root,
     termination: ServerTermination = ServerTermination(gracePeriod: 50),
     makeWorker: (() -> Process)? = nil,
     saveState: ((ServiceRuntime) throws -> Void)? = nil
@@ -52,9 +60,9 @@ func runServiceSupervisor(
             if let makeWorker { worker = makeWorker() }
             else {
                 worker = Process()
-                worker.executableURL = Bundle.main.executableURL
+                worker.executableURL = roleExecutable("Dispatch Worker")
                 worker.arguments = ["--worker"]
-                if let testRoot = PreviewPaths.testRoot { worker.arguments! += ["--isolated-test", testRoot.path] }
+                if let testRoot = AppPaths.testRoot { worker.arguments! += ["--isolated-test", testRoot.path] }
             }
             try? FileManager.default.removeItem(at: activePath)
             try termination.launch(worker)

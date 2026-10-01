@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import * as z from "zod/v4";
 
@@ -58,6 +58,16 @@ export type OwnerReviewResult = OwnerReviewPlan & {
   launched: Array<{ persona: string; agentId: string; files: string[] }>;
   failures: Array<{ persona: string; error: string; files: string[] }>;
 };
+
+/** Whether the checkout has an ownership map at all; validity is checked at launch. */
+export async function hasCodeowners(root: string): Promise<boolean> {
+  try {
+    await access(path.join(root, CODEOWNERS_PATH));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function loadCodeowners(root: string): Promise<CodeownersConfig> {
   const file = path.join(root, CODEOWNERS_PATH);

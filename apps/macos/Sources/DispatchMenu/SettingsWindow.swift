@@ -26,6 +26,8 @@ final class SettingsWindowController: NSWindowController {
     private let databaseDetails = NSTextField(wrappingLabelWithString: "")
     private let savedMessage = NSTextField(wrappingLabelWithString: "")
     private let approval = NSButton(title: "Allow in System Settings…", target: nil, action: nil)
+    private let channel = NSPopUpButton(frame: .zero, pullsDown: false)
+    var updateChannels: (get: () -> UpdateChannel, set: (UpdateChannel) -> Void) = (get: { UpdateChannel.current() }, set: { $0.save() })
     private var saveButtons: [NSButton] = []
     private let certificateDetails = NSTextField(wrappingLabelWithString: "")
     private var trustButtons: [NSButton] = []
@@ -65,12 +67,16 @@ final class SettingsWindowController: NSWindowController {
         ])
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
-        let channel = Bundle.main.object(forInfoDictionaryKey: "DispatchUpdateChannel") as? String
+        channel.addItems(withTitles: UpdateChannel.allCases.map(\.title))
+        channel.target = self; channel.action = #selector(changeChannel)
+        channel.setAccessibilityLabel("Update channel")
         addTab("Support", to: tabs, views: [
-            card("Dispatch", [heading("Version \(version)"), note("Build \(build)" + (channel.map { " · \($0)" } ?? ""))]),
-            card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(PreviewPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
+            card("Dispatch", [heading("Version \(version)"), note("Build \(build)")]),
+            card("Updates", [row([NSTextField(labelWithString: "Channel"), channel]), note("Stable gets promoted releases. Preview gets every release as soon as it ships.")]),
+            card("Dispatch Data", [note("Your database, sessions, settings, and logs."), pathLabel(AppPaths.root.path), row([button("Show in Finder", #selector(showData)), button("Copy Path", #selector(copyDataPath))])]),
         ])
         updateDetails(configuration)
+        refreshChannel()
         if configuration.databaseURL.isEmpty { tabs.selectTabViewItem(at: 1) }
         window.center()
     }
@@ -95,7 +101,7 @@ final class SettingsWindowController: NSWindowController {
         approval.isHidden = !needsApproval
         fields.setEnabled(canSave && !busy)
         for save in saveButtons { save.isEnabled = canSave && !busy }
-        let certificate = try? Data(contentsOf: PreviewPaths.root.appendingPathComponent("tls/ca/cert.cer"))
+        let certificate = try? Data(contentsOf: AppPaths.root.appendingPathComponent("tls/ca/cert.cer"))
         certificateDetails.stringValue = certificate.map { "CA SHA-256\n" + SHA256.hash(data: $0).map { String(format: "%02X", $0) }.joined(separator: ":") } ?? "Certificate not created yet."
         for button in trustButtons { button.isEnabled = certificate != nil && canSave && !busy }
         trustButtons.last?.isEnabled = certificate != nil && active && displayedURL.scheme == "https"
@@ -183,6 +189,8 @@ final class SettingsWindowController: NSWindowController {
         tabs.addTabViewItem(tab)
     }
     private func copy(_ text: String) { copyText(text) }
+    func refreshChannel() { channel.selectItem(at: UpdateChannel.allCases.firstIndex(of: updateChannels.get()) ?? 0) }
+    @objc private func changeChannel() { updateChannels.set(UpdateChannel.allCases[max(channel.indexOfSelectedItem, 0)]) }
     @objc private func changeLogin() { onLoginChange?() }
     @objc private func changeServerLogin() { onServerLoginChange?(serverLogin.state == .on) }
     @objc private func saveSettings() { onSave?(fields) }
@@ -191,7 +199,7 @@ final class SettingsWindowController: NSWindowController {
     @objc private func showData() { onDataFolder?() }
     @objc private func copyURL() { copy(displayedURL.absoluteString) }
     @objc private func copyDatabaseURL() { copy(displayedDatabaseURL) }
-    @objc private func copyDataPath() { copy(PreviewPaths.root.path) }
+    @objc private func copyDataPath() { copy(AppPaths.root.path) }
     @objc private func openTrustInstructions() { NSWorkspace.shared.open(displayedURL.appendingPathComponent("trust")) }
     @objc private func exportProfile() { exportTrustFile("trust.mobileconfig", name: "dispatch.mobileconfig") }
     @objc private func exportCertificate() { exportTrustFile("cert.cer", name: "dispatch-ca.cer") }
@@ -201,7 +209,7 @@ final class SettingsWindowController: NSWindowController {
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let destination = panel.url else { return }
             do {
-                let data = try Data(contentsOf: PreviewPaths.root.appendingPathComponent("tls/ca/" + source))
+                let data = try Data(contentsOf: AppPaths.root.appendingPathComponent("tls/ca/" + source))
                 try data.write(to: destination, options: .atomic)
             } catch {
                 let alert = NSAlert(error: error); alert.beginSheetModal(for: window)
