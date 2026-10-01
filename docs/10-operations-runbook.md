@@ -22,8 +22,7 @@ The server runs as a **compiled Bun binary** at its fixed runtime path (normally
 **Per-install state** lives outside the repo checkout in `~/.dispatch/`:
 
 - `release.json` — the currently deployed tag and `deployedAt` timestamp
-- `assisted-update.json` — in-progress assisted-update state (token, phase, checks, notes)
-- `applied-migrations.json` — install-update migration ids that have been applied locally (CRU-146)
+- `release-candidate.json` — a just-activated release, promoted into `release.json` once it boots healthy
 - `cache/release-<tag>.tar.gz` — cached pre-built release artifacts (override dir with `DISPATCH_RELEASE_CACHE_DIR`)
 - `logs/dispatch.log` — service stdout/stderr (rotated by the server, see Diagnostics)
 - `agents/<agentId>/` — per-agent host state: launch file, socket, pid, journal, log (see Diagnostics)
@@ -96,7 +95,7 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
 
 The **release workflow** (GitHub Actions):
 
-- **Prepare**: bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), the browser-extension manifest, and the lockfile; generates `release-notes/current.md` from GitHub's auto-generated notes (embedding `release-notes/next-assisted-update.json` if present); commits and pushes to `main`. No tag is created yet.
+- **Prepare**: bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), the browser-extension manifest, and the lockfile; generates `release-notes/current.md` from GitHub's auto-generated notes commits and pushes to `main`. No tag is created yet.
 - **Verify**: runs type check, web lint, and unit tests against an ephemeral Postgres container (the full `pnpm run ci` — format, build, e2e — runs on the PRs that feed `main`, not here)
 - **Build**: builds Bun binaries for each host platform/arch (macOS binaries are Developer ID signed and notarized) and packs them into `dispatch-release.tar.gz` via `bin/pack-release`
 - **Smoke test**: boots the packed binary on both Linux and macOS runners against an ephemeral Postgres (macOS also verifies the code signature)
@@ -113,13 +112,13 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
 
 The server update flow operates on `~/.dispatch/server/` and:
 
-1. **Gates the request.** If the target release has pending update-migrations (CRU-146) or its body declares `mode: required` in a `dispatch-update` block (and the install isn't already past `appliesFrom`), responds `409` with `ASSISTED_UPDATE_REQUIRED` — caller must use `/release/assisted/launch` instead, or pass `force: true` to override. Returns `503` `MIGRATION_EVALUATION_UNAVAILABLE` if the migration evaluator can't reach the tarball (transient — retry, or pass `force: true` to skip the migration check).
-2. **Confirms** the tag exists in GitHub Releases.
+1. **Confirms** the tag exists in GitHub Releases.
+2. **Checks agent survival (Linux).** Refuses to continue unless `systemctl --user show dispatch.service -p KillMode` reports `KillMode=process`, so the restart leaves agent hosts running.
 3. **Deploys from the release artifact.** Downloads `dispatch-release.tar.gz` via direct HTTPS into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `~/.dispatch/server/dispatch`. The previous executable is retained as `dispatch.previous`.
 4. **Records a candidate** for the newly restarted process to promote into `~/.dispatch/release.json` after it is healthy.
 5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
 
-If the update fails mid-flight (e.g. archive extraction error, missing binary), the job's phase is set to `failed` with the error in the SSE stream and the active job state. There is **no automatic rollback** in the standard flow — re-issue the update against the previous tag manually, or use the assisted-update flow which can drive rollback.
+If the update fails mid-flight (e.g. archive extraction error, missing binary), the job's phase is set to `failed` with the error in the SSE stream and the active job state. There is **no automatic rollback** — re-issue the update against the previous tag, or copy `dispatch.previous` back over `dispatch` and restart the service.
 
 ## Rollback
 
@@ -141,59 +140,12 @@ fetched at session start, so after rolling back past a release that renamed an
 MCP tool, already-running agents call a name the older server does not register.
 Stop and start those agents so they refetch `tools/list`.
 
-If the failed update went through the assisted-update flow, the launched agent can drive rollback explicitly (it has the bearer token and follows the recovery guidance in its initial prompt). The state lands in `~/.dispatch/assisted-update.json` with `phase: "rollback"` if it goes that route.
-
-## Assisted Update
-
-For releases that have pending install-update migrations (CRU-146) or carry an assisted-update block in the release body, updates run via a dedicated flow that spawns a full-access agent on the production checkout to perform the work step-by-step.
-
-```bash
-# Launch the assisted-update flow for a tag
-curl -X POST http://127.0.0.1:6767/api/v1/release/assisted/launch \
-  -H 'Content-Type: application/json' \
-  -d '{"tag":"v1.2.3"}'
-
-# Inspect persisted state
-curl -s http://127.0.0.1:6767/api/v1/release/assisted/state | jq
-
-# Clear stuck state
-curl -X DELETE http://127.0.0.1:6767/api/v1/release/assisted/state
-```
-
-What the launch endpoint does:
-
-- Picks the first enabled agent type (`claude` / `codex`).
-- Snapshots pending update-migrations from `update-migrations/*.yaml` in the target tarball, or falls back to the `dispatch-update` block in the release body.
-- Creates an `assisted_update` agent rooted at `~/.dispatch/server/` with `fullAccess: true`, no worktree, and an initial prompt that includes recovery instructions plus a bearer token (`DISPATCH_RELEASE_UPDATE_TOKEN`).
-- Persists `~/.dispatch/assisted-update.json` with the token, target tag, snapshotted manifests, and the required-checks list.
-
-The agent reports progress by `POST /api/v1/release/assisted/phase` with its bearer token. The phase axis is:
-
-```
-inspect → prepare → apply → restarting → validate → done
-                                          ↓
-                          rollback / blocked / failed (terminal)
-```
-
-When the agent moves to `validate`, the server runs `runAndRecordChecks`, which evaluates the required checks listed in the manifests/metadata. The known check names (defined in `apps/server/src/release-metadata.ts`):
-
-- `expected_runtime_artifact` — the fixed runtime executable exists after deploy
-- `service_entrypoint` — `apps/server/package.json` has a `scripts.start` entry
-- `service_restarted` — `~/.dispatch/release.json` is present (lenient proxy for restart; the deeper check is `health_endpoint`)
-- `version_converged` — `~/.dispatch/release.json` tag matches the target tag
-- `health_endpoint` — the new process is serving HTTP/HTTPS with `status: "ok"`
-
-When the agent succeeds, the server writes the manifest ids into `~/.dispatch/applied-migrations.json` so the gate stops firing for them on the next update.
-
-Authoring assisted-update metadata in release notes is documented in `release-notes/AUTHORING.md`. Migration manifests use the schema in `apps/server/src/update-migrations.ts`; existing examples live in `update-migrations/`.
-
 ## CI Pipeline
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
 
 - Sets up `pnpm`, `bun`, `node`, and an ephemeral Postgres 17 container
 - Installs Playwright Chromium
-- Validates `release-notes/next-assisted-update.json` (when present) via `bin/embed-assisted-update.ts --check-only`
 - Runs `pnpm run ci`, which is `format && check && lint:web && build && test && test:e2e`
 - Builds Bun binaries (`pnpm run build:bun`) and smoke-tests the host-platform binary
 
@@ -317,15 +269,14 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 
 ## Bin Scripts
 
-| Script                         | Description                                                                                        |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `bin/dispatch-server`          | Service management wrapper (start, stop, restart, status, logs, build, update)                     |
-| `bin/install-dispatch.sh`      | First-time artifact install for macOS and Linux; writes the fixed runtime and service definition   |
-| `bin/dispatch-dev`             | Dev environment manager (isolated Docker Postgres + API server + Vite frontend)                    |
-| `bin/dispatch-stream`          | Agent-side CLI for managing browser streams (`start --playwright <port>` / `stop "<description>"`) |
-| `bin/install-dispatch.sh`      | Fresh artifact-only installer for macOS and Linux                                                  |
-| `bin/pack-release`             | Packs `dispatch-release.tar.gz` from pre-built Bun binaries; used by the release workflow          |
-| `bin/embed-assisted-update.ts` | Validates assisted-update metadata in `release-notes/next-assisted-update.json`                    |
+| Script                    | Description                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| `bin/dispatch-server`     | Service management wrapper (start, stop, restart, status, logs, build, update)                     |
+| `bin/install-dispatch.sh` | First-time artifact install for macOS and Linux; writes the fixed runtime and service definition   |
+| `bin/dispatch-dev`        | Dev environment manager (isolated Docker Postgres + API server + Vite frontend)                    |
+| `bin/dispatch-stream`     | Agent-side CLI for managing browser streams (`start --playwright <port>` / `stop "<description>"`) |
+| `bin/install-dispatch.sh` | Fresh artifact-only installer for macOS and Linux                                                  |
+| `bin/pack-release`        | Packs `dispatch-release.tar.gz` from pre-built Bun binaries; used by the release workflow          |
 
 ## File Locations
 
@@ -335,8 +286,7 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 | `~/.dispatch/server/.env`                          | Server environment config                                                  |
 | `~/.dispatch/server/dist/bun/`                     | Compiled Bun binaries the wrapper execs                                    |
 | `~/.dispatch/release.json`                         | Currently deployed tag + `deployedAt` timestamp                            |
-| `~/.dispatch/assisted-update.json`                 | In-progress assisted-update state (token, phase, checks, notes)            |
-| `~/.dispatch/applied-migrations.json`              | Install-update migration ids that have been applied locally (CRU-146)      |
+| `~/.dispatch/release-candidate.json`               | Just-activated release awaiting a healthy boot                             |
 | `~/.dispatch/cache/release-<tag>.tar.gz`           | Cached pre-built release artifacts keyed by tag                            |
 | `~/.dispatch/logs/dispatch.log`                    | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days) |
 | `~/.dispatch/agents/<agentId>/`                    | Per-agent host state: launch file, socket, pid, journal, host log          |

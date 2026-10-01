@@ -141,9 +141,8 @@ set `DISPATCH_NOTARY_KEYCHAIN` to its path alongside the profile name.
 
 ## Updates and removal
 
-Sparkle owns app updates. The server sets `DISPATCH_UPDATE_OWNER=macos-app`; web
-tarball updates and assisted-update launch/phase routes reject requests, including
-forced updates. Before Sparkle replaces the bundle, the app records whether the
+Sparkle owns app updates. The server sets `DISPATCH_UPDATE_OWNER=macos-app`; the web
+tarball update route rejects requests. Before Sparkle replaces the bundle, the app records whether the
 server was running and stops the service; after relaunch it re-registers the
 service, restores that state, and confirms health before clearing the recovery
 record. If that fails, **Retry Update Recovery** appears in the menu.

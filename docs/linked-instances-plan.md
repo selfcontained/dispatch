@@ -282,9 +282,8 @@ registration routes + capability table + migration → settings panel.
 production `pgmigrations` table before picking numbers — #978 already had to
 renumber `0041 → 0042` when upstream took the slot.
 
-R1 introduces a new listening port, which is what
-`release-notes/next-assisted-update.json` exists for. Author metadata so upgrades
-don't quietly fail behind a firewall or service-manager config.
+R1 introduces a new listening port. Call it out in the release notes so
+upgrades don't quietly fail behind a firewall or service-manager config.
 
 ## 6. What to salvage from #978
 

@@ -11,8 +11,7 @@ change affects one or more of:
 
 - the installer, generated systemd unit, LaunchAgent, or service wrapper;
 - release artifacts, checksums, binary activation, or rollback files;
-- assisted updates, update migrations, or release state promotion;
-- a transition from an old service layout to the fixed runtime path;
+- release channels or release state promotion;
 - a release that will be promoted stable after an installation/update change.
 
 Do not use a VM by default for application, API, UI, or ordinary unit-test
@@ -35,64 +34,37 @@ existing VM will be modified, and cleanup intent before proceeding.
 
 ## Recommended matrix
 
-| Scenario                      | Purpose                         | Minimum evidence                                                                                        |
-| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Fresh Linux install           | Installer and user systemd unit | Healthy service, fixed `ExecStart`, initialized release/migration stores                                |
-| Fresh macOS install           | Installer and LaunchAgent       | Healthy service, fixed `ProgramArguments`, log file, initialized state                                  |
-| Existing fixed-path install   | Normal artifact update          | Checksum, atomic replacement, `.previous`, health, release promotion                                    |
-| Existing legacy Linux service | Last-hop migration safety       | Version-pinned symlink/wrapper fixture, fixed-path cutover before restart, actual target binary running |
-| Existing legacy macOS service | Bridge behavior                 | Exact target selection; no mtime-based binary choice; launchd recovery path if needed                   |
-| Assisted update on Linux      | Agent survival                  | An agent host inside `dispatch.service` survives the restart after `KillMode=process` is loaded         |
+| Scenario                   | Purpose                         | Minimum evidence                                                                                 |
+| -------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Fresh Linux install        | Installer and user systemd unit | Healthy service, fixed `ExecStart`, `KillMode=process`, channel in `.env`, release promoted      |
+| Fresh macOS install        | Installer and LaunchAgent       | Healthy service, fixed `ProgramArguments`, log file, initialized state                           |
+| In-app update on a channel | Normal artifact update          | Picks the channel's newest release, checksum, atomic replacement, `.previous`, health, promotion |
+| Linux update with an agent | Agent survival                  | An agent host inside `dispatch.service` survives the update's restart and the server reattaches  |
 
-Run only the rows relevant to the change. Fresh installer tests do not replace
-legacy-upgrade tests, and unit tests do not replace a service-manager restart.
+Run only the rows relevant to the change. Unit tests do not replace a
+service-manager restart.
 
-## Linux assisted-update procedure
+## Linux update procedure
 
-This procedure models the failure mode where an assisted-update agent's host
-process (`dispatch-agent-host`, spawned detached in its own process group) is
-a child of the Dispatch user service and must outlive the server's restart.
-
-1. Start from a disposable Ubuntu VM with a healthy, supported user unit and
-   record its unit file, `MainPID`, current release record, and health result.
-2. For a legacy fixture, make `ExecStart` resolve a version-pinned binary or
-   symlink. Keep a backup of the fixture unit inside the VM.
-   `scripts/vm-fixtures/legacy-pinned-symlink.sh` converts a healthy
-   fixed-path install into this shape (pinned `bin/dispatch` symlink, no
-   fixed runtime file, no `KillMode=process`, fixed-runtime migrations
-   un-applied) — run it only inside the disposable VM.
-3. Download the published target tarball, select the exact platform/arch
-   member, reject unexpected archive members, and compare its SHA-256 to the
-   tarball manifest.
-4. Launch a harmless agent through the running service (the API or the UI)
+1. Start from a disposable Ubuntu VM with a user systemd session. Install a
+   preview release with `bin/install-dispatch.sh --channel preview --tag
+<older tag>` and record the unit file, `MainPID`, `release.json`, and
+   health.
+2. Launch a harmless agent through the running service (the API or the UI)
    and record its host pid from `~/.dispatch/agents/<agentId>/host.pid`.
    Confirm that pid's cgroup is `dispatch.service`; a host started from a
    shell is not a valid substitute.
-5. Apply the migration's pre-restart service changes. For supported systemd
-   units this includes `KillMode=process` and `systemctl --user daemon-reload`.
-   Confirm the loaded value with:
-
-   ```sh
-   systemctl --user show dispatch.service -p KillMode
-   ```
-
-6. For a legacy Linux entrypoint, stage the verified target binary on the
-   install filesystem, preserve the last healthy executable as
-   `dispatch.previous`, create/refresh the fixed runtime path, and repoint
-   `ExecStart` **before** the first restart. Do not trust a release record to
-   prove the service changed binaries.
-7. Perform the update/restart. Confirm all of the following after it returns:
+3. From **Settings → Updates**, check for updates and apply the newer
+   preview release.
+4. Confirm all of the following after the restart:
    - the agent host pid is unchanged and alive, the server reattached to it,
      and the agent is `running` with its stream intact;
    - systemd is active and the health endpoint reports `ok`;
-   - `ExecStart` invokes the fixed runtime path;
-   - the running process resolves to the expected target binary/version;
+   - `ExecStart` invokes the fixed runtime path and the running process
+     reports the target version (`X-Dispatch-Version`);
    - `release.json` was promoted by the healthy target binary;
    - `dispatch.previous` exists and is a usable rollback asset.
-
-8. Restore a normal fixed-path service definition, stop and archive the test
-   agent, remove only temporary test wrappers/artifacts, and verify one final
-   healthy boot.
+5. Stop and archive the test agent and verify one final healthy boot.
 
 ## Release decision
 

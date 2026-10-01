@@ -21,4 +21,14 @@ describe("install-dispatch systemd unit", () => {
     );
     expect(script).not.toContain("DISPATCH_SHELL_ENV");
   });
+
+  it("records the chosen update channel and never auto-selects a 0.x release", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).toContain('"DISPATCH_UPDATE_CHANNEL=$CHANNEL"');
+    expect(script).toContain("releases/download/v[1-9][0-9]*");
+    expect(script).not.toContain("applied-migrations");
+  });
 });

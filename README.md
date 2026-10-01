@@ -4,24 +4,35 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 ## Quick Install
 
-Install and start PostgreSQL 14+ first, then run this on macOS or Linux:
+**macOS:** download the Dispatch app ZIP (`dispatch-macos-*-arm64.zip`) from the
+newest [release](https://github.com/selfcontained/dispatch/releases), unzip it,
+and move `Dispatch.app` to Applications. The app bundles its own PostgreSQL and
+updates itself from the menu bar.
+
+**Linux:** install and start PostgreSQL 14+, then run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
 ```
 
-The installer selects the latest stable release, creates a private local
-database and credentials when it can administer PostgreSQL, installs the
-platform-matched binary at `~/.dispatch/server/dispatch`, and registers a
-user service. For a managed database, pass its URL instead:
+The installer picks the newest release on a channel: **stable** (promoted
+releases) or **preview** (every release as soon as it ships). It uses stable,
+or preview while no stable release exists; pass `--channel preview` or
+`--channel stable` to choose. It creates a private local database and
+credentials when it can administer PostgreSQL, installs the platform-matched
+binary at `~/.dispatch/server/dispatch`, and registers a user systemd service.
+For a managed database, pass its URL instead:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
 ```
 
 The service listens on `127.0.0.1:6767`. Verify with
-`curl http://127.0.0.1:6767/api/v1/health`. Normal UI updates atomically
-replace the fixed executable and restart the service.
+`curl http://127.0.0.1:6767/api/v1/health`. Updates come from
+**Settings → Updates**, which follows the same channel: they atomically replace
+the fixed executable and restart the service without stopping running agents.
+The installer refuses to overwrite an existing installation; Dispatch 1.0 does
+not upgrade 0.x installs, so remove an old install first.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
