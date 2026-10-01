@@ -12,7 +12,7 @@ HOME_DIR="${HOME:?HOME must be set}"
 STATE_DIR="${DISPATCH_STATE_DIR:-${XDG_DATA_HOME:-$HOME_DIR/.local/share}/dispatch}"
 INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$STATE_DIR/server}"
 RUNTIME_PATH=""
-PORT="6767"
+PORT=""
 TAG=""
 CHANNEL=""
 RELEASE_URL="${DISPATCH_RELEASE_URL:-}"
@@ -36,7 +36,7 @@ Installs the newest Dispatch release on a channel for the current platform.
   --install-dir PATH    Install directory (default: ~/.local/share/dispatch/server)
   --runtime-path PATH   Fixed executable path (default: INSTALL_DIR/dispatch)
   --database-url URL    Use an existing PostgreSQL database
-  --port PORT           HTTP port (default: 6767)
+  --port PORT           HTTP port (default: 6767, or the next free port above it)
   --no-service          Install files/configuration without a service or active-release record
 EOF
 }
@@ -56,7 +56,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$PORT" in *[!0-9]*|'') echo "error: --port must be numeric" >&2; exit 2;; esac
+case "$PORT" in '') ;; *[!0-9]*) echo "error: --port must be numeric" >&2; exit 2;; esac
 case "$CHANNEL" in ''|stable|preview) ;; *) echo "error: --channel must be stable or preview" >&2; exit 2;; esac
 case "$(uname -s)" in Darwin) PLATFORM=darwin;; Linux) PLATFORM=linux;; *) echo "unsupported OS" >&2; exit 1;; esac
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64;; x86_64|amd64) ARCH=x64;; *) echo "unsupported architecture" >&2; exit 1;; esac
@@ -86,6 +86,21 @@ if [ -e "$RUNTIME_PATH" ] || [ -e "$ENV_FILE" ] || { [ "$PLATFORM" = linux ] && 
 fi
 if [ -e "$OLD_UNIT" ] || [ -e "$OLD_PLIST" ] || [ -d "$HOME_DIR/.dispatch/server" ]; then
   echo "==> found Dispatch 0.x (~/.dispatch); it is left untouched and keeps its own data"
+fi
+
+# Something already answers on 127.0.0.1:PORT (often a 0.x Dispatch on 6767).
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+if [ -n "$PORT" ]; then
+  if [ "$NO_SERVICE" = 0 ] && port_in_use "$PORT"; then
+    echo "error: port $PORT is already in use; choose another with --port" >&2; exit 1
+  fi
+else
+  PORT=6767
+  while port_in_use "$PORT"; do
+    PORT=$((PORT + 1))
+    [ "$PORT" -le 6867 ] || { echo "error: no free port between 6767 and 6867; choose one with --port" >&2; exit 1; }
+  done
+  [ "$PORT" = 6767 ] || echo "==> port 6767 is in use; Dispatch will listen on $PORT"
 fi
 
 github_api() {

@@ -23,7 +23,6 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "start": "pnpm --filter @dispatch/server start",
-    "release": "bin/dispatch-server update",
     "db:migrate": "pnpm --filter @dispatch/server db:migrate",
     "check": "pnpm --filter @dispatch/shared check && pnpm --filter @dispatch/server check && pnpm run check:web && pnpm run check:site && pnpm --filter @dispatch/browser-extension check",
     "ci": "pnpm run format && pnpm run check && pnpm run lint:web && pnpm run build && pnpm run test && pnpm run test:e2e",

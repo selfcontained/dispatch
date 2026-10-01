@@ -31,4 +31,15 @@ describe("install-dispatch systemd unit", () => {
     expect(script).toContain("releases/download/v[1-9][0-9]*");
     expect(script).not.toContain("applied-migrations");
   });
+
+  it("stays apart from a Dispatch 0.x install", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).toContain('SERVICE="dispatch-server"');
+    expect(script).toContain('"DISPATCH_STATE_DIR=$STATE_DIR"');
+    expect(script).toContain("/dispatch-server\\.tar\\.gz");
+    expect(script).not.toMatch(/STATE_DIR="\$HOME_DIR\/\.dispatch"/);
+  });
 });

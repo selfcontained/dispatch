@@ -2,24 +2,26 @@
 
 This runbook is for running Dispatch reliably across agent/session boundaries and host restarts.
 
+`<state>` below is the install's state directory (`DISPATCH_STATE_DIR`): `~/.local/share/dispatch` for an installer-managed server, `~/.dispatch-mac-preview` for the Mac app. Service names are the 1.x ones the installer writes (`dispatch-server` on Linux, `dev.dispatch.server` on macOS, via `DISPATCH_SERVICE_NAME`). A Dispatch 0.x install keeps `~/.dispatch`, `dispatch.service` and `com.dispatch.server`; 1.x never touches them.
+
 ## Architecture Overview
 
-Dispatch runs as a **launchd LaunchAgent** (`com.dispatch.server`) — a macOS-native service manager that:
+Dispatch runs as a user service — a systemd user unit (`dispatch-server`) on Linux, a launchd LaunchAgent (`dev.dispatch.server`) for a standalone macOS server — that:
 
 - Starts automatically at login
 - Restarts automatically if the process crashes
 - Runs as the current user with full environment access
 - Cannot be accidentally stopped by agents working in the repo
 
-The server lives in an **artifact install** at `~/.dispatch/server/`, independent from any working copy. Regular installs have no checkout, build toolchain, or runtime git dependency.
+The server lives in an **artifact install** at `<state>/server/`, independent from any working copy. Regular installs have no checkout, build toolchain, or runtime git dependency.
 
-The server runs as a **compiled Bun binary** at its fixed runtime path (normally `~/.dispatch/server/dispatch`). The host needs `bun` and `pnpm` only when building from source — not just to run the service.
+The server runs as a **compiled Bun binary** at its fixed runtime path (normally `<state>/server/dispatch`). The host needs `bun` and `pnpm` only when building from source — not just to run the service.
 
 **Postgres** runs via Homebrew (`brew services start postgresql@17`, port 5432). Docker is available for isolated dev databases via `dispatch-dev`.
 
-**Server port**: 6767 (set via `DISPATCH_PORT` in `~/.dispatch/server/.env`).
+**Server port**: 6767, or the next free port the installer found (set via `DISPATCH_PORT` in `<state>/server/.env`).
 
-**Per-install state** lives outside the repo checkout in `~/.dispatch/`:
+**Per-install state** lives outside the repo checkout in `<state>/`:
 
 - `release.json` — the currently deployed tag and `deployedAt` timestamp
 - `release-candidate.json` — a just-activated release, promoted into `release.json` once it boots healthy
@@ -29,37 +31,27 @@ The server runs as a **compiled Bun binary** at its fixed runtime path (normally
 
 ## Service Management
 
-The simplest way to manage the running service is the `bin/dispatch-server` wrapper in the production checkout. It resolves the configured port from `~/.dispatch/server/.env`, runs a TLS-aware health check, and tails the log on failure:
+Linux (systemd user unit):
 
 ```bash
-cd ~/.dispatch/server
-bin/dispatch-server status        # launchd state + health check JSON
-bin/dispatch-server start         # bootstrap (or kickstart if already loaded)
-bin/dispatch-server stop          # bootout
-bin/dispatch-server restart       # kickstart -k
-bin/dispatch-server logs          # tail -n 200 ~/.dispatch/logs/dispatch.log
-bin/dispatch-server logs -f       # follow
-bin/dispatch-server build         # pnpm install + pnpm run build:bun
-bin/dispatch-server update        # build + restart + health check
+systemctl --user status dispatch-server
+systemctl --user restart dispatch-server     # what the update flow runs
+systemctl --user stop dispatch-server
+journalctl --user -u dispatch-server -f
+curl http://127.0.0.1:<port>/api/v1/health    # port is DISPATCH_PORT in <state>/server/.env
 ```
 
-Equivalent raw `launchctl` commands for scripting:
+Standalone macOS server (LaunchAgent):
 
 ```bash
-# Service state
-launchctl print "gui/$(id -u)/com.dispatch.server"
-
-# Live logs
-tail -f ~/.dispatch/logs/dispatch.log
-
-# Load (first-time after install) / unload
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.dispatch.server.plist
-launchctl bootout    "gui/$(id -u)/com.dispatch.server"
-
-# Restart in place (preserves the bootstrap; what `restart` and the release
-# flow use)
-launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
+launchctl print "gui/$(id -u)/dev.dispatch.server"
+tail -f <state>/logs/dispatch.log
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/dev.dispatch.server.plist
+launchctl bootout    "gui/$(id -u)/dev.dispatch.server"
+launchctl kickstart -k "gui/$(id -u)/dev.dispatch.server"   # what the update flow runs
 ```
+
+The Mac app manages its own server from the menu bar.
 
 ## Database
 
@@ -112,13 +104,13 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
   -d '{"tag":"v1.2.3"}'
 ```
 
-The server update flow operates on `~/.dispatch/server/` and:
+The server update flow operates on `<state>/server/` and:
 
 1. **Confirms** the tag exists in GitHub Releases.
-2. **Checks agent survival (Linux).** Refuses to continue unless `systemctl --user show dispatch.service -p KillMode` reports `KillMode=process`, so the restart leaves agent hosts running.
-3. **Deploys from the release artifact.** Downloads `dispatch-server.tar.gz` via direct HTTPS into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `~/.dispatch/server/dispatch`. The previous executable is retained as `dispatch.previous`.
-4. **Records a candidate** for the newly restarted process to promote into `~/.dispatch/release.json` after it is healthy.
-5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
+2. **Checks agent survival (Linux).** Refuses to continue unless `systemctl --user show dispatch-server.service -p KillMode` reports `KillMode=process`, so the restart leaves agent hosts running.
+3. **Deploys from the release artifact.** Downloads `dispatch-server.tar.gz` via direct HTTPS into the tarball cache (`<state>/cache/release-<tag>.tar.gz`), validates it, verifies the platform binary checksum, and atomically replaces `<state>/server/dispatch`. The previous executable is retained as `dispatch.previous`.
+4. **Records a candidate** for the newly restarted process to promote into `<state>/release.json` after it is healthy.
+5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/dev.dispatch.server` (or `systemctl --user restart dispatch-server` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Hit `/api/v1/health` to confirm.
 
 If the update fails mid-flight (e.g. archive extraction error, missing binary), the job's phase is set to `failed` with the error in the SSE stream and the active job state. There is **no automatic rollback** — re-issue the update against the previous tag, or copy `dispatch.previous` back over `dispatch` and restart the service.
 
@@ -131,10 +123,10 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
   -d '{"tag":"v1.2.2"}'
 ```
 
-Rollback is just an `update` to an older tag. The currently deployed tag is whatever was last written to `~/.dispatch/release.json`:
+Rollback is just an `update` to an older tag. The currently deployed tag is whatever was last written to `<state>/release.json`:
 
 ```bash
-cat ~/.dispatch/release.json
+cat <state>/release.json
 ```
 
 **MCP tool renames do not roll back cleanly.** Agents hold the tool list they
@@ -155,7 +147,7 @@ PRs must pass CI before merge.
 
 ## Configuration
 
-Server configuration lives in `~/.dispatch/server/.env`. Key variables:
+Server configuration lives in `<state>/server/.env`. Key variables:
 
 | Variable                    | Default                                                | Description                                                                                                                                                                                       |
 | --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -228,7 +220,7 @@ What to look for:
 
 If agents were `running` and then reconcile changed them to `stopped`, or an agent went to `error` with "The agent exited", start here.
 
-Each agent's host keeps its own state under `~/.dispatch/agents/<agentId>/`:
+Each agent's host keeps its own state under `<state>/agents/<agentId>/`:
 
 - `host.log` — stderr of the host and of the engine adapter; the first place to look
 - `journal.jsonl` — every ACP event the host saw, with a sequence number
@@ -240,7 +232,7 @@ Recommended workflow:
 1. Confirm what Dispatch observed.
 
 ```bash
-tail -n 200 ~/.dispatch/logs/dispatch.log
+tail -n 200 <state>/logs/dispatch.log
 ```
 
 Look for `Restored running agents` (with `attached` and `lost` lists) after a restart, `agent host is gone`, and `The agent exited`.
@@ -248,7 +240,7 @@ Look for `Restored running agents` (with `attached` and `lost` lists) after a re
 2. Read the host log for the affected agent.
 
 ```bash
-tail -n 50 ~/.dispatch/agents/<agentId>/host.log
+tail -n 50 <state>/agents/<agentId>/host.log
 ```
 
 An engine that could not start says so here (a missing adapter, a login that expired: run `claude /login` as the service user). A crash mid-turn shows the adapter's last stderr lines.
@@ -256,7 +248,7 @@ An engine that could not start says so here (a missing adapter, a login that exp
 3. Check whether the host is still alive.
 
 ```bash
-kill -0 "$(cat ~/.dispatch/agents/<agentId>/host.pid)" && echo alive
+kill -0 "$(cat <state>/agents/<agentId>/host.pid)" && echo alive
 ```
 
 A host that is alive while the agent reads `stopped` means the server could not reach its socket; a Dispatch restart reattaches. A dead host with a live agent row is what reconcile corrects on its next tick.
@@ -264,7 +256,7 @@ A host that is alive while the agent reads `stopped` means the server could not 
 4. Pull macOS unified logs around the incident window if the host itself was killed.
 
 ```bash
-log show --style compact --start "<start>" --end "<end>" --predicate '(process == "launchd") || (eventMessage CONTAINS[c] "com.dispatch.server") || (eventMessage CONTAINS[c] "SIGKILL") || (eventMessage CONTAINS[c] "logout")'
+log show --style compact --start "<start>" --end "<end>" --predicate '(process == "launchd") || (eventMessage CONTAINS[c] "dev.dispatch.server") || (eventMessage CONTAINS[c] "SIGKILL") || (eventMessage CONTAINS[c] "logout")'
 ```
 
 Hosts run in their own process group, so a Dispatch restart never takes them down; a user logout or a same-user automation that kills process trees will.
@@ -273,7 +265,6 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 
 | Script                    | Description                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `bin/dispatch-server`     | Service management wrapper (start, stop, restart, status, logs, build, update)                     |
 | `bin/install-dispatch.sh` | First-time artifact install for macOS and Linux; writes the fixed runtime and service definition   |
 | `bin/dispatch-dev`        | Dev environment manager (isolated Docker Postgres + API server + Vite frontend)                    |
 | `bin/dispatch-stream`     | Agent-side CLI for managing browser streams (`start --playwright <port>` / `stop "<description>"`) |
@@ -284,12 +275,12 @@ Hosts run in their own process group, so a Dispatch restart never takes them dow
 
 | Path                                               | Description                                                                |
 | -------------------------------------------------- | -------------------------------------------------------------------------- |
-| `~/.dispatch/server/`                              | Server checkout (deploy target)                                            |
-| `~/.dispatch/server/.env`                          | Server environment config                                                  |
-| `~/.dispatch/server/dist/bun/`                     | Compiled Bun binaries the wrapper execs                                    |
-| `~/.dispatch/release.json`                         | Currently deployed tag + `deployedAt` timestamp                            |
-| `~/.dispatch/release-candidate.json`               | Just-activated release awaiting a healthy boot                             |
-| `~/.dispatch/cache/release-<tag>.tar.gz`           | Cached pre-built release artifacts keyed by tag                            |
-| `~/.dispatch/logs/dispatch.log`                    | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days) |
-| `~/.dispatch/agents/<agentId>/`                    | Per-agent host state: launch file, socket, pid, journal, host log          |
-| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition (points at the fixed runtime)                   |
+| `<state>/server/`                                  | Server checkout (deploy target)                                            |
+| `<state>/server/.env`                              | Server environment config                                                  |
+| `<state>/server/dist/bun/`                         | Compiled Bun binaries the wrapper execs                                    |
+| `<state>/release.json`                             | Currently deployed tag + `deployedAt` timestamp                            |
+| `<state>/release-candidate.json`                   | Just-activated release awaiting a healthy boot                             |
+| `<state>/cache/release-<tag>.tar.gz`               | Cached pre-built release artifacts keyed by tag                            |
+| `<state>/logs/dispatch.log`                        | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days) |
+| `<state>/agents/<agentId>/`                        | Per-agent host state: launch file, socket, pid, journal, host log          |
+| `~/Library/LaunchAgents/dev.dispatch.server.plist` | launchd service definition (points at the fixed runtime)                   |

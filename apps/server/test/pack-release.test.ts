@@ -54,7 +54,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
   it("includes bin/ scripts", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
     expect(files).toContain("bin/install-dispatch.sh");
   });
 
