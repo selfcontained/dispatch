@@ -35,22 +35,22 @@ export function personaLaunchRequest(input: {
   includeDiff?: boolean;
   note?: string;
 }): string {
-  const typeArgs = [
-    `type: "${input.agentType}"`,
-    ...(input.model ? [`model: "${input.model}"`] : []),
-  ];
+  const modelArgs = input.model ? [`model: "${input.model}"`] : [];
   const lines = input.personas.map((persona) => {
     const args = [
       `persona: "${persona}"`,
-      ...typeArgs,
+      `type: "${input.agentType}"`,
+      ...modelArgs,
       ...(input.includeDiff === false ? ["includeDiff: false"] : []),
     ];
     return `- launch_agent({ ${args.join(", ")}, prompt: <your briefing> })`;
   });
   if (input.codeowners) {
-    // Owner reviews always carry the change map; includeDiff has no say.
+    // The owner tool names the runtime `agentType` where launch_agent says
+    // `type`. Owner reviews always carry the change map; includeDiff has no say.
+    const args = [`agentType: "${input.agentType}"`, ...modelArgs];
     lines.unshift(
-      `- launch_owner_reviews({ ${typeArgs.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
+      `- launch_owner_reviews({ ${args.join(", ")}, context: <your briefing> }) — the code owners for your changed files, selected from .dispatch/codeowners.json`
     );
   }
   const subject = input.codeowners

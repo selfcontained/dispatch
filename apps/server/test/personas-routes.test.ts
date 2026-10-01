@@ -197,9 +197,11 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     const [, input] = deps.streams.promptAgent.mock.calls[0]!;
     expect(input.description).toBe("Review requested: code owners");
     expect(input.text).toContain("Please launch the code owners on your");
+    // The owner tool's runtime arg is `agentType`, unlike launch_agent's `type`.
     expect(input.text).toContain(
-      'launch_owner_reviews({ type: "claude", model: "opus", context: <your briefing> })'
+      'launch_owner_reviews({ agentType: "claude", model: "opus", context: <your briefing> })'
     );
+    expect(input.text).not.toContain('type: "claude", ');
     expect(input.text).not.toContain("launch_agent(");
     // Owner reviews always carry the change map; the flag only applies to
     // hand-picked personas.
