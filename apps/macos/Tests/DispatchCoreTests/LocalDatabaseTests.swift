@@ -37,6 +37,50 @@ final class LocalDatabaseTests: XCTestCase {
         XCTAssertThrowsError(try invalid.validate())
     }
 
+    private func writeLegacyCredentials(root: URL) throws -> String {
+        let url = "postgres://dispatch_preview:\(String(repeating: "ab", count: 32))@127.0.0.1:55433/dispatch_preview"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try JSONEncoder().encode(Configuration(databaseURL: url, managedDatabase: true)).write(to: root.appendingPathComponent("local-database.json"))
+        return url
+    }
+
+    func testLegacyCredentialsWithoutClusterAreRenamedForFirstStart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-rename-uninit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try writeLegacyCredentials(root: root)
+        let renamed = try XCTUnwrap(try LocalDatabase(root: root, binaries: root).migrateLegacyRole())
+        XCTAssertEqual(URLComponents(string: renamed)?.user, LocalDatabase.role)
+        XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("local-database.json")).databaseURL, renamed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("postgres").path))
+    }
+
+    func testFailedMigrationStartStopsTheCluster() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-rename-start-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try writeLegacyCredentials(root: root)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("postgres"), withIntermediateDirectories: true)
+        try Data("17\n".utf8).write(to: root.appendingPathComponent("postgres/PG_VERSION"))
+        // A start that times out while the server keeps starting in the background.
+        let bin = root.appendingPathComponent("fake/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let flag = root.appendingPathComponent("fake/running").path, calls = root.appendingPathComponent("fake/calls").path
+        let script = """
+            #!/bin/sh
+            for a in "$@"; do last="$a"; done
+            echo "$last" >> '\(calls)'
+            case "$last" in
+              status) [ -f '\(flag)' ] && exit 0 || exit 3 ;;
+              start) touch '\(flag)'; exit 1 ;;
+              stop) rm -f '\(flag)'; exit 0 ;;
+            esac
+            """
+        try Data(script.utf8).write(to: bin.appendingPathComponent("pg_ctl"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: bin.appendingPathComponent("pg_ctl").path)
+        XCTAssertThrowsError(try LocalDatabase(root: root, binaries: root.appendingPathComponent("fake")).migrateLegacyRole())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: flag), "A failed start must not leave the cluster running")
+        XCTAssertEqual(try String(contentsOfFile: calls).split(separator: "\n"), ["status", "start", "status", "stop"])
+    }
+
     func testPreReleaseRoleAndDatabaseAreRenamedWithDataKept() throws {
         guard let path = ProcessInfo.processInfo.environment["DISPATCH_TEST_POSTGRES_BUNDLE"] else {
             throw XCTSkip("Set DISPATCH_TEST_POSTGRES_BUNDLE to exercise the real bundled PostgreSQL.")
@@ -59,7 +103,7 @@ final class LocalDatabaseTests: XCTestCase {
         XCTAssertEqual(try sql("ALTER DATABASE \(LocalDatabase.role) RENAME TO dispatch_preview", configuration: asHelper, binaries: binaries, database: "postgres").0, 0)
         var legacy = current; legacy.databaseURL = legacyURL
         XCTAssertEqual(try sql("DROP ROLE helper", configuration: legacy, binaries: binaries, database: "postgres").0, 0)
-        try database!.stop()
+        // Leave the cluster running, as after a timed-out start or a crash mid-migration.
         database = nil // Releases the setup lock for the migration.
         try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent("local-database.json"))
 

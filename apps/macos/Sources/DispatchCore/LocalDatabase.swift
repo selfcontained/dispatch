@@ -135,10 +135,24 @@ public final class LocalDatabase {
         guard saved.usesManagedDatabase, var url = URLComponents(string: saved.databaseURL),
               url.user == Self.legacyRole, let password = url.password, password.allSatisfy({ $0.isHexDigit }) else { return nil }
         try acquire()
-        guard (try String(contentsOf: data.appendingPathComponent("PG_VERSION"))).trimmingCharacters(in: .whitespacesAndNewlines) == "17" else {
+        func saveRenamed() throws -> String {
+            url.user = Self.role
+            url.path = "/\(Self.role)"
+            saved.databaseURL = url.string!
+            try saved.save(to: savedConfiguration)
+            return saved.databaseURL
+        }
+        // Setup saves credentials before the first start creates the cluster. With no
+        // cluster yet, the next start initializes it under the release names.
+        if !FileManager.default.fileExists(atPath: data.path) { return try saveRenamed() }
+        guard (try? String(contentsOf: data.appendingPathComponent("PG_VERSION")))?.trimmingCharacters(in: .whitespacesAndNewlines) == "17" else {
             throw ConfigurationError("Dispatch requires PostgreSQL 17 data. Your existing data has not been changed.")
         }
-        if (try? Self.availablePort(requested: url.port!)) == nil { url.port = try Self.availablePort() }
+        // A previous attempt can leave the cluster running (a timed-out start keeps
+        // starting in the background, or the app quit mid-migration). Reuse it on its port.
+        let running = try run("pg_ctl", ["-D", data.path, "status"], allowed: [0, 3]) == 0
+        if running, let port = runningPort() { url.port = port }
+        else if (try? Self.availablePort(requested: url.port!)) == nil { url.port = try Self.availablePort() }
         func environment(_ user: String) -> [String: String] {
             ["PGHOST": "127.0.0.1", "PGPORT": String(url.port!), "PGUSER": user, "PGPASSWORD": password, "PGDATABASE": "postgres", "PGCONNECT_TIMEOUT": "5"]
         }
@@ -149,8 +163,10 @@ public final class LocalDatabase {
         func query(_ user: String, _ statement: String) throws -> String {
             try output("psql", ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", statement], environment: environment(user)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        try run("pg_ctl", ["-D", data.path, "-l", root.appendingPathComponent("postgres.log").path, "-w", "-t", "30", "-o", "-h 127.0.0.1 -p \(url.port!) -k ''", "start"])
         do {
+            if !running {
+                try run("pg_ctl", ["-D", data.path, "-l", root.appendingPathComponent("postgres.log").path, "-w", "-t", "30", "-o", "-h 127.0.0.1 -p \(url.port!) -k ''", "start"])
+            }
             let renamed = (try? query(Self.role, "SELECT 1")) == "1"
             let actual = try query(renamed ? Self.role : Self.legacyRole, "SHOW data_directory")
             guard URL(fileURLWithPath: actual).resolvingSymlinksInPath() == data.resolvingSymlinksInPath() else {
@@ -175,11 +191,14 @@ public final class LocalDatabase {
             throw error
         }
         try stop()
-        url.user = Self.role
-        url.path = "/\(Self.role)"
-        saved.databaseURL = url.string!
-        try saved.save(to: savedConfiguration)
-        return saved.databaseURL
+        return try saveRenamed()
+    }
+
+    /// The listening port recorded in a running cluster's postmaster.pid (fourth line).
+    private func runningPort() -> Int? {
+        guard let pid = try? String(contentsOf: data.appendingPathComponent("postmaster.pid")) else { return nil }
+        let lines = pid.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.count > 3 ? Int(lines[3].trimmingCharacters(in: .whitespaces)) : nil
     }
 
     public func stop() throws {
