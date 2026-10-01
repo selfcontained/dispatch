@@ -246,6 +246,96 @@ describe("GET /api/v1/streams/:rootId/blocks", () => {
 });
 
 describe("GET /api/v1/streams/:rootId/blocks/:blockId/thread", () => {
+  it("loads settled activity details on demand for the root, replies and shown blocks", async () => {
+    const output = "large tool output\n".repeat(4000);
+    const makeTurn = async (
+      seq: number,
+      settled: boolean,
+      threadId?: string
+    ) => {
+      const anchor = await ctx.pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+         VALUES ($1, $2, 'turn', $3::jsonb) RETURNING id`,
+        [
+          agentId,
+          seq,
+          JSON.stringify({
+            state: settled ? "settled" : "running",
+            ...(settled
+              ? { stopReason: "end_turn", endedAt: new Date().toISOString() }
+              : {}),
+            prompt: { source: "startup", text: "Check the thread" },
+          }),
+        ]
+      );
+      await ctx.pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload)
+         VALUES ($1, $2, 'tool_call', $3::jsonb)`,
+        [
+          agentId,
+          seq + 1,
+          JSON.stringify({
+            toolKind: "execute",
+            title: "Run checks",
+            status: "completed",
+            terminalOutput: output,
+            diff: { path: "example.ts", oldText: "before", newText: "after" },
+          }),
+        ]
+      );
+      return store.insert({
+        streamId: agentId,
+        author: agentAuthor(agentId),
+        origin: "turn",
+        data: { turnEventId: Number(anchor.rows[0].id) },
+        text: "Checked it",
+        ...(threadId ? { threadId, replyTo: threadId } : {}),
+      });
+    };
+    const root = await makeTurn(100, true);
+    const reply = await makeTurn(102, true, root.id);
+    const shown = await makeTurn(104, true, root.id);
+    await store.appendShown(root.id, shown.id);
+    const live = await makeTurn(106, false, root.id);
+    const res = await authedInject(
+      "GET",
+      `/api/v1/streams/${agentId}/blocks/${root.id}/thread`
+    );
+    expect(res.statusCode).toBe(200);
+    const thread = res.json();
+    const settledBlocks = [
+      thread.root,
+      thread.root.blocks[0],
+      thread.replies[0],
+    ];
+    expect(settledBlocks.map((b: Block) => b.id)).toEqual([
+      root.id,
+      shown.id,
+      reply.id,
+    ]);
+    for (const block of settledBlocks) {
+      expect(block.turn.trace.detailsOmitted).toBe(true);
+      expect(block.turn.trace.steps[0].detail).toMatchObject({
+        locations: [{ path: "example.ts" }],
+      });
+      expect(block.turn.trace.steps[0].detail.terminalOutput).toBeUndefined();
+      expect(block.turn.trace.steps[0].detail.diff).toBeUndefined();
+      const detail = await authedInject(
+        "GET",
+        `/api/v1/streams/${agentId}/blocks/${block.id}/turn`
+      );
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().turn.trace.steps[0].detail).toMatchObject({
+        terminalOutput: output,
+        diff: { oldText: "before", newText: "after" },
+      });
+    }
+    expect(thread.replies[1].id).toBe(live.id);
+    expect(thread.replies[1].turn.trace.steps[0].detail.terminalOutput).toBe(
+      output
+    );
+  });
+
   it("returns the root and its replies oldest first", async () => {
     const root = await store.insert({
       streamId: agentId,

@@ -12,7 +12,12 @@ import type {
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 
 import { agentNamesFor } from "../chat/agent-names.js";
-import { attachShown, decodeFeedCursor, loadBlockEntry } from "../chat/feed.js";
+import {
+  attachShown,
+  compactFeedTurnDetails,
+  decodeFeedCursor,
+  loadBlockEntry,
+} from "../chat/feed.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { isBlockId } from "../chat/store.js";
 import { attachTurns } from "../chat/turns.js";
@@ -220,6 +225,9 @@ export async function registerStreamRoutes(
         ]),
         attachTurns(store.db, blocks),
       ]);
+      // Threads use the same closed activity folds as the feed. Keep large
+      // tool payloads behind the turn-detail route, including shown blocks.
+      compactFeedTurnDetails(blocks);
       return {
         ...thread,
         agentNames,
