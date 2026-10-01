@@ -8,23 +8,26 @@ public struct Configuration: Codable, Equatable {
     public var managedDatabase: Bool?
     public var host: String?
     public var hosts: [String]?
+    /// Absent in legacy HTTP configurations; the worker upgrades it at startup.
+    public var localTLS: Bool?
     public var bindHosts: [String] { hosts ?? [host ?? "127.0.0.1"] }
     public var bindHost: String { bindHosts.first ?? "127.0.0.1" }
 
     public var usesManagedDatabase: Bool { managedDatabase == true }
 
-    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString, managedDatabase: Bool? = nil, host: String? = nil, hosts: [String]? = nil) {
+    public init(port: Int = 6768, databaseURL: String = "", instanceID: String = UUID().uuidString, managedDatabase: Bool? = nil, host: String? = nil, hosts: [String]? = nil, localTLS: Bool? = true) {
         self.port = port
         self.databaseURL = databaseURL
         self.instanceID = instanceID
         self.managedDatabase = managedDatabase
         self.host = host
         self.hosts = hosts
+        self.localTLS = localTLS
     }
 
     public var serverURL: URL {
         var components = URLComponents()
-        components.scheme = "http"
+        components.scheme = localTLS == true ? "https" : "http"
         let address = ["0.0.0.0", "::"].contains(bindHost) ? (bindHost == "::" ? "::1" : "127.0.0.1") : bindHost
         components.host = address.contains(":") ? "[\(address)]" : address
         components.port = port

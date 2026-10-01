@@ -122,7 +122,9 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var healthy = false
             do {
                 var request = URLRequest(url: url.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1; request.cachePolicy = .reloadIgnoringLocalCacheData
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let session = externalURL != nil || url.scheme != "https" ? URLSession.shared : URLSession(configuration: .ephemeral, delegate: LocalServerTrust(root: PreviewPaths.root), delegateQueue: nil)
+                defer { if session !== URLSession.shared { session.invalidateAndCancel() } }
+                let (data, response) = try await session.data(for: request)
                 let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
                 healthy = (response as? HTTPURLResponse)?.statusCode == 200 && body?["status"] as? String == "ok" && (externalURL != nil || (body?["macInstanceId"] as? String == expected && body?["updateOwner"] as? String == "macos-app"))
             } catch {}

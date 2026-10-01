@@ -8,7 +8,25 @@ import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environm
 //   The adapters ship inside this binary rather than as a global npm
 //   install, so there is nothing for anyone to install or configure; each
 //   one drives the engine CLI the user already has (see engine-spec.ts).
-if (process.argv[2] === "agent-host") {
+if (process.argv[2] === "init-local-tls") {
+  if (
+    process.env.DISPATCH_UPDATE_OWNER !== "macos-app" ||
+    process.env.DISPATCH_LOCAL_TLS !== "1"
+  ) {
+    throw new Error(
+      "Local TLS initialization requires the Mac app environment."
+    );
+  }
+  const { ensureLocalTls } = await import("./local-tls.js");
+  const { statePath } = await import("./state-dir.js");
+  const { parseListenHosts } = await import("./multi-listener.js");
+  ensureLocalTls(
+    statePath("tls"),
+    parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS) ?? [
+      process.env.DISPATCH_HOST ?? "127.0.0.1",
+    ]
+  );
+} else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
 } else if (process.argv[2] === "claude-acp") {
   // The CLI entry, not the package's `main`: that one is a library whose

@@ -1,5 +1,6 @@
 import AppKit
 import DispatchCore
+import CryptoKit
 
 @MainActor
 final class SettingsWindowController: NSWindowController {
@@ -26,6 +27,8 @@ final class SettingsWindowController: NSWindowController {
     private let savedMessage = NSTextField(wrappingLabelWithString: "")
     private let approval = NSButton(title: "Allow in System Settings…", target: nil, action: nil)
     private var saveButtons: [NSButton] = []
+    private let certificateDetails = NSTextField(wrappingLabelWithString: "")
+    private var trustButtons: [NSButton] = []
 
     init(configuration: Configuration) {
         self.configuration = configuration; displayedURL = configuration.serverURL; fields = SetupFields(configuration: configuration)
@@ -51,7 +54,10 @@ final class SettingsWindowController: NSWindowController {
             card("Startup", [login, serverLogin]),
             card("Server", [row([statusLabel, startStop]), addressRow, approval, savedMessage]),
         ])
-        addTab("Network", to: tabs, views: [card("Network", [fields.view, saveButton()])])
+        certificateDetails.isSelectable = true; certificateDetails.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        trustButtons = [button("Export Apple Trust Profile…", #selector(exportProfile)), button("Export CA Certificate…", #selector(exportCertificate)), button("Trust Instructions…", #selector(openTrustInstructions))]
+        addTab("Network", to: tabs, views: [card("Network", [fields.view, saveButton()]),
+            card("HTTPS Certificate Trust", [note("Start the server once to create its local CA. Trust it once on each device. Address changes and certificate renewals keep the same CA."), certificateDetails] + trustButtons)])
         databaseDetails.isSelectable = true; databaseDetails.font = .systemFont(ofSize: 12)
         addTab("Database", to: tabs, views: [
             card("Database", [databaseDetails, button("Copy Connection URL", #selector(copyDatabaseURL))]),
@@ -89,7 +95,11 @@ final class SettingsWindowController: NSWindowController {
         approval.isHidden = !needsApproval
         fields.setEnabled(canSave && !busy)
         for save in saveButtons { save.isEnabled = canSave && !busy }
-        if let running = runningConfiguration, active && (running.port != configuration.port || running.bindHosts != configuration.bindHosts || running.databaseURL != configuration.databaseURL) {
+        let certificate = try? Data(contentsOf: PreviewPaths.root.appendingPathComponent("tls/ca/cert.cer"))
+        certificateDetails.stringValue = certificate.map { "CA SHA-256\n" + SHA256.hash(data: $0).map { String(format: "%02X", $0) }.joined(separator: ":") } ?? "Certificate not created yet."
+        for button in trustButtons { button.isEnabled = certificate != nil && canSave && !busy }
+        trustButtons.last?.isEnabled = certificate != nil && active && displayedURL.scheme == "https"
+        if let running = runningConfiguration, active && (running.port != configuration.port || running.bindHosts != configuration.bindHosts || running.databaseURL != configuration.databaseURL || running.localTLS != configuration.localTLS) {
             savedMessage.stringValue = "Saved changes will apply the next time you start the server."
         } else if active { savedMessage.stringValue = "" }
     }
@@ -182,5 +192,21 @@ final class SettingsWindowController: NSWindowController {
     @objc private func copyURL() { copy(displayedURL.absoluteString) }
     @objc private func copyDatabaseURL() { copy(displayedDatabaseURL) }
     @objc private func copyDataPath() { copy(PreviewPaths.root.path) }
+    @objc private func openTrustInstructions() { NSWorkspace.shared.open(displayedURL.appendingPathComponent("trust")) }
+    @objc private func exportProfile() { exportTrustFile("trust.mobileconfig", name: "dispatch.mobileconfig") }
+    @objc private func exportCertificate() { exportTrustFile("cert.cer", name: "dispatch-ca.cer") }
+    private func exportTrustFile(_ source: String, name: String) {
+        guard let window else { return }
+        let panel = NSSavePanel(); panel.nameFieldStringValue = name
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let destination = panel.url else { return }
+            do {
+                let data = try Data(contentsOf: PreviewPaths.root.appendingPathComponent("tls/ca/" + source))
+                try data.write(to: destination, options: .atomic)
+            } catch {
+                let alert = NSAlert(error: error); alert.beginSheetModal(for: window)
+            }
+        }
+    }
 }
 private final class SettingsDocumentView: NSView { override var isFlipped: Bool { true } }

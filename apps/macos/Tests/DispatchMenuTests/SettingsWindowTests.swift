@@ -4,6 +4,50 @@ import DispatchCore
 import XCTest
 
 final class SettingsWindowTests: XCTestCase {
+    @MainActor func testCertificateSetupIsAvailableOnlyForTheOwnedInstallation() throws {
+        _ = NSApplication.shared
+        let oldRoot = PreviewPaths.testRoot
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-macos-test-trust-\(UUID().uuidString)")
+        PreviewPaths.testRoot = root
+        defer { PreviewPaths.testRoot = oldRoot; try? FileManager.default.removeItem(at: root) }
+        let controller = SettingsWindowController(configuration: Configuration())
+        func update(canSave: Bool = true) {
+            controller.update(configuration: Configuration(), runningConfiguration: nil, canSave: canSave,
+                              status: "Running", active: true, loginEnabled: false, canChangeLogin: true,
+                              needsApproval: false, busy: false, serverAtLogin: false)
+        }
+        update()
+        let view = try XCTUnwrap(controller.window?.contentView)
+        let tabs = try XCTUnwrap(view.subviews.first as? NSTabView)
+        tabs.selectTabViewItem(at: 1)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let export = try XCTUnwrap(descendants(view).compactMap { $0 as? NSButton }.first { $0.title == "Export Apple Trust Profile…" })
+        XCTAssertFalse(export.isEnabled)
+        let ca = root.appendingPathComponent("tls/ca")
+        try FileManager.default.createDirectory(at: ca, withIntermediateDirectories: true)
+        // Public fixture data is enough to exercise fingerprint display and action ownership.
+        let publicCertificate = try ProcessInfo.processInfo.environment["DISPATCH_TEST_CA_CERTIFICATE"].map { try Data(contentsOf: URL(fileURLWithPath: $0)) } ?? Data([1, 2, 3])
+        try publicCertificate.write(to: ca.appendingPathComponent("cert.cer"))
+        update()
+        XCTAssertTrue(export.isEnabled)
+        XCTAssertTrue(descendants(view).compactMap { $0 as? NSTextField }.contains { $0.stringValue.hasPrefix("CA SHA-256") })
+        update(canSave: false)
+        XCTAssertFalse(export.isEnabled)
+        update()
+        export.performClick(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.2))
+        let sheet = try XCTUnwrap(controller.window?.attachedSheet as? NSSavePanel)
+        XCTAssertEqual(sheet.nameFieldStringValue, "dispatch.mobileconfig")
+        sheet.cancel(nil)
+        if let output = ProcessInfo.processInfo.environment["DISPATCH_TEST_SCREENSHOTS"] {
+            controller.showWindow(nil)
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
+        }
+        controller.close()
+    }
     @MainActor func testExternalServerUsesExactURLAndDisablesUnavailableActions() throws {
         _ = NSApplication.shared
         let controller = SettingsWindowController(configuration: Configuration())

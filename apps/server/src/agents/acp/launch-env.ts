@@ -1,5 +1,6 @@
 import { serverOrigin } from "../../server-origin.js";
 import path from "node:path";
+import { localAgentCaBundle } from "../../local-tls.js";
 
 import { createReleaseUpdateToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
@@ -47,6 +48,14 @@ export function buildLaunchEnv(input: {
   // every Dispatch tool call fails verification.
   if (input.config.tls && base.TLS_CA) {
     env.NODE_EXTRA_CA_CERTS = base.TLS_CA;
+    if (base.DISPATCH_LOCAL_TLS === "1") {
+      const bundle = localAgentCaBundle(
+        base.TLS_CA,
+        base.CODEX_CA_CERTIFICATE || base.SSL_CERT_FILE
+      );
+      if (input.engine === "codex") env.CODEX_CA_CERTIFICATE = bundle;
+      env.CURL_CA_BUNDLE = bundle;
+    }
   }
   // Pin the Bash tool's cwd to the project root after every command so it
   // does not drift back to the original repo root over a long conversation.
