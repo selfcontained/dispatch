@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "description": "Local-first control plane for AI coding agents with shared files",
