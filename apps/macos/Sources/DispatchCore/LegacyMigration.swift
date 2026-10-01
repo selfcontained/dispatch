@@ -16,7 +16,8 @@ public struct LegacyMigration: Sendable {
         self.legacy = legacy; self.root = root
     }
 
-    /// The old folder still holds data and the new one is absent, or an earlier run stopped partway.
+    /// The old folder still holds data and the new one is absent, or an earlier run has
+    /// not finished restoring the server's running state.
     public var pending: Bool {
         (isDirectory(legacy) && !FileManager.default.fileExists(atPath: root.path))
             || FileManager.default.fileExists(atPath: marker.path)
@@ -59,10 +60,13 @@ public struct LegacyMigration: Sendable {
             configuration.databaseURL = local.databaseURL
             try configuration.save(to: configurationURL)
         }
-        let recorded = (try? JSONDecoder().decode(Marker.self, from: Data(contentsOf: marker)))?.wasRunning ?? wasRunning
-        try? FileManager.default.removeItem(at: marker)
-        return recorded
+        // The marker stays until `complete()`, so the running state survives until the
+        // new service has acted on it, across crashes and Login Items approval delays.
+        return (try? JSONDecoder().decode(Marker.self, from: Data(contentsOf: marker)))?.wasRunning ?? wasRunning
     }
+
+    /// Call once the new service has acknowledged the restored running state.
+    public func complete() { try? FileManager.default.removeItem(at: marker) }
 
     private func isDirectory(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey]) else { return false }

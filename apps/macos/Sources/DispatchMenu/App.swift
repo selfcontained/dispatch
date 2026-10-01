@@ -24,7 +24,9 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var migrating = false
     /// Blocks setup until a failed migration is retried, so it never creates a second database.
     private var migrationError: String?
-    private var migratedServerRunning = false
+    /// The pre-migration running state, replayed until the new service acknowledges it.
+    private var pendingRestore: ServiceRequest?
+    private var restoreSaved = Date.distantPast
     private var updateBusy: Bool {
         #if SPARKLE_UPDATES
         return appUpdater?.controlsLocked == true
@@ -48,7 +50,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             do {
                 try requireInstalledApp()
-                migratedServerRunning = try await LegacyInstall.migrate()
+                pendingRestore = ServiceRequest(start: try await LegacyInstall.migrate())
             } catch { migrationError = error.localizedDescription }
             migrating = false
             finishLaunching()
@@ -78,15 +80,16 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         main.addItem(edit)
         NSApp.mainMenu = main
         // Register an idle service once, so choosing login startup later only
-        // changes a preference. It does not start a server on this launch, unless it
-        // restores the state of a migrated pre-release install.
+        // changes a preference. It does not start a server on this launch; a migrated
+        // pre-release install restores its previous state through `replayRestore`.
         if externalURL == nil && AppPaths.testRoot == nil && migrationError == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: AppPaths.root).path) {
             do {
                 try requireInstalledApp()
-                try ServiceRequest(start: migratedServerRunning).save()
+                if pendingRestore == nil { try ServiceRequest(start: false).save() }
                 try service.register()
             } catch { configurationError = error.localizedDescription }
         }
+        replayRestore()
         #if SPARKLE_UPDATES
         if externalURL == nil && AppPaths.testRoot == nil {
             let updater = AppUpdater(service: service)
@@ -160,6 +163,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             else if service.status == .requiresApproval { status = "Needs permission in System Settings" }
             else { status = "Stopped" }
             statusItem.button?.toolTip = "Dispatch — \(status)"
+            replayRestore()
             rebuildMenu()
         }
     }
@@ -230,7 +234,22 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !changingService, !stopping, !controlsLocked, externalURL == nil else { return }
         sendServiceCommand(start: false)
     }
+    /// Re-saves the migrated running state until the supervisor takes it (requests expire
+    /// after 60 seconds, and Login Items approval can take longer), then clears the
+    /// migration once it is acknowledged and, for a running server, healthy.
+    private func replayRestore() {
+        guard let request = pendingRestore, migrationError == nil else { return }
+        let runtime = ServiceRuntime.read()
+        if runtime?.acknowledges(request) == true && (!request.start || ready) {
+            LegacyMigration().complete(); pendingRestore = nil
+        } else if runtime?.requestID != request.id && Date().timeIntervalSince(restoreSaved) > 30 {
+            do { try request.refreshed().save(); restoreSaved = Date() }
+            catch { configurationError = error.localizedDescription }
+        }
+    }
     private func sendServiceCommand(start: Bool) {
+        // An explicit command supersedes the migrated running state.
+        if pendingRestore != nil { LegacyMigration().complete(); pendingRestore = nil }
         changingService = true; rebuildMenu()
         Task {
             defer { changingService = false; refresh() }

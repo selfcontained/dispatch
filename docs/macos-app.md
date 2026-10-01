@@ -84,8 +84,10 @@ On first launch the app:
    the old path. Running agents and stored file paths (`agents.files_dir`) still
    reference it; do not delete it while pre-migration agents exist.
 3. Renames the managed role and database to `dispatch_mac`, keeping all data.
-4. Registers the new LaunchAgent and restarts the server if it was running, so
-   agents reattach.
+4. Registers the new LaunchAgent and restores whether the server was running, so
+   agents reattach. That state is kept on disk and replayed (including after a
+   relaunch or a slow Login Items approval) until the new service acknowledges it.
+   Choosing Start or Stop yourself replaces it.
 
 Each step is safe to repeat; if one fails, the app reports it and blocks setup so
 it cannot create a second database. Quit and reopen Dispatch to retry. The old

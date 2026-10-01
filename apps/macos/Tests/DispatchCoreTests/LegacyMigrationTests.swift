@@ -26,6 +26,10 @@ final class LegacyMigrationTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: legacy.path), root.path)
         // Agents and stored file paths keep resolving through the old location.
         XCTAssertEqual(try String(contentsOf: legacy.appendingPathComponent("agents/agt_1/journal.jsonl")), "journal")
+        // The running state is kept until the new service acknowledges it, across relaunches.
+        XCTAssertTrue(migration.pending)
+        XCTAssertTrue(try migration.run(wasRunning: false, stopService: { _ in XCTFail("already moved") }, renameDatabase: { _ in nil }))
+        migration.complete()
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("legacy-migration.json").path))
         XCTAssertFalse(migration.pending)
     }
@@ -51,6 +55,7 @@ final class LegacyMigrationTests: XCTestCase {
         try Configuration(databaseURL: managed, managedDatabase: true).save(to: root.appendingPathComponent("local-database.json"))
         XCTAssertTrue(try migration.run(wasRunning: false, stopService: { _ in XCTFail("already moved") }, renameDatabase: { _ in managed }))
         XCTAssertEqual(try Configuration.read(from: root.appendingPathComponent("configuration.json")).databaseURL, managed)
+        migration.complete()
         XCTAssertFalse(migration.pending)
     }
 
