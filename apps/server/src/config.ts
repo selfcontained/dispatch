@@ -10,6 +10,7 @@ import {
   resolveTilde,
 } from "./shared/lib/resolve-tilde.js";
 import { statePath } from "./state-dir.js";
+import { ensureLocalTls } from "./local-tls.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,17 @@ function requireEnv(name: string): string {
 }
 
 function loadTls(): TlsConfig | null {
+  if (process.env.DISPATCH_LOCAL_TLS === "1") {
+    if (process.env.DISPATCH_UPDATE_OWNER !== "macos-app") {
+      throw new Error("Managed local TLS is reserved for the Mac app.");
+    }
+    return ensureLocalTls(
+      statePath("tls"),
+      parseListenHosts(process.env.DISPATCH_LISTEN_HOSTS) ?? [
+        process.env.DISPATCH_HOST ?? "127.0.0.1",
+      ]
+    );
+  }
   const certPath = process.env.TLS_CERT;
   const keyPath = process.env.TLS_KEY;
   if (!certPath && !keyPath) return null;

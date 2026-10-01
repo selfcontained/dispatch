@@ -23,6 +23,7 @@ func runServer() throws -> Never {
         config.hosts = hosts
         managedDatabase = database
     } else { managedDatabase = nil }
+    config.localTLS = true
     // Persist first-time database reconciliation only if the user has not saved
     // a newer configuration while this worker was starting.
     if (try? Configuration.read(from: AppPaths.configuration)) == requested {
@@ -35,7 +36,7 @@ func runServer() throws -> Never {
     }
 
     // Never inherit another Dispatch instance's state, credentials, TLS, or test seams.
-    for key in ProcessInfo.processInfo.environment.keys where key.hasPrefix("DISPATCH_") || ["DATABASE_URL", "TLS_CERT", "TLS_KEY", "PORT", "HOST", "DOTENV_CONFIG_PATH"].contains(key) {
+    for key in ProcessInfo.processInfo.environment.keys where key.hasPrefix("DISPATCH_") || ["DATABASE_URL", "TLS_CERT", "TLS_KEY", "TLS_CA", "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "PORT", "HOST", "DOTENV_CONFIG_PATH"].contains(key) {
         unsetenv(key)
     }
     let environment = [
@@ -48,6 +49,9 @@ func runServer() throws -> Never {
         "DISPATCH_RUNTIME_PATH": executable.path,
         "DISPATCH_UPDATE_OWNER": "macos-app",
         "DISPATCH_MAC_INSTANCE_ID": config.instanceID,
+        "DISPATCH_LOCAL_TLS": "1",
+        "TLS_CA": root.appendingPathComponent("tls/ca/cert.pem").path,
+        "NODE_EXTRA_CA_CERTS": root.appendingPathComponent("tls/ca/cert.pem").path,
         "DISPATCH_AGENT_RUNTIME": "acp",
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     ]
@@ -67,6 +71,18 @@ func runServer() throws -> Never {
     if let shell = getpwuid(getuid())?.pointee.pw_shell { setenv("SHELL", shell, 1) }
     guard chdir(serverDirectory.path) == 0 else { throw ConfigurationError("Cannot open the data directory.") }
     let termination = ServerTermination()
+    // Initialize before launching the server so Bun and agent children can load
+    // NODE_EXTRA_CA_CERTS at process startup, including the first installation.
+    let certificates = Process()
+    certificates.executableURL = executable
+    certificates.arguments = ["init-local-tls"]
+    certificates.environment = ProcessInfo.processInfo.environment
+    certificates.standardOutput = FileHandle.standardOutput
+    certificates.standardError = FileHandle.standardError
+    try termination.launch(certificates)
+    let certificateStatus = try termination.waitForExitAndCleanUp {}
+    guard !termination.requested else { exit(0) }
+    guard certificateStatus == 0 else { throw ConfigurationError("Could not initialize HTTPS certificates. Check the server log.") }
     try managedDatabase?.start(config)
     if termination.requested { try managedDatabase?.stop(); exit(0) }
     let server = Process()

@@ -68,6 +68,53 @@ migration; startup refuses incompatible data rather than recreating it. Engine
 CLIs/authentication remain prerequisites. Engine hosts use Dispatch's existing
 login-shell launch path.
 
+### Local HTTPS and device trust
+
+The app-owned server uses HTTPS. On its first start it creates a unique local
+certificate authority in `~/.dispatch-mac/tls/ca/`. The CA's signing key
+stays on the serving Mac. Preserve the TLS directory with the rest of the app's
+data when updating or backing up; deleting or replacing the CA requires devices
+to trust a new one. A damaged CA fails startup rather than silently changing the
+installation's identity.
+
+In **Settings → Network → HTTPS Certificate Trust**, export either the Apple
+trust profile or the public CA certificate. The settings panel shows the CA's
+SHA-256 fingerprint. Transfer the profile to an iPhone or iPad with AirDrop,
+install it under **Settings → General → VPN & Device Management**, then enable
+full trust under **General → About → Certificate Trust Settings**. On Mac, open
+the CA certificate in Keychain Access, add it to the login keychain, and set its
+SSL trust to **Always Trust**. Trust is an explicit device action; the app does
+not change the system's certificate store automatically.
+
+The server's `/trust` page provides the same public downloads and instructions
+and is reachable from **Dispatch web app → Settings → Security → Set up
+certificate trust**, including on phones and tablets. The Security section also
+links directly to the Apple profile download. These controls appear only on
+servers using the Mac app's managed local CA.
+The page provides these resources
+without requiring a Dispatch login. Exporting from the menu app avoids needing
+to bypass an HTTPS warning to obtain the profile. Only the public certificate
+and profile have download routes; signing keys are never served. Verify the
+download's fingerprint against the serving Mac's Network settings before
+trusting it. Browser warning exceptions alone are not a reliable substitute for
+installing the CA, particularly for service workers and installed web apps.
+
+Server certificates cover localhost, the Mac's hostname, loopback addresses,
+and selected listening IPs. All-interface bindings cover current local IPs,
+not the wildcard bind address. Saved network changes apply on the next server
+start; the server certificate changes while the CA remains stable. Server
+certificates last one year and are renewed within thirty days of expiry, on
+startup or by an hourly check. Bun cannot reload the HTTPS context in place,
+so background renewal uses the normal supervised backend restart. Detached
+agent hosts survive; browser connections briefly reconnect. The CA lasts
+twenty years and is never automatically replaced.
+
+Existing HTTP configurations remain readable. The app worker upgrades them to
+HTTPS at the next start. Standalone installations keep their existing TLS
+configuration. Native health checks verify only this installation's CA without
+requiring system trust. Agent tools receive the public CA through their own
+trust settings, including Node, Codex, and curl; they never receive its key.
+
 ### Migrating a pre-release install
 
 Pre-release builds used bundle ID `dev.bradharris.dispatch.preview`,

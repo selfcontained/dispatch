@@ -31,7 +31,10 @@ export function buildLaunchEnv(input: {
   // Under TLS the MCP URL is loopback https; the child needs the CA or
   // every Dispatch tool call fails verification.
   if (input.config.tls && base.TLS_CA) {
-    env.NODE_EXTRA_CA_CERTS = base.TLS_CA;
+    if (base.DISPATCH_LOCAL_TLS === "1") {
+      // The host merges trust after the login shell has loaded user overrides.
+      env.DISPATCH_LOCAL_CA_CERTIFICATE = base.TLS_CA;
+    } else env.NODE_EXTRA_CA_CERTS = base.TLS_CA;
   }
   // Pin the Bash tool's cwd to the project root after every command so it
   // does not drift back to the original repo root over a long conversation.

@@ -1,5 +1,7 @@
 import path from "node:path";
 import { listenAdditionalHosts } from "./multi-listener.js";
+import { watchLocalTls } from "./local-tls.js";
+import { registerLocalTrustRoutes } from "./routes/local-trust.js";
 import os from "node:os";
 import {
   mkdir,
@@ -480,6 +482,12 @@ async function registerRoutes() {
     getCachedManifest: staticTheme.getCachedManifest,
     staticAssets: staticTheme.staticAssets,
   });
+  if (
+    process.env.DISPATCH_LOCAL_TLS === "1" &&
+    process.env.DISPATCH_UPDATE_OWNER === "macos-app"
+  ) {
+    await registerLocalTrustRoutes(app, statePath("tls"));
+  }
 
   // Stamp every API response with the build-time package version so the
   // client can detect a server upgrade (e.g. after a self-update) and
@@ -634,6 +642,10 @@ async function registerRoutes() {
 
   await registerSystemRoutes(app, {
     pool,
+    localCertificateTrust:
+      process.env.DISPATCH_UPDATE_OWNER === "macos-app" &&
+      process.env.DISPATCH_LOCAL_TLS === "1" &&
+      config.tls !== null,
     appLog: app.log,
     slackNotifier,
     iconColorKey: ICON_COLOR_KEY,
@@ -840,6 +852,7 @@ export async function closeApp(): Promise<void> {
 }
 
 let closeAdditionalListeners: (() => Promise<void>) | undefined;
+let stopLocalTlsWatch: (() => void) | undefined;
 
 export async function start() {
   await initializeApp();
@@ -863,6 +876,28 @@ export async function start() {
   app.log.info(
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
+  if (process.env.DISPATCH_LOCAL_TLS === "1" && config.tls) {
+    stopLocalTlsWatch = watchLocalTls({
+      directory: statePath("tls"),
+      hosts: config.listenHosts ?? [config.host],
+      certificate: config.tls.cert,
+      onRenewed: () => {
+        // Bun's node:https implementation cannot reload a TLS context. The
+        // supervisor restarts the worker; detached ACP hosts survive shutdown.
+        app.log.info(
+          "Renewed local HTTPS certificate; restarting the app-owned server to load it"
+        );
+        void shutdown(0).catch((err) =>
+          app.log.error({ err }, "Certificate renewal restart failed")
+        );
+      },
+      onError: (err) =>
+        app.log.error(
+          { err },
+          "Could not renew local HTTPS certificate; retaining the current certificate"
+        ),
+    });
+  }
 
   // The process that activated a new binary exits during the service restart,
   // so only this newly healthy process can truthfully promote the candidate.
@@ -885,6 +920,8 @@ async function cleanupAppResources(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  stopLocalTlsWatch?.();
+  stopLocalTlsWatch = undefined;
 
   await closeAdditionalListeners?.();
   closeAdditionalListeners = undefined;

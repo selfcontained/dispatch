@@ -49,6 +49,7 @@ type SystemRouteDeps = {
   rewriteForColor: (color: string) => void;
   /** The configured engine CLIs, so this reports what a launch would run. */
   engineBins: { claude: string; codex: string; opencode?: string };
+  localCertificateTrust?: boolean;
 };
 
 export async function registerSystemRoutes(
@@ -78,6 +79,10 @@ export async function registerSystemRoutes(
   app.get("/api/v1/app/branding", async () => {
     return { iconColor: deps.getCachedIconColor() };
   });
+
+  app.get("/api/v1/system/certificate-trust", async () => ({
+    available: deps.localCertificateTrust === true,
+  }));
 
   app.get("/api/v1/health", async () => {
     const result = await deps.pool.query("SELECT NOW() AS now");

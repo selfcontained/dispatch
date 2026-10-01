@@ -24,7 +24,7 @@ final class ConfigurationTests: XCTestCase {
     func testNetworkBindingAndBrowserAddresses() throws {
         let legacy = Configuration(databaseURL: "postgres://localhost/preview")
         XCTAssertEqual(legacy.bindHost, "127.0.0.1")
-        for (host, expected) in [("0.0.0.0", "http://127.0.0.1:6768"), ("192.168.1.23", "http://192.168.1.23:6768"), ("100.100.1.2", "http://100.100.1.2:6768"), ("::", "http://[::1]:6768"), ("::1", "http://[::1]:6768")] {
+        for (host, expected) in [("0.0.0.0", "https://127.0.0.1:6768"), ("192.168.1.23", "https://192.168.1.23:6768"), ("100.100.1.2", "https://100.100.1.2:6768"), ("::", "https://[::1]:6768"), ("::1", "https://[::1]:6768")] {
             let config = Configuration(databaseURL: "postgres://localhost/preview", host: host)
             try config.validate()
             XCTAssertEqual(config.serverURL.absoluteString, expected)
@@ -33,6 +33,15 @@ final class ConfigurationTests: XCTestCase {
         for host in ["", "example.com", "127.0.0.1:8000", "http://localhost", "999.1.1.1", "127.0.0.1\n"] {
             XCTAssertThrowsError(try Configuration(databaseURL: "postgres://localhost/preview", host: host).validate())
         }
+    }
+
+    func testLegacyHTTPConfigurationRemainsReadable() throws {
+        let data = Data("{\"port\":6768,\"databaseURL\":\"postgres://localhost/preview\",\"instanceID\":\"00000000-0000-0000-0000-000000000001\"}".utf8)
+        var config = try JSONDecoder().decode(Configuration.self, from: data)
+        XCTAssertNil(config.localTLS)
+        XCTAssertEqual(config.serverURL.scheme, "http")
+        config.localTLS = true
+        XCTAssertEqual(config.serverURL.scheme, "https")
     }
 
     func testPrivateConfigurationRoundTripAndReplacement() throws {
