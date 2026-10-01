@@ -8,8 +8,10 @@ import {
   MessageSquare,
   Unplug,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { AgentActivityLabel } from "@/components/app/agent-activity";
+import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
@@ -26,6 +28,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
+import { agentRoute, THREAD_PARAM } from "@/lib/agent-routes";
 
 export type ChildAgentRowProps = {
   agent: Agent;
@@ -61,6 +65,7 @@ export function ChildAgentRow({
   onRequestClose,
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
+  const navigate = useNavigate();
   const isStopped = state === "stopped";
   // Not the raw isConnected/connectedAgentId-equality prop: that stays true
   // through a mid-reconnect or a dropped socket, which would make a click
@@ -74,8 +79,13 @@ export function ChildAgentRow({
   const menuItemClass =
     "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
   const isReviewAgent = agent.role === "review";
+  const reviewSummary = useAgentReviewSummary(isReviewAgent);
+  const review = reviewSummary.data?.agents[agent.id];
   const showReviewActivity =
-    isReviewAgent && agent.status === "running" && isInitialReviewActive;
+    isReviewAgent &&
+    agent.status === "running" &&
+    isInitialReviewActive &&
+    !review;
   // A paused or errored reviewer needs its own wording rather than a
   // blanket "Review in progress."
   const reviewPendingLabel =
@@ -177,17 +187,13 @@ export function ChildAgentRow({
           className="h-4 px-1 text-[10px] leading-none"
         />
         {isReviewAgent ? (
-          // Decorative only — the row's own status line already says
-          // "Working"/etc.; this just marks the agent as a reviewer. Its
-          // review lands in the parent's stream as a review block.
-          <span
-            role="img"
-            aria-label={reviewPendingLabel}
-            title={reviewPendingLabel}
-            className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground sm:h-7 sm:w-7"
-          >
-            <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-          </span>
+          <AgentReviewIndicator
+            agentId={agent.id}
+            pendingLabel={reviewPendingLabel}
+            review={review}
+            isLoading={reviewSummary.isLoading}
+            isError={reviewSummary.isError}
+          />
         ) : null}
         {/*
           Attach/detach no longer have their own buttons — clicking
@@ -268,6 +274,22 @@ export function ChildAgentRow({
                   <MessageSquare className="h-3.5 w-3.5" />
                 )}
                 {isConnectedActive ? "Close" : "Open"}
+              </DropdownMenuItem>
+            ) : null}
+            {isReviewAgent && review ? (
+              <DropdownMenuItem
+                className={menuItemClass}
+                data-testid={`child-agent-open-review-${agent.id}`}
+                onSelect={() => {
+                  if (closeOnSessionAction) onRequestClose?.();
+                  navigate({
+                    pathname: agentRoute(review.streamId),
+                    search: `?${new URLSearchParams({ [THREAD_PARAM]: review.threadId })}`,
+                  });
+                }}
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Open review
               </DropdownMenuItem>
             ) : null}
             {!isStopped && !isArchiving ? (

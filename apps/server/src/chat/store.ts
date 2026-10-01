@@ -11,8 +11,10 @@ import type {
   BlockReaction,
   ChatAttachment,
   ChatUnreadSummary,
+  AgentReviewSummary,
+  BlockFindingState,
 } from "@dispatch/shared";
-import { fileMedia } from "@dispatch/shared";
+import { fileMedia, reviewStatus } from "@dispatch/shared";
 
 /** A pool or a checked-out client — lets one store run inside a transaction. */
 export type Queryable = {
@@ -1016,6 +1018,53 @@ export class BlockStore {
       agents[row.stream_id] = {
         unread: Number(row.unread),
         pendingQuestions: Number(row.pending),
+      };
+    }
+    return { agents };
+  }
+
+  /** Sidebar review state must remain available after the launch leaves the feed window. */
+  async reviewSummary(): Promise<AgentReviewSummary> {
+    const result = await this.db.query<{
+      author_agent_id: string;
+      stream_id: string;
+      thread_id: string;
+      findings: Array<{ state: BlockFindingState | null }>;
+    }>(
+      `WITH latest AS (
+         SELECT DISTINCT ON (b.author_agent_id) b.*
+           FROM blocks b
+           JOIN agents a ON a.id = b.author_agent_id AND a.deleted_at IS NULL
+          WHERE b.kind = 'review' AND b.author_kind = 'agent'
+          ORDER BY b.author_agent_id, b.created_at DESC, b.id DESC
+       )
+       SELECT r.author_agent_id, r.stream_id, COALESCE(r.thread_id, r.id)::text AS thread_id,
+              COALESCE(jsonb_agg(jsonb_build_object('state', f.state))
+                FILTER (WHERE f.id IS NOT NULL), '[]'::jsonb) AS findings
+         FROM latest r
+         LEFT JOIN LATERAL (
+           SELECT DISTINCT CASE
+             WHEN jsonb_typeof(value) = 'string'
+               AND value #>> '{}' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+             THEN (value #>> '{}')::uuid
+           END AS id
+           FROM jsonb_array_elements(CASE
+             WHEN jsonb_typeof(r.state->'blocks') = 'array' THEN r.state->'blocks'
+             ELSE '[]'::jsonb
+           END)
+         ) shown ON true
+         LEFT JOIN blocks f ON f.id = shown.id
+           AND f.stream_id = r.stream_id AND f.kind = 'finding'
+        GROUP BY r.author_agent_id, r.stream_id, r.thread_id, r.id`
+    );
+    const agents: AgentReviewSummary["agents"] = {};
+    for (const row of result.rows) {
+      agents[row.author_agent_id] = {
+        streamId: row.stream_id,
+        threadId: row.thread_id,
+        status: reviewStatus(row.findings),
+        openFindings: row.findings.filter((f) => f.state?.status !== "resolved")
+          .length,
       };
     }
     return { agents };
