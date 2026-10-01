@@ -140,13 +140,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             if runtime?.acknowledges(command) == true {
                 var healthy = !recovery.wasRunning
                 if recovery.wasRunning, let config = runtime?.configuration {
-                    var request = URLRequest(url: config.serverURL.appendingPathComponent("api/v1/health"))
-                    request.timeoutInterval = 1; request.cachePolicy = .reloadIgnoringLocalCacheData
-                    if let (data, response) = try? await URLSession.shared.data(for: request),
-                       (response as? HTTPURLResponse)?.statusCode == 200,
-                       let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        healthy = body["status"] as? String == "ok" && body["macInstanceId"] as? String == config.instanceID && body["updateOwner"] as? String == "macos-app"
-                    }
+                    healthy = await LocalServerTrust.isHealthy(configuration: config, root: root)
                 }
                 if healthy {
                     let confirmed = try recovery.completeRestoration(root: root, installedBuild: build, request: command, runtime: runtime, healthy: healthy)

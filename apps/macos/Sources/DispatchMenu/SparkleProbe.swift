@@ -108,10 +108,8 @@ private final class SparkleProbe: NSObject, NSApplicationDelegate, SPUUpdaterDel
                 while ContinuousClock.now < readinessDeadline {
                     if let restoreRequest, ServiceRuntime.read()?.acknowledges(restoreRequest) == true {
                         if restoreRequest.start {
-                            var request = URLRequest(url: config.serverURL.appendingPathComponent("api/v1/health")); request.timeoutInterval = 1
-                            if let (data, _) = try? await URLSession.shared.data(for: request),
-                               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                               body["macInstanceId"] as? String == config.instanceID, body["status"] as? String == "ok" { ready = true; break }
+                            let currentConfig = ServiceRuntime.read()?.configuration ?? config
+                            if await LocalServerTrust.isHealthy(configuration: currentConfig, root: root) { ready = true; break }
                         } else { ready = true; break }
                     }
                     try await Task.sleep(nanoseconds: 100_000_000)
