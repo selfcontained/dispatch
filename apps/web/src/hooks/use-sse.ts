@@ -162,7 +162,7 @@ function invalidateStreamFeed(queryClient: QueryClient, agentId: string): void {
 const firstFetchFollowUps = new WeakSet<Promise<unknown>>();
 
 /**
- * A feed's very first fetch (no cached data yet) is in flight when an entry
+ * A query's very first fetch (no cached data yet) is in flight when an entry
  * arrives. `invalidateQueries` cannot rescue this one the way it rescues a
  * refetch: react-query's `Query#fetch` only cancels-and-restarts an
  * in-flight request when `state.data !== undefined` (see `query.js`,
@@ -175,16 +175,26 @@ const firstFetchFollowUps = new WeakSet<Promise<unknown>>();
  */
 function invalidateOnceFirstFetchSettles(
   queryClient: QueryClient,
-  agentId: string,
-  key: ReturnType<typeof streamFeedQueryKey>
+  key: readonly unknown[]
 ): void {
   const promise = queryClient
     .getQueryCache()
-    .find<FeedCache>({ queryKey: key, exact: true })?.promise;
+    .find({ queryKey: key, exact: true })?.promise;
   if (!promise || firstFetchFollowUps.has(promise)) return;
   firstFetchFollowUps.add(promise);
-  const onSettled = () => invalidateStreamFeed(queryClient, agentId);
+  const onSettled = () => {
+    void queryClient.invalidateQueries({ queryKey: key, exact: true });
+  };
   promise.then(onSettled, onSettled);
+}
+
+function invalidateReviewSummary(queryClient: QueryClient): void {
+  const state = queryClient.getQueryState(AGENT_REVIEWS_QUERY_KEY);
+  if (state?.fetchStatus === "fetching" && state.data === undefined) {
+    invalidateOnceFirstFetchSettles(queryClient, AGENT_REVIEWS_QUERY_KEY);
+  } else {
+    void queryClient.invalidateQueries({ queryKey: AGENT_REVIEWS_QUERY_KEY });
+  }
 }
 
 /**
@@ -239,7 +249,7 @@ export function applyStreamEntry(
   // invalidate it later.
   if (state.fetchStatus === "fetching") {
     if (state.data === undefined) {
-      invalidateOnceFirstFetchSettles(queryClient, agentId, key);
+      invalidateOnceFirstFetchSettles(queryClient, key);
     } else {
       invalidateStreamFeed(queryClient, agentId);
     }
@@ -315,9 +325,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
-          void queryClient.invalidateQueries({
-            queryKey: AGENT_REVIEWS_QUERY_KEY,
-          });
+          invalidateReviewSummary(queryClient);
           // `stream.changed` is not replayed after a gap, so every mounted
           // feed (and open thread) refetches on (re)connect — otherwise an
           // open Chat tab keeps missing whatever landed while the stream was
@@ -374,9 +382,7 @@ export function useSSE(authState: AuthState): void {
               block.kind === "finding" ||
               block.blocks?.some((shown) => shown.kind === "review"))
           ) {
-            void queryClient.invalidateQueries({
-              queryKey: AGENT_REVIEWS_QUERY_KEY,
-            });
+            invalidateReviewSummary(queryClient);
           }
           // Closing an ask changes the agent's derived Waiting activity.
           // The stream row updates the card, but the sidebar agent cache

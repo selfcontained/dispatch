@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
-import type { StreamFeedResponse } from "@dispatch/shared";
+import type { AgentReviewSummary, StreamFeedResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +33,9 @@ import {
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
+import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
+import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { showWebNotification } from "@/lib/web-notifications";
 
 import {
@@ -252,6 +262,86 @@ class FakeEventSource {
     this.onerror?.(new Event("error"));
   }
 }
+
+describe("review summary first fetch", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    apiMock.mockReset();
+  });
+
+  it("shows a review arriving during the first fetch without remounting", async () => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    apiMock.mockReset();
+    let resolveFirstFetch!: (value: AgentReviewSummary) => void;
+    apiMock.mockReturnValueOnce(
+      new Promise<AgentReviewSummary>((resolve) => {
+        resolveFirstFetch = resolve;
+      })
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function ReviewRow() {
+      useSSE("authenticated");
+      const summary = useAgentReviewSummary();
+      const review = summary.data?.agents["reviewer"];
+      return review
+        ? createElement(AgentReviewIndicator, {
+            agentId: "reviewer",
+            pendingLabel: "Review in progress",
+            review,
+            isLoading: summary.isLoading,
+            isError: summary.isError,
+          })
+        : null;
+    }
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(TooltipProvider, null, createElement(ReviewRow))
+      )
+    );
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("agent-review-indicator-reviewer")).toBeNull();
+    const event = {
+      type: "stream.entry",
+      agentId: "parent",
+      entry: blockEntry(
+        reviewBlock({
+          streamId: "parent",
+          author: { kind: "agent", agentId: "reviewer" },
+        })
+      ),
+    };
+    // A burst during the same first fetch must schedule only one follow-up.
+    act(() => {
+      FakeEventSource.instances[0].emit(event);
+      FakeEventSource.instances[0].emit(event);
+    });
+    apiMock.mockResolvedValueOnce({
+      agents: {
+        reviewer: {
+          streamId: "parent",
+          threadId: "review-thread",
+          status: "resolved",
+          openFindings: 0,
+        },
+      },
+    } satisfies AgentReviewSummary);
+    await act(async () => resolveFirstFetch({ agents: {} }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId("agent-review-indicator-reviewer")
+          .getAttribute("data-review-status")
+      ).toBe("resolved")
+    );
+  });
+});
 
 describe("useSSE reconnect", () => {
   let hiddenValue = false;

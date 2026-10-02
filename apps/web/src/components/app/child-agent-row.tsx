@@ -79,7 +79,9 @@ export function ChildAgentRow({
   const menuItemClass =
     "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
   const isReviewAgent = agent.role === "review";
-  const reviewSummary = useAgentReviewSummary(isReviewAgent);
+  // Persona reviewers are ordinary agents; a submitted review identifies
+  // them regardless of their launch role.
+  const reviewSummary = useAgentReviewSummary();
   const review = reviewSummary.data?.agents[agent.id];
   const showReviewActivity =
     isReviewAgent &&
@@ -186,7 +188,7 @@ export function ChildAgentRow({
           agentId={agent.id}
           className="h-4 px-1 text-[10px] leading-none"
         />
-        {isReviewAgent ? (
+        {review || isReviewAgent ? (
           <AgentReviewIndicator
             agentId={agent.id}
             pendingLabel={reviewPendingLabel}
@@ -276,7 +278,7 @@ export function ChildAgentRow({
                 {isConnectedActive ? "Close" : "Open"}
               </DropdownMenuItem>
             ) : null}
-            {isReviewAgent && review ? (
+            {review ? (
               <DropdownMenuItem
                 className={menuItemClass}
                 data-testid={`child-agent-open-review-${agent.id}`}
