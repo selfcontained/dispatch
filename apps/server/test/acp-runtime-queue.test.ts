@@ -961,6 +961,44 @@ describe("conversation-authoritative delivery", () => {
     ]);
   });
 
+  it("steers what the agent is waiting on into its turn, whatever conversation it is in", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const work = runtime.prompt(agentId, "work", inThread(0, null, false));
+    await work.accepted;
+    // A review, or a finding settled: from an agent, in its own thread.
+    const awaited = runtime.prompt(
+      agentId,
+      "finding fixed",
+      {
+        ...inThread(1, "finding-a", false),
+        awaited: true,
+        answerIn: "finding-a",
+      },
+      { delivery: "auto" }
+    );
+    await withinSeconds(awaited.accepted, "awaited steering");
+    expect(host.steers).toEqual(["finding fixed"]);
+    // Sending a queued awaited post now is allowed for the same reason.
+    const later = runtime.prompt(
+      agentId,
+      "review posted",
+      { ...inThread(2, "launch-b", false), awaited: true },
+      { delivery: "queue" }
+    );
+    expect(
+      runtime.controlQueuedPrompt(
+        [agentId],
+        (post(2) as { chatMessageId: string }).chatMessageId,
+        "send-now"
+      )
+    ).toBe(true);
+    await withinSeconds(later.accepted, "awaited send-now");
+    expect(host.steers).toEqual(["finding fixed", "review posted"]);
+    host.settle();
+    await Promise.all([work.settled, awaited.settled, later.settled]);
+  });
+
   it("background agent events cannot steer even in the same conversation", async () => {
     const host = await heldTurnHost("injected");
     const runtime = await attached(host.stateRoot);

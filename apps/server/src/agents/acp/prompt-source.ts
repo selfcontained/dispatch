@@ -10,6 +10,13 @@ export type PromptSource = {
   conversation?: PromptConversation;
   /** Only an actual user message can steer the active conversation. */
   userMessage?: boolean;
+  /**
+   * The recipient is waiting on this: a review it launched, a finding
+   * thread it is a side of, a finding settled or reopened. It joins the
+   * active turn whatever conversation that turn is in, rather than
+   * waiting behind the very work that is waiting on it.
+   */
+  awaited?: boolean;
 } & (
   | {
       source: "chat";

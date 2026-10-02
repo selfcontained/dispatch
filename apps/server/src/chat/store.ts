@@ -528,21 +528,51 @@ export class BlockStore {
   /**
    * One recipient's outcome on a post that went to several agents, written
    * as its own key so two deliveries settling at once cannot overwrite
-   * each other's result.
+   * each other's result. `null` puts that recipient back to pending, as
+   * when a finding's notice is sent to it.
    */
   async setRecipientDelivered(
     id: string,
     agentId: string,
-    delivered: boolean
+    delivered: boolean | null
   ): Promise<void> {
     if (!isBlockId(id)) return;
     await this.db.query(
       `UPDATE blocks
           SET deliveries = jsonb_set(
-                COALESCE(deliveries, '{}'::jsonb), ARRAY[$2], to_jsonb($3::boolean), true)
+                COALESCE(deliveries, '{}'::jsonb), ARRAY[$2],
+                COALESCE(to_jsonb($3::boolean), 'null'::jsonb), true)
         WHERE id = $1`,
       [id, agentId, delivered]
     );
+  }
+
+  /**
+   * Findings whose settle/reopen notice is still pending or missed for
+   * some recipient, with those recipients: what startup recovery sends
+   * again. Recent ones only; an old miss is left to be sent again from
+   * the finding, not retried at every start.
+   */
+  async findingsWithMissedNotices(): Promise<
+    Array<{ block: Block; agentIds: string[] }>
+  > {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks
+        WHERE kind = 'finding'
+          AND deliveries IS NOT NULL
+          AND updated_at > now() - interval '24 hours'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_each(deliveries) AS e(k, v)
+             WHERE v = 'null'::jsonb OR v = 'false'::jsonb
+          )
+        ORDER BY updated_at`
+    );
+    return result.rows.map((row) => ({
+      block: toBlock(row),
+      agentIds: Object.entries(row.deliveries ?? {})
+        .filter(([, outcome]) => outcome !== true)
+        .map(([agentId]) => agentId),
+    }));
   }
 
   /**

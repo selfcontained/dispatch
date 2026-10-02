@@ -254,6 +254,20 @@ function takeBatch(waiting: Waiting[]): Waiting[] {
   return batch;
 }
 
+/**
+ * Whether a prompt may join the open turn instead of waiting behind it: a
+ * person speaking in the conversation the turn is in, or a prompt the
+ * agent is itself waiting on (a review, a finding settled), which would
+ * otherwise sit behind the work that is waiting for it.
+ */
+function steers(w: Waiting, entry: Pick<Live, "conversation">): boolean {
+  if (w.source?.awaited === true) return true;
+  return (
+    w.source?.userMessage === true &&
+    sameConversation(w.source.conversation, entry.conversation)
+  );
+}
+
 const COMBINED_SEPARATOR = "\n\n";
 
 function combinedPreamble(count: number): string {
@@ -426,10 +440,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (!entry.client.welcome?.steeringSupported) break;
           const index = entry.waiting.findIndex(
             (w) =>
-              w.delivery === "auto" &&
-              !w.images?.length &&
-              w.source?.userMessage === true &&
-              sameConversation(w.source.conversation, entry.conversation)
+              w.delivery === "auto" && !w.images?.length && steers(w, entry)
           );
           if (index < 0) break;
           batch = entry.waiting.splice(index, 1);
@@ -883,9 +894,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           const { entry, prompt } = target!;
           return (
             entry.turnOpen &&
-            (prompt.delivery === "interrupt" ||
-              !prompt.source?.userMessage ||
-              !sameConversation(prompt.source.conversation, entry.conversation))
+            (prompt.delivery === "interrupt" || !steers(prompt, entry))
           );
         })
       )
