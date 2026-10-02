@@ -66,7 +66,7 @@ async function topRow(
     return row
       ? {
           id: row.dataset.chatEntryId!,
-          offset: Math.round(row.getBoundingClientRect().top - top),
+          offset: row.getBoundingClientRect().top - top,
         }
       : null;
   });
@@ -373,18 +373,19 @@ test.describe("Stream windowing", () => {
     await expect
       .poll(async () => {
         const row = page.locator(`[data-chat-entry-id="${before.id}"]`);
-        if ((await row.count()) === 0) return null;
-        return scroller(page).evaluate(
+        if ((await row.count()) === 0) return Infinity;
+        const offset = await scroller(page).evaluate(
           (el, id) =>
-            Math.round(
-              el
-                .querySelector(`[data-chat-entry-id="${id}"]`)!
-                .getBoundingClientRect().top - el.getBoundingClientRect().top
-            ),
+            el
+              .querySelector(`[data-chat-entry-id="${id}"]`)!
+              .getBoundingClientRect().top - el.getBoundingClientRect().top,
           before.id
         );
+        return Math.abs(offset - before.offset);
       })
-      .toBe(before.offset);
+      // The restore lands on a device pixel, so a row sitting on a
+      // half-pixel can come back one pixel off.
+      .toBeLessThanOrEqual(1);
   });
 
   test("browser find keeps older loaded pages windowed", async ({
@@ -445,19 +446,18 @@ test.describe("Stream windowing", () => {
       .poll(
         async () => {
           const row = page.locator(`[data-chat-entry-id="${before.id}"]`);
-          if ((await row.count()) === 0) return null;
-          return scroller(page).evaluate(
+          if ((await row.count()) === 0) return Infinity;
+          const offset = await scroller(page).evaluate(
             (el, id) =>
-              Math.round(
-                el
-                  .querySelector(`[data-chat-entry-id="${id}"]`)!
-                  .getBoundingClientRect().top - el.getBoundingClientRect().top
-              ),
+              el
+                .querySelector(`[data-chat-entry-id="${id}"]`)!
+                .getBoundingClientRect().top - el.getBoundingClientRect().top,
             before.id
           );
+          return Math.abs(offset - before.offset);
         },
         { timeout: 15_000 }
       )
-      .toBe(before.offset);
+      .toBeLessThanOrEqual(1);
   });
 });

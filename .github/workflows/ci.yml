@@ -86,6 +86,7 @@ jobs:
       - name: CI checks
         run: pnpm run ci
         env:
+          DISPATCH_TEST_POSTGRES_CONTAINER: ${{ steps.postgres.outputs.container }}
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Build Bun binaries

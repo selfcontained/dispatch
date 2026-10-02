@@ -28,17 +28,20 @@ import {
   teardownTestDb,
 } from "./db/setup.js";
 
-/** Use local tools or the very same isolated server-test container, never the dev/production container. */
+/** Prefer the fixture container's tools so PATH cannot select another PostgreSQL major. */
 function testTools(): PostgresTools | undefined {
-  try {
-    execFileSync("pg_dump", ["--version"], { stdio: "ignore" });
-    execFileSync("pg_restore", ["--version"], { stdio: "ignore" });
-    return;
-  } catch {
-    const run = process.env.DISPATCH_DB_NAME;
-    if (!run?.startsWith("servertest-"))
+  const run = process.env.DISPATCH_DB_NAME;
+  const container =
+    process.env.DISPATCH_TEST_POSTGRES_CONTAINER ??
+    (run?.startsWith("servertest-") ? `dispatch-postgres-${run}` : undefined);
+  if (container) {
+    if (
+      !/^dispatch-(?:ci-[0-9]+|postgres-servertest-[a-zA-Z0-9-]+)$/.test(
+        container
+      )
+    )
       throw new Error(
-        "Install matching pg_dump/pg_restore for externally supplied TEST_DATABASE_URL"
+        "Recovery test tools require an explicitly identified isolated test container"
       );
     const args = [
       "exec",
@@ -51,7 +54,7 @@ function testTools(): PostgresTools | undefined {
         "PGDATABASE",
         "PGSSLMODE",
       ].flatMap((k) => ["-e", k]),
-      `dispatch-postgres-${run}`,
+      container,
     ];
     return {
       pgDump: {
@@ -65,6 +68,15 @@ function testTools(): PostgresTools | undefined {
         env: { PGPORT: "5432", PGHOST: "127.0.0.1" },
       },
     };
+  }
+  try {
+    execFileSync("pg_dump", ["--version"], { stdio: "ignore" });
+    execFileSync("pg_restore", ["--version"], { stdio: "ignore" });
+    return;
+  } catch {
+    throw new Error(
+      "Install matching pg_dump/pg_restore for externally supplied TEST_DATABASE_URL"
+    );
   }
 }
 

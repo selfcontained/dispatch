@@ -445,6 +445,7 @@ function validReleaseView({
   return JSON.stringify({
     tagName: tag,
     publishedAt: "2026-04-26T00:00:00Z",
+    assets: [{ name: "server.tar.gz", digest: `sha256:${"a".repeat(64)}` }],
     url: `https://github.com/selfcontained/dispatch/releases/tag/${tag}`,
     body,
   });
