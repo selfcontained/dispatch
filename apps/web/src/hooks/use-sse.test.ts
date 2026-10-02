@@ -25,6 +25,7 @@ import {
 } from "@/hooks/use-stream";
 import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
+import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 import { showWebNotification } from "@/lib/web-notifications";
 
 import {
@@ -615,6 +616,7 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["agent-models"],
       CACHED_RELEASE_INFO_QUERY_KEY,
+      MAC_APP_UPDATE_QUERY_KEY,
       ["chat-unread"],
       ["agent-reviews"],
       ["stream"],
@@ -1122,6 +1124,25 @@ describe("useSSE message handling", () => {
     expect(queryClient.getQueryData(CACHED_RELEASE_INFO_QUERY_KEY)).toEqual({
       snapshot,
     });
+  });
+
+  it("stores the Mac app's pushed update state", () => {
+    const { queryClient, emit } = renderMessages();
+    const update = {
+      connected: true,
+      state: {
+        version: "1.0.1",
+        phase: "checking" as const,
+        availableVersion: null,
+        checkedAt: null,
+        error: null,
+        automatic: false,
+      },
+    };
+
+    emit({ type: "mac_app.update_changed", update });
+
+    expect(queryClient.getQueryData(MAC_APP_UPDATE_QUERY_KEY)).toEqual(update);
   });
 
   it("ignores an unparseable frame and keeps handling the next one", () => {

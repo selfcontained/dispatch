@@ -1,3 +1,4 @@
+import { MacAppUpdatesCard } from "@/components/app/mac-app-updates-card";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { UpdatesCheckPanel } from "@/components/app/updates-check-panel";
 import { UpdatesPreferences } from "@/components/app/updates-preferences";
@@ -102,17 +103,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           </CardHeader>
         </Card>
       ) : versionInfo.updateOwner === "macos-app" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Update Dispatch</CardTitle>
-            <CardDescription>
-              Click the Dispatch icon in your Mac’s menu bar, then choose{" "}
-              <strong>Check for Updates</strong>. To receive updates
-              automatically, make sure{" "}
-              <strong>Install Updates Automatically</strong> is enabled.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <MacAppUpdatesCard />
       ) : (
         <>
           <UpdatesPreferences

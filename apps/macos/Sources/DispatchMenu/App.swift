@@ -19,6 +19,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var status = "Checking…"
     #if SPARKLE_UPDATES
     private var appUpdater: AppUpdater?
+    private var appControl: AppControlChannel?
     #endif
     /// A pre-release install is being moved to the release identity.
     private var migrating = false
@@ -95,10 +96,15 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if externalURL == nil && AppPaths.testRoot == nil {
             let updater = AppUpdater(service: service)
             updater.wasRunning = { [weak self] in self?.ready == true || (ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping") }
-            updater.onChange = { [weak self] in self?.rebuildMenu() }
+            let control = AppControlChannel()
+            control.serverURL = { [weak self] in self?.ready == true ? self?.serverURL : nil }
+            control.state = { [weak updater] in updater?.remoteState }
+            control.onCommand = { [weak updater] action in updater?.perform(remote: action) }
+            updater.onChange = { [weak self, weak control] in self?.rebuildMenu(); control?.report() }
             updater.onError = { [weak self] message in self?.showError(message) }
             appUpdater = updater
-            Task { await updater.start(); refresh() }
+            appControl = control
+            Task { await updater.start(); refresh(); control.start() }
         }
         #endif
     }

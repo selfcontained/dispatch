@@ -84,6 +84,9 @@ import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerReleaseRoutes } from "./routes/release.js";
+import { registerMacAppRoutes } from "./routes/mac-app.js";
+import { MacAppUpdateBridge } from "./mac-app-update-bridge.js";
+import { isMacAppManaged } from "./update-owner.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
@@ -536,6 +539,8 @@ async function registerRoutes() {
     // bearer shortcut so the server auth token is never accepted as an
     // extension credential.
     if (request.routeOptions.config.browserExtensionBearer) return;
+    // The menu app's control routes check its per-launch token themselves.
+    if (request.routeOptions.config.macAppBearer) return;
     // If no password is set, all routes are open (first-run mode).
     if (!(await authRuntime.isPasswordSetCached())) return;
 
@@ -674,6 +679,18 @@ async function registerRoutes() {
     dateTruncTz,
     escapeLike,
   });
+
+  const macAppControlToken = process.env.DISPATCH_MAC_APP_TOKEN;
+  if (
+    isMacAppManaged() &&
+    macAppControlToken &&
+    macAppControlToken.length >= 32
+  ) {
+    await registerMacAppRoutes(app, {
+      bridge: new MacAppUpdateBridge((event) => uiEventBroker.publish(event)),
+      controlToken: macAppControlToken,
+    });
+  }
 
   await registerReleaseRoutes(app, {
     pool,

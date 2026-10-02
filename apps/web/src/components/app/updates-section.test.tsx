@@ -11,6 +11,10 @@ import type {
 // is what lets the real subcomponents (#949 split them out of this file) be
 // exercised together.
 vi.mock("@/hooks/use-release-updates", () => ({ useReleaseUpdates: vi.fn() }));
+vi.mock("@/hooks/use-mac-app-update", () => ({
+  useMacAppUpdate: () => ({ data: { connected: false, state: null } }),
+  useMacAppUpdateAction: () => ({ mutate: vi.fn() }),
+}));
 
 const { useReleaseUpdates } = await import("@/hooks/use-release-updates");
 const { UpdatesSection } = await import("./updates-section");
