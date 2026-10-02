@@ -1,6 +1,6 @@
 /**
  * Detects whether the Dispatch plugin is installed in Claude Code / Codex and
- * whether a newer version is available, then (on request) applies the update.
+ * whether a newer version is available, then installs or updates on request.
  *
  * Deliberately shells out to the real CLIs for everything, including
  * detection — `claude plugin list --json` / `codex plugin list --json` and
@@ -12,14 +12,11 @@
  * `process.env` unless overridden, so CLAUDE_CONFIG_DIR/CODEX_HOME set on the
  * server process reach the CLI the same way they would from a shell.
  *
- * Every read path fails open: a spawn error, non-zero exit, or malformed
- * JSON is reported as "nothing to show" (not installed / no update), never
- * as a false "update available". But fail-open only governs what the *user*
- * sees — internally each check also reports whether it was a confident
- * "checked, genuinely absent" or a `probeFailed` "couldn't tell" (see
- * `checkPluginStatusInternal`), so `createPluginStatusChecker`'s cache can
- * retry a probe failure soon instead of pinning it for the same TTL as a
- * real answer, and so failures get logged instead of vanishing silently.
+ * Read failures never advertise an update. Failed installed-plugin probes
+ * carry detectionError so the settings UI can distinguish an unavailable
+ * check from a genuinely missing plugin. Each check also reports probeFailed
+ * internally, allowing the cache to retry failures sooner than real answers.
+ * Failures resolving the latest version preserve the known installed version.
  *
  * The ordering trap (verified against both CLIs, see the plugin-update-detection
  * brain idea): `codex plugin add` installs from the marketplace *snapshot*,
@@ -51,6 +48,8 @@ export type PluginStatus = {
   currentVersion: string | null;
   latestVersion: string | null;
   updateAvailable: boolean;
+  /** Present when the installed-plugin probe could not be trusted. */
+  detectionError?: string;
 };
 
 export type PluginUpdateResult = {
@@ -94,6 +93,14 @@ function notInstalled(agentType: PluginAgentType): PluginStatus {
     currentVersion: null,
     latestVersion: null,
     updateAvailable: false,
+  };
+}
+
+function unknownStatus(agentType: PluginAgentType): PluginStatus {
+  return {
+    ...notInstalled(agentType),
+    detectionError:
+      "Could not check this CLI's plugin status. Check that the CLI is installed and supports plugins, then retry.",
   };
 }
 
@@ -298,20 +305,21 @@ async function checkClaude(
   if (stepFailed(listResult)) {
     logger.warn(
       { err: listResult.error },
-      "claude plugin list failed; reporting not installed"
+      "claude plugin list failed; reporting status unavailable"
     );
-    return { status: notInstalled("claude"), probeFailed: true };
+    return { status: unknownStatus("claude"), probeFailed: true };
   }
 
   let installed: Array<{ id?: unknown; version?: unknown; enabled?: unknown }>;
   try {
     installed = JSON.parse(listResult.stdout);
+    if (!Array.isArray(installed)) throw new Error("Invalid plugin list");
   } catch (err) {
     logger.warn(
       { err },
-      "claude plugin list output didn't parse; reporting not installed"
+      "claude plugin list output didn't parse; reporting status unavailable"
     );
-    return { status: notInstalled("claude"), probeFailed: true };
+    return { status: unknownStatus("claude"), probeFailed: true };
   }
 
   const entry = installed.find((p) => p.id === PLUGIN_ID);
@@ -362,9 +370,9 @@ async function checkCodex(
   if (stepFailed(listResult)) {
     logger.warn(
       { err: listResult.error },
-      "codex plugin list failed; reporting not installed"
+      "codex plugin list failed; reporting status unavailable"
     );
-    return { status: notInstalled("codex"), probeFailed: true };
+    return { status: unknownStatus("codex"), probeFailed: true };
   }
 
   let entry:
@@ -378,13 +386,15 @@ async function checkCodex(
         enabled?: unknown;
       }>;
     };
-    entry = parsed.installed?.find((p) => p.pluginId === PLUGIN_ID);
+    if (!Array.isArray(parsed.installed))
+      throw new Error("Invalid plugin list");
+    entry = parsed.installed.find((p) => p.pluginId === PLUGIN_ID);
   } catch (err) {
     logger.warn(
       { err },
-      "codex plugin list output didn't parse; reporting not installed"
+      "codex plugin list output didn't parse; reporting status unavailable"
     );
-    return { status: notInstalled("codex"), probeFailed: true };
+    return { status: unknownStatus("codex"), probeFailed: true };
   }
   if (!entry) return { status: notInstalled("codex"), probeFailed: false };
 
@@ -427,13 +437,13 @@ async function checkPluginStatusInternal(
   } catch (err) {
     logger.warn(
       { err, agentType },
-      "plugin status check threw; reporting not installed"
+      "plugin status check threw; reporting status unavailable"
     );
-    return { status: notInstalled(agentType), probeFailed: true };
+    return { status: unknownStatus(agentType), probeFailed: true };
   }
 }
 
-/** Detects install state and update availability. Never throws — fails open to "not installed". */
+/** Detects install state and update availability. Never throws — failed installation probes carry detectionError. */
 export async function checkPluginStatus(
   agentType: PluginAgentType,
   bin: string,
@@ -451,7 +461,7 @@ export async function checkPluginStatus(
 }
 
 /**
- * Applies the update in the verified safe order — marketplace refresh THEN
+ * Installs or updates in the verified safe order — marketplace refresh THEN
  * plugin update/add — for both CLIs, then re-checks so the caller gets a
  * fresh status back (the affordance clears without a second round trip).
  * The re-check skips its own marketplace refresh: the step above just did
@@ -463,7 +473,8 @@ export async function applyPluginUpdate(
   agentType: PluginAgentType,
   bin: string,
   commandRunner: CommandRunner = runCommand,
-  logger: PluginStatusLogger = noopLogger
+  logger: PluginStatusLogger = noopLogger,
+  action: "update" | "install" = "update"
 ): Promise<PluginUpdateResult> {
   const steps: Array<{
     friendlyError: string;
@@ -479,7 +490,10 @@ export async function applyPluginUpdate(
           },
           {
             friendlyError: "Failed to update the plugin.",
-            args: ["plugin", "update", PLUGIN_ID, "-y"],
+            args:
+              action === "install"
+                ? ["plugin", "install", PLUGIN_ID]
+                : ["plugin", "update", PLUGIN_ID, "-y"],
             timeoutMs: INSTALL_TIMEOUT_MS,
           },
         ]
@@ -506,6 +520,50 @@ export async function applyPluginUpdate(
             timeoutMs: INSTALL_TIMEOUT_MS,
           },
         ];
+
+  if (action === "install") {
+    // Register only when absent: adding an existing marketplace can fail.
+    const listed = await runStep(
+      commandRunner,
+      bin,
+      ["plugin", "marketplace", "list", "--json"],
+      LOCAL_TIMEOUT_MS
+    );
+    let registered = false;
+    try {
+      if (stepFailed(listed)) throw new Error(listed.error);
+      const parsed = JSON.parse(listed.stdout);
+      const marketplaces =
+        agentType === "claude" ? parsed : parsed.marketplaces;
+      if (!Array.isArray(marketplaces))
+        throw new Error("Invalid marketplace list");
+      registered = marketplaces.some(
+        (entry) => entry.name === MARKETPLACE_NAME
+      );
+    } catch {
+      const outcome = await checkPluginStatusInternal(
+        agentType,
+        bin,
+        commandRunner,
+        false,
+        logger
+      );
+      return {
+        status: outcome.status,
+        ranCommands: ["plugin marketplace list --json"],
+        error: "Could not check registered marketplaces. Please retry.",
+        probeFailed: outcome.probeFailed,
+      };
+    }
+    if (!registered) {
+      steps.unshift({
+        friendlyError: "Failed to register the Dispatch marketplace.",
+        args: ["plugin", "marketplace", "add", "selfcontained/dispatch"],
+        timeoutMs: INSTALL_TIMEOUT_MS,
+      });
+    }
+    steps[steps.length - 1]!.friendlyError = "Failed to install the plugin.";
+  }
 
   const ranCommands: string[] = [];
   for (const step of steps) {
@@ -535,8 +593,8 @@ export async function applyPluginUpdate(
     }
   }
 
-  // Both steps succeeded, so the marketplace was just refreshed by the first
-  // one — re-refreshing here would double the network round trip and risk
+  // All steps succeeded, so the marketplace was just refreshed before install
+  // or update — re-refreshing here would double the network round trip and risk
   // comparing the just-installed version against a snapshot newer than the
   // one it was actually installed from.
   const outcome = await checkPluginStatusInternal(
@@ -560,6 +618,7 @@ export type PluginStatusChecker = {
     opts?: { forceRefresh?: boolean }
   ) => Promise<PluginStatus>;
   update: (agentType: PluginAgentType) => Promise<PluginUpdateResult>;
+  install: (agentType: PluginAgentType) => Promise<PluginUpdateResult>;
 };
 
 // A real answer is cached for an hour (each check does a git fetch, so
@@ -648,14 +707,16 @@ export function createPluginStatusChecker(deps: {
   }
 
   async function update(
-    agentType: PluginAgentType
+    agentType: PluginAgentType,
+    action: "update" | "install" = "update"
   ): Promise<PluginUpdateResult> {
     return await serialize(agentType, async () => {
       const result = await applyPluginUpdate(
         agentType,
         deps.binFor(agentType),
         run,
-        logger
+        logger,
+        action
       );
       cache.set(agentType, {
         status: result.status,
@@ -670,5 +731,9 @@ export function createPluginStatusChecker(deps: {
     });
   }
 
-  return { getStatus, update };
+  return {
+    getStatus,
+    update,
+    install: (agentType) => update(agentType, "install"),
+  };
 }

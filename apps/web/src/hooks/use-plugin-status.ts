@@ -33,11 +33,11 @@ export function usePluginStatus() {
 
 type UpdatePluginResponse = { status: PluginStatus };
 
-export function useUpdatePlugin() {
+export function useUpdatePlugin(action: "update" | "install" = "update") {
   const queryClient = useQueryClient();
   return useMutation<UpdatePluginResponse, Error, PluginAgentType>({
     mutationFn: (agentType) =>
-      api<UpdatePluginResponse>("/api/v1/plugin/update", {
+      api<UpdatePluginResponse>(`/api/v1/plugin/${action}`, {
         method: "POST",
         body: JSON.stringify({ agentType }),
       }),
@@ -60,12 +60,18 @@ export function useUpdatePlugin() {
       // interim. Without this, that case renders as the row silently
       // resetting to exactly its pre-click state, indistinguishable from
       // the click doing nothing at all.
-      if (data.status.updateAvailable) {
+      if (data.status.detectionError || !data.status.installed) {
+        toast.warning(
+          `Command finished, but ${label} plugin installation could not be confirmed. Retry the status check.`
+        );
+      } else if (data.status.updateAvailable) {
         toast.warning(
           `Update ran, but ${label} is still on v${data.status.currentVersion}.`
         );
       } else {
-        toast.success(`Dispatch plugin updated for ${label}.`);
+        toast.success(
+          `Dispatch plugin ${action === "install" ? "installed" : "updated"} for ${label}. Start a fresh agent session to load it.`
+        );
       }
     },
     onError: () => {
@@ -74,5 +80,15 @@ export function useUpdatePlugin() {
       // refresh). Refetch rather than trust stale client state.
       void queryClient.invalidateQueries({ queryKey: PLUGIN_STATUS_QUERY_KEY });
     },
+  });
+}
+
+export function useRefreshPluginStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<PluginStatusResponse>("/api/v1/plugin/status?refresh=true"),
+    onSuccess: (data) =>
+      queryClient.setQueryData(PLUGIN_STATUS_QUERY_KEY, data),
   });
 }

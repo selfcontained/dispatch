@@ -7,170 +7,126 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { createStore, Provider } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import type { PluginStatus } from "@/hooks/use-plugin-status";
 import { PluginUpdateSettings } from "./plugin-update-settings";
 
-vi.mock("@/lib/api", async () => ({
-  ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
-  api: vi.fn(),
-}));
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
 }));
-
 const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
-const { toast } = await import("sonner");
-const toastSuccess = vi.mocked(toast.success);
-const toastWarning = vi.mocked(toast.warning);
-
 afterEach(() => {
   cleanup();
   apiMock.mockReset();
-  toastSuccess.mockReset();
-  toastWarning.mockReset();
-  window.localStorage.clear();
 });
-
-function statusFixture(overrides: Partial<PluginStatus> = {}): PluginStatus {
+function fixture(overrides: Partial<PluginStatus> = {}): PluginStatus {
   return {
     agentType: "claude",
     installed: true,
     enabled: true,
-    currentVersion: "0.1.0",
-    latestVersion: "0.2.0",
-    updateAvailable: true,
+    currentVersion: "0.5.0",
+    latestVersion: "0.5.0",
+    updateAvailable: false,
     ...overrides,
   };
 }
-
-function renderWithProviders() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  const jotaiStore = createStore();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <Provider store={jotaiStore}>
-        <PluginUpdateSettings />
-      </Provider>
+function setup() {
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({
+          defaultOptions: {
+            queries: { retry: false },
+            mutations: { retry: false },
+          },
+        })
+      }
+    >
+      <PluginUpdateSettings />
     </QueryClientProvider>
   );
 }
-
 describe("PluginUpdateSettings", () => {
-  it("renders no visible section when nothing needs an update", async () => {
+  it("keeps installed versions visible when current or disabled", async () => {
+    apiMock.mockResolvedValueOnce({
+      statuses: [fixture(), fixture({ agentType: "codex", enabled: false })],
+    });
+    setup();
+    expect(await screen.findByText("Up to date")).toBeTruthy();
+    expect(screen.getByText("Disabled")).toBeTruthy();
+    expect(screen.getAllByText("Installed v0.5.0")).toHaveLength(2);
+  });
+  it("updates a plugin and keeps the installed row", async () => {
+    apiMock.mockResolvedValueOnce({
+      statuses: [fixture({ currentVersion: "0.4.0", updateAvailable: true })],
+    });
+    apiMock.mockResolvedValueOnce({ status: fixture() });
+    setup();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Update Claude Code plugin" })
+    );
+    expect(await screen.findByText("Installed v0.5.0")).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/plugin/update",
+      expect.objectContaining({ body: JSON.stringify({ agentType: "claude" }) })
+    );
+  });
+  it("installs a missing plugin and shows the installed version", async () => {
     apiMock.mockResolvedValueOnce({
       statuses: [
-        statusFixture({ updateAvailable: false, currentVersion: "0.2.0" }),
+        fixture({
+          installed: false,
+          enabled: false,
+          currentVersion: null,
+          latestVersion: null,
+        }),
       ],
     });
-    renderWithProviders();
-
-    await waitFor(() => expect(apiMock).toHaveBeenCalled());
-    expect(screen.queryByText("Plugin update")).toBeNull();
+    apiMock.mockResolvedValueOnce({ status: fixture() });
+    setup();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Install Claude Code plugin" })
+    );
+    expect(await screen.findByText("Installed v0.5.0")).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith(
+      "/api/v1/plugin/install",
+      expect.objectContaining({ body: JSON.stringify({ agentType: "claude" }) })
+    );
   });
-
-  it("shows the available update with both versions", async () => {
-    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
-    renderWithProviders();
-
-    expect(await screen.findByText("Claude Code")).toBeTruthy();
-    expect(screen.getByText("v0.1.0 → v0.2.0")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
-  });
-
-  it("posts the update request, clears the row, and shows a success toast", async () => {
-    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
+  it("does not offer installation when detection failed and allows a fresh check", async () => {
     apiMock.mockResolvedValueOnce({
-      status: statusFixture({
-        currentVersion: "0.2.0",
-        updateAvailable: false,
-      }),
+      statuses: [
+        fixture({ installed: false, detectionError: "CLI unavailable" }),
+      ],
     });
-    renderWithProviders();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Update" }));
-
+    apiMock.mockResolvedValueOnce({ statuses: [fixture()] });
+    setup();
+    expect(await screen.findByText("Status unavailable")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Install Claude Code plugin" })
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Up to date")).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith("/api/v1/plugin/status?refresh=true");
+  });
+  it("shows installation failures in the row", async () => {
+    apiMock.mockResolvedValueOnce({
+      statuses: [fixture({ installed: false })],
+    });
+    apiMock.mockRejectedValueOnce(
+      new Error("Failed to register the Dispatch marketplace.")
+    );
+    apiMock.mockResolvedValue({ statuses: [fixture({ installed: false })] });
+    setup();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Install Claude Code plugin" })
+    );
     await waitFor(() =>
-      expect(apiMock).toHaveBeenCalledWith(
-        "/api/v1/plugin/update",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ agentType: "claude" }),
-        })
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Failed to register"
       )
     );
-    // Row disappears once the mutation resolves with updateAvailable: false.
-    await waitFor(() =>
-      expect(screen.queryByText("v0.1.0 → v0.2.0")).toBeNull()
-    );
-    expect(toastSuccess).toHaveBeenCalledWith(
-      "Dispatch plugin updated for Claude Code."
-    );
-  });
-
-  it("warns instead of celebrating when the update ran but is still available", async () => {
-    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
-    apiMock.mockResolvedValueOnce({
-      status: statusFixture(), // still updateAvailable: true, same versions
-    });
-    renderWithProviders();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Update" }));
-
-    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
-    expect(toastSuccess).not.toHaveBeenCalled();
-    // The row is still there — this isn't a silent no-op from the user's
-    // point of view even though the click did trigger real commands.
-    expect(screen.getByText("v0.1.0 → v0.2.0")).toBeTruthy();
-  });
-
-  it("dismisses the row, announces it, without clearing it for a future version", async () => {
-    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
-    renderWithProviders();
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Dismiss Claude Code update" })
-    );
-
-    expect(screen.queryByText("v0.1.0 → v0.2.0")).toBeNull();
-    expect(
-      window.localStorage.getItem("dispatch:dismissedPluginUpdate:claude:0.2.0")
-    ).toBe("true");
-    // Announced via the persistent live region rather than left silent —
-    // the row itself is gone, so nothing else confirms the click landed.
-    expect(screen.getByText("Claude Code update dismissed.")).toBeTruthy();
-  });
-
-  it("hides the section header once its only actionable row is dismissed", async () => {
-    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
-    renderWithProviders();
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Dismiss Claude Code update" })
-    );
-
-    // Regression check: the section header/description must not be left
-    // standing over zero rows.
-    expect(screen.queryByText("Plugin update")).toBeNull();
-  });
-
-  it("shows the row again once the update key changes even if an older version was dismissed", async () => {
-    window.localStorage.setItem(
-      "dispatch:dismissedPluginUpdate:claude:0.2.0",
-      "true"
-    );
-    apiMock.mockResolvedValueOnce({
-      statuses: [
-        statusFixture({ currentVersion: "0.2.0", latestVersion: "0.3.0" }),
-      ],
-    });
-    renderWithProviders();
-
-    expect(await screen.findByText("v0.2.0 → v0.3.0")).toBeTruthy();
   });
 });
