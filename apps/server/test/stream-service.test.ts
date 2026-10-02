@@ -3605,6 +3605,7 @@ describe("StreamService review threads", () => {
     );
     // The builder is waiting on this: it joins the builder's turn rather
     // than queueing behind it, and its outcome is kept on the finding.
+    // `auto` is what lets the runtime consider steering it at all.
     expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
       source: {
         source: "chat",
@@ -3612,6 +3613,7 @@ describe("StreamService review threads", () => {
         answerIn: f1.id,
         awaited: true,
       },
+      delivery: "auto",
     });
     expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
       { agentId: A, state: "delivered" },
@@ -3794,11 +3796,13 @@ describe("StreamService review threads", () => {
     const { f1 } = await reviewed(svc);
     expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
       source: { source: "chat", awaited: true },
+      delivery: "auto",
     });
     await svc.post(A, { text: "Fixed.", replyTo: f1.id, to: B });
     await svc.waitForInFlightDeliveries(1_000);
     expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
       source: { source: "chat", awaited: true },
+      delivery: "auto",
     });
     await svc.post(A, { text: "hello", to: B });
     await svc.waitForInFlightDeliveries(1_000);

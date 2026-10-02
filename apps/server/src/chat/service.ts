@@ -1569,6 +1569,9 @@ export class StreamService {
           awaited: true,
           ...(answerIn ? { answerIn } : {}),
         },
+        // Awaited only counts for a prompt that may steer at all: the
+        // runtime queues a prompt with no delivery given.
+        delivery: "auto",
       });
       held = held || result.held;
     }
