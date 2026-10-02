@@ -19,11 +19,6 @@ preflight_tool() {
   echo "Error: $1 is not installed. $2" >&2
   return 1
 }
-preflight_missing=0
-preflight_tool node "Install Node.js: https://nodejs.org" || preflight_missing=1
-preflight_tool pnpm "Install it with: npm i -g pnpm" || preflight_missing=1
-preflight_tool bun "Install it with: brew install oven-sh/bun/bun (or curl -fsSL https://bun.sh/install | bash)" || preflight_missing=1
-[ "$preflight_missing" = 0 ] || exit 1
 
 usage() {
   cat <<'USAGE'
@@ -267,7 +262,7 @@ cmd_up() {
     fi
     # Ordinary dev stacks still clean up all descendants on a fresh up.
     echo "Cleaning stale state for '${SUFFIX}'..."
-    cmd_down 2>/dev/null || true
+    cmd_down || return 1
   fi
 
   mkdir -p "$(log_dir)"
@@ -518,14 +513,20 @@ cmd_down() {
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
     local compose
     compose="$(detect_compose)"
-    if [ -n "$compose" ]; then
-      if [ "$OPT_WIPE" = "1" ]; then
-        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v 2>/dev/null || true
-        echo "Removed database container and its data"
-      else
-        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down 2>/dev/null || true
-        echo "Stopped database container (data kept; --wipe to delete it)"
-      fi
+    if [ -z "$compose" ]; then
+      echo "Error: Docker Compose is unavailable; retained state for cleanup retry." >&2
+      return 1
+    fi
+    local compose_args=(down)
+    [ "$OPT_WIPE" = "1" ] && compose_args+=(-v)
+    if ! $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" "${compose_args[@]}"; then
+      echo "Error: Database teardown failed; retained state for cleanup retry." >&2
+      return 1
+    fi
+    if [ "$OPT_WIPE" = "1" ]; then
+      echo "Removed database container and its data"
+    else
+      echo "Stopped database container (data kept; --wipe to delete it)"
     fi
   fi
 
@@ -572,7 +573,7 @@ cmd_restart() {
       echo "DB container is gone — recreating it without stopping agent hosts."
     else
       echo "DB container is gone — starting it again; its data is on the volume."
-      cmd_down 2>/dev/null || true
+      cmd_down || return 1
       # The volume survived the container, so the data is already there and
       # seeding it again would collide with the rows it produced last time.
       OPT_NO_SEED="1"
@@ -781,6 +782,15 @@ done
 if [ -z "$CMD" ]; then
   usage
   exit 1
+fi
+
+# Teardown and inspection do not need the development runtimes.
+if [ "$CMD" = "up" ] || [ "$CMD" = "restart" ]; then
+  preflight_missing=0
+  preflight_tool node "Install Node.js: https://nodejs.org" || preflight_missing=1
+  preflight_tool pnpm "Install it with: npm i -g pnpm" || preflight_missing=1
+  preflight_tool bun "Install it with: brew install oven-sh/bun/bun (or curl -fsSL https://bun.sh/install | bash)" || preflight_missing=1
+  [ "$preflight_missing" = 0 ] || exit 1
 fi
 
 SUFFIX="$(resolve_suffix)"
