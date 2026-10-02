@@ -219,10 +219,13 @@ describe("ChildAgentRow", () => {
       threadId: "review-thread",
     };
     const onRequestClose = vi.fn();
-    const { openAgent, closeAgent } = renderRow(baseAgent, {
-      closeOnSessionAction: true,
-      onRequestClose,
-    });
+    const { openAgent, closeAgent } = renderRow(
+      { ...baseAgent, role: "standard" },
+      {
+        closeOnSessionAction: true,
+        onRequestClose,
+      }
+    );
     openMenu();
     fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
     expect(screen.getByTestId("row-location").textContent).toBe(
@@ -240,7 +243,11 @@ describe("ChildAgentRow", () => {
       threadId: "review-thread",
       openFindings: 2,
     };
-    const { rerenderWith } = renderRow(baseAgent);
+    const { rerenderWith } = renderRow({
+      ...baseAgent,
+      role: "standard",
+      persona: null,
+    });
     const indicator = screen.getByTestId(
       `agent-review-indicator-${baseAgent.id}`
     );
