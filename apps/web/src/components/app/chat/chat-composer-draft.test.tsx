@@ -19,15 +19,24 @@ import {
   type ChatComposerDraft,
   EMPTY_CHAT_DRAFT,
 } from "@/lib/chat-draft";
-import { CHAT_DRAFT_STORAGE_PREFIX, chatDraftAtomFamily } from "@/lib/store";
+import {
+  CHAT_DRAFT_STORAGE_PREFIX,
+  chatDraftAtomFamily,
+  CHAT_PENDING_DRAFT_STORAGE_PREFIX,
+  chatPendingDraftsAtomFamily,
+} from "@/lib/store";
 
 const usedAgentIds = new Set<string>();
 
 afterEach(() => {
+  window.dispatchEvent(new Event("pageshow"));
   cleanup();
   // The family caches an atom's first read, so every test gets its own
   // agent id and drops the atom afterwards.
-  for (const id of usedAgentIds) chatDraftAtomFamily.remove(id);
+  for (const id of usedAgentIds) {
+    chatDraftAtomFamily.remove(id);
+    chatPendingDraftsAtomFamily.remove(id);
+  }
   usedAgentIds.clear();
   window.localStorage.clear();
   vi.restoreAllMocks();
@@ -131,6 +140,181 @@ function chipNames(): string[] {
 }
 
 describe("ChatComposer draft persistence", () => {
+  it("restores a failed send after beforeunload when navigation never happens", async () => {
+    let reject!: (error: Error) => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((_resolve, rej) => {
+          reject = rej;
+        })
+    );
+    seed("agt_cancelled_navigation", { text: "do not lose this" });
+    const { input } = renderComposer("agt_cancelled_navigation", { onSend });
+    fireEvent.keyDown(input, { key: "Enter" });
+    window.dispatchEvent(new Event("beforeunload"));
+    await act(async () => {
+      reject(new Error("Connection failed"));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(input.value).toBe("do not lose this");
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "Connection failed"
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_cancelled_navigation"
+        )!
+      )
+    ).toEqual({});
+  });
+
+  it("removes a certainly accepted post even if the document is closing", async () => {
+    let resolve!: () => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          resolve = res;
+        })
+    );
+    seed("agt_closing_success", { text: "accepted" });
+    const { input } = renderComposer("agt_closing_success", { onSend });
+    fireEvent.keyDown(input, { key: "Enter" });
+    window.dispatchEvent(new Event("pagehide"));
+    await act(async () => resolve());
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_closing_success"
+        )!
+      )
+    ).toEqual({});
+  });
+
+  it("persists a pending recovery copy before clearing and removes it on success", async () => {
+    let resolve!: () => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          resolve = res;
+        })
+    );
+    seed("agt_pending", { text: "important", links: ["https://example.com"] });
+    const { input } = renderComposer("agt_pending", { onSend });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const pending = JSON.parse(
+      window.localStorage.getItem(
+        CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_pending"
+      )!
+    );
+    expect(Object.values(pending)).toEqual([
+      { text: "important", links: ["https://example.com"], files: [] },
+    ]);
+    expect(input.value).toBe("");
+    expect(stored("agt_pending")).toEqual(EMPTY_CHAT_DRAFT);
+    await act(async () => resolve());
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_pending"
+        )!
+      )
+    ).toEqual({});
+  });
+
+  it("does not recover an active post when the composer remounts", async () => {
+    let resolve!: () => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          resolve = res;
+        })
+    );
+    seed("agt_active", { text: "sending" });
+    const view = renderComposer("agt_active", { onSend });
+    fireEvent.keyDown(view.input, { key: "Enter" });
+    view.unmount();
+    const next = renderComposer("agt_active");
+    expect(next.input.value).toBe("");
+    expect(screen.queryByTestId("chat-composer-error")).toBeNull();
+    await act(async () => resolve());
+    expect(next.input.value).toBe("");
+  });
+
+  it("recovers an interrupted post alongside the next draft with an uncertainty notice", async () => {
+    const pending = {
+      text: "pending message",
+      links: ["https://example.com"],
+      files: [{ name: "shot.png", size: 3, mime: "image/png" }],
+    };
+    seed("agt_recover", { text: "next draft" });
+    window.localStorage.setItem(
+      CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_recover",
+      JSON.stringify({ orphan: pending })
+    );
+    const view = renderComposer("agt_recover");
+    const { input } = view;
+    await waitFor(() =>
+      expect(input.value).toBe("pending message\n\nnext draft")
+    );
+    expect(stored("agt_recover").files).toEqual(pending.files);
+    expect(stored("agt_recover").links).toEqual(pending.links);
+    expect(screen.getByTestId("chat-attachment-chip-placeholder")).toBeTruthy();
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "may not have been sent"
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_recover"
+        )!
+      )
+    ).toEqual({ orphan: null });
+    view.unmount();
+    const next = renderComposer("agt_recover");
+    expect(next.input.value).toBe("pending message\n\nnext draft");
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "may not have been sent"
+    );
+    fireEvent.change(next.input, { target: { value: "checked the stream" } });
+    expect(screen.queryByTestId("chat-composer-error")).toBeNull();
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_recover"
+        )!
+      )
+    ).toEqual({});
+  });
+
+  it("keeps a live large paste when another tab's orphan is recovered", async () => {
+    const body = "x".repeat(CHAT_DRAFT_MAX_BYTES + 10);
+    const { input, uploadFile } = renderComposer("agt_live_recovery");
+    fireEvent.change(input, { target: { value: "next draft" } });
+    pasteText(input, body);
+    expect(stored("agt_live_recovery").files[0].pasted).toBeNull();
+    const key = CHAT_PENDING_DRAFT_STORAGE_PREFIX + "agt_live_recovery";
+    const newValue = JSON.stringify({
+      orphan: { ...EMPTY_CHAT_DRAFT, text: "interrupted" },
+    });
+    window.localStorage.setItem(key, newValue);
+    act(() =>
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key,
+          newValue,
+          storageArea: window.localStorage,
+        })
+      )
+    );
+    await waitFor(() => expect(input.value).toBe("interrupted\n\nnext draft"));
+    expect(screen.getByTestId("chat-attachment-chip-pasted")).toBeTruthy();
+    expect(screen.queryByTestId("chat-attachment-chip-placeholder")).toBeNull();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledOnce());
+    expect(uploadFile.mock.calls[0][0].size).toBe(body.length);
+  });
+
   it("drops the sent files from the stored draft in the same write that clears the rest", async () => {
     const { onSend, input } = renderComposer("agt_sent");
     pasteFiles(input, [new File(["png"], "image.png", { type: "" })]);

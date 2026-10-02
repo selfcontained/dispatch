@@ -16,6 +16,91 @@ test.describe("Chat surface", () => {
     await cleanupE2EAgents(request);
   });
 
+  test("composer clears before a delayed send response and preserves the next draft", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    let release!: () => void;
+    const responseHeld = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(`**/api/v1/streams/${agent.id}/blocks`, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      await responseHeld;
+      await route.fulfill({ response });
+    });
+    try {
+      await loadApp(page);
+      await clickAgentRow(page, agent.id);
+      const pane = page.getByTestId("chat-pane");
+      const input = pane.getByTestId("chat-composer-input");
+      await input.fill("Sent while the response is delayed");
+      await input.press("Enter");
+      await expect(
+        pane
+          .getByTestId("chat-message")
+          .filter({ hasText: "Sent while the response is delayed" })
+      ).toBeVisible();
+      await expect(input).toHaveText("");
+      await input.pressSequentially("The next draft");
+      await expect(input).toHaveText("The next draft");
+      release();
+      await expect(pane.getByTestId("chat-composer-send")).toBeEnabled();
+      await expect(input).toHaveText("The next draft");
+      await page.screenshot({
+        path: test.info().outputPath("composer-delayed-response.png"),
+      });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("chat-composer-input")).toHaveText(
+        "The next draft"
+      );
+    } finally {
+      release();
+    }
+  });
+
+  test("recovers a pending message after reload when the post never reached the server", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(`**/api/v1/streams/${agent.id}/blocks`, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await held;
+      await route.abort().catch(() => {});
+    });
+    try {
+      await loadApp(page);
+      await clickAgentRow(page, agent.id);
+      const input = page.getByTestId("chat-composer-input");
+      await input.fill("Recover this interrupted message");
+      await input.press("Enter");
+      await expect(input).toHaveText("");
+      await input.pressSequentially("Keep the next draft too");
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("chat-composer-input")).toContainText(
+        "Recover this interrupted message"
+      );
+      await expect(page.getByTestId("chat-composer-input")).toContainText(
+        "Keep the next draft too"
+      );
+      await expect(page.getByTestId("chat-composer-error")).toContainText(
+        "may not have been sent"
+      );
+      await page.screenshot({
+        path: test.info().outputPath("composer-recovered-post.png"),
+      });
+    } finally {
+      release();
+    }
+  });
+
   test("composer shortcut focuses only a visible composer", async ({
     page,
     request,

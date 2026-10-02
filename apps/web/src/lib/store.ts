@@ -486,6 +486,40 @@ export const chatDraftAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
+/** Write-ahead post copies; null retains an already-recovered notice. */
+export type PendingChatDrafts = Record<string, ChatComposerDraft | null>;
+export const CHAT_PENDING_DRAFT_STORAGE_PREFIX = "dispatch:chatPendingDrafts:";
+export function isPendingChatDrafts(
+  value: unknown
+): value is PendingChatDrafts {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every(
+      (draft) => draft === null || isChatComposerDraft(draft)
+    )
+  );
+}
+export const chatPendingDraftsAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<PendingChatDrafts>(
+    `${CHAT_PENDING_DRAFT_STORAGE_PREFIX}${agentId}`,
+    {},
+    {
+      validate: isPendingChatDrafts,
+      serialize: (pending) =>
+        JSON.stringify(
+          Object.fromEntries(
+            Object.entries(pending).map(([id, draft]) => [
+              id,
+              draft ? fitChatDraft(draft) : null,
+            ])
+          )
+        ),
+    }
+  )
+);
+
 export function reconcileSplitPaneStateStorage(
   agentIds: Iterable<string>
 ): void {
