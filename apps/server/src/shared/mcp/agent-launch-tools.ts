@@ -58,7 +58,8 @@ export function registerAgentLaunchTools(
     "launch_agent",
     {
       description:
-        "Launch a new agent to work on a task. Use get_usage to compare remaining provider/model quotas before choosing type and model. The new agent runs independently " +
+        "Launch a new agent to work on a task. Call get_usage first and launch on the type it suggests: " +
+        "quotas are per provider login, so a type near its limit stalls every agent on it. The new agent runs independently " +
         "— it shares your stream: post with to set to its id to coordinate, and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
         "pass child: false to launch it as its own top-level agent instead. " +
@@ -96,7 +97,8 @@ export function registerAgentLaunchTools(
           .enum(CLI_AGENT_TYPES)
           .optional()
           .describe(
-            "Agent type. Defaults to the same type as the launching agent."
+            "Agent type. Defaults to the same type as the launching agent — which may be the one running low. " +
+              "Pass the type get_usage suggests when it names one."
           ),
         model: z
           .string()

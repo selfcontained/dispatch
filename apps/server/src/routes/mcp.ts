@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
+import { getEnabledAgentTypes } from "../agent-type-settings.js";
 import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { AgentManager } from "../agents/manager.js";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
@@ -140,6 +141,7 @@ export async function registerMcpRoutes(
 ): Promise<void> {
   const providerPlans =
     deps.providerPlans ?? createProviderPlansReporter({ log: app.log });
+  const enabledAgentTypes = () => getEnabledAgentTypes(deps.pool);
 
   app.post("/api/mcp", async (request, reply) => {
     reply.hijack();
@@ -212,6 +214,7 @@ export async function registerMcpRoutes(
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       providerPlans,
+      enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
@@ -295,6 +298,7 @@ export async function registerMcpRoutes(
     const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       providerPlans,
+      enabledAgentTypes,
       whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,

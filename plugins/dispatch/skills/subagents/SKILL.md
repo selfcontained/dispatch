@@ -39,6 +39,17 @@ The prompt is the child's entire world. Write it as a standalone briefing:
 If a template already captures this launch configuration, launch from it instead
 of retyping the prompt — see the `templates` skill.
 
+### Choosing a type
+
+`type` defaults to your own, and that is usually the type closest to its limit:
+subscription quotas are shared by every agent on the same provider login, so a
+fan-out on one type can stall all of it at once. Call `get_usage` before
+launching — its `summary` says whether any type is low or exhausted and names
+the one to prefer (`suggestedType`); pass that as `type`. When every type is
+fine, or nothing reports usage, the default is as good as any. If every reported
+type is low, say so to the user before launching rather than queueing work that
+cannot run.
+
 By default the new agent is your child: it renders inside your card in the
 sidebar, and archiving it is yours to do. `child: false` launches an independent
 agent instead — same inherited directory, type, and access level, still yours to

@@ -305,6 +305,12 @@ describe("usage callback wiring", () => {
       expect(res.statusCode).toBe(200);
       const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
       expect(context?.providerPlans).toBe(deps.providerPlans);
+      // No setting stored → every type launchable, read through the pool.
+      await expect(context?.enabledAgentTypes?.()).resolves.toEqual([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
     }
   );
 });
