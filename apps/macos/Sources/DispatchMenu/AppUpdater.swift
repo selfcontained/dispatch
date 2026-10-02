@@ -8,7 +8,8 @@ import Sparkle
 /// Owns the app/service handoff. Sparkle owns archive verification and bundle replacement.
 @MainActor
 final class AppUpdater: NSObject, SPUUpdaterDelegate {
-    private var controller: SPUStandardUpdaterController!
+    private var updater: SPUUpdater!
+    private let userDriver = UpdateUserDriver(hostBundle: .main, delegate: nil)
     private let service: SMAppService
     private let root: URL
     private let build: String
@@ -49,8 +50,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     var onError: ((String) -> Void)?
     var wasRunning: () -> Bool = { ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping" }
     var controlsLocked: Bool { busy || handoff.active }
-    var canCheck: Bool { !controlsLocked && !needsRecovery && controller?.updater.canCheckForUpdates == true }
-    var automatic: Bool { controller.updater.automaticallyChecksForUpdates && controller.updater.automaticallyDownloadsUpdates }
+    var canCheck: Bool { !controlsLocked && !needsRecovery && updater?.canCheckForUpdates == true }
+    var automatic: Bool { updater.automaticallyChecksForUpdates && updater.automaticallyDownloadsUpdates }
     var requiresTerminationHandoff: Bool { (handoff.active && !handoff.prepared) || ownedStagedJournal() != nil }
     private func ownedStagedJournal() -> NativeRecoveryJournal? {
         guard let j = try? nativeStore.read(), j.phase == .staged, j.oldBuild == build, !j.restoreStarted else { return nil }
@@ -60,7 +61,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     init(service: SMAppService, root: URL = AppPaths.root, build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") {
         self.service = service; self.root = root; self.build = build
         super.init()
-        controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
+        updater = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: userDriver, delegate: self)
     }
     func start() async {
         do {
@@ -223,15 +224,15 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             try await Task.sleep(for: .seconds(1))
         }
     }
-    func check() { if canCheck { controller.checkForUpdates(nil) } }
+    func check() { if canCheck { updater.checkForUpdates() } }
     func setAutomatic(_ value: Bool) {
         // An explicit choice replaces whatever a remote install would have restored.
         UserDefaults.standard.removeObject(forKey: Self.restoreAutomaticKey)
         applyAutomatic(value)
     }
     private func applyAutomatic(_ value: Bool) {
-        controller.updater.automaticallyChecksForUpdates = value
-        controller.updater.automaticallyDownloadsUpdates = value
+        updater.automaticallyChecksForUpdates = value
+        updater.automaticallyDownloadsUpdates = value
         onChange?()
     }
     private func restoreAutomatic() {
@@ -254,7 +255,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     /// asking may not be at this Mac.
     func perform(remote action: String) {
         guard started, !controlsLocked, !needsRecovery, !checking, !installing else { return }
-        guard !controller.updater.sessionInProgress else {
+        guard !updater.sessionInProgress else {
             remoteError = "An update window is open on the Mac. Close it, then try again."
             onChange?(); return
         }
@@ -262,16 +263,16 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         switch action {
         case "check":
             checking = true
-            controller.updater.checkForUpdateInformation()
+            updater.checkForUpdateInformation()
         case "install":
             installing = true
             // Sparkle downloads and installs silently only with automatic updates on.
             if !automatic {
                 UserDefaults.standard.set(false, forKey: Self.restoreAutomaticKey)
-                controller.updater.automaticallyChecksForUpdates = true
-                controller.updater.automaticallyDownloadsUpdates = true
+                updater.automaticallyChecksForUpdates = true
+                updater.automaticallyDownloadsUpdates = true
             }
-            controller.updater.checkForUpdatesInBackground()
+            updater.checkForUpdatesInBackground()
         default: return
         }
         onChange?()
@@ -296,11 +297,12 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     private func fail(_ error: Error) {
         remoteError = error.localizedDescription
         needsRecovery = needsRecovery || recovery != nil || handoff.active
-        onChange?(); onError?(error.localizedDescription)
+        onChange?()
+        if !userDriver.stopped(error.localizedDescription) { onError?(error.localizedDescription) }
     }
     private func startUpdater() throws {
         guard !started else { return }
-        try controller.updater.start()
+        try updater.start()
         started = true
         onChange?()
     }
@@ -354,14 +356,15 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             handoff.begin(UpdateRecovery(wasRunning: wasRunning(), targetBuild: staged.targetBuild))
             targetIdentity = staged.targetIdentity
         }
-        busy = true; onChange?()
-        defer { busy = false; onChange?() }
+        busy = true; userDriver.preparing(); onChange?()
+        defer { userDriver.preparationFinished(); busy = false; onChange?() }
         do {
             try await handoff.prepare(save: { value in
                 recovery = value
             }, stop: { try await prepareNativeRecovery() })
             needsRecovery = false
             clearDeferral()
+            userDriver.restarting()
             log("service stopped for installation")
             return true
         } catch let error as RecoveryDeferral {
@@ -393,16 +396,17 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if retry {
             remoteError = message
             scheduleDeferredRetry()
+            userDriver.stopped(deferredNote != nil ? "\(message) Dispatch will retry automatically when agents are idle." : remoteError ?? message)
         } else {
             clearDeferral()
             if disableAutomatic {
                 // Stop re-downloading an update that will be refused again. Checks stay
                 // on, so new releases are still announced; installing one asks again.
                 UserDefaults.standard.removeObject(forKey: Self.restoreAutomaticKey)
-                controller.updater.automaticallyDownloadsUpdates = false
+                updater.automaticallyDownloadsUpdates = false
             }
             remoteError = message
-            onError?(message)
+            if !userDriver.stopped(message) { onError?(message) }
         }
         onChange?()
         return true
@@ -412,6 +416,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         guard let when = deferral.next(after: Date()) else {
             clearDeferral()
             remoteError = "Dispatch postponed the update because agents stayed busy. Choose Check for Updates when work is idle."
+            userDriver.retryExhausted(remoteError!)
             onChange?(); return
         }
         deferredNote = "Update waits for agents to finish"
@@ -423,15 +428,15 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     }
     private func retryDeferredInstall() {
         deferralTask = nil
-        guard started, !controlsLocked, !needsRecovery, !controller.updater.sessionInProgress else { scheduleDeferredRetry(); return }
+        guard started, !controlsLocked, !needsRecovery, !updater.sessionInProgress else { scheduleDeferredRetry(); return }
         log("retrying deferred update attempt=\(deferral.attempts)")
         // Same silent path as a remote install; the setting is restored after the cycle.
         if !automatic {
             UserDefaults.standard.set(false, forKey: Self.restoreAutomaticKey)
-            controller.updater.automaticallyChecksForUpdates = true
-            controller.updater.automaticallyDownloadsUpdates = true
+            updater.automaticallyChecksForUpdates = true
+            updater.automaticallyDownloadsUpdates = true
         }
-        controller.updater.checkForUpdatesInBackground()
+        updater.checkForUpdatesInBackground()
     }
     private func clearDeferral() {
         deferralTask?.cancel(); deferralTask = nil
@@ -576,7 +581,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             remoteError = refusal.message
             if refusal.disablesAutomatic {
                 UserDefaults.standard.removeObject(forKey: Self.restoreAutomaticKey)
-                controller.updater.automaticallyDownloadsUpdates = false
+                updater.automaticallyDownloadsUpdates = false
             }
             onChange?(); throw refusal
         }
