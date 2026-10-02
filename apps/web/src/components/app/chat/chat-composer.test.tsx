@@ -13,6 +13,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
+
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 
 afterEach(() => {
@@ -66,6 +68,7 @@ describe("ChatComposer", () => {
     fireEvent.change(input, { target: { value: "first" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("first", []);
+    expect(input.value).toBe("");
 
     fireEvent.change(input, { target: { value: "second draft" } });
     await act(async () => {
@@ -94,8 +97,8 @@ describe("ChatComposer", () => {
     ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "important" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    // In flight: the draft stays and a second Enter does not double-send.
-    expect(input.value).toBe("important");
+    // In flight: the composer clears and a second Enter does not double-send.
+    expect(input.value).toBe("");
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledTimes(1);
 
@@ -114,6 +117,61 @@ describe("ChatComposer", () => {
     expect(onSend).toHaveBeenCalledTimes(2);
     expect(onSend).toHaveBeenLastCalledWith("important", []);
     expect(screen.queryByTestId("chat-composer-error")).toBeNull();
+  });
+
+  it("restores a failed post alongside text typed while it was pending", async () => {
+    let reject!: (err: Error) => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((_resolve, rej) => {
+          reject = rej;
+        })
+    );
+    const { input } = renderComposer({ onSend });
+    fireEvent.change(input, { target: { value: "first message" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: "next message" } });
+    await act(async () => reject(new Error("Connection failed")));
+    expect(input.value).toBe("first message\n\nnext message");
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "Connection failed"
+    );
+  });
+
+  it("blocks an oversized restored text draft until it is shortened", async () => {
+    let reject!: (error: Error) => void;
+    const onSend = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, rej) => {
+            reject = rej;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const { input } = renderComposer({ onSend });
+    fireEvent.change(input, { target: { value: "old" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const next = "n".repeat(CHAT_MESSAGE_MAX_CHARS);
+    fireEvent.change(input, { target: { value: next } });
+    await act(async () => reject(new Error("Connection failed")));
+    expect(input.value).toBe("old\n\n" + next);
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "Shorten the message by 5 characters"
+    );
+    expect(
+      screen.getByTestId("chat-composer-error").getAttribute("data-retryable")
+    ).not.toBe("true");
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: next } });
+    expect(
+      (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
+    ).toBe(false);
   });
 
   it("preserves queued delivery on the advertised Enter retry, then resets after success", async () => {

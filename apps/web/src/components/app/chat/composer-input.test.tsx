@@ -92,6 +92,37 @@ async function nativeEdit(input: HTMLElement, lines: string[]) {
 }
 
 describe("ComposerInput plain-text editing", () => {
+  it("shows externally restored text over the limit and allows shortening it", async () => {
+    const changed = vi.fn();
+    const ref = createRef<ComposerInputHandle>();
+    const { rerender } = render(
+      <ComposerInput
+        {...base}
+        ref={ref}
+        value="next"
+        maxLength={5}
+        onChange={changed}
+      />
+    );
+    rerender(
+      <ComposerInput
+        {...base}
+        ref={ref}
+        value={"old\nnext"}
+        maxLength={5}
+        onChange={changed}
+      />
+    );
+    const input = screen.getByTestId("chat-composer-input");
+    expect(input.textContent).toBe("oldnext");
+    act(() => ref.current!.setSelectionRange(8, 8));
+    expect(ref.current!.selectionStart).toBe(8);
+    await nativeEdit(input, ["old", "nex"]);
+    expect(changed).toHaveBeenLastCalledWith("old\nnex", expect.any(Number));
+    await nativeEdit(input, ["next"]);
+    expect(changed).toHaveBeenLastCalledWith("next", expect.any(Number));
+  });
+
   it("sets picker text and the caret atomically before another edit", () => {
     const { ref } = setup("@");
     act(() => {

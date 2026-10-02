@@ -223,7 +223,14 @@ export const ComposerInput = forwardRef<
       },
       dispatchTransaction(transaction) {
         const next = view.state.apply(transaction);
-        if (plainText(next.doc).length > current.current.maxLength) {
+        // A failed post may restore text alongside a full new draft. Show
+        // all recovered text and allow deletion until it fits the send limit.
+        if (
+          transaction.docChanged &&
+          !transaction.getMeta("external") &&
+          plainText(next.doc).length > current.current.maxLength &&
+          plainText(next.doc).length >= plainText(view.state.doc).length
+        ) {
           view.updateState(view.state);
           return;
         }
@@ -246,11 +253,13 @@ export const ComposerInput = forwardRef<
         const text =
           event.clipboardData?.getData("text/plain").replace(/\r\n?/g, "\n") ??
           "";
-        const remaining =
+        const remaining = Math.max(
+          0,
           current.current.maxLength -
-          plainText(view.state.doc).length +
-          textOffset(view.state.doc, view.state.selection.to) -
-          textOffset(view.state.doc, view.state.selection.from);
+            plainText(view.state.doc).length +
+            textOffset(view.state.doc, view.state.selection.to) -
+            textOffset(view.state.doc, view.state.selection.from)
+        );
         view.dispatch(
           view.state.tr
             .replaceSelection(

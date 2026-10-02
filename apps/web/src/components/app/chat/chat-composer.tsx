@@ -83,7 +83,18 @@ import {
 import { ApiError } from "@/lib/api";
 import { isImageFile } from "@/lib/file-accept";
 import { isAcceptedUploadFile } from "@/lib/file-upload";
-import { chatDraftAtomFamily } from "@/lib/store";
+import {
+  chatDraftAtomFamily,
+  chatPendingDraftsAtomFamily,
+  type PendingChatDrafts,
+} from "@/lib/store";
+import {
+  isChatDocumentClosing,
+  mergeChatDrafts,
+  recoverChatPost,
+  readChatRecoveryState,
+  withChatPostLock,
+} from "./chat-post-recovery";
 import { cn } from "@/lib/utils";
 
 export type ChatComposerProps = {
@@ -101,8 +112,7 @@ export type ChatComposerProps = {
   footer?: ReactNode;
   /**
    * Resolves once the message is accepted; rejects when it is not. The draft
-   * — text and attachments — is cleared only on success so a failed send
-   * never eats what was typed.
+   * moves out of the composer when posting starts and is restored on failure.
    */
   onSend: (
     text: string,
@@ -265,6 +275,10 @@ export function ChatComposer({
   const [storedDraft, setStoredDraft] = useAtom(
     agentId ? chatDraftAtomFamily(agentId) : localDraftAtom
   );
+  const [localPendingAtom] = useState(() => atom<PendingChatDrafts>({}));
+  const [pendingDrafts, setPendingDrafts] = useAtom(
+    agentId ? chatPendingDraftsAtomFamily(agentId) : localPendingAtom
+  );
   const draft = readChatComposerDraft(storedDraft);
   // The atom holds the draft in full; the size cap applies to what the atom
   // writes to storage (`chatDraftAtomFamily`), not to what is typed.
@@ -274,15 +288,29 @@ export function ChatComposer({
     },
     [setStoredDraft]
   );
+  const editDraft = useCallback(
+    (patch: (current: ChatComposerDraft) => ChatComposerDraft) => {
+      setPendingDrafts((current) => {
+        const entries = Object.entries(current).filter(
+          ([, draft]) => draft !== null
+        );
+        return entries.length === Object.keys(current).length
+          ? current
+          : Object.fromEntries(entries);
+      });
+      updateDraft(patch);
+    },
+    [setPendingDrafts, updateDraft]
+  );
   const { text, links } = draft;
   const setText = useCallback(
     (next: string | ((current: string) => string)) => {
-      updateDraft((current) => ({
+      editDraft((current) => ({
         ...current,
         text: typeof next === "function" ? next(current.text) : next,
       }));
     },
-    [updateDraft]
+    [editDraft]
   );
 
   const [deliveryMode, setDeliveryMode] = useState<
@@ -291,6 +319,24 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<ComposerInputHandle>(null);
+  useEffect(() => {
+    for (const [id, pending] of Object.entries(pendingDrafts)) {
+      if (!pending) continue;
+      void recoverChatPost(id, () => {
+        const latest = readChatRecoveryState(agentId, pendingDrafts, draft);
+        const pending = latest.pending[id];
+        if (!pending) {
+          setPendingDrafts(latest.pending);
+          return;
+        }
+        // Two explicit writes; preserve live file bodies when storage is ours.
+        setStoredDraft(mergeChatDrafts(pending, latest.draft));
+        setPendingDrafts({ ...latest.pending, [id]: null });
+      }).catch(() => {
+        /* Leave the recovery copy intact if locks are unavailable. */
+      });
+    }
+  }, [agentId, pendingDrafts, draft, setPendingDrafts, setStoredDraft]);
   // ---- @mentions: the token under the caret opens the picker ---------------
   const mentionedRecipients = mentionSpans(text, mentionables ?? []).flatMap(
     (span) => (span.kind === "mention" ? [span.agent] : [])
@@ -480,6 +526,18 @@ export function ChatComposer({
   // after a later failure does not upload it twice), image previews, and
   // the upload state.
   const fileIdsRef = useRef<Map<string, number>>(new Map());
+  // A post owns its files separately from the next draft, even when a new
+  // attachment has the same descriptor key.
+  const postingFilesRef = useRef(
+    new Map<
+      string,
+      {
+        file: File;
+        fileId?: number;
+        preview?: string;
+      }
+    >()
+  );
   const previewsRef = useRef<Map<string, string>>(new Map());
   const [fileStatus, setFileStatus] = useState<
     Record<string, "uploading" | "failed">
@@ -488,9 +546,14 @@ export function ChatComposer({
 
   useEffect(() => {
     const previews = previewsRef.current;
+    const postingFiles = postingFilesRef.current;
     return () => {
       for (const url of previews.values()) URL.revokeObjectURL(url);
       previews.clear();
+      for (const saved of postingFiles.values()) {
+        if (saved.preview) URL.revokeObjectURL(saved.preview);
+      }
+      postingFiles.clear();
     };
   }, []);
 
@@ -584,7 +647,7 @@ export function ChatComposer({
       // rest append while there is room under the cap.
       let overflowed = false;
       const held: Array<[string, File]> = [];
-      updateDraft((current) => {
+      editDraft((current) => {
         const files = [...current.files];
         let room = CHAT_ATTACHMENTS_MAX - files.length - current.links.length;
         for (const file of accepted) {
@@ -615,7 +678,7 @@ export function ChatComposer({
       for (const [key, file] of held) holdFile(key, file);
       if (overflowed) noteAttachmentLimit();
     },
-    [holdFile, noteAttachmentLimit, updateDraft]
+    [holdFile, noteAttachmentLimit, editDraft]
   );
 
   const addLink = useCallback(
@@ -625,28 +688,28 @@ export function ChatComposer({
         return;
       }
       setError(null);
-      updateDraft((current) =>
+      editDraft((current) =>
         current.links.includes(url)
           ? current
           : { ...current, links: [...current.links, url] }
       );
     },
-    [attachmentsFull, links, noteAttachmentLimit, updateDraft]
+    [attachmentsFull, links, noteAttachmentLimit, editDraft]
   );
 
   const removeLink = useCallback(
     (url: string) => {
-      updateDraft((current) => ({
+      editDraft((current) => ({
         ...current,
         links: current.links.filter((link) => link !== url),
       }));
     },
-    [updateDraft]
+    [editDraft]
   );
 
   const removeEntry = useCallback(
     (key: string) => {
-      updateDraft((current) => {
+      editDraft((current) => {
         const files = current.files.filter(
           (entry) => draftFileKey(entry) !== key
         );
@@ -656,7 +719,7 @@ export function ChatComposer({
       });
       forgetFile(key);
     },
-    [forgetFile, updateDraft]
+    [forgetFile, editDraft]
   );
 
   const addPastedText = useCallback(
@@ -667,18 +730,21 @@ export function ChatComposer({
       }
       const file = pastedTextFile(
         pasted,
-        nextPastedFileName(draft.files.map((entry) => entry.name))
+        nextPastedFileName([
+          ...draft.files.map((entry) => entry.name),
+          ...[...postingFilesRef.current.values()].map(({ file }) => file.name),
+        ])
       );
       const entry = describeFile(file, pasted);
       filesRef.current.set(draftFileKey(entry), file);
       setError(null);
-      updateDraft((current) => ({
+      editDraft((current) => ({
         ...current,
         files: [...current.files, entry],
       }));
       return true;
     },
-    [attachmentsFull, draft.files, noteAttachmentLimit, updateDraft]
+    [attachmentsFull, draft.files, noteAttachmentLimit, editDraft]
   );
 
   /** Undo for a long paste: drop the chip, put the text back in the field. */
@@ -686,7 +752,7 @@ export function ChatComposer({
     (view: DraftFileView) => {
       const pasted = view.entry.pasted ?? "";
       const el = textareaRef.current;
-      updateDraft((current) => {
+      editDraft((current) => {
         const start = el?.selectionStart ?? current.text.length;
         const end = el?.selectionEnd ?? current.text.length;
         return {
@@ -700,7 +766,7 @@ export function ChatComposer({
       forgetFile(view.key);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [forgetFile, updateDraft]
+    [forgetFile, editDraft]
   );
 
   const onPaste = useCallback(
@@ -781,9 +847,27 @@ export function ChatComposer({
         : null;
   const deliveryBlockedReason =
     deliveryMode === "interrupt" ? interruptUnavailableReason : null;
+  const draftLimitError =
+    attachmentCount > CHAT_ATTACHMENTS_MAX
+      ? `Remove ${attachmentCount - CHAT_ATTACHMENTS_MAX} attachment${attachmentCount - CHAT_ATTACHMENTS_MAX === 1 ? "" : "s"} to send (up to ${CHAT_ATTACHMENTS_MAX} per message).`
+      : text.length > CHAT_MESSAGE_MAX_CHARS
+        ? `Shorten the message by ${text.length - CHAT_MESSAGE_MAX_CHARS} characters to send.`
+        : null;
+  const recoveredNotice: ComposerError | null = Object.values(
+    pendingDrafts
+  ).some((draft) => draft === null)
+    ? {
+        text: "A pending message was restored. It may not have been sent; check the stream before sending again.",
+        retryable: false,
+      }
+    : null;
+  const visibleError: ComposerError | null = draftLimitError
+    ? { text: draftLimitError, retryable: false }
+    : (error ?? recoveredNotice);
   const sendReady =
     !disabled &&
     !slashBlockedReason &&
+    !draftLimitError &&
     !sending &&
     !inFlight &&
     placeholders.length === 0 &&
@@ -813,6 +897,9 @@ export function ChatComposer({
       const submittedText = text;
       const submittedFiles = fileViews;
       const submittedLinks = links;
+      let removedDraft: ChatComposerDraft | null = null;
+      const postId = crypto.randomUUID();
+      let preservePending = false;
 
       const run = async () => {
         const attachments: ChatUserAttachmentInput[] = [];
@@ -854,40 +941,119 @@ export function ChatComposer({
         }
         for (const url of submittedLinks)
           attachments.push({ type: "link", url });
-        await (options
-          ? onSend(submittedText.trim(), attachments, options)
-          : onSend(submittedText.trim(), attachments));
-      };
-
-      run()
-        .then(() => {
-          setDeliveryMode("auto");
-          // What was sent leaves the draft in one write — text, links and
-          // file entries together — so no render, remount or other tab ever
-          // sees a draft that still lists a sent file.
-          const sentKeys = new Set(submittedFiles.map((view) => view.key));
-          updateDraft((current) => ({
+        // The stream inserts its optimistic row as soon as onSend starts.
+        // Move the submitted draft out at the same point so typing the next
+        // message cannot keep the sent text in the composer forever.
+        const sentKeys = new Set(submittedFiles.map((view) => view.key));
+        const postingFiles = postingFilesRef.current;
+        for (const { key, file } of submittedFiles) {
+          if (!file || filesRef.current.get(key) !== file) continue;
+          postingFiles.set(key, {
+            file,
+            fileId: fileIdsRef.current.get(key),
+            preview: previewsRef.current.get(key),
+          });
+          filesRef.current.delete(key);
+          fileIdsRef.current.delete(key);
+          previewsRef.current.delete(key);
+        }
+        // Persist before clearing the visible draft. An interrupted document
+        // can recover this copy even if the request never reaches the server.
+        setPendingDrafts((current) => ({
+          ...Object.fromEntries(
+            Object.entries(current).filter(([, draft]) => draft !== null)
+          ),
+          [postId]: {
+            text: submittedText,
+            links: submittedLinks,
+            files: submittedFiles.map(({ entry }) => entry),
+          },
+        }));
+        updateDraft((current) => {
+          removedDraft = {
+            text: current.text === submittedText ? submittedText : "",
+            links: current.links.filter((url) => submittedLinks.includes(url)),
+            files: current.files.filter((entry) =>
+              sentKeys.has(draftFileKey(entry))
+            ),
+          };
+          return {
             ...current,
             text: current.text === submittedText ? "" : current.text,
             links: current.links.filter((url) => !submittedLinks.includes(url)),
             files: current.files.filter(
               (entry) => !sentKeys.has(draftFileKey(entry))
             ),
-          }));
-          for (const key of sentKeys) forgetFile(key);
-        })
-        .catch((err: unknown) => {
-          // The draft — text and chips — is still here, so a retry can work,
-          // unless the server refused a file, which a retry would send again.
-          setError({
-            text: err instanceof Error ? err.message : "Message not sent.",
-            retryable: !(err instanceof UploadRefused),
-          });
-        })
-        .finally(() => {
-          setInFlight(false);
-          textareaRef.current?.focus();
+          };
         });
+        await (options
+          ? onSend(submittedText.trim(), attachments, options)
+          : onSend(submittedText.trim(), attachments));
+      };
+
+      void withChatPostLock(postId, () =>
+        run()
+          .then(() => {
+            setDeliveryMode("auto");
+          })
+          .catch(async (err: unknown) => {
+            // Unload may reject fetch before this document is destroyed. Keep
+            // its write-ahead copy for the next page rather than erasing it.
+            if (isChatDocumentClosing()) {
+              // A cancelled navigation stays live. Give beforeunload's reset
+              // a task to run before deciding to leave recovery to a new page.
+              await new Promise((resolve) => setTimeout(resolve, 0));
+              if (isChatDocumentClosing()) {
+                preservePending = true;
+                return;
+              }
+            }
+            // Restore a failed post without discarding a newer draft. Upload
+            // failures happen before removal and already have their draft.
+            const removed = removedDraft;
+            if (removed) {
+              updateDraft((current) => {
+                const restoredFiles = removed.files.filter(
+                  (entry) =>
+                    !current.files.some(
+                      (file) => draftFileKey(file) === draftFileKey(entry)
+                    )
+                );
+                for (const entry of restoredFiles) {
+                  const key = draftFileKey(entry);
+                  const saved = postingFilesRef.current.get(key);
+                  if (!saved || filesRef.current.has(key)) continue;
+                  filesRef.current.set(key, saved.file);
+                  if (saved.fileId !== undefined)
+                    fileIdsRef.current.set(key, saved.fileId);
+                  if (saved.preview)
+                    previewsRef.current.set(key, saved.preview);
+                  postingFilesRef.current.delete(key);
+                }
+                return mergeChatDrafts(removed, current);
+              });
+            }
+            setError({
+              text: err instanceof Error ? err.message : "Message not sent.",
+              retryable: !(err instanceof UploadRefused),
+            });
+          })
+          .finally(() => {
+            for (const saved of postingFilesRef.current.values()) {
+              if (saved.preview) URL.revokeObjectURL(saved.preview);
+            }
+            postingFilesRef.current.clear();
+            if (!preservePending)
+              setPendingDrafts((current) => {
+                if (!(postId in current)) return current;
+                const remaining = { ...current };
+                delete remaining[postId];
+                return remaining;
+              });
+            setInFlight(false);
+            textareaRef.current?.focus();
+          })
+      );
     },
     [
       sendReady,
@@ -895,11 +1061,11 @@ export function ChatComposer({
       canQueue,
       deliveryMode,
       fileViews,
-      forgetFile,
       links,
       onSend,
       text,
       updateDraft,
+      setPendingDrafts,
       uploadFile,
     ]
   );
@@ -1267,16 +1433,16 @@ export function ChatComposer({
           <span role="alert" data-testid="chat-composer-delivery-blocked">
             {deliveryBlockedReason}
           </span>
-        ) : error ? (
+        ) : visibleError ? (
           <span
             role="alert"
             className="text-destructive"
             data-testid="chat-composer-error"
-            data-retryable={error.retryable ? "true" : undefined}
+            data-retryable={visibleError.retryable ? "true" : undefined}
           >
-            {error.retryable
-              ? `${error.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
-              : error.text}
+            {visibleError.retryable
+              ? `${visibleError.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
+              : visibleError.text}
           </span>
         ) : placeholders.length > 0 ? (
           <span data-testid="chat-composer-reattach-hint">
