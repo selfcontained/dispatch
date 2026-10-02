@@ -3791,6 +3791,50 @@ describe("StreamService review threads", () => {
     expect(await svc.store.findingsWithMissedNotices()).toEqual([]);
   });
 
+  it("tells notices apart by the whole state, not the stamp, when two changes share a millisecond", async () => {
+    const releases = new Map<string, () => void>();
+    const { svc, injected } = build({
+      gate: (text) => {
+        if (!text.includes('Finding "a"')) return undefined;
+        return new Promise<void>((resolve) => {
+          releases.set(
+            text.includes('Finding "a" reopened') ? "reopened" : "fixed",
+            resolve
+          );
+        });
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    // A frozen clock: both changes are stamped with the same `at`.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await svc.update(B, f1.id, { state: { status: "fixed" } });
+      await svc.update(B, f1.id, {
+        state: { status: "open", note: "Regressed." },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    const reopened = (await svc.store.getById(f1.id))!;
+    expect(reopened.kind === "finding" && reopened.state.status).toBe("open");
+    releases.get("fixed")!();
+    const deadline = Date.now() + 2_000;
+    while (injected.length < 1 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(injected[0]!.text).toContain('Finding "a" fixed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    releases.get("reopened")!();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+  });
+
   it("marks a review, and words under its findings, as awaited so they reach a busy agent", async () => {
     const { svc, injectedOpts } = build();
     const { f1 } = await reviewed(svc);

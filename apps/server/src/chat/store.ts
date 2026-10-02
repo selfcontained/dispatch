@@ -539,14 +539,15 @@ export class BlockStore {
    * each other's result. `null` puts that recipient back to pending, as
    * when a finding's notice is sent to it. A finding's notices all share
    * the slot, so a notice's outcome is written only while the finding is
-   * still in the state the notice was about (`stateAt`): an older notice
-   * settling late must not overwrite a newer one still pending.
+   * still in the state the notice was about (`state`, compared whole: two
+   * changes can share a timestamp): an older notice settling late must
+   * not overwrite a newer one still pending.
    */
   async setRecipientDelivered(
     id: string,
     agentId: string,
     delivered: boolean | null,
-    stateAt?: string
+    state?: unknown
   ): Promise<void> {
     if (!isBlockId(id)) return;
     await this.db.query(
@@ -554,8 +555,13 @@ export class BlockStore {
           SET deliveries = jsonb_set(
                 COALESCE(deliveries, '{}'::jsonb), ARRAY[$2],
                 COALESCE(to_jsonb($3::boolean), 'null'::jsonb), true)
-        WHERE id = $1 AND ($4::text IS NULL OR state->>'at' = $4)`,
-      [id, agentId, delivered, stateAt ?? null]
+        WHERE id = $1 AND ($4::jsonb IS NULL OR state = $4::jsonb)`,
+      [
+        id,
+        agentId,
+        delivered,
+        state === undefined ? null : JSON.stringify(state),
+      ]
     );
   }
 

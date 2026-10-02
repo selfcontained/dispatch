@@ -1522,7 +1522,7 @@ export class StreamService {
           finding.id,
           agentId,
           false,
-          finding.state.at
+          finding.state
         );
         await this.publishEntry(finding.streamId, finding.id);
         continue;
@@ -1542,7 +1542,7 @@ export class StreamService {
         finding.id,
         agentId,
         null,
-        finding.state.at
+        finding.state
       );
       await this.publishEntry(finding.streamId, finding.id);
       const result = this.injectDetached({
@@ -1558,7 +1558,7 @@ export class StreamService {
             finding.id,
             agentId,
             delivered,
-            finding.state.at
+            finding.state
           );
           await this.publishEntry(finding.streamId, finding.id);
         },
