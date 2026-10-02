@@ -73,6 +73,9 @@ export function useProviderPlans(enabled: boolean) {
     queryFn: () => api("/api/v1/usage/plans"),
     enabled,
     staleTime: 60_000,
+    // Only read while the usage popover is open; keep the last answer so the
+    // next open shows it at once and refreshes behind it.
+    gcTime: Infinity,
   });
   const refresh = useMutation<ProviderPlansResponse, Error, void>({
     mutationFn: () => api("/api/v1/usage/plans?force=1"),

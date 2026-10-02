@@ -4,8 +4,9 @@ import type {
   PlanWindow,
   ProviderPlan,
 } from "@dispatch/shared";
+import { useAtom } from "jotai";
 import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   agentModelLabel,
   useAgentModelCatalogData,
@@ -34,6 +36,7 @@ import {
   useSetAgentConfig,
 } from "@/hooks/use-agent-usage";
 import { formatTokenCount } from "@/lib/format";
+import { atomWithLocalStorage } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 import {
@@ -272,7 +275,15 @@ function UsageChip({
       <PopoverContent
         align="end"
         side="top"
-        className="max-h-[70vh] w-80 space-y-4 overflow-y-auto p-3 text-xs"
+        // The shared popover's enter/exit classes need a plugin this app does
+        // not load, so this panel brings its own: it opens like a drawer from
+        // its chip, and Radix waits for the exit animation before unmounting.
+        className={cn(
+          "max-h-[70vh] w-80 space-y-4 overflow-y-auto p-3 text-xs",
+          "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
+          "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
+          "motion-reduce:!animate-none"
+        )}
         data-testid="composer-usage-panel"
       >
         <UsageDetails usage={usage} agentType={agent.type ?? null} />
@@ -284,7 +295,7 @@ function UsageChip({
 
 function Bar({ percent }: { percent: number }): JSX.Element {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+    <div className={BAR_TRACK_CLASS}>
       <div
         className={cn(
           "h-full rounded-full",
@@ -300,6 +311,59 @@ function Bar({ percent }: { percent: number }): JSX.Element {
   );
 }
 
+/** A value still loading, the height of the text it will become. */
+function Line({ className }: { className: string }): JSX.Element {
+  return <Skeleton className={cn("my-0.5 h-3", className)} />;
+}
+
+const BAR_TRACK_CLASS = "h-1.5 w-full overflow-hidden rounded-full bg-muted";
+
+/** The usage section with its rows in place and their values still loading. */
+function UsageDetailsSkeleton({
+  agentType,
+}: {
+  agentType: string | null;
+}): JSX.Element {
+  return (
+    <section className="space-y-2" aria-label="This agent" aria-busy="true">
+      <h3 className="text-[11px] font-medium text-foreground">This agent</h3>
+      <div className="space-y-1">
+        <div className="flex justify-between text-muted-foreground">
+          <span>Context</span>
+          <Line className="w-28" />
+        </div>
+        <div className={BAR_TRACK_CLASS} />
+      </div>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
+        {agentType === "claude" ? (
+          <>
+            <dt className="text-muted-foreground">Cost this session</dt>
+            <dd className="flex justify-end">
+              <Line className="w-12" />
+            </dd>
+          </>
+        ) : null}
+        <dt className="text-muted-foreground">Tokens this session</dt>
+        <dd className="flex justify-end">
+          <Line className="w-10" />
+        </dd>
+        <dt className="pl-2 text-muted-foreground/80">input · output</dt>
+        <dd className="flex justify-end">
+          <Line className="w-16" />
+        </dd>
+        <dt className="pl-2 text-muted-foreground/80">cache read · write</dt>
+        <dd className="flex justify-end">
+          <Line className="w-16" />
+        </dd>
+        <dt className="text-muted-foreground">Tokens this month</dt>
+        <dd className="flex justify-end">
+          <Line className="w-10" />
+        </dd>
+      </dl>
+    </section>
+  );
+}
+
 function UsageDetails({
   usage,
   agentType,
@@ -308,9 +372,7 @@ function UsageDetails({
   agentType: string | null;
 }): JSX.Element {
   const catalog = useAgentModelCatalogData();
-  if (!usage) {
-    return <p className="text-muted-foreground">Loading usage…</p>;
-  }
+  if (!usage) return <UsageDetailsSkeleton agentType={agentType} />;
   const percent = contextPercent(usage);
   return (
     <section className="space-y-2" aria-label="This agent">
@@ -383,6 +445,104 @@ const ENGINE_NAME: Record<ProviderPlan["engine"], string> = {
   codex: "Codex",
 };
 
+const ENGINES = Object.keys(ENGINE_NAME) as ProviderPlan["engine"][];
+
+/** The agent's own engine first. */
+function engineFirst<T extends { engine: string }>(
+  items: T[],
+  engine: string
+): T[] {
+  return [...items].sort(
+    (a, b) => Number(b.engine === engine) - Number(a.engine === engine)
+  );
+}
+
+/**
+ * What each provider's block looked like last time, so the placeholder
+ * matches: its windows, its spend row, the note shown when there is no
+ * report, and the block's measured height (a note can wrap).
+ */
+type PlanShape = Record<
+  string,
+  { windows: number; spend: boolean; note?: boolean; height?: number }
+>;
+
+const DEFAULT_PLAN_SHAPE: PlanShape = Object.fromEntries(
+  ENGINES.map((engine) => [engine, { windows: 2, spend: false }])
+);
+
+const planShapeAtom = atomWithLocalStorage<PlanShape>(
+  "dispatch:usage-plan-shape",
+  DEFAULT_PLAN_SHAPE,
+  {
+    validate: (value): value is PlanShape =>
+      typeof value === "object" &&
+      value !== null &&
+      Object.values(value).every(
+        (shape) =>
+          typeof shape === "object" &&
+          shape !== null &&
+          typeof (shape as { windows?: unknown }).windows === "number" &&
+          typeof (shape as { spend?: unknown }).spend === "boolean" &&
+          ["boolean", "undefined"].includes(
+            typeof (shape as { note?: unknown }).note
+          ) &&
+          ["number", "undefined"].includes(
+            typeof (shape as { height?: unknown }).height
+          )
+      ),
+  }
+);
+
+/** Every provider with the rows it had last time, values still loading. */
+function PlanLimitsSkeleton({
+  engine,
+  shape,
+}: {
+  engine: string;
+  shape: PlanShape;
+}): JSX.Element {
+  return (
+    <>
+      {engineFirst(
+        ENGINES.map((id) => ({ engine: id, ...shape[id] })),
+        engine
+      ).map((plan) => (
+        <div
+          key={plan.engine}
+          className="space-y-1.5"
+          style={{ minHeight: plan.height }}
+          aria-busy="true"
+        >
+          <div className="text-muted-foreground">
+            {ENGINE_NAME[plan.engine]}
+          </div>
+          {Array.from({ length: plan.windows ?? 2 }, (_, i) => (
+            <div key={i} className="space-y-1">
+              <div className="flex justify-between gap-2">
+                <Line className="w-12" />
+                <Line className="w-32" />
+              </div>
+              <div className={BAR_TRACK_CLASS} />
+            </div>
+          ))}
+          {plan.spend ? (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Extra usage</span>
+              <Line className="w-24" />
+            </div>
+          ) : null}
+          {plan.note ? (
+            <div className="text-[11px]">
+              <Line className="w-56" />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function PlanLimits({
   engine,
   enabled,
@@ -391,12 +551,35 @@ function PlanLimits({
   enabled: boolean;
 }): JSX.Element {
   const plans = useProviderPlans(enabled);
-  // The agent's own engine first.
-  const providers = [...(plans.data?.providers ?? [])].sort(
-    (a, b) => Number(b.engine === engine) - Number(a.engine === engine)
-  );
+  const providers = engineFirst(plans.data?.providers ?? [], engine);
+  const [shape, setShape] = useAtom(planShapeAtom);
+  const sectionRef = useRef<HTMLElement>(null);
+  // Remember the answer's rows and the height each block took on screen.
+  useLayoutEffect(() => {
+    const data = plans.data;
+    if (!data) return;
+    const next: PlanShape = Object.fromEntries(
+      data.providers.map((plan) => {
+        const block = sectionRef.current?.querySelector<HTMLElement>(
+          `[data-engine="${plan.engine}"]`
+        );
+        return [
+          plan.engine,
+          {
+            windows: plan.windows.length,
+            spend: !!plan.spend,
+            note: !!plan.unavailableReason,
+            ...(block ? { height: block.offsetHeight } : {}),
+          },
+        ];
+      })
+    );
+    setShape((prev) =>
+      JSON.stringify(prev) === JSON.stringify(next) ? prev : next
+    );
+  }, [plans.data, setShape]);
   return (
-    <section className="space-y-3" aria-label="Plan limits">
+    <section ref={sectionRef} className="space-y-3" aria-label="Plan limits">
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
         <Button
@@ -418,7 +601,7 @@ function PlanLimits({
         </Button>
       </div>
       {plans.isLoading ? (
-        <p className="text-muted-foreground">Checking plans…</p>
+        <PlanLimitsSkeleton engine={engine} shape={shape} />
       ) : plans.error ? (
         <p className="text-destructive">{plans.error.message}</p>
       ) : (
@@ -432,7 +615,11 @@ function PlanLimits({
 
 function ProviderLimits({ plan }: { plan: ProviderPlan }): JSX.Element {
   return (
-    <div className="space-y-1.5" data-testid={`usage-plan-${plan.engine}`}>
+    <div
+      className="space-y-1.5"
+      data-engine={plan.engine}
+      data-testid={`usage-plan-${plan.engine}`}
+    >
       <div className="text-muted-foreground">
         {ENGINE_NAME[plan.engine]}
         {plan.plan ? ` · ${plan.plan}` : ""}
