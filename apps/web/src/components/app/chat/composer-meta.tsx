@@ -6,7 +6,7 @@ import type {
 } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { ChevronDown, Gauge, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -457,8 +457,15 @@ function engineFirst<T extends { engine: string }>(
   );
 }
 
-/** How tall each provider's rows were last time, so the placeholder matches. */
-type PlanShape = Record<string, { windows: number; spend: boolean }>;
+/**
+ * What each provider's block looked like last time, so the placeholder
+ * matches: its windows, its spend row, the note shown when there is no
+ * report, and the block's measured height (a note can wrap).
+ */
+type PlanShape = Record<
+  string,
+  { windows: number; spend: boolean; note?: boolean; height?: number }
+>;
 
 const DEFAULT_PLAN_SHAPE: PlanShape = Object.fromEntries(
   ENGINES.map((engine) => [engine, { windows: 2, spend: false }])
@@ -476,7 +483,13 @@ const planShapeAtom = atomWithLocalStorage<PlanShape>(
           typeof shape === "object" &&
           shape !== null &&
           typeof (shape as { windows?: unknown }).windows === "number" &&
-          typeof (shape as { spend?: unknown }).spend === "boolean"
+          typeof (shape as { spend?: unknown }).spend === "boolean" &&
+          ["boolean", "undefined"].includes(
+            typeof (shape as { note?: unknown }).note
+          ) &&
+          ["number", "undefined"].includes(
+            typeof (shape as { height?: unknown }).height
+          )
       ),
   }
 );
@@ -495,7 +508,12 @@ function PlanLimitsSkeleton({
         ENGINES.map((id) => ({ engine: id, ...shape[id] })),
         engine
       ).map((plan) => (
-        <div key={plan.engine} className="space-y-1.5" aria-busy="true">
+        <div
+          key={plan.engine}
+          className="space-y-1.5"
+          style={{ minHeight: plan.height }}
+          aria-busy="true"
+        >
           <div className="text-muted-foreground">
             {ENGINE_NAME[plan.engine]}
           </div>
@@ -514,6 +532,11 @@ function PlanLimitsSkeleton({
               <Line className="w-24" />
             </div>
           ) : null}
+          {plan.note ? (
+            <p className="text-[11px]">
+              <Line className="w-56" />
+            </p>
+          ) : null}
         </div>
       ))}
     </>
@@ -530,19 +553,33 @@ function PlanLimits({
   const plans = useProviderPlans(enabled);
   const providers = engineFirst(plans.data?.providers ?? [], engine);
   const [shape, setShape] = useAtom(planShapeAtom);
-  useEffect(() => {
-    if (!plans.data) return;
-    setShape(
-      Object.fromEntries(
-        plans.data.providers.map((plan) => [
+  const sectionRef = useRef<HTMLElement>(null);
+  // Remember the answer's rows and the height each block took on screen.
+  useLayoutEffect(() => {
+    const data = plans.data;
+    if (!data) return;
+    const next: PlanShape = Object.fromEntries(
+      data.providers.map((plan) => {
+        const block = sectionRef.current?.querySelector<HTMLElement>(
+          `[data-engine="${plan.engine}"]`
+        );
+        return [
           plan.engine,
-          { windows: plan.windows.length, spend: !!plan.spend },
-        ])
-      )
+          {
+            windows: plan.windows.length,
+            spend: !!plan.spend,
+            note: !!plan.unavailableReason,
+            ...(block ? { height: block.offsetHeight } : {}),
+          },
+        ];
+      })
+    );
+    setShape((prev) =>
+      JSON.stringify(prev) === JSON.stringify(next) ? prev : next
     );
   }, [plans.data, setShape]);
   return (
-    <section className="space-y-3" aria-label="Plan limits">
+    <section ref={sectionRef} className="space-y-3" aria-label="Plan limits">
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
         <Button
@@ -578,7 +615,11 @@ function PlanLimits({
 
 function ProviderLimits({ plan }: { plan: ProviderPlan }): JSX.Element {
   return (
-    <div className="space-y-1.5" data-testid={`usage-plan-${plan.engine}`}>
+    <div
+      className="space-y-1.5"
+      data-engine={plan.engine}
+      data-testid={`usage-plan-${plan.engine}`}
+    >
       <div className="text-muted-foreground">
         {ENGINE_NAME[plan.engine]}
         {plan.plan ? ` · ${plan.plan}` : ""}
