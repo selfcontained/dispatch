@@ -13,6 +13,81 @@ export type UsageCallbacks = {
   }) => Promise<ProviderPlansResponse>;
 };
 
+/** Below this much headroom a type is `low`; at none it is `exhausted`. */
+const LOW_HEADROOM_PERCENT = 20;
+
+type UsageStatus = "ok" | "low" | "exhausted" | "unknown";
+
+type UsageVerdict = {
+  /** The tightest window's remaining percentage; null without a report. */
+  headroomPercent: number | null;
+  status: UsageStatus;
+};
+
+function verdict(windows: Array<{ remainingPercent: number }>): UsageVerdict {
+  if (windows.length === 0) return { headroomPercent: null, status: "unknown" };
+  const headroomPercent = Math.min(...windows.map((w) => w.remainingPercent));
+  const status: UsageStatus =
+    headroomPercent <= 0
+      ? "exhausted"
+      : headroomPercent < LOW_HEADROOM_PERCENT
+        ? "low"
+        : "ok";
+  return { headroomPercent, status };
+}
+
+type RatedProvider = UsageVerdict & { type: string };
+
+/**
+ * Which type to prefer, and why, in one sentence an agent can act on. A
+ * suggestion is only made when some reported type is low or exhausted and
+ * another has more room: when every report is healthy (or every type is
+ * unknown) there is no reason to steer away from the default.
+ */
+export function summarizeUsage(providers: RatedProvider[]): {
+  suggestedType: string | null;
+  summary: string;
+} {
+  const reported = providers.filter((p) => p.headroomPercent !== null);
+  const strained = reported.filter((p) => p.status !== "ok");
+  const describe = (p: RatedProvider) =>
+    p.headroomPercent === null
+      ? `${p.type}: unknown`
+      : `${p.type}: ${p.headroomPercent}% headroom (${p.status})`;
+  const detail = providers.map(describe).join("; ");
+  if (reported.length === 0) {
+    return {
+      suggestedType: null,
+      summary: `No type reports usage; capacity is unknown. ${detail}.`,
+    };
+  }
+  if (strained.length === 0) {
+    return {
+      suggestedType: null,
+      summary: `Every reported type has headroom; any is fine. ${detail}.`,
+    };
+  }
+  const best = reported.reduce((a, b) =>
+    (b.headroomPercent ?? -1) > (a.headroomPercent ?? -1) ? b : a
+  );
+  if (best.status === "ok") {
+    return {
+      suggestedType: best.type,
+      summary: `Prefer ${best.type}: ${strained.map((p) => `${p.type} is ${p.status}`).join(", ")}. ${detail}.`,
+    };
+  }
+  const unknown = providers.filter((p) => p.headroomPercent === null);
+  return {
+    suggestedType: null,
+    summary:
+      `Every reported type is low or exhausted` +
+      (unknown.length > 0
+        ? `; ${unknown.map((p) => p.type).join(", ")} ${unknown.length === 1 ? "does" : "do"} not report usage`
+        : "") +
+      `. Tell the user before launching. ${detail}.`,
+  };
+}
+
 export function registerUsageTools(
   server: McpServer,
   allowed: Set<string>,
@@ -24,8 +99,10 @@ export function registerUsageTools(
     "get_usage",
     {
       description:
-        "Look up remaining subscription usage before choosing a subagent type or model for launch_agent. " +
-        "Returns supported model ids, provider-reported quota windows, remaining percentages, reset times, and observation timestamps. " +
+        "Check remaining subscription usage before launch_agent, so the new agent runs on a type that has headroom. " +
+        "Read summary first: it names the type to prefer (also in suggestedType) when another is low or exhausted, " +
+        "and says so when every type is fine or nothing reports. Each type carries status (ok, low, exhausted, unknown), " +
+        "headroomPercent (its tightest window), supported model ids, the provider's quota windows with remaining percentages and reset times, and observation timestamps. " +
         "Quotas are shared across agents using the same provider login; model-specific windows are identified by the provider's window id/label. " +
         "Do not assume each model has a separate budget or that remaining percentages represent a token count. " +
         "Missing reports mean unknown capacity, not unlimited usage. Reports may be stale; inspect observedAt and unavailableReason.",
@@ -50,47 +127,47 @@ export function registerUsageTools(
     async ({ type, force }) => {
       try {
         const report = await providerPlans({ force });
+        const providers = CLI_AGENT_TYPES.filter(
+          (engine) => !type || type === engine
+        ).map((engine) => {
+          const plan = report.providers.find(
+            (provider) => provider.engine === engine
+          );
+          const windows = (plan?.windows ?? []).map((window) => ({
+            ...window,
+            remainingPercent: Math.max(
+              0,
+              Math.min(100, 100 - window.usedPercent)
+            ),
+          }));
+          return {
+            ...(plan ?? {
+              engine,
+              plan: null,
+              observedAt: null,
+              unavailableReason:
+                engine === "opencode"
+                  ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
+                  : "No usage report available.",
+            }),
+            type: engine,
+            ...verdict(windows),
+            models: getAgentModelOptions(engine),
+            windows,
+            ...(plan?.spend
+              ? {
+                  spend: {
+                    ...plan.spend,
+                    remaining: Math.max(0, plan.spend.limit - plan.spend.used),
+                  },
+                }
+              : {}),
+          };
+        });
         const result = {
           checkedAt: report.checkedAt,
-          providers: CLI_AGENT_TYPES.filter(
-            (engine) => !type || type === engine
-          ).map((engine) => {
-            const plan = report.providers.find(
-              (provider) => provider.engine === engine
-            );
-            return {
-              ...(plan ?? {
-                engine,
-                plan: null,
-                observedAt: null,
-                windows: [],
-                unavailableReason:
-                  engine === "opencode"
-                    ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
-                    : "No usage report available.",
-              }),
-              type: engine,
-              models: getAgentModelOptions(engine),
-              windows: (plan?.windows ?? []).map((window) => ({
-                ...window,
-                remainingPercent: Math.max(
-                  0,
-                  Math.min(100, 100 - window.usedPercent)
-                ),
-              })),
-              ...(plan?.spend
-                ? {
-                    spend: {
-                      ...plan.spend,
-                      remaining: Math.max(
-                        0,
-                        plan.spend.limit - plan.spend.used
-                      ),
-                    },
-                  }
-                : {}),
-            };
-          }),
+          ...summarizeUsage(providers),
+          providers,
         };
         return {
           content: [{ type: "text", text: jsonText(result) }],

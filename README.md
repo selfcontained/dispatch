@@ -162,12 +162,16 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 `get_usage` is available to both interactive agents and job runners. Call it with
 `{}` to compare provider usage, or `{ "type": "claude", "force": true }` to
-request a refresh for a comparison focused on Claude. It returns model IDs from
-Dispatch's current launch catalog, remaining percentages for each reported quota
-window, reset times, and remaining spend when available. Quotas are shared by
-agents using the same provider login; model-specific limits retain the provider's
-window labels. Check `observedAt` and `unavailableReason` before using a report to
-choose `launch_agent`'s `type` and `model`. Missing limits mean unknown capacity.
+request a refresh for a comparison focused on Claude. Its `summary` names the
+type to prefer (`suggestedType`) when another is low or exhausted, and says so
+when every type has headroom or nothing reports. Each type carries a `status`
+(`ok`, `low`, `exhausted`, `unknown`), `headroomPercent` from its tightest
+window, model IDs from Dispatch's current launch catalog, remaining percentages
+for each reported quota window, reset times, and remaining spend when available.
+Quotas are shared by agents using the same provider login; model-specific limits
+retain the provider's window labels. Check `observedAt` and `unavailableReason`
+before using a report to choose `launch_agent`'s `type` and `model`. Missing
+limits mean unknown capacity.
 
 ### Interactive agents
 

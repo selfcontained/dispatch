@@ -80,9 +80,15 @@ describe("get_usage", () => {
           expect(providerPlans).toHaveBeenCalledWith({ force: true });
           expect(result.structuredContent).toMatchObject({
             checkedAt: report.checkedAt,
+            suggestedType: null,
+            summary:
+              "Every reported type is low or exhausted; codex, opencode do not report usage. Tell the user before launching. " +
+              "claude: 0% headroom (exhausted); codex: unknown; opencode: unknown.",
             providers: [
               {
                 type: "claude",
+                status: "exhausted",
+                headroomPercent: 0,
                 models: [{ id: "custom-model" }],
                 observedAt: report.providers[0]!.observedAt,
                 unavailableReason: "Refresh failed; cached report.",
@@ -94,12 +100,16 @@ describe("get_usage", () => {
               },
               {
                 type: "codex",
+                status: "unknown",
+                headroomPercent: null,
                 observedAt: null,
                 windows: [],
                 unavailableReason: "No usage report available.",
               },
               {
                 type: "opencode",
+                status: "unknown",
+                headroomPercent: null,
                 models: [],
                 observedAt: null,
                 windows: [],
@@ -149,6 +159,65 @@ describe("get_usage", () => {
         expect(result.isError).toBe(true);
       }
     );
+  });
+
+  it("suggests the type with headroom when the parent's is running low", async () => {
+    const providerPlans = vi.fn(
+      async (): Promise<ProviderPlansResponse> => ({
+        checkedAt: report.checkedAt,
+        providers: [
+          {
+            engine: "claude",
+            plan: "Max",
+            observedAt: report.providers[0]!.observedAt,
+            windows: [
+              {
+                id: "session",
+                label: "5-hour",
+                usedPercent: 40,
+                resetsAt: null,
+              },
+              {
+                id: "weekly",
+                label: "Weekly",
+                usedPercent: 88,
+                resetsAt: null,
+              },
+            ],
+          },
+          {
+            engine: "codex",
+            plan: "Plus",
+            observedAt: report.providers[0]!.observedAt,
+            windows: [
+              {
+                id: "primary",
+                label: "5-hour",
+                usedPercent: 10,
+                resetsAt: null,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    await withClient({ ...base, providerPlans }, async (client) => {
+      const result = await client.callTool({
+        name: "get_usage",
+        arguments: {},
+      });
+      expect(result.structuredContent).toMatchObject({
+        suggestedType: "codex",
+        summary:
+          "Prefer codex: claude is low. " +
+          "claude: 12% headroom (low); codex: 90% headroom (ok); opencode: unknown.",
+        providers: [
+          { type: "claude", status: "low", headroomPercent: 12 },
+          { type: "codex", status: "ok", headroomPercent: 90 },
+          { type: "opencode", status: "unknown" },
+        ],
+      });
+    });
   });
 
   it("does not expose usage on the unscoped endpoint", async () => {
