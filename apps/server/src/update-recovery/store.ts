@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
 import {
+  lstat,
   mkdir,
   open,
   realpath,
@@ -97,8 +98,29 @@ async function privateDirectory(directory: string): Promise<void> {
   await syncDirectory(path.dirname(directory));
 }
 
+async function openRegular(file: string): Promise<FileHandle> {
+  // Reject devices before opening; the descriptor check still handles a path
+  // replaced after lstat. NONBLOCK prevents a substituted FIFO waiting for a writer.
+  if (!(await lstat(file)).isFile()) {
+    throw new Error("Recovery input must be a regular file");
+  }
+  const handle = await open(
+    file,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  );
+  try {
+    if (!(await handle.stat()).isFile()) {
+      throw new Error("Recovery input must be a regular file");
+    }
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
 async function openPrivate(file: string): Promise<FileHandle> {
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await openRegular(file);
   try {
     const stat = await handle.stat();
     if (
@@ -163,7 +185,7 @@ async function hashFile(
 
 /** Copy, never hardlink: the running installation can mutate after checkpointing. */
 async function snapshotFile(source: string, destination: string) {
-  const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const input = await openRegular(source);
   let output: FileHandle | undefined;
   try {
     const before = await input.stat({ bigint: true });
@@ -250,7 +272,6 @@ export class RecoveryStore {
   }
 
   private static async checkDirectory(directory: string): Promise<void> {
-    const { lstat } = await import("node:fs/promises");
     const stat = await lstat(directory);
     if (
       !stat.isDirectory() ||

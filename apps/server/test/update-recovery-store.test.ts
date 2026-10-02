@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFile, execFileSync } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -13,6 +14,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RecoveryStore } from "../src/update-recovery/store.js";
 
@@ -24,6 +26,26 @@ afterEach(async () => {
 });
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+// A regression in FIFO handling must not strand a libuv thread in this test
+// process. Run the actual store in a killable child with a bounded deadline.
+async function expectFifoRejected(root: string, operation: string) {
+  const moduleUrl = new URL("../src/update-recovery/store.ts", import.meta.url);
+  const script = `
+    const { RecoveryStore } = await import(${JSON.stringify(moduleUrl.href)});
+    const store = await RecoveryStore.open(${JSON.stringify(root)});
+    try {
+      ${operation}
+      throw new Error("FIFO was accepted");
+    } catch (error) {
+      if (!/regular file/.test(error.message)) throw error;
+    }
+  `;
+  await promisify(execFile)("bun", ["--eval", script], {
+    timeout: 5000,
+    killSignal: "SIGKILL",
+  });
 }
 
 async function fixture() {
@@ -305,8 +327,46 @@ describe("durable update recovery storage", () => {
         ...input,
         files: [{ role: "runtime", source: root }, input.files[1]],
       })
-    ).rejects.toThrow("regular files");
+    ).rejects.toThrow("regular file");
   });
+
+  it("rejects a FIFO source promptly and releases the transaction lock", async () => {
+    const { root, store, transaction, runtime } = await fixture();
+    const fifo = path.join(root, "database.fifo");
+    execFileSync("mkfifo", ["-m", "600", fifo]);
+    await expectFifoRejected(
+      store.root,
+      `
+      await store.checkpoint(${JSON.stringify(transaction.id)}, {
+        files: [
+          { role: "runtime", source: ${JSON.stringify(runtime)} },
+          { role: "database", source: ${JSON.stringify(fifo)} }
+        ],
+        verifyDatabaseRestore: async () => { throw new Error("verifier must not run"); }
+      });
+    `
+    );
+    expect(await readdir(path.join(store.root, "locks"))).toEqual([]);
+    expect((await store.read(transaction.id)).phase).toBe("preparing");
+  });
+
+  it.each(["journal", "snapshot"] as const)(
+    "rejects a stored %s FIFO promptly",
+    async (kind) => {
+      const { store, transaction, input } = await fixture();
+      await store.checkpoint(transaction.id, input);
+      const file =
+        kind === "journal"
+          ? path.join(store.root, "transactions", transaction.id)
+          : path.join(store.root, "points", transaction.id, "0");
+      await rm(file);
+      execFileSync("mkfifo", ["-m", "600", file]);
+      await expectFifoRejected(
+        store.root,
+        `await store.${kind === "journal" ? "read" : "verify"}(${JSON.stringify(transaction.id)});`
+      );
+    }
+  );
 
   it("rejects duplicate sources and recovery files as checkpoint inputs", async () => {
     const { store, transaction, input } = await fixture();
