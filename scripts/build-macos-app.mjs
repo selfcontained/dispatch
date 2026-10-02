@@ -124,6 +124,10 @@ try {
       path.join(contents, "MacOS", name)
     );
   cpSync(binary, path.join(contents, "Helpers/dispatch"));
+  cpSync(
+    path.join(buildPath, "DispatchRecovery"),
+    path.join(contents, "Helpers/DispatchRecovery")
+  );
   const postgres = await downloadPostgres(
     arch,
     path.join(contents, "Helpers/Postgres")
@@ -180,8 +184,32 @@ try {
     build,
     path.join(contents, "Info.plist"),
   ]);
+  run("plutil", [
+    "-insert",
+    "DispatchRecoveryProtocol",
+    "-integer",
+    "1",
+    path.join(contents, "Info.plist"),
+  ]);
   if (sparkleSDK) {
     const plist = path.join(contents, "Info.plist");
+    run("plutil", [
+      "-insert",
+      "SUScheduledCheckInterval",
+      "-integer",
+      "14400",
+      plist,
+    ]);
+    // Only a feed signed with SUPublicEDKey is trusted, so appcast item metadata
+    // (including dispatch:recoveryProtocol) is authenticated before staging.
+    // A zero expiration disables Sparkle's fallback to an unverified feed.
+    run("plutil", [
+      "-insert",
+      "SUSignedFeedFailureExpirationInterval",
+      "-integer",
+      "0",
+      plist,
+    ]);
     for (const [key, value] of Object.entries({
       SUPublicEDKey: process.env.DISPATCH_SPARKLE_PUBLIC_KEY,
       SUFeedURL: process.env.DISPATCH_SPARKLE_FEED_URL,
@@ -196,6 +224,7 @@ try {
       "SUAutomaticallyUpdate",
       "SUAllowsAutomaticUpdates",
       "SUVerifyUpdateBeforeExtraction",
+      "SURequireSignedFeed",
     ])
       run("plutil", ["-insert", key, "-bool", "YES", plist]);
     mkdirSync(path.join(contents, "Frameworks"), { recursive: true });
@@ -248,6 +277,12 @@ try {
       "dev.bradharris.dispatch.mac",
       path.join(contents, "MacOS", name),
     ]);
+  run("codesign", [
+    ...signing,
+    "--identifier",
+    "dev.bradharris.dispatch.recovery",
+    path.join(contents, "Helpers/DispatchRecovery"),
+  ]);
   run("codesign", [...signing, app]);
   run("codesign", ["--verify", "--deep", "--strict", app]);
   const zipName = sparkleSDK

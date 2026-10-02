@@ -90,6 +90,9 @@ try {
     throw new Error(`Unexpected smoke result: ${result}`);
   run("pg_ctl", ["-D", data, "-m", "fast", "-w", "-t", "30", "stop"]);
   attemptedStart = false;
+  const control = run("pg_controldata", [data]);
+  if (!/Database cluster state:\s+shut down\s*$/m.test(control))
+    throw new Error("Bundled pg_controldata did not prove clean shutdown");
   console.log(`Relocated PostgreSQL smoke passed: ${result}`);
 } finally {
   if (attemptedStart)

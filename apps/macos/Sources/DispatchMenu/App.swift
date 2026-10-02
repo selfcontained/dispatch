@@ -35,7 +35,19 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return false
         #endif
     }
-    private var controlsLocked: Bool { migrating || migrationError != nil || updateBusy }
+    private var updateHandoffRunning: Bool {
+        #if SPARKLE_UPDATES
+        return appUpdater?.busy == true
+        #else
+        return false
+        #endif
+    }
+    private var nativeRecoveryPending: Bool {
+        guard externalURL == nil else { return false }
+        // An invalid journal is never permission to create new state.
+        return NativeRecoveryStore(root: AppPaths.root).menuBlocked(build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0")
+    }
+    private var controlsLocked: Bool { migrating || migrationError != nil || updateBusy || nativeRecoveryPending }
     private let service = SMAppService.agent(plistName: "dev.bradharris.dispatch.mac.server.plist")
     private var stopping: Bool { runtime?.phase == "stopping" }
     private var active: Bool { runtime?.isActive == true || ready }
@@ -69,7 +81,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         rebuildMenu()
         refresh()
-        if externalURL == nil && configuration.databaseURL.isEmpty && migrationError == nil { DispatchQueue.main.async { self.showSettings() } }
+        if externalURL == nil && configuration.databaseURL.isEmpty && migrationError == nil && !nativeRecoveryPending { DispatchQueue.main.async { self.showSettings() } }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
         // Standard responder actions support copying/pasting in native settings fields.
         let main = NSMenu()
@@ -85,7 +97,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // pre-release install restores its previous state through `replayRestore`.
         // Save a migrated restore before registering, so the new supervisor's first loop sees it.
         replayRestore()
-        if externalURL == nil && AppPaths.testRoot == nil && migrationError == nil && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: AppPaths.root).path) {
+        if externalURL == nil && AppPaths.testRoot == nil && migrationError == nil && !nativeRecoveryPending && service.status.needsRegistration && !FileManager.default.fileExists(atPath: UpdateRecovery.path(root: AppPaths.root).path) {
             do {
                 try requireInstalledApp()
                 if pendingRestore == nil { try ServiceRequest(start: false).save() }
@@ -136,10 +148,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let automatic = item("Install Updates Automatically", #selector(toggleAutomaticUpdates), enabled: !controlsLocked)
             automatic.state = updater.automatic ? .on : .off
             menu.addItem(automatic)
+            if let note = updater.deferredNote { menu.addItem(item(note, nil, enabled: false)) }
             if updater.needsRecovery { menu.addItem(item("Retry Update Recovery", #selector(retryUpdate), enabled: !updater.busy)) }
         }
         #endif
-        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !migrating && !updateBusy))
+        // Quit stays available during a pending handoff: termination either completes the
+        // protected handoff or withdraws Sparkle's staged installer, and explains if neither can.
+        menu.addItem(item("Quit Dispatch", #selector(quit), enabled: !changingService && !migrating && !updateHandoffRunning))
     }
     private func refresh() {
         guard !checking, !migrating else { return }

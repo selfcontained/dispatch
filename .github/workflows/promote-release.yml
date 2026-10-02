@@ -52,10 +52,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Re-checks the released archive (length, Ed25519 signature, and the
+      # recovery protocol in its Info.plist) against the entry, then re-signs
+      # the whole feed before deploying it.
       - name: Promote the macOS appcast entry
-        run: python3 scripts/macos_appcast.py promote --version "${TAG#v}"
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "${{ github.repository }}" --pattern 'dispatch-macos-*-arm64.zip' --dir "$RUNNER_TEMP/macos"
+          python3 scripts/macos_appcast.py promote --version "${TAG#v}" --archives "$RUNNER_TEMP/macos"
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
+          MACOS_SPARKLE_PRIVATE_KEY: ${{ secrets.MACOS_SPARKLE_PRIVATE_KEY }}
+          DISPATCH_SPARKLE_PUBLIC_KEY: ${{ vars.MACOS_SPARKLE_PUBLIC_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

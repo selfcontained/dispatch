@@ -6,6 +6,15 @@ import Foundation
 /// ACP hosts have their own sessions and are not stopped with the menu app.
 func runServer() throws -> Never {
     let root = AppPaths.root
+    let recoveryStore = NativeRecoveryStore(root: root)
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    // Staged updates fence every build but the old one; evidence precedes any DB open.
+    let recoveryJournal = try recoveryStore.admitWorker(build: build, environment: ProcessInfo.processInfo.environment)
+    let recoveryLease = try RecoveryLease(root.appendingPathComponent("recovery-worker.lock"))
+    defer { withExtendedLifetime(recoveryLease) {} }
+    if let journal = recoveryJournal {
+        try NativeRecoveryStore.durableJSON(RecoveryProcess.current(transaction: journal, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"), to: recoveryStore.directory.appendingPathComponent("worker.json"))
+    }
     let serverDirectory = root.appendingPathComponent("server", isDirectory: true)
     try FileManager.default.createDirectory(at: serverDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let log = open(AppPaths.log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
@@ -52,6 +61,7 @@ func runServer() throws -> Never {
         "DISPATCH_RUNTIME_PATH": executable.path,
         "DISPATCH_UPDATE_OWNER": "macos-app",
         "DISPATCH_MAC_INSTANCE_ID": config.instanceID,
+        "DISPATCH_MAC_BUILD": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
         "DISPATCH_LOCAL_TLS": "1",
         "TLS_CA": root.appendingPathComponent("tls/ca/cert.pem").path,
         "NODE_EXTRA_CA_CERTS": root.appendingPathComponent("tls/ca/cert.pem").path,
@@ -59,6 +69,13 @@ func runServer() throws -> Never {
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     ]
     for (key, value) in environment { setenv(key, value, 1) }
+    if let journal = recoveryJournal {
+        setenv("DISPATCH_RECOVERY_PROBATION", "1", 1)
+        setenv("DISPATCH_RECOVERY_TRANSACTION_ID", journal.id, 1)
+        setenv("DISPATCH_RECOVERY_NONCE", journal.nonce, 1)
+        setenv("DISPATCH_RECOVERY_INSTANCE_ID", journal.instanceID, 1)
+        setenv("DISPATCH_RECOVERY_EXPECTED_VERSION", Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0", 1)
+    }
     #if SPARKLE_PROBE
     if Bundle.main.bundleIdentifier?.hasPrefix("dev.bradharris.dispatch.sparkleprobe.") == true,
        AppPaths.testRoot == root,
@@ -87,6 +104,8 @@ func runServer() throws -> Never {
     guard !termination.requested else { exit(0) }
     guard certificateStatus == 0 else { throw ConfigurationError("Could not initialize HTTPS certificates. Check the server log.") }
     try managedDatabase?.start(config)
+    // Postmaster identity proves later that a running cluster belongs to this build.
+    try? recoveryStore.recordPostmaster(build: build)
     if termination.requested { try managedDatabase?.stop(); exit(0) }
     let server = Process()
     server.executableURL = executable

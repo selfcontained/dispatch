@@ -23,6 +23,7 @@ export type GitHubReleaseMetadata = {
   publishedAt: string;
   url: string;
   body?: string | null;
+  artifactSha256?: string;
 };
 
 export type GitHubReleaseListItem = {
@@ -208,12 +209,19 @@ export async function fetchReleaseMetadata(
       published_at: string;
       html_url: string;
       body?: string | null;
+      assets?: Array<{ name: string; digest?: string }>;
     };
+    const digest = data.assets?.find(
+      (asset) => asset.name === RELEASE_ARTIFACT_NAME
+    )?.digest;
     return {
       tag: data.tag_name,
       publishedAt: data.published_at,
       url: data.html_url,
       body: typeof data.body === "string" ? data.body.trim() : null,
+      ...(digest && /^sha256:[a-f0-9]{64}$/.test(digest)
+        ? { artifactSha256: digest.slice(7) }
+        : {}),
     };
   } catch (error) {
     if (error instanceof GitHubApiError && error.status === 404) return null;

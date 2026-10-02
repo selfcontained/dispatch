@@ -91,6 +91,14 @@ type CreateReleaseRuntimeDeps = {
   /** Reject an update before staging if the service manager would kill agent hosts. */
   checkHostSurvival?: () => Promise<void>;
   writeReleaseCandidate?: (candidate: ReleaseCandidate) => Promise<void>;
+  /** Independent recovery helper owns backup, activation, commit and restart. */
+  applyProtectedUpdate?: (input: {
+    tarballPath: string;
+    tag: string;
+    expectedTarballSha256: string;
+    onProgress: (message: string) => void;
+    onRestarting?: () => void;
+  }) => Promise<void>;
 };
 
 export type CreateJob = Extract<ReleaseJob, { jobType: "create" }>;
@@ -306,13 +314,10 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
     });
   }
 
-  async function deployFromArtifact(
-    job: ReleaseJob,
-    tag: string
-  ): Promise<void> {
+  async function downloadArtifact(job: ReleaseJob, tag: string) {
     const repo = await getGitHubRepo();
 
-    const cached = await deps.ensureCachedTarball({
+    return deps.ensureCachedTarball({
       tag,
       repo,
       onProgress: ({ message, bytesReceived, totalBytes }) => {
@@ -332,6 +337,13 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
         });
       },
     });
+  }
+
+  async function deployFromArtifact(
+    job: ReleaseJob,
+    tag: string
+  ): Promise<void> {
+    const cached = await downloadArtifact(job, tag);
 
     appendReleaseLog(job, "==> validating artifact contents");
     setReleaseProgress(job, {
@@ -366,6 +378,39 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
       "==> deployed from pre-built artifact (no build needed)"
     );
     await deps.pruneCacheExcept([tag]);
+  }
+
+  async function deployProtected(
+    job: ReleaseJob,
+    tag: string,
+    expectedTarballSha256: string
+  ): Promise<void> {
+    if (!deps.applyProtectedUpdate)
+      throw new Error("Protected update adapter is missing");
+    setReleasePhase(job, "deploying");
+    const cached = await downloadArtifact(job, tag);
+    setReleaseProgress(job, {
+      step: "validating-artifact",
+      label: "Preparing protected update",
+      detail:
+        "The independent helper verifies the artifact and backup before activation.",
+    });
+    try {
+      await deps.applyProtectedUpdate({
+        tarballPath: cached.path,
+        tag,
+        expectedTarballSha256,
+        onProgress: (message) => appendReleaseLog(job, message),
+        onRestarting: () => setReleasePhase(job, "restarting"),
+      });
+    } catch (error) {
+      await deps.unlinkCachedTarball(tag);
+      appendReleaseLog(
+        job,
+        `==> protected update handoff failed for ${tag}; removed cached artifact`
+      );
+      throw error;
+    }
   }
 
   async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
@@ -438,7 +483,13 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
         throw new Error(`Release ${tag} was not found on GitHub`);
       }
 
-      await deployTag(job, tag);
+      if (deps.applyProtectedUpdate) {
+        if (!metadata.artifactSha256)
+          throw new Error(
+            "Protected update requires GitHub's published release asset digest"
+          );
+        await deployProtected(job, tag, metadata.artifactSha256);
+      } else await deployTag(job, tag);
     } catch (err) {
       const error = errorMessage(err);
       if (activeUpdateJob) {

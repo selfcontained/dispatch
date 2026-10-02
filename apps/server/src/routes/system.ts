@@ -48,8 +48,10 @@ type SystemRouteDeps = {
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
   /** The configured engine CLIs, so this reports what a launch would run. */
+  maintenanceMode?: () => string;
   engineBins: { claude: string; codex: string; opencode?: string };
   localCertificateTrust?: boolean;
+  /** Update recovery helper protocol; omitted in tests that don't need it. */
 };
 
 export async function registerSystemRoutes(
@@ -86,10 +88,13 @@ export async function registerSystemRoutes(
 
   app.get("/api/v1/health", async () => {
     const result = await deps.pool.query("SELECT NOW() AS now");
+    const maintenance = deps.maintenanceMode?.() ?? "normal";
     return {
       status: "ok",
       db: "ok",
       now: result.rows[0]?.now,
+      // Not a readiness signal: the helper uses the signed readiness route.
+      ...(maintenance !== "normal" ? { maintenance } : {}),
       ...(process.env.DISPATCH_UPDATE_OWNER === "macos-app"
         ? {
             updateOwner: "macos-app",

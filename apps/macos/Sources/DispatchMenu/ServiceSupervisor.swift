@@ -16,7 +16,8 @@ func runServiceSupervisor(
     root: URL = AppPaths.root,
     termination: ServerTermination = ServerTermination(gracePeriod: 50),
     makeWorker: (() -> Process)? = nil,
-    saveState: ((ServiceRuntime) throws -> Void)? = nil
+    saveState: ((ServiceRuntime) throws -> Void)? = nil,
+    build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
 ) throws {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let fd = open(root.appendingPathComponent("service.lock").path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
@@ -55,7 +56,8 @@ func runServiceSupervisor(
             try? FileManager.default.removeItem(at: activePath)
             nextStart = Date(timeIntervalSinceNow: 2)
         }
-        if desired && child == nil && Date() >= nextStart {
+        let recovery = try NativeRecoveryStore(root: root).read()
+        if desired && child == nil && Date() >= nextStart && (recovery?.permitsOrdinaryStart(build: build) ?? true) {
             let worker: Process
             if let makeWorker { worker = makeWorker() }
             else {

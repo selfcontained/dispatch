@@ -13,7 +13,9 @@ public struct ServiceRequest: Codable {
     public let id: UUID
     public let start: Bool
     public private(set) var created: Date
-    public init(start: Bool) { id = UUID(); self.start = start; created = Date() }
+    public init(start: Bool) { self.init(id: UUID(), start: start) }
+    /// A pinned ID makes a redelivered recovery handoff the same request, never a newer one.
+    public init(id: UUID, start: Bool) { self.id = id; self.start = start; created = Date() }
     public func refreshed(at date: Date = Date()) -> Self {
         var request = self; request.created = date; return request
     }

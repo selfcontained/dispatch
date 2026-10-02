@@ -86,6 +86,26 @@ async function fixture() {
 }
 
 describe("durable update recovery storage", () => {
+  it("preserves abandoned lock evidence only after proving the external OS lease", async () => {
+    const { store, transaction } = await fixture();
+    const lock = path.join(store.root, "locks", transaction.id);
+    await mkdir(lock, { mode: 0o700 });
+    await expect(
+      store.reconcileAbandonedMutationLock(transaction.id, async () => {
+        throw new Error("no lease");
+      })
+    ).rejects.toThrow("no lease");
+    expect((await lstat(lock)).isDirectory()).toBe(true);
+    const proof = vi.fn(async () => {});
+    await store.reconcileAbandonedMutationLock(transaction.id, proof);
+    expect(proof).toHaveBeenCalledOnce();
+    expect(
+      (await readdir(path.dirname(lock))).some((name) =>
+        name.startsWith(`${transaction.id}.abandoned-`)
+      )
+    ).toBe(true);
+    await store.transition(transaction.id, "preparing", "aborted");
+  });
   it("copies private snapshots, verifies the database copy before sealing, and reopens offline", async () => {
     const { store, transaction, runtime, state, input } = await fixture();
     const manifest = await store.checkpoint(transaction.id, input);

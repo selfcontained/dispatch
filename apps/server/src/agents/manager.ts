@@ -287,7 +287,33 @@ function withTimeout<T>(
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/** Status note on idle agents an update stopped, until they are resumed. */
+export const UPDATE_RESUME_MESSAGE =
+  "Dispatch stopped this idle agent for an update. Start it to continue if automatic resume did not finish.";
+
 export class AgentManager {
+  private readonly lifecycleOperations = new Map<string, Promise<void>>();
+  private async serializeLifecycle<T>(
+    id: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.lifecycleOperations.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => gate);
+    this.lifecycleOperations.set(id, tail);
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.lifecycleOperations.get(id) === tail)
+        this.lifecycleOperations.delete(id);
+    }
+  }
+
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
@@ -679,6 +705,130 @@ export class AgentManager {
     return this.runtime.hostPid(id);
   }
 
+  /**
+   * Update recovery receipt: the exact `updated_at` of each agent row that
+   * still says `running`, read after its host was stopped.
+   */
+  async updateResumeSnapshot(
+    ids: string[]
+  ): Promise<{ id: string; updatedAt: string }[]> {
+    if (ids.length === 0) return [];
+    const result = await this.pool.query<{ id: string; updated_at: string }>(
+      `SELECT id, updated_at::text AS updated_at FROM agents
+        WHERE id = ANY($1) AND status = 'running' AND deleted_at IS NULL
+        ORDER BY id`,
+      [ids]
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /**
+   * Receipt entries whose row is exactly as the fence left it: still
+   * `running`, not deleted, `updated_at` unchanged. Anything else (a stop,
+   * archive or edit since, or a migration touching the row) is not resumed.
+   */
+  async eligibleUpdateResumes(
+    entries: { id: string; updatedAt: string }[]
+  ): Promise<Set<string>> {
+    const eligible = new Set<string>();
+    for (const entry of entries) {
+      try {
+        const result = await this.pool.query(
+          `SELECT 1 FROM agents
+            WHERE id = $1 AND status = 'running' AND deleted_at IS NULL
+              AND updated_at = $2::timestamptz`,
+          [entry.id, entry.updatedAt]
+        );
+        if (result.rows.length === 1) eligible.add(entry.id);
+      } catch (err) {
+        // An unparseable timestamp is an uncertain entry: skip it.
+        this.logger.warn({ err, agentId: entry.id }, "Ignoring resume entry");
+      }
+    }
+    return eligible;
+  }
+
+  /**
+   * Start the idle hosts an update stopped, one at a time. Each must still
+   * be in the state `restoreRunningAgents` left it in, so a user who stopped,
+   * started or archived it in the meantime wins. No prompt is replayed: the
+   * fence only stopped hosts with no turn running and nothing queued.
+   */
+  async resumeAgentsAfterUpdate(
+    entries: { id: string; updatedAt: string }[]
+  ): Promise<string[]> {
+    const resumed: string[] = [];
+    for (const { id, updatedAt } of entries) {
+      const started = await this.serializeLifecycle(id, async () => {
+        const current = await this.pool.query(
+          `UPDATE agents SET status = 'creating', last_error = NULL, updated_at = NOW()
+          WHERE id = $1 AND status = 'stopped' AND deleted_at IS NULL
+            AND updated_at = $2::timestamptz RETURNING id`,
+          [id, updatedAt]
+        );
+        if (current.rows.length !== 1) return false;
+        try {
+          await this.startAgentClaimed(id);
+          return true;
+        } catch (err) {
+          // startAgent already recorded the error and raised attention.
+          this.logger.warn({ err, agentId: id }, "Resume after update failed");
+          return false;
+        }
+      });
+      if (started) resumed.push(id);
+    }
+    return resumed;
+  }
+
+  /** Agents whose host process is alive, attached or not. */
+  listHostedAgentIds(): Promise<string[]> {
+    return this.runtime.listHosted();
+  }
+
+  /**
+   * Update recovery: live hosts whose activity the server cannot vouch for.
+   * A host it is not attached to (or whose engine is down) could be mid-turn.
+   */
+  async recoveryHostActivity(): Promise<{
+    busy: string[];
+    unattached: string[];
+  }> {
+    const busy: string[] = [];
+    const unattached: string[] = [];
+    for (const id of await this.runtime.listHosted()) {
+      if (this.runtime.getCommands(id) === null) unattached.push(id);
+      else if (this.runtime.isBusy(id)) busy.push(id);
+    }
+    return { busy, unattached };
+  }
+
+  /**
+   * Update recovery: hosts outlive a service stop and would keep writing
+   * their journals during the backup. Stop idle ones through the runtime
+   * only (which removes just their socket and pid files), so agent rows keep
+   * their running intent. Reports which it stopped and which still run.
+   */
+  async stopIdleHostsForRecovery(
+    timeoutMs: number
+  ): Promise<{ stopped: string[]; remaining: string[] }> {
+    const idle = (await this.runtime.listHosted()).filter(
+      (id) => !this.runtime.isBusy(id)
+    );
+    await Promise.race([
+      Promise.allSettled(idle.map((id) => this.runtime.stop(id, false))),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+    const remaining = await this.runtime.listHosted();
+    return {
+      stopped: idle.filter((id) => !remaining.includes(id)),
+      remaining,
+    };
+  }
+
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
@@ -727,10 +877,15 @@ export class AgentManager {
    * host to `cleanupOrphanedHosts` for force-stopping. The periodic
    * reconciler keeps retrying the reconnect for it.
    */
-  async restoreRunningAgents(): Promise<{
+  async restoreRunningAgents(options?: {
+    /** Idle agents an update fenced; marked for `resumeAgentsAfterUpdate`. */
+    resumeAfterUpdate?: ReadonlySet<string>;
+  }): Promise<{
     attached: string[];
     lost: string[];
+    resumes: { id: string; updatedAt: string }[];
   }> {
+    const resumes: { id: string; updatedAt: string }[] = [];
     const attached: string[] = [];
     const lost: string[] = [];
     const pending: string[] = [];
@@ -757,13 +912,19 @@ export class AgentManager {
       await this.setAgentStatus(
         row.id,
         "stopped",
-        "The agent host was not running when Dispatch restarted."
+        options?.resumeAfterUpdate?.has(row.id)
+          ? UPDATE_RESUME_MESSAGE
+          : "The agent host was not running when Dispatch restarted.",
+        (updatedAt) => {
+          if (options?.resumeAfterUpdate?.has(row.id))
+            resumes.push({ id: row.id, updatedAt });
+        }
       );
     }
     if (attached.length || lost.length || pending.length) {
       this.logger.info({ attached, lost, pending }, "Restored running agents");
     }
-    return { attached, lost };
+    return { attached, lost, resumes };
   }
 
   /** Register for agent record changes from the runtime and lifecycle. */
@@ -1742,6 +1903,19 @@ export class AgentManager {
   }
 
   async startAgent(id: string): Promise<AgentRecord> {
+    return this.serializeLifecycle(id, () => this.claimAndStartAgent(id));
+  }
+  private async claimAndStartAgent(id: string): Promise<AgentRecord> {
+    const claimed = await this.pool.query(
+      `UPDATE agents SET status = 'creating', last_error = NULL, updated_at = NOW()
+       WHERE id = $1 AND status NOT IN ('creating', 'stopping', 'archiving') AND deleted_at IS NULL RETURNING id`,
+      [id]
+    );
+    if (claimed.rows.length === 0) return this.getRequiredAgent(id);
+    return this.startAgentClaimed(id);
+  }
+
+  private async startAgentClaimed(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
       this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
@@ -1790,11 +1964,24 @@ export class AgentManager {
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
+    return this.serializeLifecycle(id, () =>
+      this.stopAgentSerialized(id, input)
+    );
+  }
+  private async stopAgentSerialized(
+    id: string,
+    input: StopAgentInput
+  ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     const force = input.force ?? false;
 
     if (agent.status === "stopped") {
-      return agent;
+      // A user Stop cancels pending update resume even while already stopped.
+      await this.pool.query(
+        "UPDATE agents SET last_error = NULL, updated_at = NOW() WHERE id = $1 AND status = 'stopped'",
+        [id]
+      );
+      return this.getRequiredAgent(id);
     }
 
     await this.setAgentStatus(id, "stopping", null);
@@ -1921,15 +2108,17 @@ export class AgentManager {
   private async setAgentStatus(
     id: string,
     status: AgentStatus,
-    lastError: string | null
+    lastError: string | null,
+    onUpdated?: (updatedAt: string) => void
   ): Promise<void> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<{ updated_at: string }>(
       `
       UPDATE agents
       SET status = $2,
           last_error = $3,
           updated_at = NOW()
       WHERE id = $1
+      RETURNING updated_at::text AS updated_at
       `,
       [id, status, lastError]
     );
@@ -1940,6 +2129,7 @@ export class AgentManager {
         "Agent status update skipped because row was missing."
       );
     } else {
+      onUpdated?.(result.rows[0].updated_at);
       this.eventBus.publish(await this.getRequiredAgent(id));
     }
   }

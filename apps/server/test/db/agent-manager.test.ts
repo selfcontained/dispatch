@@ -43,6 +43,7 @@ const {
   AgentError,
   LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
   LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+  UPDATE_RESUME_MESSAGE,
 } = await import("../../src/agents/manager.js");
 const { StreamService, launchBlockId } =
   await import("../../src/chat/service.js");
@@ -2222,7 +2223,11 @@ describe("AgentManager", () => {
 
       const result = await manager.restoreRunningAgents();
 
-      expect(result).toEqual({ attached: [alive.id], lost: [gone.id] });
+      expect(result).toEqual({
+        attached: [alive.id],
+        lost: [gone.id],
+        resumes: [],
+      });
       expect(runtime.attach).not.toHaveBeenCalledWith(stopped.id);
       expect((await manager.getAgent(alive.id))!.status).toBe("running");
       const lost = await manager.getAgent(gone.id);
@@ -2265,6 +2270,265 @@ describe("AgentManager", () => {
       expect(runtime.stop).not.toHaveBeenCalled();
     });
   });
+
+  describe("update recovery host resume", () => {
+    const running = () =>
+      manager.createAgent({ cwd: "/tmp", useWorktree: false });
+    const hostGone = () => {
+      runtime.attach.mockResolvedValue(false);
+      runtime.isAlive.mockResolvedValue(false);
+    };
+
+    it("stops only idle hosts, without touching agent rows, and reports survivors", async () => {
+      const agent = await running();
+      const before = await pool.query(
+        "SELECT status, updated_at::text AS at FROM agents WHERE id = $1",
+        [agent.id]
+      );
+      runtime.listHosted
+        .mockResolvedValueOnce([agent.id, "agt_busy", "agt_stuck"])
+        .mockResolvedValueOnce(["agt_busy", "agt_stuck"]);
+      runtime.isBusy.mockImplementation((id) => id === "agt_busy");
+
+      const result = await manager.stopIdleHostsForRecovery(1_000);
+
+      expect(result).toEqual({
+        stopped: [agent.id],
+        remaining: ["agt_busy", "agt_stuck"],
+      });
+      expect(runtime.stop).toHaveBeenCalledWith(agent.id, false);
+      expect(runtime.stop).not.toHaveBeenCalledWith("agt_busy", false);
+      const after = await pool.query(
+        "SELECT status, updated_at::text AS at FROM agents WHERE id = $1",
+        [agent.id]
+      );
+      expect(after.rows).toEqual(before.rows);
+    });
+
+    it("resumes an untouched idle agent exactly once, resuming its session without replaying prompts", async () => {
+      const agent = await running();
+      const snapshot = await manager.updateResumeSnapshot([agent.id]);
+      expect(snapshot).toEqual([
+        { id: agent.id, updatedAt: expect.any(String) },
+      ]);
+
+      // Normal start after the update: the fence stopped the host.
+      hostGone();
+      const eligible = await manager.eligibleUpdateResumes(snapshot);
+      expect([...eligible]).toEqual([agent.id]);
+      const { lost, resumes } = await manager.restoreRunningAgents({
+        resumeAfterUpdate: eligible,
+      });
+      expect(lost).toEqual([agent.id]);
+      const pending = await manager.getAgent(agent.id);
+      expect(pending!.status).toBe("stopped");
+      expect(pending!.lastError).toBe(UPDATE_RESUME_MESSAGE);
+      // Display copy is not an intent marker (timestamp deliberately unchanged).
+      await pool.query(
+        "UPDATE agents SET last_error = 'Different display copy' WHERE id = $1",
+        [agent.id]
+      );
+
+      runtime.launch.mockClear();
+      runtime.prompt.mockClear();
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([
+        agent.id,
+      ]);
+      const resumed = await manager.getAgent(agent.id);
+      expect(resumed!.status).toBe("running");
+      expect(resumed!.lastError).toBeNull();
+      expect(runtime.launch).toHaveBeenCalledOnce();
+      expect(runtime.launch.mock.calls[0][0].resumeSessionId).toBe(
+        agent.cliSessionId
+      );
+      expect(runtime.prompt).not.toHaveBeenCalled();
+
+      // A second pass (duplicate call, crash-restart) does nothing.
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+      expect(runtime.launch).toHaveBeenCalledOnce();
+    });
+
+    it("never resumes rows that changed after the receipt or are uncertain", async () => {
+      const edited = await running();
+      const stoppedByUser = await running();
+      const archived = await running();
+      const snapshot = await manager.updateResumeSnapshot([
+        edited.id,
+        stoppedByUser.id,
+        archived.id,
+      ]);
+      expect(snapshot).toHaveLength(3);
+      await pool.query(
+        "UPDATE agents SET updated_at = updated_at + interval '1 microsecond' WHERE id = $1",
+        [edited.id]
+      );
+      await manager.stopAgent(stoppedByUser.id);
+      await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+        archived.id,
+      ]);
+
+      const eligible = await manager.eligibleUpdateResumes([
+        ...snapshot,
+        { id: "agt_missing", updatedAt: snapshot[0].updatedAt },
+        { id: edited.id, updatedAt: "not a timestamp" },
+      ]);
+      expect(eligible.size).toBe(0);
+      // Stopped rows are not snapshotted in the first place.
+      expect(await manager.updateResumeSnapshot([stoppedByUser.id])).toEqual(
+        []
+      );
+
+      hostGone();
+      const { resumes } = await manager.restoreRunningAgents({
+        resumeAfterUpdate: eligible,
+      });
+      expect((await manager.getAgent(edited.id))!.lastError).toContain(
+        "not running when Dispatch restarted"
+      );
+      runtime.launch.mockClear();
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+      expect(runtime.launch).not.toHaveBeenCalled();
+    });
+
+    it("serializes a pending resume with concurrent user Start and Stop", async () => {
+      const agent = await running();
+      hostGone();
+      const eligible = await manager.eligibleUpdateResumes(
+        await manager.updateResumeSnapshot([agent.id])
+      );
+      const { resumes } = await manager.restoreRunningAgents({
+        resumeAfterUpdate: eligible,
+      });
+      let release!: (alive: boolean) => void;
+      runtime.attach.mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            release = resolve;
+          })
+      );
+      runtime.attach.mockResolvedValue(true);
+      runtime.attach.mockClear();
+      runtime.launch.mockClear();
+      const pending = manager.resumeAgentsAfterUpdate(resumes);
+      await vi.waitFor(() => expect(runtime.attach).toHaveBeenCalledOnce());
+      const userStart = manager.startAgent(agent.id);
+      const userStop = manager.stopAgent(agent.id);
+      release(false);
+      expect(await pending).toEqual([agent.id]);
+      await userStart;
+      await userStop;
+      expect(runtime.launch).toHaveBeenCalledOnce();
+      expect((await manager.getAgent(agent.id))?.status).toBe("stopped");
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+    });
+
+    it("lets a user decision made after restart win over the pending resume", async () => {
+      const agent = await running();
+      const snapshot = await manager.updateResumeSnapshot([agent.id]);
+      hostGone();
+      const eligible = await manager.eligibleUpdateResumes(snapshot);
+      const { resumes } = await manager.restoreRunningAgents({
+        resumeAfterUpdate: eligible,
+      });
+
+      // Stopping an already-stopped row cancels the pending receipt.
+      await manager.stopAgent(agent.id);
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+      // The user started and stopped it again before the resume ran.
+      await manager.startAgent(agent.id);
+      await manager.stopAgent(agent.id);
+      runtime.launch.mockClear();
+
+      expect(await manager.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+      expect(runtime.launch).not.toHaveBeenCalled();
+      expect((await manager.getAgent(agent.id))!.status).toBe("stopped");
+    });
+  });
+
+  it("quiesces and resumes a real idle ACP host from an unchanged recovery receipt", async () => {
+    const root = await mkdtemp("/tmp/dispatch-ru-host-");
+    const previousHost = process.env.DISPATCH_AGENT_HOST_COMMAND;
+    const previousAdapter = process.env.DISPATCH_ACP_ADAPTER_COMMAND;
+    const repo = path.resolve(import.meta.dirname, "../../../..");
+    process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
+      "bun",
+      path.join(repo, "apps/server/src/main.ts"),
+      "agent-host",
+    ]);
+    process.env.DISPATCH_ACP_ADAPTER_COMMAND = JSON.stringify([
+      path.join(repo, "e2e/fixtures/fake-acp-agent.mjs"),
+    ]);
+    const liveConfig = {
+      ...testConfig,
+      agentRuntime: "acp" as const,
+      agentStateRoot: path.join(root, "hosts"),
+      filesRoot: path.join(root, "files"),
+    };
+    const first = new AgentManager(pool, noopLogger, liveConfig);
+    const restarted = new AgentManager(pool, noopLogger, liveConfig);
+    let id: string | undefined;
+    let startupTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const creation = first.createAgent({
+        cwd: root,
+        useWorktree: false,
+        type: "claude",
+      });
+      const agent = await Promise.race([
+        creation,
+        new Promise<never>((_, reject) =>
+          setTimeout(async () => {
+            const row = await pool.query(
+              "SELECT id FROM agents WHERE cwd = $1",
+              [root]
+            );
+            id = row.rows[0]?.id;
+            const diagnostic = id
+              ? await readFile(
+                  path.join(root, "hosts", id, "host.log"),
+                  "utf8"
+                ).catch(() => "no host log")
+              : "no row";
+            reject(new Error("Real host launch timed out: " + diagnostic));
+          }, 15_000)
+        ),
+      ]);
+      clearTimeout(startupTimer);
+      id = agent.id;
+      expect(await first.listHostedAgentIds()).toContain(id);
+      expect(await first.recoveryHostActivity()).toEqual({
+        busy: [],
+        unattached: [],
+      });
+      const quiesced = await first.stopIdleHostsForRecovery(20_000);
+      expect(quiesced).toEqual({ stopped: [id], remaining: [] });
+      const snapshot = await first.updateResumeSnapshot([id]);
+      const eligible = await restarted.eligibleUpdateResumes(snapshot);
+      const { resumes } = await restarted.restoreRunningAgents({
+        resumeAfterUpdate: eligible,
+      });
+      expect(resumes).toHaveLength(1);
+      expect(await restarted.resumeAgentsAfterUpdate(resumes)).toEqual([id]);
+      expect(await restarted.listHostedAgentIds()).toContain(id);
+      expect((await restarted.getAgent(id))?.status).toBe("running");
+      expect((await restarted.getAgent(id))?.cliSessionId).toBe(
+        agent.cliSessionId
+      );
+      expect(await restarted.resumeAgentsAfterUpdate(resumes)).toEqual([]);
+    } finally {
+      clearTimeout(startupTimer);
+      if (id) await restarted.stopAgent(id).catch(() => null);
+      await first.stopIdleHostsForRecovery(20_000).catch(() => null);
+      await restarted.stopIdleHostsForRecovery(20_000).catch(() => null);
+      if (previousHost === undefined)
+        delete process.env.DISPATCH_AGENT_HOST_COMMAND;
+      else process.env.DISPATCH_AGENT_HOST_COMMAND = previousHost;
+      if (previousAdapter === undefined)
+        delete process.env.DISPATCH_ACP_ADAPTER_COMMAND;
+      else process.env.DISPATCH_ACP_ADAPTER_COMMAND = previousAdapter;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   describe("reconcileAgents", () => {
     it("should mark a running agent stopped when its host is gone", async () => {

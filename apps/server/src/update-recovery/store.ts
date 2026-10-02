@@ -339,6 +339,26 @@ export class RecoveryStore {
     return record;
   }
 
+  /** Only the independent helper may reconcile a dead mutation writer, after
+   * proving its instance-wide OS lease. Preserve lock evidence rather than
+   * guessing from age or a reused PID. The server never calls this method. */
+  async reconcileAbandonedMutationLock(
+    id: string,
+    assertExclusiveLease: () => Promise<void>
+  ): Promise<void> {
+    await assertExclusiveLease();
+    await this.read(id);
+    const lock = this.location("locks", id);
+    try {
+      await RecoveryStore.checkDirectory(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    await rename(lock, `${lock}.abandoned-${randomUUID()}`);
+    await syncDirectory(path.dirname(lock));
+  }
+
   private async save(record: RecoveryTransaction): Promise<void> {
     transactionSchema.parse(record);
     const destination = this.location("transactions", record.id);

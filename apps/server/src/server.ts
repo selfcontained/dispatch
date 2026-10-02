@@ -126,7 +126,12 @@ import {
 } from "./observability/service-resources.js";
 import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
-import { statePath } from "./state-dir.js";
+import { stateDir, statePath } from "./state-dir.js";
+import {
+  createUpdateRecoveryRuntime,
+  protectedLinuxUpdate,
+} from "./server/update-recovery-runtime.js";
+import { registerUpdateRecoveryRoutes } from "./routes/update-recovery.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -243,6 +248,13 @@ const releaseRuntime = createReleaseRuntime({
   unlinkCachedTarball,
   createReleaseLogStreamProcessor: (sinks, onLine) =>
     new ReleaseLogStreamProcessor(sinks, onLine),
+  // Linux updates always go through the independent recovery helper, which
+  // fences this process over HTTP, stops the service and owns the commit.
+  ...(process.platform === "linux"
+    ? {
+        applyProtectedUpdate: protectedLinuxUpdate,
+      }
+    : {}),
 });
 const autoCheckRuntime = createAutoCheckRuntime({
   pool,
@@ -456,6 +468,34 @@ jobService.onRunStateChange((run) => {
 
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
 
+const updateRecoveryRuntime = createUpdateRecoveryRuntime({
+  pool,
+  agentManager,
+  streamService,
+  releaseRuntime,
+  config,
+  serverDir,
+  version: packageVersion,
+  log: app.log,
+  shutdown,
+  stopWriters: async () => {
+    jobService.stopAllSchedulers();
+    agentLifecycleRuntime.stopReconcileLoop();
+    stopRetentionSweep?.();
+    stopRetentionSweep = null;
+    authRuntime.stopSessionCleanupTimer();
+    autoCheckRuntime.stopScheduler();
+    streamManager.stopAll();
+    await Promise.race([
+      jobService.shutdown(),
+      new Promise((resolve) => setTimeout(resolve, 10_000)),
+    ]);
+    await agentLifecycleRuntime.waitForActiveArchives(10_000);
+    await streamService.waitForInFlightDeliveries(5_000);
+  },
+});
+const recoveryMaintenance = updateRecoveryRuntime.maintenance;
+
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
   const SESSION_COOKIE = sessionCookieName(cookieSecret);
@@ -507,6 +547,7 @@ async function registerRoutes() {
     resourceRequestStarts.set(request, serviceResources.requestStarted());
   });
   const finishResourceRequest = (request: object, statusCode: number) => {
+    recoveryMaintenance.requestFinished(request);
     const token = resourceRequestStarts.get(request);
     if (!token) return;
     serviceResources.requestFinished(token, statusCode);
@@ -520,6 +561,24 @@ async function registerRoutes() {
   });
   app.addHook("onTimeout", async (request) => {
     finishResourceRequest(request, 504);
+  });
+
+  // Update recovery gate: synchronous, ahead of auth, so nothing a fence or
+  // probation excludes can reach a handler.
+  app.addHook("onRequest", async (request, reply) => {
+    const refused = recoveryMaintenance.admit(request);
+    if (refused) {
+      return reply.code(refused.status).header("Retry-After", "30").send({
+        error: "Dispatch is in update maintenance.",
+        code: refused.code,
+      });
+    }
+    if (
+      request.url.startsWith("/api/") &&
+      !request.routeOptions.config.updateRecovery
+    ) {
+      recoveryMaintenance.requestStarted(request, request.method);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -541,6 +600,8 @@ async function registerRoutes() {
     if (request.routeOptions.config.browserExtensionBearer) return;
     // The menu app's control routes check its per-launch token themselves.
     if (request.routeOptions.config.macAppBearer) return;
+    // The recovery helper authenticates with its enrollment key, loopback-only.
+    if (request.routeOptions.config.updateRecovery) return;
     // If no password is set, all routes are open (first-run mode).
     if (!(await authRuntime.isPasswordSetCached())) return;
 
@@ -657,12 +718,14 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
+    maintenanceMode: () => recoveryMaintenance.mode,
     engineBins: {
       claude: config.claudeBin,
       codex: config.codexBin,
       opencode: config.opencodeBin,
     },
   });
+  await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
   await registerPluginRoutes(app, { pool, config, appLog: app.log });
@@ -807,6 +870,8 @@ export async function initializeApp(options?: {
   runMigrations?: boolean;
   reconcileState?: boolean;
 }): Promise<typeof app> {
+  // Read before the database is touched: invalid probation fails closed.
+  await updateRecoveryRuntime.loadProbation();
   await waitForDatabase();
   const shouldRunMigrations =
     options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";
@@ -821,11 +886,14 @@ export async function initializeApp(options?: {
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );
-  const shouldReconcileState = options?.reconcileState ?? true;
+  // Probation never reconciles; only a normal start after commit does.
+  const shouldReconcileState =
+    recoveryMaintenance.mode !== "probation" &&
+    (options?.reconcileState ?? true);
   if (shouldReconcileState) {
     // Hosts outlive the server: reconnect to the ones still running before
     // the reconciler decides anything about them.
-    await agentManager.restoreRunningAgents();
+    await updateRecoveryRuntime.restoreAgents();
     await agentManager.reconcileAgents();
     // Chat deliveries queued in the previous process died with it; flip their
     // rows from pending to not-delivered so the UI offers a resend.
@@ -861,6 +929,9 @@ export async function initializeApp(options?: {
     routesRegistered = true;
   }
   await app.ready();
+  if (recoveryMaintenance.mode === "probation") {
+    recoveryMaintenance.markProbationReady();
+  }
   return app;
 }
 
@@ -915,6 +986,12 @@ export async function start() {
         ),
     });
   }
+
+  // In probation the recovery helper owns the commit; the normal start that
+  // follows it promotes the candidate.
+  if (recoveryMaintenance.mode === "probation") return;
+
+  updateRecoveryRuntime.resumePending();
 
   // The process that activated a new binary exits during the service restart,
   // so only this newly healthy process can truthfully promote the candidate.
