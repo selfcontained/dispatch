@@ -11,6 +11,12 @@ export type UsageCallbacks = {
   providerPlans?: (request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>;
+  /**
+   * Types launch_agent will accept. A type switched off in Settings can still
+   * have a local usage report, and recommending it sends the agent into a
+   * launch that is refused. Absent means every type is launchable.
+   */
+  enabledAgentTypes?: () => Promise<readonly string[]>;
 };
 
 /** Below this much headroom a type is `low`; at none it is `exhausted`. */
@@ -36,24 +42,30 @@ function verdict(windows: Array<{ remainingPercent: number }>): UsageVerdict {
   return { headroomPercent, status };
 }
 
-type RatedProvider = UsageVerdict & { type: string };
+type RatedProvider = UsageVerdict & { type: string; enabled: boolean };
 
 /**
  * Which type to prefer, and why, in one sentence an agent can act on. A
  * suggestion is only made when some reported type is low or exhausted and
  * another has more room: when every report is healthy (or every type is
- * unknown) there is no reason to steer away from the default.
+ * unknown) there is no reason to steer away from the default. Disabled types
+ * are described but never suggested — launch_agent would refuse them.
  */
 export function summarizeUsage(providers: RatedProvider[]): {
   suggestedType: string | null;
   summary: string;
 } {
-  const reported = providers.filter((p) => p.headroomPercent !== null);
+  const reported = providers.filter(
+    (p) => p.enabled && p.headroomPercent !== null
+  );
   const strained = reported.filter((p) => p.status !== "ok");
-  const describe = (p: RatedProvider) =>
-    p.headroomPercent === null
-      ? `${p.type}: unknown`
-      : `${p.type}: ${p.headroomPercent}% headroom (${p.status})`;
+  const describe = (p: RatedProvider) => {
+    const headroom =
+      p.headroomPercent === null
+        ? "unknown"
+        : `${p.headroomPercent}% headroom (${p.status})`;
+    return `${p.type}: ${headroom}${p.enabled ? "" : ", disabled in settings"}`;
+  };
   const detail = providers.map(describe).join("; ");
   if (reported.length === 0) {
     return {
@@ -76,7 +88,9 @@ export function summarizeUsage(providers: RatedProvider[]): {
       summary: `Prefer ${best.type}: ${strained.map((p) => `${p.type} is ${p.status}`).join(", ")}. ${detail}.`,
     };
   }
-  const unknown = providers.filter((p) => p.headroomPercent === null);
+  const unknown = providers.filter(
+    (p) => p.enabled && p.headroomPercent === null
+  );
   return {
     suggestedType: null,
     summary:
@@ -101,7 +115,8 @@ export function registerUsageTools(
       description:
         "Check remaining subscription usage before launch_agent, so the new agent runs on a type that has headroom. " +
         "Read summary first: it names the type to prefer (also in suggestedType) when another is low or exhausted, " +
-        "and says so when every type is fine or nothing reports. Each type carries status (ok, low, exhausted, unknown), " +
+        "and says so when every type is fine or nothing reports; a type disabled in Settings (enabled: false) is never suggested. " +
+        "Each type carries status (ok, low, exhausted, unknown), " +
         "headroomPercent (its tightest window), supported model ids, the provider's quota windows with remaining percentages and reset times, and observation timestamps. " +
         "Quotas are shared across agents using the same provider login; model-specific windows are identified by the provider's window id/label. " +
         "Do not assume each model has a separate budget or that remaining percentages represent a token count. " +
@@ -126,7 +141,10 @@ export function registerUsageTools(
     },
     async ({ type, force }) => {
       try {
-        const report = await providerPlans({ force });
+        const [report, enabled] = await Promise.all([
+          providerPlans({ force }),
+          callbacks.enabledAgentTypes?.() ?? CLI_AGENT_TYPES,
+        ]);
         const providers = CLI_AGENT_TYPES.filter(
           (engine) => !type || type === engine
         ).map((engine) => {
@@ -151,6 +169,7 @@ export function registerUsageTools(
                   : "No usage report available.",
             }),
             type: engine,
+            enabled: enabled.includes(engine),
             ...verdict(windows),
             models: getAgentModelOptions(engine),
             windows,

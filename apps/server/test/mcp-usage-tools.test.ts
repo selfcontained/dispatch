@@ -161,46 +161,64 @@ describe("get_usage", () => {
     );
   });
 
-  it("suggests the type with headroom when the parent's is running low", async () => {
-    const providerPlans = vi.fn(
-      async (): Promise<ProviderPlansResponse> => ({
-        checkedAt: report.checkedAt,
-        providers: [
-          {
-            engine: "claude",
-            plan: "Max",
-            observedAt: report.providers[0]!.observedAt,
-            windows: [
-              {
-                id: "session",
-                label: "5-hour",
-                usedPercent: 40,
-                resetsAt: null,
-              },
-              {
-                id: "weekly",
-                label: "Weekly",
-                usedPercent: 88,
-                resetsAt: null,
-              },
-            ],
-          },
-          {
-            engine: "codex",
-            plan: "Plus",
-            observedAt: report.providers[0]!.observedAt,
-            windows: [
-              {
-                id: "primary",
-                label: "5-hour",
-                usedPercent: 10,
-                resetsAt: null,
-              },
-            ],
-          },
+  /** Claude's weekly window is nearly spent; Codex is barely touched. */
+  const lowClaude: ProviderPlansResponse = {
+    checkedAt: report.checkedAt,
+    providers: [
+      {
+        engine: "claude",
+        plan: "Max",
+        observedAt: report.providers[0]!.observedAt,
+        windows: [
+          { id: "session", label: "5-hour", usedPercent: 40, resetsAt: null },
+          { id: "weekly", label: "Weekly", usedPercent: 88, resetsAt: null },
         ],
-      })
+      },
+      {
+        engine: "codex",
+        plan: "Plus",
+        observedAt: report.providers[0]!.observedAt,
+        windows: [
+          { id: "primary", label: "5-hour", usedPercent: 10, resetsAt: null },
+        ],
+      },
+    ],
+  };
+
+  it("never suggests a type that is disabled in settings", async () => {
+    await withClient(
+      {
+        ...base,
+        providerPlans: async () => lowClaude,
+        enabledAgentTypes: async () => ["claude", "opencode"],
+      },
+      async (client) => {
+        const result = await client.callTool({
+          name: "get_usage",
+          arguments: {},
+        });
+        expect(result.structuredContent).toMatchObject({
+          suggestedType: null,
+          summary:
+            "Every reported type is low or exhausted; opencode does not report usage. Tell the user before launching. " +
+            "claude: 12% headroom (low); codex: 90% headroom (ok), disabled in settings; opencode: unknown.",
+          providers: [
+            { type: "claude", enabled: true, status: "low" },
+            {
+              type: "codex",
+              enabled: false,
+              status: "ok",
+              headroomPercent: 90,
+            },
+            { type: "opencode", enabled: true, status: "unknown" },
+          ],
+        });
+      }
     );
+  });
+
+  it("suggests the type with headroom when the parent's is running low", async () => {
+    const providerPlans = vi.fn(async () => lowClaude);
     await withClient({ ...base, providerPlans }, async (client) => {
       const result = await client.callTool({
         name: "get_usage",
