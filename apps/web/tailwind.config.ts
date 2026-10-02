@@ -91,6 +91,52 @@ export default {
           from: { opacity: "0", transform: "scale(0.4)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
+        // The composer's usage popover, opened like a drawer from its chip:
+        // the box is revealed from the edge nearest the trigger. The clip
+        // rectangle runs well past the box so the glass shadow comes along.
+        // `-up` is the popover above its chip (side=top), `-down` below.
+        "usage-panel-in-up": {
+          "0%": {
+            opacity: "0",
+            clipPath: "inset(100% -80px -80px -80px)",
+            transform: "translateY(6px)",
+          },
+          "35%": { opacity: "1" },
+          "100%": {
+            opacity: "1",
+            clipPath: "inset(-80px)",
+            transform: "translateY(0)",
+          },
+        },
+        "usage-panel-in-down": {
+          "0%": {
+            opacity: "0",
+            clipPath: "inset(-80px -80px 100% -80px)",
+            transform: "translateY(-6px)",
+          },
+          "35%": { opacity: "1" },
+          "100%": {
+            opacity: "1",
+            clipPath: "inset(-80px)",
+            transform: "translateY(0)",
+          },
+        },
+        "usage-panel-out-up": {
+          from: { opacity: "1", clipPath: "inset(-80px)" },
+          to: {
+            opacity: "0",
+            clipPath: "inset(100% -80px -80px -80px)",
+            transform: "translateY(4px)",
+          },
+        },
+        "usage-panel-out-down": {
+          from: { opacity: "1", clipPath: "inset(-80px)" },
+          to: {
+            opacity: "0",
+            clipPath: "inset(-80px -80px 100% -80px)",
+            transform: "translateY(-4px)",
+          },
+        },
         "mobile-toolbar-flash": {
           "0%": {
             backgroundColor: "rgba(255,255,255,0.06)",
@@ -116,6 +162,13 @@ export default {
         "message-in": "message-in 450ms cubic-bezier(0.2, 0, 0, 1) 120ms both",
         "reaction-picker-in": "reaction-picker-in 160ms ease-out both",
         "reaction-picker-out": "reaction-picker-out 100ms ease-in both",
+        // No fill on the way in: once open, the box is unclipped again.
+        "usage-panel-in-up":
+          "usage-panel-in-up 260ms cubic-bezier(0.2, 0, 0, 1)",
+        "usage-panel-in-down":
+          "usage-panel-in-down 260ms cubic-bezier(0.2, 0, 0, 1)",
+        "usage-panel-out-up": "usage-panel-out-up 140ms ease-in both",
+        "usage-panel-out-down": "usage-panel-out-down 140ms ease-in both",
         // A slight overshoot, so each emoji lands with a pop.
         "reaction-emoji-in":
           "reaction-emoji-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
