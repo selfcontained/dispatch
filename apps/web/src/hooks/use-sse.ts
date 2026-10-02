@@ -48,6 +48,7 @@ import {
   CACHED_RELEASE_INFO_QUERY_KEY,
   type ReleaseInfoSnapshot,
 } from "@/hooks/use-cached-release-info";
+import { MAC_APP_UPDATE_QUERY_KEY } from "@/hooks/use-mac-app-update";
 
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
@@ -309,6 +310,9 @@ export function useSSE(authState: AuthState): void {
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
           void queryClient.invalidateQueries({
+            queryKey: MAC_APP_UPDATE_QUERY_KEY,
+          });
+          void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
           void queryClient.invalidateQueries({
@@ -510,6 +514,11 @@ export function useSSE(authState: AuthState): void {
               keepalive: true,
             }).catch(() => {});
           }
+          return;
+        }
+
+        if (payload.type === "mac_app.update_changed") {
+          queryClient.setQueryData(MAC_APP_UPDATE_QUERY_KEY, payload.update);
           return;
         }
 

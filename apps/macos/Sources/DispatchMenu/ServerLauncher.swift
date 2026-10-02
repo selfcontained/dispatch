@@ -39,7 +39,10 @@ func runServer() throws -> Never {
     for key in ProcessInfo.processInfo.environment.keys where key.hasPrefix("DISPATCH_") || ["DATABASE_URL", "TLS_CERT", "TLS_KEY", "TLS_CA", "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED", "PORT", "HOST", "DOTENV_CONFIG_PATH"].contains(key) {
         unsetenv(key)
     }
+    // A fresh token per launch: the menu app re-reads it each time it reconnects.
+    let controlToken = try AppControlToken.create(root: root)
     let environment = [
+        "DISPATCH_MAC_APP_TOKEN": controlToken,
         "DATABASE_URL": config.databaseURL,
         "DISPATCH_HOST": config.bindHost,
         "DISPATCH_LISTEN_HOSTS": config.bindHosts.joined(separator: ","),

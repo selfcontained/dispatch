@@ -11,6 +11,7 @@ import type {
   StreamEntryEvent,
   StreamReadEvent,
 } from "./block-types.js";
+import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
 
 /**
  * The SSE members both sides agree on.
@@ -47,6 +48,8 @@ export type SharedUiEvent =
   | { type: "brain.changed"; repoRoot: string }
   /** An engine published a model list that changed the catalog for its type. */
   | { type: "agent_models.changed"; agentType: string }
+  /** The macOS menu app connected, disconnected, or reported update progress. */
+  | { type: "mac_app.update_changed"; update: MacAppUpdateSnapshot }
   | {
       type: "notification";
       notificationId: string;

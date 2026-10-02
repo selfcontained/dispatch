@@ -147,6 +147,16 @@ export type {
   FileDiffResponse,
 } from "./diff-types.js";
 export type { SharedUiEvent } from "./ui-event-types.js";
+export {
+  MAC_APP_UPDATE_ACTIONS,
+  MAC_APP_UPDATE_PHASES,
+} from "./mac-app-update-types.js";
+export type {
+  MacAppUpdateAction,
+  MacAppUpdatePhase,
+  MacAppUpdateSnapshot,
+  MacAppUpdateState,
+} from "./mac-app-update-types.js";
 export type {
   AgentConfigChoice,
   AgentConfigOption,

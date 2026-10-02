@@ -17,6 +17,15 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     private var started = false
     private(set) var busy = false
     private(set) var needsRecovery = false
+    // Progress of a check or install the web app asked for, plus what any check found.
+    private var checking = false
+    private var installing = false
+    private var availableVersion: String?
+    private var checkedAt: Date?
+    private var remoteError: String?
+    /// Set while a remote install has turned on automatic updates; holds the setting to
+    /// restore. Persisted so a crash or relaunch mid-install cannot leave it switched on.
+    private static let restoreAutomaticKey = "DispatchRemoteInstallRestoresAutomatic"
     var onChange: (() -> Void)?
     var onError: ((String) -> Void)?
     var wasRunning: () -> Bool = { ServiceRuntime.read()?.isActive == true && ServiceRuntime.read()?.phase != "stopping" }
@@ -35,13 +44,61 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             needsRecovery = FileManager.default.fileExists(atPath: UpdateRecovery.path(root: root).path)
             recovery = try UpdateRecovery.read(root: root)
             if recovery != nil { try await restore() }
+            restoreAutomatic()
             try startUpdater()
         } catch { fail(error) }
     }
     func check() { if canCheck { controller.checkForUpdates(nil) } }
     func setAutomatic(_ value: Bool) {
+        // An explicit choice replaces whatever a remote install would have restored.
+        UserDefaults.standard.removeObject(forKey: Self.restoreAutomaticKey)
+        applyAutomatic(value)
+    }
+    private func applyAutomatic(_ value: Bool) {
         controller.updater.automaticallyChecksForUpdates = value
         controller.updater.automaticallyDownloadsUpdates = value
+        onChange?()
+    }
+    private func restoreAutomatic() {
+        guard let previous = UserDefaults.standard.object(forKey: Self.restoreAutomaticKey) as? Bool else { return }
+        UserDefaults.standard.removeObject(forKey: Self.restoreAutomaticKey)
+        applyAutomatic(previous)
+    }
+
+    var remoteState: AppUpdateState {
+        let phase: AppUpdateState.Phase = needsRecovery ? .recovery
+            : controlsLocked ? .installing
+            : installing ? .downloading
+            : checking ? .checking
+            : remoteError != nil ? .error : .idle
+        return AppUpdateState(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0",
+                              phase: phase, availableVersion: availableVersion, checkedAt: checkedAt,
+                              error: phase == .error ? remoteError : nil, automatic: automatic)
+    }
+    /// Runs a check or install without showing Sparkle's windows, since the person
+    /// asking may not be at this Mac.
+    func perform(remote action: String) {
+        guard started, !controlsLocked, !needsRecovery, !checking, !installing else { return }
+        guard !controller.updater.sessionInProgress else {
+            remoteError = "An update window is open on the Mac. Close it, then try again."
+            onChange?(); return
+        }
+        remoteError = nil
+        switch action {
+        case "check":
+            checking = true
+            controller.updater.checkForUpdateInformation()
+        case "install":
+            installing = true
+            // Sparkle downloads and installs silently only with automatic updates on.
+            if !automatic {
+                UserDefaults.standard.set(false, forKey: Self.restoreAutomaticKey)
+                controller.updater.automaticallyChecksForUpdates = true
+                controller.updater.automaticallyDownloadsUpdates = true
+            }
+            controller.updater.checkForUpdatesInBackground()
+        default: return
+        }
         onChange?()
     }
     func retry() async {
@@ -163,7 +220,24 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if controlsLocked || needsRecovery { throw ConfigurationError("Finish update recovery before checking for another update.") }
     }
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        restoreAutomatic()
         do { try retainIntent(item) } catch { fail(error) }
+    }
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        availableVersion = item.displayVersionString; checkedAt = Date(); onChange?()
+    }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        availableVersion = nil; checkedAt = Date(); onChange?()
+    }
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        let wasRemote = checking || installing
+        checking = false; installing = false
+        // Sparkle has handed off (or given up on) any install by now.
+        restoreAutomatic()
+        if wasRemote, let error = error as NSError?, error.code != Int(SUError.noUpdateError.rawValue) {
+            remoteError = error.localizedDescription
+        }
+        onChange?()
     }
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock handler: @escaping () -> Void) -> Bool {
         install(item, handler: handler); return true
