@@ -1518,7 +1518,12 @@ export class StreamService {
       } catch {
         // Not running: nothing to queue it on. Recorded as missed so it is
         // sent again once the agent is back, not lost with the write.
-        await this.store.setRecipientDelivered(finding.id, agentId, false);
+        await this.store.setRecipientDelivered(
+          finding.id,
+          agentId,
+          false,
+          finding.state.at
+        );
         await this.publishEntry(finding.streamId, finding.id);
         continue;
       }
@@ -1530,7 +1535,15 @@ export class StreamService {
           : "addressee",
         settled
       );
-      await this.store.setRecipientDelivered(finding.id, agentId, null);
+      // Every write names the state this notice is about: once the finding
+      // moves on, a newer notice owns the slot and this one's outcome is
+      // not written over it.
+      await this.store.setRecipientDelivered(
+        finding.id,
+        agentId,
+        null,
+        finding.state.at
+      );
       await this.publishEntry(finding.streamId, finding.id);
       const result = this.injectDetached({
         agentId,
@@ -1544,7 +1557,8 @@ export class StreamService {
           await this.store.setRecipientDelivered(
             finding.id,
             agentId,
-            delivered
+            delivered,
+            finding.state.at
           );
           await this.publishEntry(finding.streamId, finding.id);
         },

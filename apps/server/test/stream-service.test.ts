@@ -74,8 +74,11 @@ function build(
   opts: {
     access?: StreamDeliveryAdapter["access"];
     held?: boolean;
-    /** Resolve to release deliveries; absent = deliver immediately. */
-    gate?: Promise<void>;
+    /**
+     * Resolve to release deliveries; absent = deliver immediately. A
+     * function gates each injection on its own, by the prompt's text.
+     */
+    gate?: Promise<void> | ((text: string) => Promise<void> | undefined);
     fail?: boolean;
     /** Agents whose injection throws, for a partial delivery. */
     failFor?: readonly string[];
@@ -111,7 +114,8 @@ function build(
                   : `${agentId}:${text}`);
               queued.add(key);
               try {
-                if (opts.gate) await opts.gate;
+                if (typeof opts.gate === "function") await opts.gate(text);
+                else if (opts.gate) await opts.gate;
                 injected.push({ agentId, text });
                 injectedOpts.push(injectOpts);
                 if (opts.fail || opts.failFor?.includes(agentId)) {
@@ -3700,6 +3704,89 @@ describe("StreamService review threads", () => {
     await expect(svc.retryDelivery(f1.streamId, f1.id)).rejects.toThrow(
       "already delivered"
     );
+  });
+
+  it("shows the reviewer's missed notice on the finding when a person settles it, and sends it again from there", async () => {
+    let down = false;
+    const { svc, injected } = build({
+      access: async (id) => {
+        if (down && id === B) throw new Error("Agent is not running.");
+        return { mode: "live" as const };
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    down = true;
+    await svc.setState(A, f1.id, { status: "fixed" }, { kind: "user" });
+    await svc.waitForInFlightDeliveries(1_000);
+    // The builder heard; the reviewer, not running, is shown as missed.
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "failed" },
+    ]);
+    down = false;
+    injected.length = 0;
+    await svc.retryDelivery(f1.streamId, f1.id);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+    expect(injected[0]!.text).toContain('Finding "a" fixed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "delivered" },
+    ]);
+  });
+
+  it("lets a newer notice keep the finding's slot when an older one settles late", async () => {
+    const releases = new Map<string, () => void>();
+    const { svc, injected } = build({
+      gate: (text) => {
+        if (!text.includes('Finding "a"')) return undefined;
+        return new Promise<void>((resolve) => {
+          releases.set(
+            text.includes('Finding "a" reopened') ? "reopened" : "fixed",
+            resolve
+          );
+        });
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    await svc.update(B, f1.id, { state: { status: "fixed" } });
+    await svc.update(B, f1.id, {
+      state: { status: "open", note: "Regressed." },
+    });
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    // The older notice lands first: its outcome belongs to a state the
+    // finding has left, so the reopening stays pending — and would be
+    // sent again after a restart.
+    releases.get("fixed")!();
+    const deadline = Date.now() + 2_000;
+    while (injected.length < 1 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(injected.map((i) => i.text)).toEqual([
+      expect.stringContaining('Finding "a" fixed.'),
+    ]);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    expect(
+      (await svc.store.findingsWithMissedNotices()).map((own) => [
+        own.block.id,
+        own.agentIds,
+      ])
+    ).toEqual([[f1.id, [A]]]);
+    releases.get("reopened")!();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected[1]!.text).toContain('Finding "a" reopened: Regressed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+    expect(await svc.store.findingsWithMissedNotices()).toEqual([]);
   });
 
   it("marks a review, and words under its findings, as awaited so they reach a busy agent", async () => {

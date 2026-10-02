@@ -169,8 +169,16 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
       : data?.mentions?.length
         ? data.mentions
         : data?.recipients;
-  const recipients = named && named.length > 0 ? named : [row.to_agent_id];
   const outcomes = row.deliveries ?? null;
+  // A finding's own deliveries are its settle/reopen notices, which go to
+  // either side: the reviewer who raised it is a recipient too when a
+  // notice went its way.
+  const recipients =
+    named && named.length > 0
+      ? named
+      : row.kind === "finding"
+        ? [...new Set([row.to_agent_id, ...Object.keys(outcomes ?? {})])]
+        : [row.to_agent_id];
   return recipients.map((agentId) => {
     // A recipient with no outcome of its own shares the block's: either it
     // is the only one, or nothing has settled for anybody yet — including
@@ -529,12 +537,16 @@ export class BlockStore {
    * One recipient's outcome on a post that went to several agents, written
    * as its own key so two deliveries settling at once cannot overwrite
    * each other's result. `null` puts that recipient back to pending, as
-   * when a finding's notice is sent to it.
+   * when a finding's notice is sent to it. A finding's notices all share
+   * the slot, so a notice's outcome is written only while the finding is
+   * still in the state the notice was about (`stateAt`): an older notice
+   * settling late must not overwrite a newer one still pending.
    */
   async setRecipientDelivered(
     id: string,
     agentId: string,
-    delivered: boolean | null
+    delivered: boolean | null,
+    stateAt?: string
   ): Promise<void> {
     if (!isBlockId(id)) return;
     await this.db.query(
@@ -542,8 +554,8 @@ export class BlockStore {
           SET deliveries = jsonb_set(
                 COALESCE(deliveries, '{}'::jsonb), ARRAY[$2],
                 COALESCE(to_jsonb($3::boolean), 'null'::jsonb), true)
-        WHERE id = $1`,
-      [id, agentId, delivered]
+        WHERE id = $1 AND ($4::text IS NULL OR state->>'at' = $4)`,
+      [id, agentId, delivered, stateAt ?? null]
     );
   }
 
