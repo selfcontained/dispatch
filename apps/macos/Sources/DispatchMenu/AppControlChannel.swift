@@ -12,7 +12,8 @@ final class AppControlChannel {
     var serverURL: () -> URL? = { nil }
     private let root: URL
     private var task: Task<Void, Never>?
-    private var connection: (url: URL, token: String)?
+    private var connection: (url: URL, token: String, session: URLSession)?
+    private lazy var reporter = LatestOnlySender { [weak self] in await self?.sendState() }
 
     init(root: URL = AppPaths.root) { self.root = root }
 
@@ -28,7 +29,9 @@ final class AppControlChannel {
 
     /// Sends the current state if connected. Failures are dropped: the next
     /// connection reports again.
-    func report() {
+    func report() { if connection != nil { reporter.request() } }
+
+    private func sendState() async {
         guard let connection, let state = state(), let body = try? state.encoded() else { return }
         var request = URLRequest(url: connection.url.appendingPathComponent("api/v1/mac-app/state"))
         request.httpMethod = "POST"
@@ -36,11 +39,7 @@ final class AppControlChannel {
         request.timeoutInterval = 5
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(connection.token)", forHTTPHeaderField: "Authorization")
-        let session = Self.session(for: connection.url, root: root)
-        Task {
-            defer { session.finishTasksAndInvalidate() }
-            _ = try? await session.data(for: request)
-        }
+        _ = try? await connection.session.data(for: request)
     }
 
     private func connectOnce() async {
@@ -56,7 +55,7 @@ final class AppControlChannel {
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             for try await line in bytes.lines {
                 switch AppControlEvent(line: line) {
-                case .ready: connection = (url, token); report()
+                case .ready: connection = (url, token, session); report()
                 case .command(let action): onCommand?(action)
                 case nil: break
                 }

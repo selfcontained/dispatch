@@ -30,6 +30,31 @@ final class AppControlTests: XCTestCase {
         XCTAssertEqual(foundBody["checkedAt"] as? String, checked.ISO8601Format())
         XCTAssertEqual(foundBody["error"] as? String, "Offline")
     }
+    /// Reports fired back to back (checking, then idle) must not overlap, and the
+    /// last one sent must carry the final state.
+    @MainActor
+    func testSenderNeverOverlapsAndEndsOnLatestState() async throws {
+        var current = "checking"
+        var sent: [String] = []
+        var inFlight = 0
+        var maxInFlight = 0
+        let sender = LatestOnlySender {
+            inFlight += 1; maxInFlight = max(maxInFlight, inFlight)
+            let value = current
+            try? await Task.sleep(for: .milliseconds(20))
+            sent.append(value)
+            inFlight -= 1
+        }
+        sender.request()
+        while inFlight == 0 { await Task.yield() }
+        current = "idle"; sender.request()
+        sender.request()
+        for _ in 0..<100 where sent.last != "idle" || inFlight > 0 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(maxInFlight, 1)
+        XCTAssertEqual(sent.last, "idle")
+        // The two requests made during the first send collapse into one.
+        XCTAssertEqual(sent.count, 2)
+    }
     func testParsesControlStreamLines() {
         XCTAssertEqual(AppControlEvent(line: #"data: {"type":"ready"}"#), .ready)
         XCTAssertEqual(AppControlEvent(line: #"data: {"type":"command","id":"x","action":"install"}"#), .command("install"))

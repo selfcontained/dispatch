@@ -223,11 +223,12 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         restoreAutomatic()
         do { try retainIntent(item) } catch { fail(error) }
     }
+    // Any successful check, remote or not, supersedes an earlier remote failure.
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        availableVersion = item.displayVersionString; checkedAt = Date(); onChange?()
+        availableVersion = item.displayVersionString; checkedAt = Date(); remoteError = nil; onChange?()
     }
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        availableVersion = nil; checkedAt = Date(); onChange?()
+        availableVersion = nil; checkedAt = Date(); remoteError = nil; onChange?()
     }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         let wasRemote = checking || installing

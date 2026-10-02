@@ -45,6 +45,28 @@ public struct AppUpdateState: Codable, Equatable {
     }
 }
 
+/// Runs one send at a time; requests made meanwhile collapse into one more send,
+/// which reads the state current when it starts. The receiver keeps whatever
+/// arrives last, so overlapping sends could leave it holding an older state.
+@MainActor
+public final class LatestOnlySender {
+    private let send: () async -> Void
+    private var sending = false
+    private var pending = false
+    public init(send: @escaping () async -> Void) { self.send = send }
+    public func request() {
+        if sending { pending = true; return }
+        sending = true
+        Task {
+            repeat {
+                pending = false
+                await send()
+            } while pending
+            sending = false
+        }
+    }
+}
+
 /// One message on the server's control stream.
 public enum AppControlEvent: Equatable {
     case ready
