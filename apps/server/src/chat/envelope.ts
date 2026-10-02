@@ -91,7 +91,7 @@ export function describeReview(
     if (open > 0) {
       lines.push(
         "",
-        'What to do: address each open finding, then say under it what you changed, or why you disagree: post({ replyTo: "<finding id>", text: "…" }). Each finding is its own thread. The reviewer reads your reply and resolves the finding or reopens it; leave its status to them.'
+        'What to do: address each open finding, then say under it what you changed, or why you disagree: post({ replyTo: "<finding id>", text: "…" }). Each finding is its own thread. The reviewer reads your reply and resolves the finding or reopens it; leave its status to them. You are told when they do, even mid-task, so there is no need to poll or wait idle for it.'
       );
     }
   }

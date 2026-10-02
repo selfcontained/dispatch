@@ -169,8 +169,16 @@ function deliveryOf(row: BlockRow): BlockDelivery[] {
       : data?.mentions?.length
         ? data.mentions
         : data?.recipients;
-  const recipients = named && named.length > 0 ? named : [row.to_agent_id];
   const outcomes = row.deliveries ?? null;
+  // A finding's own deliveries are its settle/reopen notices, which go to
+  // either side: the reviewer who raised it is a recipient too when a
+  // notice went its way.
+  const recipients =
+    named && named.length > 0
+      ? named
+      : row.kind === "finding"
+        ? [...new Set([row.to_agent_id, ...Object.keys(outcomes ?? {})])]
+        : [row.to_agent_id];
   return recipients.map((agentId) => {
     // A recipient with no outcome of its own shares the block's: either it
     // is the only one, or nothing has settled for anybody yet — including
@@ -528,21 +536,61 @@ export class BlockStore {
   /**
    * One recipient's outcome on a post that went to several agents, written
    * as its own key so two deliveries settling at once cannot overwrite
-   * each other's result.
+   * each other's result. `null` puts that recipient back to pending, as
+   * when a finding's notice is sent to it. A finding's notices all share
+   * the slot, so a notice's outcome is written only while the finding is
+   * still in the state the notice was about (`state`, compared whole: two
+   * changes can share a timestamp): an older notice settling late must
+   * not overwrite a newer one still pending.
    */
   async setRecipientDelivered(
     id: string,
     agentId: string,
-    delivered: boolean
+    delivered: boolean | null,
+    state?: unknown
   ): Promise<void> {
     if (!isBlockId(id)) return;
     await this.db.query(
       `UPDATE blocks
           SET deliveries = jsonb_set(
-                COALESCE(deliveries, '{}'::jsonb), ARRAY[$2], to_jsonb($3::boolean), true)
-        WHERE id = $1`,
-      [id, agentId, delivered]
+                COALESCE(deliveries, '{}'::jsonb), ARRAY[$2],
+                COALESCE(to_jsonb($3::boolean), 'null'::jsonb), true)
+        WHERE id = $1 AND ($4::jsonb IS NULL OR state = $4::jsonb)`,
+      [
+        id,
+        agentId,
+        delivered,
+        state === undefined ? null : JSON.stringify(state),
+      ]
     );
+  }
+
+  /**
+   * Findings whose settle/reopen notice is still pending or missed for
+   * some recipient, with those recipients: what startup recovery sends
+   * again. Recent ones only; an old miss is left to be sent again from
+   * the finding, not retried at every start.
+   */
+  async findingsWithMissedNotices(): Promise<
+    Array<{ block: Block; agentIds: string[] }>
+  > {
+    const result = await this.db.query<BlockRow>(
+      `SELECT * FROM blocks
+        WHERE kind = 'finding'
+          AND deliveries IS NOT NULL
+          AND updated_at > now() - interval '24 hours'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_each(deliveries) AS e(k, v)
+             WHERE v = 'null'::jsonb OR v = 'false'::jsonb
+          )
+        ORDER BY updated_at`
+    );
+    return result.rows.map((row) => ({
+      block: toBlock(row),
+      agentIds: Object.entries(row.deliveries ?? {})
+        .filter(([, outcome]) => outcome !== true)
+        .map(([agentId]) => agentId),
+    }));
   }
 
   /**

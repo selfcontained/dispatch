@@ -74,8 +74,11 @@ function build(
   opts: {
     access?: StreamDeliveryAdapter["access"];
     held?: boolean;
-    /** Resolve to release deliveries; absent = deliver immediately. */
-    gate?: Promise<void>;
+    /**
+     * Resolve to release deliveries; absent = deliver immediately. A
+     * function gates each injection on its own, by the prompt's text.
+     */
+    gate?: Promise<void> | ((text: string) => Promise<void> | undefined);
     fail?: boolean;
     /** Agents whose injection throws, for a partial delivery. */
     failFor?: readonly string[];
@@ -111,7 +114,8 @@ function build(
                   : `${agentId}:${text}`);
               queued.add(key);
               try {
-                if (opts.gate) await opts.gate;
+                if (typeof opts.gate === "function") await opts.gate(text);
+                else if (opts.gate) await opts.gate;
                 injected.push({ agentId, text });
                 injectedOpts.push(injectOpts);
                 if (opts.fail || opts.failFor?.includes(agentId)) {
@@ -2620,10 +2624,13 @@ describe("StreamService.setState", () => {
     });
     // The other finding is its own block, untouched.
     expect((await svc.store.getById(f2.id))!.state).toEqual(f2.state);
-    // The finding is published, then the review that shows it.
-    expect(
-      events.map((e) => (e as { entry: { id: string } }).entry.id)
-    ).toEqual([f1.id, r.id]);
+    // The finding is published, then the review that shows it; the notice
+    // on its way to the author publishes them again, nothing else.
+    const published = events.map(
+      (e) => (e as { entry: { id: string } }).entry.id
+    );
+    expect(published.slice(0, 2)).toEqual([f1.id, r.id]);
+    expect(new Set(published)).toEqual(new Set([f1.id, r.id]));
     expect(events[0]).toEqual(entryEvent(updated));
     await svc.waitForInFlightDeliveries(1_000);
     expect(injected).toHaveLength(1);
@@ -3596,9 +3603,21 @@ describe("StreamService review threads", () => {
     expect(injected[0]!.text).toContain(
       "Nothing to do on your side unless it is reopened."
     );
+    // The builder is waiting on this: it joins the builder's turn rather
+    // than queueing behind it, and its outcome is kept on the finding.
+    // `auto` is what lets the runtime consider steering it at all.
     expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
-      source: { source: "chat", chatMessageId: f1.id, answerIn: f1.id },
+      source: {
+        source: "chat",
+        chatMessageId: f1.id,
+        answerIn: f1.id,
+        awaited: true,
+      },
+      delivery: "auto",
     });
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
     injected.length = 0;
     // Reopening it is the builder's move: the builder is told, on the finding.
     await svc.update(B, f1.id, {
@@ -3622,6 +3641,218 @@ describe("StreamService review threads", () => {
     expect(injected.map((i) => i.agentId)).toEqual([B]);
     expect(injected[0]!.text).toContain('Finding "c" dismissed: Out of scope.');
     expect(injected[0]!.text).toContain(`replyTo: "${f2.id}"`);
+  });
+
+  it("tells the builder to carry on once its review is settled, and sends again a notice a stopped process left queued", async () => {
+    const { svc, injected } = build();
+    const { f1, f2 } = await reviewed(svc);
+    injected.length = 0;
+    await svc.update(B, f1.id, { state: { status: "fixed" } });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected[0]!.text).toContain(
+      "Nothing to do on your side unless it is reopened."
+    );
+    expect(injected[0]!.text).not.toContain("carry on");
+    await svc.update(B, f2.id, {
+      state: { status: "dismissed", note: "Out of scope." },
+    });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected[1]!.text).toContain(
+      "Every finding in this review is settled: carry on with whatever was waiting on it."
+    );
+    // A notice still queued when the process stopped is sent again on the
+    // next start, from the finding's current record.
+    await svc.store.setRecipientDelivered(f2.id, A, null);
+    expect((await svc.store.getById(f2.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    injected.length = 0;
+    await svc.recoverPendingDeliveries();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "c" dismissed: Out of scope.');
+    expect((await svc.store.getById(f2.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+  });
+
+  it("keeps a notice its agent could not take as missed, and sends it again from the finding", async () => {
+    let down = false;
+    const { svc, injected } = build({
+      access: async (id) => {
+        if (down && id === A) throw new Error("Agent is not running.");
+        return { mode: "live" as const };
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    down = true;
+    // Resolving still succeeds; the notice is the part that missed.
+    await svc.update(B, f1.id, { state: { status: "fixed" } });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected).toEqual([]);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "failed" },
+    ]);
+    down = false;
+    const { block } = await svc.retryDelivery(f1.streamId, f1.id);
+    expect(block.delivery).not.toMatchObject([{ agentId: A, state: "failed" }]);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect(injected[0]!.text).toContain('Finding "a" fixed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+    await expect(svc.retryDelivery(f1.streamId, f1.id)).rejects.toThrow(
+      "already delivered"
+    );
+  });
+
+  it("shows the reviewer's missed notice on the finding when a person settles it, and sends it again from there", async () => {
+    let down = false;
+    const { svc, injected } = build({
+      access: async (id) => {
+        if (down && id === B) throw new Error("Agent is not running.");
+        return { mode: "live" as const };
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    down = true;
+    await svc.setState(A, f1.id, { status: "fixed" }, { kind: "user" });
+    await svc.waitForInFlightDeliveries(1_000);
+    // The builder heard; the reviewer, not running, is shown as missed.
+    expect(injected.map((i) => i.agentId)).toEqual([A]);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "failed" },
+    ]);
+    down = false;
+    injected.length = 0;
+    await svc.retryDelivery(f1.streamId, f1.id);
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected.map((i) => i.agentId)).toEqual([B]);
+    expect(injected[0]!.text).toContain('Finding "a" fixed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+      { agentId: B, state: "delivered" },
+    ]);
+  });
+
+  it("lets a newer notice keep the finding's slot when an older one settles late", async () => {
+    const releases = new Map<string, () => void>();
+    const { svc, injected } = build({
+      gate: (text) => {
+        if (!text.includes('Finding "a"')) return undefined;
+        return new Promise<void>((resolve) => {
+          releases.set(
+            text.includes('Finding "a" reopened') ? "reopened" : "fixed",
+            resolve
+          );
+        });
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    await svc.update(B, f1.id, { state: { status: "fixed" } });
+    await svc.update(B, f1.id, {
+      state: { status: "open", note: "Regressed." },
+    });
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    // The older notice lands first: its outcome belongs to a state the
+    // finding has left, so the reopening stays pending — and would be
+    // sent again after a restart.
+    releases.get("fixed")!();
+    const deadline = Date.now() + 2_000;
+    while (injected.length < 1 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(injected.map((i) => i.text)).toEqual([
+      expect.stringContaining('Finding "a" fixed.'),
+    ]);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    expect(
+      (await svc.store.findingsWithMissedNotices()).map((own) => [
+        own.block.id,
+        own.agentIds,
+      ])
+    ).toEqual([[f1.id, [A]]]);
+    releases.get("reopened")!();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injected[1]!.text).toContain('Finding "a" reopened: Regressed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+    expect(await svc.store.findingsWithMissedNotices()).toEqual([]);
+  });
+
+  it("tells notices apart by the whole state, not the stamp, when two changes share a millisecond", async () => {
+    const releases = new Map<string, () => void>();
+    const { svc, injected } = build({
+      gate: (text) => {
+        if (!text.includes('Finding "a"')) return undefined;
+        return new Promise<void>((resolve) => {
+          releases.set(
+            text.includes('Finding "a" reopened') ? "reopened" : "fixed",
+            resolve
+          );
+        });
+      },
+    });
+    const { f1 } = await reviewed(svc);
+    injected.length = 0;
+    // A frozen clock: both changes are stamped with the same `at`.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await svc.update(B, f1.id, { state: { status: "fixed" } });
+      await svc.update(B, f1.id, {
+        state: { status: "open", note: "Regressed." },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    const reopened = (await svc.store.getById(f1.id))!;
+    expect(reopened.kind === "finding" && reopened.state.status).toBe("open");
+    releases.get("fixed")!();
+    const deadline = Date.now() + 2_000;
+    while (injected.length < 1 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(injected[0]!.text).toContain('Finding "a" fixed.');
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "pending" },
+    ]);
+    releases.get("reopened")!();
+    await svc.waitForInFlightDeliveries(1_000);
+    expect((await svc.store.getById(f1.id))!.delivery).toMatchObject([
+      { agentId: A, state: "delivered" },
+    ]);
+  });
+
+  it("marks a review, and words under its findings, as awaited so they reach a busy agent", async () => {
+    const { svc, injectedOpts } = build();
+    const { f1 } = await reviewed(svc);
+    expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
+      source: { source: "chat", awaited: true },
+      delivery: "auto",
+    });
+    await svc.post(A, { text: "Fixed.", replyTo: f1.id, to: B });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injectedOpts[injectedOpts.length - 1]).toMatchObject({
+      source: { source: "chat", awaited: true },
+      delivery: "auto",
+    });
+    await svc.post(A, { text: "hello", to: B });
+    await svc.waitForInFlightDeliveries(1_000);
+    expect(injectedOpts[injectedOpts.length - 1]!.source).not.toHaveProperty(
+      "awaited"
+    );
   });
 
   it("marks a finding's comments read on their own, apart from the rest", async () => {

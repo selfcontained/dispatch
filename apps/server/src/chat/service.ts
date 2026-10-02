@@ -1460,34 +1460,21 @@ export class StreamService {
     // recipient (the one whose work it is) when the author does.
     const sides = new Set(sidesOf(updated));
     if (by.kind === "agent") sides.delete(by.agentId);
-    // Verification results must reach the requester too: otherwise it can
-    // wait forever after asking the reviewer to check a fix. The resolved
-    // hint makes clear that no acknowledgement is needed.
+    if (updated.kind === "finding") {
+      await this.sendFindingNotices(updated, [...sides]);
+      return updated;
+    }
     const summary = describeStateChange(updated, stamped);
     const from = await this.senderOf(by);
     for (const agentId of sides) {
       if (!(await this.canDeliver(agentId, true))) continue;
-      const hint =
-        updated.kind === "finding"
-          ? findingMoveHint(
-              updated,
-              updated.author.kind === "agent" &&
-                updated.author.agentId === agentId
-                ? "author"
-                : "addressee"
-            )
-          : null;
-      // The change is about the block, so the answer belongs in its thread
-      // when it opens one (a finding), and in the thread it is in otherwise.
-      const answerIn = (await this.isShown(updated))
-        ? updated.id
-        : (updated.threadId ?? null);
+      const answerIn = updated.threadId ?? null;
       this.injectDetached({
         agentId,
         envelope: buildPostEnvelope({
           blockId: updated.id,
           from,
-          text: hint ? `${summary}\n${hint}` : summary,
+          text: summary,
           threadId: answerIn,
         }),
         record: async () => undefined,
@@ -1500,6 +1487,135 @@ export class StreamService {
       });
     }
     return updated;
+  }
+
+  /**
+   * Tell the agents on the other side of a finding that it was settled or
+   * reopened. Verification results must reach the requester: otherwise it
+   * waits forever after asking the reviewer to check a fix. So the notice
+   * joins the requester's turn rather than queueing behind it, and its
+   * outcome per recipient is kept on the finding: one still queued when
+   * the server stops is sent again on the next start, and one the engine
+   * never took can be sent again from the finding.
+   */
+  private async sendFindingNotices(
+    finding: Extract<Block, { kind: "finding" }>,
+    recipients: readonly string[]
+  ): Promise<{ held: boolean }> {
+    let held = false;
+    if (recipients.length === 0) return { held };
+    const from = await this.senderOf(finding.state.by);
+    const summary = describeFindingChange(finding.data.title, finding.state);
+    const settled = await this.reviewSettled(finding);
+    // The change is about the finding, so the answer belongs in its thread.
+    const answerIn = (await this.isShown(finding))
+      ? finding.id
+      : (finding.threadId ?? null);
+    for (const agentId of recipients) {
+      let live = false;
+      try {
+        live = await this.canDeliver(agentId, true);
+      } catch {
+        // Not running: nothing to queue it on. Recorded as missed so it is
+        // sent again once the agent is back, not lost with the write.
+        await this.store.setRecipientDelivered(
+          finding.id,
+          agentId,
+          false,
+          finding.state
+        );
+        await this.publishEntry(finding.streamId, finding.id);
+        continue;
+      }
+      if (!live) continue;
+      const hint = findingMoveHint(
+        finding,
+        finding.author.kind === "agent" && finding.author.agentId === agentId
+          ? "author"
+          : "addressee",
+        settled
+      );
+      // Every write names the state this notice is about: once the finding
+      // moves on, a newer notice owns the slot and this one's outcome is
+      // not written over it.
+      await this.store.setRecipientDelivered(
+        finding.id,
+        agentId,
+        null,
+        finding.state
+      );
+      await this.publishEntry(finding.streamId, finding.id);
+      const result = this.injectDetached({
+        agentId,
+        envelope: buildPostEnvelope({
+          blockId: finding.id,
+          from,
+          text: `${summary}\n${hint}`,
+          threadId: answerIn,
+        }),
+        record: async (delivered) => {
+          await this.store.setRecipientDelivered(
+            finding.id,
+            agentId,
+            delivered,
+            finding.state
+          );
+          await this.publishEntry(finding.streamId, finding.id);
+        },
+        logContext: { blockId: finding.id, side: agentId },
+        source: {
+          source: "chat",
+          chatMessageId: finding.id,
+          awaited: true,
+          ...(answerIn ? { answerIn } : {}),
+        },
+        // Awaited only counts for a prompt that may steer at all: the
+        // runtime queues a prompt with no delivery given.
+        delivery: "auto",
+      });
+      held = held || result.held;
+    }
+    return { held };
+  }
+
+  /** Whether every finding of the review this one belongs to is resolved. */
+  private async reviewSettled(
+    finding: Extract<Block, { kind: "finding" }>
+  ): Promise<boolean> {
+    if (finding.state.status !== "resolved" || !finding.threadId) return false;
+    const entry = await loadBlockEntry(
+      this.store.db,
+      finding.streamId,
+      finding.threadId,
+      this.heldCheck()
+    );
+    if (entry?.block.kind !== "review") return false;
+    return reviewFindings(entry.block).every(
+      (own) => own.state.status === "resolved"
+    );
+  }
+
+  /**
+   * Notices of findings settled or reopened that never reached their side:
+   * queued in a process that stopped, or never taken by the engine. Sent
+   * again now that hosts are reattached; one whose agent is not running
+   * stays missed, to be sent again from the finding.
+   */
+  private async resendFindingNotices(): Promise<void> {
+    for (const {
+      block,
+      agentIds,
+    } of await this.store.findingsWithMissedNotices()) {
+      if (block.kind !== "finding") continue;
+      try {
+        await this.sendFindingNotices(block, agentIds);
+      } catch (error: unknown) {
+        this.log.warn(
+          { err: error, blockId: block.id },
+          "stream: could not send a finding's notice again"
+        );
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -2747,6 +2863,9 @@ export class StreamService {
         source: "chat",
         chatMessageId: block.id,
         userMessage: from.kind === "user",
+        // A review, or a word under one of its findings, is what the agent
+        // on the other side is waiting for: it reaches a busy agent now.
+        ...(block.kind === "review" || finding ? { awaited: true } : {}),
         ...(from.kind === "user" && !structuredAnswer
           ? {
               conversation: {
@@ -2962,6 +3081,7 @@ export class StreamService {
       ]),
     ];
     for (const streamId of streamIds) this.publishChanged(streamId);
+    await this.resendFindingNotices();
     return streamIds;
   }
 
@@ -3094,6 +3214,19 @@ export class StreamService {
     }
     if (!block.toAgentId) {
       throw new StreamValidationError("That post was not addressed to anyone.");
+    }
+    // A finding is carried by its review; what a finding sends on its own
+    // is the notice that it was settled or reopened, to whoever missed it.
+    if (block.kind === "finding") {
+      const missed = (block.delivery ?? [])
+        .filter((entry) => entry.state === "failed")
+        .map((entry) => entry.agentId);
+      if (missed.length === 0) {
+        throw new StreamConflictError("That notice was already delivered.");
+      }
+      for (const id of missed) await this.canDeliver(id, false);
+      const { held } = await this.sendFindingNotices(block, missed);
+      return { block: (await this.store.getById(block.id)) ?? block, held };
     }
     if (block.delivered !== false) {
       throw new StreamConflictError(
@@ -3530,12 +3663,17 @@ function describeFindingChange(
  */
 function findingMoveHint(
   finding: Extract<Block, { kind: "finding" }>,
-  side: "author" | "addressee"
+  side: "author" | "addressee",
+  /** Every finding of its review is now resolved. */
+  settled = false
 ): string {
   const reopened = finding.state.status === "open";
   if (side === "addressee") {
-    return reopened
-      ? `It is yours to address again: make the change and say what you changed under it, post({ replyTo: "${finding.id}", text }). Its reviewer resolves it.`
+    if (reopened) {
+      return `It is yours to address again: make the change and say what you changed under it, post({ replyTo: "${finding.id}", text }). Its reviewer resolves it.`;
+    }
+    return settled
+      ? "Nothing to do on your side unless it is reopened. Every finding in this review is settled: carry on with whatever was waiting on it."
       : "Nothing to do on your side unless it is reopened.";
   }
   return reopened

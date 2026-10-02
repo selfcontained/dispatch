@@ -1900,11 +1900,15 @@ describe("stream routes with a deliverable engine", () => {
       payload: { state: { status: "dismissed", note: "Out of scope" } },
     });
     expect(res.statusCode).toBe(200);
-    // The finding is published, then the review that shows it.
-    expect(entryIds(published)).toEqual([
+    // The finding is published, then the review that shows it; the notice
+    // on its way to the author publishes them again, nothing else.
+    expect(entryIds(published).slice(0, 2)).toEqual([
       ["stream.entry", finding.id, null],
       ["stream.entry", r.id, null],
     ]);
+    expect(new Set(entryIds(published).map((entry) => entry[1]))).toEqual(
+      new Set([finding.id, r.id])
+    );
     await streams.waitForInFlightDeliveries(1_000);
     expect(prompts).toEqual([
       {
